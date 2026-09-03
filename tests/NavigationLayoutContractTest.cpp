@@ -481,6 +481,32 @@ private slots:
                  "the Direct Messages tab is offered in Classic too");
         QVERIFY2(rail.contains(QStringLiteral("peopleEntryVisible")),
                  "the rail never tells its model whether to draw the tab");
+        // "Other rooms" is the mirror image and CLASSIC only. Reported live
+        // 2026-09-03: in Channels it opened the same page as Home, because
+        // buildHome() below already lists exactly the rooms in no Space, so
+        // the tile had nothing left to narrow.
+        QVERIFY2(rail.contains(QStringLiteral("orphansEntryVisible")),
+                 "the rail never tells its model whether to draw \"Other "
+                 "rooms\", so it is offered in Channels where it duplicates "
+                 "Home");
+        QVERIFY2(rail.contains(QStringLiteral("app.spaces.activeSpaceId === \"@orphans\"")),
+                 "switching to Channels leaves the selection on a tile that "
+                 "no longer exists");
+        // ...and the reason it is redundant is that buildHome() skips every
+        // room a Space already lists. If that ever stops being true, "Other
+        // rooms" becomes a real view again and hiding its tile would drop it.
+        const QString channelsModel = withoutComments(
+            readSrc(QStringLiteral("models/SpaceChannelModel.cpp")));
+        const int home = channelsModel.indexOf(
+            QStringLiteral("int SpaceChannelModel::buildHome"));
+        QVERIFY(home >= 0);
+        const int homeEnd = channelsModel.indexOf(
+            QStringLiteral("int SpaceChannelModel::build"), home + 1);
+        QVERIFY2(channelsModel.mid(home, homeEnd - home)
+                     .contains(QStringLiteral("roomInAnySpace")),
+                 "Channels' Home no longer skips rooms that belong to a "
+                 "Space, so \"Other rooms\" is not redundant any more and "
+                 "hiding its tile drops a real view");
         // And the rooms come from the CLIENT, not from RoomListModel — that
         // model is scoped to the active Space and filtered by the chips, which
         // would make the global groups vanish the moment a Space was picked.
@@ -1288,6 +1314,25 @@ private slots:
         // authenticated client or media URL.
         QVERIFY2(rail.contains(QStringLiteral("roomPermalink(")),
                  "the shared link is not the room permalink");
+
+        // 2026-09-03: the account-wide sweep, on HOME. Per-room and per-Space
+        // both existed; without this an account that had drifted could only
+        // be caught up one room at a time. It goes through the room list,
+        // which owns "mark a room read" — the receipt it sends per room is
+        // also what clears the Activity bell, so the two badges come down
+        // together.
+        QVERIFY2(rail.contains(QStringLiteral("railMarkAllRoomsRead")),
+                 "the Home menu has no way to mark everything read");
+        const int sweep = rail.indexOf(QStringLiteral("railMarkAllRoomsRead"));
+        const QString sweepItem = rail.mid(sweep, 500);
+        QVERIFY2(sweepItem.contains(
+                     QStringLiteral("app.roomList.markAllRoomsRead()")),
+                 "the sweep does not go through the room list");
+        QVERIFY2(sweepItem.contains(QStringLiteral("railMenu.spaceId === \"\"")),
+                 "the account-wide sweep is offered on a Space tile, where it "
+                 "would silently mark rooms outside it");
+        QVERIFY2(sweepItem.contains(QStringLiteral("enabled:")),
+                 "the sweep is offered with nothing unread to sweep");
     }
 
     // A hidden menu row must take NO space. QQuickMenu lays its rows out in a

@@ -201,6 +201,73 @@ private Q_SLOTS:
         RoomListModel detached;
         detached.markRoomRead(kRoom); // no client — must not crash
     }
+
+    // MARK ALL ROOMS READ.
+    //
+    // Per-room has existed for a long time and per-Space since the Element
+    // parity round; the account-wide sweep did not, so an account that had
+    // drifted could only be caught up one room at a time.
+    //
+    // What it must NOT do is as much of the contract as what it must: a
+    // receipt for every joined room would be one request per room, most of
+    // them telling the server what it already knows, and two of the skips
+    // protect a deliberate user choice rather than just saving traffic.
+    void markAllRoomsReadTouchesOnlyTheRoomsThatAreUnread()
+    {
+        CapableClient client;
+        RoomInfo unreadCount = makeRoom(QStringLiteral("!a:example.org"));
+        unreadCount.unreadCount = 3;
+        RoomInfo highlighted = makeRoom(QStringLiteral("!b:example.org"));
+        highlighted.highlightCount = 1;
+        // No counts, but the SDK says there is unread MESSAGE content — the
+        // state a muted room sits in, and still unread.
+        RoomInfo quietUnread = makeRoom(QStringLiteral("!c:example.org"));
+        quietUnread.hasUnreadMessages = true;
+        RoomInfo caughtUp = makeRoom(QStringLiteral("!d:example.org"));
+        // The user's own "leave this one for later". A sweep aimed at the
+        // rooms they had not got to must not overrule the one they kept.
+        RoomInfo keptUnread = makeRoom(QStringLiteral("!e:example.org"));
+        keptUnread.unreadCount = 2;
+        keptUnread.markedUnread = true;
+        // An invite is a decision, not unread mail.
+        RoomInfo invite = makeRoom(QStringLiteral("!f:example.org"));
+        invite.membership = RoomInfo::Invited;
+        invite.unreadCount = 1;
+        // A Space is a room with no timeline; a receipt on it clears nothing.
+        RoomInfo space = makeRoom(QStringLiteral("!g:example.org"));
+        space.isSpace = true;
+        space.unreadCount = 5;
+
+        client.roomSet = { unreadCount, highlighted, quietUnread, caughtUp,
+                           keptUnread, invite, space };
+        RoomListModel model;
+        model.setClient(&client);
+
+        QCOMPARE(model.markAllRoomsRead(), 3);
+        QCOMPARE(client.markReadCalls,
+                 (QStringList{ QStringLiteral("!a:example.org"),
+                               QStringLiteral("!b:example.org"),
+                               QStringLiteral("!c:example.org") }));
+
+        // Idempotent from the model's side: the counts have not moved (the
+        // server has not answered yet), so a second press marks them again
+        // rather than inventing a local "already done" state the server
+        // never confirmed. What it must not do is grow the set.
+        client.markReadCalls.clear();
+        QCOMPARE(model.markAllRoomsRead(), 3);
+        QCOMPARE(client.markReadCalls.size(), 3);
+
+        // Nothing unread is nothing done, and it says so.
+        CapableClient quiet;
+        quiet.roomSet = { caughtUp };
+        RoomListModel quietModel;
+        quietModel.setClient(&quiet);
+        QCOMPARE(quietModel.markAllRoomsRead(), 0);
+        QVERIFY(quiet.markReadCalls.isEmpty());
+
+        RoomListModel detached;
+        QCOMPARE(detached.markAllRoomsRead(), 0); // no client — must not crash
+    }
 };
 
 QTEST_MAIN(MarkRoomReadTest)

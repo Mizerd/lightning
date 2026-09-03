@@ -133,6 +133,15 @@ void RailEntryModel::setPeopleEntryVisible(bool visible)
     refresh();
 }
 
+void RailEntryModel::setOrphansEntryVisible(bool visible)
+{
+    if (m_orphansEntryVisible == visible)
+        return;
+    m_orphansEntryVisible = visible;
+    Q_EMIT orphansEntryVisibleChanged();
+    refresh();
+}
+
 void RailEntryModel::refresh()
 {
     if (m_dragging) {
@@ -209,6 +218,10 @@ void RailEntryModel::refresh()
         const QString spaceId = entry.value(QStringLiteral("spaceId")).toString();
         const bool folder = kind == kKindFolder;
         const bool pseudo = !folder && isPseudoId(spaceId);
+        // "Other rooms" is dropped in Channels: see orphansEntryVisible.
+        if (!m_orphansEntryVisible && pseudo
+            && spaceId == SpaceManager::orphansId())
+            continue;
         if (kind.isEmpty()) {
             // A pseudo row comes back from arrange() exactly as it was given,
             // so it carries no kind of its own.

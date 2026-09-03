@@ -552,6 +552,54 @@ private Q_SLOTS:
         QVERIFY(!store.orderedSpaceIds(spaces).contains(QString()));
     }
 
+    // "OTHER ROOMS" IS A CLASSIC TILE, AND IN CHANNELS IT DUPLICATED HOME.
+    //
+    // Reported live 2026-09-03: "home and other rooms open the exact same
+    // page, so maybe other rooms is unneeded?" — and in that layout it is. The
+    // tile narrows a Home that shows everything, which is Classic's Home;
+    // SpaceChannelModel::buildHome already skips every room a Space lists, so
+    // Channels' Home IS the set the tile would have shown.
+    //
+    // Driven through the property the rail binds, not through the layout
+    // setting, because the model has no business knowing what a layout is.
+    void otherRoomsIsOfferedOnlyWhenItNarrowsSomething()
+    {
+        FakeClient client;
+        RoomInfo orphan;
+        orphan.id = QStringLiteral("!lonely:x");
+        orphan.name = QStringLiteral("Lonely");
+        orphan.membership = RoomInfo::Joined;
+        client.roomList = {
+            spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A"),
+                      { QStringLiteral("!inside:x") }),
+            orphan,
+        };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        RailEntryModel model;
+        model.setSources(&spaces, &store);
+
+        // Classic is the default, and the tile is there — it has a room to
+        // show that no Space does.
+        QVERIFY2(model.orphansEntryVisible(),
+                 "the tile defaults to hidden, so Classic loses it");
+        QVERIFY2(modelIds(model).contains(SpaceManager::orphansId()),
+                 qPrintable(modelIds(model).join(QLatin1Char(','))));
+
+        model.setOrphansEntryVisible(false);
+        QVERIFY2(!modelIds(model).contains(SpaceManager::orphansId()),
+                 "Channels still offers a tile that opens Home");
+        // Nothing else moved: Home and the Space are still there, in order.
+        QVERIFY(modelIds(model).contains(SpaceManager::allRoomsId()));
+        QVERIFY(modelIds(model).contains(QStringLiteral("!a:x")));
+
+        model.setOrphansEntryVisible(true);
+        QVERIFY2(modelIds(model).contains(SpaceManager::orphansId()),
+                 "switching back to Classic did not restore the tile");
+    }
+
     // ── The gesture ──────────────────────────────────────────────────────
 
     void aPreviewDragMovesRowsWithoutWritingAnything()

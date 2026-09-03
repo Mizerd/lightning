@@ -58,6 +58,15 @@ Rectangle {
         property: "peopleEntryVisible"
         value: root.peopleTabVisible
     }
+    // "Other rooms" is the mirror image: CLASSIC only. The tile narrows a Home
+    // that shows everything, which is what Classic's Home is; Channels' Home
+    // already lists exactly the rooms in no Space, so the two tiles opened the
+    // same page. Reported live 2026-09-03.
+    Binding {
+        target: app.railEntries
+        property: "orphansEntryVisible"
+        value: !root.peopleTabVisible
+    }
     // The same condition, told to the model that computes the badges. A
     // tile's badge counts what that tile's view lists, and Home lists
     // different things in the two layouts: in Channels the DMs are on the
@@ -77,6 +86,13 @@ Rectangle {
     onPeopleTabVisibleChanged: {
         if (!peopleTabVisible && app.spaces
             && app.spaces.activeSpaceId === "@people")
+            app.spaces.activeSpaceId = ""
+        // And the same rescue the other way: switching to Channels removes
+        // the "Other rooms" tile, and a selection left on it would scope the
+        // shell to a tile with nothing rendering it. Home is where it lands,
+        // which in Channels shows the very same rooms.
+        if (peopleTabVisible && app.spaces
+            && app.spaces.activeSpaceId === "@orphans")
             app.spaces.activeSpaceId = ""
     }
 
@@ -1207,6 +1223,29 @@ Rectangle {
         // inside it. Unmute restores "follow the account default", the state
         // a room is in before anyone touched it, rather than asserting "all
         // messages" for rooms that never asked for it.
+        // ── Home: mark EVERY room read ───────────────────────────────
+        //
+        // Per-room and per-Space have existed for a while and the sweep did
+        // not, so an account that had drifted could only be caught up one
+        // room at a time. It lives on the Home tile because Home is the one
+        // that means "everything"; the Space tile keeps its own scoped
+        // version directly below.
+        //
+        // It clears the bell too: the receipt this sends is what
+        // ActivityModel::markRoomReadUpTo listens for, so the room list and
+        // the Activity badge come down together rather than one of them
+        // being left behind.
+        AppMenuItem {
+            objectName: "railMarkAllRoomsRead"
+            iconName: "done_all"
+            text: qsTr("Mark all rooms read")
+            visible: !railMenu.isFolder && railMenu.spaceId === ""
+            // Nothing unread is nothing to do, and a control that would do
+            // nothing should say so — the same restraint the Space item
+            // below applies.
+            enabled: railMenu.spaceUnread > 0
+            onTriggered: app.roomList.markAllRoomsRead()
+        }
         AppMenuItem {
             objectName: "railMarkSpaceRead"
             iconName: "done_all"

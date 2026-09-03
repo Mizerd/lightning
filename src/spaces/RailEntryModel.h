@@ -63,6 +63,18 @@ class RailEntryModel : public QAbstractListModel
     /// a tab they have no view for.
     Q_PROPERTY(bool peopleEntryVisible READ peopleEntryVisible
                    WRITE setPeopleEntryVisible NOTIFY peopleEntryVisibleChanged)
+    /// Whether the "Other rooms" tile is offered. CLASSIC ONLY.
+    ///
+    /// The tile means "the rooms in no Space", and it exists to NARROW a Home
+    /// that shows everything — which is what Classic's Home is. Channels' Home
+    /// is already exactly that set (SpaceChannelModel::buildHome skips every
+    /// room `roomInAnySpace` claims), so in Channels the two tiles open the
+    /// same page. Reported live 2026-09-03: "home and other rooms open the
+    /// exact same page, so maybe other rooms is unneeded?" — in that layout,
+    /// it is.
+    Q_PROPERTY(bool orphansEntryVisible READ orphansEntryVisible
+                   WRITE setOrphansEntryVisible
+                   NOTIFY orphansEntryVisibleChanged)
 
 public:
     enum Roles {
@@ -121,6 +133,8 @@ public:
     QString dropTargetId() const { return m_dropTargetId; }
     bool grouping() const { return m_grouping; }
     bool peopleEntryVisible() const { return m_peopleEntryVisible; }
+    bool orphansEntryVisible() const { return m_orphansEntryVisible; }
+    void setOrphansEntryVisible(bool visible);
     void setPeopleEntryVisible(bool visible);
 
     /// Recompute the rows from the Space model and the stored arrangement.
@@ -180,6 +194,7 @@ Q_SIGNALS:
     void countChanged();
     void dragChanged();
     void peopleEntryVisibleChanged();
+    void orphansEntryVisibleChanged();
 
 private:
     void applyRows(QVector<QVariantMap> rows);
@@ -213,6 +228,8 @@ private:
     QVector<QVariantMap> m_rows;
 
     bool m_peopleEntryVisible = false;
+    // Default TRUE: Classic is the default layout and the tile belongs there.
+    bool m_orphansEntryVisible = true;
     bool m_dragging = false;
     bool m_grouping = false;
     QString m_dragEntryId;

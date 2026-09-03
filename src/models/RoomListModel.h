@@ -126,6 +126,22 @@ public:
     Q_INVOKABLE void acceptInvite(const QString &roomId);
     Q_INVOKABLE void rejectInvite(const QString &roomId);
     Q_INVOKABLE void markRoomRead(const QString &roomId);
+    /// Every joined room with something unread, in one action. Returns how
+    /// many were marked, so a caller can say nothing happened rather than
+    /// imply something did.
+    ///
+    /// It clears the bell along with the list: the receipt this sends per
+    /// room is what ActivityModel::markRoomReadUpTo listens for, so the two
+    /// badges come down together instead of one being left behind.
+    ///
+    /// ONLY ROOMS THAT ARE ACTUALLY UNREAD are touched. A receipt per joined
+    /// room would be one request per room on every invocation, most of them
+    /// telling the server what it already knows. Invites are skipped: an
+    /// invite is a decision, not unread mail, and marking it read would hide
+    /// it. So is `markedUnread` — that flag is the user's own "leave this one
+    /// for later", and a sweep aimed at the rooms they had not got to must
+    /// not overrule the one they deliberately kept.
+    Q_INVOKABLE int markAllRoomsRead();
     Q_INVOKABLE void markRoomUnread(const QString &roomId);
     // Element-parity favourites (Matrix `m.favourite` room tag). The toggle
     // is NOT applied locally — see the .cpp. isRoomFavourite() answers from

@@ -684,6 +684,31 @@ void RoomListModel::rejectInvite(const QString &roomId)
     if (m_client) m_client->rejectInvite(roomId);
 }
 
+int RoomListModel::markAllRoomsRead()
+{
+    if (!m_client)
+        return 0;
+    // Collected first, then marked. markRoomRead() reaches the client, whose
+    // rooms() this loop is iterating — and a backend that answers a receipt
+    // synchronously by republishing its room list would be mutating the
+    // container under the iterator.
+    QStringList targets;
+    for (const RoomInfo &room : m_client->rooms()) {
+        if (room.membership != RoomInfo::Joined || room.isSpace
+            || room.markedUnread) {
+            continue;
+        }
+        if (room.unreadCount <= 0 && room.highlightCount <= 0
+            && !room.hasUnreadMessages) {
+            continue;
+        }
+        targets.append(room.id);
+    }
+    for (const QString &roomId : targets)
+        markRoomRead(roomId);
+    return targets.size();
+}
+
 void RoomListModel::markRoomRead(const QString &roomId)
 {
     if (!m_client || roomId.isEmpty()) return;
