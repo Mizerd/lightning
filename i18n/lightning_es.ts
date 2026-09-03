@@ -1584,6 +1584,11 @@
         <translation>No se encontró en este servidor.</translation>
     </message>
     <message>
+        <location line="+5"/>
+        <source>Your homeserver does not support that.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>A network or server error occurred.</source>
         <translation>Se ha producido un error de red o del servidor.</translation>

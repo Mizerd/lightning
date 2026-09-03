@@ -1584,6 +1584,11 @@
         <translation>इस सर्वर पर नहीं मिला।</translation>
     </message>
     <message>
+        <location line="+5"/>
+        <source>Your homeserver does not support that.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>A network or server error occurred.</source>
         <translation>नेटवर्क या सर्वर त्रुटि हुई।</translation>

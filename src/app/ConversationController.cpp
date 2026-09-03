@@ -71,6 +71,11 @@ QString ConversationController::describeCategory(const QString &category)
         return tr("The server rejected the request as invalid.");
     if (category == QLatin1String("not_found"))
         return tr("Not found on this server.");
+    // M_UNRECOGNIZED: the homeserver does not implement the endpoint at all.
+    // Without this branch it fell through to the network message, which
+    // invites a retry that can never work.
+    if (category == QLatin1String("unrecognized"))
+        return tr("Your homeserver does not support that.");
     return tr("A network or server error occurred.");
 }
 

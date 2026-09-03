@@ -1586,6 +1586,11 @@
         <translation>Šiame serveryje nerasta.</translation>
     </message>
     <message>
+        <location line="+5"/>
+        <source>Your homeserver does not support that.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>A network or server error occurred.</source>
         <translation>Įvyko tinklo arba serverio klaida.</translation>

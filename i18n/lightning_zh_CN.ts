@@ -1582,6 +1582,11 @@
         <translation>在此服务器上未找到。</translation>
     </message>
     <message>
+        <location line="+5"/>
+        <source>Your homeserver does not support that.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+1"/>
         <source>A network or server error occurred.</source>
         <translation>发生网络或服务器错误。</translation>
