@@ -199,6 +199,36 @@ void ActivityModel::markAllSeen()
     Q_EMIT unseenCountChanged();
 }
 
+void ActivityModel::markRoomReadUpTo(const QString &roomId, qint64 timestampMs)
+{
+    if (roomId.isEmpty() || timestampMs <= 0)
+        return;
+    bool changed = false;
+    for (Entry &e : m_entries) {
+        if (e.seenMark || e.roomId != roomId)
+            continue;
+        // An entry with no timestamp cannot be compared, so it is left
+        // alone rather than assumed old — the same restraint markAllSeen
+        // applies to a future-dated one.
+        if (e.timestampMs <= 0 || e.timestampMs > timestampMs)
+            continue;
+        e.seenMark = true;
+        changed = true;
+    }
+    if (!changed)
+        return;
+    // Per-entry marks only: m_seenUpToMs stays where it is, because a
+    // receipt in ONE room says nothing about any other room's rows.
+    //
+    // NOT persisted, and it does not need to be. saveStore() writes only
+    // seenUpToMs and the keywords, and neither moved. Across a restart the
+    // durability comes from the other end: seed() sets seenMark from the
+    // server's own `read` flag, and a read receipt is exactly what sets that
+    // flag — so the row the user read does not come back.
+    rebuildVisible();
+    Q_EMIT unseenCountChanged();
+}
+
 void ActivityModel::markSeen(const QString &id)
 {
     for (int i = 0; i < m_entries.size(); ++i) {

@@ -248,6 +248,19 @@ Rectangle {
                     id: searchCard
                     objectName: "roomSearchCard"
                     Layout.fillWidth: true
+                    // A FLOOR, because this pill has fixed-size contents and
+                    // a RowLayout will otherwise shrink a fillWidth item to
+                    // nothing. The inner row is anchored to fill and layouts
+                    // do not clip, so past a certain narrowness the glyph,
+                    // the field and the keycap spilled straight over the "+"
+                    // button beside them — reported from a resized window on
+                    // 0.8.4, where the two visibly overlapped.
+                    //
+                    // 120 is what the contents actually need with the keycap
+                    // hidden: 16 glyph + 6 spacing + the two margins (10 and
+                    // 6) leaves ~82px of field, which comfortably renders the
+                    // "Search" placeholder rather than eliding it to "...".
+                    Layout.minimumWidth: 120
                     implicitHeight: 34
                     radius: AppTheme.radiusMd
                     color: AppTheme.surface
@@ -306,7 +319,17 @@ Rectangle {
                         MenuKeycap {
                             keys: "Ctrl+K"
                             storm: false
+                            // A HINT, and the first thing to go when the pill
+                            // is narrow: it costs ~46px, and spending them on
+                            // a keyboard shortcut while the placeholder
+                            // elides to "..." is the wrong trade. The test is
+                            // on the CARD's width, which the layout sets from
+                            // the row and which does not depend on this
+                            // item's visibility — reading the field's own
+                            // width here would oscillate, since hiding the
+                            // keycap is what widens it.
                             visible: !roomSearch.activeFocus
+                                     && searchCard.width >= 220
                         }
                     }
                 }

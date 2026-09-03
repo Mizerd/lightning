@@ -106,6 +106,73 @@ class ActivityModelTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    // READING THE ROOM CLEARS ITS ROWS FROM THE BELL.
+    //
+    // The Activity Center keeps its own seen marker on purpose, but nothing
+    // advanced it except the panel's "mark all seen" button — so a user who
+    // read the very message that produced a row still saw the bell counting
+    // it. Reported from real use on 0.8.4. The trigger is the read RECEIPT,
+    // which is the moment this client tells the server how far the user read.
+    //
+    // On the unfixed model markRoomReadUpTo does not exist and the count
+    // stays at 2.
+    void readingARoomMarksItsEntriesSeenUpToThatPoint()
+    {
+        Harness h;
+        TimelineEvent older = text(QStringLiteral("$r1"),
+                                   QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("hey @me one"), 1000);
+        older.mentionsMe = true;
+        TimelineEvent newer = text(QStringLiteral("$r2"),
+                                   QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("hey @me two"), 3000);
+        newer.mentionsMe = true;
+        QVERIFY(h.model.ingest(older, QStringLiteral("Lounge")));
+        QVERIFY(h.model.ingest(newer, QStringLiteral("Lounge")));
+        QCOMPARE(h.model.unseenCount(), 2);
+
+        // Read up to the FIRST one only: the later mention is still unread,
+        // and a receipt says nothing about it.
+        h.model.markRoomReadUpTo(kRoom, 1000);
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        // A receipt in a DIFFERENT room clears nothing here — the marker is
+        // per entry, and one room's receipt is not a claim about another.
+        h.model.markRoomReadUpTo(QStringLiteral("!other:mock.local"), 9000);
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        // Reading past the second clears the bell.
+        h.model.markRoomReadUpTo(kRoom, 3000);
+        QCOMPARE(h.model.unseenCount(), 0);
+
+        // And the rows are still THERE — seen, not deleted. The panel is a
+        // history, not a queue.
+        QCOMPARE(h.model.count(), 2);
+        QCOMPARE(h.row(0).value(QStringLiteral("seen")).toBool(), true);
+    }
+
+    // Guards the two refusals that keep this from over-claiming.
+    void readingARoomNeverMarksAnEntryItCannotCompare()
+    {
+        Harness h;
+        TimelineEvent e = text(QStringLiteral("$r3"),
+                               QStringLiteral("@bob:mock.local"),
+                               QStringLiteral("hey @me"), 5000);
+        e.mentionsMe = true;
+        QVERIFY(h.model.ingest(e, QStringLiteral("Lounge")));
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        // A receipt OLDER than the entry leaves it alone.
+        h.model.markRoomReadUpTo(kRoom, 4999);
+        QCOMPARE(h.model.unseenCount(), 1);
+        // A zero or negative timestamp is not an answer.
+        h.model.markRoomReadUpTo(kRoom, 0);
+        QCOMPARE(h.model.unseenCount(), 1);
+        // Neither is an empty room id.
+        h.model.markRoomReadUpTo(QString(), 9000);
+        QCOMPARE(h.model.unseenCount(), 1);
+    }
+
     void mentionsBecomeEntriesAndCountAsUnseen()
     {
         Harness h;

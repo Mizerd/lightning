@@ -24,7 +24,17 @@ AbstractButton {
     property bool current: false
 
     implicitWidth: 200
-    implicitHeight: 152
+    // GROWS WITH ITS TEXT. This was a flat 152, and at any width where the
+    // subtitle wraps to a second line the card simply cut it off — "One
+    // list, most recent first, with message previews." lost the word
+    // "previews." to the card's own bottom edge, and so did "rooms." on the
+    // Channels card. Reported from a resized window on 0.8.4.
+    //
+    // 152 is kept as a FLOOR so the two cards stay the same comfortable size
+    // whenever the text does fit, which is the shape the design wants; the
+    // RowLayout that hosts them imposes no height of its own, so the
+    // taller of the two now sets the row.
+    implicitHeight: Math.max(152, cardBody.implicitHeight)
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
 
@@ -50,6 +60,7 @@ AbstractButton {
     }
 
     contentItem: Column {
+        id: cardBody
         spacing: AppTheme.spacing8
         padding: AppTheme.spacing12
 

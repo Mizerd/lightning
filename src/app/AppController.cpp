@@ -989,6 +989,25 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_pagination->setTimelineModel(m_timeline.get());
     m_readReceipts->setClient(m_client.get());
     m_readReceipts->setTimelineModel(m_timeline.get());
+    // READING A ROOM CLEARS ITS ROWS FROM THE BELL.
+    //
+    // The Activity Center keeps its own seen marker deliberately — a row you
+    // never looked at should survive a glance at the room list — but the
+    // marker was advanced by nothing except the panel's own "mark all seen"
+    // button. So reading the very message that produced a row left the bell
+    // showing a count for it, which is what a user reads as the badge being
+    // broken. Reported from real use on 0.8.4.
+    //
+    // The read RECEIPT is the right trigger rather than opening a room: it is
+    // the moment this client tells the server the user has read up to a
+    // specific event, which is precisely the claim being mirrored. It also
+    // makes the fix durable for free — the server marks those notifications
+    // read, and seed() takes seenMark from that flag on the next start.
+    connect(m_readReceipts.get(), &ReadReceiptCoordinator::receiptSent, this,
+            [this](const QString &roomId, const QString &, qint64 timestampMs) {
+        if (m_activity)
+            m_activity->markRoomReadUpTo(roomId, timestampMs);
+    });
 
     // 2026-08-20 (C4): the models need to know whether routine activity is
     // being SHOWN, because a date divider whose entire run is hidden must not

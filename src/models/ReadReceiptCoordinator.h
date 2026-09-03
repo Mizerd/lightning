@@ -65,9 +65,12 @@ public:
 
 Q_SIGNALS:
     void inputsChanged();
-    // A receipt was handed to the backend for the model's current room.
-    // Carries only the event id (safe to log by existing convention).
-    void receiptSent(const QString &eventId);
+    // A receipt was handed to the backend. Carries the room, the event id
+    // (safe to log by existing convention) and the event's timestamp — a
+    // consumer that wants to mirror "read up to here" needs all three, and
+    // sendNow() already holds them.
+    void receiptSent(const QString &roomId, const QString &eventId,
+                     qint64 timestampMs);
 
 private Q_SLOTS:
     void onDebounceElapsed();

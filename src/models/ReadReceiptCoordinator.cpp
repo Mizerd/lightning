@@ -157,7 +157,7 @@ void ReadReceiptCoordinator::sendNow(const QString &eventId, qint64 timestampMs)
     m_client->sendReadReceipt(roomId, eventId);
     m_lastSent.insert(roomId, { eventId, timestampMs });
     qCInfo(lcReceipts) << "read receipt sent event_id=" << eventId;
-    Q_EMIT receiptSent(eventId);
+    Q_EMIT receiptSent(roomId, eventId, timestampMs);
 }
 
 void ReadReceiptCoordinator::onRoomChanged()

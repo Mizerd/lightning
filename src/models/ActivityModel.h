@@ -113,6 +113,19 @@ public:
 
     Q_INVOKABLE void markAllSeen();
     Q_INVOKABLE void markSeen(const QString &id);
+    /// Everything in `roomId` up to and including `timestampMs` has been
+    /// READ, so it is seen here too.
+    ///
+    /// The Activity Center keeps its own marker on purpose — a row you never
+    /// looked at should survive a glance at the room list. But the marker was
+    /// advanced by NOTHING except the panel's own "mark all seen" button, so
+    /// reading the very message that produced a row left the bell counting
+    /// it, sometimes for days. Reported from real use on 0.8.4.
+    ///
+    /// Driven by the read RECEIPT rather than by opening a room: a receipt is
+    /// the point at which this client has told the server the user read up to
+    /// a specific event, which is exactly the claim being mirrored here.
+    void markRoomReadUpTo(const QString &roomId, qint64 timestampMs);
     // Navigate: emits openRequested with the exact target and marks seen.
     Q_INVOKABLE void open(const QString &id);
     Q_INVOKABLE void clear();
