@@ -278,7 +278,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+708"/>
+        <location filename="../src/app/AppController.cpp" line="+709"/>
         <source>Room invitation</source>
         <translation>रूम का आमंत्रण</translation>
     </message>
@@ -328,7 +328,7 @@
         <translation>%1 में आपसे एक वॉइस कॉल छूट गई</translation>
     </message>
     <message>
-        <location line="+275"/>
+        <location line="+303"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>रूम बन गया, लेकिन उसे स्पेस में जोड़ा नहीं जा सका।</translation>
     </message>
@@ -7042,7 +7042,7 @@ Size: %3</source>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+148"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+156"/>
         <source>Choose room avatar</source>
         <translation>रूम अवतार चुनें</translation>
     </message>
@@ -7173,7 +7173,17 @@ Size: %3</source>
         <translation>%1 सदस्य (%2 आमंत्रित)</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+23"/>
+        <source>Widgets</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+56"/>
+        <source>Open</source>
+        <translation type="unfinished">खोलें</translation>
+    </message>
+    <message>
+        <location line="+16"/>
         <source>Export room…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15534,6 +15544,122 @@ Note: importing keys does not verify this session.</source>
         <location line="+30"/>
         <source>Recording could not start.</source>
         <translation>रिकॉर्डिंग शुरू नहीं हो सकी।</translation>
+    </message>
+</context>
+<context>
+    <name>WidgetController</name>
+    <message>
+        <location filename="../src/models/WidgetController.cpp" line="+177"/>
+        <source>Your full Matrix ID</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Your display name</source>
+        <translation type="unfinished">आपका डिस्प्ले नाम</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>A link to your profile picture</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This device&apos;s ID</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Which room you opened it from</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Which theme you use</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Which language you use</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Your homeserver&apos;s address</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Your IP address, and anything your browser normally sends</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Something this build does not recognise (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>This widget&apos;s address is not HTTPS, so Lightning will not open it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>This widget&apos;s address hides its real site behind a name before the @, so Lightning will not open it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>This widget builds its own address out of your profile, which could send your details anywhere. Lightning will not open it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>This widget&apos;s address names no site.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This widget&apos;s address is not a valid web address.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lightning cannot open this widget.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>WidgetOpenSheet</name>
+    <message>
+        <location filename="../qml/WidgetOpenSheet.qml" line="+55"/>
+        <source>Open this widget?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Lightning opens widgets in your browser rather than inside the app, so the page cannot reach your account, your keys, or your messages.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+46"/>
+        <source>Added by %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>The site will receive:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Cancel</source>
+        <translation type="unfinished">रद्द करें</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Open in browser</source>
+        <translation type="unfinished">ब्राउज़र में खोलें</translation>
     </message>
 </context>
 <context>
