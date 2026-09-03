@@ -799,6 +799,12 @@ grep -qF "$MIRROR_TOKEN" "$MLOG.auth" && bad "the token reached the auth log" \
 [[ "$($JQ -r '.assets[0].mirror_url' "$REC")" != *"$MIRROR_TOKEN"* ]] \
     && note "no token in any published URL" || bad "token in a URL"
 
+printf '== a manifest refresh never touches the release mirror ==\n'
+: >"$MLOG"
+run env MOCK_GITHUB_TAG_UNAUTHORIZED=true UPDATE_REFRESH_LATEST_ONLY=true "$ROOT/scripts/mirror-release-to-github.sh" \
+    && note "the release mirror steps aside for a manifest refresh, dead token and all" || bad "refresh blocked by the release mirror"
+[[ "$(grep -c 'github' "$MLOG")" == 0 ]] && note "the refresh made no GitHub request" || bad "refresh contacted GitHub"
+
 printf '== re-running the mirror is idempotent ==\n'
 : >"$MLOG"; rm -f "$MLOG.auth"
 run "$ROOT/scripts/mirror-release-to-github.sh" || bad "idempotent re-run failed"
@@ -867,6 +873,105 @@ else
     note "mirroring refuses without dist/verification.json"
 fi
 mv "$WORK/mirror-verification.held.json" "$TR/dist/verification.json"
+
+# --- The mirror token preflight -----------------------------------------------
+printf '== the mirror token is proved usable before anything is published ==\n'
+setup
+export GITHUB_MIRROR_REPO="$MIRROR_REPO" GITHUB_MIRROR_TOKEN="$MIRROR_TOKEN"
+run "$ROOT/scripts/github-mirror-preflight.sh" && note "a usable token passes the preflight" || bad "preflight refused a usable token"
+[[ "$($JQ -r '.enabled' "$TR/dist/github-mirror-preflight.json")" == true ]] && note "preflight record written" || bad "preflight record"
+if run env MOCK_GITHUB_TAG_UNAUTHORIZED=true "$ROOT/scripts/github-mirror-preflight.sh"; then
+    bad "a dead token passed the preflight"
+else
+    grep -q 'expired or been revoked' "$TR/out.log" && note "a dead token is refused with the reason" || bad "dead-token reason missing"
+fi
+if run env MOCK_GITHUB_CAN_PUSH=false "$ROOT/scripts/github-mirror-preflight.sh"; then
+    bad "a read-only token passed the preflight"
+else
+    grep -q 'cannot write to it' "$TR/out.log" && note "a token that cannot write is refused by name" || bad "read-only refusal reason missing"
+fi
+run env MOCK_GITHUB_NO_PERMISSIONS=true "$ROOT/scripts/github-mirror-preflight.sh" || bad "an answer without a permissions object blocked publication"
+grep -q 'no permissions object' "$TR/out.log" && note "an absent permissions object warns rather than refusing" || bad "absent-permissions warning missing"
+run env MOCK_GITHUB_TOKEN_EXPIRES='garbage-value' "$ROOT/scripts/github-mirror-preflight.sh" || bad "an unparseable expiry blocked publication"
+grep -q 'could not parse' "$TR/out.log" && note "an unparseable expiry warns rather than refusing" || bad "unparseable-expiry warning missing"
+grep -q 'WARNING: the GitHub update slot does not serve' "$TR/out.log" && note "an absent update slot is announced, not fatal" || bad "empty-slot warning missing"
+far="$(date -u -d '+200 days' '+%Y-%m-%d %H:%M:%S UTC')"
+soon="$(date -u -d '+10 days' '+%Y-%m-%d %H:%M:%S UTC')"
+dying="$(date -u -d '+1 day' '+%Y-%m-%d %H:%M:%S UTC')"
+run env MOCK_GITHUB_TOKEN_EXPIRES="$far" "$ROOT/scripts/github-mirror-preflight.sh" || bad "a token with 200 days left was refused"
+[[ "$($JQ -r '.days_left' "$TR/dist/github-mirror-preflight.json")" -ge 199 ]] && note "days left are recorded" || bad "days_left"
+run env MOCK_GITHUB_TOKEN_EXPIRES="$soon" "$ROOT/scripts/github-mirror-preflight.sh" || bad "a token with 10 days left was refused"
+grep -q 'WARNING: GITHUB_MIRROR_TOKEN expires in' "$TR/out.log" && note "an expiring token warns" || bad "no expiry warning"
+if run env MOCK_GITHUB_TOKEN_EXPIRES="$dying" "$ROOT/scripts/github-mirror-preflight.sh"; then
+    bad "a token dying tomorrow passed the preflight"
+else
+    note "a token dying tomorrow is refused before publication"
+fi
+# A manifest refresh needs nothing from GitHub: with a DEAD token the
+# preflight and the release mirror both step aside, and the slot job (best
+# effort) is the only one that would fail.
+: >"$MLOG"
+run env MOCK_GITHUB_TAG_UNAUTHORIZED=true UPDATE_REFRESH_LATEST_ONLY=true "$ROOT/scripts/github-mirror-preflight.sh" \
+    && note "a manifest refresh skips the preflight even with a dead token" || bad "refresh blocked by the preflight"
+[[ "$(grep -c '^GET https://api.github.com' "$MLOG")" == 0 ]] && note "the skipped preflight contacts GitHub not at all" || bad "refresh preflight contacted GitHub"
+no_leak "$TR/all.log"
+unset GITHUB_MIRROR_REPO GITHUB_MIRROR_TOKEN
+run "$ROOT/scripts/github-mirror-preflight.sh" && note "preflight is a no-op without a mirror" || bad "preflight without a mirror"
+
+# --- The update slot on GitHub ---------------------------------------------------
+printf '== the signed manifest pair is mirrored to the fixed update-latest slot ==\n'
+setup
+export GITHUB_MIRROR_REPO="$MIRROR_REPO" GITHUB_MIRROR_TOKEN="$MIRROR_TOKEN"
+publish_and_verify || bad "publish/verify for the slot case failed"
+run "$ROOT/scripts/generate-update-manifest.sh" && run "$ROOT/scripts/sign-update-manifest.sh" || bad "generate+sign for the slot case"
+if run "$ROOT/scripts/mirror-update-manifest-to-github.sh"; then
+    bad "the update slot was written BEFORE GitLab promoted latest (no publication record)"
+else
+    grep -q 'has not been promoted' "$TR/out.log" && note "without GitLab's promotion record the slot is refused by name" || bad "promotion-record refusal reason missing"
+fi
+run "$ROOT/scripts/mirror-release-to-github.sh" || bad "release mirror for the slot case failed"
+run "$ROOT/scripts/publish-update-manifest.sh" || bad "GitLab promotion for the slot case failed"
+: >"$MLOG"
+run "$ROOT/scripts/mirror-update-manifest-to-github.sh" || bad "update slot publication failed"
+SLOT="$MSTATE/github/assets-update-latest"
+[[ -f "$SLOT/$MANIFEST_NAME" && -f "$SLOT/$SIG_NAME" ]] && note "both files are in the update slot" || bad "slot assets missing"
+cmp -s "$SLOT/$MANIFEST_NAME" "$UPD" && note "the slot carries the promoted manifest bytes" || bad "slot manifest differs"
+grep -q "^GET https://github.com/$MIRROR_REPO/releases/download/update-latest/$MANIFEST_NAME" "$MLOG" \
+    && note "the slot was read back at the client's compiled-in fallback URL" || bad "no anonymous read-back of the slot"
+grep -q "ANON$" "${MLOG}.auth" && note "the read-back carried no token" || bad "read-back was authenticated"
+[[ -f "$MSTATE/github/release_created_update-latest" ]] && note "the update-latest release was created" || bad "update-latest release missing"
+[[ "$($JQ -r '.manifest_sha256' "$TR/dist/github-update-manifest-mirror.json")" == "$(sha256sum "$UPD" | cut -d' ' -f1)" ]] \
+    && note "the slot record names the promoted bytes" || bad "slot record"
+# Once the slot exists the preflight sees it served.
+run "$ROOT/scripts/github-mirror-preflight.sh" || bad "preflight after slot publication failed"
+grep -q "GitHub update slot serves $MANIFEST_NAME" "$TR/out.log" && note "the preflight sees the populated slot" || bad "preflight did not see the slot"
+# Idempotent: identical bytes upload nothing.
+: >"$MLOG"
+run "$ROOT/scripts/mirror-update-manifest-to-github.sh" || bad "slot re-run failed"
+[[ "$(grep -c 'POST .*assets?name=' "$MLOG")" == 0 ]] && note "identical bytes are not re-uploaded" || bad "slot re-run re-uploaded"
+# A NEWER promotion replaces both assets, signature first.
+run env UPDATE_EXPIRES_AT=2027-09-01T00:00:00Z "$ROOT/scripts/generate-update-manifest.sh" \
+    && run "$ROOT/scripts/sign-update-manifest.sh" || bad "regenerate for slot replacement"
+run env UPDATE_REFRESH_LATEST_ONLY=true "$ROOT/scripts/publish-update-manifest.sh" || bad "refresh promotion for slot replacement"
+: >"$MLOG"
+run "$ROOT/scripts/mirror-update-manifest-to-github.sh" || bad "slot replacement failed"
+cmp -s "$SLOT/$MANIFEST_NAME" "$UPD" && note "the slot now carries the refreshed manifest" || bad "slot not replaced"
+[[ "$(grep -c '^DELETE .*/releases/assets/' "$MLOG")" == 2 ]] && note "both previous assets were removed first" || bad "delete count $(grep -c '^DELETE ' "$MLOG")"
+sig_line="$(grep -n "POST .*assets?name=${SIG_NAME}\$" "$MLOG" | head -1 | cut -d: -f1)"
+man_line="$(grep -n "POST .*assets?name=${MANIFEST_NAME}\$" "$MLOG" | head -1 | cut -d: -f1)"
+[[ -n "$sig_line" && -n "$man_line" && "$sig_line" -lt "$man_line" ]] && note "signature is replaced before the manifest" || bad "replacement order"
+# Tampered local bytes never reach the slot.
+cp "$UPD" "$WORK/slot-good.json"
+$JQ -S '.version = "9.9.9"' "$UPD" >"$WORK/slot-bad.json" && cp "$WORK/slot-bad.json" "$UPD"
+if run "$ROOT/scripts/mirror-update-manifest-to-github.sh"; then
+    bad "a manifest that GitLab did not promote reached the slot"
+else
+    note "a manifest that GitLab did not promote is refused"
+fi
+cp "$WORK/slot-good.json" "$UPD"
+no_leak "$TR/all.log"
+unset GITHUB_MIRROR_REPO GITHUB_MIRROR_TOKEN
+run "$ROOT/scripts/mirror-update-manifest-to-github.sh" && note "the slot job is a no-op without a mirror" || bad "slot job without a mirror"
 
 printf '== the signed manifest and the mirror job must agree on every URL ==\n'
 $JQ -S '.artifacts["linux-deb"].mirror_url = "https://github.com/Someone/else/releases/download/v9.9.9/x.deb"' \

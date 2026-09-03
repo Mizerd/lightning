@@ -47,15 +47,54 @@ generic package name `lightning-update`:
 Both are written to **two** locations: an immutable per-release copy under
 `<version>/`, and the mutable `latest/` slot that installed clients poll.
 
-### Freshness: `expires`
+### Freshness: `expires` (informational)
 
 Every manifest carries a signed `expires` instant, `released` plus
-`UPDATE_MANIFEST_VALIDITY_DAYS` (default 120, range 1-366). Lightning 0.8.4
-and later **refuse** a manifest without it and treat one past it as "update
-information expired; check manually" — a failure, never "up to date". The
-signature proves who produced the document; the expiry is what bounds how long
-a captured `latest` pair can be replayed to freeze installations on a
-vulnerable version.
+`UPDATE_MANIFEST_VALIDITY_DAYS` (default 120, range 1-366). **It never breaks
+an installation.** Lightning 0.8.4 and later keep working from a manifest
+past its expiry — the update it names is still offered, the downloads are
+still verified against its hashes — and only add a status line saying the
+update information was expected to be refreshed by that date and the project
+may be offline. A manifest with no `expires` is accepted as one that never
+expires. The point is honesty when the maintainer's servers are gone, not a
+lock: the signature proves who produced the document, and the expiry says
+how old it is. (A captured pair can therefore be replayed to keep a client
+on an old release; what a replay cannot do is install anything the signing
+key did not sign, or downgrade anyone.)
+
+### The GitHub update slot: updates keep working without GitLab
+
+Every installed client compiles in a second address for its update
+metadata — `https://github.com/<mirror>/releases/download/update-latest/…`
+— and reads it only when the canonical GitLab host does not answer. The
+`mirror-update-manifest-to-github` job (stage `update`, after
+`publish-update-manifest`) copies the pair GitLab has just promoted into
+that fixed release, replacing the previous pair (signature first, manifest
+second, exactly like GitLab's slot) and reading both back anonymously. The
+release is a moving pointer by design, created once at the released commit
+and marked `make_latest: false` so it never becomes the repository's "latest
+release" (which the website reads). GitHub decides nothing: the manifest is
+signed on GitLab and the client verifies it. The job is `allow_failure` and
+retried, so a GitHub outage cannot fail a release GitLab has completed, and
+it is idempotent, so a retry converges.
+
+With the packages already mirrored per release, this makes the whole update
+path — manifest, signature, artifacts — reachable from GitHub alone when
+GitLab is down, for as long as the GitHub repository exists.
+
+### The mirror token, and what stops mirroring
+
+Fine-grained GitHub tokens **expire** (one year at most), and nothing in
+the pipeline would otherwise notice until the mirror job died after the
+GitLab tag existed. `github-mirror-preflight` runs first in every publishing
+pipeline, holding only the token: it refuses to let publication start when
+the token is rejected, cannot write, or has fewer than two days left, and
+warns from thirty days. Rotate the token in project 7 when it warns; the
+release then proceeds unchanged. The GitLab→GitHub **source** mirror
+(project 6 → Settings → Repository → Mirroring) uses its own token and is
+not visible to CI; check it each release with
+`GITLAB_HOST=gitlab.smetonis.net glab api projects/6/remote_mirrors` — it
+reports `update_status`, `last_successful_update_at` and `last_error`.
 
 **Refreshing without a release.** If a release lull outlasts the window, the
 `latest` slot is refreshed in place — the immutable per-release copy cannot
@@ -69,8 +108,13 @@ converge (identical bytes are accepted), the manifest is regenerated with the
 new expiry and signed, and `publish-update-manifest.sh` re-promotes only the
 `latest` pair, refusing any version other than the one already there.
 **Put "refresh `latest` before day 120" on the calendar** — nothing reminds
-you, and on day 121 every installation reports that its update information
-has expired.
+you, and from day 121 every installation shows a line saying the update
+information was expected to be refreshed and the project may be offline
+(it keeps working; see "Freshness"). The refresh needs nothing from GitHub:
+with `UPDATE_REFRESH_LATEST_ONLY=true` both GitHub-facing jobs step aside
+before their first request, so a dead mirror token cannot block it. (An
+`attach-existing` **backfill**, which does mirror new packages, still
+requires a working token — that is right.)
 
 ### The `latest` slot never rolls back by accident
 

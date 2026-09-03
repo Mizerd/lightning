@@ -30,6 +30,18 @@ UPDATE_PACKAGE_NAME="${UPDATE_PACKAGE_NAME:-lightning-update}"
 # in this pipeline; every other published path is immutable.
 # shellcheck disable=SC2034
 UPDATE_LATEST_SLOT="latest"
+# The fixed GitHub release slot every installed client compiles in as its
+# metadata FALLBACK (lightning src/update/UpdateEndpoints.cpp). A constant for
+# the same reason the mirror hosts are: an environment variable could steer
+# the pipeline into writing a slot nobody reads, and every check would pass.
+# shellcheck disable=SC2034
+if [[ "${UPDATE_LATEST_TAG:-}" != update-latest ]]; then
+    UPDATE_LATEST_TAG="update-latest"
+fi
+# Guarded so sourcing this file twice does not abort on the readonly.
+if ! (readonly -p 2>/dev/null | grep -q ' UPDATE_LATEST_TAG='); then
+    readonly UPDATE_LATEST_TAG
+fi
 
 # Signature envelope algorithm identifier (UPDATE-SPEC §2). Ed25519 only.
 # shellcheck disable=SC2034

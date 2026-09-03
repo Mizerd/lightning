@@ -389,6 +389,14 @@ Refresh the digests each release round with
 image is the one exception: it is never pulled from a registry, and its own
 `FROM` is digest-pinned in `packaging/windows/Dockerfile`.
 
+The GitHub mirror is now the full fallback, not only for bytes: the
+`update-latest` release slot carries the current signed manifest pair
+(written after every GitLab promotion, replaced in place, never GitHub's
+"latest release"), so installed clients keep checking for and installing
+updates when GitLab is unreachable. A preflight job proves the mirror token
+is usable — and not about to expire — before a publishing pipeline writes
+anything. See `docs/update-manifest.md`, "The GitHub update slot".
+
 Two consequences of the plaintext internal path are worth knowing. The API
 client (`scripts/gitlab-api.sh`) sends the token with `--max-redirs 0`: curl
 re-sends a custom `JOB-TOKEN:` header to a redirect target on another host,

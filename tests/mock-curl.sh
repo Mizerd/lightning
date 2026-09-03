@@ -21,6 +21,7 @@ method=GET
 url=
 upload_file=
 config_file=
+dump_header=
 declare -a urlenc=()
 while (($#)); do
     case "$1" in
@@ -29,12 +30,13 @@ while (($#)); do
         --request) method="$2"; shift 2 ;;
         --upload-file) upload_file="$2"; shift 2 ;;
         --data-urlencode) urlenc+=("$2"); shift 2 ;;
+        --dump-header) dump_header="$2"; shift 2 ;;
         # A credential file, never a credential argument. Its CONTENT is
         # deliberately never read or logged here: the only thing the mock needs
         # to know is whether a request was authenticated at all.
         --config) config_file="$2"; shift 2 ;;
-        --header|--data|--data-binary|--max-redirs) shift 2 ;;
-        --silent|--show-error|--location|--fail) shift ;;
+        --header|--data|--data-binary|--max-redirs|--retry|--retry-delay) shift 2 ;;
+        --silent|--show-error|--location|--fail|--retry-all-errors) shift ;;
         http*) url="$1"; shift ;;
         *) shift ;;
     esac
@@ -67,20 +69,45 @@ size_of() { wc -c <"$1" | tr -d ' '; }
 
 respond() { status="$1"; body="$2"; }
 
+# Two releases are modelled: the versioned one (tag v<version>, id 7001,
+# assets under $GH_ASSETS -- the historic layout every mirror test uses) and
+# the fixed `update-latest` slot (id 7002, assets under $GH_ASSETS-update-latest).
+gh_assets_dir_for_tag() { # tag
+    if [[ "$1" == "v${MOCK_RELEASE_VERSION:?}" ]]; then printf '%s' "$GH_ASSETS"; else printf '%s-%s' "$GH_ASSETS" "$1"; fi
+}
+gh_tag_for_release_id() { # id
+    if [[ "$1" == "${MOCK_GITHUB_RELEASE_ID:-7001}" ]]; then printf 'v%s' "${MOCK_RELEASE_VERSION:?}"; else printf 'update-latest'; fi
+}
 # JSON array of the mirrored assets, in the shape the GitHub release object
-# uses. Asset ids are positional and stable for a given state directory.
-gh_assets_json() {
-    local out='[' first=1 idx=900 f n
-    for f in "$GH_ASSETS"/*; do
+# uses. Asset ids are positional and stable for a given state directory; the
+# id -> path map is kept so a DELETE can find its file.
+gh_assets_json() { # tag
+    local dir out='[' first=1 idx f n
+    dir="$(gh_assets_dir_for_tag "$1")"
+    if [[ "$1" == "v${MOCK_RELEASE_VERSION:?}" ]]; then idx=900; else idx=950; fi
+    : >"$GH/assetids-$1"
+    for f in "$dir"/*; do
         [[ -e "$f" ]] || continue
         n="$(basename "$f")"
         idx=$((idx+1))
+        printf '%s %s\n' "$idx" "$f" >>"$GH/assetids-$1"
         [[ $first == 1 ]] || out+=','
         first=0
         out+="{\"id\":${idx},\"name\":\"${n}\",\"size\":$(size_of "$f"),\"state\":\"${MOCK_GITHUB_ASSET_STATE:-uploaded}\"}"
     done
     out+=']'
     printf '%s' "$out"
+}
+# Response headers, when the caller asked for them. A fine-grained token's
+# expiry rides on every GitHub response; MOCK_GITHUB_TOKEN_EXPIRES sets it.
+write_dump_header() { # status
+    [[ -n "$dump_header" ]] || return 0
+    {
+        printf 'HTTP/2 %s\r\n' "$1"
+        [[ -z "${MOCK_GITHUB_TOKEN_EXPIRES:-}" ]] || \
+            printf 'github-authentication-token-expiration: %s\r\n' "$MOCK_GITHUB_TOKEN_EXPIRES"
+        printf '\r\n'
+    } >"$dump_header"
 }
 
 # --- GitHub mirror API ---
@@ -89,8 +116,22 @@ gh_assets_json() {
 # GitLab branches below would otherwise claim.
 if [[ "$url" == https://api.github.com/* || "$url" == https://uploads.github.com/* \
       || "$url" == https://github.com/* ]]; then
-    mkdir -p "$GH_ASSETS"
-    if [[ "$url" == *"/git/ref/tags/"* ]]; then
+    mkdir -p "$GH_ASSETS" "$GH_ASSETS-update-latest"
+    if [[ "$url" == */repos/*/* && "$url" != *"/releases"* && "$url" != *"/git/"* && "$method" == GET ]]; then
+        # The repository itself: the mirror token preflight reads its
+        # permissions and (via --dump-header) the token's expiry.
+        if [[ "${MOCK_GITHUB_TAG_UNAUTHORIZED:-false}" == true ]]; then
+            respond 401 '{"message":"Bad credentials"}'
+        elif [[ "${MOCK_GITHUB_REPO_STATUS:-200}" != 200 ]]; then
+            respond "${MOCK_GITHUB_REPO_STATUS}" '{"message":"Not Found"}'
+        else
+            if [[ "${MOCK_GITHUB_NO_PERMISSIONS:-false}" == true ]]; then
+                body="{\"full_name\":\"${url##*/repos/}\"}"
+            else
+                body="{\"full_name\":\"${url##*/repos/}\",\"permissions\":{\"push\":${MOCK_GITHUB_CAN_PUSH:-true},\"pull\":true}}"
+            fi
+        fi
+    elif [[ "$url" == *"/git/ref/tags/"* ]]; then
         if [[ "${MOCK_GITHUB_TAG_UNAUTHORIZED:-false}" == true ]]; then
             respond 401 '{"message":"Bad credentials"}'
         elif [[ "${MOCK_GITHUB_TAG_MISSING:-false}" == true ]]; then
@@ -104,8 +145,10 @@ if [[ "$url" == https://api.github.com/* || "$url" == https://uploads.github.com
         # Peeling an annotated tag to its commit.
         body="{\"object\":{\"type\":\"commit\",\"sha\":\"${MOCK_GITHUB_TAG_COMMIT:-${MOCK_SOURCE_SHA:?}}\"}}"
     elif [[ "$url" == *"/releases/tags/"* && "$method" == GET ]]; then
-        if [[ -f "$GH/release_created" ]]; then
-            body="{\"id\":${MOCK_GITHUB_RELEASE_ID:-7001},\"tag_name\":\"v${MOCK_RELEASE_VERSION}\",\"assets\":$(gh_assets_json)}"
+        tag="${url##*/releases/tags/}"
+        if [[ "$tag" == "v${MOCK_RELEASE_VERSION}" ]]; then flag="$GH/release_created"; rid="${MOCK_GITHUB_RELEASE_ID:-7001}"; else flag="$GH/release_created_$tag"; rid=7002; fi
+        if [[ -f "$flag" ]]; then
+            body="{\"id\":${rid},\"tag_name\":\"${tag}\",\"assets\":$(gh_assets_json "$tag")}"
         else
             respond 404 '{"message":"Not Found"}'
         fi
@@ -113,21 +156,45 @@ if [[ "$url" == https://api.github.com/* || "$url" == https://uploads.github.com
         if [[ "${MOCK_GITHUB_FAIL_CREATE:-false}" == true ]]; then
             respond 422 '{"message":"Validation Failed"}'
         else
-            printf '1' >"$GH/release_created"
-            respond 201 "{\"id\":${MOCK_GITHUB_RELEASE_ID:-7001},\"tag_name\":\"v${MOCK_RELEASE_VERSION}\",\"assets\":[]}"
+            # The requested tag is not parsed from the body (the mock never
+            # reads --data); a second release is the update slot by definition.
+            if [[ -f "$GH/release_created" ]]; then
+                printf '1' >"$GH/release_created_update-latest"
+                respond 201 "{\"id\":7002,\"tag_name\":\"update-latest\",\"assets\":[]}"
+            elif [[ "${MOCK_GITHUB_CREATE_UPDATE_SLOT_FIRST:-false}" == true ]]; then
+                printf '1' >"$GH/release_created_update-latest"
+                respond 201 "{\"id\":7002,\"tag_name\":\"update-latest\",\"assets\":[]}"
+            else
+                printf '1' >"$GH/release_created"
+                respond 201 "{\"id\":${MOCK_GITHUB_RELEASE_ID:-7001},\"tag_name\":\"v${MOCK_RELEASE_VERSION}\",\"assets\":[]}"
+            fi
         fi
     elif [[ "$url" == *"/assets?name="* && "$method" == POST ]]; then
         name="${url##*name=}"
+        rid="${url##*/releases/}"; rid="${rid%%/*}"
+        dir="$(gh_assets_dir_for_tag "$(gh_tag_for_release_id "$rid")")"
         if [[ "${MOCK_GITHUB_FAIL_UPLOAD:-}" == "$name" ]]; then
             respond 500 '{"message":"upload failed"}'
         else
-            cp "$upload_file" "$GH_ASSETS/$name"
+            mkdir -p "$dir"
+            cp "$upload_file" "$dir/$name"
             respond 201 "{\"name\":\"${name}\",\"state\":\"uploaded\"}"
         fi
+    elif [[ "$url" == *"/releases/assets/"* && "$method" == DELETE ]]; then
+        aid="${url##*/}"
+        target="$(cat "$GH"/assetids-* 2>/dev/null | awk -v id="$aid" '$1==id{print $2; exit}')"
+        if [[ -n "$target" && -f "$target" ]]; then
+            rm -f "$target"; respond 204 ''
+        else
+            respond 404 '{"message":"Not Found"}'
+        fi
     elif [[ "$url" == *"/releases/download/"* && "$method" == GET ]]; then
+        rest="${url##*/releases/download/}"
+        tag="${rest%%/*}"
         name="${url##*/}"
-        if [[ -f "$GH_ASSETS/$name" ]]; then
-            cp "$GH_ASSETS/$name" "$output"; emit_body=0; status=200
+        dir="$(gh_assets_dir_for_tag "$tag")"
+        if [[ -f "$dir/$name" ]]; then
+            cp "$dir/$name" "$output"; emit_body=0; status=200
         else
             respond 404 '{"message":"Not Found"}'
         fi
@@ -253,4 +320,5 @@ fi
 if [[ "$emit_body" == 1 && -n "$output" && "$output" != /dev/null ]]; then
     printf '%s' "$body" >"$output"
 fi
+write_dump_header "$status"
 printf '%s' "$status"

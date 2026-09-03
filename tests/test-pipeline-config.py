@@ -45,6 +45,7 @@ required_jobs = [
     "validate-flatpak", "validate-appimage", "validate-snap",
     "publish-packages", "verify-published-packages", "finalize-release",
     "sign-update-manifest", "mirror-release-to-github", "publish-update-manifest",
+    "github-mirror-preflight", "mirror-update-manifest-to-github",
     "windows-package-test", "build-windows", "macos-package-test",
 ]
 for job in required_jobs:
@@ -637,8 +638,19 @@ check("macos-package-test" in needs_names("publish-packages"),
 #
 # Stated generally rather than as a second macOS line, because the next format
 # added will have exactly the same requirement.
-_publish_inputs = set(needs_names("publish-packages")) - {"resolve-source"}
-_mirror_inputs = set(needs_names("mirror-release-to-github"))
+# Artifact SOURCES only: a gate such as github-mirror-preflight is needed with
+# `artifacts: false` and produces nothing the mirror has to hold.
+def _artifact_needs(job):
+    out = set()
+    for n in doc[job].get("needs", []):
+        if isinstance(n, dict):
+            if n.get("artifacts", True):
+                out.add(n["job"])
+        else:
+            out.add(n)
+    return out
+_publish_inputs = _artifact_needs("publish-packages") - {"resolve-source"}
+_mirror_inputs = _artifact_needs("mirror-release-to-github")
 check(_publish_inputs <= _mirror_inputs,
       "the mirror consumes every artifact source publish-packages does")
 _missing = sorted(_publish_inputs - _mirror_inputs)
@@ -1241,6 +1253,47 @@ _mirror = resolve_extends_dict(doc["mirror-release-to-github"])
 check(isinstance(_mirror.get("environment"), dict)
       and _mirror["environment"].get("name") == "mirror",
       "mirror-release-to-github declares the `mirror` environment")
+check(isinstance(_mirror.get("retry"), dict) and _mirror["retry"].get("max", 0) >= 1,
+      "mirror-release-to-github is retried by the runner (its script is idempotent)")
+
+# 16. The GitHub fallback slot is WRITTEN, after GitLab's promotion, by a job
+#     that cannot fail a completed release, and the mirror token is checked
+#     before anything is published.
+_pre = resolve_extends_dict(doc["github-mirror-preflight"])
+check(_pre.get("stage") == "resolve" and _pre.get("needs") == []
+      and isinstance(_pre.get("environment"), dict)
+      and _pre["environment"].get("name") == "mirror",
+      "github-mirror-preflight runs first, alone, holding only the mirror token")
+check(isinstance(_pre.get("retry"), dict) and _pre["retry"].get("max", 0) >= 1,
+      "github-mirror-preflight is retried (one GitHub blip must not stop a release)")
+# The lull REFRESH of the manifest must never depend on the GitHub token:
+# both GitHub-facing gates exit successfully, before any request, when
+# UPDATE_REFRESH_LATEST_ONLY=true.
+for _script in ("github-mirror-preflight.sh", "mirror-release-to-github.sh"):
+    _src = _strip_shell_comments(_read("scripts", _script))
+    check('"${UPDATE_REFRESH_LATEST_ONLY:-false}" == true' in _src,
+          f"{_script} short-circuits a manifest refresh without contacting GitHub")
+check("github-mirror-preflight" in needs_names("publish-packages"),
+      "publish-packages needs the mirror preflight (a dead token stops the pipeline before publication)")
+_slot = resolve_extends_dict(doc["mirror-update-manifest-to-github"])
+check(_slot.get("stage") == "update" and _slot.get("allow_failure") is True
+      and isinstance(_slot.get("retry"), dict) and _slot["retry"].get("max", 0) >= 1
+      and isinstance(_slot.get("environment"), dict)
+      and _slot["environment"].get("name") == "mirror",
+      "mirror-update-manifest-to-github is allow_failure + retried and holds only the mirror token")
+check("publish-update-manifest" in needs_names("mirror-update-manifest-to-github"),
+      "the GitHub update slot is written only AFTER GitLab's latest promotion")
+_slot_script = _strip_shell_comments(_read("scripts", "mirror-update-manifest-to-github.sh"))
+check('make_latest:"false"' in _slot_script and 'prerelease:true' in _slot_script
+      and "update-publication.json" in _slot_script,
+      "the update slot never becomes GitHub's 'latest release' (prerelease + make_latest false) and requires GitLab's promotion record")
+check('"$UPDATE_LATEST_TAG" == update-latest' in _slot_script,
+      "the slot script refuses any slot name but the one the client compiles in")
+_client_endpoints_path = os.path.join(HERE, "..", "..", "lightning", "src", "update", "UpdateEndpoints.cpp")
+_client_endpoints = open(_client_endpoints_path).read() if os.path.exists(_client_endpoints_path) else ""
+if _client_endpoints:
+    check("releases/download/update-latest" in _client_endpoints,
+          "the client's compiled-in fallback names the same update-latest slot this pipeline writes")
 for job in ("build-deb", "build-rpm", "build-appimage", "build-flatpak",
             "build-snap", "build-windows"):
     check("environment" not in resolve_extends_dict(doc[job]),

@@ -74,6 +74,16 @@ if ! update_mirror_enabled; then
     printf 'Nothing was uploaded, and the update manifest carries no mirror_url\n'
     exit 0
 fi
+# A lull REFRESH of the update manifest (UPDATE_REFRESH_LATEST_ONLY=true)
+# adds no package: everything this job would upload was mirrored and verified
+# when the release was created. It exits here, before the first request, so
+# the refresh -- the one operation that keeps GitLab-reachable clients
+# current -- can never be blocked by a dead mirror token. publish-update-
+# manifest `needs` this job; success here satisfies that edge honestly.
+if [[ "${UPDATE_REFRESH_LATEST_ONLY:-false}" == true ]]; then
+    printf 'Manifest refresh (UPDATE_REFRESH_LATEST_ONLY=true): the release mirror is untouched and GitHub is not contacted\n'
+    exit 0
+fi
 
 # Enabled, so the token is REQUIRED. Half-configured is a loud failure, not a
 # skip: this job runs before the `latest` promotion precisely so that a mirror
