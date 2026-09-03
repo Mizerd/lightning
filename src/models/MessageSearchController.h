@@ -99,7 +99,11 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    QString source() const { return m_source; }
+    /// The source actually in use — the preference NARROWED by what the
+    /// backend can do. A surface binds to this, so what it shows is what runs.
+    QString source() const { return effectiveSource(); }
+    /// The preference as set, before that narrowing.
+    QString preferredSource() const { return m_source; }
     void setSource(const QString &source);
     bool localAvailable() const;
     qint64 indexedMessages() const { return m_indexedMessages; }
@@ -148,6 +152,7 @@ private Q_SLOTS:
                                int minChars, const QVariantList &results);
 
 private:
+    QString effectiveSource() const;
     void setState(const QString &state);
     void invalidatePending();
     void requestPage(bool append);

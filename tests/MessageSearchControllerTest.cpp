@@ -53,6 +53,11 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
+        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
+        // controller prefers "local" wherever a backend has one, and
+        // MockMatrixClient now does — so a case that means the /search path
+        // has to say so, or it silently starts testing the other one.
+        model.setSource(QStringLiteral("server"));
         QVERIFY(model.supported());
 
         // "!general:mock.local" is a seeded mock room with a display name;
@@ -81,6 +86,11 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
+        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
+        // controller prefers "local" wherever a backend has one, and
+        // MockMatrixClient now does — so a case that means the /search path
+        // has to say so, or it silently starts testing the other one.
+        model.setSource(QStringLiteral("server"));
         client.mockSearchResults = { resultRow(
             QStringLiteral("!general:mock.local"), QStringLiteral("$e1"),
             QStringLiteral("x")) };
@@ -98,6 +108,11 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
+        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
+        // controller prefers "local" wherever a backend has one, and
+        // MockMatrixClient now does — so a case that means the /search path
+        // has to say so, or it silently starts testing the other one.
+        model.setSource(QStringLiteral("server"));
         client.mockSearchResults = { resultRow(
             QStringLiteral("!general:mock.local"), QStringLiteral("$e1"),
             QStringLiteral("x")) };
@@ -117,6 +132,11 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
+        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
+        // controller prefers "local" wherever a backend has one, and
+        // MockMatrixClient now does — so a case that means the /search path
+        // has to say so, or it silently starts testing the other one.
+        model.setSource(QStringLiteral("server"));
         client.mockSearchResults = { resultRow(
             QStringLiteral("!general:mock.local"), QStringLiteral("$e1"),
             QStringLiteral("hit one")) };
@@ -136,6 +156,11 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
+        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
+        // controller prefers "local" wherever a backend has one, and
+        // MockMatrixClient now does — so a case that means the /search path
+        // has to say so, or it silently starts testing the other one.
+        model.setSource(QStringLiteral("server"));
         client.mockSearchResults = { resultRow(
             QStringLiteral("!general:mock.local"), QStringLiteral("$old"),
             QStringLiteral("old answer")) };
@@ -157,6 +182,11 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
+        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
+        // controller prefers "local" wherever a backend has one, and
+        // MockMatrixClient now does — so a case that means the /search path
+        // has to say so, or it silently starts testing the other one.
+        model.setSource(QStringLiteral("server"));
         model.setRoomId(QStringLiteral("!general:mock.local"));
 
         QVariantMap matching = resultRow(
@@ -205,6 +235,11 @@ private Q_SLOTS:
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
+        // THIS SUITE IS ABOUT SERVER SEARCH. Since the local index landed the
+        // controller prefers "local" wherever a backend has one, and
+        // MockMatrixClient now does — so a case that means the /search path
+        // has to say so, or it silently starts testing the other one.
+        model.setSource(QStringLiteral("server"));
         client.mockSearchResults = { resultRow(
             QStringLiteral("!general:mock.local"), QStringLiteral("$e1"),
             QStringLiteral("x")) };

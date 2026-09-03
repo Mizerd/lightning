@@ -8051,6 +8051,133 @@ private Q_SLOTS:
                  "the pill is offered with nothing to jump to");
     }
 
+    // ── LOCAL SEARCH REACHES THE FIND BAR ────────────────────────────────
+    //
+    // The find bar's History segment used to be server search alone, and so
+    // was absent in encrypted rooms — the one search people most need,
+    // missing exactly where they need it. It now prefers Lightning's own
+    // index, which searches decrypted text this client holds.
+    //
+    // Driven through the REAL bar: open Find, switch to History, type, and
+    // read the rows the model produced. Calling MessageSearchController
+    // directly would prove the controller and nothing about whether the
+    // surface reaches it — the defect this file records three times over.
+    void theFindBarSearchesTheLocalIndex()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+
+        QList<TimelineEvent> events =
+            textFixture(roomId, 12, QStringLiteral("s"), QStringLiteral("body"));
+        // A distinctive needle, and a decoy that must NOT match it.
+        events[3].body = QStringLiteral("the zephyrine protocol landed today");
+        events[7].body = QStringLiteral("nothing to do with that word");
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                          events, /*paginationPages=*/0,
+                                          /*viewportHeight=*/700, &timeline);
+        QVERIFY(root != nullptr);
+
+        auto *search = controller.messageSearch();
+        QVERIFY(search != nullptr);
+        QVERIFY2(search->localAvailable(),
+                 "the backend reports no local index, so the bar cannot be "
+                 "exercised at all");
+
+        // Open Find and switch to History through the real controls.
+        QMetaObject::invokeMethod(root, "openFind");
+        QTest::qWait(60);
+        auto *toggle = root->findChild<QQuickItem *>(
+            QStringLiteral("findModeToggle"));
+        QVERIFY2(toggle != nullptr, "the History segment is gone");
+        QVERIFY2(toggle->isVisible(),
+                 "History is not offered even though a local index exists");
+        QMetaObject::invokeMethod(toggle, "activated",
+                                  Q_ARG(QVariant, QStringLiteral("history")));
+        QTest::qWait(60);
+        QCOMPARE(root->property("findHistoryMode").toBool(), true);
+        QCOMPARE(search->source(), QStringLiteral("local"));
+
+        auto *field = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineFindField"));
+        QVERIFY(field != nullptr);
+        field->setProperty("text", QStringLiteral("zephyrine"));
+        QVERIFY2(QTest::qWaitFor([&] {
+                     return search->state() == QLatin1String("results");
+                 }, 4000),
+                 qPrintable(QStringLiteral("search state stuck at %1")
+                                .arg(search->state())));
+        QCOMPARE(search->rowCount({}), 1);
+        QCOMPARE(search->rowAt(0).value(QStringLiteral("body")).toString(),
+                 QStringLiteral("the zephyrine protocol landed today"));
+
+        // The coverage line is on screen and says what is being searched —
+        // "no results" must never be readable as "this was never said".
+        auto *coverage = root->findChild<QQuickItem *>(
+            QStringLiteral("findLocalCoverage"));
+        QVERIFY2(coverage != nullptr, "the coverage line is gone");
+        QVERIFY(coverage->isVisible());
+
+        // A query below the tokenizer's minimum is its OWN state, not an
+        // error and not "no results": the user can act on it.
+        field->setProperty("text", QStringLiteral("ze"));
+        QVERIFY2(QTest::qWaitFor([&] {
+                     return search->state() == QLatin1String("too_short");
+                 }, 4000),
+                 qPrintable(QStringLiteral("short query reported %1")
+                                .arg(search->state())));
+        QVERIFY(search->minLocalChars() >= 3);
+
+        // And a needle nobody said is honestly nothing.
+        field->setProperty("text", QStringLiteral("borogoves"));
+        QVERIFY(QTest::qWaitFor([&] {
+            return search->state() == QLatin1String("no_results");
+        }, 4000));
+    }
+
+    // The action beside the coverage line: an explanation with no remedy is
+    // an excuse, so "Index this room" has to reach the backend.
+    void indexingThisRoomReachesTheBackend()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 6, QStringLiteral("d"), QStringLiteral("body")),
+            /*paginationPages=*/0, /*viewportHeight=*/700, &timeline);
+        QVERIFY(root != nullptr);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        QMetaObject::invokeMethod(root, "openFind");
+        QTest::qWait(50);
+        auto *toggle = root->findChild<QQuickItem *>(
+            QStringLiteral("findModeToggle"));
+        QVERIFY(toggle != nullptr);
+        QMetaObject::invokeMethod(toggle, "activated",
+                                  Q_ARG(QVariant, QStringLiteral("history")));
+        QTest::qWait(50);
+
+        auto *button = root->findChild<QQuickItem *>(
+            QStringLiteral("findIndexRoomButton"));
+        QVERIFY2(button != nullptr, "the index-this-room action is gone");
+        QVERIFY(button->isVisible());
+        const int before = mock->deepIndexedRooms.size();
+        QMetaObject::invokeMethod(button, "click");
+        QVERIFY2(QTest::qWaitFor([&] {
+                     return mock->deepIndexedRooms.size() > before;
+                 }, 3000),
+                 "pressing Index this room asked the backend for nothing");
+        QCOMPARE(mock->deepIndexedRooms.last(), roomId);
+    }
+
     // ── C9 case C: a fresh short room must become scrollable on its own ──
     //
     // maybeFillViewport() is level-triggered and armed ONLY by geometry

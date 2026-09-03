@@ -326,7 +326,7 @@
         <translation>你错过了 %1 中的一通语音通话</translation>
     </message>
     <message>
-        <location line="+243"/>
+        <location line="+275"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>房间已创建，但未能将其添加到空间。</translation>
     </message>
@@ -2773,7 +2773,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+42"/>
         <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more. Attachments are not included.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13922,7 +13922,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+506"/>
+        <location filename="../qml/TimelinePane.qml" line="+519"/>
         <source>Seen by 1 person</source>
         <translation>1 人已读</translation>
     </message>
@@ -13945,12 +13945,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+136"/>
-        <location line="+5687"/>
+        <location line="+5776"/>
         <source>Space</source>
         <translation>空间</translation>
     </message>
     <message>
-        <location line="-5686"/>
+        <location line="-5775"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
@@ -14005,12 +14005,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4408"/>
+        <location line="+4497"/>
         <source>Room information</source>
         <translation>房间信息</translation>
     </message>
     <message>
-        <location line="-4187"/>
+        <location line="-4276"/>
         <source>This room has been upgraded.</source>
         <translation>此房间已升级。</translation>
     </message>
@@ -14055,7 +14055,7 @@ Note: importing keys does not verify this session.</source>
         <translation>历史</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+40"/>
         <source>Jump to date</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14110,7 +14110,57 @@ Note: importing keys does not verify this session.</source>
         <translation>关闭查找</translation>
     </message>
     <message>
-        <location line="+44"/>
+        <location line="+30"/>
+        <source>Indexing this room&apos;s history…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Type at least %1 characters.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Nothing is indexed yet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Searching %1 messages Lightning has indexed, including encrypted ones.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Index this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Fetch this room&apos;s older messages so they can be searched</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+21"/>
+        <source>Indexed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lightning&apos;s own index. Works in encrypted rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Your homeserver&apos;s search. Covers history this device has never seen, and cannot read encrypted rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+46"/>
         <source>Jump to message from %1</source>
         <translation>跳转到 %1 的消息</translation>
     </message>

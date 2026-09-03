@@ -365,6 +365,41 @@ public:
     quint64 cancelKnock(const QString &roomId) override;
     quint64 requestSpaceChildren(const QString &spaceId) override;
     bool supportsMessageSearch() const override { return true; }
+
+    // ── Local search, over the mock's own timelines ──────────────────────
+    //
+    // The real index is SQLite FTS5 in Rust. This is not that, and does not
+    // pretend to be: it is a substring scan over the timelines the mock
+    // already holds, matching the REAL index's observable contract — newest
+    // first, room-scoped or account-wide, a three-character minimum reported
+    // as "too_short" rather than as an empty result, and redactions and
+    // unsent echoes excluded.
+    //
+    // It exists because the contract is what every QML surface binds to, and
+    // a mock that answered "unsupported" would leave the whole find-bar path
+    // — the source strip, the coverage line, the too-short state — reachable
+    // only against a live homeserver. That is precisely the gap that let the
+    // GIF picker's blank Saved tab ship (§16): the surface was only ever
+    // exercised where its model could not answer.
+    bool supportsLocalSearch() const override { return true; }
+    quint64 localSearch(const QString &query, const QString &roomId,
+                        int limit, int offset) override;
+    quint64 searchIndexStats() override;
+    quint64 sweepSearchIndex() override;
+    quint64 deepenSearchIndex(const QString &roomId) override;
+    void forgetIndexedEvent(const QString &eventId) override;
+    void forgetIndexedRoom(const QString &roomId) override;
+    void clearSearchIndex() override;
+    /// Mirrors localsearch::MIN_QUERY_CHARS. Duplicated deliberately: a
+    /// backend cannot include a Rust constant, and a mock that used a
+    /// different minimum would let a UI pass here and fail in production.
+    static constexpr int kMockMinQueryChars = 3;
+    /// Event ids the test has "redacted" from the index.
+    QSet<QString> forgottenIndexEvents;
+    QStringList forgottenIndexRooms;
+    int indexSweeps = 0;
+    QStringList deepIndexedRooms;
+    bool indexCleared = false;
     quint64 searchMessages(const QString &term, const QString &roomId,
                            const QString &nextBatch, int limit,
                            const QVariantMap &filters = {}) override;

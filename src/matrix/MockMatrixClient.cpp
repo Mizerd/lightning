@@ -2779,6 +2779,145 @@ quint64 MockMatrixClient::searchMessages(const QString &term, const QString &,
     return op;
 }
 
+// ── Local search over the mock's timelines ──────────────────────────────
+//
+// Matches the real index's observable contract; see the header for why this
+// exists at all rather than answering "unsupported".
+
+quint64 MockMatrixClient::localSearch(const QString &query,
+                                      const QString &roomId,
+                                      int limit, int offset)
+{
+    const quint64 op = ++m_opCounter;
+    const QString needle = query.trimmed();
+    if (needle.size() < kMockMinQueryChars) {
+        QTimer::singleShot(0, this, [this, op] {
+            Q_EMIT localSearchFinished(op, false, QStringLiteral("too_short"),
+                                       kMockMinQueryChars, {});
+        });
+        return op;
+    }
+
+    QVariantList hits;
+    for (auto it = m_timelines.constBegin(); it != m_timelines.constEnd(); ++it) {
+        if (!roomId.isEmpty() && it.key() != roomId)
+            continue;
+        if (forgottenIndexRooms.contains(it.key()))
+            continue;
+        for (const TimelineEvent &event : it.value()) {
+            if (event.isVirtual() || event.status != TimelineEvent::Sent)
+                continue;
+            if (forgottenIndexEvents.contains(event.eventId))
+                continue;
+            if (event.body.isEmpty())
+                continue;
+            // Substring, case-insensitive — the same shape trigram gives,
+            // which is why the real index folds rather than tokenizing words.
+            if (!event.body.contains(needle, Qt::CaseInsensitive)
+                && !event.senderDisplayName.contains(needle, Qt::CaseInsensitive)) {
+                continue;
+            }
+            hits.append(QVariantMap{
+                { QStringLiteral("eventId"), event.eventId },
+                { QStringLiteral("roomId"), it.key() },
+                { QStringLiteral("sender"), event.sender },
+                { QStringLiteral("senderName"), event.senderDisplayName },
+                { QStringLiteral("body"), event.body },
+                { QStringLiteral("msgtype"), QStringLiteral("m.text") },
+                { QStringLiteral("timestampMs"),
+                  event.timestamp.toMSecsSinceEpoch() },
+            });
+        }
+    }
+    // NEWEST FIRST, like the real index.
+    std::sort(hits.begin(), hits.end(),
+              [](const QVariant &a, const QVariant &b) {
+        return a.toMap().value(QStringLiteral("timestampMs")).toLongLong()
+             > b.toMap().value(QStringLiteral("timestampMs")).toLongLong();
+    });
+    if (offset > 0 && offset < hits.size())
+        hits = hits.mid(offset);
+    else if (offset >= hits.size())
+        hits.clear();
+    if (limit > 0 && hits.size() > limit)
+        hits = hits.mid(0, limit);
+
+    QTimer::singleShot(0, this, [this, op, hits] {
+        Q_EMIT localSearchFinished(op, true, QString(), kMockMinQueryChars,
+                                   hits);
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::searchIndexStats()
+{
+    const quint64 op = ++m_opCounter;
+    qint64 messages = 0;
+    qint64 rooms = 0;
+    for (auto it = m_timelines.constBegin(); it != m_timelines.constEnd(); ++it) {
+        if (forgottenIndexRooms.contains(it.key()))
+            continue;
+        qint64 here = 0;
+        for (const TimelineEvent &event : it.value()) {
+            if (event.isVirtual() || event.status != TimelineEvent::Sent
+                || event.body.isEmpty()
+                || forgottenIndexEvents.contains(event.eventId)) {
+                continue;
+            }
+            ++here;
+        }
+        if (here > 0) {
+            messages += here;
+            ++rooms;
+        }
+    }
+    QTimer::singleShot(0, this, [this, op, messages, rooms] {
+        Q_EMIT searchIndexStatsReceived(op, messages, rooms);
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::sweepSearchIndex()
+{
+    const quint64 op = ++m_opCounter;
+    ++indexSweeps;
+    QTimer::singleShot(0, this, [this, op] {
+        Q_EMIT searchIndexSwept(op, m_timelines.size(), 0, 0, 0);
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::deepenSearchIndex(const QString &roomId)
+{
+    if (roomId.isEmpty())
+        return 0;
+    const quint64 op = ++m_opCounter;
+    deepIndexedRooms.append(roomId);
+    QTimer::singleShot(0, this, [this, op, roomId] {
+        Q_EMIT searchIndexDeepened(op, true, roomId, 1, true, 0, 0, QString());
+    });
+    return op;
+}
+
+void MockMatrixClient::forgetIndexedEvent(const QString &eventId)
+{
+    if (!eventId.isEmpty())
+        forgottenIndexEvents.insert(eventId);
+}
+
+void MockMatrixClient::forgetIndexedRoom(const QString &roomId)
+{
+    if (!roomId.isEmpty())
+        forgottenIndexRooms.append(roomId);
+}
+
+void MockMatrixClient::clearSearchIndex()
+{
+    indexCleared = true;
+    forgottenIndexEvents.clear();
+    forgottenIndexRooms.clear();
+}
+
 quint64 MockMatrixClient::deleteDevices(const QStringList &deviceIds)
 {
     if (deviceIds.isEmpty())

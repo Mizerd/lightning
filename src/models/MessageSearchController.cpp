@@ -74,7 +74,7 @@ void MessageSearchController::setClient(MatrixClient *client)
         // its results are on screen and NOT refreshing them would leave the
         // user looking at the answer from before they asked for more.
         if (ok && written > 0 && !m_query.trimmed().isEmpty()
-            && m_source == QLatin1String("local")) {
+            && effectiveSource() == QLatin1String("local")) {
             dispatch(false);
         }
     });
@@ -84,6 +84,22 @@ void MessageSearchController::setClient(MatrixClient *client)
     Q_EMIT stateChanged();
 }
 
+QString MessageSearchController::effectiveSource() const
+{
+    // THE PREFERENCE IS NOT THE ANSWER. "local" is the default because it is
+    // the better one where it exists — it works in encrypted rooms and needs
+    // no round trip — but a backend without an index (the HTTP and mock
+    // backends, and any future one) must fall back rather than go dead. A
+    // controller that reported "unsupported" for a preference the user never
+    // expressed would be a search box that silently stopped working when the
+    // backend changed under it.
+    if (m_source == QLatin1String("local") && m_client
+        && m_client->supportsLocalSearch()) {
+        return QStringLiteral("local");
+    }
+    return QStringLiteral("server");
+}
+
 bool MessageSearchController::supported() const
 {
     if (!m_client)
@@ -91,8 +107,8 @@ bool MessageSearchController::supported() const
     // Local search is supported wherever the index is, INCLUDING encrypted
     // rooms — which is the whole reason it exists. Server search is supported
     // only where the server can read the room.
-    if (m_source == QLatin1String("local"))
-        return m_client->supportsLocalSearch();
+    if (effectiveSource() == QLatin1String("local"))
+        return true;
     return m_client->supportsMessageSearch();
 }
 
@@ -148,7 +164,7 @@ void MessageSearchController::clearIndex()
     m_indexedMessages = 0;
     m_indexedRooms = 0;
     Q_EMIT indexStatsChanged();
-    if (m_source == QLatin1String("local"))
+    if (effectiveSource() == QLatin1String("local"))
         clear();
 }
 
@@ -330,7 +346,7 @@ void MessageSearchController::dispatch(bool nextPage)
 
 void MessageSearchController::requestPage(bool append)
 {
-    if (m_source == QLatin1String("local")) {
+    if (effectiveSource() == QLatin1String("local")) {
         // No cursor: ask for a bigger page and replace. Paging by OFFSET
         // against a live index would drop or repeat rows whenever indexing
         // wrote a newer message between two pages, and this index is written
