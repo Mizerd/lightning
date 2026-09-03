@@ -24,8 +24,10 @@ machine-readable schema there is. What exists is what Element deploys.
 
 * **Discovery.** `im.vector.modular.widgets` room state, and `m.widget` read as
   a courtesy (it has never been deployed — element-web#13111 has been open
-  since 2020). Read through `Room::get_state_events`, which is store-only in
-  matrix-sdk 0.18.
+  since 2020). Read from the state store first and from a raw `/state` request
+  second: `Room::get_state_events` never touches the network, and widget state
+  never reaches the store, so the second half is not a fallback but the only
+  path that works. See Live validation for how that was found.
 * **Identity from the envelope.** The widget id is the **state key** and the
   creator is the **sender**. The content carries `id` and `creatorUserId` too —
   Element does not even write them and reconstructs both from the envelope —
