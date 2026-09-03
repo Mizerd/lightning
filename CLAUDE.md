@@ -48,6 +48,18 @@ against every release, 0.8.4 included.
 `rust/Cargo.toml`. Dependencies are lock-file controlled — never update
 them incidentally.
 
+**2026-09-04: `bundled-sqlite` is ON, and it is load-bearing.** The local
+message index is SQLite FTS5, and FTS5 is a COMPILE-TIME option that
+sqlite.org documents as disabled by default for the canonical source tree. On
+the system path whether search works at all would be decided per platform,
+thirty minutes into a release pipeline. Bundling makes it a build-time
+constant (libsqlite3-sys sets `-DSQLITE_ENABLE_FTS5` explicitly) and raises
+the feature floor to 3.50.2. Consequence to remember: the C++ side must NOT
+also link `SQLite::SQLite3`, or two SQLite implementations end up in one
+process. `rusqlite` and `unicode-normalization` became DIRECT dependencies in
+the same round; both were already in the lock file, so the build stays
+`--offline --locked`.
+
 ### Release inventory (all tags immutable)
 
 | Version | Commit | Deploy pipeline | Notes file |
@@ -1700,6 +1712,32 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
 
 **NOT TESTED, 2026-09-02 audit:** six items in
 `docs/security-audit-2026-09-02.md`.
+
+**2026-09-04, local search and widgets.** Both are LIVE-VALIDATED against
+`matrix.smetonis.net` with throwaway fixture accounts (credentials in the
+vault, `Lightning/Testing/Test Accounts.md`, never in this repository):
+local search finds a Megolm-encrypted message this client sent, and the widget
+list returns one openable widget plus three refused with the right reason and
+excludes the tombstone. What is NOT tested is the QML for either — the find
+bar's source strip and coverage line, and the Room Information widget list and
+its consent sheet, have never been seen on screen. `ydotool`'s virtual device
+reaches this compositor for pointer events but not keystrokes, so no build
+could be driven by hand; the composer round from the same day WAS confirmed
+visually in the screenshot demo.
+
+Two open decisions those rounds created, both recorded rather than taken:
+- **The SDK store is not encrypted at rest**, and it holds DECRYPTED
+  encrypted-room bodies (`encode_event` serializes the `Decrypted` variant,
+  `encode_value` is a no-op with no cypher, Lightning opens
+  `sqlite_store(path, None)`). §6's memory-only rule binds Lightning's own
+  `CacheStore` and is intact; the property it was protecting is not held by
+  the installation. The search index is a second copy of what is already
+  there. The audit's route to fixing it is in
+  `docs/security-audit-2026-09-02.md`; a naive passphrase bricks every install.
+- **Widgets are LISTED and opened externally, never embedded**
+  (`docs/widgets.md`). Revisiting that needs a Windows Qt story with WebEngine,
+  a Flatpak answer that is not "disable the sandbox", and a decision about
+  `QtWebEngineQuick::initialize()` forcing the whole scenegraph to OpenGL.
 
 STILL UNPROVEN, not reported broken:
 

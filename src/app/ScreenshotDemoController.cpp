@@ -345,6 +345,40 @@ ScreenshotDemoController::ScreenshotDemoController(AppController *app,
                   &m_requestedWidth, &m_requestedHeight);
     m_sizeLabel = QStringLiteral("1440 × 900");
 
+    // Demo widgets, so the Room Information widget list and its consent sheet
+    // can be SEEN. One that opens and one that Lightning refuses, because the
+    // refusal row is the case a real room is least likely to contain and the
+    // one most worth being able to look at. These are the payload shape the
+    // Rust backend answers with — the mock never re-derives it (see
+    // MockMatrixClient::mockWidgets).
+    if (m_mock) {
+        m_mock->mockWidgets = {
+            QVariantMap{
+                { QStringLiteral("id"), QStringLiteral("standup") },
+                { QStringLiteral("creator"), QStringLiteral("@maya:lightning.demo") },
+                { QStringLiteral("kind"), QStringLiteral("jitsi") },
+                { QStringLiteral("name"), QStringLiteral("Design standup") },
+                { QStringLiteral("url"),
+                  QStringLiteral("https://meet.example.org/design-standup"
+                                 "?user=%40alex%3Alightning.demo&theme=storm") },
+                { QStringLiteral("refusal"), QString() },
+                { QStringLiteral("discloses"),
+                  QStringList{ QStringLiteral("user_id"),
+                               QStringLiteral("theme"),
+                               QStringLiteral("connection") } },
+            },
+            QVariantMap{
+                { QStringLiteral("id"), QStringLiteral("notes") },
+                { QStringLiteral("creator"), QStringLiteral("@sam:lightning.demo") },
+                { QStringLiteral("kind"), QStringLiteral("custom") },
+                { QStringLiteral("name"), QStringLiteral("Launch notes") },
+                { QStringLiteral("url"), QString() },
+                { QStringLiteral("refusal"), QStringLiteral("not_https") },
+                { QStringLiteral("discloses"), QStringList{} },
+            },
+        };
+    }
+
     if (m_app) {
         connect(m_app, &AppController::currentRoomIdChanged, this,
                 &ScreenshotDemoController::rememberSelectedRoom);
