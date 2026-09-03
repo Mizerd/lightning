@@ -256,6 +256,70 @@ private Q_SLOTS:
         QVERIFY(closing.contains(QStringLiteral("closeToTray")));
     }
 
+    // 2026-09-03 tester report: "clicking a notification in the bell menu
+    // minimizes Lightning."
+    //
+    // It was not a minimize. QWindow::show() forces the NORMAL state, so
+    // calling it on a window that is already on screen and MAXIMIZED
+    // un-maximizes it — the frame snaps back to the small remembered size,
+    // which is what that looks like — and onVisibilityChanged then persists
+    // saveWindowMaximized(false), so the user's window preference is rewritten
+    // as a side effect of a click on an activity row.
+    //
+    // The tray path had already learned this and used `visible = true`; the
+    // notification path had not. Both now share raiseIntoView(), and this
+    // pins that neither of them may reach for show() again.
+    void bringingTheWindowForwardNeverForcesTheNormalState()
+    {
+        const QString main = read(QStringLiteral("Main.qml"));
+        QVERIFY(!main.isEmpty());
+
+        const int helper = main.indexOf(
+            QStringLiteral("function raiseIntoView()"));
+        QVERIFY2(helper > 0,
+                 "raiseIntoView() is gone; the two raise paths have diverged "
+                 "again and one of them will reach for show()");
+        const QString body = bracedBody(main, helper);
+        QVERIFY(!body.isEmpty());
+        QVERIFY2(!body.contains(QStringLiteral("show()")),
+                 "raiseIntoView() calls show(), which forces Window.Windowed "
+                 "and un-maximizes a maximized window");
+        // Closed to the tray comes back through `visible`, which restores the
+        // state the window actually had.
+        QVERIFY(body.contains(QStringLiteral("Window.Hidden")));
+        QVERIFY(body.contains(QStringLiteral("window.visible = true")));
+        // A genuinely minimized window is restored to the state it was in,
+        // not unconditionally to Windowed.
+        QVERIFY(body.contains(QStringLiteral("Window.Minimized")));
+        QVERIFY(body.contains(QStringLiteral("lastOnScreenVisibility")));
+        QVERIFY(body.contains(QStringLiteral("window.raise()")));
+        QVERIFY(body.contains(QStringLiteral("window.requestActivate()")));
+
+        // Both callers go through it, and neither does its own thing.
+        for (const QString &handler :
+             { QStringLiteral("function onNotificationOpenRequested("),
+               QStringLiteral("function onTrayShowRequested(") }) {
+            const int at = main.indexOf(handler);
+            QVERIFY2(at > 0, qPrintable(handler));
+            const QString h = bracedBody(main, at);
+            QVERIFY2(!h.isEmpty(), qPrintable(handler));
+            QVERIFY2(h.contains(QStringLiteral("raiseIntoView()")),
+                     qPrintable(handler + QStringLiteral(
+                         " must raise through raiseIntoView()")));
+            QVERIFY2(!h.contains(QStringLiteral("window.show()")),
+                     qPrintable(handler + QStringLiteral(
+                         " calls window.show() again")));
+        }
+
+        // And the pre-minimize state is actually recorded, or the restore
+        // above has nothing to restore.
+        const int vis = main.indexOf(QStringLiteral("onVisibilityChanged:"));
+        QVERIFY(vis > 0);
+        const QString visBody = bracedBody(main, vis);
+        QVERIFY(visBody.contains(
+            QStringLiteral("window.lastOnScreenVisibility = window.visibility")));
+    }
+
     // 2026-08-23 tester report: "Window geometry and position is not saved."
     // 2026-08-31 report: "opens half off screen, and then fights being
     // dragged; closing and reopening fixes it."

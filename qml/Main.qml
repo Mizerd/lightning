@@ -261,7 +261,17 @@ ApplicationWindow {
     onYChanged: noteGeometryChanged()
     onWidthChanged: noteGeometryChanged()
     onHeightChanged: noteGeometryChanged()
+    // The last visibility the window actually had ON SCREEN. Minimized and
+    // Hidden are transient states the user comes BACK from, so raiseIntoView()
+    // restores this rather than guessing Windowed. `initialWindowMaximized` is
+    // CONSTANT in SettingsManager (read once at load), so it cannot answer this
+    // question after the user has maximized or restored during the session.
+    property int lastOnScreenVisibility: Window.Windowed
+
     onVisibilityChanged: {
+        if (window.visibility === Window.Maximized
+                || window.visibility === Window.Windowed)
+            window.lastOnScreenVisibility = window.visibility
         if (!geometrySaver.armed || !app.settings)
             return
         // Minimized and Hidden say nothing about which of maximized or
@@ -272,6 +282,33 @@ ApplicationWindow {
             app.settings.saveWindowMaximized(true)
         else if (window.visibility === Window.Windowed)
             app.settings.saveWindowMaximized(false)
+    }
+
+    // ── Bringing the window forward without disturbing it ────────────────
+    //
+    // NEVER show(). QWindow::show() forces the NORMAL state, so calling it on
+    // a window that is already on screen and MAXIMIZED un-maximizes it — and
+    // onVisibilityChanged above then persists saveWindowMaximized(false), so
+    // the user's window preference is silently rewritten as a side effect of
+    // a click. Reported by a tester as "clicking a notification in the bell
+    // menu minimizes Lightning": the maximized window snapping back to its
+    // small remembered frame is what that looks like.
+    //
+    // The three states are genuinely different and only two of them may touch
+    // visibility at all:
+    //   Hidden     — closed to the tray; `visible = true` brings it back in
+    //                the state it had, which is why the tray path uses that
+    //                and not show().
+    //   Minimized  — a real desktop-notification click; restore the state the
+    //                window was in before it was minimized.
+    //   on screen  — raise and focus ONLY. Do not write visibility.
+    function raiseIntoView() {
+        if (window.visibility === Window.Hidden)
+            window.visible = true
+        else if (window.visibility === Window.Minimized)
+            window.visibility = window.lastOnScreenVisibility
+        window.raise()
+        window.requestActivate()
     }
 
     // ── Close to tray ────────────────────────────────────────────────────
@@ -302,14 +339,10 @@ ApplicationWindow {
     Connections {
         target: app
         function onTrayShowRequested() {
-            // `visible = true`, NOT show(): QWindow::show() forces the NORMAL
-            // state, so a window that was maximized when it went to the tray
-            // came back un-maximized — and now that the maximized flag is
-            // persisted, that would also be written back as the user's choice.
-            // Setting visible restores the state the window actually had.
-            window.visible = true
-            window.raise()
-            window.requestActivate()
+            // See raiseIntoView(): `visible = true`, never show(). This is the
+            // path that first learned it, and the notification path now shares
+            // the same helper rather than repeating the mistake.
+            window.raiseIntoView()
         }
     }
     // Ctrl+Q quits for real. It exists because the tray icon deliberately
@@ -426,9 +459,7 @@ ApplicationWindow {
     Connections {
         target: app
         function onNotificationOpenRequested(roomId, eventId, threadRootId) {
-            window.show()
-            window.raise()
-            window.requestActivate()
+            window.raiseIntoView()
             if (roomId === "")
                 return
             app.showMain()

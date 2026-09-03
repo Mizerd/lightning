@@ -843,6 +843,74 @@ private slots:
         }
         m_controller->settings()->setTextScale(100);
     }
+
+    // ── The picker buttons TOGGLE ────────────────────────────────────────
+    //
+    // Reported by a tester: pressing the emoji icon while the emoji panel is
+    // open made it blink and stay open. The pickers carry
+    // Popup.CloseOnPressOutside and the icon that opens them is outside, so
+    // the PRESS closed the panel and the button's own click — which arrives
+    // on the RELEASE — opened it straight back.
+    //
+    // Driven with a REAL mouse click on the REAL button, because that is the
+    // only thing that reproduces the ordering. Calling openEmojiPicker()
+    // twice by hand proves nothing: the second call never sees the
+    // press-outside close that is the whole defect.
+    void aSecondPressOnAPickerButtonClosesItsPanel()
+    {
+        auto *bar = item("composerBar");
+        QVERIFY(bar != nullptr);
+        const QString previousRoom = m_controller->currentRoomId();
+        // The icon buttons are gated on a room being open.
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(30);
+
+        // The pickers are Popups (QObject, not QQuickItem), reached by
+        // objectName exactly like mentionPopup() above. An `id` cannot be
+        // read from here: it lives in MessageComposerBar's own component
+        // context, which is not the context the scene was created in.
+        auto opened = [this](const char *name) {
+            QObject *p = m_root->findChild<QObject *>(QLatin1String(name));
+            return p && p->property("opened").toBool();
+        };
+
+        auto *button = item("composerEmojiButton");
+        QVERIFY(button != nullptr);
+        QVERIFY2(button->isVisible(),
+                 "the emoji button is displaced into the attach menu at this "
+                 "width; the gesture under test is unreachable");
+        QVERIFY2(button->property("enabled").toBool(),
+                 "the emoji button is disabled, so no click can reach it");
+
+        const QPointF centre = button->mapToScene(
+            QPointF(button->width() / 2.0, button->height() / 2.0));
+
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
+                          centre.toPoint());
+        QTest::qWait(120);
+        QVERIFY2(opened("composerEmojiPicker"),
+                 "the first press did not open the emoji panel");
+
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
+                          centre.toPoint());
+        QTest::qWait(120);
+        QVERIFY2(!opened("composerEmojiPicker"),
+                 "pressing the emoji button again left the panel open — it "
+                 "closed on the press and the click reopened it");
+
+        // And a third press opens it again: the toggle must not latch shut.
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
+                          centre.toPoint());
+        QTest::qWait(120);
+        QVERIFY2(opened("composerEmojiPicker"),
+                 "a third press did not reopen the panel");
+
+        if (QObject *p =
+                m_root->findChild<QObject *>(QStringLiteral("composerEmojiPicker")))
+            QMetaObject::invokeMethod(p, "close");
+        QTest::qWait(60);
+        m_controller->setCurrentRoomId(previousRoom);
+    }
 };
 
 int main(int argc, char *argv[])

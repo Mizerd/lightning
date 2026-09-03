@@ -4323,7 +4323,24 @@ Rectangle {
                             timeline.cancelWheelMotion()
                             var per = app.timelineScroll.notchDistance(
                                 timeline.height)
-                            var jump = -(event.angleDelta.y / 120.0) * per
+                            // SIGN: NOT negated here, and that was the bug.
+                            //
+                            // wheelTargetY() negates its argument INTERNALLY
+                            // ("angleDelta.y > 0 == wheel up == toward the
+                            // top"), which is right for an ordinary
+                            // Flickable. This timeline is ROTATED — upward is
+                            // INCREASING contentY — so the smooth branch
+                            // below cancels that by passing -angleDelta, and
+                            // the two negations leave +(angle/120)*per.
+                            //
+                            // This branch reached the controller through
+                            // notchDistance() alone, which does no negation
+                            // at all, and then negated once — landing on the
+                            // opposite sign from every other path here. The
+                            // visible result was that turning smooth
+                            // scrolling OFF inverted the wheel, reported by a
+                            // tester in exactly those words.
+                            var jump = (event.angleDelta.y / 120.0) * per
                             timeline.contentY = Math.max(
                                 minY, Math.min(maxY, timeline.contentY + jump))
                             timeline.updateStickAndPaginate(canMove)

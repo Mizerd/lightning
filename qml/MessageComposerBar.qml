@@ -321,7 +321,60 @@ Item {
         activeEditor().forceActiveFocus()
     }
 
-    function openEmojiPicker() {
+    // ── The picker buttons must TOGGLE ───────────────────────────────────
+    //
+    // Reported by a tester: pressing the emoji/GIF/sticker icon while its
+    // panel is open made the panel blink and stay open instead of closing.
+    //
+    // Every picker carries `Popup.CloseOnPressOutside`, and the composer icon
+    // that opens it is OUTSIDE the popup — so the press on that icon closes
+    // the panel, and then the button's own onClicked (which arrives on the
+    // RELEASE) opened it again. One gesture, close then open.
+    //
+    // A plain `if (picker.opened) picker.close()` cannot fix it: the popup
+    // layer sees the press first, so by the time onClicked runs `opened`
+    // already reads false. What identifies the gesture is that the panel was
+    // dismissed a moment ago and the very next thing to happen is a click on
+    // that same panel's own button. The window only has to outlast a press —
+    // it is not a debounce and nothing depends on its exact value.
+    //
+    // `fromButton` is what keeps the menu items honest: the compact-window
+    // menu entries and the screenshot-demo hooks are one-shot "open this"
+    // actions, not toggles, and they pass nothing.
+    readonly property int pickerToggleWindowMs: 600
+    property string lastPickerDismissed: ""
+    property double lastPickerDismissedAtMs: 0
+    function notePickerDismissed(which) {
+        root.lastPickerDismissed = which
+        root.lastPickerDismissedAtMs = Date.now()
+    }
+    function clearPickerDismissal() {
+        root.lastPickerDismissed = ""
+        root.lastPickerDismissedAtMs = 0
+    }
+    // True when this press should CLOSE the panel rather than open one.
+    // Covers both orderings, so it stays correct if Qt ever delivers the
+    // press to the button before the popup layer: `opened` still true means
+    // the popup did not close on our press and we close it ourselves.
+    function pickerButtonShouldClose(which, popup, fromButton) {
+        if (popup.opened)
+            return true
+        if (fromButton !== true)
+            return false
+        var recent = root.lastPickerDismissed === which
+                     && (Date.now() - root.lastPickerDismissedAtMs)
+                        < root.pickerToggleWindowMs
+        root.clearPickerDismissal()
+        return recent
+    }
+
+    function openEmojiPicker(fromButton) {
+        if (root.pickerButtonShouldClose("emoji", emojiPicker, fromButton)) {
+            emojiPicker.close()
+            root.clearPickerDismissal()
+            root.focusEditor()
+            return
+        }
         var editor = root.activeEditor()
         emojiSelectionStart = editor.selectionStart
         emojiSelectionEnd = editor.selectionEnd
@@ -356,6 +409,7 @@ Item {
 
     EmojiPicker {
         id: emojiPicker
+        objectName: "composerEmojiPicker"
         mode: "composer"
         // Composing often means several emoji in a row — the picker stays
         // open after each insert (close with Escape, the toggle button, or
@@ -363,6 +417,7 @@ Item {
         // default: a reaction is a single choice.
         closeAfterSelection: false
         onEmojiChosen: (emoji) => root.insertEmoji(emoji)
+        onAboutToHide: root.notePickerDismissed("emoji")
         onClosed: Qt.callLater(input.forceActiveFocus)
     }
 
@@ -893,32 +948,53 @@ Item {
         app.discardPreparedVoice(v.filePath)
     }
 
-    function openGifPicker() {
+    function openGifPicker(fromButton) {
+        if (root.pickerButtonShouldClose("gif", gifPicker, fromButton)) {
+            gifPicker.close()
+            root.clearPickerDismissal()
+            root.focusEditor()
+            return
+        }
         emojiPicker.close()
+        // Our OWN close is not a dismissal the next click should undo — see
+        // pickerButtonShouldClose. Without this, opening the GIF panel from
+        // the emoji panel would arm a toggle-off on the emoji button.
+        root.clearPickerDismissal()
         gifPicker.anchorItem = composerCard
         gifPicker.open()
     }
 
     GifPicker {
         id: gifPicker
+        objectName: "composerGifPicker"
         target: "room"
         onGifChosen: (result) => root.onGifPicked(result)
+        onAboutToHide: root.notePickerDismissed("gif")
         onClosed: Qt.callLater(input.forceActiveFocus)
     }
 
     // MSC2545 stickers. Its OWN picker, not a tab on the emoji one — see the
     // header of qml/StickerPicker.qml for why.
-    function openStickerPicker() {
+    function openStickerPicker(fromButton) {
+        if (root.pickerButtonShouldClose("sticker", stickerPicker, fromButton)) {
+            stickerPicker.close()
+            root.clearPickerDismissal()
+            root.focusEditor()
+            return
+        }
         emojiPicker.close()
         gifPicker.close()
+        root.clearPickerDismissal()
         stickerPicker.anchorItem = composerCard
         stickerPicker.open()
     }
 
     StickerPicker {
         id: stickerPicker
+        objectName: "composerStickerPicker"
         target: "room"
         onStickerChosen: (image) => root.onStickerPicked(image)
+        onAboutToHide: root.notePickerDismissed("sticker")
         onClosed: Qt.callLater(input.forceActiveFocus)
     }
 
@@ -2532,7 +2608,7 @@ Item {
                         ToolTip.text: qsTr("Emoji")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
-                        onClicked: root.openEmojiPicker()
+                        onClicked: root.openEmojiPicker(true)
                     }
 
                     // GIF: a mono text glyph, treated as one of the row's
@@ -2613,7 +2689,7 @@ Item {
                             border.width: 2
                             visible: gifButton.visualFocus
                         }
-                        onClicked: root.openGifPicker()
+                        onClicked: root.openGifPicker(true)
                     }
 
                     // Stickers (MSC2545 image packs).
@@ -2643,7 +2719,7 @@ Item {
                         ToolTip.text: qsTr("Sticker")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
-                        onClicked: root.openStickerPicker()
+                        onClicked: root.openStickerPicker(true)
                     }
 
                     // v0.7: voice capture. Idle: the designed mic slot.

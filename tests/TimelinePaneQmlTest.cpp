@@ -7880,6 +7880,86 @@ private Q_SLOTS:
         }
     }
 
+    // TURNING SMOOTH SCROLLING OFF MUST NOT REVERSE THE WHEEL.
+    //
+    // Reported by a tester in exactly those words. The two branches of the
+    // wheel handler disagreed about sign: wheelTargetY() negates its argument
+    // internally ("angleDelta.y > 0 == wheel up == toward the top"), which is
+    // right for an ordinary Flickable, and this timeline is ROTATED — upward
+    // is INCREASING contentY — so the smooth branch cancels that by passing
+    // -angleDelta and the two negations leave +(angle/120)*per. The
+    // smooth-OFF branch went through notchDistance(), which negates nothing,
+    // and then negated once. Opposite direction.
+    //
+    // The assertion is a COMPARISON between the two settings rather than an
+    // absolute direction, because the absolute one is a property of the
+    // rotation and would need restating if that ever changed. Both must move
+    // the reader the same way for the same notch. On the unfixed tree they
+    // move opposite ways and this fails.
+    void turningSmoothScrollingOffKeepsTheWheelDirection()
+    {
+        // MEASURE FIRST, ASSERT AFTER. This binary shares one QSettings file
+        // across every case in it (there is no XDG_CONFIG_HOME isolation), and
+        // `realWheelEventEngagesControllerAndLeavesFollowLatest` further down
+        // silently depends on smooth scrolling being ON. An assertion that
+        // fires while the setting is flipped leaves it flipped on disk for
+        // every later run of the suite — which is exactly what happened while
+        // this case was being written.
+        double moved[2] = { 0.0, 0.0 };
+        const bool wanted[2] = { true, false };
+        bool previous = true;
+        for (int i = 0; i < 2; ++i) {
+            AppController controller(AppController::MockBackend);
+            QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+            const QString roomId = QStringLiteral("!general:mock.local");
+            QQmlApplicationEngine engine;
+            QQuickWindow window;
+            QQuickItem *timeline = nullptr;
+            QQuickItem *root = paneWithEvents(
+                controller, engine, window, roomId,
+                textFixture(roomId, 60, QStringLiteral("line"),
+                            QStringLiteral("body")),
+                /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+            QVERIFY(root != nullptr);
+            QVERIFY(timeline != nullptr);
+            if (i == 0)
+                previous = controller.settings()->smoothScrolling();
+            controller.settings()->setSmoothScrolling(wanted[i]);
+
+            double minY = 0.0;
+            double maxY = 0.0;
+            QVERIFY(wheelBounds(timeline, &minY, &maxY));
+            QVERIFY2(maxY > minY + 1.0, "fixture is not scrollable");
+
+            // Park in the middle so the notch cannot be swallowed by a clamp
+            // at either edge.
+            const double start = (minY + maxY) / 2.0;
+            QVERIFY(timeline->setProperty("contentY", start));
+            QVERIFY(timeline->setProperty("stickToBottom", false));
+            QTest::qWait(60);
+
+            const QPointF pos(window.width() / 2.0, window.height() / 2.0);
+            // One notch "up" (toward older messages on this rotated view).
+            sendWheelNotch(window, pos, 120, /*inverted=*/false);
+            QTest::qWait(400);   // let a glide, if any, settle
+            moved[i] = timeline->property("contentY").toDouble() - start;
+
+            controller.settings()->setSmoothScrolling(previous);
+        }
+
+        for (int i = 0; i < 2; ++i) {
+            QVERIFY2(qAbs(moved[i]) > 1.0,
+                     qPrintable(QStringLiteral("smooth=%1 moved nothing")
+                                    .arg(wanted[i])));
+        }
+        // The COMPARISON is the contract, not an absolute direction: which way
+        // a notch travels is a property of the rotation and would need
+        // restating if that ever changed. Both settings must move the reader
+        // the same way for the same notch. On the unfixed tree they move
+        // opposite ways.
+        QCOMPARE(moved[1] > 0 ? 1 : -1, moved[0] > 0 ? 1 : -1);
+    }
+
     // ── C9 case C: a fresh short room must become scrollable on its own ──
     //
     // maybeFillViewport() is level-triggered and armed ONLY by geometry
