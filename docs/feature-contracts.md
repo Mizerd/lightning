@@ -590,6 +590,12 @@ existing install unable to decode its own account pickle.
 
 * **The index lives in the account's own store directory**, so it is deleted
   with the account and inherits the same 0700 protection as the SDK store.
+* **`bundled-sqlite` adds nothing to package.** It compiles the amalgamation
+  into the Rust staticlib, so SQLite is linked STATICALLY — measured on the
+  built binary: `ldd` names no `libsqlite3`, and 430 FTS5 symbols are present.
+  No packaging list on any platform needs a new entry, which is the question
+  a per-platform shared-library dependency would otherwise have raised
+  thirty minutes into a release pipeline.
 * **Tokenizer: trigram**, because `unicode61` cannot segment CJK — a Chinese
   sentence becomes one token and nothing inside it is findable, a silent total
   failure for a language Lightning ships. trigram's cost is a hard
