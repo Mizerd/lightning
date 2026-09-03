@@ -353,17 +353,37 @@ UpdateDocumentFetcher::UpdateDocumentFetcher(QNetworkAccessManager *network, QOb
 {
 }
 
+// ONE definition of the role, used by production and by the test that pins
+// it: canonical wins any overlap (fail-safe), and only an address on the
+// mirror list that is NOT canonical is the fallback.
+static bool fallbackRoleFor(const QUrl &start)
+{
+    return !isAllowedManifestUrl(start) && isAllowedFallbackManifestUrl(start);
+}
+
 void UpdateDocumentFetcher::start(const QUrl &url, qint64 maxBytes, const QByteArray &userAgent)
 {
     m_buffer.clear();
+    // The ROLE is decided once, from the address the caller chose, and holds
+    // for every hop: a canonical fetch cannot be redirected onto a mirror,
+    // and a fallback fetch cannot be redirected back to some third host.
+    m_fallbackRole = fallbackRoleFor(url);
     beginTransfer(url, userAgent, maxBytes);
+}
+
+bool UpdateDocumentFetcher::permitsForTest(const QUrl &start, const QUrl &hop)
+{
+    m_fallbackRole = fallbackRoleFor(start);
+    return isPermittedUrl(hop);
 }
 
 bool UpdateDocumentFetcher::isPermittedUrl(const QUrl &url) const
 {
-    // Metadata: canonical host ONLY. A mirror must never be able to serve a
-    // manifest or a signature.
-    return isAllowedManifestUrl(url);
+    // Metadata is canonical-only, except for the one fallback pair, which
+    // lives on the mirror and hops only within the mirror's hosts. Either
+    // way the bytes are trusted for nothing until the compiled-in key has
+    // verified the signature.
+    return m_fallbackRole ? isAllowedFallbackManifestUrl(url) : isAllowedManifestUrl(url);
 }
 
 void UpdateDocumentFetcher::onChunk(const QByteArray &chunk)

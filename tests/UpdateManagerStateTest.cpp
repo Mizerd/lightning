@@ -138,8 +138,9 @@ QJsonObject manifestObject(const QString &version, bool withDebArtifact = true,
     manifest.insert(QStringLiteral("version"), version);
     manifest.insert(QStringLiteral("channel"), QStringLiteral("stable"));
     manifest.insert(QStringLiteral("tag"), QStringLiteral("v") + version);
-    // Required since the freshness rule: a manifest with no expiry is
-    // refused, and one past its expiry is a failure rather than "up to date".
+    // Informational: a manifest past its expiry (or without one) still
+    // works and merely says so. A far-future value keeps that line out of
+    // every other case.
     manifest.insert(QStringLiteral("expires"), QStringLiteral("2099-01-01T00:00:00Z"));
     manifest.insert(QStringLiteral("release_notes"), QStringLiteral("Notes for ") + version);
     if (withDebArtifact) {
@@ -442,7 +443,9 @@ private slots:
     void updateSourcesNeverUseTheGitHubApi();
 
     // --- freshness, prerelease policy, and the hand-over digest ---
-    void anExpiredManifestIsAFailureNotUpToDate();
+    void anExpiredManifestStillOffersTheUpdateAndSaysSo();
+    void theFallbackFetcherHopsOnlyWithinTheMirror();
+    void aCanonicalAnswerThatDoesNotVerifyFallsBackToTheMirror();
     void aPrereleaseIsRefusedWhateverChannelTheManifestClaims();
     void installHandsTheHelperTheVerifiedDigest();
     void installRefusesAnArtifactModifiedAfterVerification();
@@ -553,8 +556,20 @@ void UpdateManagerStateTest::failsOnATamperedManifest()
         QJsonDocument(manifestObject(QStringLiteral("0.8.0"))).toJson(QJsonDocument::Compact);
     const QByteArray envelope = sign(bytes);
     bytes.replace("0.8.0", "0.9.0");
+    // Through the real entry point, so the check is in the state production
+    // reaches (the network seam is disabled, so nothing is fetched).
+    manager->checkForUpdates();
+    QCOMPARE(manager->state(), UpdateManager::Checking);
     manager->ingestCheckDocuments(bytes, envelope);
-
+    if (!lightning::update::mirrorLatestManifestUrl().isEmpty()) {
+        // A canonical answer that does not verify is retried from the
+        // mirror once, so the FIRST tampered pair chooses the mirror and a
+        // tampered mirror pair is terminal. A build with no fallback
+        // compiled in (supported) fails on the first.
+        QCOMPARE(manager->state(), UpdateManager::Checking);
+        QVERIFY(manager->metadataFromMirrorForTest());
+        manager->ingestCheckDocuments(bytes, envelope);
+    }
     QCOMPARE(manager->state(), UpdateManager::Failed);
     QVERIFY(!manager->updateAvailable());
     QVERIFY(manager->latestVersion().isEmpty());
@@ -571,9 +586,16 @@ void UpdateManagerStateTest::failsOnAnUnknownKey()
     envelope.insert(QStringLiteral("key_id"), QStringLiteral("rogue-key"));
     envelope.insert(QStringLiteral("sig"),
                     QString::fromLatin1(m_signer.sign(bytes).toBase64()));
-    manager->ingestCheckDocuments(bytes,
-                                  QJsonDocument(envelope).toJson(QJsonDocument::Compact));
-
+    const QByteArray rogue = QJsonDocument(envelope).toJson(QJsonDocument::Compact);
+    manager->checkForUpdates();
+    manager->ingestCheckDocuments(bytes, rogue);
+    if (!lightning::update::mirrorLatestManifestUrl().isEmpty()) {
+        // Unknown key on the canonical answer: the mirror is tried once; the
+        // same unknown key from the mirror is terminal.
+        QCOMPARE(manager->state(), UpdateManager::Checking);
+        QVERIFY(manager->metadataFromMirrorForTest());
+        manager->ingestCheckDocuments(bytes, rogue);
+    }
     QCOMPARE(manager->state(), UpdateManager::Failed);
     QVERIFY(!manager->updateAvailable());
 }
@@ -1688,31 +1710,91 @@ void UpdateManagerStateTest::updateSourcesNeverUseTheGitHubApi()
 
 
 // ---------------------------------------------------------------------------
-// Freshness. A signature proves who produced the document, never that it is
-// the current one: without an expiry, a captured `latest` pair could be
-// replayed to hold every installation on a vulnerable version forever while
-// the UI said "up to date".
+// Freshness is INFORMATION. A signature proves who produced the document,
+// never that it is the current one, and a replayed old-but-valid pair can keep
+// a client on an old release; the expiry names that staleness in the UI. It
+// is deliberately not a failure: the maintainer's servers may be gone for
+// good, and the client must keep updating from the GitHub mirror regardless.
 // ---------------------------------------------------------------------------
 
-void UpdateManagerStateTest::anExpiredManifestIsAFailureNotUpToDate()
+void UpdateManagerStateTest::anExpiredManifestStillOffersTheUpdateAndSaysSo()
 {
+    // The maintainer's servers may be gone for good. A manifest past its
+    // expiry -- or with none -- keeps working: the update it names is still
+    // offered, and a status line says the information may be stale. It was
+    // a failure for one day; that would have stranded every client on the
+    // day the project went dark.
     const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
     manager->setNowForTest(QDateTime::fromString(QStringLiteral("2026-09-02T12:00:00Z"),
                                                  Qt::ISODate));
     QJsonObject manifest = manifestObject(QStringLiteral("0.8.0"));
     manifest.insert(QStringLiteral("expires"), QStringLiteral("2026-09-01T00:00:00Z"));
     ingest(manager.get(), manifest);
-    QCOMPARE(manager->state(), UpdateManager::Failed);
-    QVERIFY(!manager->updateAvailable());
-    QVERIFY2(manager->errorMessage().contains(QStringLiteral("expired")),
-             qPrintable(manager->errorMessage()));
+    QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
+    QVERIFY(manager->updateAvailable());
+    QVERIFY(manager->errorMessage().isEmpty());
+    QVERIFY2(manager->statusDetail().contains(QStringLiteral("expected to be refreshed")),
+             qPrintable(manager->statusDetail()));
 
-    // The same document a day earlier is simply an update.
+    // Up to date past the expiry: still up to date, still says so.
+    const auto current = makeManager(InstallType::LinuxDeb, QStringLiteral("0.8.0"));
+    current->setNowForTest(QDateTime::fromString(QStringLiteral("2026-09-02T12:00:00Z"),
+                                                 Qt::ISODate));
+    ingest(current.get(), manifest);
+    QCOMPARE(current->state(), UpdateManager::UpToDate);
+    QVERIFY(current->statusDetail().contains(QStringLiteral("expected to be refreshed")));
+
+    // Before the expiry, or with no expiry at all: nothing to say.
     const auto fresh = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
     fresh->setNowForTest(QDateTime::fromString(QStringLiteral("2026-08-31T12:00:00Z"),
                                                Qt::ISODate));
     ingest(fresh.get(), manifest);
     QCOMPARE(fresh->state(), UpdateManager::UpdateAvailable);
+    QVERIFY(!fresh->statusDetail().contains(QStringLiteral("expected to be refreshed")));
+    const auto undated = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    manifest.remove(QStringLiteral("expires"));
+    ingest(undated.get(), manifest);
+    QCOMPARE(undated->state(), UpdateManager::UpdateAvailable);
+    QVERIFY(!undated->statusDetail().contains(QStringLiteral("expected to be refreshed")));
+
+    // An UNREADABLE expiry is not "no expiry": the line shows (as stale),
+    // and the update is still offered.
+    const auto garbled = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    manifest.insert(QStringLiteral("expires"), QStringLiteral("soon"));
+    ingest(garbled.get(), manifest);
+    QCOMPARE(garbled->state(), UpdateManager::UpdateAvailable);
+    QVERIFY2(garbled->statusDetail().contains(QStringLiteral("unreadable refresh date")),
+             qPrintable(garbled->statusDetail()));
+}
+
+void UpdateManagerStateTest::aCanonicalAnswerThatDoesNotVerifyFallsBackToTheMirror()
+{
+    // A lapsed domain or a hijacking proxy answers 200 with the wrong bytes.
+    // That is not "unreachable", so the old code failed the check there and
+    // never read the working mirror copy. Now it retries the mirror once.
+    const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    // Through the real entry point: startCheck() is the one place that
+    // enters Checking and resets the mirror flag; the disabled network seam
+    // then fetches nothing, so the documents are injected by hand.
+    manager->checkForUpdates();
+    QCOMPARE(manager->state(), UpdateManager::Checking);
+    QVERIFY(!manager->metadataFromMirrorForTest());
+    const QByteArray bytes =
+        QJsonDocument(manifestObject(QStringLiteral("0.8.0"))).toJson(QJsonDocument::Compact);
+    QByteArray tampered = bytes;
+    tampered.replace("0.8.0", "0.8.1"); // signed bytes, edited after signing
+    manager->ingestCheckDocuments(tampered, sign(bytes));
+    // The retry parks in Checking (nothing is fetched); what matters is
+    // that it CHOSE the mirror and did not fail.
+    if (lightning::update::mirrorLatestManifestUrl().isEmpty()) {
+        QCOMPARE(manager->state(), UpdateManager::Failed);
+        return;
+    }
+    QCOMPARE(manager->state(), UpdateManager::Checking);
+    QVERIFY(manager->metadataFromMirrorForTest());
+    // A mirror answer that does not verify is the end of the road.
+    manager->ingestCheckDocuments(tampered, sign(bytes));
+    QCOMPARE(manager->state(), UpdateManager::Failed);
 }
 
 void UpdateManagerStateTest::aPrereleaseIsRefusedWhateverChannelTheManifestClaims()
@@ -1860,5 +1942,35 @@ void UpdateManagerStateTest::aNewDownloadDisarmsAPendingDeferredInstall()
         QDir(staging.path()).absoluteFilePath(QStringLiteral("update-status.json"))));
 }
 
+void UpdateManagerStateTest::theFallbackFetcherHopsOnlyWithinTheMirror()
+{
+    // The GitHub fallback pair is served through a redirect from github.com
+    // to an object host. The fetcher used to gate EVERY metadata transfer on
+    // the canonical predicate, so the fallback was refused before its first
+    // request and had never once worked.
+    lightning::update::UpdateDocumentFetcher fetcher(nullptr);
+    const QUrl canonical = lightning::update::latestManifestUrl();
+    const QUrl fallback = lightning::update::mirrorLatestManifestUrl();
+    const QUrl objectHost(QStringLiteral(
+        "https://objects.githubusercontent.com/github-production-release-asset/x/y"));
+    const QUrl third(QStringLiteral("https://evil.example/update-manifest-v1.json"));
+
+    // Started at the fallback: the mirror's own hosts, and nothing else. A
+    // build with no fallback compiled in has no such start and skips this
+    // half (an empty base is a supported configuration).
+    if (!fallback.isEmpty()) {
+        QVERIFY(fetcher.permitsForTest(fallback, fallback));
+        QVERIFY(fetcher.permitsForTest(fallback, objectHost));
+        QVERIFY(!fetcher.permitsForTest(fallback, third));
+        QVERIFY(!fetcher.permitsForTest(fallback, canonical));
+        QVERIFY(!fetcher.permitsForTest(canonical, fallback));
+    }
+    // Started at the canonical host: never a mirror, never a third party.
+    QVERIFY(fetcher.permitsForTest(canonical, canonical));
+    QVERIFY(!fetcher.permitsForTest(canonical, objectHost));
+    QVERIFY(!fetcher.permitsForTest(canonical, third));
+    // A third-party start is neither role and is refused everywhere.
+    QVERIFY(!fetcher.permitsForTest(third, third));
+}
 QTEST_GUILESS_MAIN(UpdateManagerStateTest)
 #include "UpdateManagerStateTest.moc"

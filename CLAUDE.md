@@ -657,13 +657,16 @@ lost `build-deb` to it twice in one job), and report unavailable live
 validation honestly.
 
 **2026-09-02 audit, release checklist** (lightning-deploy
-`docs/update-manifest.md`): the signed manifest EXPIRES at `released` + 120
-days and the client then reports a FAILURE — before day 120 of a lull refresh
-`latest` without a release (`RELEASE_ACTION=attach-existing`,
+`docs/update-manifest.md`): the signed manifest carries `expires` (`released`
++ 120 days) — INFORMATIONAL only since 2026-09-03 at Rokas's direction, a
+client past it keeps updating and merely says so; refresh `latest` without a
+release to keep that line quiet (`RELEASE_ACTION=attach-existing`,
 `UPDATE_RELEASED_AT=<original>`, `UPDATE_EXPIRES_AT=<now+120d>`,
 `UPDATE_REFRESH_LATEST_ONLY=true`); `attach-existing` never moves `latest`
 backwards without `UPDATE_ALLOW_LATEST_ROLLBACK=true`; refresh image digests
-each round. **OPERATOR ACTION PENDING:** scope `UPDATE_SIGNING_KEY_B64` to
+each round; the pipeline writes the GitHub `update-latest` slot after every
+promotion and preflights the mirror token (rotate it when it warns; check the
+source mirror with `glab api projects/6/remote_mirrors`). **OPERATOR ACTION PENDING:** scope `UPDATE_SIGNING_KEY_B64` to
 environment `signing` and `GITHUB_MIRROR_TOKEN` to `mirror` in project 7,
 or the private key keeps reaching all six build jobs (key id and public key
 stay unscoped).

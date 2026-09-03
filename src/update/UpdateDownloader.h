@@ -25,8 +25,9 @@ class QTimer;
 // Policy (spec §9), enforced on the initial request AND on every redirect:
 //   - https only; any other scheme aborts the transfer;
 //   - the host must be on the compiled-in allowlist for THIS transfer's role
-//     (isPermittedUrl): a document fetch accepts the canonical host only,
-//     an artifact download additionally accepts the bandwidth mirrors;
+//     (isPermittedUrl): a document fetch accepts the canonical host, or --
+//     for the compiled-in FALLBACK pair alone -- the mirror hosts; an
+//     artifact download additionally accepts the bandwidth mirrors;
 //   - bounded redirect count;
 //   - a hard size ceiling; exceeding it aborts mid-stream;
 //   - no cookies, no cache, no custom headers beyond the Lightning user
@@ -132,9 +133,19 @@ public:
 
     void start(const QUrl &url, qint64 maxBytes, const QByteArray &userAgent);
     QByteArray document() const { return m_buffer; }
+    // What a transfer STARTED at `start` may hop to. Exposed for the test
+    // that pins the two roles apart without a network.
+    bool permitsForTest(const QUrl &start, const QUrl &hop);
 
 protected:
-    // Canonical host only: the manifest and its signature are metadata.
+    // Two roles, fixed by the URL the transfer STARTED at. Canonical metadata
+    // may never leave the canonical host. The FALLBACK pair -- the fixed
+    // GitHub release slot the client reads when the canonical host does not
+    // answer -- is on a mirror host and is served through GitHub's asset
+    // redirect to its object hosts, so that transfer may hop within the
+    // mirror host list and nowhere else. Until 2026-09-03 this returned the
+    // canonical predicate unconditionally, which refused the fallback fetch
+    // before its first request: the GitHub fallback had never once worked.
     bool isPermittedUrl(const QUrl &url) const override;
     void onChunk(const QByteArray &chunk) override;
     bool onCompleted(QString *message) override;
@@ -142,6 +153,7 @@ protected:
 
 private:
     QByteArray m_buffer;
+    bool m_fallbackRole = false;
 };
 
 // Streaming artifact download with an incremental SHA-256.

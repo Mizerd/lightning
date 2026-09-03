@@ -39,8 +39,10 @@ expecting anyway. The helper now takes `--sha256` and re-hashes right before
 acting; the app re-hashes before every launch (`src/updater/ArtifactDigest.*`),
 and `updater-helper-args` runs the REAL helper binary end to end. Also fixed:
 no manifest freshness (a captured `latest` pair verified forever — every
-manifest now carries a required signed `expires`, generator default 120 days,
-past it is a FAILURE not "up to date"), and the prerelease guard read the
+manifest now carries a signed `expires`, generator default 120 days; **on
+2026-09-03, at the maintainer's direction, a past or missing expiry became
+INFORMATIONAL rather than a failure**, so clients keep updating from the
+GitHub mirror if his servers die — see `docs/updates.md`), and the prerelease guard read the
 manifest's OWN `channel` (a document calling itself "beta" walked past it —
 the build decides now). A guard the guarded document can switch off is not a
 guard.

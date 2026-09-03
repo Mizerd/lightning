@@ -455,6 +455,14 @@ void UpdateManager::applyCheckDocuments(const QByteArray &manifestBytes,
     const UpdateManifest::Result result =
         UpdateManifest::parseVerified(manifestBytes, sigBytes, *m_trust);
     if (!result.ok) {
+        // A canonical answer that does not VERIFY is, for this purpose, no
+        // answer: a lapsed-and-reregistered domain or a hijacking proxy
+        // returns 200 with the wrong bytes, and "unreachable" alone would
+        // leave the working mirror copy unread. One retry, once per check,
+        // and the mirror pair is held to this identical verification; a
+        // mirror answer that fails is the end of the road.
+        if (retryMetadataFromMirror())
+            return;
         Q_EMIT updateInfoChanged();
         failWith(result.message);
         return;
@@ -469,23 +477,39 @@ void UpdateManager::applyCheckDocuments(const QByteArray &manifestBytes,
     }
 
     m_manifest = result.manifest;
-    const Version &remote = m_manifest.version();
 
-    // FRESHNESS. The signature proves the release authority produced this
-    // document; it cannot prove it is the CURRENT one. Anyone who can answer
-    // for the `latest` slot with an old, still-valid pair -- an intercepting
-    // position, a caching proxy, a registry restore -- could otherwise pin
-    // every installation on a vulnerable version forever while the UI said
-    // "up to date". Every manifest carries a signed `expires`; past it, the
-    // honest answer is "cannot confirm", not "up to date".
-    if (!m_manifest.expires().isValid() || m_manifest.expires() <= now()) {
-        Q_EMIT updateInfoChanged();
-        failWith(QStringLiteral("The published update information expired on %1, so Lightning "
-                                "cannot confirm whether a newer release exists. Please check "
-                                "for updates manually.")
-                     .arg(m_manifest.expires().toString(Qt::ISODate)));
-        return;
+    // FRESHNESS is INFORMATION, never a lock. The signature proves the
+    // release authority produced this document; it cannot prove it is the
+    // CURRENT one, and a stale pair replayed to a client keeps it on an old
+    // release. That was, for one day, a failure past the signed `expires`.
+    // It is not any more, at the maintainer's direction: an installation
+    // must keep working -- and keep updating from the GitHub mirror -- if
+    // his servers lose power or vanish for good, with no action from him or
+    // from GitLab, and a date that turned into a failure would strand every
+    // client at exactly that moment. So past the expiry the decision below
+    // is made exactly as before, and a status line says the information was
+    // expected to be refreshed by then and the project may be offline. What
+    // a replay can never do is install anything the signing key did not
+    // sign, or downgrade anyone.
+    decideFromManifest(*installed);
+    const bool expired = m_manifest.expires().isValid() && m_manifest.expires() <= now();
+    if ((expired || m_manifest.expiresMalformed()) && m_state != Failed) {
+        const QString stale = expired
+            ? QStringLiteral("Update information was expected to be refreshed by %1; the "
+                             "project may be offline. Downloads still verify against the "
+                             "signed release.")
+                  .arg(m_manifest.expires().toString(Qt::ISODate))
+            : QStringLiteral("Update information carries an unreadable refresh date and is "
+                             "treated as stale. Downloads still verify against the signed "
+                             "release.");
+        setStatusDetail(m_statusDetail.isEmpty() ? stale
+                                                 : m_statusDetail + QLatin1Char(' ') + stale);
     }
+}
+
+void UpdateManager::decideFromManifest(const Version &installed)
+{
+    const Version &remote = m_manifest.version();
 
     // This build never installs a pre-release, whatever the manifest calls
     // its channel (see kOffersPrereleases).
@@ -498,8 +522,8 @@ void UpdateManager::applyCheckDocuments(const QByteArray &manifestBytes,
         return;
     }
 
-    if (remote <= *installed) {
-        if (remote < *installed) {
+    if (remote <= installed) {
+        if (remote < installed) {
             setStatusDetail(QStringLiteral("The published version (%1) is older than this "
                                            "installation (%2); no downgrade is offered.")
                                 .arg(m_manifest.versionString(), m_currentVersion));
@@ -517,7 +541,7 @@ void UpdateManager::applyCheckDocuments(const QByteArray &manifestBytes,
     // is actionable, and only when it is genuinely newer.
     if (isPackageManaged(m_detection.type)) {
         const QString channelId = UpdateManifest::channelIdForInstallType(m_detection.type);
-        if (!m_manifest.channelOffersUpdate(channelId, *installed)) {
+        if (!m_manifest.channelOffersUpdate(channelId, installed)) {
             const std::optional<ManifestChannel> channel = m_manifest.channelFor(channelId);
             QString note = channel ? channel->note : QString();
             if (note.isEmpty()) {

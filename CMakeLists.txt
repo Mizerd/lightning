@@ -88,16 +88,20 @@ set(LIGHTNING_INSTALL_TYPE "development" CACHE STRING
 set(LIGHTNING_UPDATE_PUBKEY_2026A "" CACHE STRING
     "Base64 Ed25519 public key for update-manifest key id lightning-release-2026a")
 set(LIGHTNING_UPDATE_HOST "gitlab.smetonis.net" CACHE STRING
-    "Canonical host: the ONLY source of update metadata, and the fallback for artifacts")
+    "Canonical host: the FIRST source of update metadata (the mirror's fixed slot is the fallback), and the fallback for artifacts")
 set(LIGHTNING_UPDATE_PROJECT_ID "6" CACHE STRING
     "GitLab project id hosting the update package registry")
 
 # Hosts that may serve artifact BYTES in addition to the canonical host, so the
-# GitHub mirror can carry the download traffic. This is deliberately narrow:
-# these hosts may supply bytes that are then checked against the SHA-256 in the
-# signed manifest, and nothing else. They can never serve the manifest, its
-# signature or the release notes, and nothing they return influences which
-# version is installed -- see docs/updates.md and src/update/UpdateEndpoints.h.
+# GitHub mirror can carry the download traffic -- AND, since 2026-09-03, the
+# hosts the fixed FALLBACK manifest slot may be served from (the same list
+# gates both roles: isAllowedFallbackManifestUrl is isAllowedUrlOn(mirror
+# hosts)). So adding a host here for bandwidth also lets it serve the
+# fallback metadata pair. That is safe only because the pair is verified by
+# the compiled-in Ed25519 key before a field is read, exactly like the
+# canonical copy; they can still never serve the release notes, and nothing
+# they return influences which version is installed beyond what the
+# signature allows -- see docs/updates.md and src/update/UpdateEndpoints.h.
 # github.com issues the redirect; the *.githubusercontent.com hosts serve the
 # object it redirects to.
 set(LIGHTNING_UPDATE_MIRROR_HOSTS

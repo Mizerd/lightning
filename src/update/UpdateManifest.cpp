@@ -87,10 +87,6 @@ QString manifestErrorText(ManifestError error)
         return QStringLiteral("The update version is not a valid version number");
     case ManifestError::MissingChannel:
         return QStringLiteral("The update information has no release channel");
-    case ManifestError::MissingExpiry:
-        return QStringLiteral("The update information carries no expiry");
-    case ManifestError::MalformedExpiry:
-        return QStringLiteral("The update information has a malformed expiry");
     case ManifestError::ReleaseNotesUrlRejected:
         return QStringLiteral("The release notes link is not an accepted address");
     case ManifestError::ArtifactMalformed:
@@ -249,19 +245,23 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
         manifest.m_released = QDateTime::fromString(releasedValue.toString(), Qt::ISODate);
     }
 
-    // REQUIRED, unlike `released`: it is the one field that says whether a
-    // correctly signed document is still the current one. Absent or
-    // unparseable is a failure, never "no expiry".
+    // OPTIONAL and informational, like `released`: absent or empty reads as
+    // "no expiry"; present but unreadable (unparseable, a zone-less local
+    // time, not a string) is flagged so the manager can show the line
+    // anyway. Never a failure (see the accessor's comment for why).
     const QJsonValue expiresValue = root.value(QLatin1String("expires"));
-    if (!expiresValue.isString() || expiresValue.toString().isEmpty())
-        return failure(ManifestError::MissingExpiry);
-    manifest.m_expires = QDateTime::fromString(expiresValue.toString(), Qt::ISODate);
-    if (!manifest.m_expires.isValid())
-        return failure(ManifestError::MalformedExpiry);
-    // A timestamp with no zone designator is a local time on whatever
-    // machine reads it; the generator always writes a "Z" instant.
-    if (manifest.m_expires.timeSpec() == Qt::LocalTime)
-        return failure(ManifestError::MalformedExpiry);
+    if (!expiresValue.isUndefined() && !expiresValue.isNull()) {
+        if (expiresValue.isString() && !expiresValue.toString().isEmpty()) {
+            const QDateTime expires =
+                QDateTime::fromString(expiresValue.toString(), Qt::ISODate);
+            if (expires.isValid() && expires.timeSpec() != Qt::LocalTime)
+                manifest.m_expires = expires;
+            else
+                manifest.m_expiresMalformed = true;
+        } else if (!expiresValue.isString()) {
+            manifest.m_expiresMalformed = true;
+        }
+    }
 
     const QJsonValue notesValue = root.value(QLatin1String("release_notes"));
     if (notesValue.isString())

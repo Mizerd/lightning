@@ -273,9 +273,9 @@ private slots:
     void modelsEcosystemChannels();
     void validatesHashAndFilenameHelpers();
     void validatesUpdateUrls();
-    void rejectsAMissingExpiry();
-    void rejectsAMalformedExpiry_data();
-    void rejectsAMalformedExpiry();
+    void expiryIsOptionalAndInformational();
+    void aMalformedExpiryReadsAsNone_data();
+    void aMalformedExpiryReadsAsNone();
     void boundsAChannelNote();
 };
 
@@ -1051,39 +1051,52 @@ void UpdateManifestTest::validatesUpdateUrls()
 }
 
 
-void UpdateManifestTest::rejectsAMissingExpiry()
+void UpdateManifestTest::expiryIsOptionalAndInformational()
 {
-    // Required, unlike `released`: it is the one field that bounds how long a
-    // captured pair can be replayed. Absent is a failure, never "no expiry".
+    // A client must keep working from a manifest with no expiry, or one long
+    // past it: the maintainer's servers may be gone. Absent reads as never.
     QJsonObject manifest = baseManifest();
     manifest.remove(QStringLiteral("expires"));
-    QCOMPARE(verify(manifest).error, ManifestError::MissingExpiry);
+    UpdateManifest::Result result = verify(manifest);
+    QVERIFY2(result.ok, qPrintable(result.message));
+    QVERIFY(!result.manifest.expires().isValid());
     manifest.insert(QStringLiteral("expires"), QString());
-    QCOMPARE(verify(manifest).error, ManifestError::MissingExpiry);
-    const UpdateManifest::Result ok = verify(baseManifest());
-    QVERIFY2(ok.ok, qPrintable(ok.message));
-    QCOMPARE(ok.manifest.expires(),
+    result = verify(manifest);
+    QVERIFY2(result.ok, qPrintable(result.message));
+    QVERIFY(!result.manifest.expires().isValid());
+    QVERIFY(!result.manifest.expiresMalformed()); // empty is "none", not garbage
+    const UpdateManifest::Result dated = verify(baseManifest());
+    QVERIFY2(dated.ok, qPrintable(dated.message));
+    QCOMPARE(dated.manifest.expires(),
              QDateTime::fromString(QStringLiteral("2026-12-14T12:00:00Z"), Qt::ISODate));
 }
 
-void UpdateManifestTest::rejectsAMalformedExpiry_data()
+void UpdateManifestTest::aMalformedExpiryReadsAsNone_data()
 {
     QTest::addColumn<QJsonValue>("value");
     QTest::newRow("not a date") << QJsonValue(QStringLiteral("soon"));
     QTest::newRow("number") << QJsonValue(1700000000);
     // No zone designator: a local time on whatever machine reads it.
     QTest::newRow("local time") << QJsonValue(QStringLiteral("2026-12-14T12:00:00"));
+    // Qt parses a bare date as the LOCAL start of that day, so this is the
+    // zone guard's branch, not the validity one.
     QTest::newRow("date only") << QJsonValue(QStringLiteral("2026-12-14"));
 }
 
-void UpdateManifestTest::rejectsAMalformedExpiry()
+void UpdateManifestTest::aMalformedExpiryReadsAsNone()
 {
+    // Never a failure -- but never silently "no expiry" either: the manager
+    // shows the stale line for a value it could not read.
     QFETCH(QJsonValue, value);
     QJsonObject manifest = baseManifest();
     manifest.insert(QStringLiteral("expires"), value);
-    const ManifestError error = verify(manifest).error;
-    QVERIFY2(error == ManifestError::MalformedExpiry || error == ManifestError::MissingExpiry,
-             qPrintable(manifestErrorText(error)));
+    const UpdateManifest::Result result = verify(manifest);
+    QVERIFY2(result.ok, qPrintable(result.message));
+    QVERIFY(!result.manifest.expires().isValid());
+    QVERIFY(result.manifest.expiresMalformed());
+    // Absent is different: no expiry, nothing malformed.
+    manifest.remove(QStringLiteral("expires"));
+    QVERIFY(!verify(manifest).manifest.expiresMalformed());
 }
 
 void UpdateManifestTest::boundsAChannelNote()

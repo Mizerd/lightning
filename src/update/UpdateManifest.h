@@ -44,12 +44,6 @@ enum class ManifestError {
     MissingVersion,
     MalformedVersion,
     MissingChannel,
-    // `expires` is REQUIRED and must be an ISO-8601 instant. A signature
-    // proves who produced the document, never that it is the current one;
-    // the expiry is what bounds how long a captured `latest` pair can be
-    // replayed to freeze installations on a vulnerable version.
-    MissingExpiry,
-    MalformedExpiry,
     ReleaseNotesUrlRejected,
     // Artifact stage.
     ArtifactMalformed,
@@ -133,10 +127,21 @@ public:
     QString channel() const { return m_channel; }
     QString tag() const { return m_tag; }
     QDateTime released() const { return m_released; }
-    // The signed instant after which this document must not be believed.
-    // Always valid on a parsed manifest; UpdateManager compares it with the
-    // clock, because the parser has none.
+    // The signed instant by which the release authority expected to have
+    // refreshed this document. INFORMATIONAL: past it, UpdateManager says so
+    // and carries on. Null when the document carries none (or an
+    // unparseable one), which reads as "never". A manifest is never refused
+    // over it -- the maintainer's requirement is that installed clients keep
+    // updating from the GitHub mirror if his servers disappear, with no
+    // action from him or GitLab, and a date that turned into a failure would
+    // do the opposite. The parser has no clock; the comparison lives in
+    // UpdateManager.
     QDateTime expires() const { return m_expires; }
+    // True when the document carried an `expires` this parser could not
+    // read. UpdateManager treats that as ALREADY STALE -- the status line
+    // shows, nothing else changes -- so a generator defect cannot silently
+    // switch the freshness signal off.
+    bool expiresMalformed() const { return m_expiresMalformed; }
     int minUpdaterVersion() const { return m_minUpdaterVersion; }
     QString releaseNotes() const { return m_releaseNotes; }
     QUrl releaseNotesUrl() const { return m_releaseNotesUrl; }
@@ -172,6 +177,7 @@ private:
     QString m_tag;
     QDateTime m_released;
     QDateTime m_expires;
+    bool m_expiresMalformed = false;
     int m_minUpdaterVersion = 1;
     QString m_releaseNotes;
     QUrl m_releaseNotesUrl;

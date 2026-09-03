@@ -12,17 +12,23 @@ true, so the privacy section below is part of the contract, not a footnote.
 
 Two hosts, with sharply different roles.
 
-**`gitlab.smetonis.net` — the release authority.** It is the only source of
+**`gitlab.smetonis.net` — the release authority.** It is the first source of
 update *metadata*: which version exists, what the artifact is called, how big it
 is, and what its SHA-256 must be. Every decision Lightning makes about updating
-comes from a signed document served by this host, and from nothing else.
+comes from a signed document — signed on this host, with a key that exists
+nowhere else — and from nothing else. Where that document is *fetched* from
+can be GitLab or, when GitLab does not answer or answers with something that
+does not verify, the fixed fallback slot on the mirror below; the signature
+check is identical either way.
 
-**`github.com` — a bandwidth mirror, bytes only.** Lightning downloads the
-update *file* from the project's read-only GitHub mirror first, to keep the
-load off the project's own server. GitHub redirects that download to
-`objects.githubusercontent.com` or `release-assets.githubusercontent.com`, so
-those hosts are contacted too. If the mirror cannot supply the file, Lightning
-falls back to GitLab and the update proceeds normally.
+**`github.com` — a bandwidth mirror, and the fallback copy of the metadata.**
+Lightning downloads the update *file* from the project's read-only GitHub
+mirror first, to keep the load off the project's own server, and reads the
+signed manifest pair from one fixed GitHub release slot when GitLab is
+unreachable (see *When GitLab is unreachable* below). GitHub redirects both
+to `objects.githubusercontent.com` or `release-assets.githubusercontent.com`,
+so those hosts are contacted too. If the mirror cannot supply the file,
+Lightning falls back to GitLab and the update proceeds normally.
 
 GitHub is never asked *what* to install. Lightning makes no GitHub API call, and
 never reads GitHub's releases list, `/releases/latest`, tags, or any other
@@ -33,7 +39,8 @@ against the SHA-256 the signed manifest already fixed. See *Why a mirror cannot
 publish an update* below.
 
 An update check is an ordinary anonymous HTTPS GET of two small public files
-from the project's package registry — from GitLab, always:
+from the project's package registry — from GitLab first, and from the fixed
+GitHub slot only when GitLab does not answer:
 
 ```
 .../api/v4/projects/6/packages/generic/lightning-update/latest/update-manifest-v1.json
@@ -42,8 +49,9 @@ from the project's package registry — from GitLab, always:
 
 The request carries the URL and Lightning's update user agent, which is exactly
 `Lightning/<version>` — the application version and nothing else. The same is
-true of the artifact download, whichever host serves it: GitHub sees an
-anonymous request for a public release file, plus the connecting IP address, as
+true of the artifact download, whichever host serves it, and of a fallback
+metadata check: GitHub sees an anonymous request for a public release file,
+plus the connecting IP address, as
 any file download does. Specifically, neither a check nor a download **ever**
 includes:
 
@@ -148,21 +156,27 @@ execute one. Every installation strategy below is compiled into Lightning and
 the updater helper. Remote metadata selects among fixed, trusted behaviours; it
 can never define one.
 
-### Freshness: the manifest expires
+### Freshness: `expires` is information, never a lock
 
 A signature proves who produced the manifest; it cannot prove the manifest is
-the *current* one. Anyone able to answer for the `latest` slot with an old,
-still-valid pair (an intercepting position, a caching proxy, a registry
-restore) could otherwise hold every installation on a vulnerable version
-indefinitely while the UI said "up to date". So every manifest carries a
-signed `expires` instant, and Lightning 0.8.4 and later **refuse a manifest
-without one** and treat one past it as a failure ("update information
-expired; check manually"), never as "up to date". The pipeline sets it to
-`released` plus 120 days. **A longer release lull needs a deliberate
-refresh** of the `latest` slot (lightning-deploy `docs/update-manifest.md`,
-"Refreshing without a release"): nothing reminds anyone, and on day 121 every
-installation reports that its update information has expired. It is on the
-release checklist in `CLAUDE.md` §14.
+the *current* one. Every manifest therefore carries a signed `expires`
+instant (`released` plus 120 days from the pipeline), and Lightning shows,
+once that instant has passed, that the update information was expected to be
+refreshed by then and the project may be offline. **Nothing else changes:**
+the update the manifest names is still offered, its downloads are still
+verified against the signed hashes, a manifest with no `expires` at all is
+accepted as one that never expires, and one whose `expires` cannot be read
+is treated as already stale (the line shows; nothing else changes), so a
+generator defect cannot silently switch the signal off. This is deliberate. The maintainer's
+requirement is that installed clients keep working — and keep updating from
+the GitHub mirror — if his servers lose power or disappear for good, with no
+action from him or from GitLab; a manifest that turned into a failure on a
+date would do the opposite. What the expiry gives up is freeze detection: a
+captured pair can be replayed to keep a client on an old release. What a
+replay cannot do is install anything the signing key did not sign, or
+downgrade anyone. The pipeline can still refresh `latest` without a release
+(lightning-deploy `docs/update-manifest.md`), which is what keeps the status
+line quiet during a long lull.
 
 ### Version comparison
 
@@ -175,6 +189,25 @@ the decision now belongs to the build, not the document. If the published
 version equals yours, or is older than yours, Lightning reports that you are
 up to date and does not downgrade. A version string that does not parse is an error, never an
 assumption that an update exists.
+
+### When GitLab is unreachable: the GitHub fallback
+
+The client compiles in a second address for its update metadata, the fixed
+GitHub release slot `…/releases/download/update-latest/…`, and reads it only
+after the canonical host failed to answer. The release pipeline writes that
+slot after every GitLab promotion (`mirror-update-manifest-to-github`), and
+every package is already mirrored per release, so with GitLab unreachable —
+or answering with a document that does not verify, which is what a lapsed
+domain or a hijacking proxy looks like — the whole path — manifest,
+signature, artifacts — is served by GitHub and verified by the same
+compiled-in Ed25519 key. One retry, once per check, and the mirror copy is
+held to the identical verification. GitHub decides nothing: the client reads no
+release metadata, calls no API, and follows the fixed path only. The
+document fetcher accepts a redirect from `github.com` to GitHub's asset
+object hosts for that fallback, and for nothing else; the canonical fetch
+still refuses to leave the canonical host. Before 2026-09-03 the fallback
+was doubly inert: no pipeline job wrote the slot, and the fetcher refused the
+mirror host for metadata even when asked for it.
 
 ## Installation type detection
 

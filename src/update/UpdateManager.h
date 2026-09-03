@@ -249,6 +249,9 @@ public:
     // same promise ("these bytes were checked") for the purposes of the
     // re-check that every launch performs.
     QString stagedArtifactSha256ForTest() const { return m_stagedSha256; }
+    // Whether the current check has fallen back to the mirror's metadata
+    // pair (a canonical transfer failed, or its answer did not verify).
+    bool metadataFromMirrorForTest() const { return m_metadataFromMirror; }
     QString stagingRootForTest() const { return stagingRoot(); }
 
 Q_SIGNALS:
@@ -298,6 +301,9 @@ private:
     void fetchSignature();
     void fetchManifest();
     void applyCheckDocuments(const QByteArray &manifestBytes, const QByteArray &sigBytes);
+    // The version / channel / artifact decision for the verified m_manifest,
+    // ending in one of UpToDate, UpdateAvailable or Failed.
+    void decideFromManifest(const Version &installed);
 
     void startInstall(bool restartAfterwards);
     // Starts the helper for the "apply when I quit" path, from aboutToQuit.
