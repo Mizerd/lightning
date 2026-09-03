@@ -12275,6 +12275,29 @@ mod live_e2ee_interop_tests {
                 );
             }
 
+            // A REDACTED message must not stay findable by its own text.
+            // The server empties a redacted event's content, so it never
+            // becomes indexable in the first place — this asserts the outcome
+            // rather than the mechanism, because the mechanism could change
+            // (a client-seen redaction goes through forget_event instead) and
+            // the outcome must not.
+            if let Some(gone) = env_nonempty("LIGHTNING_TEST_REDACTED_NEEDLE") {
+                let q = CString::new(gone.clone()).unwrap();
+                let _ = take(super::mx_rust_local_search(
+                    handle, q.as_ptr(), empty.as_ptr(), 20, 0, 9303));
+                let r = wait_for(handle, "redacted search",
+                                 Duration::from_secs(30), |ev| {
+                    ev["type"] == "local_search_result" && ev["op_id"] == 9303
+                });
+                let hits = r["results"].as_array().cloned().unwrap_or_default();
+                eprintln!("[live] redacted needle -> {} hit(s)", hits.len());
+                assert!(
+                    hits.is_empty(),
+                    "a REDACTED message is still findable by its own text — \
+                     the worst thing a local index can do"
+                );
+            }
+
             // A query below the tokenizer's minimum is REPORTED, not silently
             // empty: the user can act on "type one more character".
             let short = CString::new("ab").unwrap();
