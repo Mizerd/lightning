@@ -343,6 +343,18 @@ unhandled. Suites: `call-controller` 35, `call-ring-policy` 10,
 
 #### Models, backends and derived data
 
+- **TWO ANSWERS FROM THE SAME SERVER, and the client picked the one nobody
+  can see.** The Activity bell counted 25 highlights while no room showed
+  unread. The bell's seed is `GET /notifications?only=highlight`, whose
+  per-notification `read` flag said false; the room list uses
+  `highlight_count` (`max(num_unread_mentions, sync highlight_count)`), which
+  said nothing was unread. Neither side was "the bug" — the client believed
+  the invisible one. Rule: when two server-sourced answers describe the same
+  thing, the surface the user is looking at wins, and the badge is reconciled
+  against it (per room, the newest N rows stay unseen where N is that room's
+  count). A per-notification flag is also not durable state: the earlier fix
+  assumed a read receipt would set it and the report proved it did not.
+
 - **The mock backend being RIGHT is how a backend defect survives** —
   `RoomInfo::childRoomIds` is contractually a Space's DIRECT children and was
   that on the mock and HTTP backends, while the Rust backend filled it from
@@ -531,6 +543,14 @@ unhandled. Suites: `call-controller` 35, `call-ring-policy` 10,
   patching matrix-sdk-ui 0.18: `docs/receipt-semantics.md`.
 
 #### Testing and harness discipline
+
+- **`nearTopControllerDrivenBatchesCompensateImmediatelyNotChained` flakes
+  ALONE**, not only under `-j8`. Measured 2026-09-03 on identical code with
+  nothing touching the timeline: one failure and two passes in three
+  consecutive isolated runs, and three DIFFERENT cases of `timeline-pane-qml`
+  failed across four full runs the same day. §16's load-sensitive note already
+  covers the suite; this widens it — a lower `-j` is not a reliable workaround,
+  so re-run the case before reading a failure as a scroll regression.
 
 - **A case that flips a shared setting must RESTORE BEFORE IT ASSERTS.** Test
   binaries here have no `XDG_CONFIG_HOME` isolation, so every case in one
