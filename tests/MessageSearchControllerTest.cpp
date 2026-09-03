@@ -249,6 +249,42 @@ private Q_SLOTS:
         QTRY_COMPARE(model.state(), QStringLiteral("idle"));
         QCOMPARE(model.rowCount(), 0);
     }
+    // ── The two producers must spell the sender the same way ─────────────
+    //
+    // MessageSearchController is shared by SERVER search and the LOCAL index,
+    // and it reads one key: senderDisplayName. Both local-search producers
+    // (the Rust bridge and this mock) used to emit "senderName" instead, so
+    // every local result reached the find bar with an empty sender — which
+    // rendered in the results list and in the Accessible name, and which no
+    // unit test could see because none of them read a local row's sender.
+    //
+    // Asserts the VALUE, not merely that a role exists: an empty string is
+    // exactly what the defect produced.
+    void aLocalResultCarriesItsSenderThroughToTheModel()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        QVERIFY(model.localAvailable());
+        QCOMPARE(model.source(), QStringLiteral("local"));
+        model.setRoomId(QStringLiteral("!general:mock.local"));
+        // A needle from the mock's OWN seeded timeline — the local index
+        // scans what the backend holds, not mockSearchResults.
+        model.setQuery(QStringLiteral("Welcome"));
+        QTRY_VERIFY(model.rowCount() > 0);
+        const QModelIndex idx = model.index(0);
+        const QString shown =
+            model.data(idx, MessageSearchController::SenderDisplayNameRole)
+                .toString();
+        const QString mxid =
+            model.data(idx, MessageSearchController::SenderRole).toString();
+        QVERIFY2(!mxid.isEmpty(), "a local row lost its sender id");
+        QVERIFY2(!shown.isEmpty(),
+                 "a local row lost its sender display name — the producers "
+                 "and MessageSearchController disagree on the key");
+    }
 };
 
 QTEST_MAIN(MessageSearchControllerTest)

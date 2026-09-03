@@ -8424,7 +8424,12 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                   row.value(QStringLiteral("room_id")).toString() },
                 { QStringLiteral("sender"),
                   row.value(QStringLiteral("sender")).toString() },
-                { QStringLiteral("senderName"),
+                // senderDisplayName, NOT senderName. MessageSearchController
+                // is shared with the SERVER search path, which has always
+                // emitted senderDisplayName, and the controller reads only
+                // that. A second spelling here meant every local-search row
+                // reached the find bar with no sender at all.
+                { QStringLiteral("senderDisplayName"),
                   row.value(QStringLiteral("sender_name")).toString() },
                 { QStringLiteral("body"),
                   row.value(QStringLiteral("body")).toString() },
