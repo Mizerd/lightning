@@ -12298,6 +12298,54 @@ mod live_e2ee_interop_tests {
                 );
             }
 
+            // ── Jump to date (MSC3030) against the REAL server ───────
+            //
+            // `timestamp_to_event` is only stable since Matrix 1.6, so
+            // whether it answers at all is a property of the homeserver, not
+            // of this client — which is exactly why it needs a live check
+            // rather than a unit test. Uses a hit the search just returned,
+            // so the room and the instant are both real and the answer is
+            // checkable: asking for the event AT a known event's timestamp
+            // and searching FORWARD must return that same event.
+            //
+            // A server WITHOUT the endpoint answers 404 M_UNRECOGNIZED and
+            // classifies as "unrecognized"; that is reported rather than
+            // failed, because an old homeserver is a fact about the server
+            // and this test is not the place to fail it.
+            {
+                let first = &hits[0];
+                let room = first["room_id"].as_str().unwrap_or_default().to_owned();
+                let want = first["event_id"].as_str().unwrap_or_default().to_owned();
+                let at = first["timestamp_ms"].as_i64().unwrap_or(0);
+                assert!(!room.is_empty() && at > 0,
+                        "a search hit carried no room or timestamp");
+                let rid = CString::new(room.clone()).unwrap();
+                let err = take(super::mx_rust_event_at_timestamp(
+                    handle, rid.as_ptr(), at, 9320));
+                assert!(err.is_empty(), "timestamp dispatch: {err}");
+                let r = wait_for(handle, "timestamp_to_event",
+                                 Duration::from_secs(30), |ev| {
+                    ev["type"] == "timestamp_event" && ev["op_id"] == 9320
+                });
+                if r["ok"] == true {
+                    let got = r["event_id"].as_str().unwrap_or_default();
+                    eprintln!("[live] MSC3030 at {at} -> {got}");
+                    assert_eq!(
+                        got, want,
+                        "the server returned a different event than the one \
+                         AT that exact timestamp, searching forward"
+                    );
+                } else {
+                    let why = r["category"].as_str().unwrap_or_default();
+                    eprintln!("[live] MSC3030 unavailable: category={why}");
+                    assert_eq!(
+                        why, "unrecognized",
+                        "jump to date failed for a reason other than the \
+                         server not implementing it"
+                    );
+                }
+            }
+
             // A query below the tokenizer's minimum is REPORTED, not silently
             // empty: the user can act on "type one more character".
             let short = CString::new("ab").unwrap();
