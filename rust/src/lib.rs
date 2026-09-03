@@ -74,6 +74,7 @@ mod calls;
 mod discover;
 mod gifs;
 mod ignore;
+mod localsearch;
 mod oauth;
 mod pinned;
 mod search;
