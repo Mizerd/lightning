@@ -9,6 +9,7 @@
 #include "models/MessageSearchController.h"
 
 #include <QSignalSpy>
+#include <algorithm>
 #include <QtTest/QtTest>
 
 namespace {
@@ -249,6 +250,58 @@ private Q_SLOTS:
         QTRY_COMPARE(model.state(), QStringLiteral("idle"));
         QCOMPARE(model.rowCount(), 0);
     }
+    // ── The date bounds, ISOLATED ────────────────────────────────────────
+    //
+    // The combined-filter case above sets afterMs/beforeMs alongside four
+    // other filters, and its two negative rows already fail on msgtype and on
+    // mentions — so it passes unchanged with both date clauses DELETED. This
+    // one differs ONLY by timestamp and sets ONLY the bounds, so it fails if
+    // either clause goes or flips its comparison.
+    //
+    // The upper bound is deliberately EXCLUSIVE (`>= m_beforeMs` rejects),
+    // which is what makes "before 1 Jan" mean the whole of 31 Dec and not one
+    // millisecond of 1 Jan; `atUpperBound` pins that, and it is the assertion
+    // an inclusive comparison would break.
+    void dateBoundsAloneDecideWhichRowsSurvive()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        model.setSource(QStringLiteral("server"));
+
+        const qint64 lower = 1700000000000LL;
+        const qint64 upper = 1700000010000LL;
+        auto atTime = [](const QString &id, qint64 ts) {
+            QVariantMap row = resultRow(QStringLiteral("!general:mock.local"),
+                                        id, QStringLiteral("x"));
+            row.insert(QStringLiteral("timestampMs"), ts);
+            return row;
+        };
+        client.mockSearchResults = {
+            atTime(QStringLiteral("$tooEarly"), lower - 1),
+            atTime(QStringLiteral("$atLowerBound"), lower),
+            atTime(QStringLiteral("$inside"), lower + 5000),
+            atTime(QStringLiteral("$atUpperBound"), upper),
+            atTime(QStringLiteral("$tooLate"), upper + 1),
+        };
+        model.setFilters(QVariantMap{
+            { QStringLiteral("afterMs"), lower },
+            { QStringLiteral("beforeMs"), upper },
+        });
+        model.setQuery(QStringLiteral("x"));
+        QTRY_COMPARE(model.state(), QStringLiteral("results"));
+
+        QStringList kept;
+        for (int i = 0; i < model.rowCount(); ++i)
+            kept << model.rowAt(i).value(QStringLiteral("eventId")).toString();
+        std::sort(kept.begin(), kept.end());
+        // Lower bound INCLUSIVE, upper bound EXCLUSIVE.
+        QCOMPARE(kept, (QStringList{ QStringLiteral("$atLowerBound"),
+                                     QStringLiteral("$inside") }));
+    }
+
     // ── The two producers must spell the sender the same way ─────────────
     //
     // MessageSearchController is shared by SERVER search and the LOCAL index,
