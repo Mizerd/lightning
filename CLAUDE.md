@@ -343,8 +343,21 @@ modern Matrix, E2EE, or SDK-thread behavior.
   keys, secret-storage material, UIA passwords, provider keys, tokens, or raw
   cryptographic state.
 - Never persist decrypted private-message plaintext in application caches.
-  Encrypted-room plaintext remains memory-only; `CacheStore` must continue to
-  reject encrypted timeline rows.
+  `CacheStore` must continue to reject encrypted timeline rows.
+  **ONE sanctioned exception, added 2026-09-04 at Rokas's explicit choice: the
+  local search index** (`rust/src/localsearch.rs`). Searching encrypted rooms
+  is the entire point of it — the server cannot read ciphertext, so a local
+  index is the only search those rooms can ever have — and it introduces no
+  new class of data to disk: matrix-sdk's own event cache ALREADY persists
+  decrypted bodies unencrypted (`encode_event` serializes the `Decrypted`
+  variant, `encode_value` is a no-op with no cypher, and Lightning opens
+  `sqlite_store(path, None)`). It lives in the account's own store directory,
+  is deleted with the account, and drops a redacted message outright. The full
+  contract, and why a store passphrase is NOT a free fix — one config covers
+  the crypto store too, so it would strand every existing install's account
+  pickle — is in `docs/feature-contracts.md` under "Local message search".
+  Encrypting the store at rest remains an OPEN decision, not a refused one.
+  Do not read this exception as permission for the next cache.
 - Never put real credentials in tests or commit private stores/session data.
 - Never render untrusted SVG as active content. Keep SVG excluded from inline
   preview/media paths unless a separately reviewed safe design lands.
