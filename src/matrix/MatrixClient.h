@@ -844,6 +844,35 @@ public:
     // arrives as ok=false with category "not_found".
     virtual quint64 eventAtTimestamp(const QString &roomId, qint64 timestampMs)
     { Q_UNUSED(roomId); Q_UNUSED(timestampMs); return 0; }
+
+    // ── Local message search ─────────────────────────────────────────────
+    //
+    // Server search (searchMessages) can only search what the SERVER can read,
+    // so it returns nothing for an encrypted room. This searches the index the
+    // client builds from the plaintext it already holds, so an encrypted room
+    // searches like a public one. 0 = this backend has no local index, which
+    // is a different answer from "no results" and must stay tellable apart.
+    virtual quint64 localSearch(const QString &query, const QString &roomId,
+                                int limit, int offset)
+    { Q_UNUSED(query); Q_UNUSED(roomId); Q_UNUSED(limit); Q_UNUSED(offset);
+      return 0; }
+    /// What the index holds, so a surface can say what search covers rather
+    /// than implying it covers everything.
+    virtual quint64 searchIndexStats() { return 0; }
+    /// Sweep cached events into the index. Bounded per call.
+    virtual quint64 sweepSearchIndex() { return 0; }
+    /// Page one room backwards and index what arrives — "index this room's
+    /// history", which turns "search what you have read" into "search this
+    /// room".
+    virtual quint64 deepenSearchIndex(const QString &roomId)
+    { Q_UNUSED(roomId); return 0; }
+    /// A redacted message must not stay findable by its own text.
+    virtual void forgetIndexedEvent(const QString &eventId) { Q_UNUSED(eventId); }
+    virtual void forgetIndexedRoom(const QString &roomId) { Q_UNUSED(roomId); }
+    virtual void clearSearchIndex() {}
+    /// Whether this backend can search locally at all. Lets a surface be
+    /// ABSENT rather than present and dead.
+    virtual bool supportsLocalSearch() const { return false; }
     // v0.9 scheduled send (phase 11), the SERVER side (MSC4140 delayed
     // message events). probeDelayedEvents answers on
     // delayedEventsSupportReceived; scheduleMessage on scheduledSendFinished
@@ -1618,6 +1647,22 @@ Q_SIGNALS:
     void eventAtTimestampReceived(quint64 opId, const QString &roomId, bool ok,
                                   const QString &eventId, qint64 timestampMs,
                                   const QString &category);
+    /// Local search answered. `results` is a list of maps: eventId, roomId,
+    /// sender, senderName, body, msgtype, timestampMs. `category` is
+    /// "too_short" when the query cannot match the trigram tokenizer at all —
+    /// which is a different sentence from "no results".
+    ///
+    /// PRIVACY: these bodies are message text, and in an encrypted room they
+    /// are decrypted plaintext. They live in the receiving model's memory and
+    /// are never persisted by it, never logged, and never leave the process.
+    void localSearchFinished(quint64 opId, bool ok, const QString &category,
+                             int minChars, const QVariantList &results);
+    void searchIndexStatsReceived(quint64 opId, qint64 messages, qint64 rooms);
+    void searchIndexSwept(quint64 opId, int rooms, int written,
+                          qint64 messages, qint64 indexedRooms);
+    void searchIndexDeepened(quint64 opId, bool ok, const QString &roomId,
+                             int pages, bool reachedStart, int written,
+                             qint64 messages, const QString &category);
     // v0.9 scheduled send.
     void delayedEventsSupportReceived(bool supported, bool advertised);
     void scheduledSendFinished(quint64 opId, const QString &roomId, bool ok,

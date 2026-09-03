@@ -138,6 +138,19 @@ fn notify_recovery_nudge(slot: &RecoveryNudgeSlot, nudge: RecoveryNudge) -> bool
 
 struct RustClient {
     store_path: PathBuf,
+    /// The local message index (SQLite FTS5), opened lazily inside the
+    /// account's own store directory so it is deleted with the account and
+    /// inherits the same 0700 protection as the SDK store beside it.
+    ///
+    /// A `rusqlite::Connection` is `Send` but not `Sync`, so the mutex is what
+    /// makes it shareable — and it is a `std` mutex, not tokio's, because
+    /// every hold is a synchronous query measured in microseconds and an
+    /// async-aware lock across an `.await` is how a deadlock gets written.
+    search_index: Arc<Mutex<Option<localsearch::SearchIndex>>>,
+    /// Cooperative stop for the background indexer, checked between rooms.
+    /// Teardown sets it, so a sweep in flight does not keep the account store
+    /// open while sign-out tries to delete it.
+    index_shutdown: Arc<AtomicBool>,
     session_file: Arc<Mutex<Option<PathBuf>>>,
     client: Arc<Mutex<Option<Client>>>,
     events: Arc<Mutex<VecDeque<String>>>,
@@ -294,6 +307,8 @@ impl RustClient {
             .map_err(|err| format!("failed to create shared Tokio runtime: {err}"))?;
         Ok(Self {
             store_path,
+            search_index: Arc::new(Mutex::new(None)),
+            index_shutdown: Arc::new(AtomicBool::new(false)),
             session_file: Arc::new(Mutex::new(None)),
             client: Arc::new(Mutex::new(None)),
             events: Arc::clone(&events),
@@ -460,6 +475,17 @@ impl RustClient {
     fn shutdown_managed_tasks(&self)
         -> (bool, bool, usize, usize, u64, u64, u64) {
         let total = std::time::Instant::now();
+        // The indexer FIRST, and before any wait: it is cooperative, checked
+        // between rooms, so setting the flag here means a sweep in flight
+        // stops at the next room boundary rather than after the account it was
+        // walking. Closing the connection matters as much as stopping the
+        // task — an open SQLite handle inside the store directory is a file
+        // sign-out is about to delete, and on Windows a deletion with a handle
+        // open FAILS rather than being tidied up later.
+        self.index_shutdown.store(true, Ordering::Relaxed);
+        if let Ok(mut guard) = self.search_index.lock() {
+            *guard = None;
+        }
         // The token-persistence watcher holds a strong Client purely to read
         // rotated tokens, and its broadcast sender lives INSIDE that same
         // Client — so recv() can never return Closed on its own and the task
@@ -6802,6 +6828,267 @@ pub unsafe extern "C" fn mx_rust_request_edit_history(
 /// MSC3030 "jump to date": the event closest to `timestamp_ms`, searching
 /// FORWARD, so a chosen day lands on its first message. rooms::
 /// event_at_timestamp.
+// ---------------------------------------------------------------------------
+// Local message search (SQLite FTS5). See rust/src/localsearch.rs.
+// ---------------------------------------------------------------------------
+
+/// Open the account's index if it is not open yet.
+///
+/// LAZY, from ONE place, rather than at each of the three sites that install a
+/// client: the index belongs to the store directory, not to a login flow, and
+/// a helper every entry point already calls cannot be the one somebody forgets
+/// to add to a fourth flow later.
+fn ensure_search_index(bridge: &RustClient) -> Result<(), String> {
+    if let Ok(guard) = bridge.search_index.lock() {
+        if guard.is_some() {
+            return Ok(());
+        }
+    }
+    if bridge.store_path.as_os_str().is_empty() {
+        return Err("no store path for this session".to_owned());
+    }
+    std::fs::create_dir_all(&bridge.store_path)
+        .map_err(|e| format!("cannot create the store directory: {e}"))?;
+    let index = localsearch::SearchIndex::open_in(&bridge.store_path)?;
+    if let Ok(mut guard) = bridge.search_index.lock() {
+        *guard = Some(index);
+    }
+    Ok(())
+}
+
+/// Search the local index. Answers on `local_search_result`.
+///
+/// SYNCHRONOUS on purpose. The whole point of a local index is that the answer
+/// is a SQLite query on this machine, not a round trip — putting it on the
+/// task pool would add latency to the one thing that has none, and would let
+/// a stale answer arrive after the user typed the next character. The result
+/// is enqueued rather than returned so the C++ side reads it through the same
+/// poll loop as everything else.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_local_search(
+    ptr: *mut c_void,
+    query: *const c_char,
+    room_id: *const c_char,
+    limit: i32,
+    offset: i32,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let query = unsafe { cstr_arg(query) }?;
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        ensure_search_index(bridge)?;
+
+        // A query too short for the trigram tokenizer is REPORTED as such, not
+        // answered with an empty list — "no results" and "type one more
+        // character" are different sentences and the user can act on only one.
+        if !localsearch::query_is_long_enough(&query) {
+            enqueue(&bridge.events, json!({
+                "type": "local_search_result", "op_id": op_id, "ok": false,
+                "category": "too_short",
+                "min_chars": localsearch::MIN_QUERY_CHARS,
+                "results": [],
+            }));
+            return Ok(String::new());
+        }
+
+        let hits = {
+            let guard = bridge.search_index.lock()
+                .map_err(|_| "search index unavailable".to_owned())?;
+            let index = guard.as_ref()
+                .ok_or_else(|| "search index unavailable".to_owned())?;
+            index.search(&query, &room_id, limit.max(1) as i64, offset.max(0) as i64)?
+        };
+
+        let results: Vec<serde_json::Value> = hits
+            .into_iter()
+            .map(|hit| json!({
+                "event_id": hit.event_id,
+                "room_id": hit.room_id,
+                "sender": hit.sender,
+                "sender_name": hit.sender_name,
+                "body": hit.body,
+                "msgtype": hit.msgtype,
+                "timestamp_ms": hit.ts,
+            }))
+            .collect();
+        enqueue(&bridge.events, json!({
+            "type": "local_search_result", "op_id": op_id, "ok": true,
+            "category": "", "results": results,
+        }));
+        Ok(String::new())
+    })
+}
+
+/// How much the index holds, so the UI can say what search covers instead of
+/// implying it covers everything. Answers on `search_index_stats`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_search_index_stats(
+    ptr: *mut c_void,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        ensure_search_index(bridge)?;
+        let stats = {
+            let guard = bridge.search_index.lock()
+                .map_err(|_| "search index unavailable".to_owned())?;
+            guard.as_ref()
+                .ok_or_else(|| "search index unavailable".to_owned())?
+                .stats()?
+        };
+        enqueue(&bridge.events, json!({
+            "type": "search_index_stats", "op_id": op_id,
+            "messages": stats.messages, "rooms": stats.rooms,
+        }));
+        Ok(String::new())
+    })
+}
+
+/// Sweep every joined room's cached events into the index.
+///
+/// Runs on the tracked task pool, so sign-out joins it, and checks the
+/// cooperative stop between rooms — a sweep must never be the reason an
+/// account store cannot be deleted.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_search_index_sweep(
+    ptr: *mut c_void,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let client = require_client_for_search(bridge)?;
+        ensure_search_index(bridge)?;
+        let index = Arc::clone(&bridge.search_index);
+        let stop = Arc::clone(&bridge.index_shutdown);
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            let (rooms, written) = localsearch::sweep(&client, &index, &stop).await;
+            let stats = index.lock().ok()
+                .and_then(|g| g.as_ref().and_then(|ix| ix.stats().ok()))
+                .unwrap_or_default();
+            enqueue(&events, json!({
+                "type": "search_index_swept", "op_id": op_id,
+                "rooms": rooms, "written": written,
+                "messages": stats.messages, "indexed_rooms": stats.rooms,
+            }));
+        });
+        Ok(String::new())
+    })
+}
+
+/// Page ONE room backwards and index what arrives — "index this room's
+/// history", the operation that turns "search what you have read" into
+/// "search this room". Bounded; answers on `search_index_deepened`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_search_index_deep(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let client = require_client_for_search(bridge)?;
+        ensure_search_index(bridge)?;
+        let parsed = RoomId::parse(&room_id)
+            .map_err(|_| "invalid room id".to_owned())?;
+        let room = client.get_room(&parsed)
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let index = Arc::clone(&bridge.search_index);
+        let stop = Arc::clone(&bridge.index_shutdown);
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            match localsearch::deep_index_room(
+                &room, &index, &stop, localsearch::DEEP_MAX_PAGES).await
+            {
+                Ok((pages, reached_start, written)) => {
+                    let stats = index.lock().ok()
+                        .and_then(|g| g.as_ref().and_then(|ix| ix.stats().ok()))
+                        .unwrap_or_default();
+                    enqueue(&events, json!({
+                        "type": "search_index_deepened", "op_id": op_id,
+                        "ok": true, "room_id": room_id, "pages": pages,
+                        "reached_start": reached_start, "written": written,
+                        "messages": stats.messages,
+                        "indexed_rooms": stats.rooms, "category": "",
+                    }));
+                }
+                Err(error) => enqueue(&events, json!({
+                    "type": "search_index_deepened", "op_id": op_id,
+                    "ok": false, "room_id": room_id, "pages": 0,
+                    "reached_start": false, "written": 0,
+                    "messages": 0, "indexed_rooms": 0,
+                    "category": rooms::classify_room_error(&error),
+                })),
+            }
+        });
+        Ok(String::new())
+    })
+}
+
+/// Forget one event — the redaction path. Synchronous and cheap.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_search_index_forget_event(
+    ptr: *mut c_void,
+    event_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let event_id = unsafe { cstr_arg(event_id) }?;
+        // NOT ensure_search_index: a redaction arriving before anything has
+        // searched must not be the thing that CREATES an index file.
+        if let Ok(guard) = bridge.search_index.lock() {
+            if let Some(index) = guard.as_ref() {
+                index.remove_event(&event_id)?;
+            }
+        }
+        Ok(String::new())
+    })
+}
+
+/// Forget one room, and the whole index. Both are user-visible actions
+/// ("stop indexing this room", "clear the search index").
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_search_index_forget_room(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        if let Ok(guard) = bridge.search_index.lock() {
+            if let Some(index) = guard.as_ref() {
+                index.remove_room(&room_id)?;
+            }
+        }
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_search_index_clear(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        ensure_search_index(bridge)?;
+        if let Ok(guard) = bridge.search_index.lock() {
+            if let Some(index) = guard.as_ref() {
+                index.clear()?;
+            }
+        }
+        Ok(String::new())
+    })
+}
+
+fn require_client_for_search(bridge: &RustClient) -> Result<Client, String> {
+    bridge
+        .client
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+        .ok_or_else(|| "no active Matrix session".to_owned())
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_event_at_timestamp(
     ptr: *mut c_void,

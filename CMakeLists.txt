@@ -1139,7 +1139,7 @@ function(_lightning_configure_qml_module target _scope)
 
     if(ENABLE_RUST_SDK_BACKEND)
         add_dependencies(${target} matrix-client-rust-build)
-        target_link_libraries(${target} ${_scope} matrix-client-rust SQLite::SQLite3)
+        target_link_libraries(${target} ${_scope} matrix-client-rust)
         if(UNIX AND NOT APPLE)
             # Rust static libs typically pull in libdl / libpthread / libm at
             # some scale — link them defensively so growing the Rust surface
@@ -1203,7 +1203,11 @@ endfunction()
 # `cmake -B build` never requires the Rust toolchain.
 # ---------------------------------------------------------------------------
 if(ENABLE_RUST_SDK_BACKEND)
-    find_package(SQLite3 REQUIRED)
+    # NO find_package(SQLite3). The Rust staticlib is built with matrix-sdk's
+    # `bundled-sqlite`, so it CARRIES the SQLite amalgamation and defines every
+    # sqlite3_* symbol itself. Linking the system library beside it would put
+    # two SQLite implementations in one process, which is not a warning — it is
+    # whichever one the dynamic linker resolves first, silently, per symbol.
 
     find_program(CARGO_EXECUTABLE cargo)
     if(NOT CARGO_EXECUTABLE)

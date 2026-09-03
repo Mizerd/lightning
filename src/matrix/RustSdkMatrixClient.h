@@ -441,6 +441,15 @@ public:
     void requestEditHistory(const QString &roomId, const QString &eventId) override;
     void requestEventSource(const QString &roomId, const QString &eventId) override;
     quint64 eventAtTimestamp(const QString &roomId, qint64 timestampMs) override;
+    quint64 localSearch(const QString &query, const QString &roomId,
+                        int limit, int offset) override;
+    quint64 searchIndexStats() override;
+    quint64 sweepSearchIndex() override;
+    quint64 deepenSearchIndex(const QString &roomId) override;
+    void forgetIndexedEvent(const QString &eventId) override;
+    void forgetIndexedRoom(const QString &roomId) override;
+    void clearSearchIndex() override;
+    bool supportsLocalSearch() const override { return m_rustHandle != nullptr; }
     // v0.9 device + backup management (phase 9).
     quint64 renameDevice(const QString &deviceId, const QString &name) override;
     quint64 backupAction(const QString &action) override;

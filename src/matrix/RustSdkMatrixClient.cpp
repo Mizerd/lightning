@@ -6165,6 +6165,86 @@ quint64 RustSdkMatrixClient::eventAtTimestamp(const QString &roomId,
     return opId;
 }
 
+// ── Local message search ────────────────────────────────────────────────
+//
+// Every one of these takes an op id and answers through the poll loop, like
+// the rest of this bridge. The forget/clear calls are the exception: they are
+// synchronous SQLite deletes with nothing to report, and making them
+// asynchronous would leave a window in which a redacted message is still
+// findable.
+
+quint64 RustSdkMatrixClient::localSearch(const QString &query,
+                                         const QString &roomId,
+                                         int limit, int offset)
+{
+    if (!m_rustHandle || query.trimmed().isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray q = query.toUtf8();
+    const QByteArray room = roomId.toUtf8();
+    takeRustString(mx_rust_local_search(
+        m_rustHandle, q.constData(), room.constData(), limit, offset,
+        static_cast<unsigned long long>(opId)));
+    return opId;
+}
+
+quint64 RustSdkMatrixClient::searchIndexStats()
+{
+    if (!m_rustHandle)
+        return 0;
+    const quint64 opId = nextOpId();
+    takeRustString(mx_rust_search_index_stats(
+        m_rustHandle, static_cast<unsigned long long>(opId)));
+    return opId;
+}
+
+quint64 RustSdkMatrixClient::sweepSearchIndex()
+{
+    if (!m_rustHandle)
+        return 0;
+    const quint64 opId = nextOpId();
+    takeRustString(mx_rust_search_index_sweep(
+        m_rustHandle, static_cast<unsigned long long>(opId)));
+    return opId;
+}
+
+quint64 RustSdkMatrixClient::deepenSearchIndex(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    takeRustString(mx_rust_search_index_deep(
+        m_rustHandle, room.constData(),
+        static_cast<unsigned long long>(opId)));
+    return opId;
+}
+
+void RustSdkMatrixClient::forgetIndexedEvent(const QString &eventId)
+{
+    if (!m_rustHandle || eventId.isEmpty())
+        return;
+    const QByteArray id = eventId.toUtf8();
+    takeRustString(mx_rust_search_index_forget_event(m_rustHandle,
+                                                     id.constData()));
+}
+
+void RustSdkMatrixClient::forgetIndexedRoom(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return;
+    const QByteArray id = roomId.toUtf8();
+    takeRustString(mx_rust_search_index_forget_room(m_rustHandle,
+                                                    id.constData()));
+}
+
+void RustSdkMatrixClient::clearSearchIndex()
+{
+    if (!m_rustHandle)
+        return;
+    takeRustString(mx_rust_search_index_clear(m_rustHandle));
+}
+
 quint64 RustSdkMatrixClient::renameDevice(const QString &deviceId,
                                           const QString &name)
 {
@@ -8287,6 +8367,67 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("sender")).toString(),
             event.value(QStringLiteral("key")).toString(),
             static_cast<qint64>(event.value(QStringLiteral("timestamp_ms")).toDouble()));
+        return true;
+    }
+    if (type == QLatin1String("local_search_result")) {
+        QVariantList results;
+        for (const QJsonValue &v :
+             event.value(QStringLiteral("results")).toArray()) {
+            const QJsonObject row = v.toObject();
+            results.append(QVariantMap{
+                { QStringLiteral("eventId"),
+                  row.value(QStringLiteral("event_id")).toString() },
+                { QStringLiteral("roomId"),
+                  row.value(QStringLiteral("room_id")).toString() },
+                { QStringLiteral("sender"),
+                  row.value(QStringLiteral("sender")).toString() },
+                { QStringLiteral("senderName"),
+                  row.value(QStringLiteral("sender_name")).toString() },
+                { QStringLiteral("body"),
+                  row.value(QStringLiteral("body")).toString() },
+                { QStringLiteral("msgtype"),
+                  row.value(QStringLiteral("msgtype")).toString() },
+                { QStringLiteral("timestampMs"),
+                  static_cast<qint64>(
+                      row.value(QStringLiteral("timestamp_ms")).toDouble()) },
+            });
+        }
+        Q_EMIT localSearchFinished(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString(),
+            event.value(QStringLiteral("min_chars")).toInt(),
+            results);
+        return true;
+    }
+    if (type == QLatin1String("search_index_stats")) {
+        Q_EMIT searchIndexStatsReceived(
+            opId(),
+            static_cast<qint64>(
+                event.value(QStringLiteral("messages")).toDouble()),
+            static_cast<qint64>(
+                event.value(QStringLiteral("rooms")).toDouble()));
+        return true;
+    }
+    if (type == QLatin1String("search_index_swept")) {
+        Q_EMIT searchIndexSwept(
+            opId(), event.value(QStringLiteral("rooms")).toInt(),
+            event.value(QStringLiteral("written")).toInt(),
+            static_cast<qint64>(
+                event.value(QStringLiteral("messages")).toDouble()),
+            static_cast<qint64>(
+                event.value(QStringLiteral("indexed_rooms")).toDouble()));
+        return true;
+    }
+    if (type == QLatin1String("search_index_deepened")) {
+        Q_EMIT searchIndexDeepened(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("pages")).toInt(),
+            event.value(QStringLiteral("reached_start")).toBool(),
+            event.value(QStringLiteral("written")).toInt(),
+            static_cast<qint64>(
+                event.value(QStringLiteral("messages")).toDouble()),
+            event.value(QStringLiteral("category")).toString());
         return true;
     }
     if (type == QLatin1String("timestamp_event")) {

@@ -56,7 +56,6 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
-use unicode_normalization::UnicodeNormalization;
 
 /// File name inside the account's store directory.
 pub(crate) const INDEX_FILE: &str = "lightning-search.sqlite3";
@@ -91,24 +90,6 @@ pub(crate) struct IndexStats {
     pub rooms: i64,
 }
 
-/// Case- and diacritic-folded text, NFC-normalised.
-///
-/// Applied to BOTH the indexed copy and the query, so the two always agree.
-/// Doing it here rather than leaning on `remove_diacritics` keeps one rule for
-/// every tokenizer: `trigram` has no folding of its own at all.
-///
-/// Combining marks are dropped by category (Mn), not by a table of characters,
-/// so this covers every script rather than the Latin ones somebody remembered.
-pub(crate) fn fold(text: &str) -> String {
-    let lowered = text.to_lowercase();
-    lowered
-        .nfd()
-        .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
-        .collect::<String>()
-        .nfc()
-        .collect()
-}
-
 /// The user's typed text as an FTS5 MATCH expression.
 ///
 /// ONE QUOTED PHRASE, always. FTS5's query language has operators (`AND`,
@@ -120,15 +101,17 @@ pub(crate) fn fold(text: &str) -> String {
 ///
 /// A double quote inside a phrase is escaped by doubling it, per SQLite.
 pub(crate) fn match_expression(query: &str) -> String {
-    let folded = fold(query.trim());
-    format!("\"{}\"", folded.replace('"', "\"\""))
+    // NOT folded here. `remove_diacritics 2` on the trigram table folds the
+    // QUERY as well as the stored text, so folding first would be a second
+    // implementation of the same rule that could drift from SQLite's.
+    format!("\"{}\"", query.trim().replace('"', "\"\""))
 }
 
 /// True when a query is long enough for the trigram tokenizer to match at all.
 /// Counted in CHARACTERS, not bytes: three Chinese characters are nine bytes
 /// and are a perfectly good query.
 pub(crate) fn query_is_long_enough(query: &str) -> bool {
-    fold(query.trim()).chars().count() >= MIN_QUERY_CHARS
+    query.trim().chars().count() >= MIN_QUERY_CHARS
 }
 
 pub(crate) struct SearchIndex {
@@ -173,9 +156,7 @@ impl SearchIndex {
                      sender_name   TEXT NOT NULL DEFAULT '',
                      body          TEXT NOT NULL DEFAULT '',
                      msgtype       TEXT NOT NULL DEFAULT '',
-                     ts            INTEGER NOT NULL,
-                     fold_body     TEXT NOT NULL DEFAULT '',
-                     fold_sender   TEXT NOT NULL DEFAULT ''
+                     ts            INTEGER NOT NULL
                  );
                  CREATE INDEX IF NOT EXISTS messages_room_ts
                      ON messages(room_id, ts DESC);
@@ -184,29 +165,37 @@ impl SearchIndex {
                  -- EXTERNAL CONTENT: the FTS table stores only the index and
                  -- reads the text from `messages`, so the folded copies are
                  -- not held twice. content_rowid ties them together.
+                 -- THE TOKENIZER FOLDS, so nothing here stores a second
+                 -- folded copy of the text. Measured, not assumed:
+                 -- trigramCanFoldDiacriticsItself pins that
+                 -- `remove_diacritics 2` on a trigram table makes both the
+                 -- stored text and the QUERY case- and accent-insensitive, so
+                 -- `koln` and `KÖLN` both find `Köln`. Carrying folded columns
+                 -- as well would spend a fifth of the database on a duplicate
+                 -- and add a way for the two copies to disagree.
                  CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-                     fold_body,
-                     fold_sender,
+                     body,
+                     sender_name,
                      content='messages',
                      content_rowid='id',
-                     tokenize='trigram'
+                     tokenize='trigram remove_diacritics 2'
                  );
 
                  -- External content means FTS5 does NOT see writes to the
                  -- content table on its own; these triggers are the contract.
                  CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
-                     INSERT INTO messages_fts(rowid, fold_body, fold_sender)
-                     VALUES (new.id, new.fold_body, new.fold_sender);
+                     INSERT INTO messages_fts(rowid, body, sender_name)
+                     VALUES (new.id, new.body, new.sender_name);
                  END;
                  CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
-                     INSERT INTO messages_fts(messages_fts, rowid, fold_body, fold_sender)
-                     VALUES ('delete', old.id, old.fold_body, old.fold_sender);
+                     INSERT INTO messages_fts(messages_fts, rowid, body, sender_name)
+                     VALUES ('delete', old.id, old.body, old.sender_name);
                  END;
                  CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
-                     INSERT INTO messages_fts(messages_fts, rowid, fold_body, fold_sender)
-                     VALUES ('delete', old.id, old.fold_body, old.fold_sender);
-                     INSERT INTO messages_fts(rowid, fold_body, fold_sender)
-                     VALUES (new.id, new.fold_body, new.fold_sender);
+                     INSERT INTO messages_fts(messages_fts, rowid, body, sender_name)
+                     VALUES ('delete', old.id, old.body, old.sender_name);
+                     INSERT INTO messages_fts(rowid, body, sender_name)
+                     VALUES (new.id, new.body, new.sender_name);
                  END;",
             )
             .map_err(|e| format!("cannot prepare the search index: {e}"))?;
@@ -240,15 +229,12 @@ impl SearchIndex {
         self.conn
             .execute(
                 "INSERT INTO messages
-                    (event_id, room_id, sender, sender_name, body, msgtype, ts,
-                     fold_body, fold_sender)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                    (event_id, room_id, sender, sender_name, body, msgtype, ts)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(event_id) DO UPDATE SET
                      body        = excluded.body,
                      sender_name = excluded.sender_name,
-                     msgtype     = excluded.msgtype,
-                     fold_body   = excluded.fold_body,
-                     fold_sender = excluded.fold_sender",
+                     msgtype     = excluded.msgtype",
                 params![
                     event_id,
                     room_id,
@@ -257,8 +243,6 @@ impl SearchIndex {
                     body,
                     msgtype,
                     ts,
-                    fold(body),
-                    fold(sender_name),
                 ],
             )
             .map_err(|e| format!("cannot index a message: {e}"))?;
@@ -332,6 +316,7 @@ impl SearchIndex {
 
     /// True when this event is already indexed. Lets a backfill skip work
     /// without paying for a write.
+    #[cfg(test)]
     pub(crate) fn contains(&self, event_id: &str) -> Result<bool, String> {
         let found: Option<i64> = self
             .conn
@@ -523,31 +508,153 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
     Some(Indexable { event_id: target_id, sender, body, msgtype, ts })
 }
 
-/// Index every cached event of one room. Returns how many rows were written.
+/// Page a room backwards, indexing what each page brings in.
 ///
-/// Existing rows are skipped in ONE query rather than re-written: a sweep runs
-/// over every room on every wake-up, and paying a write per already-indexed
-/// message would make the common case the expensive one. Edits are the
-/// exception — they must overwrite, so they are never skipped.
-pub(crate) async fn index_room_from_cache(
+/// THE INTERLEAVING IS THE POINT, and getting it wrong is why the first
+/// revision of this would have indexed almost nothing.
+/// `RoomEventCache::events()` reads the room's IN-MEMORY linked chunk, not
+/// everything the store holds — and Lightning's own jump-to-live history trim
+/// deliberately shrinks that chunk back to roughly one page. So "paginate N
+/// times, then read the events" collects one page's worth however far back it
+/// went. Reading after EVERY page is what makes the coverage real.
+///
+/// Bounded by `max_pages`: a room with years of history is a long download,
+/// and an unbounded background task nobody asked for that never ends is its
+/// own defect. Stops early when the room start is reached, and checks `stop`
+/// between pages so sign-out never waits for it.
+///
+/// Returns (pages run, reached_start, rows written).
+pub(crate) async fn deep_index_room(
     room: &Room,
-    index: &SearchIndex,
-) -> Result<usize, String> {
-    // Room::event_cache() is the PUBLIC accessor; EventCache::for_room is
-    // private in 0.18. The drop handles it returns must be kept alive for the
-    // duration of the read, which is what binding them here does — dropping
-    // them can shrink the linked chunk out from under the walk.
+    index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
+    stop: &std::sync::atomic::AtomicBool,
+    max_pages: u16,
+) -> Result<(u16, bool, usize), String> {
     let (room_cache, _drop_handles) = room
         .event_cache()
         .await
         .map_err(|e| format!("no event cache for the room: {e}"))?;
+    let room_id = room.room_id().as_str();
+
+    let mut written = 0usize;
+    // What is already loaded, before spending a single request.
+    if let Ok(batch) = collect_from(room, &room_cache).await {
+        if let Ok(mut guard) = index.lock() {
+            if let Some(ix) = guard.as_mut() {
+                written += write_batch(ix, room_id, &batch);
+            }
+        }
+    }
+
+    let pagination = room_cache.pagination();
+    let mut pages = 0u16;
+    let mut reached_start = false;
+    for _ in 0..max_pages {
+        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        let outcome = pagination
+            .run_backwards_once(DEEP_PAGE_SIZE)
+            .await
+            .map_err(|e| format!("pagination failed: {e}"))?;
+        pages += 1;
+        if let Ok(batch) = collect_from(room, &room_cache).await {
+            if let Ok(mut guard) = index.lock() {
+                if let Some(ix) = guard.as_mut() {
+                    written += write_batch(ix, room_id, &batch);
+                }
+            }
+        }
+        if outcome.reached_start {
+            reached_start = true;
+            break;
+        }
+    }
+    Ok((pages, reached_start, written))
+}
+
+// ---------------------------------------------------------------------------
+// The background indexer
+// ---------------------------------------------------------------------------
+
+/// Rooms swept per wake-up. A sweep walks every joined room's cached events,
+/// and doing all of them in one go on an account with hundreds of rooms would
+/// be a long hold on the runtime for work nobody is waiting on.
+pub(crate) const SWEEP_ROOM_BATCH: usize = 40;
+
+/// Backward pages pulled per room by the deep index. Fifty pages of a hundred
+/// events is five thousand messages a room — deep enough to be useful, bounded
+/// enough that "index my history" is not an unbounded download.
+pub(crate) const DEEP_MAX_PAGES: u16 = 50;
+
+/// Sweep every joined room's cached events into the index.
+///
+/// Returns (rooms visited, rows written). Cooperative: `stop` is checked
+/// between rooms, so sign-out does not wait for a whole account.
+pub(crate) async fn sweep(
+    client: &matrix_sdk::Client,
+    index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
+    stop: &std::sync::atomic::AtomicBool,
+) -> (usize, usize) {
+    let mut rooms_done = 0usize;
+    let mut written = 0usize;
+    for room in client.joined_rooms() {
+        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        if rooms_done >= SWEEP_ROOM_BATCH {
+            break;
+        }
+        rooms_done += 1;
+        // The lock is taken per ROOM, not held across the whole sweep: a
+        // search typed while indexing runs must not wait for it.
+        let events = match collect_room(&room).await {
+            Ok(events) => events,
+            Err(_) => continue,
+        };
+        if let Ok(mut guard) = index.lock() {
+            if let Some(ix) = guard.as_mut() {
+                written += write_batch(ix, room.room_id().as_str(), &events);
+            }
+        }
+    }
+    (rooms_done, written)
+}
+
+/// One room's indexable events, resolved and ready to write. Split from the
+/// write so the index mutex is never held across an `.await`.
+pub(crate) struct RoomBatch {
+    ordinary: Vec<Indexable>,
+    edits: Vec<Indexable>,
+    names: std::collections::HashMap<String, String>,
+}
+
+pub(crate) async fn collect_room(room: &Room) -> Result<RoomBatch, String> {
+    let (room_cache, _drop_handles) = room
+        .event_cache()
+        .await
+        .map_err(|e| format!("no event cache for the room: {e}"))?;
+    collect_from(room, &room_cache).await
+}
+
+/// The same walk, against a cache handle the caller is already holding.
+///
+/// A deep index paginates and re-reads in a loop, and re-acquiring the cache
+/// per page would drop and recreate the handles between pages — which is
+/// exactly what lets the linked chunk shrink out from under the walk.
+pub(crate) async fn collect_from(
+    room: &Room,
+    room_cache: &matrix_sdk::event_cache::RoomEventCache,
+) -> Result<RoomBatch, String> {
     let events = room_cache
         .events()
         .await
         .map_err(|e| format!("cannot read the event cache: {e}"))?;
 
-    let mut candidates: Vec<Indexable> = Vec::new();
-    let mut replacements: Vec<Indexable> = Vec::new();
+    let mut ordinary = Vec::new();
+    let mut edits = Vec::new();
+    let mut names: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     for event in &events {
         let Ok(raw) = event.raw().deserialize_as::<serde_json::Value>() else {
             continue;
@@ -559,39 +666,7 @@ pub(crate) async fn index_room_from_cache(
             .and_then(|v| v.as_str())
             == Some("m.replace");
         if let Some(item) = indexable_from(&raw) {
-            if is_replacement {
-                replacements.push(item);
-            } else {
-                candidates.push(item);
-            }
-        }
-    }
-
-    let ids: Vec<String> = candidates.iter().map(|c| c.event_id.clone()).collect();
-    let known = index.known(&ids)?;
-
-    let room_id = room.room_id().as_str();
-    let mut written = 0usize;
-    // Display names resolved ONCE per sender per room, from the store — the
-    // no-sync accessor, so a sweep cannot turn into one request per message.
-    let mut names: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
-    // Ordinary messages first, then the edits — so an edit always lands ON
-    // TOP of the row its target just wrote, whatever order the cache held
-    // them in. Only the ordinary pass skips what is already indexed; an edit
-    // must overwrite by definition, and skipping it would leave the pre-edit
-    // wording findable forever.
-    for (item, is_edit) in candidates
-        .iter()
-        .map(|c| (c, false))
-        .chain(replacements.iter().map(|r| (r, true)))
-    {
-        if !is_edit && known.contains(&item.event_id) {
-            continue;
-        }
-        let display = match names.get(&item.sender) {
-            Some(name) => name.clone(),
-            None => {
+            if !names.contains_key(&item.sender) {
                 let resolved = match matrix_sdk::ruma::UserId::parse(&item.sender) {
                     Ok(user) => room
                         .get_member_no_sync(&user)
@@ -602,58 +677,51 @@ pub(crate) async fn index_room_from_cache(
                         .unwrap_or_default(),
                     Err(_) => String::new(),
                 };
-                names.insert(item.sender.clone(), resolved.clone());
-                resolved
+                names.insert(item.sender.clone(), resolved);
             }
-        };
-        index.upsert(
-            &item.event_id,
-            room_id,
-            &item.sender,
-            &display,
-            &item.body,
-            &item.msgtype,
-            item.ts,
-        )?;
-        written += 1;
-    }
-    Ok(written)
-}
-
-/// Page a room backwards so the index covers history the user has not
-/// scrolled to.
-///
-/// This is what turns "search what you have read" into "search this room".
-/// BOUNDED by `max_pages`: a room with years of history is a long download and
-/// an unbounded one would be a background task nobody asked for that never
-/// ends. Stops early when the room start is reached.
-///
-/// Returns (pages run, reached_start).
-pub(crate) async fn deep_page_room(
-    room: &Room,
-    max_pages: u16,
-) -> Result<(u16, bool), String> {
-    // Room::event_cache() is the PUBLIC accessor; EventCache::for_room is
-    // private in 0.18. The drop handles it returns must be kept alive for the
-    // duration of the read, which is what binding them here does — dropping
-    // them can shrink the linked chunk out from under the walk.
-    let (room_cache, _drop_handles) = room
-        .event_cache()
-        .await
-        .map_err(|e| format!("no event cache for the room: {e}"))?;
-    let pagination = room_cache.pagination();
-    let mut pages = 0u16;
-    for _ in 0..max_pages {
-        let outcome = pagination
-            .run_backwards_once(DEEP_PAGE_SIZE)
-            .await
-            .map_err(|e| format!("pagination failed: {e}"))?;
-        pages += 1;
-        if outcome.reached_start {
-            return Ok((pages, true));
+            if is_replacement {
+                edits.push(item);
+            } else {
+                ordinary.push(item);
+            }
         }
     }
-    Ok((pages, false))
+    Ok(RoomBatch { ordinary, edits, names })
+}
+
+/// Write one collected room. Synchronous, so the index mutex is held for a
+/// bounded burst of inserts and never across a network wait.
+pub(crate) fn write_batch(index: &SearchIndex, room_id: &str, batch: &RoomBatch) -> usize {
+    let ids: Vec<String> = batch.ordinary.iter().map(|c| c.event_id.clone()).collect();
+    let known = index.known(&ids).unwrap_or_default();
+    let mut written = 0usize;
+    for (item, is_edit) in batch
+        .ordinary
+        .iter()
+        .map(|c| (c, false))
+        .chain(batch.edits.iter().map(|r| (r, true)))
+    {
+        if !is_edit && known.contains(&item.event_id) {
+            continue;
+        }
+        let display = batch.names.get(&item.sender).cloned().unwrap_or_default();
+        if index
+            .upsert(
+                &item.event_id,
+                room_id,
+                &item.sender,
+                &display,
+                &item.body,
+                &item.msgtype,
+                item.ts,
+            )
+            .is_ok()
+        {
+            written += 1;
+        }
+    }
+    let _ = index.prune();
+    written
 }
 
 #[cfg(test)]
@@ -727,8 +795,6 @@ mod tests {
         assert_eq!(ix.search("koln", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("KÖLN", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("cafe", "", 10, 0).unwrap().len(), 1);
-        assert_eq!(fold("Köln"), "koln");
-        assert_eq!(fold("ÉCOLE"), "ecole");
     }
 
     // ── The query is text, not a language ────────────────────────────────
@@ -1029,6 +1095,31 @@ mod tests {
         ] {
             assert!(indexable_from(&value).is_none(), "{value}");
         }
+    }
+
+
+    #[test]
+    fn trigramCanFoldDiacriticsItself() {
+        // Claimed by review; measured here. If true, the fold_* columns this
+        // module carries are unnecessary weight.
+        let db = Connection::open_in_memory().unwrap();
+        let created = db.execute_batch(
+            "CREATE VIRTUAL TABLE t USING fts5(body, tokenize='trigram remove_diacritics 2');
+             INSERT INTO t(body) VALUES ('Köln Café');",
+        );
+        assert!(created.is_ok(), "rejected: {created:?}");
+        let koln: i64 = db
+            .query_row("SELECT count(*) FROM t WHERE t MATCH '\"koln\"'", [], |r| r.get(0))
+            .unwrap();
+        let upper: i64 = db
+            .query_row("SELECT count(*) FROM t WHERE t MATCH '\"KÖLN\"'", [], |r| r.get(0))
+            .unwrap();
+        let version: String = db
+            .query_row("SELECT sqlite_version()", [], |r| r.get(0))
+            .unwrap();
+        println!("MEASURED sqlite={version} koln={koln} KOLN={upper}");
+        assert_eq!(koln, 1, "trigram remove_diacritics did not fold");
+        assert_eq!(upper, 1, "trigram is not case-insensitive");
     }
 
     // ── The tokenizer decision, evidenced ────────────────────────────────

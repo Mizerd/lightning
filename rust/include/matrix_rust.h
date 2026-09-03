@@ -1047,6 +1047,52 @@ char *mx_rust_request_edit_history(void *client,
 char *mx_rust_request_event_source(void *client,
                                    const char *room_id,
                                    const char *event_id);
+/* ---------------------------------------------------------------------------
+   LOCAL MESSAGE SEARCH (SQLite FTS5). See rust/src/localsearch.rs.
+
+   Server search can only search what the SERVER can read, so it returns
+   nothing for an encrypted room. These search the index this client builds
+   from the plaintext it already holds, so an encrypted room searches like a
+   public one.
+
+   The index lives in the account's own store directory, so it is deleted with
+   the account and inherits the same 0700 protection as the SDK store.
+
+   `mx_rust_local_search` is SYNCHRONOUS work reported through the event queue:
+   the answer is a SQLite query on this machine, and putting it on the task
+   pool would add latency to the one thing that has none. It answers on
+   `local_search_result {op_id, ok, category, results:[{event_id, room_id,
+   sender, sender_name, body, msgtype, timestamp_ms}]}`; category "too_short"
+   with `min_chars` means the trigram tokenizer cannot match a query that
+   short, which is a different sentence from "no results" and the user can act
+   on only one of them.
+   --------------------------------------------------------------------------- */
+char *mx_rust_local_search(void *client,
+                           const char *query,
+                           const char *room_id,
+                           int limit,
+                           int offset,
+                           unsigned long long op_id);
+/* What the index holds, so the UI can say what search covers instead of
+   implying it covers everything. Answers on
+   `search_index_stats {op_id, messages, rooms}`. */
+char *mx_rust_search_index_stats(void *client, unsigned long long op_id);
+/* Walk every joined room's cached events into the index. Bounded per call and
+   cooperative, so sign-out never waits for it. Answers on
+   `search_index_swept {op_id, rooms, written, messages, indexed_rooms}`. */
+char *mx_rust_search_index_sweep(void *client, unsigned long long op_id);
+/* Page ONE room backwards and index what arrives — "index this room's
+   history". Bounded. Answers on `search_index_deepened {op_id, ok, room_id,
+   pages, reached_start, written, messages, indexed_rooms, category}`. */
+char *mx_rust_search_index_deep(void *client,
+                                const char *room_id,
+                                unsigned long long op_id);
+/* Forget one event (the redaction path — a redacted message must not stay
+   findable by its own text), one room, or everything. Synchronous, no event. */
+char *mx_rust_search_index_forget_event(void *client, const char *event_id);
+char *mx_rust_search_index_forget_room(void *client, const char *room_id);
+char *mx_rust_search_index_clear(void *client);
+
 /* MSC3030 "jump to date" (stable since Matrix 1.6): the event closest to
    `timestamp_ms`, searching FORWARD, so a chosen day lands on its FIRST
    message rather than the last one before it. Answers on
