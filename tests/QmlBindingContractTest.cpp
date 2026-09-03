@@ -921,7 +921,23 @@ private Q_SLOTS:
         QVERIFY(room.contains(QStringLiteral("app.gif.available")));
         QVERIFY(thread.contains(QStringLiteral("GifPicker {")));
         QVERIFY(thread.contains(QStringLiteral("target: \"thread\"")));
-        QVERIFY(thread.contains(QStringLiteral("threadGifButton")));
+        // 2026-09-03: ONE button per composer opens the pair. GIFs and
+        // stickers are one window with two tabs now, so a per-kind button no
+        // longer exists on either surface.
+        QVERIFY(thread.contains(QStringLiteral("threadMediaButton")));
+        QVERIFY2(!thread.contains(QStringLiteral("threadGifButton")),
+                 "the separate thread GIF button is back; the merged picker "
+                 "has one entry point");
+        QVERIFY(room.contains(QStringLiteral("composerMediaButton")));
+        QVERIFY2(!room.contains(QStringLiteral("composerGifButton")),
+                 "the separate room GIF button is back");
+        // Both pickers offer the strip, and both ask the HOST to swap: a
+        // picker that closed and opened its sibling itself would have to know
+        // its own anchor item and its host's other picker.
+        for (const QString &host : { room, thread }) {
+            QVERIFY(host.contains(QStringLiteral("offerKindTabs")));
+            QVERIFY(host.contains(QStringLiteral("onKindRequested")));
+        }
 
         const QString picker = read(QStringLiteral("GifPicker.qml"));
         QVERIFY(!picker.isEmpty());

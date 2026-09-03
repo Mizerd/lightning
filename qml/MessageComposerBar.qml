@@ -164,6 +164,10 @@ Item {
         return app.scheduledSends.pendingForRoom(app.currentRoomId).length
     }
     SendLaterDialog { id: sendLaterDialog }
+    // The room's pending scheduled messages, with nothing to add to them.
+    function openScheduledList() {
+        sendLaterDialog.openFor({})
+    }
     function openSendLater() {
         if (!app.composer.canSend || app.composer.text.trim().length === 0) {
             sendLaterDialog.openFor({})
@@ -319,6 +323,18 @@ Item {
     }
     function focusEditor() {
         activeEditor().forceActiveFocus()
+    }
+
+    // ── Composer buttons the user switched off ───────────────────────────
+    //
+    // Settings › Appearance › Message box › Message box buttons. Read through a property rather than a
+    // Q_INVOKABLE so every `visible` binding below re-evaluates when the list
+    // changes; composerButtonShown() reads that property, so calling it from
+    // a binding still registers the dependency.
+    readonly property var hiddenComposerButtons:
+        app.settings ? app.settings.hiddenComposerButtons : []
+    function composerButtonShown(key) {
+        return root.hiddenComposerButtons.indexOf(key) < 0
     }
 
     // ── The picker buttons must TOGGLE ───────────────────────────────────
@@ -948,18 +964,56 @@ Item {
         app.discardPreparedVoice(v.filePath)
     }
 
-    function openGifPicker(fromButton) {
-        if (root.pickerButtonShouldClose("gif", gifPicker, fromButton)) {
+    // ── GIFs and stickers, as one window ─────────────────────────────────
+    readonly property bool mediaPickerBothKinds:
+        app.gif.available && app.stickers.available
+    // Which kind the single button opens. Session-scoped on purpose: the
+    // strip inside the window is one click away, and a persisted tab would
+    // be one more setting to explain.
+    property string mediaPickerKind: "gif"
+    function effectiveMediaKind() {
+        if (root.mediaPickerKind === "sticker" && app.stickers.available)
+            return "sticker"
+        if (app.gif.available)
+            return "gif"
+        return app.stickers.available ? "sticker" : "gif"
+    }
+    // The one thing the composer button does. Both pickers report their
+    // dismissal under the SAME key, so the toggle closes whichever of the
+    // pair is showing.
+    function openMediaPicker(fromButton) {
+        var showing = gifPicker.opened || stickerPicker.opened
+        if (showing || root.pickerButtonShouldClose("media", gifPicker,
+                                                    fromButton)) {
             gifPicker.close()
+            stickerPicker.close()
             root.clearPickerDismissal()
             root.focusEditor()
             return
         }
+        if (root.effectiveMediaKind() === "sticker")
+            root.openStickerPicker()
+        else
+            root.openGifPicker()
+    }
+    // Asked for from inside a picker's own GIFs/Stickers strip.
+    function swapMediaPicker(kind) {
+        root.mediaPickerKind = kind
+        if (kind === "sticker")
+            root.openStickerPicker()
+        else
+            root.openGifPicker()
+    }
+
+    function openGifPicker() {
         emojiPicker.close()
+        stickerPicker.close()
         // Our OWN close is not a dismissal the next click should undo — see
         // pickerButtonShouldClose. Without this, opening the GIF panel from
-        // the emoji panel would arm a toggle-off on the emoji button.
+        // the emoji panel would arm a toggle-off on the emoji button, and the
+        // swap below would arm one on the media button.
         root.clearPickerDismissal()
+        root.mediaPickerKind = "gif"
         gifPicker.anchorItem = composerCard
         gifPicker.open()
     }
@@ -968,23 +1022,22 @@ Item {
         id: gifPicker
         objectName: "composerGifPicker"
         target: "room"
+        offerKindTabs: root.mediaPickerBothKinds
+        onKindRequested: (kind) => root.swapMediaPicker(kind)
         onGifChosen: (result) => root.onGifPicked(result)
-        onAboutToHide: root.notePickerDismissed("gif")
+        // ONE key for both pickers: they are one window to the user, and the
+        // single composer button has to toggle whichever of them is showing.
+        onAboutToHide: root.notePickerDismissed("media")
         onClosed: Qt.callLater(input.forceActiveFocus)
     }
 
     // MSC2545 stickers. Its OWN picker, not a tab on the emoji one — see the
     // header of qml/StickerPicker.qml for why.
-    function openStickerPicker(fromButton) {
-        if (root.pickerButtonShouldClose("sticker", stickerPicker, fromButton)) {
-            stickerPicker.close()
-            root.clearPickerDismissal()
-            root.focusEditor()
-            return
-        }
+    function openStickerPicker() {
         emojiPicker.close()
         gifPicker.close()
         root.clearPickerDismissal()
+        root.mediaPickerKind = "sticker"
         stickerPicker.anchorItem = composerCard
         stickerPicker.open()
     }
@@ -993,8 +1046,10 @@ Item {
         id: stickerPicker
         objectName: "composerStickerPicker"
         target: "room"
+        offerKindTabs: root.mediaPickerBothKinds
+        onKindRequested: (kind) => root.swapMediaPicker(kind)
         onStickerChosen: (image) => root.onStickerPicked(image)
-        onAboutToHide: root.notePickerDismissed("sticker")
+        onAboutToHide: root.notePickerDismissed("media")
         onClosed: Qt.callLater(input.forceActiveFocus)
     }
 
@@ -1074,22 +1129,18 @@ Item {
             objectName: "composerLegacyEmojiMenuItem"
             iconName: "mood"
             text: qsTr("Emoji…")
-            visible: root.compactInputRow
+            visible: root.compactInputRow && root.composerButtonShown("emoji")
             onTriggered: root.openEmojiPicker()
         }
         AppMenuItem {
-            objectName: "composerLegacyGifMenuItem"
+            objectName: "composerLegacyMediaMenuItem"
             iconName: "gif_box"
-            text: qsTr("GIF…")
-            visible: root.compactInputRow && app.gif.available
-            onTriggered: root.openGifPicker()
-        }
-        AppMenuItem {
-            objectName: "composerLegacyStickerMenuItem"
-            iconName: "emoji_symbols"
-            text: qsTr("Sticker…")
-            visible: root.compactInputRow && app.stickers.available
-            onTriggered: root.openStickerPicker()
+            text: root.mediaPickerBothKinds ? qsTr("GIFs and stickers…")
+                                            : qsTr("GIF…")
+            visible: root.compactInputRow
+                     && root.composerButtonShown("media")
+                     && (app.gif.available || app.stickers.available)
+            onTriggered: root.openMediaPicker(false)
         }
     }
 
@@ -1116,22 +1167,18 @@ Item {
             objectName: "composerEmojiMenuItem"
             iconName: "mood"
             text: qsTr("Emoji…")
-            visible: root.compactInputRow
+            visible: root.compactInputRow && root.composerButtonShown("emoji")
             onTriggered: root.openEmojiPicker()
         }
         AppMenuItem {
-            objectName: "composerGifMenuItem"
+            objectName: "composerMediaMenuItem"
             iconName: "gif_box"
-            text: qsTr("GIF…")
-            visible: root.compactInputRow && app.gif.available
-            onTriggered: root.openGifPicker()
-        }
-        AppMenuItem {
-            objectName: "composerStickerMenuItem"
-            iconName: "emoji_symbols"
-            text: qsTr("Sticker…")
-            visible: root.compactInputRow && app.stickers.available
-            onTriggered: root.openStickerPicker()
+            text: root.mediaPickerBothKinds ? qsTr("GIFs and stickers…")
+                                            : qsTr("GIF…")
+            visible: root.compactInputRow
+                     && root.composerButtonShown("media")
+                     && (app.gif.available || app.stickers.available)
+            onTriggered: root.openMediaPicker(false)
         }
     }
     CreatePollDialog {
@@ -1857,7 +1904,8 @@ Item {
                     color: AppTheme.border
                 }
 
-                // Input row — attach · input · emoji · GIF · mic · send.
+                // Input row — attach · format · input · emoji · media ·
+                // mic · send · send options.
                 RowLayout {
                     id: inputRow
                     objectName: "composerInputRow"
@@ -1905,8 +1953,10 @@ Item {
                         objectName: "composerFormatToggleButton"
                         Layout.alignment: Qt.AlignVCenter
                         // Narrow window: the optional controls yield their
-                        // width to the text field (see inputFlick).
+                        // width to the text field (see inputFlick). Also
+                        // hidden outright when the user switched it off.
                         visible: !root.compactInputRow
+                                 && root.composerButtonShown("formatting")
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl
                         iconName: "edit_square"
@@ -2598,7 +2648,9 @@ Item {
                         Layout.alignment: Qt.AlignVCenter
                         // Narrow window: moves into the attach menu, which
                         // keeps the action reachable rather than dropping it.
+                        // Switched off in settings it is gone from both.
                         visible: !root.compactInputRow
+                                 && root.composerButtonShown("emoji")
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl
                         iconName: "mood"
@@ -2611,115 +2663,52 @@ Item {
                         onClicked: root.openEmojiPicker(true)
                     }
 
-                    // GIF: a mono text glyph, treated as one of the row's
-                    // icon buttons.
+                    // ── GIFs and stickers: ONE button, ONE window ─────
                     //
-                    // It used to be the only bordered chip among five
-                    // borderless glyph buttons — a permanent 1.5px outline
-                    // (which cannot land on a pixel boundary at DPR 1) around
-                    // a ~19px pill centred in a 28px button, at radius 5
-                    // where its neighbours use radiusControl, and the only
-                    // control in the row that did not react to being pressed.
-                    // It read as "selected", or as a different class of
-                    // control. Element uses a plain glyph here.
-                    AbstractButton {
-                        id: gifButton
-                        objectName: "composerGifButton"
-                        Layout.alignment: Qt.AlignVCenter
-                        // Narrow window: moves into the attach menu.
-                        visible: !root.compactInputRow
-                        implicitWidth: gifCap.implicitWidth + AppTheme.spacing8
-                        implicitHeight: 28
-                        hoverEnabled: true
-                        focusPolicy: Qt.TabFocus
-                        Accessible.role: Accessible.Button
-                        enabled: app.currentRoomId !== "" && app.gif.available
-                        Accessible.name: qsTr("Insert a GIF")
-                        ToolTip.text: app.gif.available ? qsTr("GIF")
-                            : qsTr("GIFs are unavailable on this backend")
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        contentItem: Item {
-                            implicitWidth: gifCap.implicitWidth
-                            implicitHeight: 28
-                            Label {
-                                id: gifCap
-                                anchors.centerIn: parent
-                                text: qsTr("GIF")
-                                font.family: AppTheme.monoFont
-                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
-                                font.weight: AppTheme.weightBold
-                                leftPadding: 4
-                                rightPadding: 4
-                                // Ink follows IconButton's themed rule, so
-                                // the glyph brightens with its neighbours
-                                // rather than sitting one step behind them.
-                                // The hover/down branch is the half that was
-                                // missing: the comment claimed it and the
-                                // binding did not, so the glyph stayed at
-                                // rest ink while every neighbouring icon
-                                // lifted.
-                                color: !gifButton.enabled
-                                       ? AppTheme.textDisabled
-                                       : (gifButton.down || gifButton.hovered)
-                                         ? AppTheme.textPrimary
-                                         : AppTheme.icon
-                            }
-                        }
-                        background: Rectangle {
-                            objectName: "composerGifKeycap"
-                            anchors.fill: parent
-                            radius: AppTheme.radiusControl
-                            border.width: 0
-                            // The same three states IconButton draws (rest /
-                            // hover / down), so pressing it is visible.
-                            color: gifButton.enabled
-                                   && (gifButton.down || gifButton.hovered)
-                                   ? AppTheme.hover : "transparent"
-                        }
-                        // INSET, matching IconButton. An outset ring here
-                        // overlapped the neighbouring glyph buttons' own
-                        // chrome in a 28px row with no spare gutter, so one
-                        // control's focus state drew on top of another's.
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: AppTheme.radiusControl
-                            color: "transparent"
-                            border.color: AppTheme.focusRing
-                            border.width: 2
-                            visible: gifButton.visualFocus
-                        }
-                        onClicked: root.openGifPicker(true)
-                    }
-
-                    // Stickers (MSC2545 image packs).
+                    // They used to be two buttons opening two popups, and a
+                    // tester asked for one clean window. The two pickers keep
+                    // their own components (a pack is not a GIF — see the
+                    // header of GifPicker.qml) and now carry a shared
+                    // GIFs/Stickers strip at the top; swapMediaPicker() closes
+                    // one and opens the other at the same anchor, with the
+                    // same remembered size and no transitions, so it reads as
+                    // the window changing tab rather than two windows.
                     //
-                    // The glyph is `emoji_symbols` because the bundled
-                    // Material Symbols font is a SUBSET and regenerating it
-                    // needs the network (scripts/generate-icon-font.sh), so
-                    // there is no sticker glyph to reach for — every name in
-                    // Icon.qml's map is already spoken for somewhere. This
-                    // one is used nowhere else in the composer row (its only
-                    // other use is the emoji picker's Symbols category), so
-                    // it collides with nothing on this surface. Swap it the
-                    // next time the subset can be rebuilt.
+                    // The mono "GIF" keycap this replaces was a design fix in
+                    // its own right (the 2026-08-21 audit found it the only
+                    // bordered chip in a row of borderless glyphs). A single
+                    // button covering both kinds cannot carry a word for one
+                    // of them, so it is a glyph like its neighbours — which is
+                    // where that audit was heading anyway.
                     IconButton {
-                        id: stickerButton
-                        objectName: "composerStickerButton"
+                        id: mediaButton
+                        objectName: "composerMediaButton"
                         Layout.alignment: Qt.AlignVCenter
-                        // Narrow window: moves into the attach menu, exactly
-                        // like emoji and GIF.
-                        visible: !root.compactInputRow && app.stickers.available
+                        // Narrow window: moves into the attach menu. Hidden
+                        // outright only when the user has switched it off —
+                        // a backend with neither kind leaves it PRESENT and
+                        // disabled with a tooltip that says why, which is
+                        // what the GIF button it replaces did. A control that
+                        // vanishes teaches nothing.
+                        visible: !root.compactInputRow
+                                 && root.composerButtonShown("media")
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl
-                        iconName: "emoji_symbols"
+                        iconName: "gif_box"
                         iconSize: 20
                         enabled: app.currentRoomId !== ""
-                        Accessible.name: qsTr("Insert a sticker")
-                        ToolTip.text: qsTr("Sticker")
+                                 && (app.gif.available || app.stickers.available)
+                        Accessible.name: qsTr("Insert a GIF or sticker")
+                        ToolTip.text: !app.gif.available && !app.stickers.available
+                                      ? qsTr("GIFs and stickers are unavailable "
+                                             + "on this backend")
+                                      : root.mediaPickerBothKinds
+                                        ? qsTr("GIFs and stickers")
+                                        : (app.gif.available ? qsTr("GIF")
+                                                             : qsTr("Sticker"))
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
-                        onClicked: root.openStickerPicker(true)
+                        onClicked: root.openMediaPicker(true)
                     }
 
                     // v0.7: voice capture. Idle: the designed mic slot.
@@ -2736,7 +2725,12 @@ Item {
                         radius: AppTheme.radiusControl
                         iconName: "mic"
                         iconSize: 20
+                        // A recording in flight keeps its controls on screen
+                        // whatever the setting says — the pill IS the way to
+                        // stop it, and hiding it mid-record would strand a
+                        // live capture.
                         visible: !root.voiceActive
+                                 && root.composerButtonShown("voice")
                         enabled: app.currentRoomId !== ""
                                  && app.composer.attachmentsSupported
                         Accessible.name: qsTr("Record a voice message")
@@ -2912,29 +2906,6 @@ Item {
                         onDiscardRequested: root.discardPendingVoice()
                     }
 
-                    // v0.9 (phase 11): "Send later". With text in the box it
-                    // schedules that text; with none it shows the room's
-                    // pending scheduled messages. The badge is the pending
-                    // count for this room.
-                    IconButton {
-                        id: sendLaterButton
-                        objectName: "composerSendLaterButton"
-                        Layout.alignment: Qt.AlignVCenter
-                        visible: !root.compactInputRow && app.scheduledSends
-                        implicitWidth: 28; implicitHeight: 28
-                        radius: AppTheme.radiusControl
-                        iconName: "schedule"
-                        iconSize: 18
-                        active: root.pendingScheduledCount > 0
-                        enabled: app.currentRoomId !== "" && !app.composer.isEditing
-                        Accessible.name: app.composer.canSend
-                                         ? qsTr("Send later") : qsTr("Scheduled messages")
-                        ToolTip.text: Accessible.name
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        onClicked: root.openSendLater()
-                    }
-
                     // Accent-fill send (34px, radius 9 — a rounded square).
                     IconButton {
                         id: sendButton
@@ -2956,9 +2927,73 @@ Item {
                             root.activeInput().forceActiveFocus()
                         }
                     }
+
+                    // ── Send options ────────────────────────────────────
+                    //
+                    // "Send later" used to be a clock icon out in the row
+                    // with the emoji and GIF buttons, where it read as one
+                    // more unrelated glyph and disappeared entirely in a
+                    // narrow window (`!compactInputRow`, and no menu entry
+                    // stood in for it). Requested by Rokas as a chevron on
+                    // the RIGHT of the send button: the split-button shape
+                    // says "another way to send THIS", which is exactly what
+                    // it is, and it rides beside a button that is always
+                    // present so the action is never displaced.
+                    //
+                    // Narrower than the send button and deliberately NOT
+                    // accent-filled: two filled blocks separated by a hairline
+                    // would read as two sends.
+                    IconButton {
+                        id: sendOptionsButton
+                        objectName: "composerSendOptionsButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        Layout.leftMargin: -AppTheme.spacing4
+                        visible: app.scheduledSends !== null
+                                 && root.composerButtonShown("sendOptions")
+                        implicitWidth: 20; implicitHeight: 34
+                        radius: AppTheme.radiusControl
+                        iconName: "expand_more"
+                        iconSize: 18
+                        // The badge the clock button carried: this room has
+                        // messages waiting to go out.
+                        active: root.pendingScheduledCount > 0
+                        enabled: app.currentRoomId !== ""
+                                 && !app.composer.isEditing
+                        Accessible.name: qsTr("Send options")
+                        ToolTip.text: root.pendingScheduledCount > 0
+                                      ? qsTr("Send options (%1 scheduled)")
+                                            .arg(root.pendingScheduledCount)
+                                      : qsTr("Send options")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: sendOptionsMenu.popup()
+                    }
                 }
             }
             }
+        }
+    }
+
+    AppMenu {
+        id: sendOptionsMenu
+        objectName: "composerSendOptionsMenu"
+        AppMenuItem {
+            objectName: "composerSendLaterMenuItem"
+            iconName: "schedule"
+            text: qsTr("Send later…")
+            // Nothing to schedule is not an error worth a dialog: the item
+            // is simply unavailable, and the one below still is.
+            enabled: app.composer.canSend
+            onTriggered: root.openSendLater()
+        }
+        AppMenuItem {
+            objectName: "composerScheduledListMenuItem"
+            iconName: "format_list_bulleted"
+            text: root.pendingScheduledCount > 0
+                  ? qsTr("Scheduled messages (%1)")
+                        .arg(root.pendingScheduledCount)
+                  : qsTr("Scheduled messages")
+            onTriggered: root.openScheduledList()
         }
     }
 

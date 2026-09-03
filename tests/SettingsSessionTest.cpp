@@ -108,6 +108,8 @@ private Q_SLOTS:
     void freshProfileDefaultsToMatrixOrg();
     // 2026-08-23 tester report: window geometry was not saved at all.
     void windowGeometryRoundTripsAndRefusesAnUnrestorableSize();
+    // 2026-09-03: composer buttons the user switched off.
+    void hiddenComposerButtonsDefaultToNoneAndNormalize();
 
 private:
     QTemporaryDir m_configHome;
@@ -970,6 +972,53 @@ void SettingsSessionTest::hiddenImagesPersistPerAccountAndSurviveSigningOut()
         QVERIFY(!store.isHidden(key));
         QVERIFY2(settings.hiddenMediaKeys().isEmpty(),
                  "Show all hidden images left the stored list behind");
+    }
+}
+
+// A tester asked for a plainer send bar. The stored value is what is HIDDEN,
+// never what is shown, so a button added in a later release appears for
+// everyone instead of being hidden from every existing user — this pins the
+// default and the normalization the notify depends on.
+void SettingsSessionTest::hiddenComposerButtonsDefaultToNoneAndNormalize()
+{
+    SettingsManager settings;
+    QVERIFY2(settings.hiddenComposerButtons().isEmpty(),
+             "a fresh profile must show every composer button");
+
+    QSignalSpy spy(&settings, &SettingsManager::hiddenComposerButtonsChanged);
+    settings.setComposerButtonShown(QStringLiteral("emoji"), false);
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(settings.hiddenComposerButtons(),
+             QStringList{ QStringLiteral("emoji") });
+
+    // Idempotent: hiding what is already hidden announces nothing.
+    settings.setComposerButtonShown(QStringLiteral("emoji"), false);
+    QCOMPARE(spy.count(), 1);
+
+    // Order and duplicates are normalized, so a write that changes nothing
+    // cannot fire the notify every binding in both composers listens to.
+    settings.setHiddenComposerButtons({ QStringLiteral("emoji"),
+                                        QStringLiteral("emoji"),
+                                        QString() });
+    QCOMPARE(spy.count(), 1);
+    settings.setHiddenComposerButtons({ QStringLiteral("voice"),
+                                        QStringLiteral("emoji") });
+    QCOMPARE(spy.count(), 2);
+    QCOMPARE(settings.hiddenComposerButtons(),
+             (QStringList{ QStringLiteral("emoji"), QStringLiteral("voice") }));
+
+    // An empty key is not a button and must not enter the list.
+    settings.setComposerButtonShown(QString(), false);
+    QCOMPARE(spy.count(), 2);
+
+    {
+        SettingsManager reopened;
+        QCOMPARE(reopened.hiddenComposerButtons(),
+                 (QStringList{ QStringLiteral("emoji"),
+                               QStringLiteral("voice") }));
+        reopened.setComposerButtonShown(QStringLiteral("emoji"), true);
+        QCOMPARE(reopened.hiddenComposerButtons(),
+                 QStringList{ QStringLiteral("voice") });
     }
 }
 

@@ -570,6 +570,48 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
 - Keyboard quick switch/search/navigation, accessible labels/roles/actions,
   focus handling, and keyboard-operable message/thread actions
 
+### The message box (composer) controls
+
+Left to right: attach, formatting, the text field, emoji, GIFs and stickers,
+voice message, send, send options. **2026-09-03, from tester feedback:**
+
+- **One button for GIFs and stickers, and one window.** They were two buttons
+  opening two popups. The two pickers are still two components — a pack is not
+  a GIF: it has an owner, an attribution, a room it may belong to, and failure
+  states (no packs, a pack of emoticons only) the GIF grid has no words for —
+  and the merge is that both now carry the same GIFs/Stickers strip and the
+  HOST swaps them in place. They already shared the anchor, the chrome and the
+  remembered size (`sizeSettingsKey: "picker"`), and neither declares an enter
+  or exit transition, so the swap reads as the window changing tab. A picker
+  never opens its sibling itself: it emits `kindRequested` and the composer
+  that owns both does it, because only the host knows its own anchor item.
+  When only one kind is available the strip is absent; when NEITHER is, the
+  button stays present and disabled with a tooltip that says why.
+- **A chevron on the right of Send, not a clock in the glyph row.** "Send
+  later" was an unrelated-looking icon among emoji and GIF, and it vanished
+  entirely in a narrow window with no menu entry standing in for it. The
+  split-button shape says "another way to send THIS", and it rides beside a
+  button that is always present. The menu carries Send later (available only
+  with something to send) and Scheduled messages (always, with the room's
+  pending count). The scheduler itself is unchanged — see "Send later".
+- **The buttons can be switched off**, in Settings › Appearance › Message box
+  › Message box buttons: formatting, emoji, GIFs and stickers, voice message,
+  send options. **Attach is deliberately not offered**: it carries files and
+  polls, and in a narrow window the emoji and media actions are displaced INTO
+  its menu, so hiding it could stand between the user and an action the user
+  had not hidden. Stored as `SettingsManager::hiddenComposerButtons`, a list
+  of what is HIDDEN rather than what is shown, so a button added in a later
+  release appears for everyone instead of being hidden from every existing
+  user. Both composers honour it; a recording in flight keeps its controls
+  whatever the setting says, because the pill is the way to stop it.
+
+A picker button TOGGLES. The pickers carry `Popup.CloseOnPressOutside` and the
+icon that opens them is outside, so a second press closed the panel and the
+button's own click — which arrives on the RELEASE — opened it again. The popup
+layer sees the press first, so `opened` already reads false in `onClicked`;
+what identifies the gesture is that a panel of that kind was dismissed a
+moment ago and the very next thing is a click on its own button.
+
 ### GIF provider integration
 
 Implemented: strict GIPHY and KLIPY parsing behind a shared provider

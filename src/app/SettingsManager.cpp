@@ -74,6 +74,7 @@ constexpr auto kShowMembership      = "timeline/showMembershipEvents";
 constexpr auto kShowProfileChanges  = "timeline/showProfileChangeEvents";
 constexpr auto kReducedMotion       = "ui/reducedMotion";
 constexpr auto kSmoothScrolling     = "ui/smoothScrolling";
+constexpr auto kHiddenComposerButtons = "ui/hiddenComposerButtons";
 constexpr auto kClockFormat         = "ui/clockFormat";
 constexpr auto kEnterNewline        = "composer/enterInsertsNewline";
 constexpr auto kComposerMode        = "composer/mode";
@@ -2108,6 +2109,40 @@ void SettingsManager::setSmoothScrolling(bool v)
         return;
     setAppearanceValue(kSmoothScrolling, v);
     Q_EMIT smoothScrollingChanged();
+}
+
+// Composer buttons the user has switched off. See the header for why this is
+// one list of HIDDEN keys rather than a boolean per button.
+QStringList SettingsManager::hiddenComposerButtons() const
+{
+    return appearanceValue(kHiddenComposerButtons, QStringList{}).toStringList();
+}
+
+void SettingsManager::setHiddenComposerButtons(const QStringList &keys)
+{
+    // Normalized before comparing AND before storing: an unstable order or a
+    // duplicate would make the notify fire on writes that changed nothing,
+    // and every reader treats this as a set.
+    QStringList next = keys;
+    next.removeAll(QString());
+    next.removeDuplicates();
+    next.sort();
+    if (next == hiddenComposerButtons())
+        return;
+    setAppearanceValue(kHiddenComposerButtons, next);
+    Q_EMIT hiddenComposerButtonsChanged();
+}
+
+void SettingsManager::setComposerButtonShown(const QString &key, bool shown)
+{
+    if (key.isEmpty())
+        return;
+    QStringList next = hiddenComposerButtons();
+    if (shown)
+        next.removeAll(key);
+    else if (!next.contains(key))
+        next.append(key);
+    setHiddenComposerButtons(next);
 }
 
 int SettingsManager::clockFormat() const

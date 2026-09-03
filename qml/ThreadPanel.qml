@@ -1754,6 +1754,7 @@ Rectangle {
                             radius: AppTheme.radiusControl
                             iconName: "mood"
                             iconSize: 18
+                            visible: panel.composerButtonShown("emoji")
                             enabled: app.thread.state === ThreadController.Ready
                             Accessible.name: qsTr("Insert emoji")
                             onClicked: {
@@ -1769,92 +1770,36 @@ Rectangle {
                                 threadEmojiPicker.open()
                             }
                         }
-                        // GIF: a mono text glyph treated as one of the
-                        // row's icon buttons — see the matching note in
-                        // MessageComposerBar.qml. This copy additionally had
-                        // NO focus ring at all, so it was a Tab stop with no
-                        // visible focus.
-                        AbstractButton {
-                            id: threadGifButton
-                            objectName: "threadGifButton"
-                            implicitWidth: threadGifCap.implicitWidth + 8
-                            implicitHeight: 24
-                            hoverEnabled: true
-                            focusPolicy: Qt.TabFocus
-                            Accessible.role: Accessible.Button
-                            enabled: app.thread.state === ThreadController.Ready
-                                     && app.gif.available
-                            Accessible.name: qsTr("Insert a GIF")
-                            ToolTip.text: app.gif.available ? qsTr("GIF")
-                                : qsTr("GIFs are unavailable on this backend")
-                            ToolTip.visible: hovered
-                            ToolTip.delay: 500
-                            contentItem: Item {
-                                implicitWidth: threadGifCap.implicitWidth
-                                implicitHeight: 24
-                                Label {
-                                    id: threadGifCap
-                                    anchors.centerIn: parent
-                                    text: qsTr("GIF")
-                                    font.family: AppTheme.monoFont
-                                    font.pixelSize:
-                                        AppTheme.scaled(AppTheme.textMicro)
-                                    font.weight: AppTheme.weightBold
-                                    leftPadding: 4
-                                    rightPadding: 4
-                                    color: threadGifButton.enabled
-                                           ? AppTheme.icon
-                                           : AppTheme.textDisabled
-                                }
-                            }
-                            background: Rectangle {
-                                objectName: "threadGifKeycap"
-                                anchors.fill: parent
-                                radius: AppTheme.radiusControl
-                                border.width: 0
-                                color: threadGifButton.enabled
-                                       && (threadGifButton.down
-                                           || threadGifButton.hovered)
-                                       ? AppTheme.hover : "transparent"
-                            }
-                            Rectangle {
-                                anchors.fill: parent
-                                anchors.margins: -4
-                                radius: AppTheme.radiusControl + 4
-                                color: "transparent"
-                                border.color: AppTheme.focusRing
-                                border.width: 2
-                                visible: threadGifButton.visualFocus
-                            }
-                            onClicked: {
-                                threadEmojiPicker.close()
-                                threadGifPicker.anchorItem = threadMiniComposer
-                                threadGifPicker.open()
-                            }
-                        }
-                        // Stickers (MSC2545). See the room composer's own
-                        // button for why the glyph is `emoji_symbols`: the
-                        // bundled icon font is a SUBSET and there is no
-                        // sticker glyph in it.
+                        // ── GIFs and stickers: ONE button, ONE window ──
+                        //
+                        // The room composer's own block carries the whole
+                        // reasoning. This copy previously also had NO focus
+                        // ring, so it was a Tab stop with no visible focus;
+                        // an IconButton draws one.
                         IconButton {
-                            objectName: "threadStickerButton"
+                            id: threadMediaButton
+                            objectName: "threadMediaButton"
                             implicitWidth: 24; implicitHeight: 24
                             radius: AppTheme.radiusControl
-                            iconName: "emoji_symbols"
-                            iconSize: 16
-                            visible: app.stickers.available
+                            iconName: "gif_box"
+                            iconSize: 18
+                            // Present and disabled when neither kind is
+                            // available, matching the room composer.
+                            visible: panel.composerButtonShown("media")
                             enabled: app.thread.state === ThreadController.Ready
-                            Accessible.name: qsTr("Insert a sticker")
-                            ToolTip.text: qsTr("Sticker")
+                                     && (app.gif.available
+                                         || app.stickers.available)
+                            Accessible.name: qsTr("Insert a GIF or sticker")
+                            ToolTip.text: !app.gif.available && !app.stickers.available
+                                          ? qsTr("GIFs and stickers are unavailable "
+                                                 + "on this backend")
+                                          : panel.mediaPickerBothKinds
+                                            ? qsTr("GIFs and stickers")
+                                            : (app.gif.available ? qsTr("GIF")
+                                                                 : qsTr("Sticker"))
                             ToolTip.visible: hovered
                             ToolTip.delay: 500
-                            onClicked: {
-                                threadEmojiPicker.close()
-                                threadGifPicker.close()
-                                threadStickerPicker.anchorItem =
-                                    threadMiniComposer
-                                threadStickerPicker.open()
-                            }
+                            onClicked: panel.openThreadMediaPicker()
                         }
                         // v0.7 thread parity: voice capture, using the same
                         // shared recorder as the room composer. Ownership
@@ -1866,7 +1811,10 @@ Rectangle {
                             radius: AppTheme.radiusControl
                             iconName: "mic"
                             iconSize: 18
+                            // A recording in flight keeps its controls, same
+                            // as the room composer.
                             visible: !panel.voiceActive
+                                     && panel.composerButtonShown("voice")
                             enabled: app.thread.state === ThreadController.Ready
                                      && app.thread.attachmentsSupported
                             Accessible.name: qsTr("Record a voice message")
@@ -2523,9 +2471,54 @@ Rectangle {
         }
     }
 
+    // ── Composer buttons the user switched off, and the merged picker ────
+    //
+    // Both mirror MessageComposerBar.qml, because the two composers are peers
+    // and a setting that only reached one of them would be a worse answer than
+    // no setting. See that file for why the list holds what is HIDDEN and why
+    // composerButtonShown() is read through a property.
+    readonly property var hiddenComposerButtons:
+        app.settings ? app.settings.hiddenComposerButtons : []
+    function composerButtonShown(key) {
+        return panel.hiddenComposerButtons.indexOf(key) < 0
+    }
+    readonly property bool mediaPickerBothKinds:
+        app.gif.available && app.stickers.available
+    property string mediaPickerKind: "gif"
+    function effectiveMediaKind() {
+        if (panel.mediaPickerKind === "sticker" && app.stickers.available)
+            return "sticker"
+        if (app.gif.available)
+            return "gif"
+        return app.stickers.available ? "sticker" : "gif"
+    }
+    function openThreadMediaPicker() {
+        if (threadGifPicker.opened || threadStickerPicker.opened) {
+            threadGifPicker.close()
+            threadStickerPicker.close()
+            return
+        }
+        panel.swapThreadMediaPicker(panel.effectiveMediaKind())
+    }
+    function swapThreadMediaPicker(kind) {
+        panel.mediaPickerKind = kind
+        threadEmojiPicker.close()
+        if (kind === "sticker") {
+            threadGifPicker.close()
+            threadStickerPicker.anchorItem = threadMiniComposer
+            threadStickerPicker.open()
+        } else {
+            threadStickerPicker.close()
+            threadGifPicker.anchorItem = threadMiniComposer
+            threadGifPicker.open()
+        }
+    }
+
     GifPicker {
         id: threadGifPicker
         target: "thread"
+        offerKindTabs: panel.mediaPickerBothKinds
+        onKindRequested: (kind) => panel.swapThreadMediaPicker(kind)
         onGifChosen: (result) => panel.onThreadGifPicked(result)
         onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
     }
@@ -2541,6 +2534,8 @@ Rectangle {
     StickerPicker {
         id: threadStickerPicker
         target: "thread"
+        offerKindTabs: panel.mediaPickerBothKinds
+        onKindRequested: (kind) => panel.swapThreadMediaPicker(kind)
         onStickerChosen: (image) => panel.onThreadStickerPicked(image)
         onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
     }

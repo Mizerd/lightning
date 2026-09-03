@@ -15,8 +15,10 @@ import MatrixClient
 // when chosen, on its way into the Matrix attachment pipeline.
 //
 // v0.6.5 (SPEC §1n): width 330 (down from 460) with a dynamic 3-column grid,
-// a picker-owned "GIF" header badge (distinct from the composer's pinned
-// composerGifKeycap), a tile size overlay, and a "return to send" footer hint.
+// a picker-owned "GIF" header badge, a tile size overlay, and a "return to
+// send" footer hint. (The badge used to be described here as distinct from the
+// composer's own mono "GIF" keycap; that keycap was retired on 2026-09-03 when
+// GIFs and stickers became one button, so this badge is now the only one.)
 // The nine choose()/snapshot()/latch/reset invariants below are UNCHANGED.
 //
 // Storm skin (SPEC-storm-language §3): stormPanel chrome, storm search field,
@@ -61,6 +63,26 @@ AnchoredPopup {
     // composer reopens focus. The active target closes the other picker.
     property string target: "room"
     signal gifChosen(var result)
+    // ── One window, two kinds ────────────────────────────────────────────
+    //
+    // GIFs and stickers used to be two composer buttons opening two popups.
+    // Requested by Rokas as one clean window: this picker and StickerPicker
+    // now carry the SAME two-segment strip at the top, and choosing the other
+    // segment asks the host to swap them.
+    //
+    // They are still two components on purpose. A pack is not a GIF — it has
+    // an owner, an attribution, a room it may belong to, and failure states
+    // (no packs at all, a pack of emoticons only) that the GIF grid has no
+    // words for; the header of StickerPicker.qml says the same thing about
+    // the emoji picker. What makes the pair read as one window is that they
+    // share the anchor, the chrome and the remembered size
+    // (`sizeSettingsKey: "picker"`), and neither has an enter or exit
+    // transition — so the swap is a content change in place, not two windows.
+    signal kindRequested(string kind)
+    // Whether to offer the strip at all. The host clears it when the other
+    // kind is unavailable, so a build with no sticker packs shows no tab to
+    // an empty panel.
+    property bool offerKindTabs: false
 
     readonly property var gif: app.gif
 
@@ -423,6 +445,27 @@ AnchoredPopup {
         anchors.bottomMargin: footerRow.implicitHeight + AppTheme.spacing4 * 2
         spacing: AppTheme.spacingS
 
+        // ── Row 0: which KIND of media this window is showing ────────
+        SegmentedControl {
+            objectName: "pickerKindTabs"
+            visible: picker.offerKindTabs
+            // Explicit: an unaligned ColumnLayout child's cross-axis
+            // placement is not worth guessing at, and every row below this
+            // one starts at the panel's left edge.
+            Layout.alignment: Qt.AlignLeft
+            Layout.fillWidth: false
+            storm: true
+            model: [
+                { label: qsTr("GIFs"), value: "gif", enabled: true },
+                { label: qsTr("Stickers"), value: "sticker", enabled: true },
+            ]
+            current: "gif"
+            onActivated: (value) => {
+                if (value !== "gif")
+                    picker.kindRequested(value)
+            }
+        }
+
         // ── Row 1: search (provider tabs) or list title + "GIF" badge + close
         RowLayout {
             Layout.fillWidth: true
@@ -482,11 +525,11 @@ AnchoredPopup {
                 }
             }
 
-            // The picker's own inline "GIF" badge — mono, bordered, NOT the
-            // same geometry/objectName as the composer's pinned
-            // composerGifKeycap (ComposerQmlTest pins that one at 1.5px
-            // border / radius 5 with its own objectName; this is a distinct,
-            // independent chip).
+            // The picker's own inline "GIF" badge — mono, bordered. It used
+            // to be distinguished here from the composer's own mono keycap;
+            // that one was retired on 2026-09-03 when GIFs and stickers became
+            // ONE composer button (a button covering both kinds cannot carry a
+            // word for one of them), so this is the only such chip left.
             Rectangle {
                 objectName: "gifPickerHeaderBadge"
                 implicitWidth: gifHeaderBadgeLabel.implicitWidth + AppTheme.spacing8

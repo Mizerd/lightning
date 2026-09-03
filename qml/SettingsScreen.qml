@@ -129,6 +129,11 @@ Item {
           keywords: qsTr("caption attachment upload text description"),
           section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
           control: "sendTextAsCaption" },
+        { title: qsTr("Message box buttons"),
+          keywords: qsTr("composer buttons hide show emoji gif sticker stickers "
+                         + "voice microphone formatting schedule send later "
+                         + "declutter simplify"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Message box") },
         { title: qsTr("Check spelling as you type"),
           keywords: qsTr("spell spelling checker dictionary typo underline language"),
           section: "appearance", breadcrumb: qsTr("Appearance · Message box") },
@@ -3192,6 +3197,88 @@ Item {
                                                + "that do not understand captions "
                                                + "show the attachment without the "
                                                + "text.")
+                                }
+
+                                // ── Message box buttons ──────────────────
+                                //
+                                // Requested by a tester who wanted a plainer
+                                // send bar. Presented as "show", stored as
+                                // "hidden" (SettingsManager::
+                                // hiddenComposerButtons) so a button added in
+                                // a later release appears for everyone rather
+                                // than being hidden from every existing user.
+                                //
+                                // Attach is deliberately absent: it carries
+                                // files and polls, and in a narrow window the
+                                // emoji and media actions are displaced INTO
+                                // its menu, so hiding it could stand between
+                                // the user and an action they had not hidden.
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing16
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    text: qsTr("Message box buttons")
+                                    // stormTextSecondary, matching the card's
+                                    // own "Message box" heading above — a
+                                    // sub-heading here must not out-rank it.
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Turn off what you do not use. "
+                                               + "Attach stays: in a narrow "
+                                               + "window it is where the other "
+                                               + "actions move to.")
+                                }
+                                Repeater {
+                                    model: [
+                                        { key: "formatting",
+                                          label: qsTr("Formatting") },
+                                        { key: "emoji", label: qsTr("Emoji") },
+                                        { key: "media",
+                                          label: qsTr("GIFs and stickers") },
+                                        { key: "voice",
+                                          label: qsTr("Voice message") },
+                                        { key: "sendOptions",
+                                          label: qsTr("Send options") },
+                                    ]
+                                    CheckBox {
+                                        required property var modelData
+                                        palette.windowText: AppTheme.stormText
+                                        objectName: "composerButtonCheck_"
+                                                    + modelData.key
+                                        Layout.leftMargin: AppTheme.spacing4
+                                        text: modelData.label
+                                        // Guarded, not because this Repeater
+                                        // is one of the exposed ones — its
+                                        // model is a literal and it is built
+                                        // during ordinary creation, not from
+                                        // a property-change handler — but
+                                        // because a binding that THROWS
+                                        // sticks at its last value, and the
+                                        // one that decides whether a control
+                                        // exists is a bad place to find that
+                                        // out. See Avatar.qml's `bridge` for
+                                        // the case that taught it.
+                                        checked: {
+                                            if (typeof app === "undefined"
+                                                    || !app || !app.settings)
+                                                return true
+                                            return app.settings
+                                                .hiddenComposerButtons
+                                                .indexOf(modelData.key) < 0
+                                        }
+                                        onToggled: {
+                                            if (app && app.settings)
+                                                app.settings.setComposerButtonShown(
+                                                    modelData.key, checked)
+                                        }
+                                    }
                                 }
                             }
                         }

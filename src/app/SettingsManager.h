@@ -265,6 +265,25 @@ class SettingsManager : public QObject
     // is the behaviour every build so far has had.
     Q_PROPERTY(bool smoothScrolling READ smoothScrolling WRITE setSmoothScrolling
                    NOTIFY smoothScrollingChanged)
+    // Composer buttons the user has switched OFF, by stable key:
+    // "formatting", "emoji", "media" (GIFs and stickers), "voice",
+    // "sendOptions". Requested by a tester who wanted a plainer send bar.
+    //
+    // ONE LIST, not five booleans, and the list holds what is HIDDEN rather
+    // than what is shown: a key absent from a stored list is then visible,
+    // so a build that adds a sixth button shows it to everyone instead of
+    // hiding it from every existing user. Bound in QML as
+    // `visible: !app.settings.hiddenComposerButtons.includes("emoji")`,
+    // which is a real binding on a notifying property — a
+    // `Q_INVOKABLE bool visible(key)` would not re-evaluate.
+    //
+    // The attach button is deliberately NOT hideable: it carries files and
+    // polls, and in a narrow window it is also where the emoji and media
+    // actions are displaced to, so hiding it could stand between the user
+    // and an action they had not hidden.
+    Q_PROPERTY(QStringList hiddenComposerButtons READ hiddenComposerButtons
+                   WRITE setHiddenComposerButtons
+                   NOTIFY hiddenComposerButtonsChanged)
     // Clock format for every timestamp Lightning renders: 0 = follow the
     // system locale (the previous, fixed behaviour), 1 = 12-hour, 2 =
     // 24-hour. Per account with a global fallback.
@@ -619,6 +638,11 @@ public:
     bool reducedMotion() const;
     bool smoothScrolling() const;
     void setSmoothScrolling(bool v);
+    QStringList hiddenComposerButtons() const;
+    void setHiddenComposerButtons(const QStringList &keys);
+    /// Convenience for the settings screen's checkboxes, which think in
+    /// "shown" while the stored list records what is hidden.
+    Q_INVOKABLE void setComposerButtonShown(const QString &key, bool shown);
 
     // ── Call volumes ──────────────────────────────────────────────────
     //
@@ -943,6 +967,7 @@ Q_SIGNALS:
     void showProfileChangeEventsChanged();
     void reducedMotionChanged();
     void smoothScrollingChanged();
+    void hiddenComposerButtonsChanged();
     void microphoneGainChanged();
     /// One person's stored volume changed. Carries the USER ID.
     void callParticipantVolumeChanged(const QString &userId, int percent);

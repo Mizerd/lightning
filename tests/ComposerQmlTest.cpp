@@ -262,7 +262,11 @@ private slots:
         const char *order[] = {
             "composerAttachButton", "composerFormatToggleButton",
             "composerInput", "composerEmojiButton",
-            "composerGifButton", "composerMicButton", "composerSendButton",
+            // One button for GIFs and stickers since 2026-09-03, and the
+            // "send later" clock moved out of the row into a chevron on the
+            // right of Send.
+            "composerMediaButton", "composerMicButton", "composerSendButton",
+            "composerSendOptionsButton",
         };
         qreal lastX = -1;
         for (const char *name : order) {
@@ -327,21 +331,28 @@ private slots:
                  QStringLiteral("Select a room to start typing"));
     }
 
-    // Was gifKeycapIsBorderedMonoChip. The 2026-08-21 audit found this was
-    // the ONLY bordered chip in a row of five borderless glyph buttons, at a
-    // radius nothing else used, visibly shorter than its 28px siblings, and
-    // with no pressed state at all. It now matches the row it lives in, so
-    // the guard pins that instead — a border here is the defect.
-    void gifKeycapMatchesItsBorderlessGlyphRow()
+    // Was gifKeycapIsBorderedMonoChip, then
+    // gifKeycapMatchesItsBorderlessGlyphRow. The 2026-08-21 audit found the
+    // mono "GIF" keycap was the ONLY bordered chip in a row of five
+    // borderless glyph buttons, at a radius nothing else used, visibly
+    // shorter than its 28px siblings, and with no pressed state at all.
+    //
+    // 2026-09-03 finished that: GIFs and stickers became ONE button, and a
+    // button covering both kinds cannot carry a word for one of them, so it
+    // is a glyph like its neighbours. The chip is gone entirely; what this
+    // case pins now is that the button that replaced it belongs to the row.
+    void mediaButtonMatchesItsGlyphRow()
     {
-        auto *keycap = item("composerGifKeycap");
-        QVERIFY(keycap);
-        QCOMPARE(QQmlProperty::read(keycap, QStringLiteral("border.width"))
-                     .toReal(), 0.0);
-        QCOMPARE(keycap->property("radius").toInt(), themeInt("radiusControl"));
-        // At rest it is transparent like its siblings; the fill is the
-        // hover/press feedback it previously did not have.
-        QCOMPARE(keycap->property("color").value<QColor>().alpha(), 0);
+        QVERIFY2(!item("composerGifKeycap"),
+                 "the bordered mono GIF chip is back");
+        auto *media = item("composerMediaButton");
+        auto *emoji = item("composerEmojiButton");
+        QVERIFY(media && emoji);
+        QCOMPARE(media->width(), emoji->width());
+        QCOMPARE(media->height(), emoji->height());
+        QCOMPARE(media->property("radius").toInt(), themeInt("radiusControl"));
+        QCOMPARE(media->property("iconSize").toInt(),
+                 emoji->property("iconSize").toInt());
     }
 
     void micIsHonestlyUnavailable()
@@ -842,6 +853,161 @@ private slots:
                          .arg(delta).arg(scale)));
         }
         m_controller->settings()->setTextScale(100);
+    }
+
+    // ── Settings › Appearance › Message box buttons hides them ───────────
+    //
+    // Requested by a tester who wanted a plainer send bar. The binding is the
+    // whole feature, so it is driven through the real setting rather than by
+    // poking `visible`: hiddenComposerButtons is a notifying property and
+    // composerButtonShown() reads it, which is what makes every `visible`
+    // binding in the row re-evaluate. A Q_INVOKABLE would not.
+    void hidingAComposerButtonInSettingsRemovesItFromTheRow()
+    {
+        auto *settings = m_controller->settings();
+        const QStringList previous = settings->hiddenComposerButtons();
+
+        struct { const char *key; const char *item; } cases[] = {
+            { "emoji", "composerEmojiButton" },
+            { "media", "composerMediaButton" },
+            { "voice", "composerMicButton" },
+            { "formatting", "composerFormatToggleButton" },
+            { "sendOptions", "composerSendOptionsButton" },
+        };
+        // MEASURE FIRST, RESTORE, THEN ASSERT. This binary shares one
+        // QSettings file across every case in it, so an assertion that fires
+        // mid-loop leaves a button hidden on disk for every LATER case and
+        // every later run — which is exactly what happened while this was
+        // being written (three cases failed the next run on a tree that was
+        // fine). The same trap as smoothScrolling in TimelinePaneQmlTest.
+        struct Observed { bool present; bool before; bool hidden; bool after; };
+        QList<Observed> seen;
+        for (const auto &c : cases) {
+            auto *button = item(c.item);
+            Observed o { button != nullptr, false, true, false };
+            if (button) {
+                o.before = button->isVisible();
+                settings->setComposerButtonShown(QLatin1String(c.key), false);
+                QTest::qWait(30);
+                o.hidden = button->isVisible();
+                settings->setComposerButtonShown(QLatin1String(c.key), true);
+                QTest::qWait(30);
+                o.after = button->isVisible();
+            }
+            seen.append(o);
+        }
+        settings->setHiddenComposerButtons(previous);
+        QTest::qWait(30);
+
+        for (int i = 0; i < seen.size(); ++i) {
+            const auto &c = cases[i];
+            const Observed &o = seen.at(i);
+            QVERIFY2(o.present, c.item);
+            QVERIFY2(o.before,
+                     qPrintable(QStringLiteral("%1 was not visible to start "
+                                               "with").arg(c.item)));
+            QVERIFY2(!o.hidden,
+                     qPrintable(QStringLiteral("turning %1 off left %2 in the "
+                                               "row").arg(c.key).arg(c.item)));
+            QVERIFY2(o.after,
+                     qPrintable(QStringLiteral("turning %1 back on did not "
+                                               "restore %2").arg(c.key)
+                                    .arg(c.item)));
+        }
+    }
+
+    // ── GIFs and stickers are ONE window with two tabs ───────────────────
+    //
+    // They used to be two composer buttons opening two popups; a tester asked
+    // for one clean window. The two pickers stay two components (a pack is not
+    // a GIF — see the header of GifPicker.qml) and the merge is that the host
+    // swaps them in place: same anchor item, same remembered size, no enter or
+    // exit transition, so it reads as the window changing tab.
+    //
+    // Driven through the host's own entry points rather than by opening the
+    // popups directly, because the swap IS the feature.
+    void theMediaPickerIsOneWindowWithTwoTabs()
+    {
+        auto *bar = item("composerBar");
+        QVERIFY(bar != nullptr);
+        const QString previousRoom = m_controller->currentRoomId();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(30);
+
+        auto opened = [this](const char *name) {
+            QObject *p = m_root->findChild<QObject *>(QLatin1String(name));
+            return p && p->property("opened").toBool();
+        };
+
+        QMetaObject::invokeMethod(bar, "openMediaPicker",
+                                  Q_ARG(QVariant, false));
+        QTest::qWait(80);
+        QVERIFY2(opened("composerGifPicker"),
+                 "the one media button did not open the GIF panel");
+        QVERIFY(!opened("composerStickerPicker"));
+
+        // The strip inside asks the HOST to swap — a picker that closed and
+        // opened its sibling itself would have to know its own anchor item
+        // and its host's other picker.
+        QMetaObject::invokeMethod(bar, "swapMediaPicker",
+                                  Q_ARG(QVariant, QStringLiteral("sticker")));
+        QTest::qWait(80);
+        QVERIFY2(opened("composerStickerPicker"),
+                 "swapping to Stickers did not open the sticker panel");
+        QVERIFY2(!opened("composerGifPicker"),
+                 "swapping left the GIF panel open too: that is two windows, "
+                 "which is exactly what this replaced");
+
+        // Same anchor and the same remembered size key, which is what makes
+        // the swap read as one window rather than two.
+        auto *gif = m_root->findChild<QObject *>(
+            QStringLiteral("composerGifPicker"));
+        auto *sticker = m_root->findChild<QObject *>(
+            QStringLiteral("composerStickerPicker"));
+        QVERIFY(gif && sticker);
+        QCOMPARE(gif->property("anchorItem").value<QQuickItem *>(),
+                 sticker->property("anchorItem").value<QQuickItem *>());
+        QCOMPARE(gif->property("sizeSettingsKey").toString(),
+                 sticker->property("sizeSettingsKey").toString());
+
+        // And the button toggles the PAIR: pressing it while the sticker half
+        // is showing closes the window, it does not open the GIF half.
+        QMetaObject::invokeMethod(bar, "openMediaPicker",
+                                  Q_ARG(QVariant, false));
+        QTest::qWait(80);
+        QVERIFY(!opened("composerStickerPicker"));
+        QVERIFY(!opened("composerGifPicker"));
+
+        m_controller->setCurrentRoomId(previousRoom);
+        QTest::qWait(30);
+    }
+
+    // ── Send options ride beside Send, not out in the glyph row ──────────
+    //
+    // "Send later" was a clock icon among the emoji and GIF buttons, where it
+    // read as one more unrelated glyph and vanished entirely in a narrow
+    // window with no menu entry standing in for it. Rokas asked for a chevron
+    // on the RIGHT of the send button.
+    void sendOptionsSitRightOfSendAndOfferBothActions()
+    {
+        auto *send = item("composerSendButton");
+        auto *chevron = item("composerSendOptionsButton");
+        QVERIFY(send && chevron);
+        QVERIFY2(!item("composerSendLaterButton"),
+                 "the standalone send-later clock is back in the glyph row");
+        QVERIFY(chevron->isVisible());
+        QVERIFY2(chevron->mapToScene(QPointF(0, 0)).x()
+                     > send->mapToScene(QPointF(0, 0)).x(),
+                 "the chevron is not to the right of Send");
+        // Narrower than Send, and the same height: a split button, not a
+        // second send.
+        QCOMPARE(chevron->height(), send->height());
+        QVERIFY(chevron->width() < send->width());
+
+        for (const char *name : { "composerSendLaterMenuItem",
+                                  "composerScheduledListMenuItem" }) {
+            QVERIFY2(m_root->findChild<QObject *>(QLatin1String(name)), name);
+        }
     }
 
     // ── The picker buttons TOGGLE ────────────────────────────────────────

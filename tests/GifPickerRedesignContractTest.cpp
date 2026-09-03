@@ -1,7 +1,7 @@
 // v0.6.5 (SPEC §1n): source-scan contract for the redesigned GifPicker —
 // width 330 with a dynamically-sized 3-column grid (replacing the fixed
 // 132px cell that assumed the previous 460px width), the picker's own "GIF"
-// header badge (distinct from the composer's pinned composerGifKeycap), the
+// header badge (the composer's own mono keycap was retired 2026-09-03), the
 // tile badges, and the "return to send" footer hint. This is a
 // belt-and-suspenders re-pin alongside tests/QmlBindingContractTest.cpp's
 // gifPickerWiredIntoBothComposers (which owns the authoritative nine-invariant
@@ -58,9 +58,11 @@ private Q_SLOTS:
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
         QVERIFY(picker.contains(QStringLiteral("objectName: \"gifPickerHeaderBadge\"")));
-        // Never reuses the composer's pinned objectName/geometry (1.5px
-        // border / radius 5 — see tests/ComposerQmlTest.cpp's
-        // gifKeycapIsBorderedMonoChip).
+        // Never reuses the composer's old pinned objectName. That keycap was
+        // retired on 2026-09-03 when GIFs and stickers became one composer
+        // button; the assertion stays because the badge must keep its OWN
+        // identity, and reviving a name that no longer exists anywhere would
+        // be a copy-paste, not a decision.
         QVERIFY(!picker.contains(QStringLiteral("objectName: \"composerGifKeycap\"")));
         QVERIFY(picker.contains(QStringLiteral("radius: AppTheme.radiusMd")));
     }

@@ -41,6 +41,10 @@ AnchoredPopup {
     // The chosen image, as the manager's own row map (shortcode, url, body,
     // mimetype, width, height, size, isEmoticon, isSticker).
     signal stickerChosen(var image)
+    // See the matching block in GifPicker.qml: the two pickers are one window
+    // with two tabs, swapped in place by the host.
+    signal kindRequested(string kind)
+    property bool offerKindTabs: false
 
     readonly property var stickers: app.stickers
 
@@ -150,6 +154,27 @@ AnchoredPopup {
         anchors.fill: parent
         anchors.bottomMargin: footerRow.implicitHeight + AppTheme.spacing4 * 2
         spacing: AppTheme.spacingS
+
+        // ── Row 0: which KIND of media this window is showing ────────
+        SegmentedControl {
+            objectName: "pickerKindTabs"
+            visible: picker.offerKindTabs
+            // Explicit: an unaligned ColumnLayout child's cross-axis
+            // placement is not worth guessing at, and every row below this
+            // one starts at the panel's left edge.
+            Layout.alignment: Qt.AlignLeft
+            Layout.fillWidth: false
+            storm: true
+            model: [
+                { label: qsTr("GIFs"), value: "gif", enabled: true },
+                { label: qsTr("Stickers"), value: "sticker", enabled: true },
+            ]
+            current: "sticker"
+            onActivated: (value) => {
+                if (value !== "sticker")
+                    picker.kindRequested(value)
+            }
+        }
 
         // ── Header: title, refresh, close ──────────────────────────────
         RowLayout {
