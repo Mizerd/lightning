@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include "matrix/TimelineEvent.h"
 
 #include <QAbstractListModel>
@@ -325,6 +327,15 @@ public:
     // FormattedBodyRole), for the edit flow: display-text plain bodies
     // carry no mention markdown, so the composer recovers mention refs
     // from the sanitized mention: anchors instead.
+    /// How an inline custom emoji's `mxc:` source becomes something the view
+    /// can render. Never applied to the memoized sanitizer output — see
+    /// MessageHtml::resolveInlineImages for why that separation matters.
+    void setInlineImageResolver(
+        std::function<QString(const QString &mxcUri)> resolve);
+    /// Media arrived: re-read the formatted bodies that carry emoji. A no-op
+    /// in a timeline that holds none, which is almost all of them.
+    void notifyInlineImagesChanged();
+
     Q_INVOKABLE QString sanitizedHtmlForEvent(const QString &eventId) const;
 
     // v0.6.1: loaded-timeline search. beginSearch/updateSearch (re)compute
@@ -575,6 +586,10 @@ private:
     // costly part). Invalidated per event on edit/replace/redact and
     // wholesale on member hydration, theme-color change, and reload.
     mutable QHash<QString, QString> m_sanitizedHtmlCache;
+    std::function<QString(const QString &)> m_inlineImageResolver;
+    /// True once any loaded event's formatted body carries an emoticon, so
+    /// the media-arrival re-read costs nothing without one.
+    mutable bool m_hasInlineEmoji = false;
     // Memoized MessageSegmentsRole payload per event id. Derived from the
     // SAME inputs as m_sanitizedHtmlCache (formatted body, mention style,
     // member lookup), so the two are invalidated together through

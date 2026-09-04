@@ -961,8 +961,13 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         // event id; invalidated on edit/replace/redact/theme-color change,
         // and wholesale on member hydration and reload.
         const auto memo = m_sanitizedHtmlCache.constFind(e.eventId);
-        if (memo != m_sanitizedHtmlCache.constEnd())
-            return memo.value();
+        if (memo != m_sanitizedHtmlCache.constEnd()) {
+            // Resolved on every READ, never stored resolved: the memo is also
+            // what the edit path reads back, and a local image:// source
+            // baked into it would be sent to the room on the next edit.
+            return MessageHtml::resolveInlineImages(memo.value(),
+                                                    m_inlineImageResolver);
+        }
         const QString roomId = m_roomId;
         MatrixClient *client = m_client;
         QString sanitized = MessageHtml::sanitize(
@@ -978,7 +983,10 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             m_spoilersRevealed.contains(e.eventId));
         if (!e.eventId.isEmpty())
             m_sanitizedHtmlCache.insert(e.eventId, sanitized);
-        return sanitized;
+        if (sanitized.contains(QLatin1String("data-mx-emoticon")))
+            m_hasInlineEmoji = true;
+        return MessageHtml::resolveInlineImages(sanitized,
+                                                m_inlineImageResolver);
     }
     case MessageSegmentsRole: {
         if (e.redacted || e.formattedBody.isEmpty())
@@ -2069,6 +2077,24 @@ QString TimelineModel::mediaKeyForEvent(const QString &eventId) const
     if (!event || event->type != TimelineEvent::Image)
         return {};
     return event->mediaKey;
+}
+
+void TimelineModel::setInlineImageResolver(
+    std::function<QString(const QString &)> resolve)
+{
+    m_inlineImageResolver = std::move(resolve);
+    notifyInlineImagesChanged();
+}
+
+void TimelineModel::notifyInlineImagesChanged()
+{
+    // Only the formatted body can contain one, and only if some event
+    // actually carries an emoticon — media arrives constantly (avatars,
+    // thumbnails) and a timeline without emoji must not repaint for it.
+    if (!m_hasInlineEmoji || m_events.isEmpty())
+        return;
+    Q_EMIT dataChanged(index(0), index(int(m_events.size()) - 1),
+                       { FormattedBodyRole });
 }
 
 QString TimelineModel::sanitizedHtmlForEvent(const QString &eventId) const

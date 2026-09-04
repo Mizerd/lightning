@@ -3116,6 +3116,25 @@ fn event_item_to_json(
                             }
                         }
                     }
+                    // THE SDK SANITISES INCOMING HTML AND WE NEED THE
+                    // ORIGINAL. matrix-sdk-ui runs every message through
+                    // `HtmlSanitizerMode::Compat` — a `const`, not a
+                    // setting (matrix-sdk-ui src/lib.rs
+                    // DEFAULT_SANITIZER_MODE) — and Compat keeps `data-mx-*`
+                    // on `span` alone. So MSC2545's `data-mx-emoticon` is
+                    // gone before Lightning sees a single byte, and an inline
+                    // custom emoji arrives as an `<img>` with nothing marking
+                    // it as one. Measured: a conformant emoji from the
+                    // homeserver reached the C++ sanitizer already stripped.
+                    //
+                    // Taking the raw formatted body back is SAFE and is in
+                    // fact the arrangement this code already documents:
+                    // `formatted_body` is untrusted HTML and
+                    // MessageHtml::sanitize is the boundary that makes it
+                    // renderable. That sanitizer is stricter than Compat in
+                    // every respect except the one attribute it deliberately
+                    // recognises, and it rebuilds the `<img>` from validated
+                    // parts rather than filtering it.
                     if let Some(media) = fill_message_content(&mut out, message.msgtype()) {
                         // Stable retrieval key: the event id once the item is
                         // remote, the SDK unique id while it is a local echo.
@@ -3129,6 +3148,10 @@ fn event_item_to_json(
                             media.thumbnail.is_some().into();
                         registry.remember_media(key, media);
                     }
+                    // AFTER fill_message_content, which is what sets
+                    // `formatted_body` — running this before it meant the
+                    // guard always saw no formatted body and returned.
+                    restore_raw_formatted_body(&mut out, event);
                 }
                 MsgLikeKind::Redacted => {
                     out["msgtype"] = "redacted".into();
@@ -3369,6 +3392,40 @@ fn set_formatted_body(out: &mut serde_json::Value, formatted: Option<&FormattedB
             out["formatted_body"] = fb.body.clone().into();
         }
     }
+}
+
+/// Put the WIRE's `formatted_body` back, when there is one.
+///
+/// See the call site for why: matrix-sdk-ui sanitises incoming HTML with a
+/// hard-coded Compat config, which strips `data-mx-emoticon` and with it the
+/// only thing that distinguishes an inline custom emoji from an image.
+/// Lightning's own sanitizer is the security boundary and runs after this.
+///
+/// Conservative on every axis: only when the raw event really carries an
+/// `org.matrix.custom.html` formatted body, only when a formatted body was
+/// already going to be sent, and bounded so a hostile event cannot make the
+/// payload unbounded. Anything unexpected leaves the SDK's version in place.
+fn restore_raw_formatted_body(out: &mut serde_json::Value, event: &EventTimelineItem) {
+    /// Longer than any real message and far shorter than a memory problem.
+    const MAX_FORMATTED_BYTES: usize = 64 * 1024;
+    if !out.get("formatted_body").map(|v| v.is_string()).unwrap_or(false) {
+        return;
+    }
+    let Some(raw) = event.original_json() else { return };
+    let Ok(value) = raw.deserialize_as::<serde_json::Value>() else { return };
+    let Some(content) = value.get("content") else { return };
+    if content.get("format").and_then(|v| v.as_str())
+        != Some("org.matrix.custom.html")
+    {
+        return;
+    }
+    let Some(body) = content.get("formatted_body").and_then(|v| v.as_str()) else {
+        return;
+    };
+    if body.is_empty() || body.len() > MAX_FORMATTED_BYTES {
+        return;
+    }
+    out["formatted_body"] = body.into();
 }
 
 fn fill_message_content(

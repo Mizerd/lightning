@@ -346,6 +346,24 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 if (cacheKey.startsWith(QLatin1String("mxc:")))
                     m_notifications->avatarCacheChanged();
             });
+
+    // Inline custom emoji (MSC2545). The sanitizer keeps the `mxc:` form —
+    // deliberately, so an edited message cannot carry a local source back to
+    // the room — and this is what turns it into something the view can draw,
+    // through the SAME authenticated media path every attachment uses.
+    // 64px because an emoticon renders at 20 and a HiDPI screen doubles it.
+    m_timeline->setInlineImageResolver(
+        [this](const QString &mxc) {
+            return m_mediaBridge->mxcImageSource(mxc, 64);
+        });
+    connect(m_mediaBridge.get(), &MediaBridge::mediaCached,
+            m_timeline.get(),
+            [this](const QString &) {
+                // An emoji resolves to "" until its bytes arrive; this is the
+                // re-read that replaces the shortcode with the image. It
+                // costs nothing in a timeline with no emoji in it.
+                m_timeline->notifyInlineImagesChanged();
+            });
     connect(m_mediaBridge.get(), &MediaBridge::mediaFetchFailed,
             m_notifications.get(),
             [this](const QString &cacheKey, const QString &) {

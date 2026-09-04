@@ -146,6 +146,25 @@ struct Segment {
 // is left alone — a literal @room in a code sample is a string, not a ping.
 QString markRoomMention(const QString &safeHtml, const QString &color);
 
+/// Turn the `mxc:` sources in sanitize()'s inline custom emoji into whatever
+/// the caller's media layer can actually render, leaving everything else
+/// untouched.
+///
+/// SEPARATE FROM sanitize() ON PURPOSE. sanitize()'s output has one
+/// non-render consumer — TimelineModel::sanitizedHtmlForEvent, which feeds
+/// MessageComposer::beginEdit — so a resolved local `image://` source baked
+/// in there would end up in an edited message's outgoing formatted_body,
+/// sent to the room. The sanitizer keeps the MXC form and rendering resolves
+/// it; the two never mix.
+///
+/// `resolve` is asynchronous by nature: it returns an empty string for media
+/// that is not cached yet and starts a fetch, so a caller must re-read when
+/// the media arrives. An unresolved emoji drops to its `alt` text rather
+/// than rendering a broken image.
+QString resolveInlineImages(
+    const QString &safeHtml,
+    const std::function<QString(const QString &mxcUri)> &resolve);
+
 // Enlarges the inline emoji inside ALREADY-SAFE rich text, Element/Discord
 // style, so a picture in a sentence reads as a picture instead of as a
 // character. Applied to sanitize()'s output and to the linkified plain body,

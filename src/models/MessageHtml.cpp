@@ -109,6 +109,38 @@ QString extractHref(const QString &rawInside)
     return v;
 }
 
+/// One attribute's value out of a raw tag interior, quoted either way.
+/// Mirrors extractHref, which is the same job for the one attribute that
+/// already had a reader.
+QString extractAttr(const QString &rawInside, const QString &name)
+{
+    const QRegularExpression re(
+        QStringLiteral("(?:^|\\s)") + QRegularExpression::escape(name)
+            + QStringLiteral("\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')"),
+        QRegularExpression::CaseInsensitiveOption);
+    const auto m = re.match(rawInside);
+    if (!m.hasMatch())
+        return {};
+    QString v = m.captured(1);
+    if (v.isEmpty())
+        v = m.captured(2);
+    v = v.trimmed();
+    v.replace(QLatin1String("&amp;"), QLatin1String("&"));
+    return v;
+}
+
+/// True when the raw tag interior carries `data-mx-emoticon` as a bare
+/// attribute name. MSC2545 says the value is IGNORED — "some libraries may
+/// automatically add an empty value" — so presence is the whole test, and a
+/// value must not be required or a conformant sender is refused.
+bool hasEmoticonMarker(const QString &rawInside)
+{
+    static const QRegularExpression re(
+        QStringLiteral("(?:^|\\s)data-mx-emoticon(?:\\s|=|/|$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    return re.match(rawInside).hasMatch();
+}
+
 bool isSafeHttp(const QUrl &url)
 {
     const QString scheme = url.scheme().toLower();
@@ -568,6 +600,60 @@ QString MessageHtml::sanitize(
         if (dropDepth > 0)
             continue;
 
+        // ── Inline custom emoji (MSC2545) ────────────────────────────────
+        //
+        // The ONLY <img> this sanitizer emits, and it is deliberately not a
+        // general image permission. `<img>` used to be dropped outright,
+        // documented as "a formatted body can never make the client fetch a
+        // remote/tracking image", and that property is kept exactly: an image
+        // is rendered only when it is MARKED as an emoticon and addressed by
+        // `mxc:`, which cannot be fetched without going through Lightning's
+        // authenticated media path.
+        //
+        // What is emitted is still the MXC form, NOT a resolved local source.
+        // sanitize()'s output has one non-render consumer —
+        // TimelineModel::sanitizedHtmlForEvent -> MessageComposer::beginEdit —
+        // and rewriting the src here would put a local `image://` URL into an
+        // edited message's outgoing formatted_body. Resolution happens at
+        // render time instead (resolveInlineImages).
+        if (name == QLatin1String("img")) {
+            if (t.closing)
+                continue;
+            if (!hasEmoticonMarker(t.raw))
+                continue;   // an image that does not claim to be an emoticon
+            const QString src = extractAttr(t.raw, QStringLiteral("src"));
+            if (!src.startsWith(QLatin1String("mxc://"))
+                || src.length() <= int(sizeof("mxc://") - 1)) {
+                continue;   // unaddressable, or not ours to fetch
+            }
+            // An mxc URI has no query, no fragment and no credentials; a
+            // value carrying any of those is not one, whatever it claims.
+            if (src.contains(QLatin1Char('"')) || src.contains(QLatin1Char('<'))
+                || src.contains(QLatin1Char('>')) || src.contains(QLatin1Char(' '))) {
+                continue;
+            }
+            // The shortcode is remote text shown to the reader on hover and
+            // read by assistive technology, so it is escaped and bounded.
+            QString alt = extractAttr(t.raw, QStringLiteral("alt"));
+            if (alt.isEmpty())
+                alt = extractAttr(t.raw, QStringLiteral("title"));
+            alt.truncate(64);
+            out += QStringLiteral("<img data-mx-emoticon src=\"")
+                + src.toHtmlEscaped() + QStringLiteral("\"");
+            if (!alt.isEmpty()) {
+                out += QStringLiteral(" alt=\"") + alt.toHtmlEscaped()
+                    + QStringLiteral("\" title=\"") + alt.toHtmlEscaped()
+                    + QStringLiteral("\"");
+            }
+            // The sender's own `height` is NOT honoured. It is remote input
+            // that decides how much of the reader's message list one glyph
+            // occupies, and "SHOULD be 32" is not a constraint anybody has to
+            // obey. A fixed inline size is what makes an emoticon an
+            // emoticon rather than a picture.
+            out += QStringLiteral(" height=\"20\" width=\"20\">");
+            continue;
+        }
+
         if (name == QLatin1String("a")) {
             if (t.closing) {
                 if (mentionSwallow > 0) {
@@ -778,6 +864,50 @@ QString MessageHtml::sanitize(
     // mention::refsFromSanitizedHtml) matches only mention anchors and strips
     // inner tags, so the span never reaches an outgoing formatted_body.
     return markEmoji(out);
+}
+
+QString MessageHtml::resolveInlineImages(
+    const QString &safeHtml,
+    const std::function<QString(const QString &)> &resolve)
+{
+    // Nothing to do for the overwhelming majority of messages, and this runs
+    // on every read of a formatted body.
+    if (!resolve || !safeHtml.contains(QLatin1String("data-mx-emoticon")))
+        return safeHtml;
+
+    // Operates on sanitize()'s OWN output, which is why this can be a
+    // targeted rewrite rather than another parser: the only `<img>` that can
+    // be here is the one the sanitizer emitted, in the exact shape it emits.
+    static const QRegularExpression re(
+        QStringLiteral("<img data-mx-emoticon src=\"(mxc://[^\"]+)\"([^>]*)>"),
+        QRegularExpression::CaseInsensitiveOption);
+
+    QString out;
+    out.reserve(safeHtml.size());
+    int last = 0;
+    auto it = re.globalMatch(safeHtml);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        out += safeHtml.mid(last, m.capturedStart() - last);
+        last = m.capturedEnd();
+        const QString mxc = m.captured(1);
+        const QString source = resolve(mxc);
+        if (source.isEmpty()) {
+            // NOT CACHED YET. A broken-image glyph in the middle of a
+            // sentence is worse than the shortcode it stands for, and the
+            // fetch this call started will bring the reader back here.
+            static const QRegularExpression altRe(
+                QStringLiteral("alt=\"([^\"]*)\""),
+                QRegularExpression::CaseInsensitiveOption);
+            const auto alt = altRe.match(m.captured(2));
+            out += alt.hasMatch() ? alt.captured(1) : QString();
+            continue;
+        }
+        out += QStringLiteral("<img src=\"") + source.toHtmlEscaped()
+            + QStringLiteral("\"") + m.captured(2) + QStringLiteral(">");
+    }
+    out += safeHtml.mid(last);
+    return out;
 }
 
 QList<MessageHtml::Segment> MessageHtml::segments(

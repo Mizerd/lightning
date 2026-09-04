@@ -191,6 +191,88 @@ private Q_SLOTS:
                  QStringLiteral("hi "));
     }
 
+    // MSC2545 inline custom emoji are the ONE image this sanitizer emits,
+    // and the permission is deliberately narrow: an image is rendered only
+    // when it CLAIMS to be an emoticon and is addressed by `mxc:`, which
+    // cannot be fetched except through Lightning's authenticated media path.
+    // Everything the old blanket rule protected is still protected.
+    void onlyMarkedMxcEmoticonsSurvive()
+    {
+        // SELF-CLOSING, which is what MSC2545's own example uses and what
+        // every real sender emits. The first version of this test used the
+        // bare `>` form and passed while the app rendered nothing.
+        const QString kept = sanitize(QStringLiteral(
+            "a <img data-mx-emoticon src=\"mxc://e.org/blob\" "
+            "alt=\":blob:\" title=\":blob:\" height=\"32\" /> b"));
+        QVERIFY2(kept.contains(QStringLiteral("data-mx-emoticon")),
+                 qPrintable(kept));
+        QVERIFY2(kept.contains(QStringLiteral("mxc://e.org/blob")),
+                 qPrintable(kept));
+        QVERIFY2(kept.contains(QStringLiteral("alt=\":blob:\"")),
+                 qPrintable(kept));
+        // The SENDER'S height is not honoured: it is remote input deciding
+        // how much of the reader's message list one glyph occupies.
+        QVERIFY2(!kept.contains(QStringLiteral("height=\"32\"")),
+                 qPrintable(kept));
+
+        for (const QString &hostile : {
+                 // Unmarked: not an emoticon, not rendered.
+                 QStringLiteral("<img src=\"mxc://e.org/blob\">"),
+                 // Marked but remote: the tracking pixel the old rule
+                 // existed to stop.
+                 QStringLiteral("<img data-mx-emoticon src=\"https://t/x.png\">"),
+                 QStringLiteral("<img data-mx-emoticon src=\"http://t/x.png\">"),
+                 QStringLiteral("<img data-mx-emoticon src=\"//t/x.png\">"),
+                 QStringLiteral("<img data-mx-emoticon src=\"javascript:e()\">"),
+                 QStringLiteral("<img data-mx-emoticon src=\"data:image/png;base64,AA\">"),
+                 QStringLiteral("<img data-mx-emoticon src=\"file:///etc/passwd\">"),
+                 // An mxc with no media id addresses nothing.
+                 QStringLiteral("<img data-mx-emoticon src=\"mxc://\">"),
+                 // No source at all.
+                 QStringLiteral("<img data-mx-emoticon alt=\":x:\">"),
+             }) {
+            const QString out = sanitize(hostile);
+            QVERIFY2(!out.contains(QStringLiteral("<img")), qPrintable(out));
+        }
+
+        // Event handlers and stray attributes never survive, because the
+        // emitted tag is REBUILT from validated parts rather than filtered.
+        const QString rebuilt = sanitize(QStringLiteral(
+            "<img data-mx-emoticon src=\"mxc://e.org/b\" onerror=\"e()\" "
+            "onload=\"e()\" style=\"position:fixed\" class=\"x\">"));
+        QVERIFY2(!rebuilt.contains(QStringLiteral("onerror")), qPrintable(rebuilt));
+        QVERIFY2(!rebuilt.contains(QStringLiteral("onload")), qPrintable(rebuilt));
+        QVERIFY2(!rebuilt.contains(QStringLiteral("style")), qPrintable(rebuilt));
+        QVERIFY2(!rebuilt.contains(QStringLiteral("class")), qPrintable(rebuilt));
+    }
+
+    // The resolved form must never be what the EDIT path reads back, or an
+    // edit would send a local image:// URL to the room. sanitize() keeps the
+    // mxc; resolveInlineImages() is a separate, render-only step.
+    void resolvingAnEmojiNeverChangesWhatAnEditWouldSend()
+    {
+        const QString safe = sanitize(QStringLiteral(
+            "x <img data-mx-emoticon src=\"mxc://e.org/b\" alt=\":b:\"> y"));
+        QVERIFY(safe.contains(QStringLiteral("mxc://e.org/b")));
+
+        const QString rendered = MessageHtml::resolveInlineImages(
+            safe, [](const QString &mxc) {
+                return QStringLiteral("image://lightning-media/") + mxc;
+            });
+        QVERIFY(rendered.contains(QStringLiteral("image://lightning-media/")));
+        QVERIFY2(!rendered.contains(QStringLiteral("data-mx-emoticon src=\"mxc")),
+                 qPrintable(rendered));
+        // ...and the input is untouched, so the memo the edit path reads is
+        // still the mxc form.
+        QVERIFY(safe.contains(QStringLiteral("mxc://e.org/b")));
+
+        // Media not cached yet: the shortcode is shown, not a broken image.
+        const QString pending = MessageHtml::resolveInlineImages(
+            safe, [](const QString &) { return QString(); });
+        QVERIFY2(!pending.contains(QStringLiteral("<img")), qPrintable(pending));
+        QVERIFY2(pending.contains(QStringLiteral(":b:")), qPrintable(pending));
+    }
+
     void mxReplyFallbackIsDropped()
     {
         QCOMPARE(sanitize(QStringLiteral(
