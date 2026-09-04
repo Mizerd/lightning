@@ -3,6 +3,7 @@
 #include "app/GuiStallTracer.h"
 
 #include <QElapsedTimer>
+#include <QThreadPool>
 #include "app/SyncLatencyTracer.h"
 
 #include "app/SettingsManager.h"
@@ -126,6 +127,13 @@ RustSdkMatrixClient::~RustSdkMatrixClient()
     endOAuthAttempt();
     releaseAuthHandle();
     releaseRustHandle();
+    // Process exit is the one place the wait is right: the retirement runs on
+    // a pool thread, and letting the process tear down around a half-closed
+    // SQLite store is how a store gets left mid-write. It is bounded, and by
+    // this point there is no UI left to keep responsive.
+    if (!waitForRustRetirement(kStoreCloseBudgetMs))
+        qCWarning(lcRust) << "a retiring Rust client did not close within the"
+                          << "budget at shutdown";
 }
 
 QString RustSdkMatrixClient::rustBackendName() const
@@ -375,48 +383,112 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
 // clearing it would disarm the fresh-store cleanup it exists for. The marker
 // is made safe by being COMPARED against the account the attempt is for (see
 // the login_failed handler) and by being cleared in detachSession().
+namespace {
+// The threads that close retired Rust clients.
+//
+// TWO, not more: retirement is I/O-bound (joining tasks, then SQLite closes),
+// and the only way to have several at once is to switch accounts faster than
+// they close — which must not spawn a thread per switch. A third switch
+// queues behind the first two, which costs nothing the user can see, because
+// nothing is waiting on this pool.
+QThreadPool &rustRetirementPool()
+{
+    static QThreadPool *pool = [] {
+        auto *p = new QThreadPool;
+        p->setMaxThreadCount(2);
+        // Never let an idle worker be reaped mid-teardown.
+        p->setExpiryTimeout(-1);
+        return p;
+    }();
+    return *pool;
+}
+} // namespace
+
+void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
+                                                const QString &typingRoom)
+{
+    if (!handle)
+        return;
+    rustRetirementPool().start([handle, typingRoom] {
+        QElapsedTimer teardown;
+        teardown.start();
+        // The courtesy "I stopped typing" goes here rather than on the GUI
+        // thread: it is a NETWORK send, and the whole point of this function
+        // is that no network call is on the caller's critical path.
+        if (!typingRoom.isEmpty()) {
+            const QByteArray room = typingRoom.toUtf8();
+            takeRustString(mx_rust_send_typing(handle, room.constData(), 0));
+        }
+        const QString shutdown = takeRustString(mx_rust_shutdown_tasks(handle));
+        const qint64 shutdownMs = teardown.elapsed();
+        teardown.restart();
+        // Drops the tokio runtime, so it blocks until every in-flight
+        // spawn_blocking finishes, including the SQLite closes. That is the
+        // wait this whole change exists to move off the GUI thread.
+        mx_rust_destroy(handle);
+        const qint64 destroyMs = teardown.elapsed();
+        qCInfo(lcRust) << "rust client retired off the GUI thread"
+                       << shutdown
+                       << "shutdown_ms=" << shutdownMs
+                       << "destroy_ms=" << destroyMs
+                       << "teardown_total_ms=" << (shutdownMs + destroyMs);
+    });
+}
+
+bool RustSdkMatrixClient::waitForRustRetirement(int budgetMs)
+{
+    return rustRetirementPool().waitForDone(budgetMs);
+}
+
+// THE GUI THREAD DOES NOT WAIT FOR ANY OF THIS.
+//
+// It used to. `mx_rust_shutdown_tasks` joins managed tasks under budgets and
+// `mx_rust_destroy` drops the tokio runtime — which blocks until every
+// in-flight spawn_blocking finishes, SQLite closes included — and both ran
+// here, on the thread that draws the window, reached through
+// switchToAccount -> detachSession. That is the reported multi-second freeze
+// on an account switch, and the Rust side's own comment called it "the
+// largest uninstrumented GUI-thread section in the application".
+//
+// Cutting the budgets would not have fixed it: a shorter block is still a
+// block, and the requirement is that the user can move and use the window
+// while the old account closes.
+//
+// What runs here now is only what is instant and what must be ordered: stop
+// polling, drop the C++-side trackers, and DETACH the pointer. Everything
+// that can wait is handed to a worker thread with the handle, which owns it
+// from that moment.
+//
+// This is safe for one specific reason, and it is worth stating because it is
+// the property that would break the change if it ever stopped being true:
+// **the C++ side never receives a callback from Rust.** Events are pulled by
+// `pollRustEvents()` on a 100ms timer. Stop the timer, null the pointer, and
+// a retiring client has no route back into any QObject — so it cannot reach
+// one that has since been destroyed, no matter how long it takes to close.
+//
+// Callers that are about to DELETE the store must still call
+// waitForRustRetirement() first: unlinking a directory out from under an open
+// SQLite connection is the one thing this must not race.
 void RustSdkMatrixClient::releaseRustHandle()
 {
     m_pollTimer.stop();
     clearTimelineInsertBatch();
     if (!m_rustHandle)
         return;
-    if (!m_typingRoom.isEmpty()) {
-        const QByteArray room = m_typingRoom.toUtf8();
-        takeRustString(mx_rust_send_typing(m_rustHandle, room.constData(), 0));
-        m_typingRoom.clear();
-    }
-    // v0.5.7: deterministic teardown — timeline subscriptions are cancelled
-    // and joined, an in-flight room-key import is joined (bounded last-resort
-    // timeout), the sync loop is stopped. Only then is the handle destroyed,
-    // so no task can still own the SDK store when callers delete it.
-    // TIMED, because this whole block runs on the GUI THREAD and was the
-    // largest uninstrumented section of it in the application. An account
-    // switch reaches here through switchToAccount -> detachSession, and a
-    // reported 3-5 s freeze could not be attributed to any one of the waits
-    // inside. The Rust side now reports its own per-segment milliseconds;
-    // this measures the two things it cannot see — its own total as the
-    // caller experiences it, and mx_rust_destroy, which drops the tokio
-    // runtime and therefore blocks until every in-flight spawn_blocking
-    // finishes, including the sqlite closes.
-    QElapsedTimer teardown;
-    teardown.start();
-    const QString shutdown = takeRustString(mx_rust_shutdown_tasks(m_rustHandle));
-    const qint64 shutdownMs = teardown.elapsed();
-    qCInfo(lcRust) << "rust managed-task shutdown" << shutdown
-                   << "observed_ms=" << shutdownMs;
-    m_timelineTracker.reset();
-    m_threadTracker.reset();
-    m_pagination.clear();
-    teardown.restart();
-    mx_rust_destroy(m_rustHandle);
-    const qint64 destroyMs = teardown.elapsed();
+
+    void *retiring = m_rustHandle;
+    const QString typingRoom = m_typingRoom;
+    m_typingRoom.clear();
+    // Detached BEFORE the hand-off, so nothing on this thread can reach the
+    // client the worker now owns.
     m_rustHandle = nullptr;
     m_handleGeneration = 0;
     m_storePath.clear();
-    qCInfo(lcRust) << "rust client released"
-                   << "destroy_ms=" << destroyMs
-                   << "teardown_total_ms=" << (shutdownMs + destroyMs);
+    m_timelineTracker.reset();
+    m_threadTracker.reset();
+    m_pagination.clear();
+
+    retireRustHandleAsync(retiring, typingRoom);
 }
 
 void RustSdkMatrixClient::login(const QString &homeserver,
@@ -1621,6 +1693,14 @@ bool RustSdkMatrixClient::resetRustStore()
     if (storePath.isEmpty() || !QFileInfo::exists(storePath))
         return true;
 
+    // Retirement is asynchronous now, and this is one of the two places that
+    // must not benefit from it: unlinking the directory out from under an
+    // open SQLite connection is exactly the race that leaves a half-deleted
+    // store behind and reports success. Wait for the close, then delete.
+    if (!waitForRustRetirement(kStoreCloseBudgetMs))
+        qCWarning(lcRust) << "store close did not finish within the budget;"
+                          << "deleting anyway";
+
     QDir storeDir(storePath);
     return storeDir.removeRecursively();
 }
@@ -1694,6 +1774,12 @@ bool RustSdkMatrixClient::resetLocalSession(
     releaseRustHandle();
     m_storePath.clear();
     clearLocalState();
+    // Same reason as resetRustStore(): quarantineAccountRustState() RENAMES
+    // the store directory, and renaming one out from under an open SQLite
+    // connection is the same race as deleting it.
+    if (!waitForRustRetirement(kStoreCloseBudgetMs))
+        qCWarning(lcRust) << "store close did not finish within the budget;"
+                          << "quarantining anyway";
     bool matchedRecord = false;
     const bool sessionOk = clearPersistedAccount(identity, &matchedRecord);
     // Moved aside, not deleted. This is a REPAIR: it acts on the app's belief

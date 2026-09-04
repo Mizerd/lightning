@@ -4490,6 +4490,14 @@ void AppController::removeAccount(const QString &userId)
         resolved = matrix::app_data::resolveAccountIdentity(hs, target, &identity);
     }
     if (resolved) {
+        // Retiring a Rust client is asynchronous (RustSdkMatrixClient::
+        // releaseRustHandle), so the account being removed may still have an
+        // open SQLite store. Deleting the directory out from under it is the
+        // one race that leaves key material on disk while reporting success —
+        // exactly the data-at-rest defect §6 has a rule against. Wait for the
+        // close first; removal is a deliberate, rare action and can afford it.
+        RustSdkMatrixClient::waitForRustRetirement(
+            RustSdkMatrixClient::kStoreCloseBudgetMs);
         const auto removed = matrix::app_data::removeAccountRustState(identity);
 
         // v0.6.6: the local-starred-GIF store lives under the CANONICAL

@@ -23,6 +23,27 @@ class RustSdkMatrixClient final : public MatrixClient
 {
     Q_OBJECT
 public:
+    /// How long a caller about to touch the store on disk waits for the
+    /// retiring client to close it. Only ever reached on deletion,
+    /// quarantine and process exit — never on an account switch.
+    static constexpr int kStoreCloseBudgetMs = 15000;
+
+    /// Block until every handle retired by releaseRustHandle() has finished
+    /// closing, or the budget expires. Returns true if the pool drained.
+    ///
+    /// ONLY for callers that are about to touch the store on disk — deleting,
+    /// renaming or quarantining it — where a still-open SQLite connection
+    /// would race the change, and for process exit. Never call it to "make
+    /// switching safe": switching is safe precisely because it does not wait.
+    static bool waitForRustRetirement(int budgetMs);
+
+    /// Runs the blocking half of releaseRustHandle() — joining managed tasks
+    /// and dropping the tokio runtime — on a worker thread, taking ownership
+    /// of `handle`. Public so a test can hand it a real Rust client and
+    /// measure that the CALLER returns immediately; that property is the
+    /// whole point of the change and is not observable any other way.
+    static void retireRustHandleAsync(void *handle, const QString &typingRoom);
+
     explicit RustSdkMatrixClient(SettingsManager *settings, QObject *parent = nullptr);
     ~RustSdkMatrixClient() override;
 
@@ -778,6 +799,7 @@ private:
     bool ensureRustHandleForStorePath(const QString &storePath,
                                       const QString &slug);
     void releaseRustHandle();
+
 
     // Phase A: a handle with NO persistent store, used only to discover a
     // server's auth methods and to run the browser sign-in.

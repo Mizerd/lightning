@@ -2236,6 +2236,21 @@ if(BUILD_TESTING)
     set_tests_properties(window-placement PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Retiring a Rust client must not run on the GUI thread. Needs the real
+    # Rust backend, because the expensive part is dropping a real tokio
+    # runtime — so it is registered only where that backend exists.
+    if(ENABLE_RUST_SDK_BACKEND)
+        qt_add_executable(rust-retirement-test
+            tests/RustRetirementTest.cpp
+            ${APP_LIB_SOURCES}
+        )
+        lightning_configure_qml_test(rust-retirement-test)
+        target_link_libraries(rust-retirement-test PRIVATE Qt6::Test)
+        add_test(NAME rust-retirement COMMAND rust-retirement-test)
+        set_tests_properties(rust-retirement PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
+
     # v0.5.7: live-timeline diff translation + generation tracking. Pure
     # Qt (no cargo), so it runs in both build trees.
     qt_add_executable(rust-timeline-ingest-test
