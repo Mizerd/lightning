@@ -5913,6 +5913,63 @@ Rectangle {
 
         // The composer has no target when no room is selected — the Home
         // surface is shown instead. visible:false collapses its space.
+        // ── Selection bar (multi-message forwarding) ─────────────────────
+        //
+        // Replaces nothing: it sits above the composer while selecting, so
+        // the room still reads as a room. Escape and Cancel both leave the
+        // mode, because a mode with only one way out is a trap.
+        Rectangle {
+            objectName: "messageSelectionBar"
+            visible: app.forward.selecting === true
+            Layout.fillWidth: true
+            implicitHeight: visible ? selectionRow.implicitHeight
+                                      + AppTheme.spacing8 * 2 : 0
+            color: AppTheme.surface
+            RowLayout {
+                id: selectionRow
+                anchors.fill: parent
+                anchors.margins: AppTheme.spacing8
+                spacing: AppTheme.spacing8
+                Label {
+                    Layout.fillWidth: true
+                    textFormat: Text.PlainText
+                    text: app.forward.selectedCount > 0
+                          ? qsTr("%n message(s) selected", "",
+                                 app.forward.selectedCount)
+                          : qsTr("Tap messages to select them")
+                    color: AppTheme.textPrimary
+                    font.pixelSize: AppTheme.textBody
+                }
+                Label {
+                    visible: app.forward.error.length > 0
+                    textFormat: Text.PlainText
+                    text: app.forward.error
+                    color: AppTheme.danger
+                    font.pixelSize: AppTheme.textMeta
+                }
+                AppButton {
+                    text: qsTr("Cancel")
+                    kind: "ghost"
+                    size: "sm"
+                    onClicked: app.forward.cancelSelecting()
+                }
+                AppButton {
+                    objectName: "forwardSelectedButton"
+                    text: qsTr("Forward…")
+                    kind: "primary"
+                    size: "sm"
+                    enabled: app.forward.selectedCount > 0
+                    onClicked: forwardSelectionDialog.openDialog()
+                }
+            }
+            Shortcut {
+                sequence: "Escape"
+                enabled: app.forward.selecting === true
+                onActivated: app.forward.cancelSelecting()
+            }
+        }
+        ForwardSelectionDialog { id: forwardSelectionDialog }
+
         MessageComposerBar {
             id: messageComposer
             objectName: "messageComposer"

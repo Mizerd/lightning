@@ -27,6 +27,50 @@ Item {
     // longer does at all).
     property var timelineView:
         TableView.view ? TableView.view : ListView.view
+
+    // ── Multi-message selection (0.9 forwarding) ─────────────────────────
+    //
+    // While selecting, a tap TOGGLES the row instead of doing whatever that
+    // row's tap normally does — opening an image, following a link, adding a
+    // reaction. Selection has to be the whole interaction or a mis-tap sends
+    // a reaction to a room the user is only trying to quote from.
+    /// The open room's display name, for "with context" forwarding. Set by
+    /// the pane, which is what already resolves it for the header.
+    property string sourceRoomName: ""
+    readonly property bool selectionMode: app.forward.selecting === true
+    readonly property bool rowSelectable:
+        model.isVirtual !== true && model.redacted !== true
+        && model.isLocalEcho !== true
+        && root.eventIdForActions() !== ""
+    readonly property bool rowSelected:
+        root.selectionMode && root.rowSelectable
+        && app.forward.isSelected(root.eventIdForActions())
+
+    function toggleSelectionForThisRow() {
+        if (!root.rowSelectable)
+            return
+        app.forward.toggleSelected(root.eventIdForActions(), {
+            redacted: model.redacted === true,
+            isLocalEcho: model.isLocalEcho === true,
+            undecryptable: model.undecryptable === true,
+            isVirtual: model.isVirtual === true,
+            isImage: model.isImage === true,
+            isVideo: model.isVideo === true,
+            isAudio: model.isAudio === true,
+            isSticker: model.isSticker === true,
+            isFile: model.isFile === true,
+            senderDisplayName: model.senderDisplayName || "",
+            senderName: model.senderDisplayName || "",
+            body: model.body || "",
+            mediaKey: model.mediaKey || "",
+            mediaFilename: model.mediaFilename || "",
+            timestampMs: model.timestampMs || 0,
+            // The source room's NAME, for "with context" mode. Read from
+            // the open room rather than resolved per event: a selection is
+            // always from one room, and this is what the header shows.
+            sourceRoomName: root.sourceRoomName || "",
+        })
+    }
     // v0.5.7: virtual SDK timeline rows (date divider / read marker /
     // timeline start) render as thin separators instead of messages.
     // eventType: 7 = DateDivider, 8 = ReadMarker, 9 = TimelineStart.
@@ -1045,6 +1089,47 @@ Item {
             if (root.timelineView)
                 root.timelineView.toggleStateGroup(groupId)
         }
+    }
+
+    // ── Selection affordance ─────────────────────────────────────────────
+    //
+    // Painted UNDER the row's own content and ABOVE the hover highlight, so a
+    // selected row still reads as a message rather than a widget. The tap
+    // handler takes the whole row while selecting, because a selection mode
+    // where some parts of a row select and others open an image is worse
+    // than none.
+    Rectangle {
+        anchors.fill: parent
+        visible: root.rowSelected
+        color: AppTheme.selected
+        opacity: 0.55
+        z: -1
+    }
+    Rectangle {
+        objectName: "messageSelectionCheck"
+        visible: root.selectionMode && root.rowSelectable
+        anchors.left: parent.left
+        anchors.leftMargin: 2
+        anchors.verticalCenter: parent.verticalCenter
+        width: 18; height: 18; radius: 9
+        color: root.rowSelected ? AppTheme.accent : "transparent"
+        border.width: 1
+        border.color: root.rowSelected ? AppTheme.accent : AppTheme.borderStrong
+        z: 20
+        Icon {
+            anchors.centerIn: parent
+            visible: root.rowSelected
+            name: "check"
+            size: 12
+            color: AppTheme.accentText
+        }
+    }
+    TapHandler {
+        enabled: root.selectionMode && root.rowSelectable
+        // Everything a row normally does — open an image, follow a link, add
+        // a reaction — is suspended while selecting.
+        grabPermissions: PointerHandler.CanTakeOverFromAnything
+        onTapped: root.toggleSelectionForThisRow()
     }
 
     Rectangle {
@@ -4009,6 +4094,20 @@ Item {
             // captured here at click time, never a live re-resolution (see
             // ForwardController's class comment) — this is why the whole
             // snapshot is built inline rather than deferred into C++.
+            // Multi-message forwarding starts here rather than in a toolbar:
+            // the user is already pointing at the first message they want.
+            AppMenuItem {
+                objectName: "selectMessagesMenuItem"
+                iconName: "check"
+                text: qsTr("Select messages")
+                visible: model.isVirtual !== true && root.menuEventId !== ""
+                enabled: visible
+                onTriggered: {
+                    app.forward.beginSelecting(
+                        root.timelineModel.realRoomIdForEvent(root.menuEventId))
+                    root.toggleSelectionForThisRow()
+                }
+            }
             AppMenuItem {
                 objectName: "forwardMessageMenuItem"
                 iconName: "arrow_forward"

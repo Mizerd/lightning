@@ -171,6 +171,66 @@ void ForwardController::cancel()
 
 // ── Multi-message, multi-destination forwarding ─────────────────────────
 
+void ForwardController::beginSelecting(const QString &sourceRoomId)
+{
+    m_selecting = true;
+    m_sourceRoomId = sourceRoomId;
+    m_selectedIds.clear();
+    m_selectionSnapshots.clear();
+    m_selectionActive = false;
+    m_failures.clear();
+    m_failedPairs.clear();
+    m_progressDone = 0;
+    m_progressTotal = 0;
+    m_error.clear();
+    Q_EMIT changed();
+}
+
+void ForwardController::cancelSelecting()
+{
+    if (!m_selecting && m_selectedIds.isEmpty())
+        return;
+    m_selecting = false;
+    m_selectedIds.clear();
+    m_selectionSnapshots.clear();
+    m_selectionActive = false;
+    Q_EMIT changed();
+}
+
+bool ForwardController::isSelected(const QString &eventId) const
+{
+    return m_selectedIds.contains(eventId);
+}
+
+void ForwardController::toggleSelected(const QString &eventId,
+                                       const QVariantMap &snapshot)
+{
+    if (eventId.isEmpty())
+        return;
+    const int at = m_selectedIds.indexOf(eventId);
+    if (at >= 0) {
+        m_selectedIds.removeAt(at);
+        m_selectionSnapshots.removeAt(at);
+    } else {
+        // A bound on how much one gesture can send. Fifty messages into
+        // three rooms is already 150 events; beyond that a mis-drag becomes
+        // a flood the user cannot recall.
+        constexpr int kMaxSelected = 50;
+        if (m_selectedIds.size() >= kMaxSelected) {
+            setError(tr("You can forward up to %1 messages at once.")
+                         .arg(kMaxSelected));
+            return;
+        }
+        QVariantMap captured = snapshot;
+        captured.insert(QStringLiteral("eventId"), eventId);
+        m_selectedIds.append(eventId);
+        m_selectionSnapshots.append(captured);
+        m_error.clear();
+    }
+    m_selectionActive = !m_selectionSnapshots.isEmpty();
+    Q_EMIT changed();
+}
+
 void ForwardController::beginSelection(const QString &sourceRoomId,
                                        const QVariantList &snapshots)
 {

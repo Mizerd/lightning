@@ -879,6 +879,7 @@ set(APP_QML_FILES
     qml/WidgetOpenSheet.qml
     qml/MediaBrowser.qml
     qml/EmojiCompletionPopup.qml
+    qml/ForwardSelectionDialog.qml
     qml/MediaBrowserTile.qml
     qml/MediaBrowserRow.qml
     qml/JumpToDateDialog.qml

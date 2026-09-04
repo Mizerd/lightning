@@ -4,6 +4,7 @@
 #include <QHash>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVariantMap>
 
 class MatrixClient;
@@ -85,6 +86,8 @@ class ForwardController : public QObject
     /// [{roomId, eventId, message}] — WHICH pair failed, not just how many.
     Q_PROPERTY(QVariantList failures READ failures NOTIFY changed)
     Q_PROPERTY(QString forwardMode READ forwardMode NOTIFY changed)
+    Q_PROPERTY(bool selecting READ selecting NOTIFY changed)
+    Q_PROPERTY(int selectedCount READ selectedCount NOTIFY changed)
 
 public:
     explicit ForwardController(QObject *parent = nullptr);
@@ -134,6 +137,17 @@ public:
     // forward into a thread reply IN THE TARGET, which is a relation the
     // target room negotiated — unlike D5's refusal to carry the SOURCE's
     // relation, which named a thread the target knows nothing about.
+    /// Enter/leave interactive selection mode. The timeline reads
+    /// `selecting` to show its checkboxes and to stop a tap opening an image.
+    Q_INVOKABLE void beginSelecting(const QString &sourceRoomId);
+    Q_INVOKABLE void cancelSelecting();
+    /// Add or remove one message. The snapshot is captured HERE, at click
+    /// time, for the same reason begin() captures one: the model row is live
+    /// and the send may happen much later.
+    Q_INVOKABLE void toggleSelected(const QString &eventId,
+                                    const QVariantMap &snapshot);
+    Q_INVOKABLE bool isSelected(const QString &eventId) const;
+
     Q_INVOKABLE void beginSelection(const QString &sourceRoomId,
                                     const QVariantList &snapshots);
     /// "content" (a clean copy) or "context" (attributed with the original
@@ -151,6 +165,8 @@ public:
     int failureCount() const { return int(m_failures.size()); }
     QVariantList failures() const { return m_failures; }
     QString forwardMode() const { return m_mode; }
+    bool selecting() const { return m_selecting; }
+    int selectedCount() const { return int(m_selectionSnapshots.size()); }
 
 public:
     // Exposed for tests: a forwarded attachment's name is re-originated
@@ -224,6 +240,8 @@ private:
     QString contextPrefixFor(const QVariantMap &snapshot) const;
 
     bool m_selectionActive = false;
+    bool m_selecting = false;
+    QStringList m_selectedIds;
     QString m_mode = QStringLiteral("content");
     QVariantList m_selectionSnapshots;
     QList<Pending> m_queue;
