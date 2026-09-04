@@ -192,6 +192,25 @@ for it in `required_state`, and matrix-sdk-ui 0.18's
 extend the list. So the store answer is empty for every room, always. The fix
 is banner.rs's shape: store first, one raw `/state` request second, on demand.
 
+**Tested against REAL widgets, 2026-09-04.** A room carrying a genuine Jitsi
+(`meet.jit.si`), a genuine Etherpad (`etherpad.wikimedia.org`) and a
+templated custom widget, all written as room state the way Element writes
+them. All three listed with their kinds, all three openable, and the whole
+path exercised to the end: **the Etherpad was opened and loaded in the
+browser**.
+
+The consent sheet demonstrated the property the design argues for. The
+Etherpad uses no template variables and its notice says only that the site
+learns you connected — one line. The templated widget's notice lists three.
+It is derived from that widget's own URL, so it never claims more than is
+shared.
+
+One thing worth recording because it looked like a defect and is not: a
+widget written with a bare `$theme` comes through UNSUBSTITUTED. Lightning
+substitutes `$org.matrix.msc2873.client_theme`, which is the name the MSC
+defines; `$theme` is not a standard variable, and leaving an unknown one
+alone is the safe behaviour rather than guessing at it.
+
 Still NOT TESTED: the QML surface. The list, the consent sheet and the refusal
 rows have not been seen on screen, and **on the mock backend they cannot be** —
 `RoomInfoController::supported()` reads `supportsRoomManagement()`, which only

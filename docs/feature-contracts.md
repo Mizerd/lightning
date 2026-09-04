@@ -570,6 +570,52 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
 - Keyboard quick switch/search/navigation, accessible labels/roles/actions,
   focus handling, and keyboard-operable message/thread actions
 
+### Display-name colours
+
+Every name in the client is coloured from a nine-slot family DERIVED FROM THE
+ACTIVE THEME, and a user may override their own with a colour other Lightning
+clients see.
+
+* **Derived, not tabled.** `lightning::theme::nameInk` builds the family from
+  the theme's own anchor and solves each ink against that theme's real
+  grounds (background, card, elevated card, other-party bubble) to 4.5:1. It
+  lives in C++ beside the avatar-disc arithmetic so the two cannot drift, and
+  so the desktop-notification painter can reach it with no QML engine. Custom
+  themes get real colours from their own two colours.
+* **The inks spend 340 degrees of the wheel where the discs spend 190**, and
+  that is measured rather than chosen: nine text inks are not separable in
+  190 degrees (worst pair dE 3.3), and no lightness pattern rescues it. A
+  filled disc can afford a tight family; thin text cannot. The family stays
+  centred on the anchor, which is what makes it the theme's.
+* **The separation floor is dE 9.0**, below the 12 the old hand-picked tables
+  met. That is the cost of matching the theme — those tables cleared 18
+  because they walked 321 degrees and belonged to no theme.
+* **A user-chosen colour** lives in the Matrix profile as
+  `org.lightning.name_color` over MSC4133 extended profile fields, so it is
+  global, readable by anyone who can see the profile, and changed in one
+  write. Account data would be private to one account; a state event would
+  mean a different colour per room and a write to every room per change.
+* **The choice is clamped, not obeyed.** `legibleChoice()` keeps the hue and
+  saturation exactly and moves only lightness, far enough to clear 4.5:1 on
+  the viewer's worst ground. A colour already legible there is returned
+  untouched. The field is written by its owner and read by everybody else, so
+  painting it verbatim would let anyone hand every other user a name they
+  cannot read on a theme the sender has never seen.
+* **Validated twice** — in Rust leaving the profile field, in C++ reaching a
+  QML colour property — because that is remote text becoming a paint
+  instruction. Anything that is not exactly `#rrggbb` is dropped, never
+  repaired.
+* **One fetch per user per session.** `colorFor()` is called from a binding
+  that re-evaluates for every name on screen, so the guard is set when the
+  request is SENT; "this user has no colour" is stored as an ANSWER so the
+  commonest case is not re-asked forever. A homeserver without extended
+  profile fields stops the asking and hides the control.
+
+LIVE-VALIDATED against `matrix.smetonis.net`: picking a swatch wrote
+`{"org.lightning.name_color":"#fbe7ed"}` to the real profile field; and a
+colour set on a SECOND account's profile rendered on that account's name in
+the first account's client, which is the cross-user claim.
+
 ### Local message search
 
 Server search (`POST /_matrix/client/v3/search`) can only search what the
