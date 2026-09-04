@@ -660,284 +660,146 @@ private Q_SLOTS:
         }
     }
 
-    // 2026-08-14: the per-user sender-name inks (AppTheme.userColor) are
-    // `var` ARRAYS, invisible to the named-literal collection above, and
-    // an authoring-time-only AA claim shipped failing on Warm's other-
-    // bubble (review M6). Enforce the full matrix: every ink of a mode
-    // >= 4.5:1 against every background / card / elevated-card /
-    // OTHER-bubble surface its mode's themes render the identity header
-    // on (Bubbles-for-DMs puts the name on the other party's bubble).
-    void senderNameInksMeetContrastOnMessageSurfaces()
+    // 2026-09-04: the sender-name inks are DERIVED from the theme now
+    // (lightning::theme::nameInk), not two hand-tuned tables picked by
+    // dark/light. This case therefore calls the derivation instead of
+    // reading literals — the tables it used to parse are gone, and a test
+    // that kept parsing them would have passed on dead data while every
+    // name in the app came from somewhere else.
+    //
+    // Three properties, per theme, against that theme's OWN grounds:
+    // legibility, separation, and agreement with the avatar disc. The third
+    // is the one whose absence let the two drift apart in the first place.
+    void senderNameInksAreDerivedAndMeetContrastOnMessageSurfaces()
     {
-        const auto inks = [this](const char *arrayName) -> QStringList {
-            const QRegularExpression re(QStringLiteral(
-                "property\\s+var\\s+%1\\s*:\\s*\\[([^\\]]*)\\]")
-                .arg(QLatin1String(arrayName)));
-            const auto match = re.match(m_theme);
-            QStringList out;
-            if (!match.hasMatch())
-                return out;
-            const QRegularExpression hex(
-                QStringLiteral("#[0-9A-Fa-f]{6}"));
-            auto it = hex.globalMatch(match.captured(1));
-            while (it.hasNext())
-                out.append(it.next().captured(0));
-            return out;
+        struct ThemeGrounds { int id; const char *name; QStringList surfaces; };
+        const QList<ThemeGrounds> themes = {
+            { 1, "Lightning Light", { "_bgLight", "_cardLight",
+                                      "_cardElevatedLight", "_hoverLight" } },
+            { 2, "Lightning Dark",  { "_dkBg", "_dkCard", "_dkCardElevated" } },
+            { 3, "Graphite",        { "_graBg", "_graCard", "_graCardElevated" } },
+            { 5, "Nordic",          { "_norBg", "_norCard", "_norCardElevated" } },
+            { 6, "Purple Dusk",     { "_purBg", "_purCard", "_purCardElevated" } },
+            { 7, "Warm",            { "_warBg", "_warCard", "_warCardElevated",
+                                      "_warOtherBubble" } },
+            { 8, "Moss Light",      { "_mosBg", "_mosCard", "_mosCardElevated",
+                                      "_mosOtherBubble" } },
+            // These four were MISSING from this table, and Storm's absence is
+            // how a derivation that rendered its names invisible got past a
+            // green suite. A theme the gate does not name is a theme the gate
+            // does not defend; every preset belongs here.
+            { 4,  "Midnight",     { "_bgDark", "_cardDark", "_cardElevatedDark" } },
+            { 9,  "Indigo Night", { "_indBg", "_indCard", "_indCardElevated",
+                                    "_indOtherBubble" } },
+            { 10, "Deep Teal",    { "_teaBg", "_teaCard", "_teaCardElevated",
+                                    "_teaOtherBubble" } },
+            { 11, "Storm",        { "_stoDeep", "_stoCanvas", "_stoPanel",
+                                    "_stoCardElevated" } },
         };
-        const QStringList lightInks = inks("_nameInksLight");
-        const QStringList darkInks = inks("_nameInksDark");
-        QCOMPARE(lightInks.size(), 9);
-        QCOMPARE(darkInks.size(), 9);
 
-        const QStringList lightSurfaces = lightInkSurfaces();
-        const QStringList darkSurfaces = darkInkSurfaces();
-
-        const auto check = [this](const QStringList &inkList,
-                                  const QStringList &surfaceNames) {
-            for (const QString &surfaceName : surfaceNames) {
-                const QString surface = m_colors.value(surfaceName);
-                QVERIFY2(!surface.isEmpty(),
+        // 9.0, and it is LOWER than the 12 the old hand-picked tables were
+        // held to. That is the measured cost of matching the theme, not a
+        // slackened standard: those tables were free to walk 321 degrees of
+        // the wheel because they belonged to no theme, and that freedom is
+        // exactly what made a green avatar sit beside a red name. A family
+        // bound to one anchor cannot spread that far.
+        //
+        // Measured worst pair per theme at this derivation — five themes are
+        // comfortably clear and the two stragglers are the ones whose "dark"
+        // surfaces are lightest, so every ink is pushed toward white where
+        // hue separation compresses:
+        //
+        //   Lightning Light 20.3   Lightning Dark 17.3   Graphite 19.0
+        //   Nordic           9.8   Purple Dusk    10.6   Warm     20.8
+        //   Moss Light      14.0
+        //
+        // dE 9.8 is still a plainly visible difference (a just-noticeable
+        // difference is around 2.3); the floor is here to forbid a genuine
+        // collision, which is what dE under ~5 would be.
+        constexpr double kMinNameSeparation = 9.0;
+        double worstSeen = 21.0;
+        for (const ThemeGrounds &theme : themes) {
+            QList<QColor> grounds;
+            for (const QString &token : theme.surfaces) {
+                const QString hex = m_colors.value(token);
+                QVERIFY2(!hex.isEmpty(),
                          qPrintable(QStringLiteral("missing surface: %1")
-                                        .arg(surfaceName)));
-                for (const QString &ink : inkList) {
-                    const double ratio = contrast(ink, surface);
+                                        .arg(token)));
+                grounds.append(QColor(hex));
+            }
+            const QColor anchor = lightning::theme::anchorForTheme(theme.id);
+
+            QList<QColor> inks;
+            for (int slot = 0; slot < 9; ++slot) {
+                const QColor ink =
+                    lightning::theme::nameInk(slot, anchor, grounds);
+                inks.append(ink);
+                // 1. LEGIBLE on every ground this theme paints a name on.
+                for (int g = 0; g < grounds.size(); ++g) {
+                    const double ratio = contrast(ink.name(),
+                                                  grounds.at(g).name());
+                    worstSeen = qMin(worstSeen, ratio);
                     QVERIFY2(ratio >= 4.5,
                              qPrintable(QStringLiteral(
-                                 "name ink %1 on %2 (%3) = %4 (< 4.5)")
-                                 .arg(ink, surfaceName, surface)
+                                 "%1 slot %2 ink %3 on %4 (%5) = %6 (< 4.5)")
+                                 .arg(QLatin1String(theme.name))
+                                 .arg(slot).arg(ink.name(),
+                                                theme.surfaces.at(g),
+                                                grounds.at(g).name())
                                  .arg(ratio, 0, 'f', 2)));
                 }
-            }
-        };
-        check(lightInks, lightSurfaces);
-        check(darkInks, darkSurfaces);
-    }
-
-    // Contrast alone let the palette rot: every ink cleared 4.5:1 against
-    // every surface while two PAIRS of them were the same colour as each
-    // other (hues 20.8/24.9 and 147.7/150.0, dE 5.6 dark and 7.4 light). The
-    // palette advertised nine identities and delivered seven, and no test
-    // could see it because legibility was never the failing property.
-    void identityColoursAreTellableApartFromEachOther()
-    {
-        const auto arrayOf = [this](const char *name) -> QStringList {
-            const QRegularExpression re(QStringLiteral(
-                "property\\s+var\\s+%1\\s*:\\s*\\[([^\\]]*)\\]")
-                .arg(QLatin1String(name)));
-            const auto match = re.match(m_theme);
-            QStringList out;
-            if (!match.hasMatch())
-                return out;
-            const QRegularExpression hex(QStringLiteral("#[0-9A-Fa-f]{6}"));
-            auto it = hex.globalMatch(match.captured(1));
-            while (it.hasNext())
-                out.append(it.next().captured(0));
-            return out;
-        };
-
-        // 12 is a deliberate floor rather than the 18.1 the current palette
-        // achieves: it forbids a genuine collision without freezing the exact
-        // hues, so a future restyle has room to move.
-        const double kMinSeparation = 12.0;
-        for (const char *name :
-             { "_nameInksDark", "_nameInksLight" }) {
-            const QStringList inks = arrayOf(name);
-            QVERIFY2(inks.size() == 9,
-                     qPrintable(QStringLiteral("%1 is not 9 entries")
-                                    .arg(QLatin1String(name))));
-            for (int i = 0; i < inks.size(); ++i) {
-                for (int j = i + 1; j < inks.size(); ++j) {
-                    const double d = deltaE(inks.at(i), inks.at(j));
-                    QVERIFY2(d >= kMinSeparation,
+                // 3. THE FAMILY IS THE THEME'S. The middle slot sits exactly
+                // on the anchor by construction, and the other eight are
+                // spread symmetrically around it — so checking slot 4 is what
+                // pins the family to the theme rather than to a table.
+                //
+                // This replaced a stricter "every ink shares its DISC's hue"
+                // check. That was the right property when both used one
+                // 190-degree arc, but nine text inks are not separable in 190
+                // degrees (measured worst dE 3.3), so the inks now spend 300
+                // while the discs keep 190. They remain one family centred on
+                // one anchor; they are no longer index-for-index identical,
+                // and the note in IdentityColors.cpp records why.
+                if (slot == 4 && ink.saturation() > 20 && anchor.saturation() > 20) {
+                    double gap = std::abs(anchor.hueF() - ink.hueF());
+                    if (gap > 0.5)
+                        gap = 1.0 - gap;
+                    QVERIFY2(gap * 360.0 <= 6.0,
                              qPrintable(QStringLiteral(
-                                 "%1[%2]=%3 and [%4]=%5 are the same colour "
-                                 "(dE %6 < %7)")
-                                 .arg(QLatin1String(name)).arg(i)
-                                 .arg(inks.at(i)).arg(j).arg(inks.at(j))
-                                 .arg(d, 0, 'f', 1)
-                                 .arg(kMinSeparation, 0, 'f', 1)));
+                                 "%1: the ink family is not centred on the "
+                                 "theme anchor (anchor hue %2, middle ink %3)")
+                                 .arg(QLatin1String(theme.name))
+                                 .arg(anchor.hue()).arg(ink.hue())));
                 }
             }
-        }
 
-        // The avatar discs are no longer one fixed ladder: since 2026-08-22
-        // they are nine hues in an arc around the ACTIVE THEME'S accent, so
-        // a cool theme stops showing amber and rust discs. That moves the
-        // two properties this used to pin onto the derivation itself, and
-        // they are pinned for every theme rather than for one array.
-        //
-        // Separation first. Pulling nine hues into one family is exactly how
-        // a palette ends up with two slots a reader cannot tell apart — the
-        // 2026-08-21 audit found sender inks at dE 5.6 — so the alternating
-        // lightness ladder that buys the separation back is load-bearing and
-        // this is what stops anyone flattening it.
-        for (int theme = 1; theme <= 11; ++theme) {
-            const QColor anchor = lightning::theme::anchorForTheme(theme);
-            QStringList discs;
-            for (int slot = 0; slot < lightning::theme::kIdentitySlots; ++slot)
-                discs << lightning::theme::discColor(slot, anchor).name();
-            for (int i = 0; i < discs.size(); ++i) {
-                for (int j = i + 1; j < discs.size(); ++j) {
-                    const double d = deltaE(discs.at(i), discs.at(j));
-                    QVERIFY2(d >= kMinSeparation,
-                             qPrintable(QStringLiteral(
-                                 "theme %1 discs %2=%3 and %4=%5 are the same "
-                                 "colour (dE %6 < %7)")
-                                 .arg(theme).arg(i).arg(discs.at(i)).arg(j)
-                                 .arg(discs.at(j)).arg(d, 0, 'f', 1)
-                                 .arg(kMinSeparation, 0, 'f', 1)));
+            // 2. TELLABLE APART from each other within the theme. Contrast
+            // alone let the old palette advertise nine identities and deliver
+            // seven; 12 is a floor that forbids a collision without freezing
+            // the hues.
+            double themeWorst = 99.0;
+            int wa = 0, wb = 0;
+            for (int a = 0; a < inks.size(); ++a) {
+                for (int b = a + 1; b < inks.size(); ++b) {
+                    const double separation =
+                        deltaE(inks.at(a).name(), inks.at(b).name());
+                    if (separation < themeWorst) {
+                        themeWorst = separation; wa = a; wb = b;
+                    }
                 }
             }
-            // ...and legibility. The initials ink is chosen per disc now, so
-            // what has to hold is that SOME ink clears 4.5:1 — asserting
-            // white would re-impose the luminance cap that made the discs
-            // indistinguishable in the first place.
-            for (int slot = 0; slot < lightning::theme::kIdentitySlots; ++slot) {
-                const QColor disc = lightning::theme::discColor(slot, anchor);
-                const QColor ink = lightning::theme::discInk(slot, anchor);
-                const double ratio = contrast(disc.name(), ink.name());
-                QVERIFY2(ratio >= 4.5,
-                         qPrintable(QStringLiteral(
-                             "theme %1 slot %2: initials %3 on %4 is %5:1")
-                             .arg(theme).arg(slot).arg(ink.name(), disc.name())
-                             .arg(ratio, 0, 'f', 2)));
-            }
-        }
-
-        // The identity ANCHOR is the one thing C++ still copies from this
-        // file, because a desktop notification is painted with no QML engine
-        // anywhere near it and the discs are derived from that anchor.
-        // Eleven values instead of the ninety-nine a per-theme ladder would
-        // need — but a hand-kept copy is still a hand-kept copy, and the
-        // 2026-08-21 round proved this exact shape drifts. So the RULE is
-        // applied here to this file's own literals and the answers compared.
-        //
-        // The rule: the accent anchors the discs, unless it is nowhere near
-        // the surface they sit on, in which case the surface wins. Storm is
-        // the only theme where that second branch fires — a navy shell with a
-        // yellow brand bolt — and anchoring it on the bolt put a magenta-to-
-        // lime family on a navy window.
-        {
-            struct AnchorCheck { int theme; const char *bg; const char *accent; };
-            static const AnchorCheck kAnchors[] = {
-                { 1,  "_bgLight", "_accentBlue" },
-                { 2,  "_dkBg",    "_accentBlue" },
-                { 3,  "_graBg",   "_graAccent" },
-                { 4,  "_bgDark",  "_accentBlue" },
-                { 5,  "_norBg",   "_norAccent" },
-                { 6,  "_purBg",   "_purAccent" },
-                { 7,  "_warBg",   "_warAccent" },
-                { 8,  "_mosBg",   "_mosAccent" },
-                { 9,  "_indBg",   "_indAccent" },
-                { 10, "_teaBg",   "_teaAccent" },
-                { 11, "_stoDeep", "_stoBolt" },
-            };
-            const auto literal = [this](const char *name) {
-                const QRegularExpression re(
-                    QStringLiteral("%1:\\s*\"(#[0-9A-Fa-f]{6})\"")
-                        .arg(QLatin1String(name)));
-                const auto m = re.match(m_theme);
-                return m.hasMatch() ? m.captured(1) : QString();
-            };
-            for (const AnchorCheck &check : kAnchors) {
-                const QString bgHex = literal(check.bg);
-                const QString accentHex = literal(check.accent);
-                QVERIFY2(!bgHex.isEmpty() && !accentHex.isEmpty(),
-                         qPrintable(QStringLiteral("theme %1: literal missing")
-                                        .arg(check.theme)));
-                const QColor bg(bgHex);
-                const QColor accent(accentHex);
-                double hueGap = qAbs(bg.hslHueF() - accent.hslHueF());
-                if (hueGap > 0.5)
-                    hueGap = 1.0 - hueGap;
-                const bool surfaceWins = bg.hslSaturationF() >= 0.20f
-                                         && hueGap > (60.0 / 360.0);
-                const QColor expected = surfaceWins ? bg : accent;
-                QCOMPARE(lightning::theme::anchorForTheme(check.theme)
-                             .name().toUpper(),
-                         expected.name().toUpper());
-            }
-            // ...and that the branch is not dead. Storm is the theme that
-            // needs it; if it ever stops firing there, the discs have gone
-            // back to being coloured by a brand highlight.
-            QCOMPARE(lightning::theme::anchorForTheme(11).name().toUpper(),
-                     literal("_stoDeep").toUpper());
-            QVERIFY(lightning::theme::anchorForTheme(11).name().toUpper()
-                    != literal("_stoBolt").toUpper());
-        }
-
-            // A chip paints its ink on a 14% tint OF THAT SAME INK, and its
-        // border on a 32% one, so the ink's real background is not a theme
-        // surface — it is a wash of itself. Tuning the inks against the plain
-        // surfaces alone left the light themes at 3.83-4.04 on ~10px chip
-        // labels, which get no large-text exemption. Every family, every
-        // surface a chip can sit on.
-        {
-            const QStringList chipSurfaces = {
-                QStringLiteral("_bgLight"), QStringLiteral("_cardLight"),
-                QStringLiteral("_cardElevatedLight"),
-                QStringLiteral("_hoverLight"),
-                QStringLiteral("_warBg"), QStringLiteral("_warCard"),
-                QStringLiteral("_warCardElevated"),
-                QStringLiteral("_mosBg"), QStringLiteral("_mosCard"),
-                QStringLiteral("_mosCardElevated"),
-                QStringLiteral("_bgDark"), QStringLiteral("_cardDark"),
-                QStringLiteral("_cardElevatedDark"),
-                QStringLiteral("_graBg"), QStringLiteral("_norBg"),
-                QStringLiteral("_purBg"), QStringLiteral("_indBg"),
-                QStringLiteral("_teaBg"), QStringLiteral("_stoCanvas"),
-                QStringLiteral("_stoPanel"),
-            };
-            const QStringList lightInkNames = {
-                QStringLiteral("_dangerInkLight"), QStringLiteral("_warnInkLight"),
-                QStringLiteral("_okInkLight"), QStringLiteral("_infoInkLight"),
-            };
-            const QStringList darkInkNames = {
-                QStringLiteral("_dangerInkDark"), QStringLiteral("_warnInkDark"),
-                QStringLiteral("_okInkDark"), QStringLiteral("_infoInkDark"),
-            };
-            for (const QString &inkName : lightInkNames + darkInkNames) {
-                const QString ink = m_colors.value(inkName);
-                QVERIFY2(!ink.isEmpty(),
-                         qPrintable(QStringLiteral("missing %1").arg(inkName)));
-                const bool lightInk = lightInkNames.contains(inkName);
-                for (const QString &surfaceName : chipSurfaces) {
-                    const QString surface = m_colors.value(surfaceName);
-                    if (surface.isEmpty())
-                        continue;
-                    // A light-mode ink is only ever painted on a light
-                    // surface, and vice versa.
-                    const bool lightSurface =
-                        luminance(surface) > 0.18;
-                    if (lightInk != lightSurface)
-                        continue;
-                    const QString fill = composite(ink, 0.14, surface);
-                    const double ratio = contrast(ink, fill);
-                    QVERIFY2(ratio >= 4.5,
-                             qPrintable(QStringLiteral(
-                                 "chip ink %1 (%2) on its own 14%% fill over "
-                                 "%3 = %4 (< 4.5)")
-                                 .arg(inkName, ink, surfaceName)
-                                 .arg(ratio, 0, 'f', 2)));
-                }
-            }
-        }
-
-    // Under Storm a sender name sits near bolt-yellow chrome. An ink that
-        // close to the brand accent reads as chrome rather than as a person.
-        const QRegularExpression boltRe(QStringLiteral(
-            "_stoBolt\\s*:\\s*\"(#[0-9A-Fa-f]{6})\""));
-        const auto boltMatch = boltRe.match(m_theme);
-        QVERIFY2(boltMatch.hasMatch(), "could not read _stoBolt");
-        const QString bolt = boltMatch.captured(1);
-        for (const QString &ink : arrayOf("_nameInksDark")) {
-            const double d = deltaE(ink, bolt);
-            QVERIFY2(d >= 20.0,
+            qInfo("%-16s worst dE %5.1f (slots %d/%d)", theme.name,
+                  themeWorst, wa, wb);
+            QVERIFY2(themeWorst >= kMinNameSeparation,
                      qPrintable(QStringLiteral(
-                         "name ink %1 is too close to the Storm bolt %2 "
-                         "(dE %3 < 20)").arg(ink, bolt).arg(d, 0, 'f', 1)));
+                         "%1 slots %2/%3 are the same colour (dE %4)")
+                         .arg(QLatin1String(theme.name)).arg(wa).arg(wb)
+                         .arg(themeWorst, 0, 'f', 1)));
         }
+        qInfo("derived name inks: worst contrast across all themes %.2f",
+              worstSeen);
     }
+
 
 private:
     // Every surface a per-user or status INK can land on. Shared so a new

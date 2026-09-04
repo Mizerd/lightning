@@ -1615,21 +1615,36 @@ QtObject {
     // lower saturation that buys dE 37. Minimum bolt clearance across this
     // set is 37; do not raise that slot's saturation or move its hue toward
     // 48 without re-checking it.
-    readonly property var _nameInksDark: [
-        "#F6ACA7", "#F4B176", "#D4BD7D", "#96CF6E", "#7ECEAC",
-        "#87C9D9", "#AEBEEF", "#D3B2F0", "#F1ACD4"
-    ]
-    readonly property var _nameInksLight: [
-        "#C31F13", "#9C4F0D", "#776128", "#416B24", "#2A6F52",
-        "#276B7C", "#2D58D7", "#8A31D8", "#B81E78"
+    // Every ground a sender name is painted on. The ink has to clear the
+    // WORST of these, not the average: the identity header renders on the
+    // other party's bubble in Bubbles-for-DMs mode, and a member-profile
+    // popover puts a name on the elevated card.
+    readonly property var _nameGrounds: [
+        background, surface, cardElevated, incomingBubble
     ]
     // Deterministic per-user display-name colour (Element-style identity
-    // colouring). Falls back to the primary ink when there is no stable
-    // key to hash.
+    // colouring), DERIVED FROM THE ACTIVE THEME — custom themes included.
+    //
+    // This was two fixed nine-colour tables chosen by dark/light and nothing
+    // else, while the avatar discs beside them were already theme-derived. So
+    // one person had a green disc and a red name on Moss Light, and a custom
+    // theme inherited a table built for somebody else's palette. The tables
+    // even claimed in a comment to be "hue-matched index-for-index to
+    // avatarPalette" — true once, and false from the moment the discs moved.
+    //
+    // Same slot, same hue family as that person's disc; the arithmetic is in
+    // C++ beside the disc's own (src/theme/IdentityColors.cpp) so the two
+    // cannot drift again, and so the notification painter can reach it with
+    // no QML engine.
+    //
+    // `accent` and the grounds are read here on purpose: it makes every
+    // binding that calls userColor() depend on the theme, so names follow a
+    // theme switch — and a live custom-theme edit — with no extra signal.
     function userColor(key) {
         if (!key || key.length === 0)
             return textPrimary
-        return (dark ? _nameInksDark : _nameInksLight)[identityIndex(key)]
+        return IdentityPalette.nameInk(identityIndex(key), identityAnchor,
+                                       _nameGrounds)
     }
 
     // ---- Legacy aliases retained for existing QML. ----

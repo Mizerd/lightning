@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QColor>
+#include <QList>
 #include <QString>
 
 namespace lightning::theme {
@@ -68,5 +69,26 @@ QColor discInk(int index, const QColor &accent);
 // value. The in-window discs do follow the override, because AppTheme passes
 // its own resolved anchor.
 QColor anchorForTheme(int themeId);
+
+// The sender-name INK for a slot: the same hue family as that slot's disc,
+// darkened or lightened until it clears 4.5:1 against every surface a name is
+// drawn on.
+//
+// This used to be two hand-tuned nine-colour tables picked by dark/light and
+// nothing else, so a person's avatar disc followed the theme and their NAME
+// did not — a green disc with a red name on Moss Light. The tables even
+// carried a comment claiming they were "hue-matched index-for-index to
+// avatarPalette", which stopped being true the moment the discs were made
+// theme-derived and the inks were left behind.
+//
+// Deriving it here rather than in QML is the same argument the discs make:
+// one implementation, and the notification painter can reach it with no QML
+// engine anywhere near. It also means a CUSTOM theme gets real name colours
+// from its own two colours instead of inheriting a stranger's table.
+//
+// `surfaces` is every ground a name is painted on — background, card,
+// elevated card, and the other party's bubble. The ink clears the WORST of
+// them, so it is legible everywhere rather than on average.
+QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces);
 
 } // namespace lightning::theme

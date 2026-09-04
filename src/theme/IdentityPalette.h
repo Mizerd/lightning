@@ -2,6 +2,7 @@
 
 #include <QColor>
 #include <QObject>
+#include <QVariant>
 #include <QQmlEngine>
 #include <QString>
 
@@ -32,5 +33,20 @@ public:
     Q_INVOKABLE QColor ink(int slot, const QColor &accent) const
     {
         return lightning::theme::discInk(slot, accent);
+    }
+    // The sender-name ink for a slot. `surfaces` is every ground a name is
+    // drawn on; the ink clears the worst of them. QVariantList because that
+    // is what a QML array arrives as.
+    Q_INVOKABLE QColor nameInk(int slot, const QColor &accent,
+                               const QVariantList &surfaces) const
+    {
+        QList<QColor> grounds;
+        grounds.reserve(surfaces.size());
+        for (const QVariant &value : surfaces) {
+            const QColor ground = value.value<QColor>();
+            if (ground.isValid())
+                grounds.append(ground);
+        }
+        return lightning::theme::nameInk(slot, accent, grounds);
     }
 };

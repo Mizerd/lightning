@@ -146,6 +146,150 @@ QColor discInk(int index, const QColor &accent)
             : darkInk();
 }
 
+QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces)
+{
+    const int slot = clampSlot(index);
+
+    // THE SAME HUE AS THE DISC. That is the whole point: a person's avatar
+    // and their name are one identity, and the arc arithmetic below is
+    // deliberately identical to slotColor()'s so the two cannot drift.
+    const double accentHue = accent.hueF() < 0.0 ? 0.0 : accent.hueF();
+    // A WIDER ARC THAN THE DISCS USE, and this is measured rather than
+    // chosen. Nine inks spread over the discs' 190 degrees are 23.75 degrees
+    // apart, and at the lightness a legible text ink needs that is simply not
+    // nine distinguishable colours: the worst pair across the eleven themes
+    // came out dE 3.3 (Nordic), against a floor of 12. No lightness pattern
+    // rescues it — 2-phase, 3-phase and a full permutation were all tried and
+    // all failed on the slots two apart.
+    //
+    // The old hand-tuned tables cleared the floor comfortably because they
+    // used 321 degrees of the wheel, which is exactly why they matched no
+    // theme. A filled disc can afford a tight family; thin text cannot.
+    //
+    // So the ink family stays CENTRED ON THE THEME's anchor — that is what
+    // makes it the theme's palette — and spends more of the wheel around it.
+    constexpr double kInkArcDegrees = 340.0;
+    const double offset = (double(slot) / double(kIdentitySlots - 1) - 0.5)
+                          * (kInkArcDegrees / 360.0);
+    double hue = std::fmod(accentHue + offset, 1.0);
+    if (hue < 0.0)
+        hue += 1.0;
+
+    // More chroma than the pale disc slots carry. A disc is a filled shape
+    // and reads at low saturation; a name is thin strokes on a flat ground
+    // and washes out at the same value.
+    double saturation = 0.80;
+    // THE MAGENTA DAMPING IS A DISC RULE AND DOES NOT TRANSFER. It exists
+    // because two filled pink discs in a room list read as far more than two
+    // — a solid shape at that hue is the loudest thing on the surface. A
+    // NAME is thin strokes, and damping it there does not calm anything; it
+    // just removes the chroma that tells two adjacent slots apart. Measured:
+    // Lightning Light's slots 7 and 8 both land in the wedge (296 and 320
+    // degrees) and came out dE 11.9, under the floor, purely from this.
+    // Eased rather than dropped, so the wedge is still the quieter end.
+    const double degrees = hue * 360.0;
+    if (degrees >= kMagentaLowDegrees && degrees <= kMagentaHighDegrees)
+        saturation *= 0.88;
+
+    // Which direction to walk is decided by the GROUND, not by a dark/light
+    // flag — a custom theme has no flag to consult, and the surfaces are the
+    // truth in either case.
+    double meanLuminance = 0.0;
+    for (const QColor &surface : surfaces)
+        meanLuminance += relativeLuminance(surface);
+    if (!surfaces.isEmpty())
+        meanLuminance /= double(surfaces.size());
+    const bool darkGround = meanLuminance < 0.18;
+
+    // ALTERNATE THE LIGHTNESS, for the same reason the disc ladder does.
+    // Nine hues 23.75 degrees apart, all solved to the same lightness, are
+    // not nine tellable-apart colours: measured, Lightning Dark's slots 4
+    // and 5 came out dE 9.8 — below the floor the palette has advertised
+    // since the 2026-08-21 de-duplication. Hue is not enough on its own once
+    // the family is this tight.
+    //
+    // The bump is applied AFTER the contrast floor is found and always in
+    // the direction of MORE contrast, so it can never undo legibility: on a
+    // dark ground a lighter ink is a safer ink, and on a light ground a
+    // darker one is.
+    // EVERY SLOT A DIFFERENT LIGHTNESS, spread by permutation.
+    //
+    // Nine hues 23.75 degrees apart are not nine tellable-apart colours on
+    // their own: light inks on a dark ground desaturate perceptually and
+    // neighbouring hues converge. The disc ladder solves this by alternating
+    // lightness, and this is the same idea taken further — a 2-phase
+    // alternation leaves slots two apart identical (measured dE 10.3), and a
+    // 3-phase one only pushes the collision further out (dE 11.9).
+    //
+    // `slot * 4 % 9` is a full permutation of 0..8 whose consecutive values
+    // are always four steps apart, so ADJACENT slots get maximally different
+    // lightness and no two slots share one. The bump is applied AFTER the
+    // contrast floor and always toward MORE contrast, so it can never cost
+    // legibility: lighter on a dark ground, darker on a light one.
+    // With the arc widened, hue carries most of the separation and the
+    // lightness only has to break ties between neighbours, so a plain
+    // alternation is enough.
+    // THREE phases, not two. A 2-phase alternation gives slots two apart the
+    // SAME lightness, and on the themes whose elevated cards are lightest
+    // (Nordic, Purple Dusk) every ink is already pushed near the top of the
+    // range to clear 4.5:1 — so hue is doing the work alone up there and 4/6
+    // collapsed to dE 6.1. Three phases give every slot a different lightness
+    // from both neighbours and from the next one out.
+    // `slot * 2 % 9` walks every ninth of the range exactly once, so no two
+    // slots share a lightness and — unlike a 3-phase cycle — slots THREE
+    // apart differ too. That was the last collision standing: Nordic's 4 and
+    // 7 shared a phase and, on a theme whose elevated card pushes every ink
+    // to the top of the range, lightness was the only axis left.
+    constexpr double kInkSpread = 0.20;
+    const double bump = double((slot * 2) % kIdentitySlots)
+                        / double(kIdentitySlots - 1) * kInkSpread;
+
+
+    // SATURATION IS HELD, NOT EASED TOWARD THE EXTREMES. Easing it was the
+    // obvious thing to do — a near-white at full chroma can read as a tint —
+    // but it is what flattened the themes whose "dark" surfaces are lightest.
+    // Nordic and Purple Dusk push every ink up near 0.9 lightness to clear
+    // 4.5:1 on their elevated cards, and easing the chroma there collapsed
+    // hues 100 degrees apart to dE 5. Holding the chroma is what keeps them
+    // apart once lightness can no longer do it.
+    // QUANTISED before it is measured. QColor keeps float channels, but what
+    // ships is the 8-bit value, and solving against the float one left slot 5
+    // of Lightning Dark at 4.50 internally and 4.49 once rounded — the test
+    // reading the hex was right and the derivation was wrong. Round here, so
+    // the colour that is measured is the colour that is used.
+    const auto build = [&](double l, double sat) {
+        const QColor exact =
+            QColor::fromHslF(float(hue), float(sat), float(l)).toRgb();
+        return QColor(exact.red(), exact.green(), exact.blue());
+    };
+    const auto worstContrast = [&](const QColor &c) {
+        double worst = 21.0;
+        for (const QColor &surface : surfaces)
+            worst = qMin(worst, contrastRatio(c, surface));
+        return worst;
+    };
+
+    // TWO STAGES, and the order is the point. Lightness first, because it
+    // costs nothing: a lighter ink on a dark ground is simply more legible.
+    // Chroma is spent only when lightness has run out, because chroma is
+    // what tells one identity from another.
+    double lightness = darkGround ? 0.70 : 0.40;
+    for (int guard = 0; guard < 48; ++guard) {
+        if (worstContrast(build(lightness, saturation)) >= kMinInkContrast)
+            break;
+        lightness = darkGround ? qMin(0.96, lightness + 0.02)
+                               : qMax(0.06, lightness - 0.02);
+    }
+    for (int guard = 0; guard < 24; ++guard) {
+        if (worstContrast(build(lightness, saturation)) >= kMinInkContrast)
+            break;
+        saturation = qMax(0.18, saturation - 0.04);
+    }
+    lightness = darkGround ? qMin(0.96, lightness + bump)
+                           : qMax(0.06, lightness - bump);
+    return build(lightness, saturation);
+}
+
 QColor anchorForTheme(int themeId)
 {
     // The rule in the header, already applied to qml/AppTheme.qml's literals.
