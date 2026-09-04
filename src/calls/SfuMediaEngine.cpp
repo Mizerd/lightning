@@ -2429,6 +2429,22 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     const bool tryJpeg = !screenShare && jpegCameraChainAvailable();
     QString entryInUse =
         tryJpeg ? cameraJpegEntry() : captureEntryFilter(useGpu);
+    if (!screenShare) {
+        // WHICH CHAIN THE CAMERA IS ON, said once, before anything can fail.
+        //
+        // "capture negotiated caps=" below reports what came out, which is
+        // the answer to "what resolution and rate am I sending" — but not to
+        // "why". A camera pinned at 10 fps because MJPG could not be
+        // negotiated and a camera pinned at 10 fps because the device has no
+        // better mode produce the same caps line, and telling them apart
+        // cost a round trip with a tester. This says which chain was built.
+        qCInfo(lcSfuMedia) << "camera chain="
+                           << (tryJpeg ? "mjpg" : "raw")
+                           << "(jpeg elements"
+                           << (jpegCameraChainAvailable() ? "present"
+                                                          : "absent")
+                           << ")";
+    }
     QString description = videoPipelineDescription(
         source, videoRateStage(screenShare), limits, encoder, selfView,
         nextPublishSsrc(), scaleStageInUse, entryInUse);

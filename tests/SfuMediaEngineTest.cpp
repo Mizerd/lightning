@@ -450,6 +450,82 @@ private slots:
     // remote, where a portal node need not appear at all — so the pipeline
     // reaches PLAYING, reports no error, and never produces a buffer. A black
     // share that claims success, in both directions of the report.
+    // THE CAMERA'S MJPG CHAIN, AND THE FALLBACK THAT MUST NOT BREAK IT.
+    //
+    // A USB webcam at 1280x720 in raw YUY2 is 18.4 MB/s, which saturates USB
+    // 2.0 and lands at 10 fps — the reported ceiling. The fix is to negotiate
+    // the camera's MJPG mode instead, which means putting `image/jpeg` in
+    // front of a decoder rather than the raw capsfilter that used to sit
+    // directly after the source and made an MJPG mode impossible to
+    // negotiate at all.
+    //
+    // Two properties, and the second is the one that protects every machine
+    // that works today: the JPEG chain must actually BUILD where its elements
+    // exist, and where they do not, the raw chain must still build so the
+    // camera falls back instead of failing.
+    void theCameraJpegChainBuildsWhereItsElementsExist()
+    {
+        const bool available = SfuMediaEngine::jpegCameraChainAvailable();
+
+        // The probe must agree with reality rather than with a hardcoded
+        // list: it is answering "does THIS build have a JPEG decoder", and a
+        // packaged build that forgot to stage libgstjpeg must come back
+        // false rather than claiming a chain it cannot build.
+        GstElementFactory *jpegdec = gst_element_factory_find("jpegdec");
+        QCOMPARE(available, jpegdec != nullptr);
+        if (jpegdec)
+            gst_object_unref(jpegdec);
+
+        if (available) {
+            // It parses as a real bin, which is what the engine does with it.
+            const QString entry = SfuMediaEngine::cameraJpegEntry();
+            QVERIFY2(entry.contains(QStringLiteral("image/jpeg")),
+                     "the chain must ASK for jpeg, or the camera's MJPG mode "
+                     "can never be negotiated");
+            // `jpegenc` stands in for the CAMERA, because the property
+            // under test is "this chain accepts an MJPG source". A plain
+            // videotestsrc emits raw video and cannot link to an
+            // `image/jpeg` filter at all — a harness that used one would
+            // fail on correct code, which is the trap this repo has already
+            // recorded twice about probe sources.
+            const QString description =
+                QStringLiteral("videotestsrc name=capsrc ! jpegenc ! ")
+                + entry + QStringLiteral(" ! fakesink");
+            GError *error = nullptr;
+            GstElement *bin = gst_parse_bin_from_description(
+                description.toUtf8().constData(), TRUE, &error);
+            if (error) {
+                const QString message = QString::fromUtf8(
+                    error->message ? error->message : "?");
+                g_clear_error(&error);
+                QFAIL(qPrintable(QStringLiteral(
+                    "the JPEG camera chain does not build: %1").arg(message)));
+            }
+            QVERIFY(bin);
+            gst_object_unref(bin);
+        }
+
+        // THE FALLBACK. Whatever the JPEG probe says, the raw entry has to
+        // build — it is what every camera without an MJPG mode uses, and
+        // what the engine rebuilds on when the JPEG description fails.
+        const QString rawDescription =
+            QStringLiteral("videotestsrc name=capsrc ! ")
+            + SfuMediaEngine::captureEntryFilter(false)
+            + QStringLiteral(" ! fakesink");
+        GError *rawError = nullptr;
+        GstElement *rawBin = gst_parse_bin_from_description(
+            rawDescription.toUtf8().constData(), TRUE, &rawError);
+        if (rawError) {
+            const QString message = QString::fromUtf8(
+                rawError->message ? rawError->message : "?");
+            g_clear_error(&rawError);
+            QFAIL(qPrintable(QStringLiteral(
+                "the raw camera chain does not build: %1").arg(message)));
+        }
+        QVERIFY(rawBin);
+        gst_object_unref(rawBin);
+    }
+
     void aScreenShareCaptureUsesThePortalsOwnPipeWireRemote()
     {
         const QString withFd = SfuMediaEngine::screenShareSource(42, 7);
