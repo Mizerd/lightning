@@ -51,6 +51,22 @@ public:
     explicit VideoPosterExtractor(QObject *parent = nullptr);
     ~VideoPosterExtractor() override;
 
+    /// Give up the worker thread WITHOUT waiting for it.
+    ///
+    /// The destructor's join is bounded by the longest call the worker can be
+    /// inside, and that is ~931 ms the first time Qt Multimedia initialises
+    /// its backend (measured; see above). MediaBridge destroys this object on
+    /// every ACCOUNT SWITCH for session isolation, so that join sat on the
+    /// GUI thread during exactly the operation that must not block.
+    ///
+    /// Isolation is unaffected: quit() still drains the worker's loop and
+    /// runs its queued deleteLater, so the decoder is torn down on its own
+    /// thread and none outlives the account whose file it read. What changes
+    /// is only that the caller does not stand there for it — and a late
+    /// result is already inert, because MediaBridge disconnects this object
+    /// and clears its tracking map first.
+    void retireWithoutWaiting();
+
     // Queue a poster grab for `filePath`, reported back with `tag` (the
     // caller's media key). Duplicate tags already queued or active are
     // dropped. Emits posterReady(tag, jpeg, ...) — jpeg is empty on failure.

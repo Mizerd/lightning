@@ -2045,6 +2045,13 @@ void MediaBridge::clear()
     // account whose file it was reading.
     if (m_posterExtractor) {
         disconnect(m_posterExtractor, nullptr, this, nullptr);
+        // ...and it gives up its worker thread WITHOUT waiting for it. The
+        // destructor's join is bounded by ~931 ms of Qt Multimedia backend
+        // initialisation, and this runs on an ACCOUNT SWITCH — on the GUI
+        // thread, during exactly the operation that must not block. The
+        // decoder is still torn down on its own thread; nothing about the
+        // isolation above changes.
+        m_posterExtractor->retireWithoutWaiting();
         m_posterExtractor->deleteLater();
         m_posterExtractor = nullptr;
     }

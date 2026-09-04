@@ -82,13 +82,32 @@ VideoPosterExtractor::VideoPosterExtractor(QObject *parent)
     m_thread->start();
 }
 
+void VideoPosterExtractor::retireWithoutWaiting()
+{
+    if (!m_thread)
+        return;
+    // quit() still drains the worker's loop and runs its queued deleteLater,
+    // so the decoder is torn down on its own thread exactly as before. The
+    // thread then deletes ITSELF, and this object stops owning it — so the
+    // destructor below has nothing left to wait for.
+    QThread *retiring = m_thread;
+    m_thread = nullptr;
+    connect(retiring, &QThread::finished, retiring, &QObject::deleteLater);
+    retiring->quit();
+}
+
 VideoPosterExtractor::~VideoPosterExtractor()
 {
-    // quit() lets the worker's event loop drain and run the queued
-    // deleteLater above, which tears the decoder down on its own thread.
-    // The wait is bounded in practice by the longest single call the worker
-    // can be inside (~1 s for the one-time backend initialization), and it
-    // only happens on sign-out, account switch, or exit.
+    // Retired already: the thread owns itself and is on its way out. Waiting
+    // here would put back the block retireWithoutWaiting() exists to remove.
+    if (!m_thread)
+        return;
+    // The process-exit path, where waiting is right: quit() lets the worker's
+    // event loop drain and run the queued deleteLater above, which tears the
+    // decoder down on its own thread, and tearing the process down around a
+    // half-destroyed decoder is worse than a bounded wait. Bounded in
+    // practice by the longest single call the worker can be inside (~1 s for
+    // the one-time Qt Multimedia backend initialisation).
     m_thread->quit();
     m_thread->wait();
     delete m_thread;
