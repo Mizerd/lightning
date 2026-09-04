@@ -1749,12 +1749,30 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
 vault, `Lightning/Testing/Test Accounts.md`, never in this repository):
 local search finds a Megolm-encrypted message this client sent, and the widget
 list returns one openable widget plus three refused with the right reason and
-excludes the tombstone. What is NOT tested is the QML for either — the find
-bar's source strip and coverage line, and the Room Information widget list and
-its consent sheet, have never been seen on screen. `ydotool`'s virtual device
-reaches this compositor for pointer events but not keystrokes, so no build
-could be driven by hand; the composer round from the same day WAS confirmed
-visually in the screenshot demo.
+excludes the tombstone.
+
+**The widget QML is now LIVE-VALIDATED TOO, on a packaged AppImage** (later the
+same day, 0.8.4+git 6989623, driven through the GUI against
+`matrix.smetonis.net`). Four real `im.vector.modular.widgets` state events were
+written to a fixture room: the https one lists with an ENABLED Open, the
+`http://` and `javascript:` ones list with a DISABLED Open and the not-HTTPS
+refusal, and the one with no `url` is dropped from the list entirely. The
+consent sheet has been seen: it names the widget, its URL and who added it,
+says the site receives the user's IP, and states that Lightning opens widgets
+in the browser so the page cannot reach the account, keys or messages. One
+inaccuracy worth fixing eventually and not a defect: a `javascript:` URL is
+refused with the not-HTTPS wording rather than a scheme-specific one.
+
+STILL NOT SEEN: the find bar's source strip and coverage line. The room-header
+magnifier opens the SERVER-side search panel (it says so, and correctly finds
+nothing in an encrypted room); whatever surface exposes the local index was not
+reached from the GUI this round, so local search remains validated at the Rust
+layer only.
+
+Keyboard automation now works — a `ydotool` uinput device plus KWin scripting
+for closed-loop pointer positioning, with a focus guard that refuses to type
+unless KWin reports the intended window active. The guard exists because
+without it a login went into a browser window instead of the client.
 
 Two open decisions those rounds created, both recorded rather than taken:
 - **The SDK store is not encrypted at rest**, and it holds DECRYPTED
