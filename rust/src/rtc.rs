@@ -3369,4 +3369,82 @@ mod tests {
         let wire = member.to_json();
         assert_eq!(wire.get("event_id").and_then(|v| v.as_str()), Some(""));
     }
+
+    // ── The SFU resolution guard ─────────────────────────────────────────
+    //
+    // `public_ip` is thoroughly covered in rooms.rs and `normalize_sfu_url`
+    // in sfu.rs, but both look at the LITERAL. The case neither can see is
+    // the one that matters most: a perfectly ordinary hostname whose DNS
+    // answer points somewhere private. The focus URL is chosen by another
+    // participant, so that name is attacker-supplied, and every literal
+    // check passes on it.
+    //
+    // These resolve real literals rather than real names, which is exactly
+    // what a hostile A record looks like by the time it reaches this
+    // function — `lookup_host` hands back the same SocketAddr either way —
+    // and it keeps the test offline and deterministic.
+
+    #[tokio::test]
+    async fn a_focus_that_resolves_into_private_space_is_refused() {
+        for host in [
+            "127.0.0.1",        // loopback
+            "10.0.0.5",         // RFC1918
+            "192.168.1.10",     // RFC1918
+            "172.16.0.1",       // RFC1918
+            "169.254.169.254",  // link-local, the cloud metadata endpoint
+            "100.64.0.1",       // CGNAT
+            "0.0.0.0",          // unspecified
+            "::1",              // IPv6 loopback
+            "fc00::1",          // unique local
+            "fe80::1",          // IPv6 link-local
+            "::ffff:127.0.0.1", // IPv4-mapped loopback, the coat-wearing one
+            "64:ff9b::7f00:1",  // NAT64 with an embedded loopback
+        ] {
+            assert!(
+                resolve_public_host(host, 443).await.is_none(),
+                "{host} resolves into unroutable space and must be refused"
+            );
+        }
+    }
+
+    // Names that can only ever mean this machine or this link are refused
+    // BEFORE any lookup, so a resolver that has been told otherwise cannot
+    // matter.
+    #[tokio::test]
+    async fn local_only_names_are_refused_without_resolving() {
+        for host in [
+            "localhost",
+            "sfu.localhost",
+            "livekit.local",
+            "sfu.internal",
+            "LOCALHOST",      // case must not be an escape
+            "localhost.",     // nor a trailing root label
+        ] {
+            assert!(
+                resolve_public_host(host, 443).await.is_none(),
+                "{host} must be refused without resolving"
+            );
+            assert!(!public_hostname(host), "{host} must not read as public");
+        }
+    }
+
+    // THE ADDRESS IS PINNED, and that is what closes the rebinding window.
+    // Approving a name and then letting the socket resolve it again would
+    // let a second lookup return something private; the caller connects to
+    // the SocketAddr this returns, so the address that was checked is the
+    // address that is used.
+    #[tokio::test]
+    async fn an_approved_focus_returns_the_address_to_connect_to() {
+        let approved = resolve_public_host("93.184.216.34", 8443)
+            .await
+            .expect("a public literal resolves");
+        assert_eq!(approved.ip().to_string(), "93.184.216.34");
+        assert_eq!(approved.port(), 8443, "the port must survive to the socket");
+
+        let v6 = resolve_public_host("2606:2800:220:1:248:1893:25c8:1946", 443)
+            .await
+            .expect("a public v6 literal resolves");
+        assert!(v6.is_ipv6());
+        assert_eq!(v6.port(), 443);
+    }
 }
