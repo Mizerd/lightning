@@ -6048,6 +6048,40 @@ pub unsafe extern "C" fn mx_rust_set_display_name(
     })
 }
 
+/// This account's display name IN ONE ROOM. Empty clears the override, so the
+/// global profile shows again. Answers on `room_profile_result`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_member_display_name(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    name: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let name = unsafe { cstr_arg(name) }?;
+        profile::set_room_display_name(bridge, room_id, name, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// This account's avatar IN ONE ROOM. Empty clears the override.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_member_avatar(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    mxc: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let mxc = unsafe { cstr_arg(mxc) }?;
+        profile::set_room_avatar(bridge, room_id, mxc, op_id).map(|_| String::new())
+    })
+}
+
 /// Profile banners (MSC4427 over MSC4133 extended profile fields).
 ///
 /// Reads `m.banner_url`, falling back to `chat.commet.profile_banner` — the

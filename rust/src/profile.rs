@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use matrix_sdk::ruma::api::error::ErrorBody;
+use matrix_sdk::ruma::RoomId;
 use serde_json::json;
 
 use crate::rooms::{require_client, sniff_image_mime, MAX_AVATAR_BYTES};
@@ -136,6 +137,202 @@ pub(crate) fn set_own_display_name(
                 "error": error,
             }),
         );
+    });
+    Ok(())
+}
+
+// ── Per-room profiles ────────────────────────────────────────────────────
+//
+// A standard Matrix per-room member profile: the display name and avatar
+// this account shows IN ONE ROOM, overriding the global one. Both live in
+// that room's own `m.room.member` state event for this user.
+//
+// THE DANGEROUS PART IS EVERYTHING ELSE IN THAT EVENT. `RoomMemberEventContent`
+// serialises every optional field with `skip_serializing_if`, so any field
+// not copied forward is DELETED from the room's state — and one of them,
+// `join_authorised_via_users_server`, is what makes a restricted-room
+// membership valid. Dropping it can invalidate the membership.
+//
+// So the avatar path reads the RAW member event and edits only the one key,
+// rather than deserialising into the typed content: the typed struct has no
+// `#[serde(flatten)]` catch-all, so any field a future spec version or
+// another client wrote would be silently lost on the round trip. The SDK's
+// own `set_own_member_display_name` has that same defect, and additionally
+// flattens a redacted event to `new(membership)` — discarding `reason`,
+// `is_direct`, `third_party_invite` and the restricted-room authorisation.
+// The name path still uses it, because for the name it is the supported API
+// and the redacted case cannot arise for a joined member editing themselves.
+
+/// Set or clear (empty) this account's display name IN ONE ROOM.
+pub(crate) fn set_room_display_name(
+    bridge: &RustClient,
+    room_id: String,
+    name: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let bounded = bound_display_name(&name);
+    let parsed = RoomId::parse(&room_id).map_err(|_| "invalid room id".to_owned())?;
+    let room = client.get_room(&parsed).ok_or_else(|| "unknown room".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let arg = if bounded.is_empty() { None } else { Some(bounded.clone()) };
+        let result = tokio::time::timeout(
+            DISPLAY_NAME_REQUEST_TIMEOUT,
+            room.set_own_member_display_name(arg),
+        )
+        .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let (ok, error) = match result {
+            Ok(Ok(_)) => (true, String::new()),
+            Ok(Err(err)) => (false, server_error_message(&err)),
+            Err(_) => (false, String::new()),
+        };
+        enqueue(&events, json!({
+            "type": "room_profile_result",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "room_id": room_id,
+            "field": "displayname",
+            "ok": ok,
+            "error": error,
+        }));
+    });
+    Ok(())
+}
+
+/// The member-event keys a per-room profile edit may touch. Everything else
+/// in the event is carried forward verbatim.
+const PROFILE_KEYS: [&str; 2] = ["displayname", "avatar_url"];
+
+/// Set or clear this account's avatar IN ONE ROOM.
+///
+/// `mxc` empty clears the override. The value is validated as an `mxc:` URI
+/// before it is written: it is going into room state, where every member
+/// reads it, and a client that trusted it would fetch whatever it named.
+pub(crate) fn set_room_avatar(
+    bridge: &RustClient,
+    room_id: String,
+    source: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    // Three shapes, decided here so the async body has one job: empty
+    // CLEARS the override, an `mxc:` is used as-is, and anything else is a
+    // local file to upload first. The same size/regular-file checks the
+    // global avatar path applies happen BEFORE the file is read, so an
+    // absurd file is refused without being pulled into memory.
+    let upload_from = if source.is_empty() || source.starts_with("mxc://") {
+        None
+    } else {
+        let metadata = std::fs::metadata(&source)
+            .map_err(|_| "avatar file is not readable".to_owned())?;
+        if !metadata.is_file() {
+            return Err("avatar path is not a regular file".to_owned());
+        }
+        if metadata.len() == 0 || metadata.len() > MAX_AVATAR_BYTES {
+            return Err("avatar file size is out of range".to_owned());
+        }
+        Some(source.clone())
+    };
+    let mxc = if upload_from.is_some() { String::new() } else { source };
+    if !mxc.is_empty() && (!mxc.starts_with("mxc://") || mxc.len() <= "mxc://".len()) {
+        return Err("avatar must be an mxc URI".to_owned());
+    }
+    let parsed = RoomId::parse(&room_id).map_err(|_| "invalid room id".to_owned())?;
+    let room = client.get_room(&parsed).ok_or_else(|| "unknown room".to_owned())?;
+    let user_id = client.user_id().ok_or_else(|| "not signed in".to_owned())?.to_owned();
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let outcome = async {
+            // Upload first when the caller handed over a local file. This is
+            // deliberately NOT `Account::upload_avatar`, which uploads AND
+            // writes the GLOBAL avatar_url — the whole point here is that the
+            // global profile is left alone.
+            let mut mxc = mxc;
+            if let Some(path) = upload_from {
+                let data = tokio::fs::read(&path)
+                    .await
+                    .map_err(|_| "avatar file is not readable".to_owned())?;
+                let mime_str = sniff_image_mime(&data)
+                    .ok_or_else(|| "unsupported image".to_owned())?;
+                let mime: mime::Mime = mime_str
+                    .parse()
+                    .map_err(|_| "unsupported image".to_owned())?;
+                let uploaded = client
+                    .media()
+                    .upload(&mime, data, None)
+                    .await
+                    .map_err(|e| server_error_message(&e))?;
+                mxc = uploaded.content_uri.to_string();
+            }
+            // READ THE RAW EVENT, not the typed content. See the note above:
+            // the typed round trip drops anything it does not know about.
+            let raw = room
+                .get_state_event(
+                    matrix_sdk::ruma::events::StateEventType::RoomMember,
+                    user_id.as_str(),
+                )
+                .await
+                .map_err(|e| server_error_message(&e))?
+                .ok_or_else(|| "no membership to edit".to_owned())?;
+            // A STRIPPED state event is an invite's preview, not a
+            // membership this account can edit — refuse rather than write a
+            // profile onto something that is not joined state.
+            let matrix_sdk::deserialized_responses::RawAnySyncOrStrippedState::Sync(
+                sync_raw,
+            ) = raw
+            else {
+                return Err("membership is not editable here".to_owned());
+            };
+            let value: serde_json::Value = sync_raw
+                .deserialize_as_unchecked::<serde_json::Value>()
+                .map_err(|_| "membership could not be read".to_owned())?;
+            let mut content = value
+                .get("content")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let object = content
+                .as_object_mut()
+                .ok_or_else(|| "membership has no content".to_owned())?;
+            // Editing a membership that is not `join` would be writing a
+            // profile onto a leave/ban event, which is not a profile change.
+            if object.get("membership").and_then(|v| v.as_str()) != Some("join") {
+                return Err("not a joined membership".to_owned());
+            }
+            if mxc.is_empty() {
+                object.remove("avatar_url");
+            } else {
+                object.insert("avatar_url".to_owned(), json!(mxc));
+            }
+            room.send_state_event_raw("m.room.member", user_id.as_str(), content)
+                .await
+                .map(|_| ())
+                .map_err(|e| server_error_message(&e))
+        }
+        .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let (ok, error) = match outcome {
+            Ok(()) => (true, String::new()),
+            Err(message) => (false, message),
+        };
+        enqueue(&events, json!({
+            "type": "room_profile_result",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "room_id": room_id,
+            "field": "avatar_url",
+            "ok": ok,
+            "error": error,
+        }));
     });
     Ok(())
 }

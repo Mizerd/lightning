@@ -182,6 +182,21 @@ Rectangle {
         onAccepted: avatarCrop.openFor(selectedFile)
     }
 
+    FileDialog {
+        id: myAvatarDialog
+        title: qsTr("Choose your avatar for this room")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
+        // Same rule as every other display image: the crop dialog is the one
+        // gate that refuses an SVG before anything renders it (CLAUDE.md §6).
+        onAccepted: myAvatarCrop.openFor(selectedFile)
+    }
+    ImageCropDialog {
+        id: myAvatarCrop
+        role: "avatar"
+        onCropped: function (file) { app.roomInfo.setMyRoomAvatar(file) }
+    }
+
     ImageCropDialog {
         id: avatarCrop
         role: "avatar"
@@ -684,6 +699,105 @@ Rectangle {
                                 app.roomInfo.requestDirectoryVisibility()
                         }
                     }
+
+                // ── Your profile in this room ────────────────────────
+                //
+                // A standard Matrix per-room member profile: the name and
+                // avatar THIS ACCOUNT shows here, overriding the global one.
+                // Empty restores the global profile rather than clearing the
+                // name, which is what "reset" means and why the button says so.
+                //
+                // Built exactly like the "Edit room" group above — a
+                // ColumnLayout with Layout.margins, not a hand-rolled card:
+                // the first version used a Rectangle with an anchored inner
+                // column and its content rendered outside its own background
+                // in a narrow panel.
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 1
+                    color: AppTheme.border
+                    visible: app.roomInfo.roomProfilesSupported
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.margins: AppTheme.spacing12
+                    spacing: AppTheme.spacing8
+                    visible: app.roomInfo.roomProfilesSupported
+
+                    Label {
+                        text: qsTr("Your profile in this room")
+                        color: AppTheme.textSecondary
+                        font.pixelSize: AppTheme.textBody
+                        font.weight: AppTheme.weightStrong
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        textFormat: Text.PlainText
+                        text: qsTr("Only affects this room. Everyone here sees "
+                                   + "it; other rooms keep your usual name and "
+                                   + "picture.")
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.textMeta
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing8
+                        AppTextField {
+                            id: myRoomNameField
+                            objectName: "roomProfileNameField"
+                            Layout.fillWidth: true
+                            // Without this the field's implicit width is a
+                            // FLOOR and the Save button beside it is squeezed
+                            // to a single letter in a narrow side panel.
+                            Layout.minimumWidth: 0
+                            enabled: !app.roomInfo.roomProfilePending
+                            placeholderText: qsTr("Your name in this room")
+                        }
+                        AppButton {
+                            text: qsTr("Save")
+                            enabled: !app.roomInfo.roomProfilePending
+                                     && myRoomNameField.text.length > 0
+                            onClicked: app.roomInfo.setMyRoomDisplayName(
+                                myRoomNameField.text)
+                        }
+                    }
+                    // A Flow, not a Row: two buttons of this length do not fit
+                    // side by side in a panel the user can drag narrow, and a
+                    // Row would push the second one off the edge.
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing8
+                        AppButton {
+                            text: qsTr("Change picture…")
+                            kind: "ghost"
+                            size: "sm"
+                            enabled: !app.roomInfo.roomProfilePending
+                            onClicked: myAvatarDialog.open()
+                        }
+                        AppButton {
+                            objectName: "roomProfileResetButton"
+                            text: qsTr("Reset to global")
+                            kind: "ghost"
+                            size: "sm"
+                            enabled: !app.roomInfo.roomProfilePending
+                            onClicked: {
+                                myRoomNameField.text = ""
+                                app.roomInfo.setMyRoomDisplayName("")
+                                app.roomInfo.clearMyRoomAvatar()
+                            }
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: app.roomInfo.roomProfileError.length > 0
+                        wrapMode: Text.WordWrap
+                        textFormat: Text.PlainText
+                        text: app.roomInfo.roomProfileError
+                        color: AppTheme.danger
+                        font.pixelSize: AppTheme.textMeta
+                    }
+                }
 
                     Label {
                         text: qsTr("Access")

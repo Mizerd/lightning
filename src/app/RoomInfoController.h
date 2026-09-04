@@ -136,6 +136,12 @@ class RoomInfoController : public QObject
     Q_PROPERTY(bool moderationPending READ moderationPending
                    NOTIFY moderationStateChanged)
     Q_PROPERTY(bool editPending READ editPending NOTIFY editStateChanged)
+    Q_PROPERTY(bool roomProfilePending READ roomProfilePending
+                   NOTIFY roomProfileChanged)
+    Q_PROPERTY(QString roomProfileError READ roomProfileError
+                   NOTIFY roomProfileChanged)
+    Q_PROPERTY(bool roomProfilesSupported READ roomProfilesSupported
+                   NOTIFY roomProfileChanged)
     Q_PROPERTY(QString editError READ editError NOTIFY editStateChanged)
     Q_PROPERTY(bool leavePending READ leavePending NOTIFY leaveStateChanged)
     Q_PROPERTY(QString leaveError READ leaveError NOTIFY leaveStateChanged)
@@ -188,6 +194,18 @@ public:
     Q_INVOKABLE void setRoomTopic(const QString &topic);
     Q_INVOKABLE void setRoomAvatar(const QUrl &fileUrl);
     Q_INVOKABLE void removeRoomAvatar();
+
+    // ── This account's profile IN THIS ROOM ──────────────────────────────
+    //
+    // A standard Matrix per-room member profile. Empty clears the override,
+    // so the global profile shows again. The two fields are separate
+    // requests and either can fail on its own.
+    Q_INVOKABLE void setMyRoomDisplayName(const QString &name);
+    Q_INVOKABLE void setMyRoomAvatar(const QUrl &fileUrl);
+    Q_INVOKABLE void clearMyRoomAvatar();
+    bool roomProfilePending() const { return m_profileOps > 0; }
+    QString roomProfileError() const { return m_profileError; }
+    bool roomProfilesSupported() const;
     Q_INVOKABLE void leaveRoom();
     // v0.6.5 (SPEC 1d): room-list context-menu adapter. Acts on an EXPLICIT
     // room id instead of the controller's own roomId property — the Room
@@ -424,6 +442,7 @@ Q_SIGNALS:
     // v0.9 room access: the on-demand directory-visibility tri-state.
     void directoryVisibilityChanged();
     void editStateChanged();
+    void roomProfileChanged();
     void leaveStateChanged();
     // The active room was left; AppController closes the timeline. Fired for
     // both the panel's own Leave button and the room-list adapter above.
@@ -496,6 +515,8 @@ private:
     QString m_roomId;
     quint64 m_membersOp = 0;
     quint64 m_editOp = 0;
+    int m_profileOps = 0;
+    QString m_profileError;
     quint64 m_leaveOp = 0;
     // v0.6.5: in-flight room-list adapter leave() calls, keyed by opId —
     // deliberately separate from m_leaveOp (the panel's own pending leave).

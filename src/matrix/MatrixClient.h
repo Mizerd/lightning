@@ -917,6 +917,21 @@ public:
                                             bool restart)
     { Q_UNUSED(roomId); Q_UNUSED(limit); Q_UNUSED(restart); return 0; }
     virtual bool supportsMediaHistory() const { return false; }
+
+    // ── Per-room profile ─────────────────────────────────────────────────
+    //
+    // The display name and avatar this account shows IN ONE ROOM, overriding
+    // the global profile. Empty clears the override. Both live in that room's
+    // own m.room.member event for this user; the avatar path edits the RAW
+    // event so nothing else in the membership is lost — see
+    // rust/src/profile.rs for why that matters.
+    virtual quint64 setRoomDisplayName(const QString &roomId,
+                                       const QString &name)
+    { Q_UNUSED(roomId); Q_UNUSED(name); return 0; }
+    virtual quint64 setRoomMemberAvatar(const QString &roomId,
+                                        const QString &mxc)
+    { Q_UNUSED(roomId); Q_UNUSED(mxc); return 0; }
+    virtual bool supportsRoomProfiles() const { return false; }
     // v0.9 scheduled send (phase 11), the SERVER side (MSC4140 delayed
     // message events). probeDelayedEvents answers on
     // delayedEventsSupportReceived; scheduleMessage on scheduledSendFinished
@@ -1726,6 +1741,12 @@ Q_SIGNALS:
                           bool complete, bool encryptedRoom);
     void mediaHistoryFailed(quint64 opId, const QString &roomId,
                             const QString &message);
+    /// A per-room profile write finished. `field` is "displayname" or
+    /// "avatar_url" — the two are separate requests and either can fail on
+    /// its own.
+    void roomProfileResult(quint64 opId, const QString &roomId,
+                           const QString &field, bool ok,
+                           const QString &error);
     void searchIndexStatsReceived(quint64 opId, qint64 messages, qint64 rooms);
     void searchIndexSwept(quint64 opId, int rooms, int written,
                           qint64 messages, qint64 indexedRooms);

@@ -6296,6 +6296,34 @@ quint64 RustSdkMatrixClient::localSearch(const QString &query,
     return opId;
 }
 
+quint64 RustSdkMatrixClient::setRoomDisplayName(const QString &roomId,
+                                                const QString &name)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray value = name.toUtf8();
+    takeRustString(mx_rust_set_room_member_display_name(
+        m_rustHandle, room.constData(), value.constData(),
+        static_cast<unsigned long long>(opId)));
+    return opId;
+}
+
+quint64 RustSdkMatrixClient::setRoomMemberAvatar(const QString &roomId,
+                                                 const QString &mxc)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray value = mxc.toUtf8();
+    takeRustString(mx_rust_set_room_member_avatar(
+        m_rustHandle, room.constData(), value.constData(),
+        static_cast<unsigned long long>(opId)));
+    return opId;
+}
+
 quint64 RustSdkMatrixClient::requestMediaHistoryPage(const QString &roomId,
                                                     int limit, bool restart)
 {
@@ -8524,6 +8552,14 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("sender")).toString(),
             event.value(QStringLiteral("key")).toString(),
             static_cast<qint64>(event.value(QStringLiteral("timestamp_ms")).toDouble()));
+        return true;
+    }
+    if (type == QLatin1String("room_profile_result")) {
+        Q_EMIT roomProfileResult(
+            opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("field")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("error")).toString());
         return true;
     }
     if (type == QLatin1String("media_history_page")) {

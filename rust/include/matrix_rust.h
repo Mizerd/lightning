@@ -639,6 +639,23 @@ char *mx_rust_clear_own_avatar(void *client, uint64_t op_id);
 char *mx_rust_set_display_name(void *client,
                                const char *name,
                                unsigned long long op_id);
+
+/* Per-room profile: this account's display name / avatar in ONE room,
+   overriding the global one. An empty value CLEARS the override.
+
+   Answers on `room_profile_result { op_id, lifecycle, room_id, field, ok,
+   error }`. The avatar path edits the RAW m.room.member event and carries
+   every other field forward verbatim — `join_authorised_via_users_server`
+   in particular is what makes a restricted-room membership valid, and the
+   typed round trip would drop anything it does not know about. */
+char *mx_rust_set_room_member_display_name(void *client,
+                                    const char *room_id,
+                                    const char *name,
+                                    unsigned long long op_id);
+char *mx_rust_set_room_member_avatar(void *client,
+                                     const char *room_id,
+                                     const char *mxc,
+                                     unsigned long long op_id);
 /*
  * v0.7.x Matrix presence: one bounded polling round. `user_ids_json` is a
  * JSON array of user-id strings (invalid entries dropped, batch capped at

@@ -481,6 +481,12 @@ public:
                                     bool restart) override;
     bool supportsMediaHistory() const override
     { return m_rustHandle != nullptr; }
+    quint64 setRoomDisplayName(const QString &roomId,
+                               const QString &name) override;
+    quint64 setRoomMemberAvatar(const QString &roomId,
+                                const QString &mxc) override;
+    bool supportsRoomProfiles() const override
+    { return m_rustHandle != nullptr; }
     // v0.9 device + backup management (phase 9).
     quint64 renameDevice(const QString &deviceId, const QString &name) override;
     quint64 backupAction(const QString &action) override;

@@ -26,6 +26,23 @@ void RoomInfoController::setClient(MatrixClient *client)
         m_client->disconnect(this);
     m_client = client;
     if (m_client) {
+        connect(m_client, &MatrixClient::roomProfileResult, this,
+                [this](quint64, const QString &roomId, const QString &,
+                       bool ok, const QString &error) {
+                    // Another room's answer must not clear this panel's
+                    // pending state — the user can move while one is in
+                    // flight.
+                    if (roomId != m_roomId)
+                        return;
+                    if (m_profileOps > 0)
+                        --m_profileOps;
+                    if (!ok) {
+                        m_profileError = error.isEmpty()
+                            ? tr("The server did not accept the change.")
+                            : error;
+                    }
+                    Q_EMIT roomProfileChanged();
+                });
         connect(m_client, &MatrixClient::roomMembersReceived,
                 this, &RoomInfoController::onRoomMembersReceived);
         connect(m_client, &MatrixClient::roomEditFinished,
@@ -292,6 +309,47 @@ void RoomInfoController::setRoomAvatar(const QUrl &fileUrl)
     m_editError.clear();
     m_editOp = m_client->setRoomAvatar(m_roomId, path);
     Q_EMIT editStateChanged();
+}
+
+bool RoomInfoController::roomProfilesSupported() const
+{
+    return m_client && m_client->supportsRoomProfiles();
+}
+
+void RoomInfoController::setMyRoomDisplayName(const QString &name)
+{
+    if (!roomProfilesSupported() || m_roomId.isEmpty())
+        return;
+    m_profileError.clear();
+    if (m_client->setRoomDisplayName(m_roomId, name) != 0)
+        ++m_profileOps;
+    Q_EMIT roomProfileChanged();
+}
+
+void RoomInfoController::setMyRoomAvatar(const QUrl &fileUrl)
+{
+    if (!roomProfilesSupported() || m_roomId.isEmpty())
+        return;
+    const QString path = fileUrl.isLocalFile() ? fileUrl.toLocalFile()
+                                               : fileUrl.toString();
+    if (path.isEmpty())
+        return;
+    m_profileError.clear();
+    // The local path goes through: Rust uploads it and writes only this
+    // room's membership, deliberately NOT the global avatar.
+    if (m_client->setRoomMemberAvatar(m_roomId, path) != 0)
+        ++m_profileOps;
+    Q_EMIT roomProfileChanged();
+}
+
+void RoomInfoController::clearMyRoomAvatar()
+{
+    if (!roomProfilesSupported() || m_roomId.isEmpty())
+        return;
+    m_profileError.clear();
+    if (m_client->setRoomMemberAvatar(m_roomId, QString()) != 0)
+        ++m_profileOps;
+    Q_EMIT roomProfileChanged();
 }
 
 void RoomInfoController::removeRoomAvatar()
