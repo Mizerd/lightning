@@ -214,10 +214,40 @@ Item {
         handle: Item {
             id: splitHandle
             implicitWidth: 5
+
+            // THE BAND IS TRANSPARENT, AND THE SPLITVIEW'S GROUND SHOWS
+            // THROUGH IT. That ground is the timeline's colour, not the room
+            // list's, so the rule was never on the boundary. Measured at the
+            // room-list seam:
+            //
+            //   x4390..4398  #1B242F   room list
+            //   x4399..4401  #0D1117   the window ground, BEFORE the rule
+            //   x4402..4403  #4C596D   the rule
+            //   x4404+       #0D1117   timeline
+            //
+            // The boundary is three pixels before the line that is supposed
+            // to mark it, and the sliver between them reads as a gap between
+            // the panels.
+            //
+            // Paint the band as the surface on its RIGHT and put the rule at
+            // its LEFT edge: one transition, and the rule marks it. WHICH
+            // surface that is depends on the handle — the first sits between
+            // the 68px rail and the room list, the second between the room
+            // list and the timeline — and SplitView gives a handle no index,
+            // so it is read off the handle's own x against the rail's fixed
+            // 68px width. The 5px grab area is unchanged.
+            readonly property bool beforeRoomList: x < 100
+
             Rectangle {
-                anchors.centerIn: parent
+                anchors.fill: parent
+                color: splitHandle.beforeRoomList ? AppTheme.sidebar
+                                                  : AppTheme.background
+            }
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
                 width: 1
-                height: parent.height
                 color: splitHandle.SplitHandle.pressed ? AppTheme.accent
                      : splitHandle.SplitHandle.hovered ? AppTheme.borderStrong
                                                        : AppTheme.border

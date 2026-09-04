@@ -740,6 +740,20 @@ QString MessageHtml::sanitize(
                     + QStringLiteral(" style=\"background-color:")
                     + mentionStyle.codeBackground.toHtmlEscaped()
                     + QStringLiteral("\">");
+            } else if (!mentionStyle.linkColor.isEmpty()
+                       && name == QLatin1String("blockquote")) {
+                // A QUOTE BAR. Qt renders a bare <blockquote> as an indent and
+                // nothing else, so a quoted line read as an accidentally
+                // indented one — no bar, no tint, nothing saying "somebody
+                // else said this". Qt 6 does honour block border properties
+                // (QTextBlockFormat gained them in 5.14), so a left rule in
+                // the theme's own link ink is the same treatment every other
+                // client uses. The colour is a validated theme QColor, escaped
+                // again here so a style break-out is impossible.
+                out += QStringLiteral("<blockquote style=\"border-left:3px "
+                                      "solid ")
+                    + mentionStyle.linkColor.toHtmlEscaped()
+                    + QStringLiteral("; padding-left:10px; margin-left:2px\">");
             } else {
                 out += QStringLiteral("<") + name + QStringLiteral(">");
             }
