@@ -75,6 +75,7 @@ mod discover;
 mod gifs;
 mod ignore;
 mod localsearch;
+mod mediahistory;
 mod namecolor;
 mod widgets;
 mod oauth;
@@ -153,6 +154,12 @@ struct RustClient {
     /// Teardown sets it, so a sweep in flight does not keep the account store
     /// open while sign-out tries to delete it.
     index_shutdown: Arc<AtomicBool>,
+    /// Where each room's INDEPENDENT media-history walk has reached.
+    ///
+    /// Keyed by room id, because the Room Information panel browses one room
+    /// at a time and reopening it should continue rather than restart. Holds
+    /// only an opaque `/messages` token and counters — no event content.
+    media_history: Arc<Mutex<HashMap<String, mediahistory::Cursor>>>,
     session_file: Arc<Mutex<Option<PathBuf>>>,
     client: Arc<Mutex<Option<Client>>>,
     events: Arc<Mutex<VecDeque<String>>>,
@@ -311,6 +318,7 @@ impl RustClient {
             store_path,
             search_index: Arc::new(Mutex::new(None)),
             index_shutdown: Arc::new(AtomicBool::new(false)),
+            media_history: Arc::new(Mutex::new(HashMap::new())),
             session_file: Arc::new(Mutex::new(None)),
             client: Arc::new(Mutex::new(None)),
             events: Arc::clone(&events),
@@ -6870,6 +6878,138 @@ pub unsafe extern "C" fn mx_rust_request_edit_history(
 /// A room's widgets, resolved and validated. See rust/src/widgets.rs for why
 /// Lightning lists and opens rather than embeds. Answers on
 /// `room_widgets {op_id, room_id, ok, widgets:[...]}`.
+/// One page of a room's media history, walked backwards INDEPENDENTLY of the
+/// live timeline.
+///
+/// `restart` non-zero begins again at the live edge; otherwise the walk
+/// continues from where this room left off, so reopening the panel does not
+/// re-fetch what it already has.
+///
+/// The page reports what it SCANNED as well as what it matched, and whether
+/// it reached the start of accessible history — see mediahistory.rs for why
+/// the walk is unfiltered and why honest completeness matters more here than
+/// a smaller number of requests.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_media_history_page(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    limit: c_uint,
+    restart: c_int,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let client = require_client_for_search(bridge)?;
+        let parsed = RoomId::parse(&room_id).map_err(|_| "invalid room id".to_owned())?;
+        let room = client.get_room(&parsed).ok_or_else(|| "unknown room".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        let cursors = Arc::clone(&bridge.media_history);
+        let encrypted_room = room.encryption_state().is_encrypted();
+        // Clamped: the panel asks for a screenful, and an unbounded limit is
+        // one request that can stall the walk for a very long time.
+        let want: u64 = match limit {
+            0 => 50,
+            n => std::cmp::min(u64::from(n), 200),
+        };
+        if restart != 0 {
+            if let Ok(mut map) = cursors.lock() {
+                map.remove(&room_id);
+            }
+        }
+        bridge.spawn_room_action(async move {
+            let cursor = cursors
+                .lock()
+                .ok()
+                .and_then(|m| m.get(&room_id).cloned())
+                .unwrap_or_default();
+            if cursor.exhausted {
+                // Nothing older exists. Answer rather than re-asking the
+                // server for a page it already said was the end.
+                enqueue(&events, json!({
+                    "type": "media_history_page",
+                    "op_id": op_id,
+                    "room_id": room_id,
+                    "entries": [],
+                    "scanned": 0,
+                    "scanned_total": cursor.scanned_total,
+                    "undecryptable_total": cursor.undecryptable_total,
+                    "complete": true,
+                    "encrypted_room": encrypted_room,
+                }));
+                return;
+            }
+            let mut opts = MessagesOptions::backward();
+            opts.from = cursor.token.clone();
+            opts.limit = UInt::new(want).unwrap_or(uint!(50));
+            match room.messages(opts).await {
+                Ok(messages) => {
+                    let mut entries: Vec<serde_json::Value> = Vec::new();
+                    let mut scanned = 0u64;
+                    let mut undecryptable = 0u64;
+                    // backward() gives newest-first, which is the order the
+                    // browser shows, so the chunk is NOT reversed here.
+                    for event in messages.chunk.iter() {
+                        scanned += 1;
+                        let raw = event.raw();
+                        let Ok(value) = serde_json::from_str::<serde_json::Value>(
+                            raw.json().get())
+                        else {
+                            continue;
+                        };
+                        let found = mediahistory::classify(&value);
+                        if found.undecryptable {
+                            undecryptable += 1;
+                        }
+                        for entry in found.entries {
+                            entries.push(entry.to_json());
+                        }
+                    }
+                    // An absent `end` is the server saying there is nothing
+                    // older; so is an empty chunk, which some servers answer
+                    // with instead.
+                    let exhausted =
+                        messages.end.is_none() || messages.chunk.is_empty();
+                    let next = mediahistory::Cursor {
+                        token: messages.end.clone(),
+                        exhausted,
+                        scanned_total: cursor.scanned_total + scanned,
+                        undecryptable_total: cursor.undecryptable_total
+                            + undecryptable,
+                    };
+                    if let Ok(mut map) = cursors.lock() {
+                        map.insert(room_id.clone(), next.clone());
+                    }
+                    enqueue(&events, json!({
+                        "type": "media_history_page",
+                        "op_id": op_id,
+                        "room_id": room_id,
+                        "entries": entries,
+                        "scanned": scanned,
+                        "scanned_total": next.scanned_total,
+                        "undecryptable_total": next.undecryptable_total,
+                        "complete": exhausted,
+                        "encrypted_room": encrypted_room,
+                    }));
+                }
+                Err(err) => {
+                    // The category matters: "the server refused" and "there is
+                    // no more history" are different answers and the panel
+                    // says different things about them.
+                    enqueue(&events, json!({
+                        "type": "media_history_failed",
+                        "op_id": op_id,
+                        "room_id": room_id,
+                        "message": format_matrix_error(
+                            "could not read room history", err),
+                    }));
+                }
+            }
+        });
+        Ok(String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_room_widgets(
     ptr: *mut c_void,

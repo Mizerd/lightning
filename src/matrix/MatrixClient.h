@@ -900,6 +900,23 @@ public:
                                 const QString &language)
     { Q_UNUSED(roomId); Q_UNUSED(theme); Q_UNUSED(language); return 0; }
     virtual bool supportsWidgets() const { return false; }
+
+    // ── Room media history ───────────────────────────────────────────────
+    //
+    // Walked INDEPENDENTLY of the live timeline, so Room Information can
+    // browse a room's attachments back to the start of accessible history
+    // without moving the reader's timeline. One page per call, backwards from
+    // where this room's walk left off; `restart` begins again at the live
+    // edge. Answers on mediaHistoryPage / mediaHistoryFailed.
+    //
+    // The walk is deliberately UNFILTERED rather than using the server's
+    // EventsWithUrl filter — an encrypted room's events carry no `url`, and
+    // neither do the ordinary messages that contain links, so the filter
+    // would silently hide both categories. See rust/src/mediahistory.rs.
+    virtual quint64 requestMediaHistoryPage(const QString &roomId, int limit,
+                                            bool restart)
+    { Q_UNUSED(roomId); Q_UNUSED(limit); Q_UNUSED(restart); return 0; }
+    virtual bool supportsMediaHistory() const { return false; }
     // v0.9 scheduled send (phase 11), the SERVER side (MSC4140 delayed
     // message events). probeDelayedEvents answers on
     // delayedEventsSupportReceived; scheduleMessage on scheduledSendFinished
@@ -1696,6 +1713,19 @@ Q_SIGNALS:
     /// empty, `refusal` says why the widget cannot be opened.
     void roomWidgetsReceived(quint64 opId, const QString &roomId, bool ok,
                              const QVariantList &widgets);
+    /// One page of a room's independent media-history walk.
+    ///
+    /// `scanned` counts events EXAMINED, not matched — the panel needs it to
+    /// avoid claiming "all media" after looking at a hundred events of a
+    /// forty-thousand-event room. `complete` is the start of accessible
+    /// history. `undecryptable` counts history that is present and unreadable,
+    /// which is a different fact from "there is nothing here".
+    void mediaHistoryPage(quint64 opId, const QString &roomId,
+                          const QVariantList &entries, qint64 scanned,
+                          qint64 scannedTotal, qint64 undecryptable,
+                          bool complete, bool encryptedRoom);
+    void mediaHistoryFailed(quint64 opId, const QString &roomId,
+                            const QString &message);
     void searchIndexStatsReceived(quint64 opId, qint64 messages, qint64 rooms);
     void searchIndexSwept(quint64 opId, int rooms, int written,
                           qint64 messages, qint64 indexedRooms);

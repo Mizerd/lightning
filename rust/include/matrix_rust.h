@@ -1079,6 +1079,27 @@ char *mx_rust_room_widgets(void *client,
                            unsigned long long op_id);
 
 /* ---------------------------------------------------------------------------
+   ROOM MEDIA HISTORY, walked independently of the live timeline.
+   See rust/src/mediahistory.rs.
+
+   One page per call, backwards from where this room's walk left off;
+   `restart` non-zero begins again at the live edge. Answers asynchronously
+   with `media_history_page` — entries, how many events were SCANNED, how many
+   could not be decrypted, and whether the start of accessible history was
+   reached — or `media_history_failed` with a reason.
+
+   The walk is deliberately unfiltered rather than using the server's
+   `EventsWithUrl` filter: an encrypted room's events carry no `url` and
+   neither do the ordinary messages that contain links, so the filter would
+   silently hide both. Classification happens after decryption instead.
+*/
+char *mx_rust_media_history_page(void *client,
+                                 const char *room_id,
+                                 unsigned int limit,
+                                 int restart,
+                                 unsigned long long op_id);
+
+/* ---------------------------------------------------------------------------
    LOCAL MESSAGE SEARCH (SQLite FTS5). See rust/src/localsearch.rs.
 
    Server search can only search what the SERVER can read, so it returns

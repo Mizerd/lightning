@@ -6296,6 +6296,21 @@ quint64 RustSdkMatrixClient::localSearch(const QString &query,
     return opId;
 }
 
+quint64 RustSdkMatrixClient::requestMediaHistoryPage(const QString &roomId,
+                                                    int limit, bool restart)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    takeRustString(mx_rust_media_history_page(
+        m_rustHandle, room.constData(),
+        static_cast<unsigned int>(limit < 0 ? 0 : limit),
+        restart ? 1 : 0,
+        static_cast<unsigned long long>(opId)));
+    return opId;
+}
+
 quint64 RustSdkMatrixClient::roomWidgets(const QString &roomId,
                                         const QString &theme,
                                         const QString &language)
@@ -8509,6 +8524,66 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("sender")).toString(),
             event.value(QStringLiteral("key")).toString(),
             static_cast<qint64>(event.value(QStringLiteral("timestamp_ms")).toDouble()));
+        return true;
+    }
+    if (type == QLatin1String("media_history_page")) {
+        QVariantList entries;
+        for (const QJsonValue &v :
+             event.value(QStringLiteral("entries")).toArray()) {
+            const QJsonObject row = v.toObject();
+            entries.append(QVariantMap{
+                { QStringLiteral("eventId"),
+                  row.value(QStringLiteral("event_id")).toString() },
+                { QStringLiteral("sender"),
+                  row.value(QStringLiteral("sender")).toString() },
+                { QStringLiteral("timestampMs"),
+                  static_cast<qint64>(
+                      row.value(QStringLiteral("ts_ms")).toDouble()) },
+                { QStringLiteral("kind"),
+                  row.value(QStringLiteral("kind")).toString() },
+                { QStringLiteral("body"),
+                  row.value(QStringLiteral("body")).toString() },
+                { QStringLiteral("filename"),
+                  row.value(QStringLiteral("filename")).toString() },
+                { QStringLiteral("mimetype"),
+                  row.value(QStringLiteral("mimetype")).toString() },
+                { QStringLiteral("size"),
+                  static_cast<qint64>(
+                      row.value(QStringLiteral("size")).toDouble()) },
+                { QStringLiteral("width"),
+                  static_cast<int>(row.value(QStringLiteral("width")).toInt()) },
+                { QStringLiteral("height"),
+                  static_cast<int>(row.value(QStringLiteral("height")).toInt()) },
+                { QStringLiteral("durationMs"),
+                  static_cast<qint64>(
+                      row.value(QStringLiteral("duration_ms")).toDouble()) },
+                { QStringLiteral("mxc"),
+                  row.value(QStringLiteral("mxc")).toString() },
+                { QStringLiteral("thumbnailMxc"),
+                  row.value(QStringLiteral("thumbnail_mxc")).toString() },
+                { QStringLiteral("encrypted"),
+                  row.value(QStringLiteral("encrypted")).toBool() },
+                { QStringLiteral("url"),
+                  row.value(QStringLiteral("url")).toString() },
+                { QStringLiteral("host"),
+                  row.value(QStringLiteral("host")).toString() },
+            });
+        }
+        Q_EMIT mediaHistoryPage(
+            opId(), event.value(QStringLiteral("room_id")).toString(), entries,
+            static_cast<qint64>(event.value(QStringLiteral("scanned")).toDouble()),
+            static_cast<qint64>(
+                event.value(QStringLiteral("scanned_total")).toDouble()),
+            static_cast<qint64>(
+                event.value(QStringLiteral("undecryptable_total")).toDouble()),
+            event.value(QStringLiteral("complete")).toBool(),
+            event.value(QStringLiteral("encrypted_room")).toBool());
+        return true;
+    }
+    if (type == QLatin1String("media_history_failed")) {
+        Q_EMIT mediaHistoryFailed(
+            opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("message")).toString());
         return true;
     }
     if (type == QLatin1String("room_widgets")) {

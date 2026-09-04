@@ -4,6 +4,7 @@
 #include "crypto/BackupController.h"
 #include "models/ScheduledSendController.h"
 #include "models/ActivityModel.h"
+#include "models/MediaHistoryModel.h"
 
 #include <algorithm>
 
@@ -272,6 +273,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_scheduledSends = std::make_unique<ScheduledSendController>(this);
     m_widgets = std::make_unique<WidgetController>(this);
     m_activity = std::make_unique<ActivityModel>(this);
+    m_mediaHistory = std::make_unique<MediaHistoryModel>(this);
     m_cryptoBootstrap = std::make_unique<CryptoBootstrapModel>(this);
     m_spaces       = std::make_unique<SpaceManager>(this);
     m_threads      = std::make_unique<ThreadManager>(this);
@@ -732,6 +734,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_client.get(), &MatrixClient::roomUpdated, this,
             [this](const QString &) { m_trayUnreadCoalesce.start(); });
 
+    m_mediaHistory->setClient(m_client.get());
     m_spaces->setClient(m_client.get());
     m_threads->setClient(m_client.get());
     m_presence->setClient(m_client.get());
@@ -2337,6 +2340,11 @@ QObject *AppController::richComposer() const { return m_richComposer.get(); }
 QObject *AppController::backup() const { return m_backup.get(); }
 QObject *AppController::scheduledSends() const { return m_scheduledSends.get(); }
 QObject *AppController::activity() const { return m_activity.get(); }
+
+QObject *AppController::mediaHistory() const
+{
+    return m_mediaHistory.get();
+}
 MediaManager *AppController::media() const { return m_media.get(); }
 CryptoManager *AppController::crypto() const { return m_crypto.get(); }
 SpaceManager *AppController::spaces() const { return m_spaces.get(); }

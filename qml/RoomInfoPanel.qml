@@ -1913,127 +1913,26 @@ Rectangle {
             }
         }
 
-        // ── Media & Files ────────────────────────────────────────────────
-        ColumnLayout {
+        // ── Media, files and links ───────────────────────────────────────
+        //
+        // A REAL history browser since 0.9: it walks /messages on its own
+        // cursor rather than reading whatever the timeline had loaded, so a
+        // file from months ago is findable without scrolling the room back
+        // to it. MediaBrowser.qml carries the reasoning; MediaHistoryModel
+        // owns the walk and its completeness state.
+        MediaBrowser {
+            objectName: "mediaBrowser"
             visible: root.section === "media"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: AppTheme.spacing8
-
-            Label {
-                Layout.margins: AppTheme.spacing12
-                Layout.fillWidth: true
-                text: qsTr("Media and files shared in the loaded part of "
-                           + "this conversation. Scroll the timeline up to "
-                           + "load more history.")
-                color: AppTheme.textMuted
-                lineHeight: AppTheme.lineHeightBody
-                lineHeightMode: Text.ProportionalHeight
-                wrapMode: Text.WordWrap
-                font.pixelSize: AppTheme.textMeta
-            }
-
-            ListView {
-                id: mediaList
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                clip: true
-                // Newest first; bound to the loaded timeline (count keeps
-                // the binding fresh as history paginates in).
-                model: {
-                    var deps = app.timeline.count
-                    return app.timeline.mediaEntries().slice().reverse()
-                }
-                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-                // Same wheel/touchpad feel as the room timeline; see
-                // qml/SmoothWheelArea.qml.
-                SmoothWheelArea {}
-
-                Label {
-                    anchors.centerIn: parent
-                    visible: mediaList.count === 0
-                    text: qsTr("No media in the loaded history.")
-                    color: AppTheme.textMuted
-                    font.pixelSize: AppTheme.textBody
-                }
-
-                delegate: ItemDelegate {
-                    id: mediaDelegate
-                    width: ListView.view.width
-                    readonly property bool rowOnScreen:
-                        y + height >= mediaList.contentY
-                        && y <= mediaList.contentY + mediaList.height
-                    Accessible.name: modelData.filename
-                    onClicked: {
-                        if (modelData.isImage)
-                            root.openImageRequested(modelData.mediaKey || "",
-                                                    modelData.httpUrl)
-                    }
-                    contentItem: RowLayout {
-                        spacing: AppTheme.spacing8
-                        Icon {
-                            name: modelData.isImage ? "image" : "attach_file"
-                            size: 16
-                        }
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 0
-                            Label {
-                                // Remote or externally chosen text: never markup.
-                                textFormat: Text.PlainText
-                                Layout.fillWidth: true
-                                text: modelData.filename || qsTr("(unnamed)")
-                                color: AppTheme.textPrimary
-                                font.pixelSize: AppTheme.textBody
-                                elide: Label.ElideMiddle
-                            }
-                            Label {
-                                // Remote or externally chosen text: never markup.
-                                textFormat: Text.PlainText
-                                Layout.fillWidth: true
-                                text: qsTr("%1 · %2")
-                                      .arg(modelData.sender)
-                                      .arg(Qt.formatDateTime(modelData.timestamp,
-                                                             "d MMM hh:mm"))
-                                color: AppTheme.textMuted
-                                font.pixelSize: AppTheme.textMeta
-                                elide: Label.ElideRight
-                            }
-                        }
-                        MediaListThumbnail {
-                            visible: modelData.isVisual === true
-                            mediaKey: modelData.mediaKey || ""
-                            // A VIDEO with no server thumbnail must not ask
-                            // for one: the request falls back to the full
-                            // attachment, so the list downloaded whole videos
-                            // (2.5 MB, 4.9 MB, 5.4 MB in one capture) only to
-                            // reject them as "thumbnail payload sniffs as A/V
-                            // container" — megabytes fetched and discarded,
-                            // which is the lag spike on opening the media
-                            // tab. thumbAvailable is already published by
-                            // TimelineModel; it just was not consulted.
-                            // Such rows fall back to the placeholder box.
-                            visual: modelData.isVisual === true
-                                    && (modelData.isVideo !== true
-                                        || modelData.thumbAvailable === true)
-                            video: modelData.isVideo === true
-                            onScreen: mediaDelegate.rowOnScreen
-                            Layout.alignment: Qt.AlignVCenter
-                        }
-                        AppButton {
-                            visible: (modelData.mediaKey || "").length > 0
-                                     && app.mediaBridge.supported
-                            implicitHeight: 26
-                            leftPadding: 10
-                            rightPadding: 10
-                            text: qsTr("Save")
-                            Accessible.name: qsTr("Save %1 as…").arg(modelData.filename)
-                            onClicked: root.saveMediaRequested(modelData.mediaKey,
-                                                               modelData.filename || "download")
-                        }
-                    }
-                }
-            }
+            model: app.mediaHistory
+            roomId: app.roomInfo.roomId
+            onOpenImageRequested: (mediaKey, httpUrl) =>
+                root.openImageRequested(mediaKey, httpUrl)
+            // Navigation belongs to the host, exactly as it does for pins and
+            // search results — this panel is signal-only.
+            onJumpToEventRequested: (eventId) =>
+                root.jumpToEventRequested(eventId)
         }
     }
 

@@ -313,6 +313,9 @@ class AppController : public QObject
     Q_PROPERTY(QObject* scheduledSends READ scheduledSends CONSTANT)
     // v0.9 (phase 2): the Activity Center model (app.activity).
     Q_PROPERTY(QObject* activity READ activity CONSTANT)
+    /// The room's media, files and links, walked independently of the
+    /// timeline — see MediaHistoryModel.
+    Q_PROPERTY(QObject* mediaHistory READ mediaHistory CONSTANT)
     // v0.7: verified-session key-bootstrap status (app.cryptoBootstrap).
     Q_PROPERTY(CryptoBootstrapModel* cryptoBootstrap READ cryptoBootstrap CONSTANT)
     // v0.6.0 checkpoint 9: the account's devices/sessions (server metadata +
@@ -598,6 +601,7 @@ public:
     QObject *backup() const;
     QObject *scheduledSends() const;
     QObject *activity() const;
+    QObject *mediaHistory() const;
     CryptoBootstrapModel *cryptoBootstrap() const
     { return m_cryptoBootstrap.get(); }
     // Bounded UI refresh (Settings "Refresh" and post-operation updates).
@@ -1358,6 +1362,7 @@ private:
     std::unique_ptr<class BackupController> m_backup;
     std::unique_ptr<class ScheduledSendController> m_scheduledSends;
     std::unique_ptr<class ActivityModel> m_activity;
+    std::unique_ptr<class MediaHistoryModel> m_mediaHistory;
     bool m_activitySeeded = false;
     /// In-flight "jump to date" requests, op id -> the room that asked. Small
     /// and self-draining: an entry is taken on the answer, and the only way

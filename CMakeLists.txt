@@ -681,6 +681,7 @@ set(APP_SOURCES
     src/models/ScheduledSendController.cpp
     src/models/ActivityModel.h
     src/models/ActivityModel.cpp
+    src/models/MediaHistoryModel.cpp
     src/crypto/CryptoBootstrapModel.h
     src/crypto/CryptoBootstrapModel.cpp
     src/crypto/E2eeDiagnostics.h
@@ -876,6 +877,9 @@ set(APP_QML_FILES
     qml/GifPicker.qml
     qml/ExportRoomDialog.qml
     qml/WidgetOpenSheet.qml
+    qml/MediaBrowser.qml
+    qml/MediaBrowserTile.qml
+    qml/MediaBrowserRow.qml
     qml/JumpToDateDialog.qml
     qml/StickerPicker.qml
     qml/QuickSwitcher.qml
@@ -1548,6 +1552,7 @@ if(BUILD_TESTING)
         tests/ActivityModelTest.cpp
         src/models/ActivityModel.h
         src/models/ActivityModel.cpp
+    src/models/MediaHistoryModel.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
     )
@@ -2234,6 +2239,18 @@ if(BUILD_TESTING)
     target_link_libraries(window-placement-test PRIVATE Qt6::Test)
     add_test(NAME window-placement COMMAND window-placement-test)
     set_tests_properties(window-placement PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # The media browser's model: what it shows, and what it CLAIMS about how
+    # much of history it has seen. The second half is the point.
+    qt_add_executable(media-history-model-test
+        tests/MediaHistoryModelTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(media-history-model-test)
+    target_link_libraries(media-history-model-test PRIVATE Qt6::Test)
+    add_test(NAME media-history-model COMMAND media-history-model-test)
+    set_tests_properties(media-history-model PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Retiring a Rust client must not run on the GUI thread. Needs the real
