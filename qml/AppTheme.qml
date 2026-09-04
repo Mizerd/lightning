@@ -1640,9 +1640,32 @@ QtObject {
     // `accent` and the grounds are read here on purpose: it makes every
     // binding that calls userColor() depend on the theme, so names follow a
     // theme switch — and a live custom-theme edit — with no extra signal.
+    // The nine derived inks as a palette the user can pick their own name
+    // colour from. Offered instead of a free picker because these are known
+    // to work on this theme, and because a colour chosen here still has to
+    // survive on every OTHER reader's theme.
+    function nameInkForSlot(slot) {
+        return IdentityPalette.nameInk(slot, identityAnchor, _nameGrounds)
+    }
     function userColor(key) {
         if (!key || key.length === 0)
             return textPrimary
+        // A colour the user CHOSE outranks the derived one — it is carried in
+        // their Matrix profile so other Lightning clients see it. It is still
+        // clamped to be legible on THIS window's surfaces: their hue is kept
+        // exactly, only its lightness moves, because a profile field is
+        // written by its owner and read by everybody else and nobody gets to
+        // hand a stranger a name they cannot read on a theme the sender has
+        // never seen.
+        if (typeof app !== "undefined" && app.nameColors
+                && app.nameColors.available) {
+            // `revision` is read so this binding re-evaluates when an answer
+            // lands; colorFor() dispatches the fetch on first call.
+            const dependOnAnswers = app.nameColors.revision
+            const chosen = app.nameColors.colorFor(key)
+            if (chosen && chosen.length > 0)
+                return IdentityPalette.legibleChoice(chosen, _nameGrounds)
+        }
         return IdentityPalette.nameInk(identityIndex(key), identityAnchor,
                                        _nameGrounds)
     }

@@ -653,6 +653,8 @@ set(APP_SOURCES
     src/spaces/RailEntryModel.cpp
     src/profile/ProfileBannerManager.h
     src/profile/ProfileBannerManager.cpp
+    src/profile/NameColorManager.h
+    src/profile/NameColorManager.cpp
     src/profile/ProfileBioManager.h
     src/profile/ProfileBioManager.cpp
     src/profile/ProfileBadges.h
@@ -2694,6 +2696,28 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME widget-controller COMMAND widget-controller-test)
 
+    # 0.8.5 user-chosen name colours: the manager's caching and dedup, which
+    # is what makes colorFor() safe to call from a per-name QML binding, plus
+    # the second gate on a profile-field value that ends up on a QML colour.
+    qt_add_executable(name-color-manager-test
+        tests/NameColorManagerTest.cpp
+        src/profile/NameColorManager.h
+        src/profile/NameColorManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(name-color-manager-test PRIVATE src)
+    target_link_libraries(name-color-manager-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME name-color-manager COMMAND name-color-manager-test)
+
     # v0.7.x message forwarding: ForwardController policy — refusal of
     # redacted/local-echo/undecryptable sources, plain-body text forwarding
     # with NO relation (a forwarded thread reply must land as an ordinary
@@ -3674,6 +3698,8 @@ if(BUILD_TESTING)
         tests/ProfileBannerTest.cpp
         src/profile/ProfileBannerManager.h
         src/profile/ProfileBannerManager.cpp
+        src/profile/NameColorManager.h
+        src/profile/NameColorManager.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
         src/matrix/MockMatrixClient.h

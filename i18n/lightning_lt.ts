@@ -280,7 +280,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+709"/>
+        <location filename="../src/app/AppController.cpp" line="+710"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -330,7 +330,7 @@
         <translation>Praleidote balso skambutį %1</translation>
     </message>
     <message>
-        <location line="+303"/>
+        <location line="+304"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Kambarys buvo sukurtas, bet nepavyko jo pridėti prie erdvės.</translation>
     </message>
@@ -427,29 +427,29 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1643"/>
+        <location line="+1645"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning nepavyko nuskaityti pasirinkto failo.</translation>
     </message>
     <message>
-        <location line="-1649"/>
+        <location line="-1651"/>
         <source>A room-key import is already in progress.</source>
         <translation>Jau vyksta kambario rakto importavimas.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2193"/>
+        <location line="+2195"/>
         <source>Not signed in.</source>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-2191"/>
+        <location line="-2193"/>
         <source>Room-key import failed.</source>
         <translation>Nepavyko importuoti kambario rakto.</translation>
     </message>
     <message>
-        <location line="+484"/>
+        <location line="+486"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>Vaizdo skambučiams reikalinga MatrixRTC paslauga, kuri čia dar nepasiekiama.</translation>
     </message>
@@ -714,7 +714,7 @@
 <context>
     <name>AppTheme</name>
     <message>
-        <location filename="../qml/AppTheme.qml" line="+837"/>
+        <location filename="../qml/AppTheme.qml" line="+846"/>
         <source>Storm</source>
         <translation>Audra</translation>
     </message>
@@ -4278,7 +4278,7 @@ Dydis: %3</translation>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+332"/>
+        <location filename="../qml/MainScreen.qml" line="+362"/>
         <source>Switching account…</source>
         <translation>Perjungiama paskyra…</translation>
     </message>
@@ -8108,12 +8108,12 @@ Dydis: %3</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+56"/>
-        <location line="+1906"/>
+        <location line="+1928"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>„Lightning“ nepavyko visiškai iš naujo nustatyti šios paskyros vietinės sesijos. Patikrinkite programų žurnalus ir failų sistemos leidimus, tada bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="-1922"/>
+        <location line="-1944"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Atkurta vietinė Lightning sesija. Ankstesnė šifravimo saugykla buvo perkelta, neištrinta ir vis dar yra šios paskyros duomenų kataloge. Galite prisijungti dar kartą.</translation>
     </message>
@@ -8126,7 +8126,7 @@ Dydis: %3</translation>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3131"/>
+        <location line="+3153"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -8135,22 +8135,22 @@ Dydis: %3</translation>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-3511"/>
+        <location line="-3533"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3313"/>
+        <location line="+3335"/>
         <source>Unknown room: %1</source>
         <translation>Nežinomas kambarys: %1</translation>
     </message>
     <message>
-        <location line="-3513"/>
+        <location line="-3535"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Dar negalima siųsti į užšifruotus kambarius: Rust SDK šifruotas siuntimas nepatvirtintas.</translation>
     </message>
     <message>
-        <location line="+481"/>
+        <location line="+503"/>
         <source>The sticker could not be sent.</source>
         <translation>Nepavyko išsiųsti lipduko.</translation>
     </message>
@@ -8862,23 +8862,23 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4929"/>
+        <location line="+5017"/>
         <source>Homeserver</source>
         <translation>Namų serveris</translation>
     </message>
     <message>
-        <location line="-4929"/>
+        <location line="-5017"/>
         <source>homeserver server url</source>
         <translation>namų serverio serverio url</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4963"/>
+        <location line="+5051"/>
         <source>Start minimized</source>
         <translation>Pradėti iki minimumo</translation>
     </message>
     <message>
-        <location line="-4963"/>
+        <location line="-5051"/>
         <source>startup minimized</source>
         <translation>paleidimas sumažintas</translation>
     </message>
@@ -9390,13 +9390,13 @@ Dydis: %3</translation>
         <location line="+3"/>
         <location line="+363"/>
         <location line="+624"/>
-        <location line="+4241"/>
+        <location line="+4329"/>
         <location line="+445"/>
         <source>Sessions</source>
         <translation>Sesijos</translation>
     </message>
     <message>
-        <location line="-5712"/>
+        <location line="-5800"/>
         <location line="+862"/>
         <location line="+2634"/>
         <source>Automatically load previews in unencrypted rooms</source>
@@ -9485,12 +9485,12 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4883"/>
+        <location line="+4971"/>
         <source>Security status</source>
         <translation>Saugumo būsena</translation>
     </message>
     <message>
-        <location line="-4882"/>
+        <location line="-4970"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>e2ee šifravimo būsenos kryžminio pasirašymo atsarginė kopija</translation>
     </message>
@@ -9504,13 +9504,13 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="-3258"/>
-        <location line="+6224"/>
+        <location line="+6312"/>
         <location line="+19"/>
         <source>Recovery key or passphrase</source>
         <translation>Atkūrimo raktas arba slaptafrazė</translation>
     </message>
     <message>
-        <location line="-6242"/>
+        <location line="-6330"/>
         <source>recovery key passphrase backup restore</source>
         <translation>atkūrimo rakto slaptafrazės atsarginės kopijos atkūrimas</translation>
     </message>
@@ -9523,23 +9523,23 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+6308"/>
+        <location line="+6396"/>
         <source>Import room keys</source>
         <translation>Importuoti kambario raktus</translation>
     </message>
     <message>
-        <location line="-6307"/>
+        <location line="-6395"/>
         <source>import room keys export</source>
         <translation>importuoti kambario raktus eksportuoti</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6531"/>
+        <location line="+6619"/>
         <source>Danger Zone</source>
         <translation>Pavojaus zona</translation>
     </message>
     <message>
-        <location line="-6530"/>
+        <location line="-6618"/>
         <source>reset danger local session</source>
         <translation>iš naujo nustatyti pavojaus vietinę sesiją</translation>
     </message>
@@ -9550,23 +9550,23 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5993"/>
+        <location line="+6081"/>
         <source>Current session</source>
         <translation>Dabartinė sesija</translation>
     </message>
     <message>
-        <location line="-5992"/>
+        <location line="-6080"/>
         <source>device id session status</source>
         <translation>įrenginio ID seanso būsena</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6051"/>
+        <location line="+6139"/>
         <source>Verify this session</source>
         <translation>Patvirtinkite šią sesiją</translation>
     </message>
     <message>
-        <location line="-6050"/>
+        <location line="-6138"/>
         <source>verify verification sas cross-signing</source>
         <translation>patikrinkite patikrinimą kaip kryžminį pasirašymą</translation>
     </message>
@@ -9587,12 +9587,12 @@ Dydis: %3</translation>
         <location line="+3"/>
         <location line="+354"/>
         <location line="+631"/>
-        <location line="+5621"/>
+        <location line="+5709"/>
         <source>Labs</source>
         <translation>Laboratorijos</translation>
     </message>
     <message>
-        <location line="-6612"/>
+        <location line="-6700"/>
         <source>Sync mode</source>
         <translation>Sinchronizavimo režimas</translation>
     </message>
@@ -9613,12 +9613,12 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6654"/>
+        <location line="+6742"/>
         <source>Refresh current room</source>
         <translation>Atnaujinti esamą kambarį</translation>
     </message>
     <message>
-        <location line="-6653"/>
+        <location line="-6741"/>
         <source>refresh reload timeline</source>
         <translation>atnaujinti iš naujo įkėlimo laiko juostą</translation>
     </message>
@@ -9627,12 +9627,12 @@ Dydis: %3</translation>
         <location line="+1"/>
         <location line="+353"/>
         <location line="+678"/>
-        <location line="+5656"/>
+        <location line="+5744"/>
         <source>About</source>
         <translation>Apie</translation>
     </message>
     <message>
-        <location line="-6688"/>
+        <location line="-6776"/>
         <source>about version license</source>
         <translation>apie versijos licenciją</translation>
     </message>
@@ -9672,12 +9672,12 @@ Dydis: %3</translation>
     <message>
         <location line="+41"/>
         <location line="+4094"/>
-        <location line="+1245"/>
+        <location line="+1333"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-5184"/>
+        <location line="-5272"/>
         <source>Needs attention</source>
         <translation>Reikia dėmesio</translation>
     </message>
@@ -9710,13 +9710,13 @@ Dydis: %3</translation>
     <message>
         <location line="+1"/>
         <location line="+3756"/>
-        <location line="+215"/>
+        <location line="+303"/>
         <location line="+1873"/>
         <source>Clear</source>
         <translation>Aišku</translation>
     </message>
     <message>
-        <location line="-5834"/>
+        <location line="-5922"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>Pašalinti visus teikėjo GIF, kuriuos išsaugojote šiame įrenginyje? GIF failai, kuriuos išsaugojote pokalbiuose, neturi įtakos. To negalima anuliuoti.</translation>
     </message>
@@ -10037,13 +10037,13 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2107"/>
+        <location line="+2195"/>
         <location line="+304"/>
         <source>Remove</source>
         <translation>Pašalinti</translation>
     </message>
     <message>
-        <location line="-2410"/>
+        <location line="-2498"/>
         <source>Remove this imported font</source>
         <translation>Pašalinkite šį importuotą šriftą</translation>
     </message>
@@ -10235,12 +10235,12 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+2072"/>
+        <location line="+2160"/>
         <source>Choose image…</source>
         <translation>Pasirinkite vaizdą…</translation>
     </message>
     <message>
-        <location line="-2065"/>
+        <location line="-2153"/>
         <source>Reset to Lightning default</source>
         <translation>Iš naujo nustatyti „Lightning“ numatytuosius nustatymus</translation>
     </message>
@@ -10772,18 +10772,43 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
     </message>
     <message>
         <location line="+24"/>
-        <location line="+229"/>
+        <location line="+317"/>
         <source>Saving…</source>
         <translation>Išsaugoma…</translation>
     </message>
     <message>
-        <location line="-229"/>
-        <location line="+229"/>
+        <location line="-317"/>
+        <location line="+317"/>
         <source>Save</source>
         <translation>Išsaugoti</translation>
     </message>
     <message>
-        <location line="-180"/>
+        <location line="-262"/>
+        <source>Name colour</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Other Lightning users see this colour on your name. It is adjusted to stay readable on whatever theme they use.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+36"/>
+        <source>Use theme colour</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Your homeserver cannot store a name colour.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>That colour could not be saved.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
         <source>Profile picture</source>
         <translation>Profilio nuotrauka</translation>
     </message>
@@ -14039,12 +14064,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+141"/>
-        <location line="+5806"/>
+        <location line="+5828"/>
         <source>Space</source>
         <translation>Erdvė</translation>
     </message>
     <message>
-        <location line="-5805"/>
+        <location line="-5827"/>
         <source>Home</source>
         <translation>Pradžia</translation>
     </message>
@@ -14354,7 +14379,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Grįžti į naujausią pranešimą</translation>
     </message>
     <message>
-        <location line="+609"/>
+        <location line="+631"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>kambarys pridėtas – laukiama, kol serveris patvirtins.</translation>
     </message>

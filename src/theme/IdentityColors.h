@@ -91,4 +91,18 @@ QColor anchorForTheme(int themeId);
 // them, so it is legible everywhere rather than on average.
 QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces);
 
+// A colour the USER chose, made legible on the VIEWER's surfaces.
+//
+// The hue is theirs and is never changed — that is the whole point of letting
+// somebody pick one. Only the lightness moves, and only far enough to clear
+// 4.5:1 on the worst ground this viewer paints names on.
+//
+// Clamping rather than obeying is deliberate. The value comes from a profile
+// field its owner writes and everybody else reads, so painting it verbatim
+// would let anyone hand every other user a name they cannot read — on a theme
+// the sender has never seen. Nobody gets to do that to somebody else's
+// window, and a choice that survives as "your hue, legible here" is a better
+// answer than refusing the feature.
+QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces);
+
 } // namespace lightning::theme

@@ -300,6 +300,9 @@ public:
     void requestPresence(const QStringList &userIds, quint64 opId) override;
     bool supportsProfileBanners() const override { return true; }
     void fetchProfileBanner(const QString &userId, quint64 opId) override;
+    bool supportsNameColors() const override { return true; }
+    void fetchNameColor(const QString &userId, quint64 opId) override;
+    void setNameColor(const QString &value, quint64 opId) override;
     void setProfileBanner(const QString &localPath, quint64 opId) override;
     bool supportsProfileBios() const override { return true; }
     void fetchProfileBio(const QString &userId, quint64 opId) override;

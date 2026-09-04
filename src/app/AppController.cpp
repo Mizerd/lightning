@@ -191,6 +191,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // that is active right now had hidden.
     m_mediaVisibility->setSettings(m_settings.get());
     m_banners = std::make_unique<ProfileBannerManager>(this);
+    m_nameColors = std::make_unique<NameColorManager>(this);
     m_bio = std::make_unique<ProfileBioManager>(this);
     // A fixed local table, so it needs no client and no session: it is
     // decoration, not Matrix state (see ProfileBadges).
@@ -1059,6 +1060,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_composer->setClient(m_client.get());
     m_mentionSuggestions->setClient(m_client.get());
     m_banners->setClient(m_client.get());
+    m_nameColors->setClient(m_client.get());
     m_bio->setClient(m_client.get());
     m_media->setClient(m_client.get());
     m_conversations->setClient(m_client.get());
@@ -2214,6 +2216,8 @@ RailEntryModel *AppController::railEntries() const
 { return m_railEntries.get(); }
 ProfileBannerManager *AppController::banners() const
 { return m_banners.get(); }
+NameColorManager *AppController::nameColors() const
+{ return m_nameColors.get(); }
 ProfileBioManager *AppController::bio() const
 { return m_bio.get(); }
 ProfileBadges *AppController::badges() const

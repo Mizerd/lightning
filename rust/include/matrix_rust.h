@@ -684,6 +684,23 @@ char *mx_rust_fetch_profile_banner(void *client,
                                    const char *user_id,
                                    unsigned long long op_id);
 /*
+ * A display-name colour the user chose, carried in their profile
+ * (org.lightning.name_color, MSC4133) so other Lightning clients see it.
+ * Answers as name_color { op_id, lifecycle, user_id, color, supported }.
+ * `color` is #rrggbb or empty, validated in Rust because the field is written
+ * by somebody else's client and lands on a QML colour property.
+ */
+char *mx_rust_fetch_name_color(void *client,
+                               const char *user_id,
+                               unsigned long long op_id);
+/*
+ * Set this account's display-name colour; an EMPTY value clears it. Answers
+ * as name_color_set { op_id, lifecycle, ok, color, category }.
+ */
+char *mx_rust_set_name_color(void *client,
+                             const char *value,
+                             unsigned long long op_id);
+/*
  * Upload a local image and set it as this account's banner, under BOTH field
  * names. An EMPTY path clears both. Content decides the type (magic bytes),
  * never the file name. Answers as

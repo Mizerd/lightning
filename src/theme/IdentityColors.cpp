@@ -290,6 +290,47 @@ QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces)
     return build(lightness, saturation);
 }
 
+QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces)
+{
+    if (!chosen.isValid())
+        return chosen;
+
+    const auto quantise = [](const QColor &c) {
+        return QColor(c.red(), c.green(), c.blue());
+    };
+    const auto worstContrast = [&](const QColor &c) {
+        double worst = 21.0;
+        for (const QColor &surface : surfaces)
+            worst = qMin(worst, contrastRatio(c, surface));
+        return worst;
+    };
+
+    QColor ink = quantise(chosen);
+    if (surfaces.isEmpty() || worstContrast(ink) >= kMinInkContrast)
+        return ink;   // already legible here; leave it exactly as chosen
+
+    double meanLuminance = 0.0;
+    for (const QColor &surface : surfaces)
+        meanLuminance += relativeLuminance(surface);
+    meanLuminance /= double(surfaces.size());
+    const bool darkGround = meanLuminance < 0.18;
+
+    // HUE AND SATURATION ARE HELD. Only lightness moves, so what comes back
+    // is recognisably the colour they picked rather than a different one.
+    const double hue = chosen.hueF() < 0.0 ? 0.0 : chosen.hueF();
+    const double saturation = chosen.hslSaturationF();
+    double lightness = chosen.lightnessF();
+    for (int guard = 0; guard < 48; ++guard) {
+        ink = quantise(QColor::fromHslF(float(hue), float(saturation),
+                                        float(lightness)).toRgb());
+        if (worstContrast(ink) >= kMinInkContrast)
+            break;
+        lightness = darkGround ? qMin(0.97, lightness + 0.02)
+                               : qMax(0.03, lightness - 0.02);
+    }
+    return ink;
+}
+
 QColor anchorForTheme(int themeId)
 {
     // The rule in the header, already applied to qml/AppTheme.qml's literals.

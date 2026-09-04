@@ -27,6 +27,7 @@
 #include "text/SpellChecker.h"
 
 #include <QTimer>
+#include "profile/NameColorManager.h"
 #include "profile/ProfileBannerManager.h"
 #include "profile/ProfileBadges.h"
 #include "profile/ProfileBioManager.h"
@@ -245,6 +246,7 @@ class AppController : public QObject
     // Profile banners (MSC4427 / MSC4133), read and written under both
     // the stable and the Commet field names.
     Q_PROPERTY(ProfileBannerManager* banners READ banners CONSTANT)
+    Q_PROPERTY(NameColorManager* nameColors READ nameColors CONSTANT)
     // Profile bios (MSC4440 / MSC4133), read and written under both the
     // stable and the MSC's unstable field names. Plain text only.
     Q_PROPERTY(ProfileBioManager* bio READ bio CONSTANT)
@@ -560,6 +562,7 @@ public:
     RailLayoutStore *railLayout() const;
     RailEntryModel *railEntries() const;
     ProfileBannerManager *banners() const;
+    NameColorManager *nameColors() const;
     ProfileBioManager *bio() const;
     ProfileBadges *badges() const;
     ImageCropper *imageCrop() { return &m_imageCrop; }
@@ -1308,6 +1311,7 @@ private:
     std::unique_ptr<RailLayoutStore> m_railLayout;
     std::unique_ptr<RailEntryModel> m_railEntries;
     std::unique_ptr<ProfileBannerManager> m_banners;
+    std::unique_ptr<NameColorManager> m_nameColors;
     std::unique_ptr<ProfileBioManager> m_bio;
     std::unique_ptr<ProfileBadges> m_badges;
     bool m_shuttingDown = false;

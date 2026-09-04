@@ -278,7 +278,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+709"/>
+        <location filename="../src/app/AppController.cpp" line="+710"/>
         <source>Room invitation</source>
         <translation>रूम का आमंत्रण</translation>
     </message>
@@ -328,7 +328,7 @@
         <translation>%1 में आपसे एक वॉइस कॉल छूट गई</translation>
     </message>
     <message>
-        <location line="+303"/>
+        <location line="+304"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>रूम बन गया, लेकिन उसे स्पेस में जोड़ा नहीं जा सका।</translation>
     </message>
@@ -425,29 +425,29 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1643"/>
+        <location line="+1645"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning चुनी गई फ़ाइल पढ़ नहीं सका।</translation>
     </message>
     <message>
-        <location line="-1649"/>
+        <location line="-1651"/>
         <source>A room-key import is already in progress.</source>
         <translation>रूम-कुंजी आयात पहले से चल रहा है।</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2193"/>
+        <location line="+2195"/>
         <source>Not signed in.</source>
         <translation>साइन इन नहीं है।</translation>
     </message>
     <message>
-        <location line="-2191"/>
+        <location line="-2193"/>
         <source>Room-key import failed.</source>
         <translation>रूम-कुंजी आयात विफल रहा।</translation>
     </message>
     <message>
-        <location line="+484"/>
+        <location line="+486"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>वीडियो कॉल के लिए MatrixRTC सेवा की आवश्यकता होती है, जो अभी तक यहां उपलब्ध नहीं है।</translation>
     </message>
@@ -712,7 +712,7 @@
 <context>
     <name>AppTheme</name>
     <message>
-        <location filename="../qml/AppTheme.qml" line="+837"/>
+        <location filename="../qml/AppTheme.qml" line="+846"/>
         <source>Storm</source>
         <translation>स्टॉर्म</translation>
     </message>
@@ -4272,7 +4272,7 @@ Size: %3</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+332"/>
+        <location filename="../qml/MainScreen.qml" line="+362"/>
         <source>Switching account…</source>
         <translation>खाता बदला जा रहा है…</translation>
     </message>
@@ -8096,12 +8096,12 @@ Size: %3</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+56"/>
-        <location line="+1906"/>
+        <location line="+1928"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning इस खाते का स्थानीय सेशन पूरी तरह रीसेट नहीं कर सका। ऐप्लिकेशन लॉग और फ़ाइल सिस्टम की अनुमतियाँ जाँचें, फिर दोबारा कोशिश करें।</translation>
     </message>
     <message>
-        <location line="-1922"/>
+        <location line="-1944"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>स्थानीय Lightning सेशन फिर से बना दिया गया। पिछला एन्क्रिप्शन स्टोर हटाया नहीं गया, सिर्फ़ अलग रख दिया गया है और अब भी इस खाते की डेटा डायरेक्टरी में है। आप दोबारा साइन इन कर सकते हैं।</translation>
     </message>
@@ -8114,7 +8114,7 @@ Size: %3</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3131"/>
+        <location line="+3153"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -8123,22 +8123,22 @@ Size: %3</source>
         <translation>साइन इन नहीं हैं।</translation>
     </message>
     <message>
-        <location line="-3511"/>
+        <location line="-3533"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3313"/>
+        <location line="+3335"/>
         <source>Unknown room: %1</source>
         <translation>अज्ञात रूम: %1</translation>
     </message>
     <message>
-        <location line="-3513"/>
+        <location line="-3535"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>एन्क्रिप्टेड रूम में अभी भेजा नहीं जा सकता: Rust SDK का एन्क्रिप्टेड सेंड सत्यापित नहीं है।</translation>
     </message>
     <message>
-        <location line="+481"/>
+        <location line="+503"/>
         <source>The sticker could not be sent.</source>
         <translation>स्टीकर नहीं भेजा जा सका.</translation>
     </message>
@@ -8850,23 +8850,23 @@ Size: %3</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4929"/>
+        <location line="+5017"/>
         <source>Homeserver</source>
         <translation>होमसर्वर</translation>
     </message>
     <message>
-        <location line="-4929"/>
+        <location line="-5017"/>
         <source>homeserver server url</source>
         <translation>होमसर्वर सर्वर पता यूआरएल</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4963"/>
+        <location line="+5051"/>
         <source>Start minimized</source>
         <translation>मिनिमाइज़ करके शुरू करें</translation>
     </message>
     <message>
-        <location line="-4963"/>
+        <location line="-5051"/>
         <source>startup minimized</source>
         <translation>स्टार्टअप मिनिमाइज़ शुरुआत छोटा</translation>
     </message>
@@ -9378,13 +9378,13 @@ Size: %3</source>
         <location line="+3"/>
         <location line="+363"/>
         <location line="+624"/>
-        <location line="+4241"/>
+        <location line="+4329"/>
         <location line="+445"/>
         <source>Sessions</source>
         <translation>सेशन</translation>
     </message>
     <message>
-        <location line="-5712"/>
+        <location line="-5800"/>
         <location line="+862"/>
         <location line="+2634"/>
         <source>Automatically load previews in unencrypted rooms</source>
@@ -9473,12 +9473,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4883"/>
+        <location line="+4971"/>
         <source>Security status</source>
         <translation>सुरक्षा की स्थिति</translation>
     </message>
     <message>
-        <location line="-4882"/>
+        <location line="-4970"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>एन्क्रिप्शन स्थिति क्रॉस-साइनिंग बैकअप</translation>
     </message>
@@ -9492,13 +9492,13 @@ Size: %3</source>
     </message>
     <message>
         <location line="-3258"/>
-        <location line="+6224"/>
+        <location line="+6312"/>
         <location line="+19"/>
         <source>Recovery key or passphrase</source>
         <translation>रिकवरी कुंजी या पासफ़्रेज़</translation>
     </message>
     <message>
-        <location line="-6242"/>
+        <location line="-6330"/>
         <source>recovery key passphrase backup restore</source>
         <translation>रिकवरी कुंजी पासफ़्रेज़ बैकअप पुनर्स्थापित</translation>
     </message>
@@ -9511,23 +9511,23 @@ Size: %3</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+6308"/>
+        <location line="+6396"/>
         <source>Import room keys</source>
         <translation>रूम कुंजियाँ आयात करें</translation>
     </message>
     <message>
-        <location line="-6307"/>
+        <location line="-6395"/>
         <source>import room keys export</source>
         <translation>रूम कुंजियाँ आयात निर्यात</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6531"/>
+        <location line="+6619"/>
         <source>Danger Zone</source>
         <translation>जोखिम वाला क्षेत्र</translation>
     </message>
     <message>
-        <location line="-6530"/>
+        <location line="-6618"/>
         <source>reset danger local session</source>
         <translation>रीसेट जोखिम स्थानीय सेशन</translation>
     </message>
@@ -9538,23 +9538,23 @@ Size: %3</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5993"/>
+        <location line="+6081"/>
         <source>Current session</source>
         <translation>मौजूदा सेशन</translation>
     </message>
     <message>
-        <location line="-5992"/>
+        <location line="-6080"/>
         <source>device id session status</source>
         <translation>डिवाइस आईडी सेशन स्थिति</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6051"/>
+        <location line="+6139"/>
         <source>Verify this session</source>
         <translation>इस सेशन को सत्यापित करें</translation>
     </message>
     <message>
-        <location line="-6050"/>
+        <location line="-6138"/>
         <source>verify verification sas cross-signing</source>
         <translation>सत्यापन सत्यापित करें क्रॉस-साइनिंग</translation>
     </message>
@@ -9575,12 +9575,12 @@ Size: %3</source>
         <location line="+3"/>
         <location line="+354"/>
         <location line="+631"/>
-        <location line="+5621"/>
+        <location line="+5709"/>
         <source>Labs</source>
         <translation>लैब्स</translation>
     </message>
     <message>
-        <location line="-6612"/>
+        <location line="-6700"/>
         <source>Sync mode</source>
         <translation>सिंक मोड</translation>
     </message>
@@ -9601,12 +9601,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6654"/>
+        <location line="+6742"/>
         <source>Refresh current room</source>
         <translation>मौजूदा रूम रीफ़्रेश करें</translation>
     </message>
     <message>
-        <location line="-6653"/>
+        <location line="-6741"/>
         <source>refresh reload timeline</source>
         <translation>रीफ़्रेश दोबारा लोड टाइमलाइन</translation>
     </message>
@@ -9615,12 +9615,12 @@ Size: %3</source>
         <location line="+1"/>
         <location line="+353"/>
         <location line="+678"/>
-        <location line="+5656"/>
+        <location line="+5744"/>
         <source>About</source>
         <translation>परिचय</translation>
     </message>
     <message>
-        <location line="-6688"/>
+        <location line="-6776"/>
         <source>about version license</source>
         <translation>परिचय संस्करण लाइसेंस</translation>
     </message>
@@ -9660,12 +9660,12 @@ Size: %3</source>
     <message>
         <location line="+41"/>
         <location line="+4094"/>
-        <location line="+1245"/>
+        <location line="+1333"/>
         <source>Cancel</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-5184"/>
+        <location line="-5272"/>
         <source>Needs attention</source>
         <translation>ध्यान देने की ज़रूरत</translation>
     </message>
@@ -9698,13 +9698,13 @@ Size: %3</source>
     <message>
         <location line="+1"/>
         <location line="+3756"/>
-        <location line="+215"/>
+        <location line="+303"/>
         <location line="+1873"/>
         <source>Clear</source>
         <translation>साफ़ करें</translation>
     </message>
     <message>
-        <location line="-5834"/>
+        <location line="-5922"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>इस डिवाइस पर सहेजे गए हर प्रोवाइडर GIF को हटा दें? चैट से सहेजे गए GIF पर कोई असर नहीं होगा। इसे पहले जैसा नहीं किया जा सकता।</translation>
     </message>
@@ -9881,7 +9881,32 @@ Size: %3</source>
         </translation>
     </message>
     <message>
-        <location line="+1600"/>
+        <location line="+884"/>
+        <source>Name colour</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Other Lightning users see this colour on your name. It is adjusted to stay readable on whatever theme they use.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+36"/>
+        <source>Use theme colour</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Your homeserver cannot store a name colour.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>That colour could not be saved.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+741"/>
         <source>Key backup: checking…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9896,7 +9921,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5391"/>
+        <location line="-5479"/>
         <source>Moss Light</source>
         <translation>मॉस लाइट</translation>
     </message>
@@ -10236,12 +10261,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+2072"/>
+        <location line="+2160"/>
         <source>Choose image…</source>
         <translation>इमेज चुनें…</translation>
     </message>
     <message>
-        <location line="-2065"/>
+        <location line="-2153"/>
         <source>Reset to Lightning default</source>
         <translation>Lightning के डिफ़ॉल्ट पर लौटाएँ</translation>
     </message>
@@ -10765,13 +10790,13 @@ Escape, and the single letters the message menu uses while it is open, are reser
     </message>
     <message>
         <location line="+24"/>
-        <location line="+229"/>
+        <location line="+317"/>
         <source>Saving…</source>
         <translation>सहेजा जा रहा है…</translation>
     </message>
     <message>
-        <location line="-229"/>
-        <location line="+229"/>
+        <location line="-317"/>
+        <location line="+317"/>
         <source>Save</source>
         <translation>सहेजें</translation>
     </message>
@@ -10852,8 +10877,8 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>कोई बैनर नहीं</translation>
     </message>
     <message>
-        <location line="-2392"/>
-        <location line="+2107"/>
+        <location line="-2480"/>
+        <location line="+2195"/>
         <location line="+304"/>
         <source>Remove</source>
         <translation>हटाएँ</translation>
@@ -14017,12 +14042,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+141"/>
-        <location line="+5806"/>
+        <location line="+5828"/>
         <source>Space</source>
         <translation>स्पेस</translation>
     </message>
     <message>
-        <location line="-5805"/>
+        <location line="-5827"/>
         <source>Home</source>
         <translation>होम</translation>
     </message>
@@ -14332,7 +14357,7 @@ Note: importing keys does not verify this session.</source>
         <translation>नवीनतम संदेश पर लौटें</translation>
     </message>
     <message>
-        <location line="+609"/>
+        <location line="+631"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>कक्ष जोड़ा गया — सर्वर की पुष्टि की प्रतीक्षा है।</translation>
     </message>

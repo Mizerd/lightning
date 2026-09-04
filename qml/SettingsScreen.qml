@@ -4518,6 +4518,101 @@ Item {
                                         }
                                     }
                                 }
+                                // ── The colour your name shows in.
+                                //
+                                // Carried in the Matrix profile
+                                // (org.lightning.name_color, MSC4133), so
+                                // other Lightning clients see it — which is
+                                // the whole point and the reason it is not
+                                // account data. Absent, every name keeps the
+                                // colour derived from the reader's theme.
+                                //
+                                // The swatches are the reader's OWN derived
+                                // ladder: offering a free colour picker here
+                                // would mostly produce names that fight
+                                // whatever theme the reader is using, and
+                                // these nine are known to work in all of them.
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: AppTheme.spacing16
+                                    spacing: AppTheme.spacing8
+                                    visible: app.nameColors.available
+                                             && app.nameColors.supported
+                                    Label {
+                                        text: qsTr("Name colour")
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightStrong
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        textFormat: Text.PlainText
+                                        text: qsTr("Other Lightning users see "
+                                            + "this colour on your name. It is "
+                                            + "adjusted to stay readable on "
+                                            + "whatever theme they use.")
+                                        color: AppTheme.stormTextSecondary
+                                        font.pixelSize: AppTheme.textMeta
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing8
+                                        Repeater {
+                                            model: 9
+                                            Rectangle {
+                                                required property int index
+                                                objectName: "nameColorSwatch"
+                                                implicitWidth: 30
+                                                implicitHeight: 30
+                                                radius: 15
+                                                readonly property string hex:
+                                                    // String() because this is
+                                                    // a QML `color`, and
+                                                    // comparing a color to a
+                                                    // hex STRING with === is
+                                                    // never true — which is
+                                                    // why the selected swatch
+                                                    // showed no ring at all.
+                                                    String(AppTheme.nameInkForSlot(index)).toLowerCase()
+                                                color: AppTheme.nameInkForSlot(index)
+                                                border.width: app.nameColors.ownColor.toLowerCase()
+                                                              === hex ? 3 : 1
+                                                border.color: border.width > 1
+                                                              ? AppTheme.stormText
+                                                              : AppTheme.stormBorderStrong
+                                                TapHandler {
+                                                    onTapped: app.nameColors.setOwnColor(parent.hex)
+                                                }
+                                            }
+                                        }
+                                        Item { Layout.fillWidth: true }
+                                        AppButton {
+                                            objectName: "clearNameColorButton"
+                                            storm: true
+                                            kind: "ghost"
+                                            text: qsTr("Use theme colour")
+                                            enabled: !app.nameColors.busy
+                                                     && app.nameColors.ownColor.length > 0
+                                            onClicked: app.nameColors.setOwnColor("")
+                                        }
+                                    }
+                                    Label {
+                                        objectName: "nameColorError"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        textFormat: Text.PlainText
+                                        visible: app.nameColors.lastError.length > 0
+                                        color: AppTheme.stormDanger
+                                        font.pixelSize: AppTheme.textMeta
+                                        text: app.nameColors.lastError
+                                              === "unsupported"
+                                            ? qsTr("Your homeserver cannot store "
+                                                   + "a name colour.")
+                                            : qsTr("That colour could not be saved.")
+                                    }
+                                }
+
                                 // ── Your own profile picture.
                                 //
                                 // The account had a banner editor and NO way

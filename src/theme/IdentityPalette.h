@@ -49,4 +49,18 @@ public:
         }
         return lightning::theme::nameInk(slot, accent, grounds);
     }
+    // A colour the user chose, made legible on the viewer's surfaces. Their
+    // hue, this window's readability.
+    Q_INVOKABLE QColor legibleChoice(const QColor &chosen,
+                                     const QVariantList &surfaces) const
+    {
+        QList<QColor> grounds;
+        grounds.reserve(surfaces.size());
+        for (const QVariant &value : surfaces) {
+            const QColor ground = value.value<QColor>();
+            if (ground.isValid())
+                grounds.append(ground);
+        }
+        return lightning::theme::legibleChoice(chosen, grounds);
+    }
 };

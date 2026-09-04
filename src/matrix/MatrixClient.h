@@ -498,6 +498,19 @@ public:
     {
         Q_UNUSED(localPath); Q_UNUSED(opId);
     }
+    // A display-name colour the user chose, carried in their profile
+    // (org.lightning.name_color, MSC4133) so other Lightning clients see it.
+    // Same shape and same honesty rules as the banner above.
+    virtual bool supportsNameColors() const { return false; }
+    virtual void fetchNameColor(const QString &userId, quint64 opId)
+    {
+        Q_UNUSED(userId); Q_UNUSED(opId);
+    }
+    // An EMPTY value clears it. Reports on nameColorSet.
+    virtual void setNameColor(const QString &value, quint64 opId)
+    {
+        Q_UNUSED(value); Q_UNUSED(opId);
+    }
     // Profile bios (MSC4440 over MSC4133). Same capability gate as banners:
     // a backend that cannot read extended profile fields simply has no bio,
     // and the card renders nothing rather than an empty block.
@@ -1578,6 +1591,13 @@ Q_SIGNALS:
                                const QString &mxc, bool supported);
     void profileBannerSet(quint64 opId, bool ok, const QString &mxc,
                           const QString &category);
+    // A user's chosen display-name colour as `#rrggbb`, or empty. `supported`
+    // false means the HOMESERVER has no extended profile fields — which
+    // renders as nothing, never as "this user chose no colour".
+    void nameColorReceived(quint64 opId, const QString &userId,
+                           const QString &color, bool supported);
+    void nameColorSet(quint64 opId, bool ok, const QString &color,
+                      const QString &category);
     // A user's profile bio, as PLAIN TEXT. `supported` false means the
     // HOMESERVER does not do extended profile fields — a different fact from
     // "this user has not written one", and the reason an absent bio is never

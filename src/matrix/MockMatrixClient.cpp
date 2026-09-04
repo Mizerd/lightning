@@ -2784,6 +2784,33 @@ quint64 MockMatrixClient::searchMessages(const QString &term, const QString &,
 // Matches the real index's observable contract; see the header for why this
 // exists at all rather than answering "unsupported".
 
+void MockMatrixClient::fetchNameColor(const QString &userId, quint64 opId)
+{
+    ++nameColorFetches;
+    const QString colour = mockNameColors.value(userId);
+    const bool supported = nameColorsSupportedOnServer;
+    QTimer::singleShot(0, this, [this, opId, userId, colour, supported] {
+        Q_EMIT nameColorReceived(opId, userId, colour, supported);
+    });
+}
+
+void MockMatrixClient::setNameColor(const QString &value, quint64 opId)
+{
+    const QString self = currentUserId();
+    const bool supported = nameColorsSupportedOnServer;
+    if (supported) {
+        if (value.isEmpty())
+            mockNameColors.remove(self);
+        else
+            mockNameColors.insert(self, value);
+    }
+    QTimer::singleShot(0, this, [this, opId, value, supported] {
+        Q_EMIT nameColorSet(opId, supported, supported ? value : QString(),
+                            supported ? QString()
+                                      : QStringLiteral("unsupported"));
+    });
+}
+
 quint64 MockMatrixClient::roomWidgets(const QString &roomId,
                                      const QString &theme,
                                      const QString &language)

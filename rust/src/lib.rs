@@ -75,6 +75,7 @@ mod discover;
 mod gifs;
 mod ignore;
 mod localsearch;
+mod namecolor;
 mod widgets;
 mod oauth;
 mod pinned;
@@ -6073,6 +6074,43 @@ pub unsafe extern "C" fn mx_rust_set_profile_banner(
         let bridge = unsafe { bridge(ptr)? };
         let path = unsafe { cstr_arg(local_path) }?;
         banner::set_own_profile_banner(bridge, op_id, path).map(|_| String::new())
+    })
+}
+
+/// A display-name colour the user chose, carried in their Matrix profile
+/// (`org.lightning.name_color`, MSC4133) so other Lightning clients see it.
+///
+/// Result event: `name_color { op_id, lifecycle, user_id, color, supported }`.
+/// `color` is `#rrggbb` or empty; `supported: false` means the homeserver has
+/// no extended profile fields, which renders as nothing rather than as "this
+/// user chose no colour". The value is validated as a colour before it leaves
+/// Rust — it is written by somebody else's client and ends up on a QML colour
+/// property.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_fetch_name_color(
+    ptr: *mut c_void,
+    user_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let user_id = unsafe { cstr_arg(user_id) }?;
+        namecolor::fetch_name_color(bridge, op_id, user_id).map(|_| String::new())
+    })
+}
+
+/// Set this account's display-name colour, or clear it with an EMPTY value.
+/// Result event: `name_color_set { op_id, lifecycle, ok, color, category }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_name_color(
+    ptr: *mut c_void,
+    value: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let value = unsafe { cstr_arg(value) }?;
+        namecolor::set_name_color(bridge, op_id, value).map(|_| String::new())
     })
 }
 

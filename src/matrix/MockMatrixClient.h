@@ -388,6 +388,15 @@ public:
     // homeserver — a refused widget is the case most worth being able to see,
     // and it is the one a real room is least likely to contain.
     bool supportsWidgets() const override { return true; }
+    // Name colours: enough to exercise the manager's caching and dedup.
+    // `mockNameColors` is what the "server" holds; `nameColorFetches` counts
+    // requests, which is the property the manager is actually about.
+    bool supportsNameColors() const override { return true; }
+    void fetchNameColor(const QString &userId, quint64 opId) override;
+    void setNameColor(const QString &value, quint64 opId) override;
+    QHash<QString, QString> mockNameColors;
+    int nameColorFetches = 0;
+    bool nameColorsSupportedOnServer = true;
     quint64 roomWidgets(const QString &roomId, const QString &theme,
                         const QString &language) override;
     /// READY PAYLOADS, not raw state: {id, creator, kind, name, url, refusal,
