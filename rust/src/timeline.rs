@@ -3734,18 +3734,176 @@ pub(crate) fn parse_body_spec(spec: &str) -> Result<SendBodySpec, String> {
     Ok(SendBodySpec { format, html, emote })
 }
 
+/// Drop every `<img>` whose `src` is not an `mxc:` URI.
+///
+/// THIS EXISTS BECAUSE ALLOWING ONE ATTRIBUTE DISABLED RUMA'S OWN SCHEME
+/// CHECK, which is not obvious and was found only by asserting it.
+///
+/// ruma's cleaner checks schemes in a loop over an element's attributes, and
+/// the loop RETURNS from the whole check the moment it meets an attribute
+/// with no scheme rules (ruma-html sanitizer_config/clean.rs, the
+/// `list_schemes.is_none() && spec_schemes.is_none() && compat_schemes...`
+/// early return). `data-mx-emoticon` is exactly such an attribute, and it is
+/// serialized BEFORE `src` — so the moment inline emoji became expressible,
+/// `<img data-mx-emoticon src="https://tracker.example/pixel.png">` passed
+/// the strict config untouched. Measured, not theorised: that string is in
+/// the test below and it survived every configuration of allow_schemes,
+/// Add and Override alike.
+///
+/// An outgoing message that can carry a remote image is a tracking pixel the
+/// sender did not know they sent, and a read receipt for the recipient's IP.
+/// So the rule is enforced here, before ruma sees the string, and it fails
+/// CLOSED: no `src`, an unparseable tag, or any scheme but `mxc` drops the
+/// whole element rather than trying to repair it.
+fn strip_non_mxc_images(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    loop {
+        // Case-insensitive `<img` at a tag boundary.
+        let Some(found) = find_img_tag(rest) else {
+            out.push_str(rest);
+            return out;
+        };
+        out.push_str(&rest[..found]);
+        let tail = &rest[found..];
+        // A tag with no terminator is malformed; drop everything from here
+        // rather than emit half of it.
+        let Some(close) = tail.find('>') else { return out };
+        let tag = &tail[..=close];
+        if img_src_is_mxc(tag) {
+            out.push_str(tag);
+        }
+        rest = &tail[close + 1..];
+    }
+}
+
+/// Byte offset of the next `<img` tag start, matched case-insensitively and
+/// only where the name really ends (so `<image>` is not mistaken for one).
+fn find_img_tag(html: &str) -> Option<usize> {
+    let bytes = html.as_bytes();
+    let mut i = 0usize;
+    while i + 4 <= bytes.len() {
+        if bytes[i] == b'<' && html[i + 1..].len() >= 3 {
+            let name = &html[i + 1..i + 4];
+            if name.eq_ignore_ascii_case("img") {
+                let after = bytes.get(i + 4).copied();
+                if matches!(after, None | Some(b' ') | Some(b'\t') | Some(b'\n')
+                                 | Some(b'\r') | Some(b'/') | Some(b'>')) {
+                    return Some(i);
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// True when the tag carries a `src` whose value begins `mxc://`.
+fn img_src_is_mxc(tag: &str) -> bool {
+    let lower = tag.to_ascii_lowercase();
+    let mut from = 0usize;
+    while let Some(at) = lower[from..].find("src") {
+        let start = from + at;
+        // `src` must be a whole attribute name, not the tail of another.
+        let before_ok = start == 0
+            || matches!(lower.as_bytes()[start - 1],
+                        b' ' | b'\t' | b'\n' | b'\r' | b'<' | b'"' | b'\'');
+        let after = lower[start + 3..].trim_start();
+        if before_ok && after.starts_with('=') {
+            let value = after[1..].trim_start();
+            // TERMINATE THE VALUE. Without this `src="mxc://">` reads as the
+            // six-character prefix plus the rest of the tag and passes a
+            // naive length check — an mxc URI with no media id at all.
+            let terminated = if let Some(rest) = value.strip_prefix('"') {
+                rest.split('"').next().unwrap_or("")
+            } else if let Some(rest) = value.strip_prefix('\'') {
+                rest.split('\'').next().unwrap_or("")
+            } else {
+                value
+                    .split(|c: char| c.is_whitespace() || c == '>')
+                    .next()
+                    .unwrap_or("")
+            };
+            return terminated.starts_with("mxc://")
+                && terminated.len() > "mxc://".len();
+        }
+        from = start + 3;
+    }
+    false
+}
+
 /// Strict-sanitize the formatted half of an outgoing message in place.
 /// A no-op for messages without a formatted body.
+///
+/// STRICT, PLUS EXACTLY ONE ATTRIBUTE. `sanitize_html(Strict, ..)` is ruma's
+/// own allow-list and it already does the important things for us: `img` is
+/// permitted, and `("img", "src")` is scheme-restricted to `mxc` — an
+/// outgoing message cannot carry a tracking pixel or an http image however
+/// the composer is abused.
+///
+/// What it does NOT allow is `data-mx-emoticon`
+/// (ruma-html sanitizer_config/clean.rs — img keeps only
+/// width|height|alt|title|src, and `data-mx-*` is whitelisted on `span`
+/// alone). That attribute is the whole of MSC2545's inline custom emoji: it
+/// is what tells a receiving client "this image is an emoticon, size it like
+/// text". Stripped, Lightning would send a technically valid message that no
+/// client renders as an emoji — silently non-conformant, and invisible from
+/// this side because our own send path never re-reads it.
+///
+/// So the strict config is taken and ONE attribute is added to it. Nothing
+/// else is widened: not the tag list, not `src`'s scheme restriction, not
+/// `data-mx-*` anywhere else.
 fn sanitize_outgoing_formatted(msgtype: &mut MessageType) {
-    use matrix_sdk::ruma::html::{HtmlSanitizerMode, RemoveReplyFallback};
+    use matrix_sdk::ruma::html::{
+        ElementAttributesSchemes, Html, ListBehavior, PropertiesNames,
+        SanitizerConfig,
+    };
     let formatted = match msgtype {
         MessageType::Text(text) => text.formatted.as_mut(),
         MessageType::Emote(emote) => emote.formatted.as_mut(),
         _ => None,
     };
-    if let Some(formatted) = formatted {
-        formatted.sanitize_html(HtmlSanitizerMode::Strict, RemoveReplyFallback::No);
-    }
+    let Some(formatted) = formatted else { return };
+    // AND THE SCHEME IS PINNED HERE RATHER THAN INHERITED. ruma's spec rules
+    // do restrict ("img", "src") to `mxc`, but that check is gated on the
+    // config's own mode and on nothing else in the chain having overridden
+    // the scheme list — MEASURED: with the attribute added and the scheme
+    // left implicit, `<img src="https://tracker.example/pixel.png">` came
+    // through the strict config intact. An outgoing message that can carry a
+    // remote image is a tracking pixel the sender did not know they sent, so
+    // this states the restriction instead of relying on it.
+    let config = SanitizerConfig::strict()
+        .allow_attributes(
+            [PropertiesNames { parent: "img", properties: &["data-mx-emoticon"] }],
+            ListBehavior::Add,
+        )
+        .allow_schemes(
+            [
+                ElementAttributesSchemes {
+                    element: "img",
+                    attr_schemes: &[PropertiesNames {
+                        parent: "src",
+                        properties: &["mxc"],
+                    }],
+                },
+                // `a` MUST be restated. Override replaces the whole scheme
+                // list, and an element absent from it is not scheme-checked
+                // AT ALL — so listing only `img` would have quietly stopped
+                // `href` being checked and let `javascript:` back in. These
+                // are the spec's own schemes for a link.
+                ElementAttributesSchemes {
+                    element: "a",
+                    attr_schemes: &[PropertiesNames {
+                        parent: "href",
+                        properties: &["http", "https", "ftp", "mailto", "magnet"],
+                    }],
+                },
+            ],
+            ListBehavior::Override,
+        );
+    let html = Html::parse(&strip_non_mxc_images(&formatted.body));
+    html.sanitize_with(&config);
+    formatted.body = html.to_string();
 }
 
 /// Build the outgoing message content for one (body, spec) pair. The
@@ -4515,6 +4673,140 @@ mod tests {
                 assert!(!formatted.body.contains("javascript:"),
                         "unsafe scheme survived: {}", formatted.body);
                 assert!(formatted.body.contains("<b>b</b>"));
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+    }
+
+    /// The image filter, on the shapes an attacker would actually try. It
+    /// fails CLOSED: anything it cannot read for certain is dropped.
+    #[test]
+    fn only_mxc_images_survive_the_outgoing_filter() {
+        use super::strip_non_mxc_images;
+
+        // Kept: a real emoticon, in the exact shape MSC2545 specifies.
+        let good = r#"a <img data-mx-emoticon src="mxc://e.org/b" alt=":b:" height="32"> z"#;
+        assert_eq!(strip_non_mxc_images(good), good);
+
+        for hostile in [
+            r#"<img data-mx-emoticon src="https://tracker.example/p.png">"#,
+            r#"<img src="http://evil.test/x.png">"#,
+            r#"<img src="//evil.test/x.png">"#,
+            r#"<img src="javascript:evil()">"#,
+            r#"<img src="data:image/png;base64,AAAA">"#,
+            r#"<img src="mxc://">"#,
+            // No src at all: nothing to render, and nothing to trust.
+            r#"<img data-mx-emoticon alt=":b:">"#,
+            // Case is not an escape.
+            r#"<IMG SRC="https://evil.test/x.png">"#,
+            // Nor are single quotes.
+            r#"<img src='https://evil.test/x.png'>"#,
+            // Nor whitespace around the equals sign.
+            r#"<img src = "https://evil.test/x.png">"#,
+            // Nor hiding the real src behind a lookalike attribute.
+            r#"<img data-src="mxc://e.org/b" src="https://evil.test/x.png">"#,
+        ] {
+            let cleaned = strip_non_mxc_images(hostile);
+            assert!(
+                !cleaned.contains("<img") && !cleaned.contains("<IMG"),
+                "{hostile} survived as {cleaned}"
+            );
+        }
+
+        // A tag that never terminates is malformed; emitting half of it would
+        // be worse than dropping the rest.
+        assert!(!strip_non_mxc_images(r#"ok <img src="mxc://e.org/b""#)
+            .contains("<img"));
+
+        // ...and it must not eat elements that merely start similarly.
+        let other = "<image>x</image>";
+        assert_eq!(strip_non_mxc_images(other), other);
+        let text = "1 < 2 and imgs are fine";
+        assert_eq!(strip_non_mxc_images(text), text);
+    }
+
+    /// MSC2545 inline custom emoji. `data-mx-emoticon` is the whole feature —
+    /// it is what tells a receiving client "this image is an emoticon, size
+    /// it like text" — and ruma's strict allow-list drops it, because `img`
+    /// keeps only width|height|alt|title|src and `data-mx-*` is whitelisted
+    /// on `span` alone. Without the one added attribute Lightning sends a
+    /// message no client renders as an emoji, and nothing on this side would
+    /// ever notice.
+    #[test]
+    fn an_inline_custom_emoji_keeps_the_attribute_that_makes_it_one() {
+        use super::{composed_content, parse_body_spec};
+        use matrix_sdk::ruma::events::room::message::MessageType;
+        let spec = parse_body_spec(
+            r#"{"format":"html","html":"hi <img data-mx-emoticon src=\"mxc://example.org/blob\" alt=\":blob:\" title=\":blob:\" height=\"32\" />"}"#,
+        )
+        .unwrap();
+        let content = composed_content("hi :blob:", &spec);
+        match content.msgtype {
+            MessageType::Text(text) => {
+                let formatted = text.formatted.expect("formatted body");
+                assert!(
+                    formatted.body.contains("data-mx-emoticon"),
+                    "the emoticon marker was stripped: {}",
+                    formatted.body
+                );
+                assert!(formatted.body.contains("mxc://example.org/blob"));
+                assert!(formatted.body.contains("alt="));
+                assert!(formatted.body.contains("height="));
+                // The plain body is the fallback an unsupporting client shows.
+                assert_eq!(text.body, "hi :blob:");
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+    }
+
+    /// ...and NOTHING ELSE was widened. Adding one attribute to a strict
+    /// config is a security change, so the properties that make it safe are
+    /// asserted rather than assumed: an image may only address `mxc`, event
+    /// handlers still die, and the marker is not a general permission to put
+    /// `data-mx-*` on anything.
+    #[test]
+    fn widening_for_emoji_did_not_widen_anything_else() {
+        use super::{composed_content, parse_body_spec};
+        use matrix_sdk::ruma::events::room::message::MessageType;
+        let spec = parse_body_spec(
+            r#"{"format":"html","html":"<img data-mx-emoticon src=\"https://tracker.example/pixel.png\" onerror=\"evil()\" /><img src=\"http://evil.test/x.png\" /><b data-mx-emoticon>b</b>"}"#,
+        )
+        .unwrap();
+        let content = composed_content("x", &spec);
+        match content.msgtype {
+            MessageType::Text(text) => {
+                let body = text.formatted.expect("formatted body").body;
+                assert!(
+                    !body.contains("tracker.example")
+                        && !body.contains("evil.test"),
+                    "an http image survived, so an outgoing message could \
+                     carry a tracking pixel: {body}"
+                );
+                assert!(!body.contains("onerror"), "handler survived: {body}");
+                assert!(
+                    !body.contains("<b data-mx-emoticon"),
+                    "the marker leaked onto a non-image element: {body}"
+                );
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+
+        // Overriding the scheme list is what pins img to mxc, and an element
+        // MISSING from an override list stops being scheme-checked at all —
+        // so the link half is asserted here rather than assumed.
+        let links = parse_body_spec(
+            r#"{"format":"html","html":"<a href=\"javascript:evil()\">a</a><a href=\"https://ok.example/\">b</a>"}"#,
+        )
+        .unwrap();
+        match composed_content("x", &links).msgtype {
+            MessageType::Text(text) => {
+                let body = text.formatted.expect("formatted body").body;
+                assert!(
+                    !body.contains("javascript:"),
+                    "pinning img schemes stopped href being checked: {body}"
+                );
+                assert!(body.contains("https://ok.example/"),
+                        "an ordinary link was refused: {body}");
             }
             other => panic!("unexpected msgtype: {other:?}"),
         }
