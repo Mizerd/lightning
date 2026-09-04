@@ -27,7 +27,7 @@ Rectangle {
     signal openImageRequested(string mediaKey, var httpUrl)
     signal saveMediaRequested(string mediaKey, string filename)
 
-    // "overview" | "pinned" | "people" | "media"
+    // "overview" | "pinned" | "people" | "media" | "widgets"
     property string section: "overview"
     property string memberFilter: ""
 
@@ -42,6 +42,21 @@ Rectangle {
     // A tab that disappears must not leave the panel on a blank section.
     onPinnedAvailableChanged: {
         if (!pinnedAvailable && section === "pinned")
+            section = "overview"
+    }
+    // Widgets get their own TAB rather than a block in Overview. Overview
+    // already carries notifications, the avatar and topic, the member count,
+    // export, room id, the whole Edit room group and every Access control —
+    // it is the fullest section in the panel, and a widget list with
+    // multi-line refusal text pushed all of that further down.
+    //
+    // The tab is ABSENT when the backend cannot read widgets or the room has
+    // none, so an empty tab never invites a click that shows nothing; the
+    // same reason the block was conditional when it lived in Overview.
+    readonly property bool widgetsAvailable:
+        app.widgets && app.widgets.supported && app.widgets.count > 0
+    onWidgetsAvailableChanged: {
+        if (!widgetsAvailable && section === "widgets")
             section = "overview"
     }
     // Jump to a pinned event in the timeline. The panel does not own
@@ -250,18 +265,19 @@ Rectangle {
             // messages AND the panel is showing the room the pin controller
             // is tracking (the panel can be opened for a Space home, which
             // is not the active room).
-            model: root.pinnedAvailable
-                ? [
-                    { label: qsTr("Overview"), value: "overview" },
-                    { label: qsTr("Pinned"), value: "pinned" },
-                    { label: qsTr("People"), value: "people" },
-                    { label: qsTr("Media"), value: "media" },
-                  ]
-                : [
-                    { label: qsTr("Overview"), value: "overview" },
-                    { label: qsTr("People"), value: "people" },
-                    { label: qsTr("Media"), value: "media" },
-                  ]
+            // Built up rather than spelled out per combination: two
+            // conditional tabs would otherwise need four hard-coded arrays,
+            // and the next one eight.
+            model: {
+                const tabs = [{ label: qsTr("Overview"), value: "overview" }]
+                if (root.pinnedAvailable)
+                    tabs.push({ label: qsTr("Pinned"), value: "pinned" })
+                tabs.push({ label: qsTr("People"), value: "people" })
+                tabs.push({ label: qsTr("Media"), value: "media" })
+                if (root.widgetsAvailable)
+                    tabs.push({ label: qsTr("Widgets"), value: "widgets" })
+                return tabs
+            }
             current: root.section
             onActivated: (value) => root.section = value
         }
@@ -497,87 +513,6 @@ Rectangle {
                         font.pixelSize: AppTheme.textBody
                     }
 
-                    // ── Widgets ──────────────────────────────────────
-                    //
-                    // Lightning LISTS widgets and opens them in the user's
-                    // browser; it does not embed them. docs/widgets.md carries
-                    // the measurements — Windows cannot build Qt WebEngine at
-                    // all, Flatpak could only ship Chromium unsandboxed beside
-                    // Megolm keys, and initialising it would force the whole
-                    // application's scenegraph to OpenGL.
-                    //
-                    // The section is ABSENT rather than empty when the backend
-                    // cannot read widgets, so it never looks like a room has
-                    // none when the truth is that nobody asked.
-                    Label {
-                        Layout.topMargin: AppTheme.spacing16
-                        visible: app.widgets.supported
-                                 && app.widgets.count > 0
-                        text: qsTr("Widgets")
-                        color: AppTheme.textMuted
-                        font.pixelSize: AppTheme.textBody
-                        font.weight: AppTheme.weightStrong
-                    }
-                    Repeater {
-                        model: app.widgets.supported ? app.widgets : null
-                        RowLayout {
-                            id: widgetRow
-                            required property int index
-                            required property string name
-                            required property string kind
-                            required property string refusal
-                            required property bool openable
-                            Layout.fillWidth: true
-                            spacing: AppTheme.spacing8
-                            Icon {
-                                name: "explore"
-                                size: 18
-                                color: widgetRow.openable ? AppTheme.icon
-                                                          : AppTheme.textDisabled
-                                Layout.alignment: Qt.AlignTop
-                                Layout.topMargin: 2
-                            }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 0
-                                Label {
-                                    Layout.fillWidth: true
-                                    // A widget name is chosen by whoever added
-                                    // it — remote text in a Label that would
-                                    // otherwise auto-detect rich text.
-                                    textFormat: Text.PlainText
-                                    text: widgetRow.name
-                                    color: AppTheme.text
-                                    elide: Label.ElideRight
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    wrapMode: Text.WordWrap
-                                    textFormat: Text.PlainText
-                                    // A REFUSED widget still shows, with the
-                                    // reason. Dropping it would make a widget
-                                    // Lightning will not open indistinguishable
-                                    // from a widget the room never had.
-                                    text: widgetRow.openable
-                                          ? widgetRow.kind
-                                          : app.widgets.refusalText(widgetRow.refusal)
-                                    color: widgetRow.openable
-                                           ? AppTheme.textMuted
-                                           : AppTheme.danger
-                                    font.pixelSize: AppTheme.textMeta
-                                }
-                            }
-                            AppButton {
-                                objectName: "roomInfoOpenWidget"
-                                text: qsTr("Open")
-                                enabled: widgetRow.openable
-                                onClicked: widgetSheet.openFor(
-                                    widgetRow.index,
-                                    app.widgets.rowAt(widgetRow.index))
-                            }
-                        }
-                    }
-                    WidgetOpenSheet { id: widgetSheet }
 
                     // An export is a fact ABOUT the room, so it sits with
                     // the room's own details rather than in the timeline
@@ -1842,6 +1777,110 @@ Rectangle {
                         }
                     }
                 }
+            }
+        }
+
+        // ── Widgets ──────────────────────────────────────────────────────
+        //
+        // Its own tab since 0.8.5, at Rokas's request: Overview already
+        // carries notifications, avatar, topic, member count, export, room
+        // id, the Edit room group and every Access control, and a widget
+        // list whose refusal rows wrap to three lines pushed all of that
+        // further down. The tab only exists when there is something in it
+        // (root.widgetsAvailable), so it never invites a click that shows
+        // nothing.
+        Flickable {
+            visible: root.section === "widgets"
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            contentWidth: width
+            contentHeight: widgetCol.implicitHeight + AppTheme.spacing16 * 2
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: AppScrollBar {}
+            // No anchors: SmoothWheelArea is a non-visual handler that
+            // attaches to its parent Flickable, exactly as the Overview and
+            // Pinned panes use it.
+            SmoothWheelArea {}
+            ColumnLayout {
+                id: widgetCol
+                x: AppTheme.spacing12
+                y: AppTheme.spacing12
+                width: parent.width - AppTheme.spacing12 * 2
+                spacing: AppTheme.spacing8
+
+                // ── Widgets ──────────────────────────────────────
+                //
+                // Lightning LISTS widgets and opens them in the user's
+                // browser; it does not embed them. docs/widgets.md carries
+                // the measurements — Windows cannot build Qt WebEngine at
+                // all, Flatpak could only ship Chromium unsandboxed beside
+                // Megolm keys, and initialising it would force the whole
+                // application's scenegraph to OpenGL.
+                //
+                // No "Widgets" heading here: the TAB is the heading now, and
+                // repeating it would be the only text on the pane saying what
+                // the tab already says.
+                Repeater {
+                    model: app.widgets.supported ? app.widgets : null
+                    RowLayout {
+                        id: widgetRow
+                        required property int index
+                        required property string name
+                        required property string kind
+                        required property string refusal
+                        required property bool openable
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing8
+                        Icon {
+                            name: "explore"
+                            size: 18
+                            color: widgetRow.openable ? AppTheme.icon
+                                                      : AppTheme.textDisabled
+                            Layout.alignment: Qt.AlignTop
+                            Layout.topMargin: 2
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+                            Label {
+                                Layout.fillWidth: true
+                                // A widget name is chosen by whoever added
+                                // it — remote text in a Label that would
+                                // otherwise auto-detect rich text.
+                                textFormat: Text.PlainText
+                                text: widgetRow.name
+                                color: AppTheme.text
+                                elide: Label.ElideRight
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                textFormat: Text.PlainText
+                                // A REFUSED widget still shows, with the
+                                // reason. Dropping it would make a widget
+                                // Lightning will not open indistinguishable
+                                // from a widget the room never had.
+                                text: widgetRow.openable
+                                      ? widgetRow.kind
+                                      : app.widgets.refusalText(widgetRow.refusal)
+                                color: widgetRow.openable
+                                       ? AppTheme.textMuted
+                                       : AppTheme.danger
+                                font.pixelSize: AppTheme.textMeta
+                            }
+                        }
+                        AppButton {
+                            objectName: "roomInfoOpenWidget"
+                            text: qsTr("Open")
+                            enabled: widgetRow.openable
+                            onClicked: widgetSheet.openFor(
+                                widgetRow.index,
+                                app.widgets.rowAt(widgetRow.index))
+                        }
+                    }
+                }
+                WidgetOpenSheet { id: widgetSheet }
             }
         }
 
