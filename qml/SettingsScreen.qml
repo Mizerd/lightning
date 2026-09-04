@@ -723,6 +723,32 @@ Item {
     // bookmarks); only the prose speaks the v0.6.7 "saved" vocabulary. The two
     // halves of the picker's Saved tab clear separately here because only one
     // of them holds real bytes — see the starred-GIF block further down.
+    // 0.8.5: clearing the local message index. Declared beside the other
+    // confirmations rather than inside the page, like every ConfirmDialog
+    // here.
+    ConfirmDialog {
+        id: clearIndexConfirm
+        title: qsTr("Clear the search index?")
+        confirmText: qsTr("Clear index")
+        confirmKind: "dangerPrimary"
+        onAccepted: app.messageSearch.clearIndex()
+        Label {
+            width: 280
+            wrapMode: Text.WordWrap
+            color: AppTheme.stormTextSecondary
+            font.pixelSize: AppTheme.textBody
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
+            // Says what is lost and what is NOT. The index is a derived
+            // copy, so clearing it deletes no message — without that line
+            // "clear" reads as "delete my history".
+            text: qsTr("Searching your history stops working until Lightning "
+                + "has indexed it again, which it does on its own. No "
+                + "messages are deleted — the index is only a copy Lightning "
+                + "built so it can search.")
+        }
+    }
+
     ConfirmDialog {
         id: gifClearConfirm
         property string kind: ""
@@ -3585,6 +3611,66 @@ Item {
                             }
                         }
 
+                        // 0.8.5: the local message index. It persists
+                        // DECRYPTED message text — the one sanctioned
+                        // exception to CLAUDE.md §6 — so the person whose
+                        // messages they are has to be able to see that it
+                        // exists and get rid of it. Until this landed,
+                        // MessageSearchController::clearIndex() was
+                        // Q_INVOKABLE and no QML called it.
+                        Label {
+                            text: qsTr("Message search index")
+                            color: AppTheme.stormText
+                            font.pixelSize: AppTheme.textTitle
+                            font.weight: AppTheme.weightStrong
+                            Layout.topMargin: AppTheme.spacing8
+                            visible: app.messageSearch.localAvailable
+                        }
+                        SettingsCard {
+                            visible: app.messageSearch.localAvailable
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    textFormat: Text.PlainText
+                                    text: qsTr("Lightning keeps its own index "
+                                        + "of the messages it has seen, so "
+                                        + "you can search rooms your "
+                                        + "homeserver cannot — encrypted ones "
+                                        + "included. It stores the message "
+                                        + "text on this device only, in this "
+                                        + "account's own folder, and it is "
+                                        + "deleted when the account is "
+                                        + "removed.")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textMeta
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing12
+                                    Label {
+                                        objectName: "searchIndexStatsLabel"
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        textFormat: Text.PlainText
+                                        text: qsTr("%n message(s) indexed",
+                                                   "",
+                                                   app.messageSearch.indexedMessages)
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                    }
+                                    AppButton {
+                                        objectName: "clearSearchIndexButton"
+                                        text: qsTr("Clear index")
+                                        kind: "danger"
+                                        enabled: app.messageSearch.indexedMessages > 0
+                                        onClicked: clearIndexConfirm.visible = true
+                                    }
+                                }
+                            }
+                        }
                         // v0.5.11: link-preview and GIF policy.
                         Label {
                             text: qsTr("Link previews & media")
