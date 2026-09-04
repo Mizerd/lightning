@@ -1029,11 +1029,21 @@ Rectangle {
                     // down the middle and the Room information button, the
                     // only control that opens that panel, was gone entirely.
                     //
-                    // Pinning the minimum to the row's own implicit width
-                    // makes the identity column give up space instead, which
-                    // it can afford — its name and topic already elide.
+                    // fillWidth:false ALONE. `Layout.minimumWidth:
+                    // implicitWidth` was the obvious companion and it is a
+                    // SELF-REFERENCE: minimumWidth feeds the layout engine,
+                    // which recomputes implicitWidth from the children, which
+                    // feeds minimumWidth. It looked correct on screen and
+                    // destabilised the geometry — timeline-pane-qml's reply
+                    // navigation case measured a 262px viewport where the
+                    // fixture builds 900.
+                    //
+                    // What actually makes the icons safe is the other half of
+                    // this fix: the identity column declares
+                    // Layout.minimumWidth: 0 and its name Label fills, so the
+                    // shortfall is taken from text that can elide instead of
+                    // from a row the band then clips.
                     Layout.fillWidth: false
-                    Layout.minimumWidth: implicitWidth
                     IconButton {
                         objectName: "startVoiceCallButton"
                         // 1:1 DMs only: a legacy m.call.invite rings every
