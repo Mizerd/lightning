@@ -1867,7 +1867,13 @@ Rectangle {
                                 color: widgetRow.openable
                                        ? AppTheme.textMuted
                                        : AppTheme.danger
-                                font.pixelSize: AppTheme.textMeta
+                                // SCALED, like every other size in this panel.
+                                // It was unscaled while the block lived in
+                                // Overview and nothing noticed; moving it into
+                                // the range CallUiContractTest scans is what
+                                // surfaced a size that ignored the text-size
+                                // slider.
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             }
                         }
                         AppButton {

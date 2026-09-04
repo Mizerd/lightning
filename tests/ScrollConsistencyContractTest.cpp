@@ -260,12 +260,17 @@ private Q_SLOTS:
         QVERIFY(!src.contains(QStringLiteral("ScrollBar.horizontal.policy")));
     }
 
-    // RoomInfoPanel has four independently scrollable surfaces: Overview
+    // RoomInfoPanel has FIVE independently scrollable surfaces: Overview
     // (converted from ScrollView to an explicit Flickable so a
     // WheelHandler has something reachable to attach to — ScrollView
     // auto-wraps non-Flickable content in an internal, unreachable
-    // Flickable), Pinned, People and Media.
-    void roomInfoPanelAllFourSurfacesUseSmoothWheelArea()
+    // Flickable), Pinned, People, Media and Widgets.
+    //
+    // The trailing total is the point of the case, not decoration: it is what
+    // makes a NEW pane fail here until somebody gives it the same wheel feel
+    // as the other four. Widgets moved out of Overview into its own tab in
+    // 0.8.5 and this is exactly how that was caught.
+    void roomInfoPanelEveryScrollableSurfaceUsesSmoothWheelArea()
     {
         const QString src = read(QStringLiteral("RoomInfoPanel.qml"));
         QVERIFY(!src.isEmpty());
@@ -290,7 +295,13 @@ private Q_SLOTS:
         QVERIFY(!media.isEmpty());
         QVERIFY(media.contains(QStringLiteral("SmoothWheelArea {}")));
 
-        QCOMPARE(src.count(QStringLiteral("SmoothWheelArea {")), 4);
+        const QString widgets = blockContaining(
+            src, QStringLiteral("Flickable {"),
+            QStringLiteral("visible: root.section === \"widgets\""));
+        QVERIFY(!widgets.isEmpty());
+        QVERIFY(widgets.contains(QStringLiteral("SmoothWheelArea {}")));
+
+        QCOMPARE(src.count(QStringLiteral("SmoothWheelArea {")), 5);
     }
 
     // ---- Deliberate skips, documented ----
