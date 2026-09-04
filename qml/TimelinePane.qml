@@ -928,6 +928,11 @@ Rectangle {
                     objectName: "roomHeaderIdentity"
                     spacing: 2
                     Layout.fillWidth: true
+                    // SHRINKABLE. Without this the column's minimum is the
+                    // room NAME's natural width, so a narrow header cannot
+                    // take the space out of the identity and takes it out of
+                    // the action icons instead — which the band then CLIPS.
+                    Layout.minimumWidth: 0
                     RowLayout {
                         spacing: AppTheme.spacingS
                         Label {
@@ -953,6 +958,12 @@ Rectangle {
                             font.weight: AppTheme.weightBold
                             elide: Label.ElideRight
                             maximumLineCount: 1
+                            // fillWidth so the elide can actually happen: a
+                            // Label without it sits at its implicit width and
+                            // never shrinks, so `elide` never engages and the
+                            // shortfall is pushed onto the icons beside it.
+                            // maximumWidth still caps it at half the header.
+                            Layout.fillWidth: true
                             Layout.maximumWidth: header.width * 0.5
                         }
                         Icon {
@@ -1008,6 +1019,21 @@ Rectangle {
                 RowLayout {
                     objectName: "roomHeaderActions"
                     spacing: AppTheme.spacing6
+                    // NEVER SQUEEZED. This is a nested layout, so
+                    // QtQuickLayouts defaults its Layout.fillWidth to TRUE
+                    // and it competes with the identity column for width —
+                    // and the band above sets `clip: true`, so losing that
+                    // competition does not wrap or collapse the icons, it
+                    // CUTS them. Measured with the Room Information panel
+                    // open on a narrow window: the People icon was sliced
+                    // down the middle and the Room information button, the
+                    // only control that opens that panel, was gone entirely.
+                    //
+                    // Pinning the minimum to the row's own implicit width
+                    // makes the identity column give up space instead, which
+                    // it can afford — its name and topic already elide.
+                    Layout.fillWidth: false
+                    Layout.minimumWidth: implicitWidth
                     IconButton {
                         objectName: "startVoiceCallButton"
                         // 1:1 DMs only: a legacy m.call.invite rings every
