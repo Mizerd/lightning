@@ -55,9 +55,20 @@ void MessageSearchController::setClient(MatrixClient *client)
     });
     connect(m_client, &MatrixClient::searchIndexSwept, this,
             [this](quint64, int, int, qint64 messages, qint64 rooms) {
+        // THE SWEEP RUNS WHILE RESULTS ARE ON SCREEN. It is on a five-minute
+        // timer, so a message that arrives with the find bar open is indexed
+        // underneath a list that then keeps showing the answer from before
+        // it existed — including "No messages found" for a message the index
+        // now holds. Re-run only when the index actually GREW, so a sweep
+        // that wrote nothing costs nothing.
+        const bool grew = messages > m_indexedMessages;
         m_indexedMessages = messages;
         m_indexedRooms = rooms;
         Q_EMIT indexStatsChanged();
+        if (grew && !m_query.trimmed().isEmpty()
+            && effectiveSource() == QLatin1String("local")) {
+            dispatch(false);
+        }
     });
     connect(m_client, &MatrixClient::searchIndexDeepened, this,
             [this](quint64 opId, bool ok, const QString &roomId, int,
@@ -73,7 +84,14 @@ void MessageSearchController::setClient(MatrixClient *client)
         // Re-run the query against what just arrived. Indexing a room while
         // its results are on screen and NOT refreshing them would leave the
         // user looking at the answer from before they asked for more.
-        if (ok && written > 0 && !m_query.trimmed().isEmpty()
+        //
+        // NOT gated on `written`. This is a button the user pressed, and
+        // "this operation added nothing new" is a different claim from "what
+        // is on screen is current" — the periodic sweep may have indexed the
+        // message seconds earlier, which is exactly how this was found live:
+        // the coverage line went 31 -> 32 while the list below it still said
+        // "No messages found in this room's history".
+        if (ok && !m_query.trimmed().isEmpty()
             && effectiveSource() == QLatin1String("local")) {
             dispatch(false);
         }

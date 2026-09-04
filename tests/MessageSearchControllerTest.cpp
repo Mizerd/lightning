@@ -250,6 +250,53 @@ private Q_SLOTS:
         QTRY_COMPARE(model.state(), QStringLiteral("idle"));
         QCOMPARE(model.rowCount(), 0);
     }
+    // ── Indexing under a live result list must refresh it ────────────────
+    //
+    // Found by driving the real client against a real homeserver: with the
+    // find bar open on an encrypted room, the coverage line went 31 -> 32
+    // while the list below it still read "No messages found in this room's
+    // history" for the message that had just been indexed. Only editing the
+    // query revealed it.
+    //
+    // Two paths, and the second is the one that was broken. A sweep runs on
+    // a five-minute timer underneath whatever is on screen; and an explicit
+    // "Index this room" used to refresh ONLY when it wrote something, so a
+    // sweep that had already indexed the message seconds earlier left the
+    // button doing visibly nothing.
+    void indexingUnderALiveResultListRefreshesIt()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        QCOMPARE(model.source(), QStringLiteral("local"));
+        model.setRoomId(QStringLiteral("!general:mock.local"));
+        model.setQuery(QStringLiteral("Welcome"));
+        QTRY_VERIFY(model.rowCount() > 0);
+
+        // A SWEEP that grew the index re-runs the query.
+        int before = 0;
+        QSignalSpy searches(&client, &MatrixClient::localSearchFinished);
+        Q_EMIT client.searchIndexSwept(1, 1, 5, 999, 1);
+        QTRY_VERIFY_WITH_TIMEOUT(searches.count() > before, kSignalTimeoutMs);
+
+        // A sweep that grew NOTHING must not re-run — the guard has to be the
+        // index growing, or the timer turns into a five-minute query loop.
+        before = searches.count();
+        Q_EMIT client.searchIndexSwept(2, 1, 0, 999, 1);
+        QTest::qWait(120);
+        QCOMPARE(searches.count(), before);
+
+        // An explicit "Index this room" refreshes even when it writes
+        // NOTHING. The mock's deepen answers written == 0, which is exactly
+        // the live case: the sweep had already indexed the message, so the
+        // button used to complete while the stale list stayed on screen.
+        before = searches.count();
+        model.indexRoomHistory(QStringLiteral("!general:mock.local"));
+        QTRY_VERIFY_WITH_TIMEOUT(searches.count() > before, kSignalTimeoutMs);
+    }
+
     // ── The date bounds, ISOLATED ────────────────────────────────────────
     //
     // The combined-filter case above sets afterMs/beforeMs alongside four
