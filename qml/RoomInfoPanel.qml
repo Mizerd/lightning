@@ -50,11 +50,16 @@ Rectangle {
     // it is the fullest section in the panel, and a widget list with
     // multi-line refusal text pushed all of that further down.
     //
-    // The tab is ABSENT when the backend cannot read widgets or the room has
-    // none, so an empty tab never invites a click that shows nothing; the
-    // same reason the block was conditional when it lived in Overview.
+    // The tab is ABSENT only when the backend cannot read widgets at all —
+    // that is an honest "this build cannot answer", and it hides a control
+    // that could never work. It is PRESENT for a room with no widgets, which
+    // it briefly was not: gating on `count > 0` meant the tab existed only in
+    // rooms that happened to have one, so in every other room the feature
+    // looked missing rather than empty, and it was reported as exactly that.
+    // Pinned is the precedent in the other direction and People and Media in
+    // this one — a section that can be empty says so on its own pane.
     readonly property bool widgetsAvailable:
-        app.widgets && app.widgets.supported && app.widgets.count > 0
+        app.widgets && app.widgets.supported
     onWidgetsAvailableChanged: {
         if (!widgetsAvailable && section === "widgets")
             section = "overview"
@@ -190,9 +195,15 @@ Rectangle {
         spacing: 0
 
         // ── Header ────────────────────────────────────────────────────────
+        // Floored at the shared top-strip height, like the room list's header
+        // and the room header: this panel sized itself from its content
+        // alone, came out ~7px shorter than the room header beside it, and
+        // its 1px rule therefore crossed the divider at a different height.
+        // The Math.max keeps a taller text scale from clipping the row.
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: headerRow.implicitHeight + AppTheme.spacing12 * 2
+            implicitHeight: Math.max(AppTheme.headerBandHeight,
+                headerRow.implicitHeight + AppTheme.spacing12 * 2)
             color: AppTheme.surface
             RowLayout {
                 id: headerRow
@@ -1821,6 +1832,18 @@ Rectangle {
                 // No "Widgets" heading here: the TAB is the heading now, and
                 // repeating it would be the only text on the pane saying what
                 // the tab already says.
+                //
+                // The empty state is what lets the tab exist in a room with
+                // no widgets: "none here" is an answer, and it is a different
+                // one from a missing tab, which reads as a missing feature.
+                Label {
+                    visible: app.widgets.supported && app.widgets.count === 0
+                    Layout.fillWidth: true
+                    text: qsTr("No widgets in this room.")
+                    color: AppTheme.textMuted
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                    wrapMode: Text.Wrap
+                }
                 Repeater {
                     model: app.widgets.supported ? app.widgets : null
                     RowLayout {
