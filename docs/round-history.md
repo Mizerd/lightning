@@ -148,6 +148,37 @@ unhandled. Suites: `call-controller` 35, `call-ring-policy` 10,
 
 #### QML, layout and bindings
 
+- **A 5px transparent grab band shows the wrong surface through it**, and the
+  rule centred inside it is then NOT on the boundary. Measured at the
+  room-list seam: sidebar `#1B242F`, then THREE native pixels of the window
+  ground `#0D1117`, then the rule, then the timeline — the boundary sat three
+  pixels before the line meant to mark it, and the sliver read as a gap
+  between the panels. Two instances, the shell `SplitView` handle and the
+  Room Information resizer. Fix is two parts and the second matters as much:
+  paint the band as the surface on ONE side, and anchor the rule to that
+  edge — centred, the colour changes in one place and the rule is drawn in
+  another. Sample pixels across a seam rather than eyeballing it; the
+  numbers name the defect instantly.
+- **`Layout.fillWidth` DEFAULTS TO TRUE for a nested layout.** A composite
+  control whose root is a `RowLayout` takes a share of its host row unless
+  the host says otherwise. Bit twice in one round: `SegmentedControl` in the
+  find bar (a ~350 px dead gap at 1600 px wide, scaling with the window), and
+  `roomHeaderActions`, where the band's `clip: true` turned the lost width
+  into CUT ICONS — the People glyph sliced in half and the Room information
+  button gone entirely.
+- **A Label with `elide` and no `fillWidth` does not elide.** It sits at its
+  implicit width and refuses to shrink, and whatever is beside it pays. The
+  room header's identity column could not give up space for that reason, so
+  the shortfall landed on the action icons. Third occurrence of this shape.
+- **A `color` compared to a hex STRING with `===` is never true.** The
+  selected name-colour swatch showed no ring for exactly this. `String(c)`
+  first.
+- **`SmoothWheelArea` is a non-visual handler and has no `anchors`.**
+  `anchors.fill: parent` on one is a LOAD-TIME error that took
+  RoomInfoPanel, TimelinePane, MainScreen and Main down together and left the
+  app exiting silently. Same family as `font.families`; qmlformat cannot see
+  either, and only loading the component does.
+
 - **`Layout.fillWidth` DEFAULTS TO TRUE for a nested layout**, so a composite
   control whose root is a `RowLayout` takes a share of its host row's surplus
   unless the host says otherwise. `SegmentedControl` is exactly that, and its
@@ -603,6 +634,30 @@ unhandled. Suites: `call-controller` 35, `call-ring-policy` 10,
   patching matrix-sdk-ui 0.18: `docs/receipt-semantics.md`.
 
 #### Testing and harness discipline
+
+- **A gate that PARSES what it is supposed to defend keeps passing after the
+  thing moves.** `ThemeTokensTest` read the sender-name ink tables out of
+  AppTheme.qml as text. When `userColor()` stopped reading those tables and
+  started deriving, the test went on validating dead data — green forever,
+  defending nothing. A gate over a derivation has to CALL the derivation.
+- **A gate that names only some of the presets defends only those.** The same
+  case covered seven of eleven themes, and Storm was not among them. That
+  omission is exactly how a derivation which rendered Storm's names pure
+  black got past a fully green suite; only putting it on screen showed it.
+  Enumerate every preset, or the gate is a sample.
+- **Every suite can pass while the feature is broken in the app**, when the
+  suites all call the C++ and the break is in the QML that reaches it.
+  Deleting two dead colour tables also removed the `_nameGrounds` property
+  added beside them; `userColor()` then threw a ReferenceError on every call
+  and every name rendered black. Nothing in ctest touches that path.
+- **`ydotool` types a backtick as a DEAD KEY.** `` `inline code` `` arrived at
+  the server as `ìnline code`, and it looked exactly like the renderer
+  failing to style `<code>`. Read the event off the server before blaming the
+  client for what a harness typed.
+- **Cropping past the edge of a screenshot skews every coordinate derived
+  from it.** A crop 640 px wide starting 580 px from the right edge silently
+  rescales, and clicks computed from that render land a whole tab off. It
+  looked like a tab refusing to switch. Keep crops inside the image.
 
 - **`nearTopControllerDrivenBatchesCompensateImmediatelyNotChained` flakes
   ALONE**, not only under `-j8`. Measured 2026-09-03 on identical code with
