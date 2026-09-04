@@ -1629,7 +1629,34 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   (`firstCaptureMs` 794-811 ms, the KS device open running on the GUI thread
   inside `gst_element_sync_state_with_parent`); it needs a
   `LIGHTNING_GUI_STALL_TRACE` capture, not a theory.
-- **An account switch FREEZES the UI for 3-5 seconds**, reproducibly, on the
+- **An account switch FREEZES the UI for 3-5 seconds** — **the WAIT IS NOW OFF
+  THE GUI THREAD (2026-09-04, Task A §2), and the defect is not yet closed.**
+  `releaseRustHandle()` used to run `mx_rust_shutdown_tasks` and
+  `mx_rust_destroy` on the thread that draws the window; the second drops the
+  tokio runtime and therefore blocks until every in-flight spawn_blocking
+  finishes, SQLite closes included. Both now run on a two-thread retirement
+  pool that takes ownership of the handle. Safe because **Rust never calls
+  back into C++** — events are PULLED by `pollRustEvents()` on a 100 ms timer,
+  so a retiring client has no route into a QObject that may have been
+  destroyed. Three callers still wait, deliberately, because they delete or
+  rename the store and must not race an open SQLite connection: resetRustStore,
+  resetLocalSession and AppController's account removal, plus the destructor at
+  process exit (`waitForRustRetirement`). Found in the same sweep and also
+  fixed: `VideoPosterExtractor`'s destructor joined its decoder thread on every
+  switch, bounded by the measured **931 ms** Qt Multimedia backend
+  initialisation.
+  LIVE-VALIDATED: three A->B->A switches on real accounts with
+  `LIGHTNING_GUI_STALL_TRACE=1` recorded **no GUI stall for any switch** (the
+  only two in the session are at startup), each logging "rust client retired
+  off the GUI thread" at 1-4 ms. WHY IT IS STILL OPEN: both fixture accounts
+  are tiny — twelve rooms, no avatars — so this proves the wait is no longer on
+  the GUI thread, NOT that a large account is fast. The remaining question is
+  whether anything ELSE scales with account size; that still needs a capture on
+  a real account. Regression guard: `rust-retirement`, whose first version was
+  worthless (a 250 ms budget that an empty store passes synchronously) and
+  which now requires the work to be OUTSTANDING when the caller returns.
+- ~~**An account switch FREEZES the UI**~~ — original report, kept for the
+  numbers: reproducibly, on the
   SECOND switch (A→B→A) and not the first. Distinct from the unbounded
   profile-fetch loop (`be195f7`) and from the double-polled JoinHandle
   (`e50eff6`); this is a synchronous block, and `shutdown_managed_tasks`
@@ -1743,6 +1770,17 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   sync handlers, one bounded join-time sweep for hands raised before we
   arrived).
 - **Full screen opens on the primary monitor**, not the one the app is on.
+  Investigated 2026-09-04 (Task A §6) and NOT changed: `placeOnThisApplications
+  Screen()`'s arithmetic is already self-consistent in Qt's own space, and its
+  comment correctly records that on Wayland Qt passes no `wl_output` to
+  `xdg_toplevel.set_fullscreen` (QTBUG-54883), so the compositor chooses. A
+  fourth guess would be a fix without a measurement. What WAS wrong and is
+  fixed is the sibling bug: a fresh window CENTRED against
+  `Screen.desktopAvailableWidth` — the whole VIRTUAL DESKTOP — so on two
+  monitors it aimed at the seam, and on this layout landed at x=6490 on a
+  6400-wide desktop and opened invisible. `AppController::centredWindowRect`
+  centres inside one screen and VALIDATES the result, falling back to platform
+  placement; `window-placement` covers it.
 
 **NOT TESTED, 2026-09-02 audit:** six items in
 `docs/security-audit-2026-09-02.md`.
