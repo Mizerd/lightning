@@ -485,6 +485,46 @@ Item {
         target: app.composer
         function onCommandCompletionsChanged() { root.updateCommandPopupState() }
     }
+
+    // MSC2545 shortcode completion. Cursor-driven, so it is refreshed from
+    // the input's own signals rather than a model NOTIFY: a shortcode can be
+    // anywhere in the text and only the editor knows where the caret is.
+    property bool emojiPopupDismissed: false
+    EmojiCompletionPopup {
+        id: emojiPopup
+        onChosen: (shortcode) => {
+            var pos = app.composer.acceptEmojiCompletionAt(
+                root.activeInput().cursorPosition, shortcode)
+            if (pos >= 0)
+                input.cursorPosition = pos
+            emojiPopup.close()
+        }
+    }
+    function updateEmojiPopupState() {
+        // Never both: an active command word cannot contain a shortcode, and
+        // a mention token cannot either.
+        if (commandPopup.visible || mentionPopup.visible) {
+            emojiPopup.close()
+            return
+        }
+        var editor = root.activeInput()
+        if (!editor || !editor.activeFocus || app.currentRoomId === "") {
+            emojiPopup.close()
+            return
+        }
+        var comps = app.composer.emojiCompletionsAt(editor.cursorPosition)
+        if (comps.length > 0 && !root.emojiPopupDismissed) {
+            emojiPopup.completions = comps
+            var flick = root.richMode ? richFlick : inputFlick
+            var p = flick.mapToItem(Overlay.overlay, 0, 0)
+            emojiPopup.anchorInputTop = Qt.point(p.x, p.y)
+            emojiPopup.anchorWidth = flick.width
+            if (!emojiPopup.visible)
+                emojiPopup.open()
+        } else if (emojiPopup.visible) {
+            emojiPopup.close()
+        }
+    }
     // v0.9 rich composer: the link-target prompt. Only a target that the
     // serializer would emit is accepted (the same policy the toolbar and
     // the wire share), so an unsafe scheme cannot enter the document.
@@ -2073,12 +2113,15 @@ Item {
                                 root.updateRichMentionState()
                                 root.commandPopupDismissed = false
                                 root.updateCommandPopupState()
+                                root.emojiPopupDismissed = false
+                                root.updateEmojiPopupState()
                             }
                             onSelectionStartChanged: root.refreshFormatState()
                             onSelectionEndChanged: root.refreshFormatState()
                             onCursorPositionChanged: {
                                 root.refreshFormatState()
                                 root.updateRichMentionState()
+                                root.updateEmojiPopupState()
                                 richSpellTimer.restart()
                             }
                             Keys.onReturnPressed: (event) => {
@@ -2089,6 +2132,11 @@ Item {
                                 }
                                 if (mentionPopup.visible) {
                                     mentionPopup.accept()
+                                    event.accepted = true
+                                    return
+                                }
+                                if (emojiPopup.visible) {
+                                    emojiPopup.accept()
                                     event.accepted = true
                                     return
                                 }
@@ -2112,6 +2160,9 @@ Item {
                                 } else if (mentionPopup.visible) {
                                     mentionPopup.moveUp()
                                     event.accepted = true
+                                } else if (emojiPopup.visible) {
+                                    emojiPopup.moveUp()
+                                    event.accepted = true
                                 } else {
                                     event.accepted = false
                                 }
@@ -2123,6 +2174,9 @@ Item {
                                 } else if (mentionPopup.visible) {
                                     mentionPopup.moveDown()
                                     event.accepted = true
+                                } else if (emojiPopup.visible) {
+                                    emojiPopup.moveDown()
+                                    event.accepted = true
                                 } else {
                                     event.accepted = false
                                 }
@@ -2133,6 +2187,9 @@ Item {
                                     event.accepted = true
                                 } else if (mentionPopup.visible) {
                                     mentionPopup.accept()
+                                    event.accepted = true
+                                } else if (emojiPopup.visible) {
+                                    emojiPopup.accept()
                                     event.accepted = true
                                 } else {
                                     event.accepted = false
@@ -2339,6 +2396,8 @@ Item {
                             // text moves on (the standard completion feel).
                             root.commandPopupDismissed = false
                             root.updateCommandPopupState()
+                            root.emojiPopupDismissed = false
+                            root.updateEmojiPopupState()
                             spellTimer.restart()
                         }
                         onSelectionStartChanged: root.refreshFormatState()
@@ -2346,6 +2405,7 @@ Item {
                         onCursorPositionChanged: {
                             root.refreshFormatState()
                             root.updateMentionState()
+                            root.updateEmojiPopupState()
                             spellTimer.restart()
                         }
                         // A reflow moves every rectangle; the ranges are
@@ -2361,6 +2421,11 @@ Item {
                             }
                             if (mentionPopup.visible) {
                                 mentionPopup.accept()
+                                event.accepted = true
+                                return
+                            }
+                            if (emojiPopup.visible) {
+                                emojiPopup.accept()
                                 event.accepted = true
                                 return
                             }
@@ -2384,6 +2449,9 @@ Item {
                             } else if (mentionPopup.visible) {
                                 mentionPopup.moveUp()
                                 event.accepted = true
+                            } else if (emojiPopup.visible) {
+                                emojiPopup.moveUp()
+                                event.accepted = true
                             } else {
                                 event.accepted = false
                             }
@@ -2395,6 +2463,9 @@ Item {
                             } else if (mentionPopup.visible) {
                                 mentionPopup.moveDown()
                                 event.accepted = true
+                            } else if (emojiPopup.visible) {
+                                emojiPopup.moveDown()
+                                event.accepted = true
                             } else {
                                 event.accepted = false
                             }
@@ -2405,6 +2476,9 @@ Item {
                                 event.accepted = true
                             } else if (mentionPopup.visible) {
                                 mentionPopup.accept()
+                                event.accepted = true
+                            } else if (emojiPopup.visible) {
+                                emojiPopup.accept()
                                 event.accepted = true
                             } else {
                                 event.accepted = false

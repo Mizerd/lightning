@@ -157,6 +157,27 @@ public:
     // Replace the in-progress command word with the chosen completion
     // ("/ki" -> "/kick "). Returns the new cursor position.
     Q_INVOKABLE int acceptCommandCompletion(const QString &name);
+
+    // ── Inline custom emoji completion (MSC2545) ─────────────────────────
+    //
+    // Cursor-driven rather than a NOTIFY property, unlike commandCompletions:
+    // a slash command is always at position 0, while a shortcode can be
+    // anywhere, so the answer depends on where the caret is and QML is what
+    // knows that.
+    //
+    // Returns [{shortcode, url, packName}], most recently used first, or an
+    // empty list when the caret is not inside a `:token` that should
+    // complete — which includes inside a URL and inside a code span, where a
+    // colon is ordinary text.
+    Q_INVOKABLE QVariantList emojiCompletionsAt(int cursorPos) const;
+    /// Replace the `:token` under the caret with `:shortcode: ` and return
+    /// the new cursor position, or -1 when there was nothing to replace.
+    Q_INVOKABLE int acceptEmojiCompletionAt(int cursorPos,
+                                            const QString &shortcode);
+    /// Supplies the candidate list. Set by AppController from the installed
+    /// packs; without it completion is simply never offered.
+    void setEmoticonSearch(
+        std::function<QVariantList(const QString &prefix, int limit)> search);
     Q_INVOKABLE void clear();
     Q_INVOKABLE void beginReply(const QString &eventId,
                                 const QString &sender,
@@ -307,6 +328,7 @@ private:
 
     MatrixClient *m_client = nullptr;
     std::function<QString(const QString &)> m_emoticonResolver;
+    std::function<QVariantList(const QString &, int)> m_emoticonSearch;
     AttachmentQueueModel *m_attachments = nullptr;
     bool m_sendTextAsCaption = false;
     QString m_text;

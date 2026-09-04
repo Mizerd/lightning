@@ -800,6 +800,91 @@ void MessageComposer::setCommandError(const QString &error)
     Q_EMIT commandErrorChanged();
 }
 
+void MessageComposer::setEmoticonSearch(
+    std::function<QVariantList(const QString &, int)> search)
+{
+    m_emoticonSearch = std::move(search);
+}
+
+namespace {
+/// The `:token` the caret is inside, as [start, length], or {-1, 0}.
+///
+/// A token is an unbroken `:` followed by shortcode characters, with the
+/// caret at or after the colon. Deliberately strict about what precedes the
+/// colon: completion must not fire in the middle of `http://host:8080` or
+/// `10:30`, so the colon has to start a word.
+QPair<int, int> emojiTokenAt(const QString &text, int cursor)
+{
+    if (cursor < 0 || cursor > text.size())
+        return { -1, 0 };
+    int i = cursor;
+    // Walk back over shortcode characters to the colon.
+    while (i > 0) {
+        const QChar c = text.at(i - 1);
+        if (c == QLatin1Char(':'))
+            break;
+        if (!(c.isLetterOrNumber() || c == QLatin1Char('_')
+              || c == QLatin1Char('-') || c == QLatin1Char('+')))
+            return { -1, 0 };
+        --i;
+    }
+    if (i == 0 || text.at(i - 1) != QLatin1Char(':'))
+        return { -1, 0 };
+    const int colon = i - 1;
+    // The colon must START a word: preceded by nothing, whitespace, or an
+    // opening bracket. `8080:` and `10:30` are not shortcodes.
+    if (colon > 0) {
+        const QChar before = text.at(colon - 1);
+        if (!(before.isSpace() || before == QLatin1Char('(')
+              || before == QLatin1Char('[') || before == QLatin1Char('{')))
+            return { -1, 0 };
+    }
+    return { colon, cursor - colon };
+}
+
+/// True when the caret sits inside a fenced or inline code run. A shortcode
+/// there is text the author meant literally.
+bool insideCode(const QString &text, int cursor)
+{
+    int ticks = 0;
+    for (int i = 0; i < cursor && i < text.size(); ++i) {
+        if (text.at(i) == QLatin1Char('`'))
+            ++ticks;
+    }
+    return ticks % 2 == 1;
+}
+} // namespace
+
+QVariantList MessageComposer::emojiCompletionsAt(int cursorPos) const
+{
+    QVariantList out;
+    if (!m_emoticonSearch || !m_editingEventId.isEmpty())
+        return out;
+    const auto token = emojiTokenAt(m_text, cursorPos);
+    if (token.first < 0)
+        return out;
+    // One character of query minimum: offering every emoji the instant a
+    // colon is typed turns ordinary punctuation into a popup.
+    const QString prefix = m_text.mid(token.first + 1, token.second - 1);
+    if (prefix.isEmpty() || insideCode(m_text, cursorPos))
+        return out;
+    return m_emoticonSearch(prefix, 12);
+}
+
+int MessageComposer::acceptEmojiCompletionAt(int cursorPos,
+                                             const QString &shortcode)
+{
+    const auto token = emojiTokenAt(m_text, cursorPos);
+    if (token.first < 0 || shortcode.isEmpty())
+        return -1;
+    const QString replacement =
+        QLatin1Char(':') + shortcode + QStringLiteral(": ");
+    QString next = m_text;
+    next.replace(token.first, token.second, replacement);
+    setText(next);
+    return token.first + replacement.length();
+}
+
 int MessageComposer::acceptCommandCompletion(const QString &name)
 {
     if (!SlashCommands::find(name))

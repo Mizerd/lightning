@@ -355,6 +355,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // The composer's half of MSC2545: a `:shortcode:` the user has installed
     // becomes an inline image on send, and stays literal text when it is not
     // one of theirs.
+    m_composer->setEmoticonSearch(
+        [this](const QString &prefix, int limit) {
+            return m_stickers->findEmoticons(prefix, limit);
+        });
     m_composer->setEmoticonResolver([this](const QString &shortcode) {
         const QVariantMap found = m_stickers->emoticon(shortcode);
         return found.value(QStringLiteral("url")).toString();
