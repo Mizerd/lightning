@@ -101,6 +101,13 @@ public:
     {
         textSends.append({ roomId, body });
     }
+    struct ThreadSend { QString roomId; QString rootId; QString body; };
+    QList<ThreadSend> threadSends;
+    void sendThreadReplyTo(const QString &roomId, const QString &rootId,
+                           const QString &, const QString &body) override
+    {
+        threadSends.append({ roomId, rootId, body });
+    }
     // Models the REAL backend: the TIMELINE-scoped send refuses any room
     // but the open one (RustSdkMatrixClient::sendAttachmentBytes gates on
     // timelineActiveFor). Without this the suite accepted a send that fails
@@ -220,6 +227,22 @@ QVariantMap mediaSnapshot(const QString &mediaKey,
     return m;
 }
 
+/// A selection snapshot: like textSnapshot(), plus the event id the bulk
+/// lane reports failures against.
+QVariantMap selectedText(const QString &eventId, const QString &body)
+{
+    QVariantMap m = textSnapshot(body);
+    m.insert(QStringLiteral("eventId"), eventId);
+    return m;
+}
+
+QVariantMap selectedMedia(const QString &eventId)
+{
+    QVariantMap m = mediaSnapshot(QStringLiteral("key:") + eventId);
+    m.insert(QStringLiteral("eventId"), eventId);
+    return m;
+}
+
 } // namespace
 
 class ForwardMessageTest : public QObject
@@ -229,6 +252,138 @@ class ForwardMessageTest : public QObject
 private Q_SLOTS:
 
     // ---- D7 refusals ----
+
+    // ── Multi-message, multi-destination ─────────────────────────────
+    //
+    // N messages into M rooms can PARTIALLY fail, and the whole point of
+    // this path is that it never reports otherwise.
+
+    void everyMessageReachesEveryDestination()
+    {
+        FakeClient client;
+        ForwardController fwd;
+        fwd.setClient(&client);
+        fwd.beginSelection(QStringLiteral("!src:example.org"), {
+            selectedText(QStringLiteral("$a"), QStringLiteral("first")),
+            selectedText(QStringLiteral("$b"), QStringLiteral("second")),
+        });
+        QVERIFY(fwd.selectionActive());
+        fwd.sendSelection({
+            QVariantMap{ { QStringLiteral("roomId"), QStringLiteral("!x:e.org") } },
+            QVariantMap{ { QStringLiteral("roomId"), QStringLiteral("!y:e.org") } },
+        });
+
+        QCOMPARE(client.textSends.size(), 4);
+        QCOMPARE(fwd.progressTotal(), 4);
+        QCOMPARE(fwd.progressDone(), 4);
+        QCOMPARE(fwd.failureCount(), 0);
+    }
+
+    // A thread destination is a relation the TARGET room negotiated — the
+    // opposite of D5, which refuses to carry the SOURCE's thread into a
+    // room that never saw it.
+    void aThreadDestinationSendsIntoThatThread()
+    {
+        FakeClient client;
+        ForwardController fwd;
+        fwd.setClient(&client);
+        fwd.beginSelection(QStringLiteral("!src:example.org"),
+                           { selectedText(QStringLiteral("$a"),
+                                         QStringLiteral("hello")) });
+        fwd.sendSelection({ QVariantMap{
+            { QStringLiteral("roomId"), QStringLiteral("!x:e.org") },
+            { QStringLiteral("threadRootId"), QStringLiteral("$root") },
+        } });
+        QCOMPARE(client.threadSends.size(), 1);
+        QCOMPARE(client.threadSends.at(0).rootId, QStringLiteral("$root"));
+        QVERIFY(client.textSends.isEmpty());
+    }
+
+    // THE ONE THAT MATTERS. One failure among several must not read as
+    // success, and the user must be told WHICH pair failed — a count alone
+    // cannot be acted on.
+    void oneFailureAmongManyIsReportedAsThatPair()
+    {
+        FakeClient client;
+        ForwardController fwd;
+        fwd.setClient(&client);
+        // A media snapshot cannot go through the bulk lane, and is reported
+        // rather than silently dropped or sent as its caption.
+        fwd.beginSelection(QStringLiteral("!src:example.org"), {
+            selectedText(QStringLiteral("$a"), QStringLiteral("fine")),
+            selectedMedia(QStringLiteral("$m")),
+        });
+        fwd.sendSelection({ QVariantMap{
+            { QStringLiteral("roomId"), QStringLiteral("!x:e.org") } } });
+
+        QCOMPARE(fwd.progressTotal(), 2);
+        QCOMPARE(fwd.progressDone(), 2);
+        QCOMPARE(fwd.failureCount(), 1);
+        const QVariantMap failure = fwd.failures().at(0).toMap();
+        QCOMPARE(failure.value(QStringLiteral("eventId")).toString(),
+                 QStringLiteral("$m"));
+        QCOMPARE(failure.value(QStringLiteral("roomId")).toString(),
+                 QStringLiteral("!x:e.org"));
+        QVERIFY(!failure.value(QStringLiteral("message")).toString().isEmpty());
+        // The one that worked really did go.
+        QCOMPARE(client.textSends.size(), 1);
+    }
+
+    // Retry re-dispatches ONLY what failed, not the whole selection again —
+    // resending the successes would duplicate them in the target room.
+    void retryResendsOnlyTheFailures()
+    {
+        FakeClient client;
+        ForwardController fwd;
+        fwd.setClient(&client);
+        fwd.beginSelection(QStringLiteral("!src:example.org"), {
+            selectedText(QStringLiteral("$a"), QStringLiteral("fine")),
+            selectedMedia(QStringLiteral("$m")),
+        });
+        fwd.sendSelection({ QVariantMap{
+            { QStringLiteral("roomId"), QStringLiteral("!x:e.org") } } });
+        QCOMPARE(client.textSends.size(), 1);
+        QCOMPARE(fwd.failureCount(), 1);
+
+        fwd.retryFailures();
+        QCOMPARE(fwd.progressTotal(), 1);
+        QVERIFY2(client.textSends.size() == 1,
+                 "retry resent a message that had already succeeded");
+    }
+
+    // Context mode is a CONSCIOUS choice: it discloses the source room's
+    // name and the original sender to whoever receives the copy, so an
+    // unknown mode must fall back to the private one.
+    void contextModeAttributesAndIsNeverTheDefault()
+    {
+        FakeClient client;
+        ForwardController fwd;
+        fwd.setClient(&client);
+        QCOMPARE(fwd.forwardMode(), QStringLiteral("content"));
+        fwd.setForwardMode(QStringLiteral("nonsense"));
+        QCOMPARE(fwd.forwardMode(), QStringLiteral("content"));
+
+        QVariantMap snap = selectedText(QStringLiteral("$a"),
+                                        QStringLiteral("the body"));
+        snap.insert(QStringLiteral("senderName"), QStringLiteral("Ann"));
+        snap.insert(QStringLiteral("sourceRoomName"), QStringLiteral("Secret"));
+        fwd.beginSelection(QStringLiteral("!src:example.org"), { snap });
+
+        fwd.sendSelection({ QVariantMap{
+            { QStringLiteral("roomId"), QStringLiteral("!x:e.org") } } });
+        QVERIFY2(!client.textSends.at(0).body.contains(QStringLiteral("Secret")),
+                 "content mode leaked the source room's name");
+
+        client.textSends.clear();
+        fwd.setForwardMode(QStringLiteral("context"));
+        fwd.beginSelection(QStringLiteral("!src:example.org"), { snap });
+        fwd.sendSelection({ QVariantMap{
+            { QStringLiteral("roomId"), QStringLiteral("!x:e.org") } } });
+        const QString body = client.textSends.at(0).body;
+        QVERIFY2(body.contains(QStringLiteral("Ann")), qPrintable(body));
+        QVERIFY2(body.contains(QStringLiteral("Secret")), qPrintable(body));
+        QVERIFY2(body.contains(QStringLiteral("the body")), qPrintable(body));
+    }
 
     void beginRefusesRedactedEvent()
     {

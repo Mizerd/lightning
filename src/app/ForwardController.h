@@ -77,6 +77,14 @@ class ForwardController : public QObject
     Q_PROPERTY(QString previewText READ previewText NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(QString error READ error NOTIFY changed)
+    /// A multi-message forward is in progress or has finished with results.
+    Q_PROPERTY(bool selectionActive READ selectionActive NOTIFY changed)
+    Q_PROPERTY(int progressDone READ progressDone NOTIFY changed)
+    Q_PROPERTY(int progressTotal READ progressTotal NOTIFY changed)
+    Q_PROPERTY(int failureCount READ failureCount NOTIFY changed)
+    /// [{roomId, eventId, message}] — WHICH pair failed, not just how many.
+    Q_PROPERTY(QVariantList failures READ failures NOTIFY changed)
+    Q_PROPERTY(QString forwardMode READ forwardMode NOTIFY changed)
 
 public:
     explicit ForwardController(QObject *parent = nullptr);
@@ -113,6 +121,36 @@ public:
     // busy (the dialog disables its own controls on `busy`, this is
     // defense in depth against a double-activation).
     Q_INVOKABLE void forwardTo(const QString &targetRoomId);
+
+    // ── Multi-message, multi-destination forwarding (0.9) ────────────────
+    //
+    // The single-message path above is unchanged and still used by the
+    // message context menu. This is the SELECTION path: N frozen snapshots
+    // to M destinations, which is a different problem — it can partially
+    // fail, and saying "sent" because one of twelve sends worked would be a
+    // lie the user acts on.
+    //
+    // Destinations are {roomId, threadRootId} pairs. A thread root turns the
+    // forward into a thread reply IN THE TARGET, which is a relation the
+    // target room negotiated — unlike D5's refusal to carry the SOURCE's
+    // relation, which named a thread the target knows nothing about.
+    Q_INVOKABLE void beginSelection(const QString &sourceRoomId,
+                                    const QVariantList &snapshots);
+    /// "content" (a clean copy) or "context" (attributed with the original
+    /// sender, room and time). Context is a CONSCIOUS choice: it discloses a
+    /// private room's name and a sender to whoever receives the copy, so it
+    /// is never the default.
+    Q_INVOKABLE void setForwardMode(const QString &mode);
+    Q_INVOKABLE void sendSelection(const QVariantList &targets);
+    /// Re-dispatch only the pairs that failed.
+    Q_INVOKABLE void retryFailures();
+
+    bool selectionActive() const { return m_selectionActive; }
+    int progressDone() const { return m_progressDone; }
+    int progressTotal() const { return m_progressTotal; }
+    int failureCount() const { return int(m_failures.size()); }
+    QVariantList failures() const { return m_failures; }
+    QString forwardMode() const { return m_mode; }
 
 public:
     // Exposed for tests: a forwarded attachment's name is re-originated
@@ -174,6 +212,30 @@ private:
     // for a forward the user has since cancelled or replaced with a new
     // begin() is dropped instead of sending into whatever target the
     // CURRENT forward's dialog now shows.
+    // ── Selection state ──────────────────────────────────────────────
+    struct Pending {
+        QVariantMap snapshot;
+        QString eventId;
+        QString targetRoomId;
+        QString threadRootId;
+    };
+    void pumpQueue();
+    void notePairResult(const Pending &pair, bool ok, const QString &message);
+    QString contextPrefixFor(const QVariantMap &snapshot) const;
+
+    bool m_selectionActive = false;
+    QString m_mode = QStringLiteral("content");
+    QVariantList m_selectionSnapshots;
+    QList<Pending> m_queue;
+    QList<Pending> m_failedPairs;
+    QVariantList m_failures;
+    int m_progressDone = 0;
+    int m_progressTotal = 0;
+    /// ONE media send at a time. A selection of twenty images into three
+    /// rooms is sixty uploads, and dispatching them together is how a client
+    /// saturates a link and times its own sends out.
+    bool m_pumpBusy = false;
+
     quint64 m_generation = 0;
     quint64 m_pendingGeneration = 0;
     QString m_pendingMediaKey;

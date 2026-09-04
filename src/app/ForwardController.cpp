@@ -1,5 +1,7 @@
 #include "app/ForwardController.h"
 
+#include <QDateTime>
+
 #include <QBuffer>
 
 #include <cstring>
@@ -165,6 +167,173 @@ void ForwardController::cancel()
 {
     resetToIdle();
     Q_EMIT changed();
+}
+
+// ── Multi-message, multi-destination forwarding ─────────────────────────
+
+void ForwardController::beginSelection(const QString &sourceRoomId,
+                                       const QVariantList &snapshots)
+{
+    resetToIdle();
+    m_failures.clear();
+    m_failedPairs.clear();
+    m_queue.clear();
+    m_progressDone = 0;
+    m_progressTotal = 0;
+    m_sourceRoomId = sourceRoomId;
+    m_selectionSnapshots = snapshots;
+    m_selectionActive = !snapshots.isEmpty() && !sourceRoomId.isEmpty();
+    if (!m_selectionActive)
+        setError(tr("Nothing was selected to forward."));
+    Q_EMIT changed();
+}
+
+void ForwardController::setForwardMode(const QString &mode)
+{
+    // Unknown values fall back to the SAFE one. "context" discloses the
+    // source room's name and the original sender to whoever receives the
+    // copy, so it is never what a typo produces.
+    m_mode = (mode == QLatin1String("context")) ? mode
+                                                : QStringLiteral("content");
+    Q_EMIT changed();
+}
+
+/// The attribution line for "with context" mode.
+///
+/// Deliberately plain text and deliberately minimal: the original sender,
+/// the room it came from and when. It is NOT a permalink — a link into a
+/// room the recipient may not be in is an invitation to a 404, and building
+/// one would re-introduce exactly the source-room pills D4 refuses.
+QString ForwardController::contextPrefixFor(const QVariantMap &snapshot) const
+{
+    const QString sender =
+        snapshot.value(QStringLiteral("senderName")).toString();
+    const QString room = snapshot.value(QStringLiteral("sourceRoomName"))
+                             .toString();
+    const qint64 ts = snapshot.value(QStringLiteral("timestampMs")).toLongLong();
+    QStringList bits;
+    if (!sender.isEmpty())
+        bits << sender;
+    if (!room.isEmpty())
+        bits << tr("in %1").arg(room);
+    if (ts > 0) {
+        bits << QDateTime::fromMSecsSinceEpoch(ts)
+                    .toLocalTime()
+                    .toString(QStringLiteral("d MMM yyyy hh:mm"));
+    }
+    if (bits.isEmpty())
+        return {};
+    return tr("Forwarded from %1").arg(bits.join(QStringLiteral(" · ")))
+        + QLatin1Char('\n');
+}
+
+void ForwardController::sendSelection(const QVariantList &targets)
+{
+    if (!m_selectionActive || !m_client || targets.isEmpty())
+        return;
+    m_queue.clear();
+    m_failures.clear();
+    m_failedPairs.clear();
+    m_progressDone = 0;
+    // Every (message, destination) pair is its own unit of success. Twelve
+    // pairs where one fails is not "sent" and not "failed" — it is eleven
+    // and one, and the user is told which.
+    for (const QVariant &snapValue : m_selectionSnapshots) {
+        const QVariantMap snapshot = snapValue.toMap();
+        for (const QVariant &targetValue : targets) {
+            const QVariantMap target = targetValue.toMap();
+            const QString roomId =
+                target.value(QStringLiteral("roomId")).toString();
+            if (roomId.isEmpty())
+                continue;
+            m_queue.append(Pending{
+                snapshot,
+                snapshot.value(QStringLiteral("eventId")).toString(),
+                roomId,
+                target.value(QStringLiteral("threadRootId")).toString(),
+            });
+        }
+    }
+    m_progressTotal = int(m_queue.size());
+    m_busy = m_progressTotal > 0;
+    Q_EMIT changed();
+    pumpQueue();
+}
+
+void ForwardController::retryFailures()
+{
+    if (m_failedPairs.isEmpty() || !m_client)
+        return;
+    m_queue = m_failedPairs;
+    m_failedPairs.clear();
+    m_failures.clear();
+    m_progressDone = 0;
+    m_progressTotal = int(m_queue.size());
+    m_busy = true;
+    Q_EMIT changed();
+    pumpQueue();
+}
+
+void ForwardController::notePairResult(const Pending &pair, bool ok,
+                                       const QString &message)
+{
+    ++m_progressDone;
+    if (!ok) {
+        m_failedPairs.append(pair);
+        m_failures.append(QVariantMap{
+            { QStringLiteral("roomId"), pair.targetRoomId },
+            { QStringLiteral("eventId"), pair.eventId },
+            { QStringLiteral("message"), message },
+        });
+    }
+    if (m_progressDone >= m_progressTotal)
+        m_busy = false;
+    Q_EMIT changed();
+}
+
+void ForwardController::pumpQueue()
+{
+    if (m_pumpBusy)
+        return;
+    while (!m_queue.isEmpty()) {
+        const Pending pair = m_queue.takeFirst();
+        if (!m_client) {
+            notePairResult(pair, false, tr("Not signed in."));
+            continue;
+        }
+        // TEXT ONLY on this path, for now, and it is honest about that: the
+        // media lane is a per-item asynchronous fetch-then-upload with its
+        // own generation guard, and running N of those concurrently is the
+        // unbounded-upload problem the design forbids. A selected attachment
+        // is reported as a failure with a reason rather than silently
+        // dropped or sent as its caption.
+        if (snapshotIsMedia(pair.snapshot)) {
+            notePairResult(pair, false,
+                           tr("Attachments can only be forwarded one at a "
+                              "time — use Forward on the message itself."));
+            continue;
+        }
+        QString body = pair.snapshot.value(QStringLiteral("body")).toString();
+        if (body.isEmpty()) {
+            notePairResult(pair, false, tr("Nothing to send."));
+            continue;
+        }
+        if (m_mode == QLatin1String("context"))
+            body = contextPrefixFor(pair.snapshot) + body;
+
+        if (!pair.threadRootId.isEmpty()) {
+            // A thread relation the TARGET room negotiated — the opposite of
+            // D5's refusal, which is about carrying the SOURCE's thread into
+            // a room that never saw it.
+            m_client->sendThreadReplyTo(pair.targetRoomId, pair.threadRootId,
+                                        QString(), body);
+        } else {
+            m_client->sendTextMessage(pair.targetRoomId, body);
+        }
+        // Same "dispatched is done" rule as D6: an ordinary text send is
+        // fire-and-forget on every path in this application.
+        notePairResult(pair, true, QString());
+    }
 }
 
 void ForwardController::forwardTo(const QString &targetRoomId)
