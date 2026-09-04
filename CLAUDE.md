@@ -1640,6 +1640,24 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   `LIGHTNING_GUI_STALL_TRACE` capture across a switch instead. One capture
   beats another theory; that is the standing rule in this file and it applies
   to the theory this file itself wrote down.
+  **2026-09-04: THAT CAPTURE EXISTS NOW, AND IT DID NOT REPRODUCE.** A real
+  A→B→A round trip on `matrix.smetonis.net`, driven through the GUI with
+  `LIGHTNING_GUI_STALL_TRACE=1`:
+
+      switch 1  begin 16:56:20.674 -> login succeeded 16:56:20.917   243 ms
+      switch 2  begin 16:57:10.656 -> login succeeded 16:57:10.914   258 ms
+      teardown_total_ms = 3 and 1
+
+  NO GUI stall was recorded during either switch. The only stalls in the whole
+  session were at startup (271 ms unattributed, 1730 ms rust-poll-drain) and
+  one 622 ms rust-poll-drain when the second account was first ADDED — not a
+  switch. `shutdown_managed_tasks` is now definitively not the cost: 1-3 ms.
+  **This does NOT close the defect.** Both test accounts are small — twelve
+  rooms, two members, no avatars — and the recorded suspicion involves ~170
+  avatar fetches, so the load is nowhere near the reported case. What is
+  established is that the switch MACHINERY is fast and the cost scales with
+  something the fixture does not have. The next capture needs a real account
+  with real rooms and real avatars; it will not be found on a fixture.
 - **The screen share's startup is still VARIABLE**, though far less so, and
   there is now a MEASUREMENT: one live share on 2026-08-26 reported
   `afterPublishMs=135 firstCaptureMs=58 rateStageHoldMs=77` — 77 ms of
