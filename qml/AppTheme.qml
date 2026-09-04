@@ -632,7 +632,14 @@ QtObject {
         otherBubble: _cardElevatedLight
     })
     readonly property var _dark: ({
-        background: _dkBg, sidebar: _dkSidebar, surface: _dkCard,
+        // The rail takes the TIMELINE's ground, as purple-dusk, midnight and
+        // Storm already do. Without a `rail` key it falls back to `sidebar`
+        // (see the `rail` property below), so the 68px spaces rail and the
+        // 300px room list became one flat surface — measured 1.00:1, the same
+        // literal on both, the collapsed-elevation defect the 2026-08-21
+        // audit named. Lightning Dark and Graphite were the only two palettes
+        // still missing it.
+        background: _dkBg, rail: _dkBg, sidebar: _dkSidebar, surface: _dkCard,
         cardElevated: _dkCardElevated, hover: _dkHover,
         selected: _dkSelected, selectedHover: _dkSelectedHover,
         selectedText: _dkSelectedText, inputBg: _dkInputBg,
@@ -670,7 +677,9 @@ QtObject {
         link: _midLink, rail: _bgDark
     })
     readonly property var _graphite: ({
-        background: _graBg, sidebar: _graSidebar, surface: _graCard,
+        // See _dark above: without this the rail and the room list were one
+        // surface at 1.00:1.
+        background: _graBg, rail: _graBg, sidebar: _graSidebar, surface: _graCard,
         cardElevated: _graCardElevated, hover: _graHover,
         selected: _graSelected, selectedHover: _graSelectedHover,
         selectedText: _graSelectedText, inputBg: _graInputBg,
