@@ -5959,10 +5959,32 @@ Rectangle {
         Layout.fillHeight: true
         implicitWidth: 5
 
+        // THE BAND IS TRANSPARENT, AND THAT SHOWED. A 5px grab band with the
+        // rule down its middle leaves 2px on each side, and with nothing
+        // painted there the timeline's own background showed THROUGH on the
+        // PANEL side — measured across the seam: timeline #1F1D26, a 2px
+        // rule, then three more native pixels of #1F1D26, and only then the
+        // panel's #292632. Read as a gap between the room and the panel,
+        // because that is exactly what it was.
+        //
+        // Painting the band in the panel's own colour puts the rule flush
+        // against the panel: room | rule | panel, with no third surface in
+        // between. The grab area is unchanged.
         Rectangle {
-            anchors.centerIn: parent
+            anchors.fill: parent
+            color: AppTheme.sidebar
+        }
+        // The rule sits at the band's LEFT EDGE, not centred in it. Centred,
+        // the band's panel-coloured left half moved the visible boundary two
+        // pixels before the line, so the colour changed in one place and the
+        // rule was drawn in another. At the edge there is exactly one
+        // transition and the rule marks it. The 5px grab area is unchanged —
+        // only where the line is painted inside it.
+        Rectangle {
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
             width: 1
-            height: parent.height
             color: infoDrag.active ? AppTheme.accent
                  : infoHover.hovered ? AppTheme.borderStrong : AppTheme.border
             Behavior on color { ColorAnimation { duration: 90 } }
