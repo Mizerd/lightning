@@ -1456,6 +1456,41 @@ QString SfuMediaEngine::missingGpuShareElement()
 }
 
 /// Whether the GPU chain can reach PAUSED here. Cached; see the header.
+bool SfuMediaEngine::jpegCameraChainAvailable()
+{
+    static const bool available = [] {
+        // ONLY asks whether the DECODER exists and links. It deliberately
+        // does NOT ask whether any camera offers MJPG — that is per-device
+        // and per-driver, and the pipeline itself answers it by failing to
+        // negotiate, at which point the raw fallback takes over.
+        //
+        // `jpegenc ! ` in front so the chain under test actually carries
+        // image/jpeg, rather than a raw source that would link past the
+        // capsfilter and prove nothing — the probe-must-share-the-property
+        // rule this lane has learned repeatedly.
+        const QString desc =
+            QStringLiteral("videotestsrc num-buffers=1 ! jpegenc ! ")
+            + cameraJpegEntry() + QStringLiteral(" ! fakesink");
+        GError *error = nullptr;
+        GstElement *pipeline =
+            gst_parse_launch(desc.toUtf8().constData(), &error);
+        const bool built = !error && pipeline;
+        if (!built) {
+            qCInfo(lcSfuMedia)
+                << "camera MJPG chain unavailable, cameras will use the raw "
+                   "entry:" << (error && error->message ? error->message : "?");
+        }
+        if (error)
+            g_error_free(error);
+        if (pipeline) {
+            gst_element_set_state(pipeline, GST_STATE_NULL);
+            gst_object_unref(pipeline);
+        }
+        return built;
+    }();
+    return available;
+}
+
 bool SfuMediaEngine::gpuShareChainUsable()
 {
     static const bool usable = [] {
@@ -1572,6 +1607,24 @@ QString SfuMediaEngine::captureEntryFilter(bool gpu)
                          "pixel-aspect-ratio=(fraction)1/1\"")
         : QStringLiteral("capsfilter caps=\"video/x-raw,"
                          "pixel-aspect-ratio=(fraction)1/1\"");
+}
+
+QString SfuMediaEngine::cameraJpegEntry()
+{
+    // image/jpeg -> jpegdec -> raw, then the SAME pixel-aspect-ratio pin the
+    // raw entry applies. The PAR filter has to stay: a source that fixates no
+    // PAR of its own hands videoscale a range whose minimum is 1/2147483647,
+    // and that is an integer overflow rather than a squashed picture (§16).
+    //
+    // `videoconvert` after the decoder because jpegdec emits I420 or one of
+    // a few YUV layouts depending on the file, and the scale stage downstream
+    // is entitled to want something else.
+    return QStringLiteral(
+        "capsfilter caps=\"image/jpeg\" "
+        "! jpegdec "
+        "! videoconvert "
+        "! capsfilter caps=\"video/x-raw,"
+        "pixel-aspect-ratio=(fraction)1/1\"");
 }
 
 QString SfuMediaEngine::shareScaleStage(int maxHeight, bool gpu)
@@ -2361,14 +2414,47 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     }
 
     QString scaleStageInUse = useGpu ? scaleStage : cpuScaleStage;
+
+    // A CAMERA GETS THE MJPG CHAIN FIRST. A USB camera advertises image/jpeg
+    // beside raw, and MJPG is the only mode that fits 720p30 through USB 2.0
+    // — raw YUY2 at 1280x720 is 18.4 MB/s and negotiates down to 10 fps,
+    // which is the reported Windows camera defect. The raw entry filter sits
+    // directly after the source, so image/jpeg cannot satisfy the first
+    // element downstream and no MJPG mode can ever be chosen.
+    //
+    // Tried FIRST and fallen back from, exactly as the GPU share chain is:
+    // a camera with no MJPG mode, or a build with no jpegdec, simply fails to
+    // parse or to negotiate and gets today's raw chain. Nothing that works
+    // now can stop working.
+    const bool tryJpeg = !screenShare && jpegCameraChainAvailable();
+    QString entryInUse =
+        tryJpeg ? cameraJpegEntry() : captureEntryFilter(useGpu);
     QString description = videoPipelineDescription(
         source, videoRateStage(screenShare), limits, encoder, selfView,
-        nextPublishSsrc(), scaleStageInUse, captureEntryFilter(useGpu));
+        nextPublishSsrc(), scaleStageInUse, entryInUse);
 
     GError *error = nullptr;
     GstElement *bin =
         gst_parse_bin_from_description(description.toUtf8().constData(), TRUE,
                                        &error);
+    if (error && tryJpeg) {
+        // The MJPG description did not build. Say what GStreamer said and
+        // rebuild on the raw entry rather than failing the camera.
+        qCWarning(lcSfuMedia)
+            << "camera MJPG pipeline failed to build, falling back to raw:"
+            << (error->message ? error->message : "?");
+        g_clear_error(&error);
+        if (bin) {
+            gst_object_unref(bin);
+            bin = nullptr;
+        }
+        entryInUse = captureEntryFilter(useGpu);
+        description = videoPipelineDescription(
+            source, videoRateStage(screenShare), limits, encoder, selfView,
+            nextPublishSsrc(), scaleStageInUse, entryInUse);
+        bin = gst_parse_bin_from_description(description.toUtf8().constData(),
+                                             TRUE, &error);
+    }
     if (error && useGpu) {
         // SECOND CHANCE, ONCE. The GPU description did not build, so say
         // exactly what GStreamer said and rebuild on the CPU rather than

@@ -87,6 +87,21 @@ public:
     /// The capsfilter between the capture and the rest. Pins PAR either way;
     /// the GPU form also allows a non-system memory feature through.
     static QString captureEntryFilter(bool gpu);
+    /// The camera entry for a source offering MJPG, decoded explicitly.
+    ///
+    /// A USB camera advertises `image/jpeg` alongside raw, and MJPG is the
+    /// only mode that fits 720p30 through USB 2.0 — raw YUY2 at 1280x720 is
+    /// 18.4 MB/s and lands at 10 fps. `captureEntryFilter()` puts a
+    /// `video/x-raw` capsfilter directly after the source, so `image/jpeg`
+    /// cannot satisfy the first element downstream and no MJPG mode can ever
+    /// negotiate.
+    ///
+    /// EXPLICIT rather than `decodebin`: decodebin there is refuted with
+    /// evidence (§16) — it builds, then logs "Delayed linking failed" and
+    /// the capture dies of an internal data stream error, because its pads
+    /// appear only once data flows. `jpegdec` has static pads and links at
+    /// parse time, which is the whole difference.
+    static QString cameraJpegEntry();
     /// Whether the GPU share path should be ATTEMPTED. Default is now yes
     /// on platforms that can carry it; `LIGHTNING_SHARE_GPU=0` forces the
     /// CPU path and `=1` forces an attempt even where we would not try.
@@ -127,6 +142,9 @@ public:
     /// asking for PAUSED exercises context creation, caps negotiation and
     /// the shaders, and costs one tiny pipeline ONCE per process.
     static bool gpuShareChainUsable();
+    /// Whether this build can decode MJPG at all. Probed once, with a chain
+    /// that really carries image/jpeg.
+    static bool jpegCameraChainAvailable();
     static QString shareEncoderStage(int maxHeight, int fps);
     int shareMaxHeight() const { return m_shareMaxHeight; }
     int shareFps() const { return m_shareFps; }

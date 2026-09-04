@@ -2715,6 +2715,48 @@ private slots:
         QVERIFY2(source.contains(QStringLiteral("wincap::fitInto(")),
                  "the element no longer uses the shared fitting rule");
     }
+    // ── The camera's MJPG entry ──────────────────────────────────────────
+    //
+    // A USB camera advertises image/jpeg beside raw, and MJPG is the only
+    // mode that fits 720p30 through USB 2.0 — raw YUY2 at 1280x720 is
+    // 18.4 MB/s and negotiates down to 10 fps, which is the reported Windows
+    // camera defect. The raw entry filter sits directly after the source, so
+    // image/jpeg cannot satisfy the first element downstream and no MJPG mode
+    // can ever be chosen.
+    void theCameraJpegEntryDecodesExplicitlyAndKeepsThePixelAspectPin()
+    {
+        const QString entry = SfuMediaEngine::cameraJpegEntry();
+
+        // It must ACCEPT image/jpeg at the top, or the source cannot offer an
+        // MJPG mode in the first place — which is the whole defect.
+        QVERIFY2(entry.contains(QStringLiteral("image/jpeg")),
+                 "the camera entry does not accept MJPG, so a camera still "
+                 "cannot negotiate one");
+
+        // EXPLICIT jpegdec, never decodebin. decodebin here is refuted with
+        // evidence (§16): it builds, then logs "Delayed linking failed" and
+        // the capture dies of an internal data stream error, because its pads
+        // appear only once data flows. jpegdec has static pads and links at
+        // parse time.
+        QVERIFY2(entry.contains(QStringLiteral("jpegdec")),
+                 "the MJPG entry does not decode explicitly");
+        QVERIFY2(!entry.contains(QStringLiteral("decodebin")),
+                 "decodebin is refuted for this chain — delayed linking kills "
+                 "the capture; use jpegdec, which links at parse time");
+
+        // The PAR pin has to survive the decode. A source that fixates no
+        // pixel-aspect-ratio of its own hands videoscale a range whose
+        // minimum is 1/2147483647, and that is an integer overflow rather
+        // than a squashed picture.
+        QVERIFY2(entry.contains(
+                     QStringLiteral("pixel-aspect-ratio=(fraction)1/1")),
+                 "the MJPG entry dropped the pixel-aspect-ratio pin that the "
+                 "raw entry applies");
+
+        // And it ends in raw video, because everything downstream — the scale
+        // stage, the rate stage, the encoder — expects that.
+        QVERIFY(entry.contains(QStringLiteral("video/x-raw")));
+    }
 };
 
 QTEST_MAIN(SfuMediaEngineTest)
