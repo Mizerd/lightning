@@ -225,7 +225,8 @@ Local only. Nothing here is uploaded anywhere by Lightning.
 |---|---|---|
 | Access/refresh tokens | OS secret service (libsecret; Windows Credential Manager) | With a clearly flagged insecure fallback if no keyring is available; never exposed to QML |
 | Matrix session and crypto store | Per-account application data directory | SDK-owned; contains device and room keys |
-| Message cache | Application data directory | **Encrypted-room plaintext is never persisted** — it stays in memory only |
+| Message content, encrypted rooms included | Per-account store directory, plain SQLite | **Stored decrypted, and not encrypted at rest.** The SDK's event cache and room state hold the decrypted body once it has been decrypted once; Lightning's local search index holds it for rooms you have opened. Files are 0600 inside a 0700 directory, and the directory is deleted with the account |
+| Lightning's own C++ cache (`CacheStore`) | `cache.sqlite` in the account directory | Refuses every encrypted-room row on every write path, retry-decrypted events included, and a test greps the raw file to keep it that way. This is the narrow claim that used to be written here as if it covered the whole application |
 | Settings | QSettings, per account | Theme, layout, privacy switches |
 | Saved GIFs/images | Account-scoped store, bounded at 200 items / 64 MiB | Only what the user explicitly starred; records no room, event, or sender; deleted on sign-out and on account removal; disclosed with a **Clear all** control in Settings → Privacy & security |
 | Recently used emoji/GIFs | Settings | Bounded local lists |
@@ -233,6 +234,39 @@ Local only. Nothing here is uploaded anywhere by Lightning.
 
 Signing out or removing an account deletes that account's store, including its
 saved-media store.
+
+### Message content is not encrypted at rest
+
+This page used to say encrypted-room plaintext was never persisted and stayed
+in memory only. That was true of Lightning's own `CacheStore` and untrue of the
+installation, and the difference matters enough to state plainly.
+
+Measured 2026-09-04 against a real homeserver: a message sent into an
+encrypted room, then searched for as raw bytes across every file in the
+account's store directory, was found in
+
+- `matrix-sdk-event-cache.sqlite3` — the SDK persists the DECRYPTED variant of
+  an event, and Lightning opens the store with no passphrase
+- `matrix-sdk-state.sqlite3` — room state carries the latest event for
+  previews
+- `lightning-search.sqlite3` — the local index, deliberately: searching
+  encrypted rooms is the whole point of it, since the server cannot read
+  ciphertext
+
+and not found in the crypto or media stores.
+
+What protects it: the files are mode 0600 in a mode 0700 directory, so other
+users on the machine cannot read them; the directory is removed when the
+account is removed; and nothing is uploaded. What does not protect it: anything
+that can already read your home directory — another process running as you, a
+backup, a stolen unencrypted disk — can read your messages. **Full-disk
+encryption is the answer today.**
+
+An encrypted store is open work rather than a refused idea. It is not a small
+change: one passphrase would have to cover the crypto store too, so a naive
+migration would strand every existing install's account pickle. The route is in
+`docs/security-audit-2026-09-02.md`, and the search index's own contract is in
+`docs/feature-contracts.md` under "Local message search".
 
 ## 7. Logging and diagnostics
 

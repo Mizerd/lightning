@@ -338,9 +338,22 @@ official Rust Matrix SDK owns all Matrix protocol and cryptography. See
 
 ## Security and privacy
 
-End-to-end encryption is handled entirely by the Rust Matrix SDK. Encrypted-room
-plaintext is kept in memory only and never written to application caches;
-cryptographic material, tokens, recovery keys and message bodies are never logged.
+End-to-end encryption is handled entirely by the Rust Matrix SDK.
+Cryptographic material, tokens, recovery keys and message bodies are never
+logged.
+
+**Message content is stored on your disk unencrypted.** Once the SDK decrypts
+an encrypted-room message it keeps the decrypted body in its own event cache,
+in its room state, and — for rooms you have opened — in Lightning's local
+search index, all plain SQLite in your account's store directory. The files
+are readable only by your user account (0600, in a 0700 directory) and the
+whole directory is deleted when you remove the account, but anything that can
+read your home directory can read your messages. Full-disk encryption is what
+protects them at rest today; an encrypted store is
+[open work](docs/security-audit-2026-09-02.md), not a shipped feature.
+Lightning's own C++ cache (`CacheStore`) still refuses encrypted-room rows —
+that is a real and tested property, and it is narrower than it used to sound
+here.
 Access tokens go to the OS secret service (libsecret, Windows Credential Manager)
 where one is available, with a clearly flagged insecure fallback where it is not.
 

@@ -3643,7 +3643,11 @@ Item {
                                         + "text on this device only, in this "
                                         + "account's own folder, and it is "
                                         + "deleted when the account is "
-                                        + "removed.")
+                                        + "removed. It is not encrypted on "
+                                        + "disk — nor is the Matrix SDK's own "
+                                        + "message store beside it — so your "
+                                        + "device's disk encryption is what "
+                                        + "protects both.")
                                     color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.textMeta
                                 }

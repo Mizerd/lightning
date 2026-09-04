@@ -36,8 +36,10 @@ know. Full model is v1.0 material.
   and is not copied into Lightning's custom SQLite database. Receipt/fully-read
   state is sent through official SDK methods and is not replayed after the
   owning lifecycle ends.
-- Encrypted sidebar plaintext is memory-only. `CacheStore::saveRoom` blanks
-  encrypted previews, and the 0.5.8 marker regression scans raw database bytes.
+- Encrypted sidebar plaintext is kept out of `CacheStore`.
+  `CacheStore::saveRoom` blanks encrypted previews, and the 0.5.8 marker
+  regression scans raw database bytes. The SDK's own state store does keep
+  the latest event for its previews — see the at-rest note below.
 - Room actions have owned join handles. Sign-out invalidates C++ callbacks,
   stops UI producers, joins room actions/import, then stops and joins the one
   authoritative sync source before client/store release.
@@ -55,12 +57,23 @@ know. Full model is v1.0 material.
   room → session-id lists; sender keys dropped). Only counts and
   already-public room IDs are surfaced to C++/QML. Session IDs are not
   logged; log lines carry counts and coarse categories only.
-- Decrypted encrypted-room plaintext remains memory-only. The Rust
+- `CacheStore` never holds decrypted encrypted-room plaintext. The Rust
   backend does not use `CacheStore` at all, and `CacheStore` refuses
   `isEncrypted` rows on every write path — including retry-decrypted
   events, local echoes, edits, reply previews, and local-echo
   replacements. `tests/CacheStoreSecurityTest.cpp` scans the raw
   `cache.sqlite` bytes for a unique marker to lock this in.
+- **That is a claim about `CacheStore`, NOT about the installation, and
+  this document used to conflate the two.** The SDK's own stores persist
+  the decrypted body: measured 2026-09-04, a message sent into an
+  encrypted room was found as raw bytes in
+  `matrix-sdk-event-cache.sqlite3` and `matrix-sdk-state.sqlite3`, and in
+  `lightning-search.sqlite3` for an opened room. `encode_event`
+  serializes the `Decrypted` variant, `encode_value` is a no-op with no
+  cypher, and Lightning opens `sqlite_store(path, None)`. Mode 0600 in a
+  0700 directory, deleted with the account, never uploaded — but readable
+  by anything that can read the user's home directory. See
+  `docs/privacy.md` §6.
 - Stale-callback rejection is two-layered: Rust stamps every timeline
   event with a room generation and a lifecycle generation and stops
   forwarding when either advances; C++ additionally tracks the adopted
@@ -233,7 +246,7 @@ minimises:
 | Sync token | QSettings (restart-recoverable state, not a credential) | unchanged |
 | Device keys | Rust SDK-owned state at `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/`, separate from `cache.sqlite`. Explicit Rust sign-out and the one-account Login reset remove it after releasing the SDK client. The CLI bulk repair can remove stores without touching session metadata. | New devices may require key-backup recovery and/or SAS verification. |
 | Message content in transit | TLS to homeserver via `QNetworkAccessManager` (HTTP backend) or the Matrix Rust SDK transport (Rust backend). | Rust SDK encrypted transports once E2EE is verified |
-| Encrypted message plaintext | HTTP backend does not decrypt. Rust displays plaintext only after matrix-sdk decrypts it. `CacheStore` skips every encrypted `TimelineEvent`, including successfully decrypted events, so encrypted-room plaintext is not written to `cache.sqlite`. | Held in-process until an explicit encrypted-cache design exists |
+| Encrypted message plaintext | HTTP backend does not decrypt. Rust displays plaintext only after matrix-sdk decrypts it. `CacheStore` skips every encrypted `TimelineEvent`, so none reaches `cache.sqlite` — but the SDK's event cache and state store, and Lightning's local search index, all persist the decrypted body UNENCRYPTED in the account's store directory (measured). | Encrypted store at rest; one passphrase must also cover the crypto store, so a naive migration strands existing installs |
 | Local cache | **SQLite** at `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/cache.sqlite`. Contains rooms, last 200 non-encrypted events per room, and members. **No** access tokens and no encrypted-room plaintext. Non-E2E timeline bodies are stored plaintext by design. | Same schema unless an encrypted-cache design is added |
 | Media in transit / at rest | Rust backend: every media byte flows through the Matrix Rust SDK's Media API, which negotiates the authenticated `/_matrix/client/v1/media/*` endpoints itself (v0.7.x audit; the legacy URL builders return empty on the Rust backend). HTTP backend (dev-only) still uses legacy `/media/v3`. Rendered images sit in Qt caches (in-memory); the SDK media store applies its retention policy. | On-disk media cache expiry tuning |
 | Composer drafts | v0.7.x, maintainer-confirmed policy: UNENCRYPTED-room drafts persist as account-scoped QSettings values (`accounts/<slug>/drafts/<sha16>`, LRU-bounded at 256, removed with the account group on sign-out/removal). ENCRYPTED-room drafts are memory-only — they survive room switches within a session, never a restart, because encrypted-room plaintext is not written to QSettings, `cache.sqlite`, or any other persistent C++ storage. A room with unknown encryption state fails closed to memory-only. | Encrypted at-rest draft store if an encrypted-cache design ever lands |
@@ -279,8 +292,9 @@ bus will fall back to the insecure store. This is expected and warned about.
   account's Rust SDK store/session state. They never touch `cache.sqlite`,
   other accounts, Element data, or server messages. The legacy CLI reset is
   broader across Lightning account slugs but still deletes Rust stores only.
-- `CacheStore` refuses to persist encrypted `TimelineEvent` rows, so
-  decrypted encrypted-room message bodies remain memory-only for now.
+- `CacheStore` refuses to persist encrypted `TimelineEvent` rows. The SDK
+  stores beside it do persist decrypted bodies; that is the open at-rest
+  gap, not a property this bullet establishes.
 - Raw access tokens are never logged.
 - `clearSessionForAccount()` removes only the matching MXID's QSettings
   session metadata and SecretStore entry. The HTTP backend retains its

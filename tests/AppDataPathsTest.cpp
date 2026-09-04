@@ -3,6 +3,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QDirIterator>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -28,6 +29,7 @@ private Q_SLOTS:
     void refusesUnsafeParentPath();
     void removesStoreSymlinkWithoutFollowingIt();
     void reportsPartialRemovalFailure();
+    void removalTakesEveryStoreThatHoldsMessageText();
 
 private:
     bool writeFile(const QString &path, const QByteArray &contents = "fixture");
@@ -311,6 +313,61 @@ void AppDataPathsTest::removesOnlySelectedRustState()
     QVERIFY(QFileInfo::exists(selected.accountRoot + QStringLiteral("/cache.sqlite")));
     QVERIFY(QFileInfo::exists(selected.accountRoot + QStringLiteral("/notes.txt")));
     QVERIFY(QFileInfo::exists(other.rustStorePath + QStringLiteral("/crypto.db")));
+}
+
+// docs/privacy.md and the README now say, in as many words, that message
+// content is stored decrypted on disk and that removing the account deletes
+// it. That second half is the mitigation the first half leans on, so it is
+// worth a test that names the files rather than trusting a recursive delete
+// to keep covering them.
+//
+// The names are the real ones, measured on a live account 2026-09-04: a
+// message sent into an ENCRYPTED room was found as raw bytes in the SDK's
+// event cache, in its state store, and in Lightning's search index. WAL and
+// SHM sidecars are included deliberately — SQLite writes there first, and the
+// live account had the marker in a -wal file while the main database was
+// still clean, so a cleanup that missed them would leave plaintext behind.
+void AppDataPathsTest::removalTakesEveryStoreThatHoldsMessageText()
+{
+    matrix::app_data::AccountIdentity identity;
+    QVERIFY(matrix::app_data::resolveAccountIdentity(
+        QStringLiteral("https://plaintext.example"), QStringLiteral("alice"),
+        &identity));
+
+    const QByteArray marker = "PLAINTEXTPROBE-a-decrypted-message-body";
+    const QStringList stores = {
+        QStringLiteral("matrix-sdk-event-cache.sqlite3"),
+        QStringLiteral("matrix-sdk-event-cache.sqlite3-wal"),
+        QStringLiteral("matrix-sdk-event-cache.sqlite3-shm"),
+        QStringLiteral("matrix-sdk-state.sqlite3"),
+        QStringLiteral("matrix-sdk-state.sqlite3-wal"),
+        QStringLiteral("lightning-search.sqlite3"),
+        QStringLiteral("lightning-search.sqlite3-wal"),
+        QStringLiteral("matrix-sdk-crypto.sqlite3"),
+    };
+    for (const QString &name : stores)
+        QVERIFY(writeFile(identity.rustStorePath + QLatin1Char('/') + name,
+                          marker));
+
+    const auto summary = matrix::app_data::removeAccountRustState(identity);
+    QVERIFY(summary.ok());
+    QVERIFY(!QFileInfo::exists(identity.rustStorePath));
+    for (const QString &name : stores) {
+        const QString path = identity.rustStorePath + QLatin1Char('/') + name;
+        QVERIFY2(!QFileInfo::exists(path), qPrintable(path));
+    }
+
+    // ...and nothing under the account root still contains the body. A file
+    // this test does not know the name of is exactly the case the enumeration
+    // above cannot catch, and the next store to be added is one of those.
+    QDirIterator it(identity.accountRoot, QDir::Files,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        QFile left(it.next());
+        QVERIFY(left.open(QIODevice::ReadOnly));
+        QVERIFY2(!left.readAll().contains(marker),
+                 qPrintable(left.fileName()));
+    }
 }
 
 void AppDataPathsTest::resetIsIdempotent()
