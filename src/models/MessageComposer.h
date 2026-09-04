@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include "models/AttachmentQueueModel.h"
 #include "models/MentionTokenizer.h"
 #include "models/SlashCommands.h"
@@ -137,6 +139,12 @@ public:
     // threadRootId, replyToEventId} — without sending it. The scheduler
     // takes the snapshot and the composer is cleared by the caller.
     Q_INVOKABLE QVariantMap composedMessage() const;
+
+    /// How a `:shortcode:` in the composer becomes an inline custom emoji.
+    /// Returns the pack image's `mxc://` URI, or "" when the shortcode is not
+    /// one the user has installed — in which case it stays literal text.
+    void setEmoticonResolver(
+        std::function<QString(const QString &shortcode)> resolve);
     // v0.9 rich composer: send a PRE-COMPOSED (plainBody, html, mentions)
     // triple — both bodies derived from one QTextDocument by
     // RichComposition, handed over by RichComposerBridge. Context routing
@@ -298,6 +306,7 @@ private:
     bool takeTextAsCaption(const QString &body, const QStringList &mentionIds);
 
     MatrixClient *m_client = nullptr;
+    std::function<QString(const QString &)> m_emoticonResolver;
     AttachmentQueueModel *m_attachments = nullptr;
     bool m_sendTextAsCaption = false;
     QString m_text;

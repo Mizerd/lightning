@@ -1,5 +1,7 @@
 #include "models/MessageComposer.h"
 
+#include <QRegularExpression>
+
 #include "app/DraftStore.h"
 #include "matrix/MatrixClient.h"
 #include "models/MarkdownFormat.h"
@@ -593,6 +595,44 @@ void MessageComposer::sendPrepared(const QString &body, const QString &html,
     finishSuccessfulSend();
 }
 
+void MessageComposer::setEmoticonResolver(
+    std::function<QString(const QString &)> resolve)
+{
+    m_emoticonResolver = std::move(resolve);
+}
+
+namespace {
+/// The `:shortcode:` runs in a body, resolved against the user's installed
+/// packs. Only shortcodes that actually resolve are returned, so an ordinary
+/// message full of colons costs one scan and produces nothing.
+///
+/// Deliberately NOT a general emoji parser: it finds candidates and the
+/// resolver decides. Where a candidate is left alone — inside code, inside a
+/// URL — is decided on the Rust side, over the formatted body, because that
+/// is the only place the distinction still exists after markdown.
+QVariantMap resolveShortcodes(
+    const QString &body,
+    const std::function<QString(const QString &)> &resolve)
+{
+    QVariantMap found;
+    if (!resolve || !body.contains(QLatin1Char(':')))
+        return found;
+    static const QRegularExpression re(
+        QStringLiteral(":([a-zA-Z0-9_+-]{1,64}):"));
+    auto it = re.globalMatch(body);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        const QString code = m.captured(0);
+        if (found.contains(code))
+            continue;
+        const QString mxc = resolve(m.captured(1));
+        if (mxc.startsWith(QLatin1String("mxc://")))
+            found.insert(code, mxc);
+    }
+    return found;
+}
+} // namespace
+
 QVariantMap MessageComposer::composedMessage() const
 {
     const mention::Expansion expansion = mention::expand(m_text, m_mentionRefs);
@@ -608,10 +648,29 @@ QVariantMap MessageComposer::composedMessage() const
 
 void MessageComposer::sendComposed(const QString &body,
                                    const QStringList &mentionIds,
-                                   const QVariantMap &bodySpec)
+                                   const QVariantMap &bodySpecIn)
 {
     if (!m_client || body.isEmpty())
         return;
+    // MSC2545 inline custom emoji, added HERE because this is the one point
+    // every send goes through — send(), sendPrepared(), the slash-command
+    // lane and send-later all arrive with their own spec, and enriching each
+    // of them separately is how one of them ends up forgotten.
+    //
+    // The MAP crosses to Rust rather than finished HTML: the default path is
+    // MARKDOWN, and building the <img> here would mean sending
+    // `format: html` and losing markdown for every message with an emoji in
+    // it. Rust substitutes after markdown, where code spans and URLs are
+    // still distinguishable.
+    QVariantMap bodySpec = bodySpecIn;
+    const QVariantMap emoticons = resolveShortcodes(body, m_emoticonResolver);
+    if (!emoticons.isEmpty()) {
+        if (!bodySpec.contains(QStringLiteral("format"))) {
+            bodySpec.insert(QStringLiteral("format"),
+                            QStringLiteral("markdown"));
+        }
+        bodySpec.insert(QStringLiteral("emoticons"), emoticons);
+    }
     if (!m_threadRootId.isEmpty()) {
         // v0.4.1: thread replies. Mock preserves thread grouping; HTTP
         // falls back to sendReply via the interface default.

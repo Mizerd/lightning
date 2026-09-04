@@ -352,6 +352,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // the room — and this is what turns it into something the view can draw,
     // through the SAME authenticated media path every attachment uses.
     // 64px because an emoticon renders at 20 and a HiDPI screen doubles it.
+    // The composer's half of MSC2545: a `:shortcode:` the user has installed
+    // becomes an inline image on send, and stays literal text when it is not
+    // one of theirs.
+    m_composer->setEmoticonResolver([this](const QString &shortcode) {
+        const QVariantMap found = m_stickers->emoticon(shortcode);
+        return found.value(QStringLiteral("url")).toString();
+    });
     m_timeline->setInlineImageResolver(
         [this](const QString &mxc) {
             return m_mediaBridge->mxcImageSource(mxc, 64);

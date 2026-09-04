@@ -3752,11 +3752,25 @@ pub(crate) struct SendBodySpec {
     pub(crate) html: String,
     /// true = m.emote (the /me lane), false = m.text.
     pub(crate) emote: bool,
+    /// MSC2545 inline custom emoji: `:shortcode:` -> `mxc://…`, for the
+    /// shortcodes the composer recognised in this body. Empty for the
+    /// overwhelming majority of messages.
+    ///
+    /// Substitution happens HERE rather than in C++ because the default send
+    /// path is MARKDOWN: the C++ side has only the source text, and building
+    /// the `<img>` there would mean sending `format: html` and losing
+    /// markdown for every message that contains an emoji.
+    pub(crate) emoticons: Vec<(String, String)>,
 }
 
 impl Default for SendBodySpec {
     fn default() -> Self {
-        Self { format: BodyFormat::Markdown, html: String::new(), emote: false }
+        Self {
+            format: BodyFormat::Markdown,
+            html: String::new(),
+            emote: false,
+            emoticons: Vec::new(),
+        }
     }
 }
 
@@ -3788,7 +3802,120 @@ pub(crate) fn parse_body_spec(spec: &str) -> Result<SendBodySpec, String> {
         "emote" => true,
         _ => return Err("Unknown body msgtype.".to_owned()),
     };
-    Ok(SendBodySpec { format, html, emote })
+    // `emoticons` is a JSON object of ":code:" -> "mxc://…". A value that is
+    // not an mxc URI is DROPPED rather than refused: the map is built from
+    // the user's own installed packs, and one malformed pack entry must not
+    // stop the message being sent.
+    let mut emoticons: Vec<(String, String)> = Vec::new();
+    if let Some(map) = value.get("emoticons").and_then(|v| v.as_object()) {
+        for (code, target) in map {
+            let Some(mxc) = target.as_str() else { continue };
+            if !mxc.starts_with("mxc://") || mxc.len() <= "mxc://".len() {
+                continue;
+            }
+            if code.len() < 3 || !code.starts_with(':') || !code.ends_with(':') {
+                continue;
+            }
+            emoticons.push((code.clone(), mxc.to_owned()));
+        }
+        // Longest first, so `:blob_wave:` is not eaten by `:blob:`.
+        emoticons.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    }
+    Ok(SendBodySpec { format, html, emote, emoticons })
+}
+
+/// Replace `:shortcode:` runs with MSC2545 emoticon images, in HTML that
+/// markdown has already produced.
+///
+/// Runs on the FORMATTED body, after markdown, for one reason: the default
+/// send path is markdown, and substituting in the plain source would make
+/// the `<img>` something markdown escapes. Doing it here keeps `**bold**`
+/// working in a message that also contains an emoji.
+///
+/// Three places it must not fire, all of them ordinary content:
+///
+///   * inside a TAG — `<a href="…:8080/…">` contains colons, and rewriting
+///     an attribute would corrupt the markup;
+///   * inside `<code>` or `<pre>` — a shortcode in a code sample is text the
+///     author meant literally;
+///   * inside a URL run — `http://host/:foo:` is a path, not an emoji.
+///
+/// The PLAIN body keeps the shortcodes untouched, which is exactly the
+/// fallback MSC2545 asks for: a client that cannot render the image shows
+/// `:blob:` rather than nothing.
+fn substitute_emoticons(html: &str, emoticons: &[(String, String)]) -> String {
+    if emoticons.is_empty() {
+        return html.to_owned();
+    }
+    let mut out = String::with_capacity(html.len());
+    let bytes = html.as_bytes();
+    let mut i = 0usize;
+    // Depth of code/pre nesting; shortcodes inside are left alone.
+    let mut literal_depth = 0usize;
+    while i < html.len() {
+        if bytes[i] == b'<' {
+            let Some(close) = html[i..].find('>') else {
+                out.push_str(&html[i..]);
+                break;
+            };
+            let tag = &html[i..i + close + 1];
+            let lower = tag.to_ascii_lowercase();
+            if lower.starts_with("<code") || lower.starts_with("<pre") {
+                literal_depth += 1;
+            } else if lower.starts_with("</code") || lower.starts_with("</pre") {
+                literal_depth = literal_depth.saturating_sub(1);
+            }
+            out.push_str(tag);
+            i += close + 1;
+            continue;
+        }
+        if literal_depth == 0 && bytes[i] == b':' {
+            let mut matched = false;
+            for (code, mxc) in emoticons {
+                if html[i..].starts_with(code.as_str()) {
+                    // Not inside a URL run: look back for a scheme separator
+                    // with no whitespace between it and here.
+                    let preceding = &out[out.len().saturating_sub(160)..];
+                    let in_url = preceding
+                        .rsplit(|c: char| c.is_whitespace() || c == '>')
+                        .next()
+                        .map(|run| run.contains("://"))
+                        .unwrap_or(false);
+                    if in_url {
+                        break;
+                    }
+                    let label = code.trim_matches(':');
+                    out.push_str("<img data-mx-emoticon src=\"");
+                    out.push_str(mxc);
+                    out.push_str("\" alt=\"");
+                    out.push_str(&html_escape_attr(code));
+                    out.push_str("\" title=\"");
+                    out.push_str(&html_escape_attr(label));
+                    out.push_str("\" height=\"32\">");
+                    i += code.len();
+                    matched = true;
+                    break;
+                }
+            }
+            if matched {
+                continue;
+            }
+        }
+        // Advance one CHARACTER, not one byte, or a multi-byte char splits.
+        let step = html[i..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+        out.push_str(&html[i..i + step]);
+        i += step;
+    }
+    out
+}
+
+/// Minimal attribute escaping for values this module builds itself.
+fn html_escape_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Drop every `<img>` whose `src` is not an `mxc:` URI.
@@ -3967,6 +4094,34 @@ fn sanitize_outgoing_formatted(msgtype: &mut MessageType) {
 /// markdown lane keeps its historical mention plain-body reduction; the
 /// html lane trusts the C++ side's plain body verbatim (it was derived from
 /// the same document) and strict-sanitizes the formatted half.
+/// Put the message's inline custom emoji in.
+///
+/// A markdown message with no markdown in it has NO formatted body at all,
+/// so one is created from the escaped plain text — otherwise a message that
+/// is nothing but `:blob:` would have nowhere to carry the image. The plain
+/// body is left alone in every case: those shortcodes are exactly the
+/// fallback MSC2545 asks for, so a client without the pack shows `:blob:`
+/// rather than a gap.
+fn apply_emoticons(msgtype: &mut MessageType, spec: &SendBodySpec) {
+    if spec.emoticons.is_empty() {
+        return;
+    }
+    let (plain, formatted) = match msgtype {
+        MessageType::Text(text) => (text.body.clone(), &mut text.formatted),
+        MessageType::Emote(emote) => (emote.body.clone(), &mut emote.formatted),
+        _ => return,
+    };
+    let source = match formatted.as_ref() {
+        Some(existing) => existing.body.clone(),
+        None => html_escape_attr(&plain),
+    };
+    let replaced = substitute_emoticons(&source, &spec.emoticons);
+    if replaced == source && formatted.is_none() {
+        return;   // nothing matched; do not invent a formatted body
+    }
+    *formatted = Some(FormattedBody::html(replaced));
+}
+
 pub(crate) fn composed_content(body: &str, spec: &SendBodySpec) -> RoomMessageEventContent {
     let mut message = match (spec.format, spec.emote) {
         (BodyFormat::Markdown, false) => RoomMessageEventContent::text_markdown(body),
@@ -3984,6 +4139,13 @@ pub(crate) fn composed_content(body: &str, spec: &SendBodySpec) -> RoomMessageEv
         BodyFormat::Markdown => set_mention_plain_body(&mut message.msgtype, body),
         BodyFormat::Plain => {}
         BodyFormat::Html => sanitize_outgoing_formatted(&mut message.msgtype),
+    }
+    // Emoji go in AFTER the format's own handling and are sanitized like any
+    // other formatted body — the `<img>` this builds is validated by the same
+    // mxc-only filter that guards a hand-supplied one.
+    apply_emoticons(&mut message.msgtype, spec);
+    if !spec.emoticons.is_empty() {
+        sanitize_outgoing_formatted(&mut message.msgtype);
     }
     message
 }
@@ -4017,6 +4179,13 @@ pub(crate) fn composed_content_without_relation(
         BodyFormat::Markdown => set_mention_plain_body(&mut message.msgtype, body),
         BodyFormat::Plain => {}
         BodyFormat::Html => sanitize_outgoing_formatted(&mut message.msgtype),
+    }
+    // Emoji go in AFTER the format's own handling and are sanitized like any
+    // other formatted body — the `<img>` this builds is validated by the same
+    // mxc-only filter that guards a hand-supplied one.
+    apply_emoticons(&mut message.msgtype, spec);
+    if !spec.emoticons.is_empty() {
+        sanitize_outgoing_formatted(&mut message.msgtype);
     }
     message
 }
@@ -4733,6 +4902,98 @@ mod tests {
             }
             other => panic!("unexpected msgtype: {other:?}"),
         }
+    }
+
+    /// Sending an inline custom emoji: a `:shortcode:` in the composer
+    /// becomes an MSC2545 image in the FORMATTED body while the plain body
+    /// keeps the shortcode — which is the fallback the MSC asks for.
+    #[test]
+    fn a_shortcode_becomes_an_image_and_the_plain_body_keeps_it() {
+        use super::{composed_content, parse_body_spec};
+        use matrix_sdk::ruma::events::room::message::MessageType;
+        let spec = parse_body_spec(
+            r#"{"format":"markdown","emoticons":{":blob:":"mxc://e.org/blob"}}"#,
+        )
+        .unwrap();
+        match composed_content("hey :blob: there", &spec).msgtype {
+            MessageType::Text(text) => {
+                // The fallback an unsupporting client shows.
+                assert_eq!(text.body, "hey :blob: there");
+                let formatted = text.formatted.expect("a formatted body");
+                assert!(formatted.body.contains("data-mx-emoticon"),
+                        "{}", formatted.body);
+                assert!(formatted.body.contains("mxc://e.org/blob"),
+                        "{}", formatted.body);
+                assert!(!formatted.body.contains(":blob:")
+                            || formatted.body.contains("alt=\":blob:\""),
+                        "the shortcode text was left beside the image: {}",
+                        formatted.body);
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+    }
+
+    /// MARKDOWN STILL WORKS. Substituting in the plain source would have
+    /// meant sending `format: html` and losing markdown for every message
+    /// that happened to contain an emoji, which is why this runs after.
+    #[test]
+    fn an_emoji_does_not_cost_the_message_its_markdown() {
+        use super::{composed_content, parse_body_spec};
+        use matrix_sdk::ruma::events::room::message::MessageType;
+        let spec = parse_body_spec(
+            r#"{"format":"markdown","emoticons":{":blob:":"mxc://e.org/blob"}}"#,
+        )
+        .unwrap();
+        match composed_content("**bold** :blob: `code`", &spec).msgtype {
+            MessageType::Text(text) => {
+                let body = text.formatted.expect("formatted").body;
+                assert!(body.contains("<strong>bold</strong>"), "{body}");
+                assert!(body.contains("data-mx-emoticon"), "{body}");
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+    }
+
+    /// Three places a shortcode is ordinary text and must be left alone.
+    #[test]
+    fn shortcodes_are_left_alone_where_they_are_not_emoji() {
+        use super::substitute_emoticons;
+        let map = vec![(":blob:".to_owned(), "mxc://e.org/blob".to_owned())];
+
+        // Inside a code span or block: the author meant it literally.
+        for literal in [
+            "<code>:blob:</code>",
+            "<pre><code>x :blob: y</code></pre>",
+        ] {
+            assert_eq!(substitute_emoticons(literal, &map), literal,
+                       "rewrote a shortcode inside code");
+        }
+
+        // Inside a URL: that is a path segment, not an emoji.
+        let url = r#"<a href="https://h.example/:blob:/x">l</a>"#;
+        assert_eq!(substitute_emoticons(url, &map), url,
+                   "rewrote inside a tag");
+        let bare = "see https://h.example/:blob:/x now";
+        assert_eq!(substitute_emoticons(bare, &map), bare,
+                   "rewrote inside a bare URL run");
+
+        // ...and it DOES fire in ordinary prose either side of those.
+        let prose = "hi :blob: there";
+        assert!(substitute_emoticons(prose, &map).contains("data-mx-emoticon"));
+    }
+
+    /// A longer shortcode must win, or `:blob:` eats the front of
+    /// `:blob_wave:` and the message sends the wrong picture.
+    #[test]
+    fn the_longest_shortcode_wins() {
+        use super::{parse_body_spec, substitute_emoticons};
+        let spec = parse_body_spec(
+            r#"{"format":"markdown","emoticons":{":blob:":"mxc://e.org/a",":blob_wave:":"mxc://e.org/b"}}"#,
+        )
+        .unwrap();
+        let out = substitute_emoticons("x :blob_wave: y", &spec.emoticons);
+        assert!(out.contains("mxc://e.org/b"), "{out}");
+        assert!(!out.contains("mxc://e.org/a"), "{out}");
     }
 
     /// The image filter, on the shapes an attacker would actually try. It
