@@ -252,14 +252,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // dropped and the window uses its own default placement.
     if (const QRect stored = m_settings->initialWindowGeometry();
             !stored.isEmpty()) {
-        const QRect grabBand(stored.x(), stored.y(), stored.width(), 32);
-        for (const QScreen *screen : QGuiApplication::screens()) {
-            if (screen && screen->availableGeometry().intersects(grabBand)) {
-                m_restorableWindowGeometry = stored;
-                break;
-            }
-        }
-        if (m_restorableWindowGeometry.isEmpty())
+        if (windowGeometryIsReachable(stored))
+            m_restorableWindowGeometry = stored;
+        else
             qCInfo(lcApp, "stored window geometry ignored: off-screen");
     }
     // v0.7.x drafts: one shared store (room + thread composers), policy in
@@ -2856,6 +2851,64 @@ QString AppController::setCustomAppIconFromFile(const QUrl &fileUrl)
     Q_EMIT appIconChanged();
     qCInfo(lcApp) << "custom app icon set";
     return {};
+}
+
+bool AppController::windowGeometryIsReachable(const QRect &geometry)
+{
+    if (geometry.isEmpty())
+        return false;
+    // The GRAB BAND along the top of the frame — the part the user has to be
+    // able to reach with a pointer. Requiring the whole rect to sit on one
+    // screen would refuse a window legitimately spanned across two monitors.
+    const QRect grabBand(geometry.x(), geometry.y(), geometry.width(), 32);
+    for (const QScreen *screen : QGuiApplication::screens()) {
+        if (screen && screen->availableGeometry().intersects(grabBand))
+            return true;
+    }
+    return false;
+}
+
+// WHY THIS IS IN C++ AND WHY IT VALIDATES ITSELF.
+//
+// The QML this replaces centred against `Screen.desktopAvailableWidth`, which
+// is the width of the WHOLE VIRTUAL DESKTOP and not of the screen the window
+// is opening on. With two monitors that puts a fresh window at the middle of
+// the PAIR — the seam between them — and on this maintainer's layout it put
+// it past the right-hand edge entirely: measured
+//
+//   window placement "centred" applied=[6490,360 1100x720]
+//   screens="DP-3[3840,0 2560x1440] DP-1[0,0 2560x1440]"
+//
+// with the desktop ending at 6400. The window opened where it could not be
+// seen, and the only reason that was ever survivable is that most launches
+// restore a stored geometry instead.
+//
+// It compounds with a Qt quirk this repo has already recorded once (see the
+// screen-capture note in CLAUDE.md §16): under fractional scaling
+// `QScreen` reports an origin in NATIVE pixels and a size in LOGICAL ones —
+// DP-3 above is at 3840 = 2560 * 1.5 but 2560 wide. Any arithmetic mixing the
+// two is wrong, and a phantom gap appears between the monitors, which is also
+// why a perfectly good stored x=2560 was judged off-screen.
+//
+// So: centre inside ONE screen's availableGeometry — origin and size from the
+// SAME rect, which is the only combination that cannot mix spaces — and then
+// CHECK the answer against the real screens. When the check fails the caller
+// gets an empty rect and leaves the placement to the window manager, which is
+// better at this than we are and cannot put the window where it is invisible.
+QRect AppController::centredWindowRect(int width, int height)
+{
+    if (width <= 0 || height <= 0)
+        return {};
+    const QScreen *screen = QGuiApplication::primaryScreen();
+    if (!screen)
+        return {};
+    const QRect available = screen->availableGeometry();
+    if (available.isEmpty())
+        return {};
+    const QRect candidate(available.x() + (available.width() - width) / 2,
+                          available.y() + (available.height() - height) / 2,
+                          width, height);
+    return windowGeometryIsReachable(candidate) ? candidate : QRect{};
 }
 
 void AppController::noteWindowPlacement(const QString &how, int x, int y,

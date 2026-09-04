@@ -2222,6 +2222,20 @@ if(BUILD_TESTING)
     set_tests_properties(app-controller-chat-gif-starred PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Where a window OPENS. The centring divided the whole virtual desktop
+    # rather than one screen, so with two monitors it aimed at the seam and on
+    # the maintainer's layout landed past the right edge: the window opened
+    # invisible. Behavioural — it asks where a window would go.
+    qt_add_executable(window-placement-test
+        tests/WindowPlacementTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(window-placement-test)
+    target_link_libraries(window-placement-test PRIVATE Qt6::Test)
+    add_test(NAME window-placement COMMAND window-placement-test)
+    set_tests_properties(window-placement PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.5.7: live-timeline diff translation + generation tracking. Pure
     # Qt (no cargo), so it runs in both build trees.
     qt_add_executable(rust-timeline-ingest-test

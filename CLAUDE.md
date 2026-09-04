@@ -691,10 +691,13 @@ release to keep that line quiet (`RELEASE_ACTION=attach-existing`,
 backwards without `UPDATE_ALLOW_LATEST_ROLLBACK=true`; refresh image digests
 each round; the pipeline writes the GitHub `update-latest` slot after every
 promotion and preflights the mirror token (rotate it when it warns; check the
-source mirror with `glab api projects/6/remote_mirrors`). **OPERATOR ACTION PENDING:** scope `UPDATE_SIGNING_KEY_B64` to
-environment `signing` and `GITHUB_MIRROR_TOKEN` to `mirror` in project 7,
-or the private key keeps reaching all six build jobs (key id and public key
-stay unscoped).
+source mirror with `glab api projects/6/remote_mirrors`). **RESOLVED
+2026-09-04:** scoping `UPDATE_SIGNING_KEY_B64` to environment `signing` and
+`GITHUB_MIRROR_TOKEN` to `mirror` in project 7 was addressed OPERATOR-SIDE, in
+GitLab's variable/environment settings. Nothing in either repository
+implements it and nothing here needs changing — do not reopen it or "fix" it
+in CI config. The key id and public key stay unscoped, which is correct: they
+are not secret.
 
 There is a WEBSITE, and it is a THIRD repository: `lightning-website`
 (Cloudflare Workers, `https://www.lightning-matrix.org`). It is updated AFTER

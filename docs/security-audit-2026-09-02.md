@@ -79,9 +79,12 @@ pipeline, including six that run project-6 CMake and every `build.rs` in the
 matrix-sdk graph; one hostile build script and the attacker IS the signer,
 which no downstream hash check can contain. `sign-update-manifest` now
 declares environment `signing`, the mirror job `mirror`, and `resolve-source`
-checks the PUBLIC half only. **Operator action still pending:** scope
-`UPDATE_SIGNING_KEY_B64` / `UPDATE_SIGNING_KEY_ID` to `signing` and
-`GITHUB_MIRROR_TOKEN` to `mirror` in project 7's variables. Same round:
+checks the PUBLIC half only. **RESOLVED 2026-09-04, operator-side:** the
+GitLab variable/environment scoping for `UPDATE_SIGNING_KEY_B64` /
+`UPDATE_SIGNING_KEY_ID` (environment `signing`) and `GITHUB_MIRROR_TOKEN`
+(`mirror`) was applied in project 7's settings. It lives in GitLab's own
+configuration, not in any repository, so there is nothing to verify in tree
+and nothing to change — do not reopen this. Same round:
 `sh.rustup.rs` was the ONE unverified executable in the pipeline (now the
 version-addressed `rustup-init` with a pinned SHA-256), every `image:` was a
 mutable tag (now digests), the token-bearing API client followed redirects

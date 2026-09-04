@@ -507,6 +507,19 @@ public:
     /// a monitor that has gone away, and metrics that were not settled yet,
     /// and those look identical from the outside. Carries geometry only:
     /// nothing here is account data.
+    /// A centred opening rect for a window of this size, or an EMPTY rect
+    /// when one cannot be computed safely — in which case the caller must
+    /// leave the platform to place the window rather than guess.
+    ///
+    /// Centred on ONE SCREEN, not on the virtual desktop, and validated
+    /// before it is handed back. See the implementation for what went wrong
+    /// without either half.
+    Q_INVOKABLE static QRect centredWindowRect(int width, int height);
+
+    /// True when a window at this rect could actually be reached — its top
+    /// grab band meets some screen. The same test the stored geometry gets.
+    static bool windowGeometryIsReachable(const QRect &geometry);
+
     Q_INVOKABLE void noteWindowPlacement(const QString &how, int x, int y,
                                          int width, int height) const;
     QString appIconSource() const;

@@ -74,13 +74,20 @@ ApplicationWindow {
             app.noteWindowPlacement("restored", x, y, width, height)
             return
         }
-        // Centred on the available geometry, not the raw screen: centring
-        // against the full height puts the window under a panel or taskbar.
-        var availableW = Screen.desktopAvailableWidth
-        var availableH = Screen.desktopAvailableHeight
-        if (availableW > 0 && availableH > 0) {
-            x = Math.round(Screen.virtualX + (availableW - width) / 2)
-            y = Math.round(Screen.virtualY + (availableH - height) / 2)
+        // Centred on ONE SCREEN's available area, computed and validated in
+        // C++ (AppController::centredWindowRect, which carries the argument
+        // and the measurement).
+        //
+        // This used to be arithmetic on `Screen.desktopAvailableWidth` — the
+        // width of the whole VIRTUAL DESKTOP — so with two monitors it aimed
+        // at the middle of the pair, and on the maintainer's layout landed
+        // 90px past the desktop's right edge: the window opened invisible.
+        // An empty rect means the answer could not be trusted, and then the
+        // window manager places the window, which it does well.
+        var centred = app.centredWindowRect(width, height)
+        if (centred.width > 0 && centred.height > 0) {
+            x = centred.x
+            y = centred.y
             app.noteWindowPlacement("centred", x, y, width, height)
             return
         }
