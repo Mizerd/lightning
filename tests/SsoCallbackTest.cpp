@@ -305,6 +305,72 @@ private Q_SLOTS:
         QCOMPARE(received.count(), 0);
     }
 
+    // A POST CARRYING THE RIGHT SECRET MUST STILL BE REFUSED.
+    //
+    // The nonce lives in the PATH, and a path is not a secret from a page
+    // that can guess or observe it — but more to the point, a cross-origin
+    // form can POST to a loopback URL without reading anything back. If the
+    // listener took the method for granted, that is a login-CSRF route which
+    // the nonce does not close on its own: the browser would happily deliver
+    // an attacker's loginToken to the exact advertised URL.
+    //
+    // So the method is checked BEFORE the path, and this proves the check is
+    // load-bearing by using a request that is correct in every other respect.
+    void aPostToTheRealCallbackPathIsRefused()
+    {
+        OAuthCallbackServer server;
+        server.setFlow(OAuthCallbackServer::Flow::Sso);
+        QVERIFY(server.listen());
+        const quint16 port = portOf(server);
+        const QString path = pathOf(server);
+        QSignalSpy received(&server, &OAuthCallbackServer::callbackReceived);
+        QSignalSpy failed(&server, &OAuthCallbackServer::callbackFailed);
+
+        QTcpSocket socket;
+        socket.connectToHost(QHostAddress::LocalHost, port);
+        QVERIFY(socket.waitForConnected(3000));
+        const QByteArray request =
+            "POST " + path.toUtf8() + "?loginToken=syt_stolen HTTP/1.1\r\n"
+            "Host: 127.0.0.1\r\n\r\n";
+        socket.write(request);
+        socket.waitForBytesWritten(3000);
+        QTest::qWait(300);
+        socket.close();
+
+        QCOMPARE(received.count(), 0);
+        QCOMPARE(failed.count(), 0);
+
+        // ...and it did not burn the single shot either: the real callback,
+        // arriving afterwards on the same listener, still works. A refusal
+        // that disarmed the attempt would be a denial of service on every
+        // sign-in a stray request touched.
+        QVERIFY(deliver(port, path + QStringLiteral("?loginToken=syt_real")));
+        QTRY_COMPARE_WITH_TIMEOUT(received.count(), 1, 3000);
+    }
+
+    // LOOPBACK ONLY. The listener speaks plain HTTP and carries a credential,
+    // so it must never be reachable from off the machine. QTcpServer binds
+    // every interface by default, which is exactly the mistake to guard
+    // against — and it is invisible in every other test here, because they
+    // all connect to 127.0.0.1 and would pass either way.
+    void theListenerBindsLoopbackOnlyAndAnEphemeralPort()
+    {
+        OAuthCallbackServer server;
+        server.setFlow(OAuthCallbackServer::Flow::Sso);
+        QVERIFY(server.listen());
+
+        QCOMPARE(server.serverAddress(), QHostAddress(QHostAddress::LocalHost));
+        QVERIFY(!server.serverAddress().isEqual(QHostAddress::Any));
+        // Ephemeral: never a fixed, predictable port another process could
+        // camp on before the sign-in starts.
+        QVERIFY(portOf(server) != 0);
+
+        // The advertised redirect URI must name loopback too — a URI that
+        // pointed at a routable address would send the credential there.
+        QVERIFY(server.redirectUri().startsWith(
+            QStringLiteral("http://127.0.0.1:")));
+    }
+
     void theWaitIsFiniteAndReportsATimeout()
     {
         OAuthCallbackServer server;

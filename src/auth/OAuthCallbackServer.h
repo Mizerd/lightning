@@ -73,6 +73,12 @@ public:
     QString redirectUri() const { return m_redirectUri; }
 
     bool isListening() const;
+    /// The address the listener is bound to. Exposed so a test can assert it
+    /// is LOOPBACK — QTcpServer binds every interface by default, and a
+    /// listener that speaks plain HTTP and carries a credential must never be
+    /// reachable from off the machine. Every other test connects to 127.0.0.1
+    /// and would pass either way, so nothing else can see this.
+    QHostAddress serverAddress() const;
 
     // Stop listening and drop any half-read connection. Safe to call twice;
     // called automatically after the first accepted callback and on timeout.

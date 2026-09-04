@@ -87,6 +87,11 @@ bool OAuthCallbackServer::isListening() const
     return m_server && m_server->isListening();
 }
 
+QHostAddress OAuthCallbackServer::serverAddress() const
+{
+    return m_server ? m_server->serverAddress() : QHostAddress();
+}
+
 void OAuthCallbackServer::stop()
 {
     m_timer.stop();
