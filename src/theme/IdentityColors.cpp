@@ -42,6 +42,25 @@ constexpr double kMagentaLowDegrees = 290.0;
 constexpr double kMagentaHighDegrees = 350.0;
 constexpr double kMagentaDamping = 0.55;
 
+// The yellow-green wedge, held back for the same reason.
+//
+// Yellow-green is where the wheel is BRIGHTEST: at the pale end of the
+// lightness ladder a fully-chroma'd 99 degrees is the loudest colour a disc
+// can be, and it belongs to no theme's family — the arc simply passes
+// through it. Warm's accent sits at 28 degrees, so its 190-degree arc puts
+// slots at 75 and 99 and the room list came out with lime discs on a cream
+// window; reported, accurately, as looking silly. Deep Teal and Mossy reach
+// the same wedge from the other side.
+//
+// Damped, not moved, exactly as the magenta wedge is: rotating or narrowing
+// the arc collapses several themes onto one family, and the all-pairs
+// separation gate in ThemeTokensTest is what says whether a change is
+// affordable. These two slots become olive and sage instead of mustard and
+// lime, and nothing else moves.
+constexpr double kLimeLowDegrees = 62.0;
+constexpr double kLimeHighDegrees = 108.0;
+constexpr double kLimeDamping = 0.55;
+
 constexpr double kMinInkContrast = 4.5;
 
 double channelLinear(double c)
@@ -90,6 +109,8 @@ QColor slotColor(int index, const QColor &accent, double lightness)
     const double degrees = hue * 360.0;
     if (degrees >= kMagentaLowDegrees && degrees <= kMagentaHighDegrees)
         saturation *= kMagentaDamping;
+    if (degrees >= kLimeLowDegrees && degrees <= kLimeHighDegrees)
+        saturation *= kLimeDamping;
     QColor out;
     out.setHslF(float(hue), float(saturation), float(lightness));
     return out.toRgb();
