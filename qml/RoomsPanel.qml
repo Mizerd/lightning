@@ -114,8 +114,8 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             color: AppTheme.sidebar
-            implicitHeight: Math.max(
-                60, headerRow.implicitHeight + AppTheme.spacing12 * 2)
+            implicitHeight: Math.max(AppTheme.headerBandHeight,
+                headerRow.implicitHeight + AppTheme.spacing12 * 2)
 
             // v0.6.5 (C5): the wordmark reads "Lightning ⚡" — the bolt trails
             // the workspace name on a shared baseline, one glyph, no banner

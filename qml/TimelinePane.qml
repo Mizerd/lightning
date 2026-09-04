@@ -863,6 +863,7 @@ Rectangle {
         spacing: 0
 
     ColumnLayout {
+        id: roomColumn
         objectName: "roomColumn"
         // Deliberate narrow fallback: below 660px pane width the 340px
         // panel plus the 320px timeline minimum cannot coexist, so the open
@@ -880,9 +881,10 @@ Rectangle {
         // bare 34×34/radius-8 icon buttons; the open right panel's toggle
         // shows the accent-chip state.
         Rectangle {
+            id: roomHeaderBand
             objectName: "roomHeaderBand"
             Layout.fillWidth: true
-            implicitHeight: 60
+            implicitHeight: AppTheme.headerBandHeight
             // Nothing in a 60px band may be drawn outside it. The band is
             // followed in this column by the timeline, which paints AFTER
             // it, so anything that escapes downward is both visible over the
@@ -5967,44 +5969,38 @@ Rectangle {
         objectName: "roomInfoResizeHandle"
         visible: root.infoOpen
         Layout.fillHeight: true
-        implicitWidth: 5
-
-        // THE BAND IS TRANSPARENT, AND THAT SHOWED. A 5px grab band with the
-        // rule down its middle leaves 2px on each side, and with nothing
-        // painted there the timeline's own background showed THROUGH on the
-        // PANEL side — measured across the seam: timeline #1F1D26, a 2px
-        // rule, then three more native pixels of #1F1D26, and only then the
-        // panel's #292632. Read as a gap between the room and the panel,
-        // because that is exactly what it was.
+        // ONE PIXEL, NOT A BAND. This was a 5px band with the rule inside
+        // it, and every colour that band was painted was wrong somewhere:
+        // transparent showed the timeline through it on the panel side;
+        // painted in the PANEL's tone the visible edge sat at the band's
+        // right for the room header's 60px and at its left below, so the
+        // boundary STEPPED 5px exactly at the header rule; painted in the
+        // room's tone instead, the room's own horizontal rules — which fill
+        // the COLUMN — all stopped 5px short of the divider.
         //
-        // Painting the band in the panel's own colour puts the rule flush
-        // against the panel: room | rule | panel, with no third surface in
-        // between. The grab area is unchanged.
+        // A band between two panes has no colour that is right at every
+        // height, because the columns beside it change colour and it cannot.
+        // So there is none: the handle IS the rule, the panes are adjacent,
+        // and the grab area comes from the handlers' `margin` instead of
+        // from width the divider would have to paint. Same fix, same
+        // reasoning, as the shell SplitView's handle in MainScreen.qml.
+        implicitWidth: 1
+
         Rectangle {
             anchors.fill: parent
-            color: AppTheme.sidebar
-        }
-        // The rule sits at the band's LEFT EDGE, not centred in it. Centred,
-        // the band's panel-coloured left half moved the visible boundary two
-        // pixels before the line, so the colour changed in one place and the
-        // rule was drawn in another. At the edge there is exactly one
-        // transition and the rule marks it. The 5px grab area is unchanged —
-        // only where the line is painted inside it.
-        Rectangle {
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            width: 1
             color: infoDrag.active ? AppTheme.accent
                  : infoHover.hovered ? AppTheme.borderStrong : AppTheme.border
             Behavior on color { ColorAnimation { duration: 90 } }
         }
         HoverHandler {
             id: infoHover
+            // The grab area the 5px band used to be, without a 5px band.
+            margin: 4
             cursorShape: Qt.SplitHCursor
         }
         DragHandler {
             id: infoDrag
+            margin: 4
             target: null
             yAxis.enabled: false
             // The width AT GRAB, because DragHandler.translation is measured

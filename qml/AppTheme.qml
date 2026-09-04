@@ -43,6 +43,14 @@ QtObject {
     // default) has factor 1.0, so nothing changes unless the user picks
     // another family. Fixed chrome and icon sizes stay unscaled.
     function scaled(px) { return Math.round(px * textScale * uiFontOptical) }
+
+    // THE TOP STRIP IS ONE BAND ACROSS THE WHOLE WINDOW. The room list's
+    // header, the room header and the side panel's header sit in it, and the
+    // 1px rule under them has to read as ONE straight line from the rail to
+    // the right edge. Three components spelled 60 out separately and the
+    // fourth sized itself from its content, so the panel's rule sat ~7px
+    // above the room header's and the join was visibly stepped. One number.
+    readonly property int headerBandHeight: 60
     // System dark-mode hint from the platform (QStyleHints::colorScheme),
     // pushed in from Main.qml via AppController.systemDarkMode.
     property bool systemDark: false

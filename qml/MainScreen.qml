@@ -205,49 +205,48 @@ Item {
         anchors.fill: parent
         orientation: Qt.Horizontal
 
-        // The divider between columns. It used to BE the 1px painted line,
-        // so the grab target was one pixel wide and nothing under the
-        // pointer ever suggested the columns could be resized. The handle is
-        // now a 5px transparent band (the hit area) carrying a 1px rule
-        // (the drawn line) that lights on hover and takes the accent while
-        // dragging — the line's own weight is unchanged.
+        // The divider between columns.
+        //
+        // FIVE ROUNDS LIVED IN A 5px BAND, AND EVERY ONE OF THEM WAS THE
+        // BAND. It began as the grab target — the divider used to BE the 1px
+        // line, so nothing under the pointer suggested the columns could be
+        // resized — and a 5px strip of SOMETHING then has to be painted, so
+        // each round picked a colour and each colour was wrong in a
+        // different place:
+        //
+        //   transparent  the SplitView's ground showed, three pixels of the
+        //                timeline's colour BEFORE the rule that marks the
+        //                boundary — a visible sliver
+        //   right colour the timeline column is not one colour: its 60px
+        //                room header is `sidebar`, so the band ran the dark
+        //                timeline tone straight through a continuous lighter
+        //                strip — measured #292632 | #1F1D26 | #292632
+        //   left colour  the band then reads as part of the room list, but
+        //                that column's horizontal rules fill the COLUMN and
+        //                stop at the band's edge, so every one of them ended
+        //                5px short of the divider — a hole in each line
+        //
+        // The band was the defect, not the colour. There is no band now: the
+        // handle is the 1px rule itself, so the two columns are genuinely
+        // adjacent, every rule in either one runs right up to the divider,
+        // and there is no strip that can disagree with a neighbour at any
+        // height. `containmentMask` keeps the grab area 9px wide without
+        // giving the handle any width to paint — the mask is consulted by
+        // hit-testing, which is what the original 5px was really for.
         handle: Item {
             id: splitHandle
-            implicitWidth: 5
+            implicitWidth: 1
 
-            // THE BAND IS TRANSPARENT, AND THE SPLITVIEW'S GROUND SHOWS
-            // THROUGH IT. That ground is the timeline's colour, not the room
-            // list's, so the rule was never on the boundary. Measured at the
-            // room-list seam:
-            //
-            //   x4390..4398  #1B242F   room list
-            //   x4399..4401  #0D1117   the window ground, BEFORE the rule
-            //   x4402..4403  #4C596D   the rule
-            //   x4404+       #0D1117   timeline
-            //
-            // The boundary is three pixels before the line that is supposed
-            // to mark it, and the sliver between them reads as a gap between
-            // the panels.
-            //
-            // Paint the band as the surface on its RIGHT and put the rule at
-            // its LEFT edge: one transition, and the rule marks it. WHICH
-            // surface that is depends on the handle — the first sits between
-            // the 68px rail and the room list, the second between the room
-            // list and the timeline — and SplitView gives a handle no index,
-            // so it is read off the handle's own x against the rail's fixed
-            // 68px width. The 5px grab area is unchanged.
-            readonly property bool beforeRoomList: x < 100
+            containmentMask: grabMask
+            Item {
+                id: grabMask
+                x: -4
+                width: 9
+                height: splitHandle.height
+            }
 
             Rectangle {
                 anchors.fill: parent
-                color: splitHandle.beforeRoomList ? AppTheme.sidebar
-                                                  : AppTheme.background
-            }
-            Rectangle {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                width: 1
                 color: splitHandle.SplitHandle.pressed ? AppTheme.accent
                      : splitHandle.SplitHandle.hovered ? AppTheme.borderStrong
                                                        : AppTheme.border
