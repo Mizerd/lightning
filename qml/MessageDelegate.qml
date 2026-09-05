@@ -3714,6 +3714,11 @@ Item {
                 if (root.timelineView
                         && root.timelineView.releaseTransientInteraction)
                     root.timelineView.releaseTransientInteraction("menu", "")
+                // Hand the view's open-menu slot back (a scroll closes the
+                // menu it holds; see openContextMenu).
+                if (root.timelineView && ("openRowMenu" in root.timelineView)
+                        && root.timelineView.openRowMenu === moreMenu)
+                    root.timelineView.openRowMenu = null
             }
             // v0.6.5 (SPEC 1a): single-key accelerators while
             // the menu is open. Keys cannot attach to a Menu

@@ -2,6 +2,7 @@
 
 #include <QElapsedTimer>
 #include <QHash>
+#include <QTimer>
 #include <QObject>
 #include <QSet>
 #include <QString>
@@ -74,6 +75,11 @@ public:
     /// `revision`, so every name on screen follows without a restart; an
     /// unchanged one changes nothing. Tests set 0 to make every read re-ask.
     void setRefreshIntervalForTest(int ms) { m_refreshMs = ms; }
+    // The periodic sweep (see sweepRecentlyRead), exposed so a test can run
+    // one without waiting twenty seconds, and the "recently read" window it
+    // sweeps within.
+    void sweepForTest() { sweepRecentlyRead(); }
+    void setRecentReadWindowForTest(int ms) { m_recentReadMs = ms; }
     /// Drop everything — a new account must not inherit the last one's map.
     void clear();
 
@@ -87,6 +93,12 @@ Q_SIGNALS:
 private:
     void setSupported(bool supported);
     void setLastError(const QString &error);
+    void dispatchFetch(const QString &userId);
+    /// Re-ask, on a timer, every user whose colour was READ recently — the
+    /// names on screen — so a colour someone changed reaches everyone within
+    /// the interval without anything having to re-render first. Bounded per
+    /// sweep; oldest ask first, so a large room rotates.
+    void sweepRecentlyRead();
 
     MatrixClient *m_client = nullptr;
     // userId -> "#rrggbb", or "" for "asked, and they have none".
@@ -101,7 +113,17 @@ private:
     QHash<QString, qint64> m_askedAt;
     QSet<QString> m_inFlight;
     QElapsedTimer m_clock;
-    int m_refreshMs = 5 * 60 * 1000;
+    // 20 s, was 5 min (2026-09-06: "when display name color is changed it
+    // should update for other users to see the new color in max 15-30
+    // seconds"). A binding read past this re-asks; the sweep below re-asks
+    // the recently read set on the same cadence whether or not anything
+    // re-renders.
+    int m_refreshMs = 20 * 1000;
+    QHash<QString, qint64> m_lastRead;
+    int m_recentReadMs = 5 * 60 * 1000;
+    static constexpr int kSweepMs = 20 * 1000;
+    static constexpr int kSweepCap = 24;
+    QTimer m_sweep;
     quint64 m_nextOp = 1;
     quint64 m_pendingSet = 0;
     int m_revision = 0;

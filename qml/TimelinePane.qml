@@ -5224,7 +5224,20 @@ Rectangle {
                     }
                 }
 
+                // The one row menu that may be open, handed over by
+                // MessageDelegate.openContextMenu(). It is popped up in the
+                // overlay at a point computed once, so a scroll moves the row
+                // away from under it and it sat "chilling in the middle of
+                // the screen" (2026-09-06 report). Any content movement
+                // closes it; a menu that has lost its row is not worth
+                // keeping.
+                property var openRowMenu: null
                 onContentYChanged: {
+                    if (openRowMenu) {
+                        var stale = openRowMenu
+                        openRowMenu = null
+                        stale.close()
+                    }
                     mediaBandSettle.restart()
                     // Unconditional: the activation range must track the
                     // viewport even for programmatic moves.

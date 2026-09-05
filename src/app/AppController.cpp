@@ -880,6 +880,19 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // Connected once here rather than called from inside join(): every path
     // that makes a group call live passes through this state change, so a
     // future entry point cannot forget it.
+    // A REFUSED JOIN IS SAID OUT LOUD. The controller has carried the reason
+    // ("You don't have permission to join this call.") since the MatrixRTC
+    // round and emitted callFailed with it, and nothing was connected to
+    // that signal — so a member without the power level for the membership
+    // state event pressed Join, the prompt vanished, and the banner went on
+    // offering Join with no explanation (seen on the 2026-09-06 GUI pass in
+    // a room whose state_default was 50). The status bar shows it, exactly
+    // like every other reported error.
+    connect(m_groupCall.get(), &SfuCallController::callFailed, this,
+            [this](const QString &reason) {
+                if (!reason.isEmpty())
+                    Q_EMIT errorReported(reason);
+            });
     connect(m_groupCall.get(), &SfuCallController::stateChanged, this,
             [this] {
                 if (m_groupCall->active())
@@ -4158,7 +4171,14 @@ void AppController::refreshTrayState()
 
 void AppController::refreshTrayUnread()
 {
-    if (!m_tray.enabled() || !m_client)
+    // NOT gated on the tray. This walk also withdraws the desktop
+    // notifications of every room that is no longer unread, and until
+    // 2026-09-06 the early return above the loop skipped it whenever the
+    // tray icon was off — which is the default — so a read room's KDE
+    // notification never went away ("if message is read, in client can you
+    // make kde notification go away too"). Only the badge write needs the
+    // icon.
+    if (!m_client)
         return;
     // ONE derivation, from the snapshot the client already holds. There is no
     // account-wide unread total anywhere else in the application to reuse
@@ -4194,7 +4214,8 @@ void AppController::refreshTrayUnread()
         if (!roomUnread && m_notifications)
             m_notifications->closeRoomNotifications(room.id);
     }
-    m_tray.setUnread(total, anyUnread);
+    if (m_tray.enabled())
+        m_tray.setUnread(total, anyUnread);
 }
 
 void AppController::onLoggedOut()

@@ -814,6 +814,14 @@ the first account's client, which is the cross-user claim.
 - A mention query ends at its second space, and a completed rich-mode pill
   (a matrix.to anchor) is never re-read as a token; the markdown editor's
   recorded refs already refused that.
+- The message context menu is closed by any timeline content movement: it is
+  popped up at a fixed overlay point, so a scroll would otherwise leave it
+  floating away from its row. The pane owns the one open menu.
+- A name colour someone changes reaches other running clients within about
+  20 seconds: `NameColorManager` re-asks on a read past the 20 s interval AND
+  sweeps the recently read set on a 20 s timer, so propagation does not wait
+  for a name to repaint. A refused call join is surfaced on the status bar
+  (the controller's `callFailed` reason).
 - The room header's title bound (`Layout.maximumWidth`) is ceiled: a Layout
   hands an item an integer width and the title's own implicitWidth is a
   fraction, so an unrounded bound elided every name by a quarter pixel

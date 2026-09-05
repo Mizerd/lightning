@@ -106,6 +106,53 @@ private Q_SLOTS:
                  "a changed colour must bump the revision the bindings read");
     }
 
+    // 2026-09-06: "when display name color is changed it should update for
+    // other users to see the new color in max 15-30 seconds". A read-driven
+    // refresh only fires when a name re-renders; the sweep re-asks the
+    // recently read names on its own, and a user nobody has looked at in a
+    // while is left alone.
+    void aChangedColourReachesEveryoneOnTheSweepWithoutARerender()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.mockNameColors.insert(QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("#aabbcc"));
+        NameColorManager manager;
+        manager.setClient(&client);
+        manager.setRefreshIntervalForTest(60 * 1000);
+        QSignalSpy revisions(&manager, &NameColorManager::revisionChanged);
+
+        manager.colorFor(QStringLiteral("@bob:mock.local"));
+        QTRY_COMPARE_WITH_TIMEOUT(
+            manager.colorFor(QStringLiteral("@bob:mock.local")),
+            QStringLiteral("#aabbcc"), kSignalTimeoutMs);
+        const int fetches = client.nameColorFetches;
+        const int revisionsBefore = revisions.count();
+
+        // Not due yet: a sweep inside the interval asks nothing.
+        manager.sweepForTest();
+        QCOMPARE(client.nameColorFetches, fetches);
+
+        // Due, and read recently: the sweep re-asks with NO read in between,
+        // and the changed answer bumps the revision every name follows.
+        client.mockNameColors.insert(QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("#123456"));
+        manager.setRefreshIntervalForTest(0);
+        manager.sweepForTest();
+        QCOMPARE(client.nameColorFetches, fetches + 1);
+        QTRY_COMPARE_WITH_TIMEOUT(revisions.count(), revisionsBefore + 1,
+                                  kSignalTimeoutMs);
+        QCOMPARE(manager.colorFor(QStringLiteral("@bob:mock.local")),
+                 QStringLiteral("#123456"));
+
+        // A user nobody has read within the window is not swept.
+        const int fetchesAfterSweep = client.nameColorFetches;
+        manager.setRecentReadWindowForTest(0);
+        QTest::qWait(5);
+        manager.sweepForTest();
+        QCOMPARE(client.nameColorFetches, fetchesAfterSweep);
+    }
+
     void aUserWithNoColourIsNotAskedAboutAgain()
     {
         MockMatrixClient client;

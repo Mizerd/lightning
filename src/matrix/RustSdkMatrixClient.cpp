@@ -4884,13 +4884,27 @@ RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
 void RustSdkMatrixClient::handleRoomListDiff(const QJsonObject &event)
 {
     const QString type = event.value(QStringLiteral("type")).toString();
-    auto reject = [this, &type] {
+    auto reject = [this, &type, &event] {
         // Never apply a malformed/out-of-range diff — that is what would
         // corrupt the ordered registry. Instead request a controlled fresh
         // snapshot from Rust so the model recovers to a complete, correct
         // room set rather than staying stale. (Well-formed dynamic-adapter
         // diffs should never reach here.)
+        //
+        // NAMED, since 2026-09-05: the storm came back on one account
+        // (twelve rejections a minute, every one a snapshot refetch) and the
+        // open item asks for the rejected diff itself before any fix — the
+        // op alone could not say whether the index was past the registry or
+        // the id collided with a row already held. Room ids are stable
+        // public identifiers; nothing else of the room is logged.
+        const QJsonObject roomObject = event.value(QStringLiteral("room")).toObject();
+        const QString roomId = roomObject.value(QStringLiteral("id")).toString();
         qCWarning(lcRust) << "room_list malformed diff rejected op=" << type
+                          << "index=" << event.value(QStringLiteral("index")).toInt(-1)
+                          << "length=" << event.value(QStringLiteral("length")).toInt(-1)
+                          << "room=" << roomId
+                          << "known=" << (!roomId.isEmpty() && m_rooms.contains(roomId))
+                          << "registry=" << m_roomOrder.size()
                           << "— requesting fresh room-list snapshot";
         if (m_rustHandle)
             takeRustString(mx_rust_resync_rooms(m_rustHandle));

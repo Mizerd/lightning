@@ -2,6 +2,9 @@
 
 #include <QRegularExpression>
 
+#include <algorithm>
+#include <utility>
+
 namespace {
 // #rrggbb and nothing else. Rust validates the same shape on the way out of
 // the profile field; this is the second gate, on the value that is about to
@@ -16,7 +19,11 @@ bool isColour(const QString &value)
 } // namespace
 
 NameColorManager::NameColorManager(QObject *parent) : QObject(parent) {
-    m_clock.start();}
+    m_clock.start();
+    m_sweep.setInterval(kSweepMs);
+    m_sweep.setSingleShot(false);
+    connect(&m_sweep, &QTimer::timeout, this, &NameColorManager::sweepRecentlyRead);
+}
 
 void NameColorManager::setClient(MatrixClient *client)
 {
@@ -100,14 +107,10 @@ QString NameColorManager::colorFor(const QString &userId)
         // their client to see the new colour"). Past the interval the next
         // read re-asks — once, never while an ask is in flight — and keeps
         // serving the cached answer; a changed reply bumps the revision.
+        m_lastRead.insert(userId, m_clock.elapsed());
         if (m_refreshMs >= 0 && !m_inFlight.contains(userId)
-            && m_clock.elapsed() - m_askedAt.value(userId) >= m_refreshMs) {
-            m_askedAt.insert(userId, m_clock.elapsed());
-            m_inFlight.insert(userId);
-            const quint64 op = m_nextOp++;
-            m_pending.insert(op, userId);
-            m_client->fetchNameColor(userId, op);
-        }
+            && m_clock.elapsed() - m_askedAt.value(userId) >= m_refreshMs)
+            dispatchFetch(userId);
         return m_colors.value(userId);
     }
     // FIRST CALL DISPATCHES. This is reached from a binding that re-evaluates
@@ -116,12 +119,48 @@ QString NameColorManager::colorFor(const QString &userId)
     // timeline of thirty messages from one sender dispatches thirty fetches
     // before the first answer lands.
     m_asked.insert(userId);
+    m_lastRead.insert(userId, m_clock.elapsed());
+    dispatchFetch(userId);
+    if (!m_sweep.isActive())
+        m_sweep.start();
+    return {};
+}
+
+void NameColorManager::dispatchFetch(const QString &userId)
+{
     m_askedAt.insert(userId, m_clock.elapsed());
     m_inFlight.insert(userId);
     const quint64 op = m_nextOp++;
     m_pending.insert(op, userId);
     m_client->fetchNameColor(userId, op);
-    return {};
+}
+
+void NameColorManager::sweepRecentlyRead()
+{
+    if (!available() || !m_supported)
+        return;
+    const qint64 now = m_clock.elapsed();
+    // Oldest ask first, so a room with more recently read names than the cap
+    // rotates through them over successive sweeps rather than starving the
+    // same ones every time.
+    QList<QPair<qint64, QString>> due;
+    for (auto it = m_lastRead.constBegin(); it != m_lastRead.constEnd(); ++it) {
+        const QString &user = it.key();
+        if (now - it.value() > m_recentReadMs)
+            continue;
+        if (!m_asked.contains(user) || m_inFlight.contains(user))
+            continue;
+        if (m_refreshMs < 0 || now - m_askedAt.value(user) < m_refreshMs)
+            continue;
+        due.append(qMakePair(m_askedAt.value(user), user));
+    }
+    std::sort(due.begin(), due.end());
+    int dispatched = 0;
+    for (const auto &entry : std::as_const(due)) {
+        if (dispatched++ >= kSweepCap)
+            break;
+        dispatchFetch(entry.second);
+    }
 }
 
 void NameColorManager::setOwnColor(const QString &value)
@@ -156,6 +195,8 @@ void NameColorManager::clear()
     Q_EMIT busyChanged();
     Q_EMIT lastErrorChanged();
     Q_EMIT supportedChanged();
+    m_lastRead.clear();
+    m_sweep.stop();
 }
 
 void NameColorManager::setSupported(bool supported)

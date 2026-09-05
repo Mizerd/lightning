@@ -214,6 +214,27 @@ contract, the refutation rule and the probe rule are in the standing warnings.
   frozen above live traffic) — the maintainer asked for Element's shape, and
   the retired `favouritesBoundaryRoomId` stays retired because the header
   now separates the groups.
+- **The row context menu stayed put on scroll.** Opened at a point computed
+  once in the overlay, so a scroll moved the row out from under it and it sat
+  "chilling in the middle of the screen" (2026-09-06). The pane holds the one
+  open menu and closes it on any content movement; the thread panel keeps the
+  old behaviour.
+- **A read room's KDE notification never went away.** `refreshTrayUnread`
+  also withdraws the notifications of rooms that are no longer unread, but it
+  returned early whenever the tray icon was off — the default — so the
+  withdrawal never ran. It is gated on the client now, not the tray; only the
+  badge write needs the icon.
+- **A refused call join said nothing.** The controller has carried the
+  reason ("You don't have permission to join this call.") since the MatrixRTC
+  round, and nothing was connected to its `callFailed` signal — a member
+  without the power level for the membership state pressed Join, the prompt
+  vanished, and the banner went on offering Join. It reaches the status bar
+  now, like every other error. Found on the 2026-09-06 GUI pass.
+- **A changed name colour now propagates on a timer, not only on a
+  re-render.** The read-driven refresh (5 min -> 20 s) only fires when a name
+  re-renders; a sweep re-asks the recently read names every 20 s on its own,
+  so a colour someone changed reaches everyone within the window
+  ("in max 15-30 seconds") without anything having to repaint first.
 - **Minimising popped the call out.** The automatic picture-in-picture
   (desktop-integration round) fired on every minimise and every close to the
   tray, and it shipped ON. A window appearing on its own for a reader who
