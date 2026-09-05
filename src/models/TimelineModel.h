@@ -167,6 +167,18 @@ public:
         PollTotalVotersRole,
         PollEndedRole,
         CanEndPollRole,         // own poll, not ended (conservative rule)
+        // v0.9.0: a shared place. `locationHasPoint` gates every other one:
+        // a geo URI that did not parse leaves the coordinates absent rather
+        // than at 0,0, which is a real spot in the Atlantic.
+        IsLocationRole,
+        LocationHasPointRole,
+        LocationLatRole,
+        LocationLonRole,
+        LocationUncertaintyRole,
+        LocationDescriptionRole,
+        LocationAssetRole,
+        LocationLiveRole,
+        LocationLiveActiveRole,
         // Element-style read-receipt chips: OTHER users whose read receipt
         // points at this event, newest first, as a list of
         // {userId, displayName, avatarMxc, tsMs}. Excluded (Element

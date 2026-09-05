@@ -932,13 +932,342 @@ pack is loaded and "custom emoji" otherwise, never a raw mxc. The reaction
 picker gains a "Custom emoji" strip; composer mode does not, and the strip
 never records into the Unicode recents.
 
-**Custom emoji INSIDE a message body are deliberately NOT implemented.** The
-wire format is established (`formatted_body` carrying
-`<img data-mx-emoticon src="mxc://…" alt=":code:" height="32" />`, plain `body`
-carrying `:code:`), but Lightning's HTML sanitizer allows no `<img>` and drops
-an unknown tag while keeping its text content — an `<img>` has none, so an
-emoji-only message would render BLANK here. Sending before the receive side
-exists would emit messages this client cannot display. The two halves are one
-unit and one round.
+**Custom emoji INSIDE a message body are IMPLEMENTED (v0.9.0).** Both halves
+landed in one round, because sending before the receive side existed would
+have emitted messages this client could not display.
 
-Live validation of every part of this: **NOT TESTED**.
+Wire format: `formatted_body` carries
+`<img data-mx-emoticon src="mxc://…" alt=":code:" height="20" width="20" />`
+and the plain `body` carries `:code:`.
+
+Three things that are not obvious and cost time to find:
+
+* **matrix-sdk-ui sanitises INCOMING html itself**, with a hard-coded
+  `HtmlSanitizerMode::Compat` `const` that is not configurable, and it strips
+  `data-mx-emoticon`. Lightning therefore reads the RAW event's
+  `formatted_body` rather than the SDK's cleaned copy
+  (`restore_raw_formatted_body`), and must call it AFTER
+  `fill_message_content` — an earlier ordering made its guard always return
+  early and the whole feature silently did nothing.
+* **Allowing that attribute DISABLES ruma's own img-src scheme check.** Its
+  loop returns on the first attribute with no scheme rules, so permitting
+  `data-mx-emoticon` stops it ever reaching `src`. mxc-only is therefore
+  enforced by Lightning's own `strip_non_mxc_images`, not by the sanitizer.
+* **The `<img>` is REBUILT from validated parts**, never passed through: it
+  is allowed only when it carries BOTH `data-mx-emoticon` and an `mxc://`
+  src, and `height`/`width` are forced to 20. A pass-through would let a
+  sender choose the dimensions and paint over the surrounding message.
+
+Shortcode completion (`:blob` → the installed packs' matches) is
+`EmojiCompletionPopup.qml`, driven by `MessageComposer::emojiCompletionsAt`
+— CURSOR-driven rather than a NOTIFY property, because a shortcode can be
+anywhere in the text while a slash command is always at position 0.
+
+**Pack management (v0.9.0):** remove an image, rename its shortcode, rename
+the pack, empty the pack — `StickerPackEditor.qml`, reached from the picker.
+One `PackEdit` enum and one shared writer serve BOTH the account pack
+(account data) and a room pack (room state, power-level gated exactly as
+adding is). Decisions worth keeping:
+
+* Removing the last image leaves an EMPTY pack that keeps its name; deleting
+  the pack drops the name too. MSC2545 says a room pack with no
+  `display_name` falls back to the ROOM's name, so keeping an empty pack's
+  name is what stops "I removed my last sticker" from renaming it.
+* A rename COLLISION is refused, not suffixed. `add` may invent `blob-2`
+  because any name will do for something new; someone deliberately renaming
+  meant the name they typed.
+* Renaming to the SAME name succeeds — the pack ends how the user asked.
+* An empty pack name is SENT, not refused: clearing it is a real state, and
+  a local guard would make the room-name fallback unreachable.
+* A rename is ONE transform, not remove-then-add: a remove that succeeded
+  followed by an add that failed would delete the image being renamed.
+
+Live validation: the SEND and RECEIVE of inline custom emoji, and shortcode
+completion, are **PASS** (a real `im.ponies.user_emotes` pack, 2026-09-05).
+Pack management is **NOT TESTED** on screen.
+
+### Browsing a room's media, files and links
+
+`Room Information → Media`. Walks the room's WHOLE accessible history on its
+own `/messages` cursor (`rust/src/mediahistory.rs`), never the timeline's
+loaded window — the tab it replaced showed whatever the timeline happened to
+hold, so finding an image from March meant scrolling the conversation back to
+March.
+
+**Completeness is SHOWN, not implied.** The strip under the toolbar always
+says how much history has been examined and whether the start was reached.
+"No images" after 60 events and "no images in 12,000 events, all of history"
+are different answers, and a browser rendering both as an empty grid is lying
+about the second. `undecryptableCount` is the third state: history that
+exists and cannot be read, which in an encrypted room would otherwise look
+like less media.
+
+A link event contributes one row PER URL, so the event id alone cannot be the
+identity — the (event, url) pair is. Pages can overlap at a boundary, which
+is what the dedupe is for. A page that matched nothing is NOT completeness,
+and a FAILED page never is: it leaves the rest of history unknown, so
+reporting it as complete would turn a server error into "that is everything".
+
+Categories are a `Flow`, not a horizontal scroller: this lives in a side
+panel whose width the user controls, and a scroller hid Files and Links
+behind a gesture nobody would guess was there.
+
+Live validation: **PASS** (2026-09-05). Three defects only GUI testing found:
+an `"op"`/`"op_id"` payload-key mismatch that meant pages never arrived;
+`available` never re-emitted after login, so the browser said "cannot browse
+room history" forever; and the initial category never pushed to the model
+(`onCategoryChanged` fires only on a CHANGE), so the Media tab listed files
+and links.
+
+### Forwarding a selection
+
+Multi-select in the timeline, multi-destination picker
+(`ForwardSelectionDialog.qml`). N messages to M destinations, with two modes:
+"just the message" (a clean copy) and "with original sender" (a copy naming
+the sender, the source room and the time). The mode is a CONSCIOUS choice and
+the dialog says what it discloses, because that context goes to whoever
+receives the copy — who may not be in the source room.
+
+The dialog stays open through the send and reports PER PAIR, with a retry for
+the failures. N×M sends can partially fail, and "sent" because one of twelve
+worked is a lie the user would act on. Capped at 50 messages.
+
+Attachments in a bulk selection are REPORTED as needing the single-message
+path rather than silently skipped: unbounded parallel uploads are forbidden
+by design.
+
+Live validation: **PASS** (2026-09-05, 2 messages × 2 rooms = "Sent 4
+copies", both rooms verified server-side).
+
+### Per-room profiles
+
+`Room Information → Your profile in this room`. A display name and avatar
+that apply in ONE room.
+
+The display name uses the SDK's own `Room::set_own_member_display_name`.
+There is **no avatar equivalent**, so the avatar is a RAW read-modify-write
+of the member event that preserves `join_authorised_via_users_server` (note
+the JSON spelling, with the s), `blurhash`, `reason`, `is_direct` and
+`third_party_invite` — dropping any of them would rewrite state the server
+put there.
+
+It uploads through `client.media().upload()`, **never** `upload_avatar`,
+which would rewrite the account's GLOBAL avatar — the exact opposite of what
+a per-room override is for. Refuses a membership that is not `join`, and a
+stripped one.
+
+Live validation: **PASS** (2026-09-05, verified server-side: the override
+applied in one room while another kept the global name).
+
+### Desktop integration (notification actions, call keys, picture-in-picture)
+
+**Notification actions.** Mark as read, and an inline Reply where the daemon
+advertises `inline-reply` (queried in the same `GetCapabilities` round trip
+as `body-markup`). Offered only on a card with a real event id, so an invite
+— which cannot be marked read and cannot be replied into — is not given two
+buttons that fail.
+
+**A notification card OUTLIVES the account that raised it.** The user can
+switch accounts, or sign out, while it is on screen, and the desktop
+delivers the action minutes later. Acting under whichever account is current
+would mark another account's room read, or send a reply from the wrong
+identity into a room the current account may not even be in — and it would
+SUCCEED, so nothing would report it. Every payload is stamped with the
+account it was raised for, and a mismatch is refused with a notice that says
+why rather than silently switching who you are signed in as.
+
+`inline-reply` arrives in TWO parts on some daemons (ActionInvoked, then
+NotificationReplied), so the payload survives the first and is consumed by
+the second. A threaded message is answered in its thread.
+
+**Encrypted rooms get their own preview level**, defaulting to "same as other
+rooms". A notification body is written to the desktop daemon and its log in
+plaintext, outside everything the room's encryption guarantees. When
+encryption is not yet KNOWN — a real state during hydration — the STRICTER of
+the two wins: guessing "unencrypted" would put a body on screen the user
+asked to withhold, and nobody would learn it had happened.
+
+**Mute and deafen keys** are window-global (Ctrl+Shift+U, Ctrl+Shift+H) and
+follow the same lane selection the call bar's buttons use. Discord's own keys
+were both unavailable: Ctrl+Shift+M is `room.markRead` and Ctrl+Shift+D is in
+the reserved table. They are inert outside a call rather than absent — a key
+that quietly does nothing is better than one that takes the sequence away
+from something else while a call is up.
+
+**Picture-in-picture** (`CallPipWindow.qml`) is a small always-on-top window
+carrying the call while the main window is minimised or in the tray, plus a
+manual pop-out from the call bar. It is a REPLACEMENT, never a duplicate:
+`SfuVideoRouter` holds ONE sink per track and the last attach owns it, so two
+surfaces on the same participant means one goes black. Hence the flag is
+mutually exclusive with full screen in `CallStageState`, the window's
+surfaces are built only while it is really showing, and its tiles are
+Repeaters over the LIVE models rather than `get(row)` snapshots (a share's
+track key fills in late; a snapshot never attaches a sink). Unlike full
+screen it is NOT refused without a focused surface — a voice-only call is
+when a floating window is most useful.
+
+Live validation of the actions, the keys and the PiP window: **NOT TESTED**.
+
+### Reading and typing privacy
+
+`Settings → Privacy & security → Reading and typing`.
+
+**Read receipts**: public (as before), private (MSC2285 `m.read.private` —
+the server records it so this account's OTHER devices still clear their
+badge, and no other member sees it), or off. The mode is stored ONCE on the
+bridge rather than passed per call, because THREE Rust paths send a receipt —
+reading a room, marking one read from the room list, and the thread panel's —
+and a rule honoured by two of three is not a rule.
+
+**The fully-read marker is sent in every mode.** It is account data only this
+user can read, and it carries their place in the conversation between their
+own devices and across a reinstall; losing it is not what a privacy setting
+should cost. Receipts already sent cannot be retracted — the protocol has no
+un-send — and the UI says so.
+
+**Typing notices** can be switched off. They are the highest-frequency thing
+a client discloses — every few keystrokes, to every member — and they say
+when you are at the keyboard, not only what you send. Turning it off MID-NOTICE
+sends the stop immediately: the server would time it out eventually, but "you
+stop appearing to type within thirty seconds" is not what the switch says.
+
+Live validation: **NOT TESTED**.
+
+### Sign in another device with a code (MSC4108)
+
+`Settings → Sessions → Sign in another device…`. Lightning implements the
+two combinations where THIS device is the one already signed in: it shows a
+code a new device scans, or takes the TEXT of a code a new device shows.
+Either way the new device ends up signed in AND cross-signed — the SDK moves
+the private cross-signing keys and the backup key across the channel, which
+is the value of it and why the two confirmation digits matter.
+
+**The other direction is deliberately absent.** Signing THIS device in from a
+code requires the OAuth device-code grant in the client metadata, and
+`rust/src/oauth.rs` does not request it — there is a test asserting so with a
+comment saying the omission is on purpose. If that is ever revisited, the
+route is clean: `login_with_qr_code` takes its OWN `ClientRegistrationData`,
+so a separate metadata can request device_code while the ordinary
+authorization-code flow keeps not to, and that test stays true.
+
+**There is no camera.** Lightning bundles no camera-frame decoder, so the
+scanning leg takes the code's base64 text. The dialog says so rather than
+showing a viewfinder that will never fill.
+
+Two rules, both tested:
+
+* A progress step for a SUPERSEDED flow is ignored. Applying it would drive
+  the current flow with the previous one's input, and for a check code that
+  means comparing digits from a channel that no longer exists — skipping the
+  comparison the digits exist to force.
+* The rendered code does not outlive its flow, by ANY exit (cancel,
+  sign-out, failure, success). The grid store is shared with device
+  verification and served over an `image://` URL, so a code left behind is
+  one a stale URL can still fetch.
+
+The progress stream is not optional: the check code and the verification URL
+arrive only through it, so the task always spawns consumer-plus-future.
+
+Live validation: **NOT TESTED** (needs a homeserver with the MSC4108
+rendezvous endpoint and a second device).
+
+### Invisible crypto (MSC4153)
+
+`Settings → Privacy & security → Device trust`. ONE switch driving BOTH SDK
+knobs, because setting one alone gives an asymmetric client: refusing to
+share room keys with devices that are not cross-signed while still decrypting
+what those devices send, or the reverse.
+
+* send: `CollectStrategy::IdentityBasedStrategy`
+* receive: `TrustRequirement::CrossSignedOrLegacy` — **never**
+  `CrossSigned`, which refuses legacy Megolm sessions (those created before
+  clients collected trust information) and would turn existing history into
+  undecryptable events the moment someone enabled a privacy setting.
+
+**Default OFF**, deliberately: enabling it makes anyone who has not
+cross-signed their own devices unreadable, and doing that to an existing
+install unasked reads as the client breaking.
+
+**RESTART TO APPLY**, said plainly in the UI. matrix-sdk 0.18 exposes no
+runtime setter for either half — `decryption_settings()` is read-only and
+there is no recipient-strategy setter — so the alternative would be
+rebuilding the client, store and timeline registry underneath the user. It is
+a process global read at client-BUILD time for the same reason:
+`build_client` is the one path for password login, OAuth and the auth probe.
+
+Live validation: **NOT TESTED**.
+
+### Policy lists (Mjolnir-style moderation)
+
+`Room Information → Moderation rules…`. Reads a policy room's
+`m.policy.rule.{user,server,room}` state, publishes and removes rules where
+the account has the power level, and keeps the list of rooms this account
+follows (its own account data, `org.lightning_matrix.policy_lists`).
+
+**Following a list does NOT act on it, and that is the contract.** A
+subscribed list is somebody else's judgement; hiding people on the strength
+of it — with no way to see that it happened or why — is a different feature
+from showing that a list covers someone and offering to act. Lightning
+already has ignore (`m.ignored_user_list`, server-side and account-wide) and
+kick/ban/unban; this feeds them. The dialog says so, and a test pins it.
+
+Details that decide whether a REAL list is readable at all:
+
+* `recommendation` crosses as a STRING, not an enum. ruma models
+  `Recommendation` with one known variant (`m.ban`) plus an open `_Custom`,
+  so Mjolnir's legacy `org.matrix.mjolnir.ban` lands in the latter — and a
+  client comparing the enum reads a real ban list as EMPTY.
+* The legacy `org.matrix.mjolnir.rule.*` type names are read too.
+* A rule recommending something OTHER than a ban matches nothing: the spec
+  allows other recommendations and acting on them would be acting on advice
+  nobody gave. Such rules are still SHOWN, and marked.
+* A SERVER rule covers everyone on that server — the point of one.
+* Removal is an EMPTY content object, so a removed rule must not parse as a
+  rule with an empty entity, which would match nothing under a careful
+  matcher and EVERYTHING under a careless one.
+* The glob is a GLOB: `*` and `?` only. `.` and `+` are literal, because a
+  Matrix localpart can contain both.
+
+Reading uses the store-then-raw-`/state` pattern `widgets.rs` documents (the
+SDK's state store is empty for uncommon types), bounded at 2000 rules — and
+the bound is REPORTED, because a partial list that does not say so reads as
+complete, and for a ban list "complete" means "this person is not on it".
+
+Live validation: **NOT TESTED**.
+
+### Sharing a place (m.location, live beacons)
+
+RECEIVING both kinds is implemented in full: static `m.location` (MSC3488)
+and live beacons (MSC3672), each rendered as its own card with the place, the
+coordinates, the sender's stated accuracy, and — for a live share — whether
+it is STILL CURRENT (`is_live()` checks the flag AND `ts + timeout`; showing
+an expired share as live tells the reader somebody is somewhere they may have
+left).
+
+SENDING a static location is implemented (`Share a place…` in the composer's
+attach menu). **Sending a LIVE location is deliberately not.** A desktop has
+no position source; `send_location_beacon` exists to be called repeatedly
+with new positions, and a "live" share that never moves is a lie told to
+everyone in the room under a banner saying otherwise.
+
+Two rules:
+
+* **An unreadable or out-of-range point leaves the coordinates ABSENT, never
+  0,0.** A geo URI is a field of a message anyone can send. Zero is a real
+  spot in the Atlantic, and a UI reading it would draw a confident link to
+  the wrong place. `locationHasPoint` is the flag that distinguishes absence
+  from a genuine 0,0, which is the equator at the prime meridian and must
+  still render.
+* **No embedded map, and no widening of the URL allowlist.** A map widget
+  means tiles, and tiles mean every reader's IP address reaching a tile
+  server the moment a message renders. The card builds an
+  `https://www.openstreetmap.org/...` link from the PARSED NUMBERS;
+  `UrlLauncher`'s allowlist (http/https/mailto) is untouched, because
+  widening it to `geo:` would hand an attacker-controlled string to
+  `xdg-open`.
+
+ruma parses no geo URIs (`LocationContent::new` takes a `String`), so
+`rust/src/location.rs` owns the parser and the builder, and they agree — a
+point Lightning would refuse to render is one it can never send.
+
+Live validation: **NOT TESTED**.

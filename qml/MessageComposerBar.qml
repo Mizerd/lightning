@@ -1201,6 +1201,18 @@ Item {
             visible: app.composer.pollsSupported()
             onTriggered: createPollDialog.openDialog()
         }
+        // A PLACE. This bar is the ROOM composer — the thread panel builds
+        // its own — so there is nothing to gate here, but MessageComposer
+        // still refuses a send while it holds a thread root: the bridge's
+        // send_location uses the ROOM timeline, and a thread reply landing
+        // in the room is §8's first invariant.
+        AppMenuItem {
+            objectName: "shareLocationMenuItem"
+            iconName: "explore"
+            text: qsTr("Share a place…")
+            visible: app.composer.locationSupported()
+            onTriggered: shareLocationDialog.openDialog()
+        }
         // Only while the input row is too narrow to carry these as their own
         // buttons — the action is displaced, never removed.
         AppMenuItem {
@@ -1223,6 +1235,10 @@ Item {
     }
     CreatePollDialog {
         id: createPollDialog
+    }
+    ShareLocationDialog {
+        id: shareLocationDialog
+        composer: app.composer
     }
 
     // Development-only: screenshot-demo popup hooks (see

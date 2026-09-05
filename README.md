@@ -33,9 +33,20 @@ mentions, typing indicators and read receipts — receipts as Element-style avat
 chips you can click for the reader list. Pinned messages, message forwarding
 (media is re-uploaded rather than mxc-copied, so the target room can actually
 fetch it), polls (MSC3381), drafts that survive a room switch, and `@room` where
-the room's own power level allows it. Search uses the homeserver's own index in
+the room's own power level allows it. Forward several messages to several rooms
+at once, with or without naming where they came from, and be told which copies
+failed rather than a single "sent". Search uses the homeserver's own index in
 unencrypted rooms and the loaded timeline in encrypted ones, and says which it is
-doing — a server cannot search ciphertext.
+doing — a server cannot search ciphertext. Share a place as a real
+`m.location` message, and read the ones other people send — including live
+shares, which say whether they are still current.
+
+**Moderation and safety.** Mjolnir-style policy lists: read a room's published
+ban rules, publish and remove your own where the room's power level allows,
+and follow lists other people maintain. Following a list does **not** block
+anyone by itself — Lightning tells you when someone is covered by a list you
+follow and you decide, because a published list is somebody else's judgement
+and acting on it silently is a different thing from acting on it.
 
 **Threads.** Real Matrix threads on SDK thread timelines: a side panel, a per-room
 Threads view, summary cards with participant facepiles, threaded read receipts,
@@ -70,16 +81,27 @@ what Matrix would actually permit.
 **Encryption and accounts.** SDK-owned Olm/Megolm with cross-signing, SAS **and**
 QR device verification, Secure Backup restore, key import, and late in-place
 decryption when keys arrive. Sign in with a password or through the homeserver's
-own browser flow (OAuth 2.0 / OIDC, live-validated against matrix.org). Several
-accounts on different homeservers at once, each with an isolated SDK and
-encryption store, switching in place; only the active one syncs.
+own browser flow (OAuth 2.0 / OIDC, live-validated against matrix.org), and
+sign your OTHER devices in from this one with a code (MSC4108) — they arrive
+verified, with your cross-signing and backup keys, rather than needing a
+separate verification afterwards. Optionally refuse to exchange messages with
+devices their owner has not cross-signed (MSC4153), off by default because
+turning it on makes unverified people unreadable. A display name and avatar
+that apply in one room only. Several accounts on different homeservers at
+once, each with an isolated SDK and encryption store, switching in place;
+only the active one syncs.
 
 **Media and the composer.** Images, video and audio with inline playback, posters
 and waveforms; encrypted attachments throughout; voice messages (MSC3245) with a
 live waveform, in rooms and threads; a two-provider GIF browser (GIPHY and KLIPY)
 that sends real Matrix media and never sends a provider anything but your search
 term; a local emoji picker; MSC2545 sticker packs — your own, a room's, and
-packs subscribed from elsewhere — with a browser and save-to-pack; JPEG XL
+packs subscribed from elsewhere — with a browser, save-to-pack, and pack
+editing (rename a shortcode, remove an image, rename or empty a pack);
+**custom emoji inline in a message**, with `:shortcode` completion as you
+type; a media browser that walks a room's whole history for its images,
+files and links rather than only what the timeline has loaded, and says how
+much of that history it has actually read; JPEG XL
 alongside the usual formats; drag-and-drop; and link previews, off by
 default because Lightning fetches them itself rather than through your
 homeserver, and separately controllable for encrypted rooms.
@@ -87,7 +109,11 @@ homeserver, and separately controllable for encrypted rooms.
 **Desktop.** Eleven WCAG-AA themes and an editor for your own, which you can name,
 keep and share as a block of text. Eleven languages, switchable without a restart,
 including right-to-left Arabic. Native notifications with per-room modes written to your
-account's server push rules, close-to-tray, resizable and hideable panes, a quick
+account's server push rules — reply and mark-as-read straight from the
+notification where the desktop supports it, and a separate preview level for
+encrypted rooms. A floating always-on-top call window when Lightning is
+minimised. Read receipts can be private or off, and typing notices can be
+switched off entirely. Close-to-tray, resizable and hideable panes, a quick
 switcher (Ctrl-K), rebindable shortcuts, native spell checking in the composer,
 your own imported fonts, and keyboard navigation throughout.
 

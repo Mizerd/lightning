@@ -2851,6 +2851,23 @@ void RustSdkMatrixClient::uploadStickerToUserPack(
     }
 }
 
+void RustSdkMatrixClient::sendLocation(const QString &roomId, double lat,
+                                       double lon, const QString &description)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
+        return;
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray desc = description.toUtf8();
+    const QString result = takeRustString(mx_rust_send_location(
+        m_rustHandle, room.constData(), lat, lon, desc.constData()));
+    if (!result.isEmpty()) {
+        // The bridge refuses a point that is not on Earth. Reported rather
+        // than swallowed: the user typed it and is waiting.
+        qCWarning(lcRust) << "location send rejected";
+        Q_EMIT errorOccurred(tr("That location could not be sent."));
+    }
+}
+
 // ── Policy lists ───────────────────────────────────────────────────────
 
 void RustSdkMatrixClient::fetchPolicyRules(const QString &roomId, quint64 opId)

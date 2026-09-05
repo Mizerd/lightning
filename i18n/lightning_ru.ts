@@ -4979,7 +4979,7 @@ Size: %3</source>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+195"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+197"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Вложения не поддерживаются этим бэкендом.</translation>
     </message>
@@ -5081,24 +5081,24 @@ Size: %3</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+38"/>
+        <location line="+50"/>
         <source>Emoji…</source>
         <translation>Эмодзи…</translation>
     </message>
     <message>
-        <location line="-31"/>
-        <location line="+38"/>
+        <location line="-43"/>
+        <location line="+50"/>
         <source>GIFs and stickers…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-37"/>
-        <location line="+38"/>
+        <location line="-49"/>
+        <location line="+50"/>
         <source>GIF…</source>
         <translation>GIF…</translation>
     </message>
     <message>
-        <location line="-23"/>
+        <location line="-35"/>
         <source>Attach files…</source>
         <translation>Прикрепить файлы…</translation>
     </message>
@@ -5108,7 +5108,12 @@ Size: %3</source>
         <translation>Создать опрос…</translation>
     </message>
     <message>
-        <location line="+254"/>
+        <location line="+12"/>
+        <source>Share a place…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+258"/>
         <source>Failed</source>
         <translation>Не удалось</translation>
     </message>
@@ -5488,18 +5493,18 @@ Size: %3</source>
     </message>
     <message>
         <location line="+117"/>
-        <location line="+1077"/>
+        <location line="+1091"/>
         <location line="+894"/>
         <source>Reply</source>
         <translation>Ответить</translation>
     </message>
     <message>
-        <location line="-1951"/>
+        <location line="-1965"/>
         <source>(original message not loaded)</source>
         <translation>(исходное сообщение не загружено)</translation>
     </message>
     <message numerus="yes">
-        <location line="+113"/>
+        <location line="+127"/>
         <source>%n message(s) deleted</source>
         <comment>collapsed run of redactions</comment>
         <translation>
@@ -6036,7 +6041,42 @@ Size: %3</source>
         <translation>Открыть файл</translation>
     </message>
     <message>
-        <location line="+100"/>
+        <location line="+57"/>
+        <source>Sharing live location</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Live location (ended)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>A place</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Location</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+26"/>
+        <source>%1 · within %2 m</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Open in a map</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>This location could not be read.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+97"/>
         <source>Results are revealed when the poll ends</source>
         <translation>Результаты откроются после завершения опроса</translation>
     </message>
@@ -6756,7 +6796,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="+5"/>
+        <location line="+9"/>
         <source>%n rule(s) — this list is long and only the first were read.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -6765,7 +6805,7 @@ Size: %3</source>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+4"/>
+        <location line="+3"/>
         <source>%n rule(s).</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -8869,12 +8909,12 @@ Size: %3</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2102"/>
+        <location line="+2119"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning не смог полностью сбросить локальный сеанс этой учётной записи. Проверьте журналы приложения и права доступа к файловой системе, затем повторите попытку.</translation>
     </message>
     <message>
-        <location line="-2118"/>
+        <location line="-2135"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Локальный сеанс Lightning пересоздан. Предыдущее хранилище шифрования отложено в сторону, а не удалено, и по-прежнему находится в каталоге данных этой учётной записи. Вы можете войти снова.</translation>
     </message>
@@ -8887,7 +8927,7 @@ Size: %3</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3327"/>
+        <location line="+3344"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -8896,15 +8936,15 @@ Size: %3</source>
         <translation>Вход не выполнен.</translation>
     </message>
     <message>
-        <location line="-3707"/>
+        <location line="-3724"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3509"/>
+        <location line="+3526"/>
         <source>Unknown room: %1</source>
         <translation>Неизвестная комната: %1</translation>
     </message>
     <message>
-        <location line="-3709"/>
+        <location line="-3726"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -8916,7 +8956,12 @@ Size: %3</source>
         <translation>Наклейку не удалось отправить.</translation>
     </message>
     <message>
-        <location line="+951"/>
+        <location line="+81"/>
+        <source>That location could not be sent.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+887"/>
         <source>Rust SDK backend does not implement %1 yet.</source>
         <translation>Бэкенд Rust SDK пока не реализует %1.</translation>
     </message>
@@ -9051,7 +9096,7 @@ Size: %3</source>
 <context>
     <name>RustTimeline</name>
     <message>
-        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+354"/>
+        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+382"/>
         <source>[unable to decrypt yet]</source>
         <translation>[пока не удаётся расшифровать]</translation>
     </message>
@@ -12677,6 +12722,54 @@ Note: importing keys does not verify this session.</source>
     </message>
 </context>
 <context>
+    <name>ShareLocationDialog</name>
+    <message>
+        <location filename="../qml/ShareLocationDialog.qml" line="+95"/>
+        <source>Share a place</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Paste a map link or coordinates</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Latitude</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Longitude</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>What is here? (optional)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>The coordinates and this description are sent to the room as an ordinary message. Lightning does not know where you are — it sends exactly what is typed here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Latitude must be between -90 and 90, and longitude between -180 and 180.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Cancel</source>
+        <translation type="unfinished">Отмена</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Send</source>
+        <translation type="unfinished">Отправить</translation>
+    </message>
+</context>
+<context>
     <name>ShortcutRegistry</name>
     <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+45"/>
@@ -15036,7 +15129,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 начал звонок.</translation>
     </message>
     <message>
-        <location line="+1136"/>
+        <location line="+1154"/>
         <source>%1 is typing…</source>
         <translation>%1 печатает…</translation>
     </message>

@@ -1149,6 +1149,15 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case PollAnswersRole:        return pollAnswersVariant(e);
     case PollTotalVotersRole:    return e.pollTotalVoters;
     case PollEndedRole:          return e.pollEnded;
+    case IsLocationRole:         return e.type == TimelineEvent::Location;
+    case LocationHasPointRole:   return e.locationHasPoint;
+    case LocationLatRole:        return e.locationLat;
+    case LocationLonRole:        return e.locationLon;
+    case LocationUncertaintyRole: return e.locationUncertaintyM;
+    case LocationDescriptionRole: return e.locationDescription;
+    case LocationAssetRole:      return e.locationAsset;
+    case LocationLiveRole:       return e.locationLive;
+    case LocationLiveActiveRole: return e.locationLiveActive;
     // Conservative permission rule, mirroring canRedactEvent: Lightning
     // offers End poll only on the user's own running polls; the server and
     // receiving clients enforce the actual MSC3381 rules.
@@ -1381,6 +1390,15 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { PollAnswersRole,          "pollAnswers" },
         { PollTotalVotersRole,      "pollTotalVoters" },
         { PollEndedRole,            "pollEnded" },
+        { IsLocationRole,           "isLocation" },
+        { LocationHasPointRole,     "locationHasPoint" },
+        { LocationLatRole,          "locationLat" },
+        { LocationLonRole,          "locationLon" },
+        { LocationUncertaintyRole,  "locationUncertaintyM" },
+        { LocationDescriptionRole,  "locationDescription" },
+        { LocationAssetRole,        "locationAsset" },
+        { LocationLiveRole,         "locationLive" },
+        { LocationLiveActiveRole,   "locationLiveActive" },
         { CanEndPollRole,           "canEndPoll" },
         { ReadReceiptsRole,         "readReceipts" },
         { ReadReceiptsTotalRole,    "readReceiptsTotal" },

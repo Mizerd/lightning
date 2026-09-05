@@ -1830,6 +1830,20 @@ Item {
                         sourceComponent: pollComponent
                     }
 
+                    // A SHARED PLACE (v0.9.0). Its own card rather than a
+                    // line of text, because the useful action is opening a
+                    // map — and because a live share has to say whether it
+                    // is still current.
+                    Loader {
+                        id: locationLoader
+                        active: model.isLocation === true
+                        visible: active
+                        Layout.alignment: Qt.AlignLeft
+                        Layout.preferredWidth: item ? item.implicitWidth : 0
+                        Layout.maximumWidth: bubble.width
+                        sourceComponent: locationComponent
+                    }
+
                     // Body text (hidden for media messages whose body is just
                     // the filename already shown in the media block, for poll
                     // rows, whose card renders the question, and for
@@ -6066,6 +6080,121 @@ Item {
     // the ended flag all derive from model roles, so pooled-delegate reuse
     // can never show another row's votes. Undisclosed running polls arrive
     // with zeroed counts from the bridge — hidden tallies never reach QML.
+    // A SHARED PLACE. There is no embedded map: Lightning has no map widget
+    // and adding one would be a network dependency on a tile server that
+    // every reader's IP address would then reach. So the card shows the
+    // place in words and offers to open it in the browser.
+    //
+    // The link is BUILT from the parsed numbers, never from the sender's
+    // `geo:` string: UrlLauncher's allowlist is http/https/mailto and
+    // widening it to `geo:` would hand an attacker-controlled string
+    // straight to xdg-open.
+    Component {
+        id: locationComponent
+        Rectangle {
+            objectName: "locationCard"
+            implicitWidth: Math.min(320, locationCol.implicitWidth
+                                         + AppTheme.spacing12 * 2)
+            implicitHeight: locationCol.implicitHeight + AppTheme.spacing12 * 2
+            radius: AppTheme.radiusMd
+            color: AppTheme.surfaceElevated
+            border.color: AppTheme.border
+            border.width: 1
+
+            ColumnLayout {
+                id: locationCol
+                anchors.fill: parent
+                anchors.margins: AppTheme.spacing12
+                spacing: AppTheme.spacing4
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacing8
+                    Icon {
+                        // "explore", not "place": the icon font is a SUBSET
+                        // (scripts/generate-icon-font.sh) and Icon.qml answers
+                        // an unknown name with an EMPTY STRING — so a wrong
+                        // name is a silently blank glyph, not tofu.
+                        name: "explore"
+                        size: 18
+                        color: AppTheme.textMuted
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        // The sender's own words: never markup.
+                        textFormat: Text.PlainText
+                        text: model.locationLive === true
+                              ? (model.locationLiveActive === true
+                                 ? qsTr("Sharing live location")
+                                 : qsTr("Live location (ended)"))
+                              : (model.locationAsset === "m.pin"
+                                 ? qsTr("A place") : qsTr("Location"))
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.textMeta
+                        elide: Label.ElideRight
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    textFormat: Text.PlainText
+                    text: model.locationDescription
+                          && model.locationDescription.length > 0
+                          ? model.locationDescription : (model.body || "")
+                    color: AppTheme.textPrimary
+                    font.pixelSize: AppTheme.textBody
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: model.locationHasPoint === true
+                    textFormat: Text.PlainText
+                    text: {
+                        var pos = model.locationLat.toFixed(5) + ", "
+                                + model.locationLon.toFixed(5)
+                        return model.locationUncertaintyM > 0
+                            ? qsTr("%1 · within %2 m").arg(pos)
+                                  .arg(Math.round(model.locationUncertaintyM))
+                            : pos
+                    }
+                    color: AppTheme.textMuted
+                    font.pixelSize: AppTheme.textMeta
+                }
+
+                AppButton {
+                    objectName: "locationOpenMapButton"
+                    Layout.fillWidth: true
+                    visible: model.locationHasPoint === true
+                    size: "sm"
+                    text: qsTr("Open in a map")
+                    onClicked: {
+                        // Zoom 16 is a street. The link is assembled here
+                        // from numbers the bridge validated, so nothing the
+                        // sender wrote reaches the URL.
+                        var lat = model.locationLat
+                        var lon = model.locationLon
+                        app.media.openWebUrl(
+                            "https://www.openstreetmap.org/?mlat=" + lat
+                            + "&mlon=" + lon + "#map=16/" + lat + "/" + lon)
+                    }
+                }
+
+                // A point we could not read. Say so rather than showing a
+                // card that looks like a place and does nothing.
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    visible: model.locationHasPoint !== true
+                    text: qsTr("This location could not be read.")
+                    color: AppTheme.textMuted
+                    font.pixelSize: AppTheme.textMeta
+                }
+            }
+        }
+    }
+
     Component {
         id: pollComponent
         Rectangle {

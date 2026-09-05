@@ -76,6 +76,10 @@ TimelineEvent::Type messageType(const QString &msgtype)
     // what folded a call into the "N room updates" group.
     if (msgtype == QLatin1String("call"))
         return TimelineEvent::CallEvent;
+    // v0.9.0: a shared place. Its own kind, because it renders as a place
+    // with a map link rather than as text.
+    if (msgtype == QLatin1String("location"))
+        return TimelineEvent::Location;
     if (msgtype == QLatin1String("text"))
         return TimelineEvent::TextMessage;
     if (msgtype == QLatin1String("encrypted") || msgtype == QLatin1String("redacted"))
@@ -323,6 +327,30 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     }
     e.readByTotal = qMax(item.value(QStringLiteral("read_by_total")).toInt(0),
                          static_cast<int>(e.readBy.size()));
+
+    // v0.9.0: a shared place. The coordinates are only read when the bridge
+    // supplied BOTH — it omits them when the geo URI did not parse or named
+    // somewhere that is not on Earth, and `contains` is what distinguishes
+    // "absent" from a legitimate 0.0 (the equator, and the prime meridian,
+    // are real places).
+    if (e.type == TimelineEvent::Location) {
+        const bool hasLat = item.contains(QStringLiteral("locationLat"));
+        const bool hasLon = item.contains(QStringLiteral("locationLon"));
+        e.locationHasPoint = hasLat && hasLon;
+        if (e.locationHasPoint) {
+            e.locationLat = item.value(QStringLiteral("locationLat")).toDouble();
+            e.locationLon = item.value(QStringLiteral("locationLon")).toDouble();
+        }
+        e.locationUncertaintyM =
+            item.value(QStringLiteral("locationUncertaintyM")).toDouble(0.0);
+        e.locationDescription =
+            item.value(QStringLiteral("locationDescription")).toString();
+        e.locationAsset = item.value(QStringLiteral("locationAsset")).toString();
+        e.locationLive =
+            item.value(QStringLiteral("locationLive")).toBool(false);
+        e.locationLiveActive =
+            item.value(QStringLiteral("locationLiveActive")).toBool(false);
+    }
 
     // v0.7: MSC3381 poll presentation. Counts arrive pre-gated from Rust
     // (0 for a running undisclosed poll); nothing here re-aggregates.

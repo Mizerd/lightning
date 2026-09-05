@@ -4951,7 +4951,7 @@ Ukuran: %3</translation>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+195"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+197"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Lampiran tidak didukung pada backend ini.</translation>
     </message>
@@ -5053,24 +5053,24 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+38"/>
+        <location line="+50"/>
         <source>Emoji…</source>
         <translation>Emoji…</translation>
     </message>
     <message>
-        <location line="-31"/>
-        <location line="+38"/>
+        <location line="-43"/>
+        <location line="+50"/>
         <source>GIFs and stickers…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-37"/>
-        <location line="+38"/>
+        <location line="-49"/>
+        <location line="+50"/>
         <source>GIF…</source>
         <translation>GIF…</translation>
     </message>
     <message>
-        <location line="-23"/>
+        <location line="-35"/>
         <source>Attach files…</source>
         <translation>Lampirkan berkas…</translation>
     </message>
@@ -5080,7 +5080,12 @@ Ukuran: %3</translation>
         <translation>Buat jajak pendapat…</translation>
     </message>
     <message>
-        <location line="+254"/>
+        <location line="+12"/>
+        <source>Share a place…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+258"/>
         <source>Failed</source>
         <translation>Gagal</translation>
     </message>
@@ -5460,18 +5465,18 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+117"/>
-        <location line="+1077"/>
+        <location line="+1091"/>
         <location line="+894"/>
         <source>Reply</source>
         <translation>Balas</translation>
     </message>
     <message>
-        <location line="-1951"/>
+        <location line="-1965"/>
         <source>(original message not loaded)</source>
         <translation>(pesan asli belum dimuat)</translation>
     </message>
     <message numerus="yes">
-        <location line="+113"/>
+        <location line="+127"/>
         <source>%n message(s) deleted</source>
         <comment>collapsed run of redactions</comment>
         <translation>
@@ -6006,7 +6011,42 @@ Ukuran: %3</translation>
         <translation>Buka berkas</translation>
     </message>
     <message>
-        <location line="+100"/>
+        <location line="+57"/>
+        <source>Sharing live location</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Live location (ended)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>A place</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Location</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+26"/>
+        <source>%1 · within %2 m</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Open in a map</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>This location could not be read.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+97"/>
         <source>Results are revealed when the poll ends</source>
         <translation>Hasil ditampilkan saat jajak pendapat berakhir</translation>
     </message>
@@ -6722,14 +6762,14 @@ Ukuran: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="+5"/>
+        <location line="+9"/>
         <source>%n rule(s) — this list is long and only the first were read.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+4"/>
+        <location line="+3"/>
         <source>%n rule(s).</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -8825,12 +8865,12 @@ Ukuran: %3</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2102"/>
+        <location line="+2119"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning tidak dapat mereset sepenuhnya sesi lokal untuk akun ini. Periksa log aplikasi dan izin sistem berkas, lalu coba lagi.</translation>
     </message>
     <message>
-        <location line="-2118"/>
+        <location line="-2135"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Sesi Lightning lokal telah dibangun ulang. Penyimpanan enkripsi sebelumnya disingkirkan, bukan dihapus, dan masih ada di direktori data akun ini. Anda dapat masuk lagi.</translation>
     </message>
@@ -8843,7 +8883,7 @@ Ukuran: %3</translation>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3327"/>
+        <location line="+3344"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -8852,15 +8892,15 @@ Ukuran: %3</translation>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-3707"/>
+        <location line="-3724"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3509"/>
+        <location line="+3526"/>
         <source>Unknown room: %1</source>
         <translation>Ruang tidak dikenal: %1</translation>
     </message>
     <message>
-        <location line="-3709"/>
+        <location line="-3726"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -8872,7 +8912,12 @@ Ukuran: %3</translation>
         <translation>Stiker tidak dapat dikirim.</translation>
     </message>
     <message>
-        <location line="+951"/>
+        <location line="+81"/>
+        <source>That location could not be sent.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+887"/>
         <source>Rust SDK backend does not implement %1 yet.</source>
         <translation>Backend Rust SDK belum mengimplementasikan %1.</translation>
     </message>
@@ -9007,7 +9052,7 @@ Ukuran: %3</translation>
 <context>
     <name>RustTimeline</name>
     <message>
-        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+354"/>
+        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+382"/>
         <source>[unable to decrypt yet]</source>
         <translation>[belum dapat didekripsi]</translation>
     </message>
@@ -12625,6 +12670,54 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
 </context>
 <context>
+    <name>ShareLocationDialog</name>
+    <message>
+        <location filename="../qml/ShareLocationDialog.qml" line="+95"/>
+        <source>Share a place</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Paste a map link or coordinates</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Latitude</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Longitude</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>What is here? (optional)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>The coordinates and this description are sent to the room as an ordinary message. Lightning does not know where you are — it sends exactly what is typed here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Latitude must be between -90 and 90, and longitude between -180 and 180.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Cancel</source>
+        <translation type="unfinished">Batal</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Send</source>
+        <translation type="unfinished">Kirim</translation>
+    </message>
+</context>
+<context>
     <name>ShortcutRegistry</name>
     <message>
         <location filename="../src/app/ShortcutRegistry.cpp" line="+45"/>
@@ -14974,7 +15067,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>%1 memulai panggilan.</translation>
     </message>
     <message>
-        <location line="+1136"/>
+        <location line="+1154"/>
         <source>%1 is typing…</source>
         <translation>%1 sedang mengetik…</translation>
     </message>

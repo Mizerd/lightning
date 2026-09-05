@@ -1272,6 +1272,69 @@ impl TimelineRegistry {
         Ok(())
     }
 
+    /// Send a STATIC location (`m.location`, MSC3488).
+    ///
+    /// Only static. `Room::send_location_beacon` exists to be called
+    /// repeatedly with new positions, and this client has no position
+    /// source — a "live" share that never moves is a lie told to everyone in
+    /// the room under a banner that says otherwise. See rust/src/location.rs.
+    ///
+    /// The URI is BUILT here from validated numbers rather than accepted as
+    /// a string, so a point Lightning would refuse to render is one it can
+    /// never send either.
+    pub fn send_location(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        room_id: String,
+        lat: f64,
+        lon: f64,
+        description: String,
+    ) -> Result<(), String> {
+        let Some(uri) = crate::location::geo_uri(lat, lon) else {
+            return Err("that is not a point on Earth".to_owned());
+        };
+        let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
+            return Err("No live timeline is open for that room.".to_owned());
+        };
+        // The BODY is what a client with no map shows, so it must stand on
+        // its own. The user's description when they gave one; the coordinates
+        // otherwise — never an empty string, which would render as a blank
+        // message everywhere that does not know what a location is.
+        let body = if description.trim().is_empty() {
+            format!("{lat:.5}, {lon:.5}")
+        } else {
+            description.trim().chars().take(500).collect()
+        };
+        let registry = Arc::clone(self);
+        let events = Arc::clone(&self.events);
+        runtime.spawn(async move {
+            use matrix_sdk::ruma::events::room::message::{
+                LocationMessageEventContent, MessageType, RoomMessageEventContent,
+            };
+            // `new` fills the legacy fields AND the extensible ones, so a
+            // client of either generation reads it.
+            let location = LocationMessageEventContent::new(body, uri);
+            let message =
+                RoomMessageEventContent::new(MessageType::Location(location));
+            let content = AnyMessageLikeEventContent::RoomMessage(message);
+            if timeline.send(content).await.is_err()
+                && registry.is_current(room_gen, lifecycle)
+            {
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "timeline_send_failed",
+                        "room_id": room_id,
+                        "room_generation": room_gen,
+                        "lifecycle": lifecycle,
+                        "category": "rejected",
+                    }),
+                );
+            }
+        });
+        Ok(())
+    }
+
     /// v0.5.9: send an attachment through the SDK timeline. The send queue
     /// path (`use_send_queue`) provides an SDK-owned local echo that flows
     /// through the existing diff stream — sending, sent and failed states
@@ -3237,9 +3300,29 @@ fn event_item_to_json(
                     out["msgtype"] = "unsupported".into();
                     out["body"] = "[unsupported event]".into();
                 }
-                MsgLikeKind::LiveLocation(_) => {
-                    out["msgtype"] = "unsupported".into();
-                    out["body"] = "[live location]".into();
+                MsgLikeKind::LiveLocation(state) => {
+                    // matrix-sdk-ui aggregates every beacon MESSAGE onto this
+                    // one item rather than emitting a row per position, so
+                    // what is rendered is the SHARE with its latest point —
+                    // which is also the only sensible thing to draw.
+                    let latest = state.latest_location();
+                    let geo = latest.map(|b| b.geo_uri().to_owned())
+                        .unwrap_or_default();
+                    let description = state.description();
+                    crate::location::fill_location(
+                        &mut out,
+                        &geo,
+                        description.unwrap_or("Live location"),
+                        description,
+                        Some("m.self"),
+                    );
+                    out["locationLive"] = true.into();
+                    // `is_live()` checks the flag AND `ts + timeout`, which
+                    // is the difference between "sharing now" and "shared an
+                    // hour ago and stopped". A UI showing the second as the
+                    // first is telling the reader someone is somewhere they
+                    // may have left.
+                    out["locationLiveActive"] = state.is_live().into();
                 }
             }
         }
@@ -3623,6 +3706,23 @@ fn fill_message_content(
                     .and_then(|info| info.size)
                     .map(u64::from),
             })
+        }
+        MessageType::Location(content) => {
+            // The extensible accessors resolve legacy-vs-MSC3488 for us:
+            // `geo_uri()` prefers `location.uri` and falls back to the
+            // top-level field, so a message from either generation of
+            // client reads the same.
+            crate::location::fill_location(
+                out,
+                content.geo_uri(),
+                &content.body,
+                content
+                    .location
+                    .as_ref()
+                    .and_then(|l| l.description.as_deref()),
+                Some(content.asset_type().as_str()),
+            );
+            None
         }
         other => {
             out["msgtype"] = "unsupported".into();

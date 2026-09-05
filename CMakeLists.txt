@@ -889,6 +889,7 @@ set(APP_QML_FILES
     qml/JumpToDateDialog.qml
     qml/StickerPackEditor.qml
     qml/StickerPicker.qml
+    qml/ShareLocationDialog.qml
     qml/PolicyListDialog.qml
     qml/QrLoginDialog.qml
     qml/QuickSwitcher.qml
@@ -3219,6 +3220,17 @@ if(BUILD_TESTING)
     target_link_libraries(rtc-session-test PRIVATE Qt6::Test)
     add_test(NAME rtc-session COMMAND rtc-session-test)
     set_tests_properties(rtc-session PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # v0.9.0: m.location (MSC3488) and live beacons (MSC3672).
+    qt_add_executable(location-message-test
+        tests/LocationMessageTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(location-message-test)
+    target_link_libraries(location-message-test PRIVATE Qt6::Test)
+    add_test(NAME location-message COMMAND location-message-test)
+    set_tests_properties(location-message PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # v0.9.0: Mjolnir-style policy lists — op discipline, and the decision

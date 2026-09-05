@@ -42,6 +42,7 @@ constexpr const char *kComponents[] = {
     "StickerPackEditor",     // pack CRUD dialog
     "QrLoginDialog",         // MSC4108 sign-in-another-device
     "PolicyListDialog",      // Mjolnir-style moderation lists
+    "ShareLocationDialog",   // m.location send
     "CallPipWindow",         // the floating call window
     "MediaBrowser",          // room media/files/links over all history
     "ForwardSelectionDialog",

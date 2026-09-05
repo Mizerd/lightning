@@ -75,6 +75,12 @@ struct TimelineEvent {
         // "call event". Appended last so every persisted integer value above
         // stays stable.
         CallEvent,
+        // v0.9.0: a shared place — static `m.location` (MSC3488) or a live
+        // beacon (MSC3672). Its own kind rather than a File or a Notice
+        // because it renders as a place with a map link and a live one
+        // carries whether it is still current. Appended last so every
+        // persisted integer value above stays stable.
+        Location,
     };
 
     enum Status {
@@ -236,6 +242,30 @@ struct TimelineEvent {
     int pollTotalVoters = 0;
     bool pollEnded = false;
     QList<PollAnswer> pollAnswers;
+
+    // v0.9.0: a shared place (type == Location).
+    //
+    // `locationHasPoint` is the load-bearing field. A geo URI is a message
+    // field anyone can send, and one that does not parse — or names a point
+    // that is not on Earth — leaves the coordinates UNSET rather than zero,
+    // because 0,0 is a spot in the Atlantic and a UI reading it would draw a
+    // confident link to the wrong place. False means render the body text
+    // and no map link.
+    bool locationHasPoint = false;
+    double locationLat = 0.0;
+    double locationLon = 0.0;
+    /// The sender's stated accuracy in metres, 0 when they gave none.
+    double locationUncertaintyM = 0.0;
+    QString locationDescription;
+    /// "m.self" — the sender's own position — or "m.pin", a place they are
+    /// pointing at. Different sentences on screen.
+    QString locationAsset;
+    /// A live share (MSC3672) rather than a single point.
+    bool locationLive = false;
+    /// Whether that live share is STILL current. The SDK checks the flag and
+    /// `ts + timeout` together; showing an expired share as live tells the
+    /// reader somebody is somewhere they may have left an hour ago.
+    bool locationLiveActive = false;
 
     // Encryption flags (v0.5.0-prep+6). Populated by the Rust backend
     // when it parses events out of the Matrix Rust SDK; HTTP and Mock
