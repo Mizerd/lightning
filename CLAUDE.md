@@ -1465,6 +1465,52 @@ either. `theCallStageComponentActuallyLoads` is that gate; note it only covers
 the component it loads, since a failure inside a `Loader`'s `sourceComponent`
 leaves the ROOT loading fine.
 
+**THE PROCESS IS A `QApplication`, NOT A `QGuiApplication` (2026-09-05), AND
+IT MUST STAY ONE.** `QSystemTrayIcon` on X11 has two backends: a
+StatusNotifierItem over D-Bus when a watcher is on the session bus, and the
+legacy XEmbed icon otherwise — and the XEmbed one is a `QWidget`. A NixOS user
+on 0.9.0 enabled "keep running in the tray" under a bar that speaks XEmbed
+only (i3bar, polybar, tint2 …) and the process aborted with `QWidget: Cannot
+create a QWidget without QApplication`. No local desktop can show it: KDE and
+GNOME-with-AppIndicator both have a watcher. `QtWidgets` was linked all along
+for the tray; a QML application under `QApplication` renders identically.
+
+**MENTION PILLS: THE ROOM'S MEMBER NAME, THEN A GLOBAL PROFILE, AND THE
+LOCALPART LAST — NEVER THE SENDER'S ANCHOR TEXT.** `MessageHtml::sanitize`
+replaces the anchor text of every `matrix.to` user link and used to fall
+straight to the localpart when the member snapshot had nothing — so a
+completed "@dim" was sent correctly and rendered as "@obscurus" on the
+reader's own screen, and the pill's profile card opened with no name and no
+picture (`openMessageLink` passed empty strings). Now the
+`UserProfileResolver` (`app.userProfiles`) asks `/profile` once per unknown
+user per session for the pill AND the popover, and each cached render records
+the names it used (`m_htmlMemberDeps`) so an answer re-renders only the rows
+that used it. Honouring the label the sender wrote was tried in the same
+round and REFUSED: "@admin" linking to `@attacker:evil` must read as
+`@attacker`, which is what the localpart fallback guarantees and why Element
+ignores the anchor text too.
+
+**MEMBER HYDRATION NO LONGER RE-RENDERS THE WHOLE ROOM.** `onMembersChanged`
+used to `clearRenderedHtml()` and announce `FormattedBodyRole` +
+`MessageSegmentsRole` for EVERY row — every message body rebuilt a second
+time, on the GUI thread, a few seconds after the first open of each room
+(the `/members` fetch lands then). It now re-resolves the recorded name pairs
+and forgets only the rows whose answer moved; the identity roles are still
+swept (cheap). LIVE EFFECT ON THE REPORTED ROOM-LOAD LAG: **NOT TESTED** —
+the lag itself was never captured; see the open item.
+
+**MEDIA ROWS FETCH ONLY NEAR THE VIEWPORT.** Every row of a room is
+instantiated, so every image in the loaded history used to ask the bridge for
+its payload the moment the room opened — hundreds of decodes, and in an
+encrypted room without server thumbnails the FULL files (`media_source`
+falls back to the source when there is no `thumbnail_file`). `TimelinePane`
+publishes `mediaBandMinY/MaxY` (content coordinates; 2.5 viewports towards
+the newest end, 1.5 the other way) moved ONLY at load, reset, resize and
+the settle after a gesture — never bound to `contentY`, which would re-run a
+comparison in every row on every frame — and `MessageDelegate.mediaInBand`
+gates `refreshBridgeSource()`. Thumbnails included: the win is for the
+reader's band. Also NOT live-measured.
+
 **A WAIT LOOP WHOSE PATTERN MATCHES ITS OWN COMMAND LINE NEVER TERMINATES.**
 `while pgrep -f "ninja|ctest"; do sleep; done` matches the bash process running
 it, so it waits on itself forever; two background shells deadlocked this way in
@@ -1844,6 +1890,23 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   index the way appended Spaces once did — and it needs a capture of the
   REJECTED DIFF (op, index, the id it collided with) before a fix, not a
   theory. Do not re-apply the Space exclusion; that one is still in place.
+- **Rooms "lag when they load" on 0.9.0, worse in rooms with a lot of
+  media (Rokas, 2026-09-05, "not confirmed"; users report the same).** NOT
+  reproduced here — no capture exists yet, and the standing rule applies:
+  one capture beats another theory. What this round changed on evidence from
+  code alone: member hydration no longer rebuilds every message body, and
+  media rows outside the viewport band no longer fetch at open (both above).
+  Ruled OUT by reading, not by measurement: the search sweep (startup and
+  every five minutes, 40 rooms, off the GUI thread), the per-room deep index
+  (explicit button only), first-unread paging (button only). The next step is
+  a capture, not a fourth theory:
+
+      LIGHTNING_GUI_STALL_TRACE=100 QT_LOGGING_RULES="lightning.media.trace=true" \
+        scripts/run-dev.sh --log-file /tmp/lightning-roomload.log
+
+  then open three rooms, one media-heavy, and read the stall lines (each
+  names a category: `image-decode`, `timeline-diff`, `row-reveal`,
+  `timeline-reset`, `rust-poll-drain`) and the `media … cache=` lines.
 - **Full screen opens on the primary monitor**, not the one the app is on.
   Investigated 2026-09-04 (Task A §6) and NOT changed: `placeOnThisApplications
   Screen()`'s arithmetic is already self-consistent in Qt's own space, and its

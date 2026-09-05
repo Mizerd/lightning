@@ -692,6 +692,46 @@ LIVE-VALIDATED against `matrix.smetonis.net`: picking a swatch wrote
 colour set on a SECOND account's profile rendered on that account's name in
 the first account's client, which is the cross-user claim.
 
+### Mention pills and unknown users (2026-09-05)
+
+- A `matrix.to` user link renders as a pill whose label is, in order: the
+  room's own member name for that user, the user's global profile display
+  name (`app.userProfiles`, asked once per user per session), and the bare
+  localpart until one of those exists. The text the sender wrote inside the
+  anchor is never the label: a pill reading "@admin" that links to another
+  user is a spoof, and the localpart fallback is what prevents it.
+- `app.userProfiles` (`UserProfileResolver`) answers `lookup(userId)` from a
+  session cache and asks the homeserver's `/profile` once per unknown user;
+  a refused answer is remembered and re-asked only after five minutes. Its
+  `resolved` signal re-renders exactly the timeline rows whose pill used that
+  user, through the per-event name record every render keeps.
+- The member profile popover fills from the room roster first and from the
+  resolver second, so a mention of someone who is not in the room opens with
+  their name and picture. A room nick still wins where one exists.
+- Member hydration (`membersChanged`) re-announces the identity roles on every
+  row and the BODY roles only on rows whose recorded names changed; a
+  hydration that changes nothing re-renders nothing.
+
+### Media rows and the viewport band (2026-09-05)
+
+- An image row asks the media bridge for its picture only while it lies inside
+  the pane's media band: content-coordinate bounds published by
+  `TimelinePane` (2.5 viewports towards the newest end, 1.5 towards history)
+  and moved only at load, model reset, viewport resize, and the settle after a
+  gesture. A row entering the band asks then; a row that already holds its
+  picture is left alone. Fixtures and the thread panel, which publish no
+  band, are permissive.
+
+### The hover action bar and the call popout (2026-09-05)
+
+- The message hover bar offers Edit (before More) under exactly the context
+  menu's gate — own, editable, not a local echo — and starts the composer's
+  edit for that message.
+- The call popout offers "Fill this window with the share": the spotlighted
+  (or first) share alone, edge to edge, the tile grid hidden; the same button
+  restores everyone, and the mode drops on its own when the share ends. It is
+  local to the popout window and does not touch the stage's spotlight.
+
 ### Local message search
 
 Server search (`POST /_matrix/client/v3/search`) can only search what the
@@ -1182,8 +1222,10 @@ that quietly does nothing is better than one that takes the sequence away
 from something else while a call is up.
 
 **Picture-in-picture** (`CallPipWindow.qml`) is a small always-on-top window
-carrying the call while the main window is minimised or in the tray, plus a
-manual pop-out from the call bar. It is a REPLACEMENT, never a duplicate:
+opened from the call bar, and — only when the "automatic pop-out" setting is
+on, which it is NOT by default since 2026-09-05 — opened by itself while the
+main window is minimised or in the tray. Shipped on, it popped the call out
+on every minimise, a window the reader had not asked for. It is a REPLACEMENT, never a duplicate:
 `SfuVideoRouter` holds ONE sink per track and the last attach owns it, so two
 surfaces on the same participant means one goes black. Hence the flag is
 mutually exclusive with full screen in `CallStageState`, the window's

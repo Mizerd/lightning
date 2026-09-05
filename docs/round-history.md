@@ -15,6 +15,67 @@ By THEME, not chronology, and reduced to rules, refutations, deliberate
 decisions, measured numbers and live status. Features are §7; the caps
 contract, the refutation rule and the probe rule are in the standing warnings.
 
+#### 2026-09-05, the second evening on 0.9.0 (mentions, tray, profile card, room load)
+
+- **A `QGuiApplication` cannot host Qt's XEmbed tray icon.** `QSystemTrayIcon`
+  uses a D-Bus StatusNotifierItem when a watcher exists and a `QWidget`-based
+  XEmbed icon otherwise; the second aborted a 0.9.0 process on NixOS under an
+  XEmbed-only bar the moment the tray setting was switched on. The process is
+  a `QApplication` now. The reporter's "works on 0.8.3" is most likely a
+  desktop difference, not a code one — the tray code had not changed since
+  0.7.5.
+- **Mention pills fell to the localpart too early.** The sanitizer replaced
+  the anchor text with the member snapshot's answer or the localpart; a user
+  the snapshot could not name (not in the room, or never loaded) rendered as
+  a bare username and opened a blank profile card. Order now: room member
+  name, the global profile (`UserProfileResolver`, one `/profile` ask per
+  user per session), localpart. The popover asks the same resolver when the
+  roster has nothing. Honouring the sender's own anchor label was tried and
+  REFUSED in the same round: it is the spoof the localpart fallback exists to
+  prevent ("@admin" linking to an attacker), and Element ignores it as well.
+- **Member hydration was a full re-render.** `onMembersChanged` dropped every
+  cached body and announced the body roles on every row — one relayout of the
+  whole room after each first open. Each render now records the (user id,
+  name) pairs it resolved; hydration and profile answers re-announce only the
+  rows whose pair changed. Proven by `memberHydrationRerendersOnlyRowsWhoseMentionsChanged`
+  (one body announcement, for the one row that mentions the renamed member).
+- **All media rows fetched at open.** The un-virtualized Column instantiates
+  every row, and each image row asked the bridge on `Component.onCompleted` —
+  in an encrypted room without server thumbnails that is a FULL download per
+  image. A content-coordinate band published by the pane at discrete moments
+  gates the ask; a row entering the band asks then. Unmeasured live: the lag
+  report has no capture yet (CLAUDE.md §16 open items carry the recipe).
+- **Emoji in packaged builds.** The SAS verification labels and every surface
+  that never names a face (tooltips) drew monochrome or missing emoji on the
+  AppImage's Qt 6.8. The verification labels name `app.emojiFontFamily`; the
+  application default font now carries the emoji face as its second family
+  (`FontManager::withEmojiFallback`), so unnamed surfaces inherit it.
+- **The profile card.** The banner drew over the popover's border and met its
+  rounded corner at a notch: inset by the border width, radius reduced to
+  match. The membership chip was content-sized while the row's other chips
+  shared `uniformHeight`. The avatar's presence tooltip opened on top of the
+  avatar; it now sits to its right. The Message button's glyph read as
+  pixelated: `Icon` renders natively (hinted, device-pixel) instead of through
+  the distance field.
+- **Hover bar Edit, popout share fill.** The bar gained Edit before More under
+  the context menu's own `canEditEvent` gate; the popout gained "fill this
+  window with the share" (a Repeater over the share model showing only the
+  spotlighted share, the tile grid stepping aside), dropped when the share
+  ends.
+- **Minimising popped the call out.** The automatic picture-in-picture
+  (desktop-integration round) fired on every minimise and every close to the
+  tray, and it shipped ON. A window appearing on its own for a reader who
+  only wanted the app out of the way is not what anyone asked for: the
+  setting is OFF by default now (`calls/pictureInPicture`), the manual
+  pop-out from the call bar is unchanged, and a reader who wants the old
+  behaviour has the checkbox under Calls.
+- **The SDK event-cache panic.** `failed to remove an event: InvalidItemIndex`
+  is an `expect()` inside matrix-sdk 0.18's event cache; with
+  `panic = "abort"` it took the process down. Both profiles unwind now, so the
+  SDK's own `TaskMonitor` contains it: that task may die and the room stop
+  updating until a restart, which is the honest trade against a crash. Not
+  fixed upstream; not reproduced here.
+
 #### Capture, encoding and the media pipeline
 
 - **Caps evidence.** `WindowCaptureSrc` fixated 1920x1080 against a 3840x2100
