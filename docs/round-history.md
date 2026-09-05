@@ -240,6 +240,47 @@ unhandled. Suites: `call-controller` 35, `call-ring-policy` 10,
 
 #### QML, layout and bindings
 
+- **A window-level `Shortcut` in a kept-alive screen is armed forever.**
+  Keeping SettingsScreen built between opens (for the 428 ms it cost to
+  rebuild) left its Escape and Ctrl+, Shortcuts live on the main screen: a
+  Shortcut is matched by window, never by its item's visibility, and two
+  enabled Shortcuts on one sequence make Qt fire NEITHER — Escape would have
+  stopped closing the info panel. Caught in review, not by the live pass
+  (which never pressed Escape after opening Settings). Gate every Shortcut
+  in a kept-alive component on `root.visible`; the regression case presses a
+  real key on the window after a real open and close.
+- **`Component.onCompleted` in a kept-alive screen runs once at launch.**
+  Backup progress and profile banners were requested there; kept alive, the
+  figures froze at their launch values. Re-ask on `visible`.
+- **A RowLayout of non-fill children reports their SUM as its MINIMUM, and a
+  minimum propagates up through every enclosing Layout.** The room-info tab
+  strip's natural width became the panel's floor, TimelinePane's row honoured
+  it, and the panel was pushed off the window's right edge instead of being
+  narrowed — so `fitWidth`'s `overflowing` ("implicitWidth > width") could
+  never come true, because width was never allowed below implicitWidth.
+  Measured live at the 260 px floor: close button, Save buttons and last tab
+  outside the frame. Fix: `Layout.minimumWidth: 0` on the strip. GENERALISE:
+  a compacting control inside a Layout must zero its own minimum or it will
+  resize its host rather than itself.
+- **A property declared inside an anonymous child is not on `root`, and
+  nothing says so.** `tabsWrap`/`tabModel` were added at the ColumnLayout's
+  indentation; `root.tabModel` then read as `undefined` with NO warning
+  (member access on a QObject never throws, only a bare id does), the
+  Repeater got an undefined model, the strip's implicit size went to 0 and
+  the whole strip vanished with a clean log. A live test driving the real
+  widths (`roomInfoTabsWrapIntoTwoRowsWhenThePanelIsNarrow`) found it in one
+  run; the contract scans could not.
+- **A Loader whose `active` follows the current screen rebuilds the screen
+  on every open.** Settings was 428 ms of GUI-thread block per open
+  (`LIGHTNING_GUI_STALL_TRACE=100`), reported as "takes like a second". Keep
+  the first build (`warm`), hide on close, pre-build asynchronously at idle,
+  and route anything `Component.onCompleted` used to consume through a
+  signal — the handler runs once now.
+- **A nohup'd launch logs NOTHING to its redirect file on a journald
+  system**: Qt sends messages to journald when stderr is not a terminal.
+  `QT_FORCE_STDERR_LOGGING=1` (or `--log-file`) is required, or a stall
+  capture reads as "no stalls" — which is exactly how the first Settings
+  timing came back empty.
 - **A 5px transparent grab band shows the wrong surface through it**, and the
   rule centred inside it is then NOT on the boundary. Measured at the
   room-list seam: sidebar `#1B242F`, then THREE native pixels of the window

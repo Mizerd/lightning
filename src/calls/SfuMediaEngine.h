@@ -31,6 +31,7 @@
 #include <memory>
 
 #include <QHash>
+#include <QSet>
 #include <QMutex>
 #include <QObject>
 #include <QPointer>
@@ -396,6 +397,9 @@ public:
     /// leak here is invisible until it reaches another client's screen.
     /// Returns -1 when there is no publisher at all.
     int publisherTrackSlotsForTest() const;
+    /// The "volume" property of the first receive volume element for
+    /// `streamId`, or -1 when that stream has no receive bin yet.
+    double receiveVolumeForTest(const QString &streamId) const;
 
     /// Test-only: is a bin registered under this cid? Lets a test assert that
     /// a refusal REFUSED, rather than inferring it from the absence of a
@@ -661,6 +665,14 @@ private:
     /// PipeWire remote descriptors owned by a publishing bin (screen shares
     /// only), closed when that bin is torn down. See publishVideo.
     QHash<QString, int> m_publishedFds;
+    /// Volumes asked for before their receive bin existed, by the key
+    /// setTrackVolume() addresses (stream id, or stream id + track key);
+    /// applied when the bin is built. Cleared by stop().
+    QHash<QString, int> m_pendingTrackVolume;
+    /// Keys whose "nowhere to land" diagnostic has been logged once.
+    QSet<QString> m_volumeMissWarned;
+    void applyPendingTrackVolume(const QString &streamId,
+                                 const QString &trackKey, quint64 generation);
 
     /// What one publishing bin's own capture has actually produced, shared
     /// with the GStreamer pad probes that write it.

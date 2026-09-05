@@ -975,12 +975,16 @@ Rectangle {
                             font.weight: AppTheme.weightBold
                             elide: Label.ElideRight
                             maximumLineCount: 1
-                            // fillWidth so the elide can actually happen: a
-                            // Label without it sits at its implicit width and
-                            // never shrinks, so `elide` never engages and the
-                            // shortfall is pushed onto the icons beside it.
-                            // maximumWidth still caps it at half the header.
-                            Layout.fillWidth: true
+                            // NOT fillWidth: reported as "why is the lock so
+                            // far away from the room name" — a fill label
+                            // grew to the half-header cap and pushed the
+                            // encryption lock out to the far end. Elision
+                            // still engages because maximumWidth caps the
+                            // PREFERRED width a Layout gives a non-fill item,
+                            // so a long name shrinks to half the header and
+                            // elides while a short one hugs its own text and
+                            // the lock sits right beside it.
+                            Layout.fillWidth: false
                             Layout.maximumWidth: header.width * 0.5
                         }
                         Icon {

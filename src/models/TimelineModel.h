@@ -555,6 +555,10 @@ private:
     bool dividerIntroducesVisibleContent(int dividerRow) const;
     QVariantList pollAnswersVariant(const TimelineEvent &e) const;
     QVariantList readReceiptsVariant(const TimelineEvent &e) const;
+    // The merged view for a hosting row: its own receipts plus those of
+    // every following row it hosts, one entry per reader, newest first.
+    QList<ReadReceipt> hostedReceipts(int row, int *reportedTotal) const;
+    void announceReceiptHost(int row);
     // Grouping is transparent through read markers and timeline-start, but a
     // DATE DIVIDER ends the run (one collapsed group must not span calendar
     // days under a single date separator). A visible message/media/call
@@ -566,6 +570,19 @@ private:
     int deletedGroupLeaderRow(int row) const;
     int deletedGroupLengthFrom(int leaderRow) const;
     QVariantList stateGroupEntriesFrom(int leaderRow) const;
+
+    // ── Read-receipt hosting ─────────────────────────────────────────────
+    //
+    // The SDK attaches a reader's receipt to the newest event they read,
+    // and that is very often a row that draws NO body: a call-membership
+    // update (every participant re-publishes one during a call), a folded
+    // member of a state run, an activity kind the settings hide. Reported
+    // as "when call event read receipts disappear" — the chips were on rows
+    // nobody can see. So a row that draws no body HOSTS nothing, and its
+    // receipts are presented on the nearest row ABOVE that does; the
+    // ReadReceipts roles of a hosting row merge every row it hosts.
+    bool rowHostsReceipts(int row) const;
+    int receiptHostRow(int row) const;
     // Re-read grouping roles only around a structural boundary. New rows
     // already query their correct roles on first bind; only their existing
     // neighbours (and a state-activity run crossing the boundary) can change.

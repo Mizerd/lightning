@@ -2732,7 +2732,8 @@ Item {
                         enabled: app.currentRoomId !== ""
                         Accessible.name: qsTr("Insert emoji")
                         ToolTip.text: qsTr("Emoji")
-                        ToolTip.visible: hovered
+                        // Same rule as the GIF button: the picker covers it.
+                        ToolTip.visible: hovered && !emojiPicker.visible
                         ToolTip.delay: 500
                         onClicked: root.openEmojiPicker(true)
                     }
@@ -2780,7 +2781,11 @@ Item {
                                         ? qsTr("GIFs and stickers")
                                         : (app.gif.available ? qsTr("GIF")
                                                              : qsTr("Sticker"))
-                        ToolTip.visible: hovered
+                        // Not while the picker is up: it opens ABOVE this
+                        // button with the pointer still over it, so the
+                        // tooltip stayed shown and sat half-hidden under the
+                        // popup's bottom edge (reported with a screenshot).
+                        ToolTip.visible: hovered && !gifPicker.visible
                         ToolTip.delay: 500
                         onClicked: root.openMediaPicker(true)
                     }
@@ -3040,7 +3045,15 @@ Item {
                                       : qsTr("Send options")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
-                        onClicked: sendOptionsMenu.popup()
+                        // ABOVE the composer, right-aligned to this button.
+                        // A bare popup() opened at the pointer, i.e. over the
+                        // message box, hiding what was about to be sent
+                        // (reported: "could this open above the send prompt
+                        // so not to cover it all").
+                        onClicked: sendOptionsMenu.popup(
+                            sendOptionsButton,
+                            sendOptionsButton.width - sendOptionsMenu.width,
+                            -sendOptionsMenu.height - 4)
                     }
                 }
             }

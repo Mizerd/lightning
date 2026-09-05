@@ -499,6 +499,66 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
 
 ### Settings, usability, and accessibility
 
+- **Settings is built once and kept** (2026-09-05). `Main.qml`'s loader used
+  to follow the current screen, so the 7,000-line screen was instantiated on
+  every open and destroyed on every close — measured with
+  `LIGHTNING_GUI_STALL_TRACE=100` as a 428 ms GUI-thread block per open,
+  reported as "takes like a second". The first build sticks (`warm`), a close
+  merely hides it, and the first build is started asynchronously a moment
+  after the main screen shows. A section requested while the screen is alive
+  (`showSettingsSection`) reaches it through `settingsSectionRequested`,
+  since `Component.onCompleted` now runs once. The settings header is
+  `AppTheme.headerBandHeight`, the same 60 px as the room header it replaces
+  on screen, so opening Settings no longer changes the top band's height.
+- **Read receipts are hosted by the nearest row that draws a body.** The
+  SDK attaches a reader's receipt to the newest event they read, which
+  during a call is a call-membership update — a row that draws nothing —
+  and the chips vanished (reported: "when call event read receipts
+  disappear"). `TimelineModel::rowHostsReceipts` decides who draws (a
+  message, a call card, or a state-run leader with at least one entry the
+  activity settings show); `receiptHostRow` walks up to that row, and its
+  ReadReceipts roles merge every row it hosts, one entry per reader, newest
+  first, with the host re-announced whenever a hosted row changes. The strip
+  itself now lives outside MessageDelegate's message-only layout so call
+  cards and run leaders can paint it. Regression: `timeline-model-diff`.
+- **The encryption lock sits beside the room name** (non-fill label under a
+  half-header cap), and the call popout (`CallPipWindow.qml`) hosts the
+  stage's `CallTileGrid` — every participant a tile, every screen share a
+  tile of its own — instead of one chosen surface.
+- **A participant volume chosen before their track arrives lands when it
+  does.** `SfuMediaEngine` remembers the wanted value per stream/track key
+  and applies it when the receive bin is built; the "nowhere to land"
+  diagnostic fires once per key instead of per attempt (a live log carried
+  hundreds). Regression: `sfu-media-engine`
+  `aVolumeChosenBeforeTheTrackArrivesLandsWhenItDoes`. Whether this is the
+  whole of the Windows "volume 0 does not mute" report is NOT TESTED live.
+- **Settings keeps its state between opens** (last section, search text)
+  and its two window-level Shortcuts are enabled ONLY while it is visible —
+  found in review: kept alive, an unconditional Escape would have made
+  Qt's ambiguous-shortcut rule swallow Escape on the main screen. Backup
+  progress and profile banners are re-requested on every open, not once at
+  creation.
+- **Widgets: Remove names the exact state key** (`stateKey` on the row) and
+  is offered only for rows the reader could name exactly and that carry the
+  `im.vector.modular.widgets` type (`removable`); a failed write is shown in
+  the tab (`lastWriteError`); a room switch resets the write and the
+  permission claim. The Rust write validation is one function,
+  `validate_widget_write`, pinned by its test.
+- **Room information tabs wrap.** The tab strip is kept as one row while it
+  fits and becomes two rows (split at the midpoint, one shared `current`)
+  when it overflows — driven by the strip's own `overflowing`, which only
+  works because the strip's `Layout.minimumWidth` is pinned to 0: a RowLayout
+  of non-fill children reports their SUM as its minimum, the panel inherited
+  it, and TimelinePane's row pushed the whole panel off the window instead of
+  narrowing it (reported as "widgets go off screen").
+- **Light themes are not pure white anywhere.** Lightning Light's and Moss
+  Light's card surface (`_cardLight`, `_mosCard`) carry a whisper of their own
+  hue (`#F5F9FE`, `#F6FBF7`) — the search field, composer bar, status strip
+  and the Classic card were the only `#FFFFFF` on a tinted canvas.
+- **The GIF picker re-runs the typed search when the provider changes**;
+  it used to fall back to trending until a keystroke.
+- **The Home "no key backup" banner** says "Set up backup" and opens the
+  Sessions section, which is where backup is set up; it opened Privacy.
 - Eleven complete semantic themes (ids 1–11): Lightning Light, Lightning
   Dark, Graphite, Midnight, Nordic, Purple Dusk, Warm, the design-handoff
   Moss Light / Indigo Night / Deep Teal, and Storm (11), the brand theme.
@@ -677,6 +737,17 @@ each will learn about the user, and opens it in the user's BROWSER. It does not
 embed them: Windows cannot build Qt WebEngine, Flatpak could only ship Chromium
 unsandboxed beside Megolm keys, and initialising it would force the whole
 application's scenegraph to OpenGL.
+
+Since 0.9.0 it also ADDS and REMOVES them (`docs/widgets.md`, "Adding and
+removing"): the Widgets tab offers **Add widget…** and a per-row **Remove**
+only when the SDK's `can_send_state` for `im.vector.modular.widgets` says so
+(`can_manage` on every `room_widgets` answer, never inferred from a role).
+Adding writes Element's event shape under a fresh UUID state key; removing
+writes an empty object, which is Element's tombstone and what the reader
+already reads as "no widget". A `url` that is not https with a host and no
+credentials is refused in the dialog AND in `write_room_widget`, so a widget
+this client would refuse to open is never published. Success re-reads the
+list rather than applying optimistically.
 
 ### Navigating a room's history
 

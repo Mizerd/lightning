@@ -23,9 +23,10 @@ import MatrixClient
 //
 // # What it shows
 //
-// One surface, chosen the way a person would: a live screen share if there
-// is one, otherwise the participant the stage has focused, otherwise nobody
-// — a voice call gets a name and the controls, not an empty black box.
+// The call's grid — every participant as a tile and every screen share as a
+// tile of its own — through the same CallTileGrid the main stage uses. It
+// used to show ONE surface (a share, else the pinned face, else a label);
+// the maintainer asked for people and shares to each have a box.
 //
 // # What it does NOT do
 //
@@ -73,6 +74,10 @@ Window {
             root.stageState.pinnedIdentity)
     }
     readonly property bool hasSurface: root.shareRow >= 0 || root.pinnedRow >= 0
+    /// Tiles the grid will draw: every share and every participant.
+    readonly property int total:
+        (root.shareModel ? root.shareModel.count : 0)
+        + (root.participantModel ? root.participantModel.count : 0)
     /// The share this window is showing, by id. The delegates match on the
     /// id rather than on a row number, because a row number moves when
     /// somebody else starts or stops sharing and the tile would then follow
@@ -106,8 +111,9 @@ Window {
     // always on top, which is the entire point of a floating call window.
     flags: Qt.Window | Qt.WindowStaysOnTopHint | Qt.WindowTitleHint
            | Qt.WindowCloseButtonHint
-    width: 340
-    height: 232
+    // Room for a 2x2 of tiles at a legible size; the user resizes from here.
+    width: 480
+    height: 320
     minimumWidth: 240
     minimumHeight: 160
     color: AppTheme.background
@@ -163,85 +169,38 @@ Window {
             Layout.fillHeight: true
             clip: true
 
-            // Repeaters over the REAL models, not a `get(row)` snapshot.
-            // CallStage learned this the hard way: a share's track key fills
-            // in AFTER the row appears, and a snapshot taken before it
-            // arrives never attaches a sink — the tile renders black for the
-            // rest of the call.
+            // THE WHOLE CALL, not one face. Reported with a mock-up: "make
+            // the popout show people" — a 2x2 of participant tiles — "and
+            // make sure screenshare also gets shown in the popout and gets
+            // a separate box". The stage's own grid does exactly that
+            // (shares as their own tiles, everyone else beside them), so
+            // this window hosts it rather than choosing one surface.
             //
-            // `active` is also gated on `root.visible`, so a window that is
-            // not showing builds no surface and therefore owns no sink. That
-            // is what keeps this window from silently stealing the main
-            // stage's video the moment it is constructed.
-            Repeater {
-                model: root.shareModel
-                delegate: Loader {
-                    id: pipShare
-                    required property string shareId
-                    required property string ownerIdentity
-                    required property string ownerDisplayName
-                    required property string trackKey
-                    required property bool local
-
-                    anchors.fill: parent
-                    active: root.visible && root.groupLive
-                            && root.shareRow >= 0
-                            && pipShare.shareId === root.shareIdShown
-                    visible: active
-                    sourceComponent: CallShareTile {
-                        shareId: pipShare.shareId
-                        ownerIdentity: pipShare.ownerIdentity
-                        ownerDisplayName: pipShare.ownerDisplayName
-                        trackKey: pipShare.trackKey
-                        local: pipShare.local
-                        focused: true
+            // Still ONE owner per track: the grid is built only while this
+            // window is showing (`active` below), which is the only time the
+            // main stage's tiles are gone — see the header. The grid is
+            // bound to the REAL models, so a share whose track key fills in
+            // after its row appears still attaches its sink.
+            Loader {
+                id: pipGrid
+                objectName: "pipGrid"
+                anchors.fill: parent
+                anchors.margins: AppTheme.spacing4
+                active: root.visible && root.groupLive
+                visible: active
+                sourceComponent: CallTileGrid {
+                    shareModel: root.shareModel
+                    participantModel: root.participantModel
+                    compact: true
+                    focusedShareId: root.shareIdShown
+                    focusedIdentity: root.pinnedIdentityShown
+                    onShareActivated: shareId => {
+                        if (root.stageState)
+                            root.stageState.restoreShare(shareId)
                     }
-                }
-            }
-            Repeater {
-                model: root.participantModel
-                delegate: Loader {
-                    id: pipPerson
-                    required property string identity
-                    required property string userId
-                    required property string displayName
-                    required property string avatarMxc
-                    required property bool local
-                    required property bool micKnown
-                    required property bool micMuted
-                    required property bool cameraKnown
-                    required property bool cameraOn
-                    required property string cameraTrackKey
-                    required property bool screenSharing
-                    required property bool speaking
-                    required property real speakingLevel
-                    required property bool handRaised
-                    required property string connectionQuality
-
-                    anchors.fill: parent
-                    active: root.visible && root.groupLive
-                            && root.shareRow < 0
-                            && root.pinnedIdentityShown.length > 0
-                            && pipPerson.identity === root.pinnedIdentityShown
-                    visible: active
-                    sourceComponent: CallParticipantTile {
-                        identity: pipPerson.identity
-                        userId: pipPerson.userId
-                        displayName: pipPerson.displayName
-                        avatarMxc: pipPerson.avatarMxc
-                        local: pipPerson.local
-                        micKnown: pipPerson.micKnown
-                        micMuted: pipPerson.micMuted
-                        cameraKnown: pipPerson.cameraKnown
-                        cameraOn: pipPerson.cameraOn
-                        cameraTrackKey: pipPerson.cameraTrackKey
-                        screenSharing: pipPerson.screenSharing
-                        mediaKind: "camera"
-                        speaking: pipPerson.speaking
-                        speakingLevel: pipPerson.speakingLevel
-                        handRaised: pipPerson.handRaised
-                        connectionQuality: pipPerson.connectionQuality
-                        focused: true
+                    onParticipantActivated: identity => {
+                        if (root.stageState)
+                            root.stageState.pin(identity)
                     }
                 }
             }
@@ -251,7 +210,7 @@ Window {
                 anchors.centerIn: parent
                 width: parent.width - AppTheme.spacing16 * 2
                 spacing: AppTheme.spacing4
-                visible: !root.hasSurface || !root.groupLive
+                visible: !root.groupLive || root.total === 0
                 Label {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter

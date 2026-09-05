@@ -689,6 +689,92 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
     return entries;
 }
 
+bool TimelineModel::rowHostsReceipts(int row) const
+{
+    if (row < 0 || row >= m_events.size())
+        return false;
+    const auto &e = m_events.at(row);
+    if (e.isVirtual() || e.type == TimelineEvent::DateDivider)
+        return false;
+    // A call card is content with a body of its own.
+    if (isCallEventRow(e))
+        return true;
+    if (e.type != TimelineEvent::StateChange)
+        return true;
+    // Call-membership updates never draw; they are what a live call keeps
+    // writing, and the reported case exactly.
+    if (isRtcMembershipKind(e.stateKind))
+        return false;
+    // A state run draws ONE summary, on its leader, and only when at least
+    // one entry survives the activity settings; every other row of the run
+    // has no body.
+    if (stateGroupLeaderRow(row) != row)
+        return false;
+    const QVariantList entries = stateGroupEntriesFrom(row);
+    for (const auto &entry : entries) {
+        const QString kind =
+            entry.toMap().value(QStringLiteral("eventKind")).toString();
+        if (activityKindVisible(kind))
+            return true;
+    }
+    return false;
+}
+
+int TimelineModel::receiptHostRow(int row) const
+{
+    if (row < 0 || row >= m_events.size())
+        return -1;
+    for (int r = row; r >= 0; --r) {
+        if (rowHostsReceipts(r))
+            return r;
+    }
+    return -1;
+}
+
+QList<ReadReceipt> TimelineModel::hostedReceipts(int row,
+                                                 int *reportedTotal) const
+{
+    // One entry per reader, the NEWEST of their receipts winning — a reader
+    // whose marker moved from the host onto a hosted row is still one
+    // reader. Walk forward while the rows are hosted here; the first row
+    // that hosts for itself ends the span.
+    QHash<QString, ReadReceipt> byUser;
+    // Readers beyond a row's delivered window cannot be deduplicated, so the
+    // reported total is the unique delivered readers plus each row's
+    // undelivered remainder — never a sum of per-row totals, which would
+    // count a reader whose marker moved from the host onto a hosted row
+    // twice.
+    int undelivered = 0;
+    for (int r = row; r < m_events.size(); ++r) {
+        if (r != row && rowHostsReceipts(r))
+            break;
+        const auto &e = m_events.at(r);
+        undelivered += qMax(0, e.readByTotal - static_cast<int>(e.readBy.size()));
+        for (const auto &receipt : e.readBy) {
+            const auto it = byUser.constFind(receipt.userId);
+            if (it == byUser.constEnd() || it->tsMs < receipt.tsMs)
+                byUser.insert(receipt.userId, receipt);
+        }
+    }
+    if (reportedTotal)
+        *reportedTotal = static_cast<int>(byUser.size()) + undelivered;
+    QList<ReadReceipt> out = byUser.values();
+    std::stable_sort(out.begin(), out.end(),
+                     [](const ReadReceipt &a, const ReadReceipt &b) {
+                         return a.tsMs > b.tsMs;
+                     });
+    return out;
+}
+
+void TimelineModel::announceReceiptHost(int row)
+{
+    const int host = receiptHostRow(row);
+    if (host < 0 || host == row)
+        return;
+    const auto idx = index(host);
+    Q_EMIT dataChanged(idx, idx, { ReadReceiptsRole, ReadReceiptsTotalRole });
+}
+
 QString TimelineModel::profileChangeDescription(const TimelineEvent &e,
                                                 const QString &actorDisplayName)
 {
@@ -1126,21 +1212,31 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         return out;
     }
     case ReactionsRole:          return reactionsVariant(e);
-    case ReadReceiptsRole:       return readReceiptsVariant(e);
+    case ReadReceiptsRole: {
+        // A row that draws no body presents nothing of its own; its readers
+        // are shown on the row hosting it (see rowHostsReceipts).
+        if (!rowHostsReceipts(index.row()))
+            return QVariantList{};
+        TimelineEvent merged = e;
+        merged.readBy = hostedReceipts(index.row(), nullptr);
+        return readReceiptsVariant(merged);
+    }
     case ReadReceiptsTotalRole: {
         // Total OTHER readers for the "+N" chip: the uncapped server-side
         // count minus the single presentation exclusion (self) when found
         // in the delivered window. A self-receipt hiding beyond the capped
         // window cannot be detected — bounded overcount of at most 1, only
         // in >16-reader rooms; never an undercount of what is shown.
+        if (!rowHostsReceipts(index.row()))
+            return 0;
+        int reported = 0;
+        const QList<ReadReceipt> all = hostedReceipts(index.row(), &reported);
         int excluded = 0;
-        for (const auto &r : e.readBy) {
+        for (const auto &r : all) {
             if (r.userId == m_selfUserId)
                 ++excluded;
         }
-        const int reported =
-            qMax(e.readByTotal, static_cast<int>(e.readBy.size()));
-        return qMax(0, reported - excluded);
+        return qMax(0, qMax(reported, static_cast<int>(all.size())) - excluded);
     }
     case IsPollRole:             return e.type == TimelineEvent::Poll;
     case PollQuestionRole:       return e.pollQuestion;
@@ -1563,6 +1659,9 @@ void TimelineModel::onEventAppended(const QString &roomId, const TimelineEvent &
     if (!event.threadRootId.isEmpty())
         ++m_threadReplyCounts[event.threadRootId];
     endInsertRows();
+    // A bodiless row appended here hands its readers to the row above.
+    if (!m_events.isEmpty() && !m_events.last().readBy.isEmpty())
+        announceReceiptHost(static_cast<int>(m_events.size()) - 1);
     Q_EMIT countChanged();
     emitPresentationGroupingChanged(publicRow - 1, publicRow);
 }
@@ -1585,6 +1684,7 @@ void TimelineModel::onEventReplaced(const QString &roomId,
     rebuildThreadReplyIndex();
     const auto idx = index(row);
     Q_EMIT dataChanged(idx, idx);
+    announceReceiptHost(row);
     if (groupingChanged)
         emitPresentationGroupingChanged(row - 1, row + 1);
 }
@@ -1720,10 +1820,14 @@ void TimelineModel::onEventInsertedAt(const QString &roomId, int index,
     beginInsertRows({}, index, index);
     m_events.insert(index, event);
     noteSenderAvatar(event);
+    // A bodiless row inserted here hands its readers to the row above.
+    const bool hostedElsewhere = !event.readBy.isEmpty();
     invalidateRowIndex();
     if (!event.threadRootId.isEmpty())
         ++m_threadReplyCounts[event.threadRootId];
     endInsertRows();
+    if (hostedElsewhere)
+        announceReceiptHost(index);
     Q_EMIT countChanged();
     emitPresentationGroupingChanged(index - 1, index + 1);
 }
@@ -1739,13 +1843,17 @@ void TimelineModel::onEventsInsertedAt(
         return;
     }
     beginInsertRows({}, index, index + events.size() - 1);
+    bool anyReaders = false;
     for (int offset = 0; offset < events.size(); ++offset) {
+        anyReaders = anyReaders || !events.at(offset).readBy.isEmpty();
         m_events.insert(index + offset, events.at(offset));
         noteSenderAvatar(events.at(offset));
     }
     invalidateRowIndex();
     rebuildThreadReplyIndex();
     endInsertRows();
+    if (anyReaders)
+        announceReceiptHost(index + events.size() - 1);
     Q_EMIT countChanged();
     emitPresentationGroupingChanged(index - 1,
                                     index + events.size());
@@ -1782,6 +1890,7 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
         rebuildThreadReplyIndex();
     const auto idx = this->index(index);
     Q_EMIT dataChanged(idx, idx);
+    announceReceiptHost(index);
     if (groupingChanged)
         emitPresentationGroupingChanged(index - 1, index + 1);
 }
@@ -1806,6 +1915,8 @@ void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
     }
     endRemoveRows();
     Q_EMIT countChanged();
+    // The row above may have hosted the removed row's readers.
+    announceReceiptHost(qMin(index, static_cast<int>(m_events.size()) - 1));
     emitPresentationGroupingChanged(index - 1, index);
 }
 

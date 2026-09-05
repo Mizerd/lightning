@@ -1828,6 +1828,52 @@ for closed-loop pointer positioning, with a focus guard that refuses to type
 unless KWin reports the intended window active. The guard exists because
 without it a login went into a browser window instead of the client.
 
+**2026-09-05, the tester-report batch, driven through the GUI on the packaged
+tree's binary against `test_matrix.smetonis.net` with the fixture account.**
+PASS: the room-info tab strip wraps to two rows at the 260 px floor with the
+panel inside the window (it used to be pushed off the right edge — the strip's
+natural width was the panel's MINIMUM); the Widgets tab offers Add widget…,
+the dialog writes a real `im.vector.modular.widgets` event and the list
+re-reads with Open + Remove, and Remove writes the tombstone and the list
+empties; Lightning Light's search field and composer measure `#F5F9FE` and
+Moss Light's `#F6FBF7` (sampled off the capture, no pure white left); the
+Settings header is the room header's height; Settings opened with NO GUI
+stall ≥100 ms on any of three opens (`LIGHTNING_GUI_STALL_TRACE=100`) where
+the same trace showed 428 ms per open before the loader was kept alive; the
+GIF picker keeps a typed query across a provider switch. NOT TESTED: the Home
+"Set up backup" banner — the fixture account has a backup, so the banner does
+not appear; the edit is text and target only. MEASURED AND NOT ADDRESSED: a
+theme switch blocks the GUI thread ~940 ms (every token repaints), and the
+FIRST Settings close after the kept-alive change logged one 226 ms
+unattributed stall that the second and third did not — one observation.
+Harness lesson that cost a click batch: a fresh launch came up on the OTHER
+monitor and six guarded-nothing clicks went into Steam; every click now goes
+through `winclick`, which asks KWin for Lightning's frame and refuses unless
+Lightning is the active window. And `QT_FORCE_STDERR_LOGGING=1` is mandatory
+for a nohup'd launch, or Qt hands every line to journald and the log file
+holds only the nix banner.
+
+**2026-09-05, later the same day — the second report batch, NOT live-validated
+(Rokas was at the PC, so no GUI automation; see the harness lesson above).**
+Fixed from his screenshots and log, each with a regression test: the
+encryption lock beside the room name (`TesterReportFixesTest`); read receipts
+hosted by the nearest row that draws a body, so a marker on a
+call-membership update no longer vanishes (`timeline-model-diff`); the call
+popout hosting the stage's tile grid with shares as their own tiles (load
+gate only); a participant volume chosen before their track arrives applied
+when the bin is built, and the "nowhere to land" line logged once per key
+instead of hundreds of times (`sfu-media-engine`, mutation-proven). The
+Windows "volume 0 does not mute" report is the likely same defect and stays
+OPEN until a Windows tester confirms. Also from review of the first batch
+(CHANGES_REQUESTED, all addressed): the kept-alive Settings screen's
+window-level Escape/Ctrl+, Shortcuts are gated on `root.visible` (two
+enabled Shortcuts on one sequence make Qt fire NEITHER — proven by a real
+key in `SettingsShellQmlTest`), a widget write answered after a room switch
+no longer wedges `writing`, `validate_widget_write` is one function the Rust
+test actually calls, Remove names the exact state key and is hidden for rows
+the reader could not name, and Lightning Light's elevated rung was stepped
+to `#E4EEFA` (the tint had collapsed it to 1.017:1).
+
 Two open decisions those rounds created, both recorded rather than taken:
 - **The SDK store is not encrypted at rest**, and it holds DECRYPTED
   encrypted-room bodies (`encode_event` serializes the `Decrypted` variant,

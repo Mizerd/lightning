@@ -784,6 +784,101 @@ private slots:
     // This drives a real vp8enc, encrypts each frame exactly as the engine's
     // pad probe does, payloads with OUR element, depayloads, decrypts, and
     // requires the bytes back. It fails on rtpvp8pay by construction.
+    // Reported from a live log ("participant volume had nowhere to land",
+    // hundreds of times for one participant) and from a Windows tester
+    // whose "volume 0" never muted: the controller applies a participant's
+    // stored volume as soon as it knows the stream, which is BEFORE the
+    // receive bin exists, and nothing applied it again. The volume is now
+    // remembered and lands when the bin is built; the diagnostic fires once.
+    void aVolumeChosenBeforeTheTrackArrivesLandsWhenItDoes()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        QString failure;
+        const auto note = [&failure](const QString &why) {
+            if (failure.isEmpty())
+                failure = why;
+        };
+        connect(&sender, &SfuMediaEngine::failed, this, note);
+        connect(&receiver, &SfuMediaEngine::failed, this, note);
+
+        QString offeredStream;
+        connect(&sender, &SfuMediaEngine::localDescription, &receiver,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target != int(SfuMediaEngine::Target::Publisher)
+                        || kind != QStringLiteral("offer")) {
+                        return;
+                    }
+                    receiver.applyRemoteDescription(
+                        SfuMediaEngine::Target::Subscriber, kind, sdp);
+                    // The publisher sets its sink pad's msid to the CID it
+                    // was given (SfuMediaEngine::publishAudio), and the
+                    // receiver keys the stream by the first msid token — so
+                    // the stream id is known the moment the offer is applied,
+                    // before any pad, bin or frame exists on this side.
+                    if (offeredStream.isEmpty()) {
+                        offeredStream = QStringLiteral("cid-loopback-audio");
+                        receiver.setParticipantVolume(offeredStream, 0);
+                        // Twice: the second miss must not be a second story.
+                        receiver.setParticipantVolume(offeredStream, 0);
+                    }
+                });
+        connect(&receiver, &SfuMediaEngine::localDescription, &sender,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target == int(SfuMediaEngine::Target::Subscriber)
+                        && kind == QStringLiteral("answer")) {
+                        sender.applyRemoteDescription(
+                            SfuMediaEngine::Target::Publisher, kind, sdp);
+                    }
+                });
+        connect(&sender, &SfuMediaEngine::localCandidate, &receiver,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Publisher))
+                        receiver.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Subscriber, init);
+                });
+        connect(&receiver, &SfuMediaEngine::localCandidate, &sender,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Subscriber))
+                        sender.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Publisher, init);
+                });
+        bool trackArrived = false;
+        QString arrivedStream;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &, const QString &) {
+                    trackArrived = true;
+                    arrivedStream = streamId;
+                });
+
+        sender.start();
+        receiver.start();
+        const QByteArray key(32, 'k');
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        sender.setOutboundKey(3, key);
+        receiver.setInboundKey(QStringLiteral("sender-device"), 3, key);
+        sender.publishAudio(QStringLiteral("cid-loopback-audio"));
+
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            trackArrived,
+            qPrintable(QStringLiteral("no media pad; failure=%1").arg(failure)),
+            45000);
+        QVERIFY2(!offeredStream.isEmpty(), "the offer carried no msid");
+        QCOMPARE(arrivedStream, offeredStream);
+        // The bin exists now, and the volume chosen before it did is on it.
+        QTRY_COMPARE_WITH_TIMEOUT(receiver.receiveVolumeForTest(arrivedStream),
+                                  0.0, 5000);
+        // A later change goes straight to the element.
+        receiver.setParticipantVolume(arrivedStream, 100);
+        QVERIFY(receiver.receiveVolumeForTest(arrivedStream) > 0.0);
+        sender.stop();
+        receiver.stop();
+        QCOMPARE(receiver.receiveVolumeForTest(arrivedStream), -1.0);
+    }
+
     void encryptedVp8SurvivesOurPayloader()
     {
         lightning::rtp::registerVp8Payloader();

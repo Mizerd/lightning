@@ -219,6 +219,62 @@ private Q_SLOTS:
     // "infinite reactions eina i sona": the chips ran off the right edge of
     // the window instead of wrapping, because a Flow without a width has
     // only its own single-row implicit width to wrap inside.
+    // "when gif menu is opened the text doesn't disappear and gets half
+    // hidden by the pop up": the picker opens ABOVE its button with the
+    // pointer still over it, so `ToolTip.visible: hovered` kept the tooltip
+    // up under the popup's bottom edge. Each picker button hides its
+    // tooltip while its own picker is showing.
+    void pickerButtonsDropTheirTooltipWhileTheirPickerIsUp()
+    {
+        const QString bar = read(QStringLiteral("MessageComposerBar.qml"));
+        QVERIFY(!bar.isEmpty());
+        const int gif = bar.indexOf(QStringLiteral("onClicked: root.openMediaPicker(true)"));
+        QVERIFY(gif > 0);
+        QVERIFY2(bar.mid(gif - 600, 600).contains(
+                     QStringLiteral("ToolTip.visible: hovered && !gifPicker.visible")),
+                 "the GIF button's tooltip must go when the picker is up");
+        const int emoji = bar.indexOf(QStringLiteral("onClicked: root.openEmojiPicker(true)"));
+        QVERIFY(emoji > 0);
+        QVERIFY2(bar.mid(emoji - 600, 600).contains(
+                     QStringLiteral("ToolTip.visible: hovered && !emojiPicker.visible")),
+                 "the emoji button's tooltip must go when the picker is up");
+    }
+
+    // "could this button open above the send prompt so not to cover it
+    // all": a bare popup() opens at the pointer, over the message box. The
+    // menu is anchored to its button with a NEGATIVE y, i.e. above it.
+    void theSendOptionsMenuOpensAboveTheComposer()
+    {
+        const QString bar = read(QStringLiteral("MessageComposerBar.qml"));
+        const int at = bar.indexOf(QStringLiteral("id: sendOptionsButton"));
+        QVERIFY(at > 0);
+        const QString block = bar.mid(at, 2600);
+        QVERIFY2(!block.contains(QStringLiteral("sendOptionsMenu.popup()")),
+                 "a bare popup() lands on the pointer, over the message box");
+        QVERIFY2(block.contains(QStringLiteral("sendOptionsMenu.popup("))
+                     && block.contains(QStringLiteral("-sendOptionsMenu.height")),
+                 "the menu must be placed above its button");
+    }
+
+    // "why is the lock so far away from the room name": the name label was
+    // fillWidth and grew to its half-header cap, pushing the encryption lock
+    // out to the far end. A non-fill label hugs its text; the maximumWidth
+    // cap alone still elides a long name.
+    void theEncryptionLockSitsBesideTheRoomName()
+    {
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+        const int lock = pane.indexOf(QStringLiteral("id: encryptionLock"));
+        QVERIFY(lock > 0);
+        const QString before = pane.mid(lock - 2600, 2600);
+        QVERIFY2(before.contains(QStringLiteral("Layout.fillWidth: false")),
+                 "the room name must not fill the row");
+        QVERIFY2(before.contains(QStringLiteral("Layout.maximumWidth: header.width * 0.5")),
+                 "the cap is what still lets a long name elide");
+        QVERIFY2(!before.mid(before.indexOf(QStringLiteral("Layout.fillWidth: false")))
+                      .contains(QStringLiteral("Layout.fillWidth: true")),
+                 "no fill between the name and the lock");
+    }
+
     void theReactionRowFillsItsRowSoItCanWrap()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

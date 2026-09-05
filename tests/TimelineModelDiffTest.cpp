@@ -127,6 +127,7 @@ private Q_SLOTS:
     void staleRoomSignalsIgnored();
     void invalidIndexSelfHeals();
     void undecryptableToDecryptedInPlace();
+    void receiptsOnBodilessRowsLandOnTheRowAbove();
     void localEchoReconciliation();
     void retrySendRoutesTransaction();
     void retrySendIgnoresNonFailedRows();
@@ -1748,6 +1749,86 @@ void TimelineModelDiffTest::reactionRolesNameTheReactorsAndKeepTheUncappedTotal(
     QVERIFY(bareBucket.value(QStringLiteral("reactorNames")).toStringList()
                 .isEmpty());
     QCOMPARE(bareBucket.value(QStringLiteral("reactorTotal")).toInt(), 2);
+}
+
+
+// "when call event read receipts disappear": the SDK attaches a reader's
+// receipt to the newest event they read, and during a call that is a
+// call-membership update — a row that draws NOTHING. The chips were on rows
+// nobody can see. A bodiless row presents no receipts of its own; the row
+// above that draws a body shows them, one entry per reader, newest first,
+// and is re-announced when the hosted row changes.
+void TimelineModelDiffTest::receiptsOnBodilessRowsLandOnTheRowAbove()
+{
+    const auto readers = [&](int row) {
+        QStringList ids;
+        const auto list = m_model->data(m_model->index(row),
+                                        TimelineModel::ReadReceiptsRole).toList();
+        for (const auto &v : list)
+            ids << v.toMap().value(QStringLiteral("userId")).toString();
+        return ids;
+    };
+    const auto total = [&](int row) {
+        return m_model->data(m_model->index(row),
+                             TimelineModel::ReadReceiptsTotalRole).toInt();
+    };
+
+    TimelineEvent msg = makeEvent(QStringLiteral("$m"), QStringLiteral("hello"));
+    msg.readBy = { { QStringLiteral("@bob:example.org"), 1000 } };
+    msg.readByTotal = 1;
+    m_client->mirror.append(msg);
+    Q_EMIT m_client->eventAppended(kRoom, msg);
+    const int msgRow = m_model->rowCount() - 1;
+    QCOMPARE(readers(msgRow), QStringList{ QStringLiteral("@bob:example.org") });
+
+    TimelineEvent rtc = makeEvent(QStringLiteral("$rtc"), QString());
+    rtc.type = TimelineEvent::StateChange;
+    rtc.stateKind = QStringLiteral("org.matrix.msc3401.call.member");
+    rtc.readBy = { { QStringLiteral("@carol:example.org"), 2000 } };
+    rtc.readByTotal = 1;
+    m_client->mirror.append(rtc);
+    Q_EMIT m_client->eventAppended(kRoom, rtc);
+    QCOMPARE(m_model->rowCount(), msgRow + 2);
+
+    // The membership row presents nothing; the message shows both readers,
+    // newest first.
+    QVERIFY(readers(msgRow + 1).isEmpty());
+    QCOMPARE(total(msgRow + 1), 0);
+    QCOMPARE(readers(msgRow), (QStringList{ QStringLiteral("@carol:example.org"),
+                                           QStringLiteral("@bob:example.org") }));
+    QCOMPARE(total(msgRow), 2);
+
+    // Bob's marker moves onto the membership row: still ONE bob, now the
+    // newest, and the HOST row is what gets announced.
+    TimelineEvent rtc2 = rtc;
+    rtc2.readBy = { { QStringLiteral("@carol:example.org"), 2000 },
+                    { QStringLiteral("@bob:example.org"), 3000 } };
+    rtc2.readByTotal = 2;
+    QSignalSpy changed(m_model, &TimelineModel::dataChanged);
+    m_client->mirror[msgRow + 1] = rtc2;
+    Q_EMIT m_client->eventChangedAt(kRoom, msgRow + 1, rtc2);
+    bool hostAnnounced = false;
+    for (const auto &args : changed) {
+        if (args.at(0).toModelIndex().row() == msgRow)
+            hostAnnounced = true;
+    }
+    QVERIFY2(hostAnnounced, "the row that shows the chips was not re-announced");
+    QCOMPARE(readers(msgRow), (QStringList{ QStringLiteral("@bob:example.org"),
+                                           QStringLiteral("@carol:example.org") }));
+    QCOMPARE(total(msgRow), 2);
+
+    // A call card draws a body of its own and hosts its own readers; the
+    // message above stops at it.
+    TimelineEvent call = makeEvent(QStringLiteral("$call"), QString());
+    call.type = TimelineEvent::CallEvent;
+    call.readBy = { { QStringLiteral("@erin:example.org"), 4000 } };
+    call.readByTotal = 1;
+    m_client->mirror.append(call);
+    Q_EMIT m_client->eventAppended(kRoom, call);
+    const int callRow = m_model->rowCount() - 1;
+    QCOMPARE(readers(callRow), QStringList{ QStringLiteral("@erin:example.org") });
+    QCOMPARE(readers(msgRow), (QStringList{ QStringLiteral("@bob:example.org"),
+                                           QStringLiteral("@carol:example.org") }));
 }
 
 QTEST_GUILESS_MAIN(TimelineModelDiffTest)

@@ -571,6 +571,8 @@ void SfuMediaEngine::stop()
     m_active = false;
     m_publishedBins.clear();
     m_publishWatch.clear();
+    m_pendingTrackVolume.clear();
+    m_volumeMissWarned.clear();
     // destroyPeer tears the pipelines down; the descriptors those bins were
     // using are ours to close and would otherwise leak one per screen share
     // per call.
@@ -3382,6 +3384,19 @@ void SfuMediaEngine::setTrackVolume(const QString &streamId,
     // stream's name differently, which is the failure this code has had
     // before.
     //
+    // NOTHING TO LAND ON YET. Reported from a live log: the same line
+    // hundreds of times for one participant whose audio track had not
+    // arrived, and a Windows tester whose "volume 0" never muted — the value
+    // was applied before the receive bin existed and then never again. So
+    // the wanted volume is REMEMBERED here and applied by
+    // applyPendingTrackVolume() the moment that stream's bin is built, and
+    // the diagnostic below is logged once per key rather than per attempt.
+    const QString pendingKey =
+        trackKey.isEmpty() ? streamId : volumeKeyFor(streamId, trackKey);
+    m_pendingTrackVolume.insert(pendingKey, percent);
+    if (m_volumeMissWarned.contains(pendingKey))
+        return;
+    m_volumeMissWarned.insert(pendingKey);
     // Names only. A LiveKit stream sid is the same class of identifier this
     // file already logs as `trackKey=`, and no participant, track content or
     // capture is named.
@@ -3429,6 +3444,51 @@ void SfuMediaEngine::setTrackVolume(const QString &streamId,
         << "participant volume had nowhere to land: wanted=" << target
         << "receive volume elements=" << volumeElements
         << "named=" << known.join(QLatin1Char(','));
+}
+
+void SfuMediaEngine::applyPendingTrackVolume(const QString &streamId,
+                                             const QString &trackKey,
+                                             quint64 generation)
+{
+    if (generation != m_generation.load() || !m_subscriber.pipeline)
+        return;
+    // Both shapes a caller can have asked for: the whole participant, and
+    // this one track. The participant-level value is applied first so a
+    // per-track choice, when there is one, wins.
+    if (m_pendingTrackVolume.contains(streamId)) {
+        m_volumeMissWarned.remove(streamId);
+        setTrackVolume(streamId, QString(), m_pendingTrackVolume.value(streamId));
+    }
+    const QString key = volumeKeyFor(streamId, trackKey);
+    if (m_pendingTrackVolume.contains(key)) {
+        m_volumeMissWarned.remove(key);
+        setTrackVolume(streamId, trackKey, m_pendingTrackVolume.value(key));
+    }
+}
+
+double SfuMediaEngine::receiveVolumeForTest(const QString &streamId) const
+{
+    if (!m_subscriber.pipeline)
+        return -1.0;
+    const QString prefix = outputVolumeElementName(streamId);
+    double found = -1.0;
+    GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_subscriber.pipeline));
+    GValue item = G_VALUE_INIT;
+    while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+        auto *element = GST_ELEMENT(g_value_get_object(&item));
+        gchar *raw = element ? gst_element_get_name(element) : nullptr;
+        const QString name = QString::fromUtf8(raw ? raw : "");
+        g_free(raw);
+        if (found < 0 && name.startsWith(prefix)) {
+            gdouble v = -1.0;
+            g_object_get(element, "volume", &v, nullptr);
+            found = v;
+        }
+        g_value_reset(&item);
+    }
+    g_value_unset(&item);
+    gst_iterator_free(it);
+    return found;
 }
 
 void SfuMediaEngine::setVideoRouter(SfuVideoRouter *router)
@@ -4247,6 +4307,11 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
                               videoSinkCtxFree, GConnectFlags(0));
         gst_object_unref(appsink);
     }
+    // A volume the user chose before this bin existed lands now. On the GUI
+    // thread, like every other write to the volume elements.
+    marshal(engine, [engine, streamId, trackMid, generation] {
+        engine->applyPendingTrackVolume(streamId, trackMid, generation);
+    });
     // Apply the CURRENT deafen state before the bin plays: a track arriving
     // after the user deafened must not be audible even briefly.
     if (GstElement *volume = gst_bin_get_by_name(
