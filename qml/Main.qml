@@ -279,6 +279,10 @@ ApplicationWindow {
         if (window.visibility === Window.Maximized
                 || window.visibility === Window.Windowed)
             window.lastOnScreenVisibility = window.visibility
+        // Picture-in-picture follows the window off screen and back (see
+        // syncAutomaticPip below). Placed FIRST so a return from the tray
+        // stands the floating window down before anything else runs.
+        window.syncAutomaticPip()
         if (!geometrySaver.armed || !app.settings)
             return
         // Minimized and Hidden say nothing about which of maximized or
@@ -1058,6 +1062,63 @@ ApplicationWindow {
             objectName: "verifySessionPromptHost"
         }
     }
+
+    // ── Picture-in-picture ───────────────────────────────────────────────
+    //
+    // A separate top-level Window, so it lives outside this window's scene
+    // entirely and keeps carrying the call when this one is minimised or
+    // closed to the tray. Its visibility is driven by CallStageState's flag
+    // (see CallPipWindow's header for why that is imperative rather than a
+    // binding), and the flag is dropped when the call ends.
+    CallPipWindow {
+        objectName: "callPipWindow"
+        onRestoreRequested: {
+            // Standing the PiP down BEFORE raising is deliberate: the window
+            // this is going back to will rebuild the call stage, and the
+            // video router hands a track's sink to whoever attached last —
+            // so the surface that is going away has to let go first.
+            if (app.groupCall && app.groupCall.stageState)
+                app.groupCall.stageState.setPictureInPicture(false)
+            window.raiseIntoView()
+        }
+    }
+    // Automatic pop-out. A floating window is worth having exactly when this
+    // one is not on screen, and that is the only case it fires in: minimised
+    // or closed to the tray, with a call actually live. Coming back on screen
+    // stands it down again, so the two are never both showing the call.
+    //
+    // It never opens by itself while this window is visible — that would be a
+    // window appearing over the user's work for no reason they asked for —
+    // and it does not close a PiP the user opened deliberately from the call
+    // bar, which is why it only writes the flag on a transition it caused.
+    property bool pipAutoOpened: false
+    readonly property bool pipCallLive:
+        (app.groupCall && app.groupCall.active)
+        || (app.calls && (app.calls.state === CallController.Active
+                          || app.calls.state === CallController.Connecting))
+    readonly property bool windowAwayFromView:
+        window.visibility === Window.Hidden
+        || window.visibility === Window.Minimized
+    function syncAutomaticPip() {
+        if (!app.settings || !app.settings.callPictureInPicture)
+            return
+        var state = app.groupCall ? app.groupCall.stageState : null
+        if (!state)
+            return
+        if (window.pipCallLive && window.windowAwayFromView
+                && !state.pictureInPicture) {
+            state.setPictureInPicture(true)
+            window.pipAutoOpened = true
+        } else if (window.pipAutoOpened
+                   && (!window.windowAwayFromView || !window.pipCallLive)) {
+            state.setPictureInPicture(false)
+            window.pipAutoOpened = false
+        }
+    }
+    // NOT a second onVisibilityChanged — QML permits exactly one handler per
+    // signal and the second is a compile error ("Property value set multiple
+    // times"), so this hangs off the existing one at the top of the file.
+    onPipCallLiveChanged: window.syncAutomaticPip()
 
     Loader {
         active: app.screenshotDemoActive

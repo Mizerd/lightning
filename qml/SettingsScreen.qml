@@ -174,9 +174,26 @@ Item {
         { title: qsTr("Notification preview"),
           keywords: qsTr("notification preview privacy sender message"),
           section: "notifications", breadcrumb: qsTr("Notifications") },
+
+        { title: qsTr("Notification preview in encrypted rooms"),
+          keywords: qsTr("notification preview encrypted body privacy hide message text"),
+          section: "notifications",
+          breadcrumb: qsTr("Notifications") },
         { title: qsTr("Notification sound"),
           keywords: qsTr("notification sound mute"), section: "notifications",
           breadcrumb: qsTr("Notifications") },
+
+        { title: qsTr("Read receipts"),
+          keywords: qsTr("read receipt receipts private seen ticks blue "
+                         + "m.read.private privacy"),
+          section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Reading and typing") },
+
+        { title: qsTr("Let others see when I am typing"),
+          keywords: qsTr("typing notice notification composing indicator "
+                         + "privacy"),
+          section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Reading and typing") },
 
         { title: qsTr("Share my online status"),
           keywords: qsTr("presence online idle offline status share"),
@@ -3486,6 +3503,84 @@ Item {
                             lineHeightMode: Text.ProportionalHeight
                         }
 
+                        // v0.9.0: what this device tells the room while the
+                        // user is only READING and TYPING. Both of these are
+                        // continuous disclosures nobody consciously sends,
+                        // which is why they belong here rather than under
+                        // the timeline's display options.
+                        Label {
+                            text: qsTr("Reading and typing")
+                            color: AppTheme.stormText
+                            font.pixelSize: AppTheme.textTitle
+                            font.weight: AppTheme.weightStrong
+                            Layout.topMargin: AppTheme.spacing8
+                        }
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+
+                                Label {
+                                    text: qsTr("Read receipts")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    objectName: "readReceiptModeCombo"
+                                    Layout.fillWidth: true
+                                    model: [
+                                        qsTr("Send read receipts"),
+                                        qsTr("Private — only my own devices"),
+                                        qsTr("Do not send read receipts")
+                                    ]
+                                    currentIndex: app.settings.readReceiptMode
+                                    onActivated: (index) =>
+                                        app.settings.readReceiptMode = index
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Private receipts still clear the "
+                                               + "unread badge on your own other "
+                                               + "devices; nobody else sees them. "
+                                               + "Not sending them at all keeps your "
+                                               + "place only on this device. Either "
+                                               + "way, receipts you have already "
+                                               + "sent cannot be taken back, and "
+                                               + "other people's receipts are still "
+                                               + "shown to you.")
+                                }
+
+                                CheckBox {
+                                    objectName: "sendTypingCheck"
+                                    palette.windowText: AppTheme.stormText
+                                    text: qsTr("Let others see when I am typing")
+                                    checked: app.settings.sendTypingNotifications
+                                    onToggled:
+                                        app.settings.sendTypingNotifications = checked
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Typing notices are the most frequent "
+                                               + "thing a chat client discloses — "
+                                               + "every few keystrokes, to everyone "
+                                               + "in the room. Turning this off does "
+                                               + "not hide other people's.")
+                                }
+                            }
+                        }
+
                         // v0.7.x Matrix presence: own-state publication.
                         // Offered only on a backend that owns presence
                         // (the server push-rules precedent); viewing
@@ -4075,6 +4170,39 @@ Item {
                                                + "notification. Notifications are "
                                                + "suppressed while the room is open, "
                                                + "focused, and at the latest message.")
+                                }
+                                // v0.9.0: a separate level for ENCRYPTED
+                                // rooms. A notification body is written to
+                                // the desktop's daemon and its log in
+                                // plaintext — outside everything the room's
+                                // encryption guarantees — so wanting full
+                                // previews from a project room and none from
+                                // an encrypted one is an ordinary wish, and
+                                // one setting could not express it.
+                                Label {
+                                    text: qsTr("In encrypted rooms")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    objectName: "notificationPreviewEncryptedCombo"
+                                    Layout.fillWidth: true
+                                    enabled: app.settings.notificationsEnabled
+                                    // Index 3 is "same as above" and is the
+                                    // default, so nobody's behaviour changes
+                                    // on upgrade.
+                                    model: [
+                                        qsTr("Sender and message"),
+                                        qsTr("Sender only"),
+                                        qsTr("Private"),
+                                        qsTr("Same as other rooms")
+                                    ]
+                                    currentIndex:
+                                        app.settings.notificationPreviewEncrypted
+                                    onActivated: (index) =>
+                                        app.settings.notificationPreviewEncrypted = index
                                 }
                                 // v0.6.1: notification sound.
                                 Label {

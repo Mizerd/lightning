@@ -291,9 +291,25 @@ private Q_SLOTS:
         QVERIFY(!members.isEmpty());
         QVERIFY(members.contains(QStringLiteral("SmoothWheelArea {}")));
 
-        const QString media = blockContaining(src, QStringLiteral("ListView {"), QStringLiteral("id: mediaList"));
-        QVERIFY(!media.isEmpty());
-        QVERIFY(media.contains(QStringLiteral("SmoothWheelArea {}")));
+        // The Media section is no longer a ListView in this file: it is
+        // MediaBrowser.qml, which browses the room's whole history rather
+        // than whatever the timeline had loaded. The rule is unchanged and
+        // now has TWO surfaces to satisfy it — the grid and the list — so it
+        // is checked where they live.
+        //
+        // This check used to name `id: mediaList` and failed the moment that
+        // id went away, which is the guard doing its job: a scan whose
+        // anchor disappears must break rather than quietly cover nothing.
+        const QString browser = read(QStringLiteral("MediaBrowser.qml"));
+        QVERIFY2(!browser.isEmpty(), "MediaBrowser.qml is gone");
+        const QString mediaGrid = blockContaining(
+            browser, QStringLiteral("GridView {"), QStringLiteral("id: grid"));
+        QVERIFY(!mediaGrid.isEmpty());
+        QVERIFY(mediaGrid.contains(QStringLiteral("SmoothWheelArea {}")));
+        const QString mediaList = blockContaining(
+            browser, QStringLiteral("ListView {"), QStringLiteral("id: list"));
+        QVERIFY(!mediaList.isEmpty());
+        QVERIFY(mediaList.contains(QStringLiteral("SmoothWheelArea {}")));
 
         const QString widgets = blockContaining(
             src, QStringLiteral("Flickable {"),
@@ -301,7 +317,12 @@ private Q_SLOTS:
         QVERIFY(!widgets.isEmpty());
         QVERIFY(widgets.contains(QStringLiteral("SmoothWheelArea {}")));
 
-        QCOMPARE(src.count(QStringLiteral("SmoothWheelArea {")), 5);
+        // TRIPWIRE, not a magic number: it is here so that ADDING a
+        // scrollable surface to either file fails this test until the new
+        // one is named above. It went 5 -> 4 when the Media section became
+        // MediaBrowser.qml, which took two surfaces with it.
+        QCOMPARE(src.count(QStringLiteral("SmoothWheelArea {")), 4);
+        QCOMPARE(browser.count(QStringLiteral("SmoothWheelArea {")), 2);
     }
 
     // ---- Deliberate skips, documented ----

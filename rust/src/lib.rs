@@ -12,7 +12,7 @@ use std::{
     panic::{catch_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicI32, Ordering},
         Arc, Mutex,
     },
 };
@@ -211,6 +211,14 @@ struct RustClient {
     room_action_tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     active_typing_room: Arc<Mutex<Option<String>>>,
     receipt_targets: Arc<Mutex<HashMap<String, OwnedEventId>>>,
+    // v0.9.0 receipt privacy: 0 public, 1 private (m.read.private), 2 none.
+    //
+    // Stored ONCE on the bridge rather than passed per call, because there
+    // are three paths that send a receipt — the in-room one, mark-a-room-read
+    // without opening it, and the thread panel's — and a privacy setting
+    // honoured by two of three is not a privacy setting. One value, read by
+    // all three.
+    receipt_privacy: Arc<AtomicI32>,
     receipt_serial: Arc<tokio::sync::Mutex<()>>,
     invite_actions: Arc<Mutex<BTreeSet<String>>>,
     // Server-synchronized per-room notification mode (SDK push rules).
@@ -335,6 +343,7 @@ impl RustClient {
             room_action_tasks: Mutex::new(Vec::new()),
             active_typing_room: Arc::new(Mutex::new(None)),
             receipt_targets: Arc::new(Mutex::new(HashMap::new())),
+            receipt_privacy: Arc::new(AtomicI32::new(0)),
             receipt_serial: Arc::new(tokio::sync::Mutex::new(())),
             invite_actions: Arc::new(Mutex::new(BTreeSet::new())),
             notification_mode_targets: Arc::new(Mutex::new(HashMap::new())),
@@ -2173,6 +2182,40 @@ pub unsafe extern "C" fn mx_rust_send_typing(
     })
 }
 
+/// Build the receipts for one read position under a privacy mode.
+///
+/// 0 public, 1 private (`m.read.private`), 2 none. Extracted because there
+/// are two call sites — reading a room and marking one read from the room
+/// list — and a privacy rule applied by one of them is not a privacy rule.
+/// It is also the only part of this that can be unit tested: the rest lives
+/// inside an async task holding a live `Room`.
+///
+/// The fully-read marker is present in EVERY mode. It is `m.fully_read`
+/// account data, readable only by this user, and it is what carries their
+/// own place in the conversation between their own devices and across a
+/// reinstall. Dropping it would make a privacy setting cost the user their
+/// unread state, which is not what any of the three modes says.
+fn receipts_for_mode(event_id: OwnedEventId, mode: i32) -> Receipts {
+    match mode {
+        1 => Receipts::new()
+            .fully_read_marker(event_id.clone())
+            .private_read_receipt(event_id),
+        2 => Receipts::new().fully_read_marker(event_id),
+        _ => Receipts::new()
+            .fully_read_marker(event_id.clone())
+            .public_read_receipt(event_id),
+    }
+}
+
+/// Privacy comes from the bridge's stored `receipt_privacy`
+/// (`mx_rust_set_receipt_privacy`): 0 public, 1 private (MSC2285
+/// `m.read.private`), 2 none.
+///
+/// The FULLY-READ MARKER is sent in every mode. It is account data — only
+/// this user can read it — and it is what makes "where I had got to" survive
+/// a reinstall. Withholding a receipt from other people is a different thing
+/// from forgetting your own place, and conflating them would make the
+/// privacy setting also lose the user's unread state.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_send_read_receipt(
     ptr: *mut c_void,
@@ -2183,6 +2226,7 @@ pub unsafe extern "C" fn mx_rust_send_read_receipt(
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
         let event_id = unsafe { cstr_arg(event_id) }?;
+        let mode = bridge.receipt_privacy.load(Ordering::SeqCst);
         let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
             .ok_or_else(|| "no active Matrix session".to_owned())?;
         let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
@@ -2201,9 +2245,7 @@ pub unsafe extern "C" fn mx_rust_send_read_receipt(
                 .as_ref() != Some(&event_id) {
                 return;
             }
-            let receipts = Receipts::new()
-                .fully_read_marker(event_id.clone())
-                .public_read_receipt(event_id);
+            let receipts = receipts_for_mode(event_id, mode);
             if room.send_multiple_receipts(receipts).await.is_ok() {
                 enqueue(&events, json!({ "type": "read_marker_advanced", "room_id": room_id }));
             } else {
@@ -2339,6 +2381,25 @@ pub unsafe extern "C" fn mx_rust_room_send_attachment_bytes(
 /// fallback matrix-sdk-ui's own `Timeline::mark_as_read` takes. Clearing
 /// that flag is unconditional either way: a room the user explicitly marked
 /// unread must not stay unread after they ask for it to be read.
+/// Receipt privacy: 0 public, 1 private (`m.read.private`), 2 none.
+///
+/// Applies to every subsequent receipt this bridge sends, from any of the
+/// three paths. It does NOT retract receipts already sent — a receipt is a
+/// published fact and the protocol has no un-send for it, which is worth
+/// saying plainly rather than implying the switch is retroactive.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_receipt_privacy(
+    ptr: *mut c_void,
+    mode: c_int,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let mode = if (0..=2).contains(&mode) { mode } else { 0 };
+        bridge.receipt_privacy.store(mode, Ordering::SeqCst);
+        Ok(String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_mark_room_read(
     ptr: *mut c_void,
@@ -2352,13 +2413,14 @@ pub unsafe extern "C" fn mx_rust_mark_room_read(
         let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
             .ok_or_else(|| "unknown room".to_owned())?;
         let events = Arc::clone(&bridge.events);
+        let mode = bridge.receipt_privacy.load(Ordering::SeqCst);
         bridge.spawn_room_action(async move {
             let latest = room.latest_event().event_id();
             let mut ok = true;
             if let Some(event_id) = latest {
-                let receipts = Receipts::new()
-                    .fully_read_marker(event_id.clone())
-                    .public_read_receipt(event_id);
+                // Same helper as the in-room path: marking a room read
+                // from the room list must not disclose more than opening it.
+                let receipts = receipts_for_mode(event_id, mode);
                 ok = room.send_multiple_receipts(receipts).await.is_ok();
             }
             // Unconditional: an explicitly marked-unread room must not stay
@@ -5608,7 +5670,8 @@ pub unsafe extern "C" fn mx_rust_thread_mark_read(
         let root = unsafe { cstr_arg(root_event_id) }?;
         bridge
             .timelines
-            .mark_thread_read(&bridge.runtime, room_id, root)
+            .mark_thread_read(&bridge.runtime, room_id, root,
+                              bridge.receipt_privacy.load(Ordering::SeqCst))
             .map(|_| String::new())
     })
 }
@@ -10598,6 +10661,59 @@ fn classify_import_error(message: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+
+    // ── Read-receipt privacy ────────────────────────────────────────────
+    //
+    // Three modes, one helper, two call sites. What is asserted here is
+    // exactly what a member of the room can and cannot observe, plus the
+    // invariant that ties the three together: the FULLY-READ MARKER is sent
+    // in every mode, because it is the user's own place in the conversation
+    // and no privacy setting should cost them that.
+    #[test]
+    fn receipt_privacy_decides_what_other_members_can_see() {
+        use super::receipts_for_mode;
+        use matrix_sdk::ruma::EventId;
+
+        let id = EventId::parse("$abc:example.org").unwrap();
+
+        // 0 — public, exactly what every release before 0.9.0 sent.
+        let public = receipts_for_mode(id.clone(), 0);
+        assert_eq!(public.public_read_receipt.as_deref(), Some(&*id));
+        assert!(public.private_read_receipt.is_none());
+        assert_eq!(public.fully_read.as_deref(), Some(&*id));
+
+        // 1 — private. The server records it, so THIS account's other
+        // devices still clear their badge; no other member ever sees it.
+        // The distinction from mode 2 is the entire reason it exists.
+        let private = receipts_for_mode(id.clone(), 1);
+        assert!(
+            private.public_read_receipt.is_none(),
+            "a private receipt must never also be published"
+        );
+        assert_eq!(private.private_read_receipt.as_deref(), Some(&*id));
+        assert_eq!(private.fully_read.as_deref(), Some(&*id));
+
+        // 2 — off. Nothing anyone else can read, and nothing this account's
+        // other devices can read either. That is the honest cost of it.
+        let off = receipts_for_mode(id.clone(), 2);
+        assert!(off.public_read_receipt.is_none());
+        assert!(
+            off.private_read_receipt.is_none(),
+            "\"do not send\" must not quietly send a private one instead"
+        );
+        assert_eq!(
+            off.fully_read.as_deref(),
+            Some(&*id),
+            "the user's own read position is not a disclosure and must \
+             survive every mode"
+        );
+
+        // An out-of-range value must not silently mean "off": a corrupt
+        // stored setting stopping someone's receipts is a behaviour change
+        // they never asked for. It falls back to the previous behaviour.
+        let bogus = receipts_for_mode(id.clone(), 77);
+        assert_eq!(bogus.public_read_receipt.as_deref(), Some(&*id));
+    }
 
     // A CANCELLED THREAD THAT WILL NOT STOP MUST NOT HOLD THE UI.
     //

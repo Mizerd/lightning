@@ -276,7 +276,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+705"/>
+        <location filename="../src/app/AppController.cpp" line="+799"/>
         <source>Room invitation</source>
         <translation>Undangan ruang</translation>
     </message>
@@ -291,7 +291,7 @@
         <translation>Anda diundang ke %1</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+148"/>
         <source>Incoming voice call</source>
         <translation>Panggilan suara masuk</translation>
     </message>
@@ -423,29 +423,39 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1703"/>
+        <location line="+1744"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning tidak dapat membaca berkas yang dipilih.</translation>
     </message>
     <message>
-        <location line="-1709"/>
+        <location line="-1750"/>
         <source>A room-key import is already in progress.</source>
         <translation>Impor kunci ruang sedang berlangsung.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2253"/>
+        <location line="+2303"/>
         <source>Not signed in.</source>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-2251"/>
+        <location line="-2301"/>
         <source>Room-key import failed.</source>
         <translation>Impor kunci ruang gagal.</translation>
     </message>
     <message>
-        <location line="+486"/>
+        <location line="+85"/>
+        <source>Lightning</source>
+        <translation type="unfinished">Lightning</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+441"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>Panggilan video memerlukan layanan MatrixRTC, yang belum tersedia di sini.</translation>
     </message>
@@ -640,7 +650,7 @@
         <translation>Menghapus data lokal perangkat ini tidak akan memperbaiki masalah ini, dan akan menghancurkan kunci enkripsi yang masih Anda perlukan.</translation>
     </message>
     <message>
-        <location line="+406"/>
+        <location line="+415"/>
         <source>This backend cannot change your display name.</source>
         <translation>Backend ini tidak dapat mengubah nama tampilan Anda.</translation>
     </message>
@@ -1018,7 +1028,17 @@
         <translation>Tidak ada kamera yang ditemukan.</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+7"/>
+        <source>Float the call when Lightning is minimised</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>A small always-on-top window with the call&apos;s video and its controls. It appears only while Lightning is minimised or in the tray, and goes away when the window comes back. You can also pop it out at any time from the call controls.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
         <source>These devices belong to this computer, not to your account. A change applies to your next call; during a call you can switch from the controls at the top of the conversation.</source>
         <translation>Perangkat ini milik komputer ini, bukan milik akun Anda. Perubahan berlaku untuk panggilan Anda berikutnya; selama panggilan berlangsung, Anda dapat beralih dari kontrol di bagian atas percakapan.</translation>
     </message>
@@ -1136,7 +1156,12 @@
         <translation>Tunjukkan siapa yang menelepon</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+27"/>
+        <source>Pop the call out into a floating window</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
         <source>Unmute microphone</source>
         <translation>Suarakan mikrofon</translation>
     </message>
@@ -1223,6 +1248,56 @@
         <location line="+13"/>
         <source>Reset</source>
         <translation>Reset</translation>
+    </message>
+</context>
+<context>
+    <name>CallPipWindow</name>
+    <message>
+        <location filename="../qml/CallPipWindow.qml" line="+93"/>
+        <source>Lightning call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+137"/>
+        <source>Call in progress</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+10"/>
+        <source>%n participant(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+34"/>
+        <source>Unmute microphone</source>
+        <translation type="unfinished">Suarakan mikrofon</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Mute microphone</source>
+        <translation type="unfinished">Bisukan mikrofon</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Undeafen</source>
+        <translation type="unfinished">Tidak tuli</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Deafen</source>
+        <translation type="unfinished">tuli</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Back to Lightning</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Leave the call</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -2831,7 +2906,7 @@ Ukuran: %3</translation>
 <context>
     <name>ForwardController</name>
     <message>
-        <location filename="../src/app/ForwardController.cpp" line="+84"/>
+        <location filename="../src/app/ForwardController.cpp" line="+86"/>
         <source>Photo</source>
         <translation>Foto</translation>
     </message>
@@ -2879,7 +2954,42 @@ Ukuran: %3</translation>
         <translation>Pesan ini tidak dapat diteruskan.</translation>
     </message>
     <message>
-        <location line="+62"/>
+        <location line="+68"/>
+        <source>You can forward up to %1 messages at once.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Nothing was selected to forward.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+31"/>
+        <source>in %1</source>
+        <translation type="unfinished">di %1</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Forwarded from %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+75"/>
+        <source>Not signed in.</source>
+        <translation type="unfinished">Belum masuk.</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Attachments can only be forwarded one at a time — use Forward on the message itself.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Nothing to send.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+63"/>
         <source>Media isn&apos;t available right now.</source>
         <translation>Media tidak tersedia saat ini.</translation>
     </message>
@@ -2955,6 +3065,80 @@ Ukuran: %3</translation>
         <location line="+10"/>
         <source>No rooms</source>
         <translation>Tidak ada ruang</translation>
+    </message>
+</context>
+<context>
+    <name>ForwardSelectionDialog</name>
+    <message numerus="yes">
+        <location filename="../qml/ForwardSelectionDialog.qml" line="+75"/>
+        <source>Forward %n message(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Just the message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>With original sender</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Each copy will name the original sender, this room and the time — visible to everyone in the rooms you pick.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>A clean copy, with nothing identifying where it came from.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Search rooms…</source>
+        <translation type="unfinished">Cari ruang…</translation>
+    </message>
+    <message>
+        <location line="+53"/>
+        <source>Sending %1 of %2…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source>Sent %n copy(ies).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>%1 of %2 sent — %n failed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+29"/>
+        <source>Done</source>
+        <translation type="unfinished">Selesai</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Cancel</source>
+        <translation type="unfinished">Batal</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Retry failed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Send</source>
+        <translation type="unfinished">Kirim</translation>
     </message>
 </context>
 <context>
@@ -4127,7 +4311,7 @@ Ukuran: %3</translation>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+577"/>
+        <location line="+581"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -4212,7 +4396,7 @@ Ukuran: %3</translation>
         <translation>Stiker tidak dapat disimpan.</translation>
     </message>
     <message>
-        <location line="+125"/>
+        <location line="+182"/>
         <location line="+18"/>
         <source>Connected</source>
         <translation>Terhubung</translation>
@@ -4266,7 +4450,7 @@ Ukuran: %3</translation>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+361"/>
+        <location filename="../qml/MainScreen.qml" line="+400"/>
         <source>Switching account…</source>
         <translation>Berganti akun…</translation>
     </message>
@@ -4307,6 +4491,188 @@ Ukuran: %3</translation>
     </message>
 </context>
 <context>
+    <name>MediaBrowser</name>
+    <message>
+        <location filename="../qml/MediaBrowser.qml" line="+43"/>
+        <source>Media</source>
+        <translation type="unfinished">Media</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Images</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Videos</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Audio</source>
+        <translation type="unfinished">Audio</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Files</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Links</source>
+        <translation type="unfinished">Tautan</translation>
+    </message>
+    <message>
+        <location line="+77"/>
+        <source>Search filename, caption, sender, link…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Search this room&apos;s media</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>List</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Grid</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Show as a list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show as a grid</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>From</source>
+        <translation type="unfinished">Dari</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Anyone</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Filter by sender</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>This backend cannot browse room history.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>History could not be read, so this is only part of it. %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+6"/>
+        <source>%n item(s) — all of this room&apos;s history.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source>%n item(s) so far — reading older messages…</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source>%n item(s) in the %1 message(s) read so far.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+5"/>
+        <source>%n message(s) could not be decrypted and may hold more.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>Nothing matches those filters in the history read so far.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Nothing of this kind in this room.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Nothing of this kind yet — keep loading to search further back.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+90"/>
+        <source>Try again</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>MediaBrowserRow</name>
+    <message>
+        <location filename="../qml/MediaBrowserRow.qml" line="+68"/>
+        <source>(unnamed)</source>
+        <translation type="unfinished">(tanpa nama)</translation>
+    </message>
+    <message>
+        <location line="+55"/>
+        <source>Go to message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Copy link</source>
+        <translation type="unfinished">Salin tautan</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>%1 B</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>%1 KB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>%1 MB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>%1 GB</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>MediaBrowserTile</name>
+    <message>
+        <location filename="../qml/MediaBrowserTile.qml" line="+142"/>
+        <source>Go to message</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>MediaHiddenPlaceholder</name>
     <message>
         <location filename="../qml/MediaHiddenPlaceholder.qml" line="+56"/>
@@ -4318,6 +4684,29 @@ Ukuran: %3</translation>
         <location line="+1"/>
         <source>This image is hidden on this device only</source>
         <translation>Gambar ini disembunyikan hanya di perangkat ini</translation>
+    </message>
+</context>
+<context>
+    <name>MediaHistoryModel</name>
+    <message>
+        <location filename="../src/models/MediaHistoryModel.cpp" line="+120"/>
+        <source>Today</source>
+        <translation type="unfinished">Hari ini</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Yesterday</source>
+        <translation type="unfinished">Kemarin</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This week</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This month</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -4562,7 +4951,7 @@ Ukuran: %3</translation>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+192"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+195"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Lampiran tidak didukung pada backend ini.</translation>
     </message>
@@ -4602,7 +4991,7 @@ Ukuran: %3</translation>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+532"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+572"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -4838,7 +5227,7 @@ Ukuran: %3</translation>
         <translation>Tampilkan pemformatan</translation>
     </message>
     <message>
-        <location line="+275"/>
+        <location line="+292"/>
         <source>Select a room to start typing</source>
         <translation>Pilih ruang untuk mulai mengetik</translation>
     </message>
@@ -4853,7 +5242,7 @@ Ukuran: %3</translation>
         <translation>Pesan %1</translation>
     </message>
     <message>
-        <location line="+262"/>
+        <location line="+279"/>
         <source>Add to dictionary</source>
         <translation>Tambahkan ke kamus</translation>
     </message>
@@ -5024,7 +5413,7 @@ Ukuran: %3</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+792"/>
+        <location filename="../qml/MessageDelegate.qml" line="+836"/>
         <source>Today</source>
         <translation>Hari ini</translation>
     </message>
@@ -5044,7 +5433,7 @@ Ukuran: %3</translation>
         <translation>Pesan baru</translation>
     </message>
     <message>
-        <location line="+174"/>
+        <location line="+215"/>
         <source>Avatar for %1</source>
         <translation>Avatar untuk %1</translation>
     </message>
@@ -5171,12 +5560,12 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+2157"/>
+        <location line="+2171"/>
         <source>Retry</source>
         <translation>Coba lagi</translation>
     </message>
     <message>
-        <location line="-2120"/>
+        <location line="-2134"/>
         <source>Cancel</source>
         <translation>Batal</translation>
     </message>
@@ -5344,23 +5733,23 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2096"/>
+        <location line="+2110"/>
         <source>Save as…</source>
         <translation>Simpan sebagai…</translation>
     </message>
     <message>
-        <location line="-2066"/>
+        <location line="-2080"/>
         <source>Show image</source>
         <translation>Tampilkan gambar</translation>
     </message>
     <message>
         <location line="+20"/>
-        <location line="+630"/>
+        <location line="+644"/>
         <source>Show link preview</source>
         <translation>Tampilkan pratinjau tautan</translation>
     </message>
     <message>
-        <location line="-621"/>
+        <location line="-635"/>
         <source>Copy image</source>
         <translation>Salin gambar</translation>
     </message>
@@ -5400,7 +5789,12 @@ Ukuran: %3</translation>
         <translation>Akhiri jajak pendapat</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+28"/>
+        <source>Select messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
         <source>Forward</source>
         <translation>Teruskan</translation>
     </message>
@@ -5492,12 +5886,12 @@ Ukuran: %3</translation>
         <translation>Target balasan</translation>
     </message>
     <message>
-        <location line="-1842"/>
+        <location line="-1856"/>
         <source>Show preview</source>
         <translation>Tampilkan pratinjau</translation>
     </message>
     <message>
-        <location line="+1979"/>
+        <location line="+1993"/>
         <location line="+107"/>
         <source>Dismiss link preview</source>
         <translation>Tutup pratinjau tautan</translation>
@@ -6111,13 +6505,28 @@ Ukuran: %3</translation>
 <context>
     <name>NotificationManager</name>
     <message>
-        <location filename="../src/notifications/NotificationManager.cpp" line="+547"/>
-        <location line="+164"/>
+        <location filename="../src/notifications/NotificationManager.cpp" line="+628"/>
+        <location line="+159"/>
         <source>Open</source>
         <translation>Buka</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-154"/>
+        <source>Mark as read</source>
+        <translation type="unfinished">Tandai telah dibaca</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reply</source>
+        <translation type="unfinished">Balas</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Reply…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+149"/>
         <source>Decline</source>
         <translation>Tolak</translation>
     </message>
@@ -6125,7 +6534,7 @@ Ukuran: %3</translation>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-455"/>
+        <location line="-526"/>
         <source>Matrix room</source>
         <translation>Ruang Matrix</translation>
     </message>
@@ -6931,7 +7340,12 @@ Ukuran: %3</translation>
 <context>
     <name>RoomInfoController</name>
     <message>
-        <location filename="../src/app/RoomInfoController.cpp" line="+315"/>
+        <location filename="../src/app/RoomInfoController.cpp" line="+41"/>
+        <source>The server did not accept the change.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+332"/>
         <source>You do not have permission to change that.</source>
         <translation>Anda tidak memiliki izin untuk mengubah itu.</translation>
     </message>
@@ -7048,11 +7462,12 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+2"/>
+        <location line="+11"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</source>
         <translation>Gambar (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+50"/>
         <source>Room information</source>
         <translation>Informasi ruang</translation>
     </message>
@@ -7175,17 +7590,22 @@ Ukuran: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1615"/>
+        <location line="+1714"/>
         <source>Open</source>
         <translation type="unfinished">Buka</translation>
     </message>
     <message>
-        <location line="-1370"/>
+        <location line="-1469"/>
         <source>Export room…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-362"/>
+        <source>Choose your avatar for this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+364"/>
         <source>Save this room&apos;s loaded messages to a file</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7217,18 +7637,43 @@ Ukuran: %3</translation>
     <message>
         <location line="+5"/>
         <location line="+20"/>
-        <location line="+459"/>
-        <location line="+937"/>
+        <location line="+110"/>
+        <location line="+448"/>
         <source>Save</source>
         <translation>Simpan</translation>
     </message>
     <message>
-        <location line="-1401"/>
+        <location line="-563"/>
         <source>Topic</source>
         <translation>Topik</translation>
     </message>
     <message>
-        <location line="+61"/>
+        <location line="+85"/>
+        <source>Your profile in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Only affects this room. Everyone here sees it; other rooms keep your usual name and picture.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Your name in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Change picture…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Reset to global</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
         <source>Access</source>
         <translation>Akses</translation>
     </message>
@@ -7289,12 +7734,12 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+890"/>
+        <location line="+789"/>
         <source>Leave room</source>
         <translation>Tinggalkan ruang</translation>
     </message>
     <message>
-        <location line="-852"/>
+        <location line="-751"/>
         <source>No pinned messages</source>
         <translation>Tidak ada pesan tersemat</translation>
     </message>
@@ -7566,32 +8011,7 @@ Ukuran: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+84"/>
-        <source>Media and files shared in the loaded part of this conversation. Scroll the timeline up to load more history.</source>
-        <translation>Media dan berkas yang dibagikan di bagian percakapan yang telah dimuat. Gulir linimasa ke atas untuk memuat lebih banyak riwayat.</translation>
-    </message>
-    <message>
-        <location line="+29"/>
-        <source>No media in the loaded history.</source>
-        <translation>Tidak ada media di riwayat yang dimuat.</translation>
-    </message>
-    <message>
-        <location line="+30"/>
-        <source>(unnamed)</source>
-        <translation>(tanpa nama)</translation>
-    </message>
-    <message>
-        <location line="+9"/>
-        <source>%1 · %2</source>
-        <translation>%1 · %2</translation>
-    </message>
-    <message>
-        <location line="+36"/>
-        <source>Save %1 as…</source>
-        <translation>Simpan %1 sebagai…</translation>
-    </message>
-    <message>
-        <location line="+19"/>
+        <location line="+106"/>
         <source>Leave room?</source>
         <translation>Tinggalkan ruang?</translation>
     </message>
@@ -8002,7 +8422,7 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+455"/>
+        <location line="+461"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Gagal membuat handle backend Rust SDK.</translation>
     </message>
@@ -8089,12 +8509,12 @@ Ukuran: %3</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+1928"/>
+        <location line="+1941"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning tidak dapat mereset sepenuhnya sesi lokal untuk akun ini. Periksa log aplikasi dan izin sistem berkas, lalu coba lagi.</translation>
     </message>
     <message>
-        <location line="-1944"/>
+        <location line="-1957"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Sesi Lightning lokal telah dibangun ulang. Penyimpanan enkripsi sebelumnya disingkirkan, bukan dihapus, dan masih ada di direktori data akun ini. Anda dapat masuk lagi.</translation>
     </message>
@@ -8107,7 +8527,7 @@ Ukuran: %3</translation>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3153"/>
+        <location line="+3166"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -8116,22 +8536,22 @@ Ukuran: %3</translation>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-3533"/>
+        <location line="-3546"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3335"/>
+        <location line="+3348"/>
         <source>Unknown room: %1</source>
         <translation>Ruang tidak dikenal: %1</translation>
     </message>
     <message>
-        <location line="-3535"/>
+        <location line="-3548"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Belum dapat mengirim ke ruang terenkripsi: pengiriman terenkripsi Rust SDK belum terverifikasi.</translation>
     </message>
     <message>
-        <location line="+503"/>
+        <location line="+516"/>
         <source>The sticker could not be sent.</source>
         <translation>Stiker tidak dapat dikirim.</translation>
     </message>
@@ -8830,36 +9250,36 @@ Ukuran: %3</translation>
         <location filename="../qml/SettingsScreen.qml" line="+53"/>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+535"/>
+        <location line="+552"/>
         <location line="+604"/>
-        <location line="+2989"/>
+        <location line="+3100"/>
         <source>Account</source>
         <translation>Akun</translation>
     </message>
     <message>
-        <location line="-4131"/>
+        <location line="-4259"/>
         <source>account profile</source>
         <translation>akun profil</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5028"/>
+        <location line="+5156"/>
         <source>Homeserver</source>
         <translation>Homeserver</translation>
     </message>
     <message>
-        <location line="-5028"/>
+        <location line="-5156"/>
         <source>homeserver server url</source>
         <translation>homeserver url server</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5062"/>
+        <location line="+5190"/>
         <source>Start minimized</source>
         <translation>Mulai terminimalkan</translation>
     </message>
     <message>
-        <location line="-5062"/>
+        <location line="-5190"/>
         <source>startup minimized</source>
         <translation>mulai terminimalkan</translation>
     </message>
@@ -8870,12 +9290,12 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1284"/>
+        <location line="+1301"/>
         <source>Theme</source>
         <translation>Tema</translation>
     </message>
     <message>
-        <location line="-1283"/>
+        <location line="-1300"/>
         <source>theme moss indigo teal light dark graphite midnight nordic purple warm</source>
         <translation>tema moss indigo teal terang gelap graphite midnight nordic purple warm</translation>
     </message>
@@ -8886,22 +9306,22 @@ Ukuran: %3</translation>
         <location line="+3"/>
         <location line="+2"/>
         <location line="+8"/>
-        <location line="+508"/>
+        <location line="+525"/>
         <location line="+608"/>
         <location line="+128"/>
         <source>Appearance</source>
         <translation>Tampilan</translation>
     </message>
     <message>
-        <location line="-1265"/>
-        <location line="+976"/>
+        <location line="-1282"/>
+        <location line="+993"/>
         <location line="+777"/>
         <location line="+83"/>
         <source>Match system light/dark</source>
         <translation>Ikuti terang/gelap sistem</translation>
     </message>
     <message>
-        <location line="-1835"/>
+        <location line="-1852"/>
         <source>match system auto theme</source>
         <translation>ikuti sistem tema otomatis</translation>
     </message>
@@ -8912,57 +9332,57 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+1907"/>
+        <location line="+1924"/>
         <source>Message layout</source>
         <translation>Tata letak pesan</translation>
     </message>
     <message>
-        <location line="-1906"/>
+        <location line="-1923"/>
         <source>message layout modern bubbles compact</source>
         <translation>tata letak pesan modern gelembung ringkas</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1928"/>
+        <location line="+1945"/>
         <source>Text size</source>
         <translation>Ukuran teks</translation>
     </message>
     <message>
-        <location line="-1928"/>
+        <location line="-1945"/>
         <source>text size font scale</source>
         <translation>ukuran teks fon skala</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2022"/>
+        <location line="+2039"/>
         <location line="+16"/>
         <source>Interface zoom</source>
         <translation>Zoom antarmuka</translation>
     </message>
     <message>
-        <location line="-2037"/>
+        <location line="-2054"/>
         <source>interface zoom scale bigger ui size</source>
         <translation>zoom antarmuka skala ukuran ui lebih besar</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2106"/>
+        <location line="+2123"/>
         <source>Font</source>
         <translation>Fon</translation>
     </message>
     <message>
-        <location line="-2106"/>
+        <location line="-2123"/>
         <source>font family typeface</source>
         <translation>fon keluarga huruf</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2281"/>
+        <location line="+2298"/>
         <source>Code font</source>
         <translation>Font kode</translation>
     </message>
     <message>
-        <location line="-2280"/>
+        <location line="-2297"/>
         <source>code font monospace mono fixed width typeface</source>
         <translation>kode font monospace mono jenis huruf dengan lebar tetap</translation>
     </message>
@@ -8974,35 +9394,35 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+2347"/>
+        <location line="+2364"/>
         <source>Your own fonts</source>
         <translation>Font Anda sendiri</translation>
     </message>
     <message>
-        <location line="-2346"/>
+        <location line="-2363"/>
         <source>import font file ttf otf install custom typeface</source>
         <translation>impor file font ttf otf instal jenis huruf khusus</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2759"/>
+        <location line="+2776"/>
         <source>Language</source>
         <translation>Bahasa</translation>
     </message>
     <message>
-        <location line="-2759"/>
+        <location line="-2776"/>
         <source>language locale</source>
         <translation>bahasa lokal</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+963"/>
+        <location line="+980"/>
         <location line="+1598"/>
         <source>Show room activity</source>
         <translation>Tampilkan aktivitas ruang</translation>
     </message>
     <message>
-        <location line="-2560"/>
+        <location line="-2577"/>
         <source>room activity membership joins leaves profile</source>
         <translation>aktivitas ruang keanggotaan bergabung keluar profil</translation>
     </message>
@@ -9016,48 +9436,48 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="-9"/>
-        <location line="+2604"/>
+        <location line="+2621"/>
         <source>Mouse-wheel speed</source>
         <translation>Kecepatan roda tetikus</translation>
     </message>
     <message>
-        <location line="-2603"/>
+        <location line="-2620"/>
         <source>wheel speed scroll timeline</source>
         <translation>kecepatan roda gulir linimasa</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+991"/>
+        <location line="+1008"/>
         <location line="+1591"/>
         <source>Joins, leaves and invites</source>
         <translation>Bergabung, keluar, dan mengundang</translation>
     </message>
     <message>
-        <location line="-2581"/>
+        <location line="-2598"/>
         <source>membership join leave invite kick ban activity hide</source>
         <translation>keanggotaan gabung cuti undang tendangan larangan aktivitas sembunyikan</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+996"/>
+        <location line="+1013"/>
         <location line="+1593"/>
         <source>Display name and avatar changes</source>
         <translation>Tampilan nama dan perubahan avatar</translation>
     </message>
     <message>
-        <location line="-2588"/>
+        <location line="-2605"/>
         <source>profile change display name avatar activity hide</source>
         <translation>ubah profil nama tampilan aktivitas avatar sembunyikan</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1000"/>
+        <location line="+1017"/>
         <location line="+1823"/>
         <source>Reduce motion</source>
         <translation>Kurangi gerakan</translation>
     </message>
     <message>
-        <location line="-2822"/>
+        <location line="-2839"/>
         <source>reduced motion animation accessibility vestibular</source>
         <translation>berkurangnya aksesibilitas animasi gerak vestibular</translation>
     </message>
@@ -9070,36 +9490,36 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="-8"/>
-        <location line="+1003"/>
+        <location line="+1020"/>
         <location line="+1830"/>
         <source>Smooth scrolling</source>
         <translation>Pengguliran halus</translation>
     </message>
     <message>
-        <location line="-2832"/>
+        <location line="-2849"/>
         <source>smooth scrolling scroll wheel glide animation instant jumpy mouse</source>
         <translation>animasi luncuran roda gulir yang mulus dan mouse gelisah instan</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2853"/>
+        <location line="+2870"/>
         <source>Clock</source>
         <translation>Jam</translation>
     </message>
     <message>
-        <location line="-2852"/>
+        <location line="-2869"/>
         <source>clock 24 hour time format am pm timestamp</source>
         <translation>jam format waktu 24 jam am pm stempel waktu</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1002"/>
+        <location line="+1019"/>
         <location line="+1906"/>
         <source>Show Space banners</source>
         <translation>Tampilkan spanduk Luar Angkasa</translation>
     </message>
     <message>
-        <location line="-2907"/>
+        <location line="-2924"/>
         <source>space banner header image hide show</source>
         <translation>tampilan sembunyikan gambar header spanduk spasi</translation>
     </message>
@@ -9112,35 +9532,35 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+2940"/>
+        <location line="+2957"/>
         <source>Conversation list width</source>
         <translation>Lebar daftar percakapan</translation>
     </message>
     <message>
-        <location line="-2939"/>
+        <location line="-2956"/>
         <source>room list width panel size sidebar</source>
         <translation>sidebar ukuran panel lebar daftar ruangan</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2954"/>
+        <location line="+2971"/>
         <source>Side panel width</source>
         <translation>Lebar panel samping</translation>
     </message>
     <message>
-        <location line="-2953"/>
+        <location line="-2970"/>
         <source>side panel width members threads size</source>
         <translation>ukuran ulir anggota lebar panel samping</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1000"/>
+        <location line="+1017"/>
         <location line="+1969"/>
         <source>Enter starts a new line</source>
         <translation>Enter memulai baris baru</translation>
     </message>
     <message>
-        <location line="-2968"/>
+        <location line="-2985"/>
         <source>enter newline send composer message box return</source>
         <translation>masukkan baris baru, kirim kotak pesan komposer kembali</translation>
     </message>
@@ -9155,47 +9575,47 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="-14"/>
-        <location line="+1004"/>
+        <location line="+1021"/>
         <location line="+2076"/>
         <source>Send text with an attachment as its caption</source>
         <translation>Kirim teks dengan lampiran sebagai keterangannya</translation>
     </message>
     <message>
-        <location line="-3079"/>
+        <location line="-3096"/>
         <source>caption attachment upload text description</source>
         <translation>deskripsi teks unggahan lampiran keterangan</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3113"/>
+        <location line="+3130"/>
         <source>Message box buttons</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3112"/>
+        <location line="-3129"/>
         <source>composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2984"/>
+        <location line="+3001"/>
         <source>Check spelling as you type</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2983"/>
+        <location line="-3000"/>
         <source>spell spelling checker dictionary typo underline language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2991"/>
+        <location line="+3008"/>
         <location line="+13"/>
         <source>Spelling language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3003"/>
+        <location line="-3020"/>
         <source>spell spelling language dictionary automatic system</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9203,25 +9623,25 @@ Ukuran: %3</translation>
         <location line="+3"/>
         <location line="+2"/>
         <location line="+3"/>
-        <location line="+444"/>
+        <location line="+461"/>
         <location line="+612"/>
         <location line="+2121"/>
         <source>Keyboard shortcuts</source>
         <translation>Pintasan keyboard</translation>
     </message>
     <message>
-        <location line="-3181"/>
+        <location line="-3198"/>
         <source>keyboard shortcut shortcuts key keys binding rebind hotkey</source>
         <translation>pintasan keyboard pintasan tombol kunci yang mengikat tombol pintas rebind</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3312"/>
+        <location line="+3329"/>
         <source>Reset all shortcuts</source>
         <translation>Setel ulang semua pintasan</translation>
     </message>
     <message>
-        <location line="-3311"/>
+        <location line="-3328"/>
         <source>reset shortcuts default keys</source>
         <translation>setel ulang pintasan tombol default</translation>
     </message>
@@ -9279,56 +9699,95 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+895"/>
-        <location line="+2974"/>
+        <location line="+912"/>
+        <location line="+3052"/>
         <source>Desktop notifications</source>
         <translation>Notifikasi desktop</translation>
     </message>
     <message>
-        <location line="-3868"/>
+        <location line="-3963"/>
         <source>notifications desktop enable</source>
         <translation>notifikasi desktop aktifkan</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+4"/>
+        <location line="+5"/>
         <location line="+3"/>
-        <location line="+415"/>
+        <location line="+427"/>
         <location line="+616"/>
-        <location line="+2818"/>
+        <location line="+2896"/>
         <source>Notifications</source>
         <translation>Notifikasi</translation>
     </message>
     <message>
-        <location line="-3854"/>
-        <location line="+3871"/>
+        <location line="-3949"/>
+        <location line="+3966"/>
         <source>Notification preview</source>
         <translation>Pratinjau notifikasi</translation>
     </message>
     <message>
-        <location line="-3870"/>
+        <location line="-3965"/>
         <source>notification preview privacy sender message</source>
         <translation>pratinjau notifikasi privasi pengirim pesan</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <location line="+3904"/>
+        <location line="+3"/>
+        <source>Notification preview in encrypted rooms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>notification preview encrypted body privacy hide message text</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <location line="+4027"/>
         <source>Notification sound</source>
         <translation>Suara notifikasi</translation>
     </message>
     <message>
-        <location line="-3903"/>
+        <location line="-4026"/>
         <source>notification sound mute</source>
         <translation>suara notifikasi bisu</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3334"/>
+        <location line="+3338"/>
+        <source>Read receipts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3337"/>
+        <source>read receipt receipts private seen ticks blue m.read.private privacy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <location line="+6"/>
+        <source>Privacy &amp; security · Reading and typing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-4"/>
+        <location line="+3371"/>
+        <source>Let others see when I am typing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3370"/>
+        <source>typing notice notification composing indicator privacy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <location line="+3412"/>
         <source>Share my online status</source>
         <translation>Bagikan status daring saya</translation>
     </message>
     <message>
-        <location line="-3333"/>
+        <location line="-3411"/>
         <source>presence online idle offline status share</source>
         <translation>kehadiran daring menganggur luring status bagikan</translation>
     </message>
@@ -9339,12 +9798,12 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3356"/>
+        <location line="+3434"/>
         <source>Ignored users</source>
         <translation>Pengguna yang diabaikan</translation>
     </message>
     <message>
-        <location line="-3355"/>
+        <location line="-3433"/>
         <source>ignore ignored block user mute person hide</source>
         <translation>abaikan diabaikan blokir pengguna sembunyikan orang</translation>
     </message>
@@ -9371,20 +9830,20 @@ Ukuran: %3</translation>
         <location line="+3"/>
         <location line="+363"/>
         <location line="+624"/>
-        <location line="+4340"/>
+        <location line="+4451"/>
         <location line="+445"/>
         <source>Sessions</source>
         <translation>Sesi</translation>
     </message>
     <message>
-        <location line="-5811"/>
+        <location line="-5922"/>
         <location line="+862"/>
-        <location line="+2638"/>
+        <location line="+2716"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation>Muat pratinjau otomatis di ruang tanpa enkripsi</translation>
     </message>
     <message>
-        <location line="-3499"/>
+        <location line="-3577"/>
         <source>link preview privacy</source>
         <translation>pratinjau tautan privasi</translation>
     </message>
@@ -9396,24 +9855,24 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+3502"/>
+        <location line="+3580"/>
         <source>Load previews in encrypted rooms</source>
         <translation>Muat pratinjau di ruang terenkripsi</translation>
     </message>
     <message>
-        <location line="-3501"/>
+        <location line="-3579"/>
         <source>link preview encrypted</source>
         <translation>pratinjau tautan terenkripsi</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3573"/>
+        <location line="+3651"/>
         <location line="+7"/>
         <source>Autoplay and prefetch media</source>
         <translation>Putar otomatis dan prapengambilan media</translation>
     </message>
     <message>
-        <location line="-3579"/>
+        <location line="-3657"/>
         <source>gif autoplay prefetch video audio media</source>
         <translation>gif putar otomatis prapengambilan video audio media</translation>
     </message>
@@ -9424,12 +9883,12 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3616"/>
+        <location line="+3694"/>
         <source>GIF safe search</source>
         <translation>Pencarian aman GIF</translation>
     </message>
     <message>
-        <location line="-3615"/>
+        <location line="-3693"/>
         <source>gif safe search rating</source>
         <translation>gif pencarian aman peringkat</translation>
     </message>
@@ -9442,36 +9901,36 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+3641"/>
+        <location line="+3719"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation>Penyedia GIF pilihan</translation>
     </message>
     <message>
-        <location line="-3647"/>
+        <location line="-3725"/>
         <source>gif provider giphy klipy</source>
         <translation>penyedia gif giphy klipy</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3680"/>
+        <location line="+3758"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation>Simpan GIF yang baru digunakan</translation>
     </message>
     <message>
-        <location line="-3682"/>
+        <location line="-3760"/>
         <source>gif recents store</source>
         <translation>gif terbaru simpan</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4982"/>
+        <location line="+5093"/>
         <source>Security status</source>
         <translation>Status keamanan</translation>
     </message>
     <message>
-        <location line="-4981"/>
+        <location line="-5092"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>e2ee enkripsi status penandatanganan silang cadangan</translation>
     </message>
@@ -9485,13 +9944,13 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="-3258"/>
-        <location line="+6323"/>
+        <location line="+6434"/>
         <location line="+19"/>
         <source>Recovery key or passphrase</source>
         <translation>Kunci pemulihan atau frasa sandi</translation>
     </message>
     <message>
-        <location line="-6341"/>
+        <location line="-6452"/>
         <source>recovery key passphrase backup restore</source>
         <translation>kunci pemulihan frasa sandi cadangan pulihkan</translation>
     </message>
@@ -9504,23 +9963,23 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+6407"/>
+        <location line="+6518"/>
         <source>Import room keys</source>
         <translation>Impor kunci ruang</translation>
     </message>
     <message>
-        <location line="-6406"/>
+        <location line="-6517"/>
         <source>import room keys export</source>
         <translation>impor kunci ruang ekspor</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6630"/>
+        <location line="+6741"/>
         <source>Danger Zone</source>
         <translation>Zona Berbahaya</translation>
     </message>
     <message>
-        <location line="-6629"/>
+        <location line="-6740"/>
         <source>reset danger local session</source>
         <translation>reset bahaya sesi lokal</translation>
     </message>
@@ -9531,23 +9990,23 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6092"/>
+        <location line="+6203"/>
         <source>Current session</source>
         <translation>Sesi saat ini</translation>
     </message>
     <message>
-        <location line="-6091"/>
+        <location line="-6202"/>
         <source>device id session status</source>
         <translation>id perangkat status sesi</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6150"/>
+        <location line="+6261"/>
         <source>Verify this session</source>
         <translation>Verifikasi sesi ini</translation>
     </message>
     <message>
-        <location line="-6149"/>
+        <location line="-6260"/>
         <source>verify verification sas cross-signing</source>
         <translation>verifikasi sas penandatanganan silang</translation>
     </message>
@@ -9568,12 +10027,12 @@ Ukuran: %3</translation>
         <location line="+3"/>
         <location line="+354"/>
         <location line="+631"/>
-        <location line="+5720"/>
+        <location line="+5831"/>
         <source>Labs</source>
         <translation>Labs</translation>
     </message>
     <message>
-        <location line="-6711"/>
+        <location line="-6822"/>
         <source>Sync mode</source>
         <translation>Mode sinkronisasi</translation>
     </message>
@@ -9594,12 +10053,12 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6753"/>
+        <location line="+6864"/>
         <source>Refresh current room</source>
         <translation>Segarkan ruang saat ini</translation>
     </message>
     <message>
-        <location line="-6752"/>
+        <location line="-6863"/>
         <source>refresh reload timeline</source>
         <translation>segarkan muat ulang linimasa</translation>
     </message>
@@ -9608,12 +10067,12 @@ Ukuran: %3</translation>
         <location line="+1"/>
         <location line="+353"/>
         <location line="+678"/>
-        <location line="+5755"/>
+        <location line="+5866"/>
         <source>About</source>
         <translation>Tentang</translation>
     </message>
     <message>
-        <location line="-6787"/>
+        <location line="-6898"/>
         <source>about version license</source>
         <translation>tentang versi lisensi</translation>
     </message>
@@ -9652,13 +10111,13 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+4098"/>
+        <location line="+4209"/>
         <location line="+1340"/>
         <source>Cancel</source>
         <translation>Batal</translation>
     </message>
     <message>
-        <location line="-5283"/>
+        <location line="-5394"/>
         <source>Needs attention</source>
         <translation>Perlu perhatian</translation>
     </message>
@@ -9669,12 +10128,12 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+2938"/>
+        <location line="+3016"/>
         <source>Clear index</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2925"/>
+        <location line="-3003"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9690,14 +10149,14 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3760"/>
+        <location line="+3871"/>
         <location line="+310"/>
         <location line="+1873"/>
         <source>Clear</source>
         <translation>Bersihkan</translation>
     </message>
     <message>
-        <location line="-5933"/>
+        <location line="-6044"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>Hapus setiap GIF penyedia yang Anda simpan di perangkat ini? GIF yang Anda simpan dari obrolan tidak terpengaruh. Ini tidak dapat dibatalkan.</translation>
     </message>
@@ -9856,7 +10315,37 @@ Ukuran: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+348"/>
+        <location line="+221"/>
+        <source>Reading and typing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>Send read receipts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Private — only my own devices</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Do not send read receipts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Private receipts still clear the unread badge on your own other devices; nobody else sees them. Not sending them at all keeps your place only on this device. Either way, receipts you have already sent cannot be taken back, and other people&apos;s receipts are still shown to you.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+26"/>
+        <source>Typing notices are the most frequent thing a chat client discloses — every few keystrokes, to everyone in the room. Turning this off does not hide other people&apos;s.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+142"/>
         <source>Message search index</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9868,7 +10357,17 @@ Ukuran: %3</translation>
         </translation>
     </message>
     <message>
-        <location line="+884"/>
+        <location line="+426"/>
+        <source>In encrypted rooms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Same as other rooms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+474"/>
         <source>Name colour</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9908,7 +10407,7 @@ Ukuran: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5490"/>
+        <location line="-5601"/>
         <source>Moss Light</source>
         <translation>Moss Light</translation>
     </message>
@@ -10246,12 +10745,12 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+2171"/>
+        <location line="+2282"/>
         <source>Choose image…</source>
         <translation>Pilih gambar…</translation>
     </message>
     <message>
-        <location line="-2164"/>
+        <location line="-2275"/>
         <source>Reset to Lightning default</source>
         <translation>Kembalikan ke ikon bawaan Lightning</translation>
     </message>
@@ -10454,7 +10953,7 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
         <translation>Privasi jaringan, kondisi enkripsi, dan pemulihan.</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+98"/>
         <source>Presence</source>
         <translation>Kehadiran</translation>
     </message>
@@ -10617,26 +11116,29 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
     </message>
     <message>
         <location line="+43"/>
+        <location line="+46"/>
         <source>Sender and message</source>
         <translation>Pengirim dan pesan</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-45"/>
+        <location line="+46"/>
         <source>Sender only</source>
         <translation>Hanya pengirim</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-45"/>
+        <location line="+46"/>
         <source>Private</source>
         <translation>Privat</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="-33"/>
         <source>Sender only (the default) never shows message text in notifications. Encrypted messages that cannot be decrypted always show a generic notification. Notifications are suppressed while the room is open, focused, and at the latest message.</source>
         <translation>&quot;Hanya pengirim&quot; (bawaan) tidak pernah menampilkan teks pesan di notifikasi. Pesan terenkripsi yang tidak dapat didekripsi selalu menampilkan notifikasi umum. Notifikasi ditekan selama ruang terbuka, sedang difokuskan, dan berada di pesan terbaru.</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+54"/>
         <source>Off</source>
         <translation>Mati</translation>
     </message>
@@ -10718,13 +11220,13 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
         <translation>Belum diatur</translation>
     </message>
     <message>
-        <location line="-2648"/>
-        <location line="+2657"/>
+        <location line="-2759"/>
+        <location line="+2768"/>
         <source>Edit</source>
         <translation>Sunting</translation>
     </message>
     <message>
-        <location line="-2503"/>
+        <location line="-2614"/>
         <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
         <translation>Saat menyala, Lightning mengikuti skema sistem: Moss Light dalam mode terang, Indigo Night dalam mode gelap.</translation>
     </message>
@@ -10759,12 +11261,12 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
         <translation>Saluran mencantumkan setiap ruang tempat Anda berada sebagai folder, dengan ruangan yang ada di bawahnya. Ruangan tanpa ruang, dan pesan langsung Anda, tetap bersama di Ruangan.</translation>
     </message>
     <message>
-        <location line="+1776"/>
+        <location line="+1854"/>
         <source>Your homeserver loads the preview, so the linked site sees your server rather than you. If your server cannot — many have previews turned off — Lightning loads it directly instead, which may reveal your IP address and request timing to a site the sender chose. Asking your homeserver also tells it which link was previewed, which in an encrypted room it would not otherwise know. No JavaScript is executed. Both switches are off by default; leave them off and use the “Show” button on each message&apos;s link card to decide one at a time.</source>
         <translation>Server rumah Anda memuat pratinjau, sehingga situs tertaut melihat server Anda, bukan Anda. Jika server Anda tidak bisa — banyak pratinjau yang dinonaktifkan — Lightning akan memuatnya secara langsung, yang mungkin mengungkapkan alamat IP Anda dan meminta waktu ke situs yang dipilih pengirim. Menanyakan server rumah Anda juga memberi tahu tautan mana yang telah dipratinjau, yang mana di ruang terenkripsi tidak akan diketahui jika tidak. Tidak ada JavaScript yang dijalankan. Kedua sakelar dinonaktifkan secara default; biarkan saja dan gunakan tombol “Tampilkan” pada kartu tautan setiap pesan untuk memutuskan satu per satu.</translation>
     </message>
     <message>
-        <location line="+684"/>
+        <location line="+717"/>
         <source>Edit display name</source>
         <translation>Sunting nama tampilan</translation>
     </message>
@@ -10867,8 +11369,8 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
         <translation>Tidak ada banner</translation>
     </message>
     <message>
-        <location line="-2491"/>
-        <location line="+2206"/>
+        <location line="-2602"/>
+        <location line="+2317"/>
         <location line="+304"/>
         <source>Remove</source>
         <translation>Hapus</translation>
@@ -11781,6 +12283,11 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Pemformatan pesan</translation>
     </message>
     <message>
+        <location line="+1"/>
+        <source>Calls</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+10"/>
         <source>Quit Lightning</source>
         <translation>Keluar dari Lightning</translation>
@@ -11844,6 +12351,16 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <location line="+3"/>
         <source>Mark the open conversation as read</source>
         <translation>Tandai percakapan terbuka sebagai sudah dibaca</translation>
+    </message>
+    <message>
+        <location line="+25"/>
+        <source>Mute or unmute the microphone</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Deafen or undeafen</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+14"/>
@@ -13984,7 +14501,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>%1 memulai panggilan.</translation>
     </message>
     <message>
-        <location line="+1128"/>
+        <location line="+1136"/>
         <source>%1 is typing…</source>
         <translation>%1 sedang mengetik…</translation>
     </message>
@@ -14025,12 +14542,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5832"/>
+        <location line="+5889"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
     <message>
-        <location line="-5831"/>
+        <location line="-5888"/>
         <source>Home</source>
         <translation>Beranda</translation>
     </message>
@@ -14339,8 +14856,25 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <source>Return to the newest message</source>
         <translation>Kembali ke pesan terbaru</translation>
     </message>
+    <message numerus="yes">
+        <location line="+184"/>
+        <source>%n message(s) selected</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+625"/>
+        <location line="+2"/>
+        <source>Tap messages to select them</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Forward…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+477"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>Ruang ditambahkan — menunggu konfirmasi server.</translation>
     </message>
@@ -14676,7 +15210,8 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Ruangnya tetap ada dan Anda tetap di dalamnya — hanya keluar dari daftar Space ini.</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="-1812"/>
+        <location line="+1826"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>Batal</translation>

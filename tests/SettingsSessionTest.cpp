@@ -110,6 +110,11 @@ private Q_SLOTS:
     void windowGeometryRoundTripsAndRefusesAnUnrestorableSize();
     // 2026-09-03: composer buttons the user switched off.
     void hiddenComposerButtonsDefaultToNoneAndNormalize();
+    // 2026-09-05: what this device discloses while merely reading and typing.
+    void readReceiptModeDefaultsToPublicPersistsAndClamps();
+    void typingNotificationsDefaultOnAndPersist();
+    void theEncryptedPreviewLevelDefaultsToFollowingTheGeneralOne();
+    void anUnknownEncryptionStateTakesTheStricterLevel();
 
 private:
     QTemporaryDir m_configHome;
@@ -1020,6 +1025,102 @@ void SettingsSessionTest::hiddenComposerButtonsDefaultToNoneAndNormalize()
         QCOMPARE(reopened.hiddenComposerButtons(),
                  QStringList{ QStringLiteral("voice") });
     }
+}
+
+
+// ── Reading and typing privacy ──────────────────────────────────────────
+//
+// Three settings that decide what leaves this device while the user is only
+// looking at a room. Their DEFAULTS are the load-bearing part: an upgrade
+// must not change what an existing install discloses, in either direction.
+
+void SettingsSessionTest::readReceiptModeDefaultsToPublicPersistsAndClamps()
+{
+    {
+        SettingsManager settings;
+        // Public, which is what every previous version sent. Making this
+        // default to private would be a behaviour change disguised as a
+        // privacy improvement.
+        QCOMPARE(settings.readReceiptMode(), 0);
+
+        QSignalSpy spy(&settings, &SettingsManager::readReceiptModeChanged);
+        settings.setReadReceiptMode(1);
+        QCOMPARE(settings.readReceiptMode(), 1);
+        QCOMPARE(spy.count(), 1);
+        // Idempotent: setting the same value again is not a change.
+        settings.setReadReceiptMode(1);
+        QCOMPARE(spy.count(), 1);
+
+        settings.setReadReceiptMode(2);
+        QCOMPARE(settings.readReceiptMode(), 2);
+        // Out of range falls back to the safe, previous-behaviour value
+        // rather than to the strictest one — a corrupt store must not
+        // silently stop a user's receipts.
+        settings.setReadReceiptMode(9);
+        QCOMPARE(settings.readReceiptMode(), 0);
+    }
+    {
+        SettingsManager settings;
+        settings.setReadReceiptMode(1);
+    }
+    SettingsManager reopened;
+    QCOMPARE(reopened.readReceiptMode(), 1);
+}
+
+void SettingsSessionTest::typingNotificationsDefaultOnAndPersist()
+{
+    {
+        SettingsManager settings;
+        QVERIFY(settings.sendTypingNotifications());
+        QSignalSpy spy(&settings,
+                       &SettingsManager::sendTypingNotificationsChanged);
+        settings.setSendTypingNotifications(false);
+        QVERIFY(!settings.sendTypingNotifications());
+        QCOMPARE(spy.count(), 1);
+        settings.setSendTypingNotifications(false);
+        QCOMPARE(spy.count(), 1);
+    }
+    SettingsManager reopened;
+    QVERIFY(!reopened.sendTypingNotifications());
+}
+
+void SettingsSessionTest::theEncryptedPreviewLevelDefaultsToFollowingTheGeneralOne()
+{
+    SettingsManager settings;
+    QCOMPARE(settings.notificationPreviewEncrypted(), 3);   // follow
+    settings.setNotificationPreview(0);                     // sender+message
+
+    // Following: an encrypted room is treated exactly like any other, which
+    // is the pre-0.9.0 behaviour and must survive the upgrade untouched.
+    QCOMPARE(settings.effectiveNotificationPreview(true, true), 0);
+    QCOMPARE(settings.effectiveNotificationPreview(false, true), 0);
+
+    // Split: encrypted rooms withhold the body, everything else does not.
+    settings.setNotificationPreviewEncrypted(2);            // private
+    QCOMPARE(settings.effectiveNotificationPreview(true, true), 2);
+    QCOMPARE(settings.effectiveNotificationPreview(false, true), 0);
+}
+
+void SettingsSessionTest::anUnknownEncryptionStateTakesTheStricterLevel()
+{
+    SettingsManager settings;
+    settings.setNotificationPreview(0);                     // sender+message
+    settings.setNotificationPreviewEncrypted(2);            // private
+
+    // Encryption not yet known — during hydration, this is a real state.
+    // Guessing "unencrypted" would put a body on the desktop that the user
+    // asked an encrypted room to withhold, and nobody would ever learn it
+    // had happened. The stricter of the two wins.
+    QCOMPARE(settings.effectiveNotificationPreview(false, false), 2);
+    QCOMPARE(settings.effectiveNotificationPreview(true, false), 2);
+
+    // And the reverse arrangement is respected too: when the general level
+    // is the stricter one, unknown must not RELAX to the encrypted level.
+    settings.setNotificationPreview(2);
+    settings.setNotificationPreviewEncrypted(0);
+    QCOMPARE(settings.effectiveNotificationPreview(false, false), 2);
+    // Known-encrypted still means exactly what the user asked for.
+    QCOMPARE(settings.effectiveNotificationPreview(true, true), 0);
 }
 
 QTEST_MAIN(SettingsSessionTest)

@@ -349,6 +349,12 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
 
     m_storePath = storePath;
     m_handleGeneration = m_lifecycle.beginSession();
+    // Receipt privacy defaults to PUBLIC on a fresh bridge, so a user who
+    // chose private or off would silently start disclosing again after every
+    // account switch. Re-applied here for the same reason media-capable is.
+    if (m_readReceiptPrivacy != 0)
+        takeRustString(mx_rust_set_receipt_privacy(m_rustHandle,
+                                                   m_readReceiptPrivacy));
     // Re-apply media-capable mode: the Rust-side flag defaults OFF on a
     // fresh handle, and a registered media backend must survive account
     // switches (review 2026-08-18 round 2 L4).
@@ -2513,6 +2519,19 @@ void RustSdkMatrixClient::sendTyping(const QString &roomId, bool typing, int)
     } else {
         qCWarning(lcRust) << "typing command rejected";
     }
+}
+
+void RustSdkMatrixClient::setReadReceiptPrivacy(int mode)
+{
+    // Remembered even with no handle, so the value survives a login: the
+    // setting is read at startup and the bridge is created afterwards.
+    m_readReceiptPrivacy = (mode < 0 || mode > 2) ? 0 : mode;
+    if (!m_rustHandle)
+        return;
+    const QString result = takeRustString(
+        mx_rust_set_receipt_privacy(m_rustHandle, m_readReceiptPrivacy));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "receipt privacy command rejected";
 }
 
 void RustSdkMatrixClient::sendReadReceipt(const QString &roomId, const QString &eventId)

@@ -3743,12 +3743,23 @@ ApplicationWindow {
         // is the row height's job.
         //
         // Scoped to the member ROW component: `list` runs to the end of the
-        // file and so contains the Media section, whose own smaller labels
-        // are none of this test's business.
+        // file and so contains the sections after it, whose own smaller
+        // labels are none of this test's business.
+        //
+        // The end anchor was "Media & Files" until the media browser
+        // replaced that section (2026-09), at which point the only remaining
+        // occurrence of that string was a COMMENT near the top of the file —
+        // so indexOf() from rowAt returned -1 and this failed loudly. That is
+        // the guard working: an anchor that vanishes must break the test, not
+        // silently shrink its scope to nothing. Re-anchored on the Widgets
+        // section, which is what actually follows the roster now.
         const int rowAt = panel.indexOf(QStringLiteral("id: memberRowComponent"));
         QVERIFY2(rowAt > 0, "the member row component is gone");
-        const int rowEnd = panel.indexOf(QStringLiteral("Media & Files"), rowAt);
-        QVERIFY(rowEnd > rowAt);
+        const int rowEnd = panel.indexOf(QStringLiteral("── Widgets"), rowAt);
+        QVERIFY2(rowEnd > rowAt,
+                 "the section after the roster is gone: re-anchor this scope "
+                 "rather than deleting the bound, or the check silently "
+                 "covers the whole file");
         const QString row = panel.mid(rowAt, rowEnd - rowAt);
         QVERIFY2(!row.contains(QStringLiteral("font.pixelSize: AppTheme.text")),
                  "a member row sets an UNSCALED font size, so it ignores the "

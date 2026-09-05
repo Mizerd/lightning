@@ -309,6 +309,28 @@ ColumnLayout {
         emptyText: qsTr("No camera was found.")
     }
 
+    // v0.9.0: the floating call window.
+    CheckBox {
+        objectName: "callPictureInPictureCheck"
+        palette.windowText: AppTheme.stormText
+        text: qsTr("Float the call when Lightning is minimised")
+        checked: app.settings.callPictureInPicture
+        onToggled: app.settings.callPictureInPicture = checked
+    }
+    Label {
+        Layout.fillWidth: true
+        wrapMode: Text.WordWrap
+        lineHeight: AppTheme.lineHeightBody
+        lineHeightMode: Text.ProportionalHeight
+        color: AppTheme.stormTextMuted
+        font.pixelSize: AppTheme.textMeta
+        text: qsTr("A small always-on-top window with the call's video and "
+                   + "its controls. It appears only while Lightning is "
+                   + "minimised or in the tray, and goes away when the window "
+                   + "comes back. You can also pop it out at any time from "
+                   + "the call controls.")
+    }
+
     Label {
         Layout.fillWidth: true
         wrapMode: Text.WordWrap

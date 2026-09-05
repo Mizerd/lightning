@@ -50,7 +50,14 @@ public:
     QUrl mediaThumbnailUrl(const QString &, int, int, bool) const override { return {}; }
     void redactEvent(const QString &, const QString &, const QString &) override {}
     void toggleReaction(const QString &, const QString &, const QString &) override {}
-    void sendTyping(const QString &, bool, int) override {}
+    // Recorded rather than discarded: the typing-privacy gate can only be
+    // proven by what the CLIENT was asked to send, and a stub that throws
+    // the call away can prove neither that it happened nor that it did not.
+    QList<bool> typingCalls;
+    void sendTyping(const QString &, bool isTyping, int) override
+    {
+        typingCalls.append(isTyping);
+    }
     void sendReadReceipt(const QString &, const QString &) override {}
     void sendImage(const QString &, const QString &) override {}
     void sendFile(const QString &, const QString &) override {}
@@ -166,6 +173,54 @@ private Q_SLOTS:
         m_composer = nullptr;
         delete m_client;
         m_client = nullptr;
+    }
+
+    // ── Typing privacy (Settings -> Privacy -> Reading and typing) ──────
+    //
+    // Typing notices are the highest-frequency disclosure a chat client
+    // makes. The setting has to stop them at the source, and it has to deal
+    // with being switched off MID-NOTICE.
+
+    void typingNoticesAreSentByDefault()
+    {
+        m_composer->setText(QStringLiteral("hello"));
+        QVERIFY2(m_client->typingCalls.contains(true),
+                 "the default must be unchanged: notices are sent");
+    }
+
+    void switchingTypingOffStopsTheNoticesAtTheSource()
+    {
+        m_composer->setTypingNotificationsEnabled(false);
+        m_client->typingCalls.clear();
+        m_composer->setText(QStringLiteral("hello"));
+        QVERIFY2(!m_client->typingCalls.contains(true),
+                 "no typing notice may leave the device while it is off");
+    }
+
+    // Turning it off WHILE a notice is live must retract it now. The server
+    // would eventually time the notice out on its own, but "you will stop
+    // appearing to type within thirty seconds" is not what the switch says.
+    void turningItOffMidNoticeSendsTheStopImmediately()
+    {
+        m_composer->setText(QStringLiteral("hello"));
+        QVERIFY(m_client->typingCalls.contains(true));
+        m_client->typingCalls.clear();
+
+        m_composer->setTypingNotificationsEnabled(false);
+        QCOMPARE(m_client->typingCalls.size(), 1);
+        QCOMPARE(m_client->typingCalls.first(), false);
+    }
+
+    // And turning it back on with text already in the box resumes, rather
+    // than waiting for the next keystroke.
+    void turningItBackOnResumesWithTextAlreadyPresent()
+    {
+        m_composer->setTypingNotificationsEnabled(false);
+        m_composer->setText(QStringLiteral("hello"));
+        m_client->typingCalls.clear();
+
+        m_composer->setTypingNotificationsEnabled(true);
+        QVERIFY(m_client->typingCalls.contains(true));
     }
 
     void meSendsAnEmoteThroughTheCurrentContext()

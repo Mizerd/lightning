@@ -85,6 +85,18 @@ class CallStageState : public QObject
     /// flag drops itself whenever the spotlight empties — instead of being
     /// left to a binding somebody can later simplify away.
     Q_PROPERTY(bool fullScreen READ fullScreen NOTIFY fullScreenChanged)
+    // v0.9.0 picture-in-picture: a small always-on-top window carrying the
+    // call while the main window is elsewhere.
+    //
+    // It lives HERE rather than in QML for the same reason fullScreen does —
+    // it is stage state the call's lifecycle has to be able to drop — and
+    // the two are MUTUALLY EXCLUSIVE by construction. They compete for the
+    // same thing: `SfuVideoRouter` holds ONE sink per track and the last
+    // attach owns it, so two surfaces rendering the same participant means
+    // one of them goes black. Making them exclusive here, rather than hoping
+    // no QML site opens both, is what keeps that from being possible.
+    Q_PROPERTY(bool pictureInPicture READ pictureInPicture
+                   NOTIFY pictureInPictureChanged)
     /// `LIGHTNING_CALL_TRACE` is set, so the call surface may print its
     /// bounded diagnostic lines.
     ///
@@ -121,6 +133,9 @@ public:
     /// refusal is here rather than in the caller so every caller inherits it.
     Q_INVOKABLE void setFullScreen(bool fullScreen);
     Q_INVOKABLE void toggleFullScreen();
+    bool pictureInPicture() const { return m_pictureInPicture; }
+    Q_INVOKABLE void setPictureInPicture(bool pip);
+    Q_INVOKABLE void togglePictureInPicture();
 
     /// Take this share off the spotlight. It REMAINS a row in the share
     /// model and therefore a tile in the grid — "dismissed" has never meant
@@ -148,6 +163,7 @@ Q_SIGNALS:
     void layoutPreferenceChanged();
     void spotlightChanged();
     void fullScreenChanged();
+    void pictureInPictureChanged();
 
 private Q_SLOTS:
     /// A share ended: drop its dismissal so the id cannot be inherited (the
@@ -173,6 +189,7 @@ private:
     QString m_lastSpotlightShareId;
     bool m_lastRestorable = false;
     bool m_fullScreen = false;
+    bool m_pictureInPicture = false;
     /// Read once, in the constructor. See the property's note.
     bool m_traceEnabled = false;
 

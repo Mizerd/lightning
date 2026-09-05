@@ -144,6 +144,11 @@ char *mx_rust_send_typing(void *client, const char *room_id, int typing);
 char *mx_rust_send_read_receipt(void *client,
                                 const char *room_id,
                                 const char *event_id);
+/* Receipt privacy for EVERY subsequent receipt this bridge sends, from any
+ * of its three paths: 0 public, 1 private (`m.read.private`), 2 none. The
+ * fully-read marker — this account's own place in the room — is sent in
+ * every mode; only what OTHER people can see changes. Not retroactive. */
+char *mx_rust_set_receipt_privacy(void *client, int mode);
 char *mx_rust_set_marked_unread(void *client, const char *room_id, int unread);
 /* Mark a room read WITHOUT opening it. The target event comes from the SDK's
  * own Room::latest_event(), so no timeline needs to be loaded. Sends the

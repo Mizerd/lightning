@@ -278,7 +278,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+705"/>
+        <location filename="../src/app/AppController.cpp" line="+799"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -293,7 +293,7 @@
         <translation>Te han invitado a %1</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+148"/>
         <source>Incoming voice call</source>
         <translation>Llamada de voz entrante</translation>
     </message>
@@ -425,29 +425,39 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1703"/>
+        <location line="+1744"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning no pudo leer el archivo seleccionado.</translation>
     </message>
     <message>
-        <location line="-1709"/>
+        <location line="-1750"/>
         <source>A room-key import is already in progress.</source>
         <translation>Ya hay una importación de claves de sala en curso.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2253"/>
+        <location line="+2303"/>
         <source>Not signed in.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-2251"/>
+        <location line="-2301"/>
         <source>Room-key import failed.</source>
         <translation>Falló la importación de claves de sala.</translation>
     </message>
     <message>
-        <location line="+486"/>
+        <location line="+85"/>
+        <source>Lightning</source>
+        <translation type="unfinished">Lightning</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+441"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>Las videollamadas necesitan un servicio MatrixRTC, que aún no está disponible aquí.</translation>
     </message>
@@ -642,7 +652,7 @@
         <translation>Borrar los datos locales de este dispositivo no lo solucionaría y destruiría claves de cifrado que todavía necesitas.</translation>
     </message>
     <message>
-        <location line="+406"/>
+        <location line="+415"/>
         <source>This backend cannot change your display name.</source>
         <translation>Este backend no puede cambiar tu nombre visible.</translation>
     </message>
@@ -1020,7 +1030,17 @@
         <translation>No se encontró ninguna cámara.</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+7"/>
+        <source>Float the call when Lightning is minimised</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>A small always-on-top window with the call&apos;s video and its controls. It appears only while Lightning is minimised or in the tray, and goes away when the window comes back. You can also pop it out at any time from the call controls.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
         <source>These devices belong to this computer, not to your account. A change applies to your next call; during a call you can switch from the controls at the top of the conversation.</source>
         <translation>Estos dispositivos pertenecen a esta computadora, no a su cuenta. Se aplica un cambio a su próxima llamada; Durante una llamada, puedes cambiar desde los controles en la parte superior de la conversación.</translation>
     </message>
@@ -1138,7 +1158,12 @@
         <translation>Mostrar quién está en la llamada</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+27"/>
+        <source>Pop the call out into a floating window</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
         <source>Unmute microphone</source>
         <translation>Activar micrófono</translation>
     </message>
@@ -1225,6 +1250,57 @@
         <location line="+13"/>
         <source>Reset</source>
         <translation>Restablecer</translation>
+    </message>
+</context>
+<context>
+    <name>CallPipWindow</name>
+    <message>
+        <location filename="../qml/CallPipWindow.qml" line="+93"/>
+        <source>Lightning call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+137"/>
+        <source>Call in progress</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+10"/>
+        <source>%n participant(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+34"/>
+        <source>Unmute microphone</source>
+        <translation type="unfinished">Activar micrófono</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Mute microphone</source>
+        <translation type="unfinished">Silenciar micrófono</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Undeafen</source>
+        <translation type="unfinished">no sordo</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Deafen</source>
+        <translation type="unfinished">ensordecedor</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Back to Lightning</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Leave the call</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -2836,7 +2912,7 @@ Tamaño: %3</translation>
 <context>
     <name>ForwardController</name>
     <message>
-        <location filename="../src/app/ForwardController.cpp" line="+84"/>
+        <location filename="../src/app/ForwardController.cpp" line="+86"/>
         <source>Photo</source>
         <translation>Foto</translation>
     </message>
@@ -2884,7 +2960,42 @@ Tamaño: %3</translation>
         <translation>Este mensaje no se puede reenviar.</translation>
     </message>
     <message>
-        <location line="+62"/>
+        <location line="+68"/>
+        <source>You can forward up to %1 messages at once.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Nothing was selected to forward.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+31"/>
+        <source>in %1</source>
+        <translation type="unfinished">en %1</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Forwarded from %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+75"/>
+        <source>Not signed in.</source>
+        <translation type="unfinished">No has iniciado sesión.</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Attachments can only be forwarded one at a time — use Forward on the message itself.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Nothing to send.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+63"/>
         <source>Media isn&apos;t available right now.</source>
         <translation>El contenido multimedia no está disponible ahora mismo.</translation>
     </message>
@@ -2960,6 +3071,83 @@ Tamaño: %3</translation>
         <location line="+10"/>
         <source>No rooms</source>
         <translation>No hay salas</translation>
+    </message>
+</context>
+<context>
+    <name>ForwardSelectionDialog</name>
+    <message numerus="yes">
+        <location filename="../qml/ForwardSelectionDialog.qml" line="+75"/>
+        <source>Forward %n message(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Just the message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>With original sender</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Each copy will name the original sender, this room and the time — visible to everyone in the rooms you pick.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>A clean copy, with nothing identifying where it came from.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Search rooms…</source>
+        <translation type="unfinished">Buscar salas…</translation>
+    </message>
+    <message>
+        <location line="+53"/>
+        <source>Sending %1 of %2…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source>Sent %n copy(ies).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>%1 of %2 sent — %n failed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+29"/>
+        <source>Done</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Cancel</source>
+        <translation type="unfinished">Cancelar</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Retry failed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Send</source>
+        <translation type="unfinished">Enviar</translation>
     </message>
 </context>
 <context>
@@ -4133,7 +4321,7 @@ Tamaño: %3</translation>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+577"/>
+        <location line="+581"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -4218,7 +4406,7 @@ Tamaño: %3</translation>
         <translation>No se pudo guardar la pegatina.</translation>
     </message>
     <message>
-        <location line="+125"/>
+        <location line="+182"/>
         <location line="+18"/>
         <source>Connected</source>
         <translation>Conectado</translation>
@@ -4272,7 +4460,7 @@ Tamaño: %3</translation>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+361"/>
+        <location filename="../qml/MainScreen.qml" line="+400"/>
         <source>Switching account…</source>
         <translation>Cambiando de cuenta…</translation>
     </message>
@@ -4313,6 +4501,192 @@ Tamaño: %3</translation>
     </message>
 </context>
 <context>
+    <name>MediaBrowser</name>
+    <message>
+        <location filename="../qml/MediaBrowser.qml" line="+43"/>
+        <source>Media</source>
+        <translation type="unfinished">Multimedia</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Images</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Videos</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Audio</source>
+        <translation type="unfinished">Audio</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Files</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Links</source>
+        <translation type="unfinished">Enlaces</translation>
+    </message>
+    <message>
+        <location line="+77"/>
+        <source>Search filename, caption, sender, link…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Search this room&apos;s media</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>List</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Grid</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Show as a list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show as a grid</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>From</source>
+        <translation type="unfinished">De</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Anyone</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Filter by sender</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>This backend cannot browse room history.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>History could not be read, so this is only part of it. %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+6"/>
+        <source>%n item(s) — all of this room&apos;s history.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source>%n item(s) so far — reading older messages…</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source>%n item(s) in the %1 message(s) read so far.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+5"/>
+        <source>%n message(s) could not be decrypted and may hold more.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>Nothing matches those filters in the history read so far.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Nothing of this kind in this room.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Nothing of this kind yet — keep loading to search further back.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+90"/>
+        <source>Try again</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>MediaBrowserRow</name>
+    <message>
+        <location filename="../qml/MediaBrowserRow.qml" line="+68"/>
+        <source>(unnamed)</source>
+        <translation type="unfinished">(sin nombre)</translation>
+    </message>
+    <message>
+        <location line="+55"/>
+        <source>Go to message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Copy link</source>
+        <translation type="unfinished">Copiar enlace</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>%1 B</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>%1 KB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>%1 MB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>%1 GB</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>MediaBrowserTile</name>
+    <message>
+        <location filename="../qml/MediaBrowserTile.qml" line="+142"/>
+        <source>Go to message</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>MediaHiddenPlaceholder</name>
     <message>
         <location filename="../qml/MediaHiddenPlaceholder.qml" line="+56"/>
@@ -4324,6 +4698,29 @@ Tamaño: %3</translation>
         <location line="+1"/>
         <source>This image is hidden on this device only</source>
         <translation>Esta imagen está oculta solo en este dispositivo</translation>
+    </message>
+</context>
+<context>
+    <name>MediaHistoryModel</name>
+    <message>
+        <location filename="../src/models/MediaHistoryModel.cpp" line="+120"/>
+        <source>Today</source>
+        <translation type="unfinished">Hoy</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Yesterday</source>
+        <translation type="unfinished">Ayer</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This week</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This month</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -4568,7 +4965,7 @@ Tamaño: %3</translation>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+192"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+195"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Este backend no admite archivos adjuntos.</translation>
     </message>
@@ -4608,7 +5005,7 @@ Tamaño: %3</translation>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+532"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+572"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -4844,7 +5241,7 @@ Tamaño: %3</translation>
         <translation>Mostrar el formato</translation>
     </message>
     <message>
-        <location line="+275"/>
+        <location line="+292"/>
         <source>Select a room to start typing</source>
         <translation>Selecciona una sala para escribir</translation>
     </message>
@@ -4859,7 +5256,7 @@ Tamaño: %3</translation>
         <translation>Escribe a %1</translation>
     </message>
     <message>
-        <location line="+262"/>
+        <location line="+279"/>
         <source>Add to dictionary</source>
         <translation>Añadir al diccionario</translation>
     </message>
@@ -5030,7 +5427,7 @@ Tamaño: %3</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+792"/>
+        <location filename="../qml/MessageDelegate.qml" line="+836"/>
         <source>Today</source>
         <translation>Hoy</translation>
     </message>
@@ -5050,7 +5447,7 @@ Tamaño: %3</translation>
         <translation>Mensajes nuevos</translation>
     </message>
     <message>
-        <location line="+174"/>
+        <location line="+215"/>
         <source>Avatar for %1</source>
         <translation>Avatar de %1</translation>
     </message>
@@ -5178,12 +5575,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+2157"/>
+        <location line="+2171"/>
         <source>Retry</source>
         <translation>Reintentar</translation>
     </message>
     <message>
-        <location line="-2120"/>
+        <location line="-2134"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
     </message>
@@ -5351,23 +5748,23 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2096"/>
+        <location line="+2110"/>
         <source>Save as…</source>
         <translation>Guardar como…</translation>
     </message>
     <message>
-        <location line="-2066"/>
+        <location line="-2080"/>
         <source>Show image</source>
         <translation>Mostrar imagen</translation>
     </message>
     <message>
         <location line="+20"/>
-        <location line="+630"/>
+        <location line="+644"/>
         <source>Show link preview</source>
         <translation>Mostrar vista previa del enlace</translation>
     </message>
     <message>
-        <location line="-621"/>
+        <location line="-635"/>
         <source>Copy image</source>
         <translation>Copiar imagen</translation>
     </message>
@@ -5407,7 +5804,12 @@ Tamaño: %3</translation>
         <translation>Finalizar encuesta</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+28"/>
+        <source>Select messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
         <source>Forward</source>
         <translation>Reenviar</translation>
     </message>
@@ -5499,12 +5901,12 @@ Tamaño: %3</translation>
         <translation>Mensaje respondido</translation>
     </message>
     <message>
-        <location line="-1842"/>
+        <location line="-1856"/>
         <source>Show preview</source>
         <translation>Mostrar vista previa</translation>
     </message>
     <message>
-        <location line="+1979"/>
+        <location line="+1993"/>
         <location line="+107"/>
         <source>Dismiss link preview</source>
         <translation>Descartar vista previa del enlace</translation>
@@ -6120,13 +6522,28 @@ Tamaño: %3</translation>
 <context>
     <name>NotificationManager</name>
     <message>
-        <location filename="../src/notifications/NotificationManager.cpp" line="+547"/>
-        <location line="+164"/>
+        <location filename="../src/notifications/NotificationManager.cpp" line="+628"/>
+        <location line="+159"/>
         <source>Open</source>
         <translation>Abrir</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-154"/>
+        <source>Mark as read</source>
+        <translation type="unfinished">Marcar como leída</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reply</source>
+        <translation type="unfinished">Responder</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Reply…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+149"/>
         <source>Decline</source>
         <translation>Rechazar</translation>
     </message>
@@ -6134,7 +6551,7 @@ Tamaño: %3</translation>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-455"/>
+        <location line="-526"/>
         <source>Matrix room</source>
         <translation>Sala de Matrix</translation>
     </message>
@@ -6941,7 +7358,12 @@ Tamaño: %3</translation>
 <context>
     <name>RoomInfoController</name>
     <message>
-        <location filename="../src/app/RoomInfoController.cpp" line="+315"/>
+        <location filename="../src/app/RoomInfoController.cpp" line="+41"/>
+        <source>The server did not accept the change.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+332"/>
         <source>You do not have permission to change that.</source>
         <translation>No tienes permiso para cambiar eso.</translation>
     </message>
@@ -7058,11 +7480,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+2"/>
+        <location line="+11"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</source>
         <translation>Imágenes (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+50"/>
         <source>Room information</source>
         <translation>Información de la sala</translation>
     </message>
@@ -7185,17 +7608,22 @@ Tamaño: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1615"/>
+        <location line="+1714"/>
         <source>Open</source>
         <translation type="unfinished">Abrir</translation>
     </message>
     <message>
-        <location line="-1370"/>
+        <location line="-1469"/>
         <source>Export room…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-362"/>
+        <source>Choose your avatar for this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+364"/>
         <source>Save this room&apos;s loaded messages to a file</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7227,18 +7655,43 @@ Tamaño: %3</translation>
     <message>
         <location line="+5"/>
         <location line="+20"/>
-        <location line="+459"/>
-        <location line="+937"/>
+        <location line="+110"/>
+        <location line="+448"/>
         <source>Save</source>
         <translation>Guardar</translation>
     </message>
     <message>
-        <location line="-1401"/>
+        <location line="-563"/>
         <source>Topic</source>
         <translation>Tema</translation>
     </message>
     <message>
-        <location line="+61"/>
+        <location line="+85"/>
+        <source>Your profile in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Only affects this room. Everyone here sees it; other rooms keep your usual name and picture.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Your name in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Change picture…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Reset to global</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
         <source>Access</source>
         <translation>Acceso</translation>
     </message>
@@ -7299,12 +7752,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+890"/>
+        <location line="+789"/>
         <source>Leave room</source>
         <translation>Salir de la sala</translation>
     </message>
     <message>
-        <location line="-852"/>
+        <location line="-751"/>
         <source>No pinned messages</source>
         <translation>No hay mensajes fijados</translation>
     </message>
@@ -7577,32 +8030,7 @@ Tamaño: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+84"/>
-        <source>Media and files shared in the loaded part of this conversation. Scroll the timeline up to load more history.</source>
-        <translation>Archivos y multimedia compartidos en la parte cargada de esta conversación. Desplázate hacia arriba para cargar más historial.</translation>
-    </message>
-    <message>
-        <location line="+29"/>
-        <source>No media in the loaded history.</source>
-        <translation>No hay multimedia en el historial cargado.</translation>
-    </message>
-    <message>
-        <location line="+30"/>
-        <source>(unnamed)</source>
-        <translation>(sin nombre)</translation>
-    </message>
-    <message>
-        <location line="+9"/>
-        <source>%1 · %2</source>
-        <translation>%1 · %2</translation>
-    </message>
-    <message>
-        <location line="+36"/>
-        <source>Save %1 as…</source>
-        <translation>Guardar %1 como…</translation>
-    </message>
-    <message>
-        <location line="+19"/>
+        <location line="+106"/>
         <source>Leave room?</source>
         <translation>¿Salir de la sala?</translation>
     </message>
@@ -8014,7 +8442,7 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+455"/>
+        <location line="+461"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>No se pudo crear el manejador del backend del SDK de Rust.</translation>
     </message>
@@ -8101,12 +8529,12 @@ Tamaño: %3</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+1928"/>
+        <location line="+1941"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning no pudo restablecer por completo la sesión local de esta cuenta. Revisa los registros de la aplicación y los permisos del sistema de archivos, y vuelve a intentarlo.</translation>
     </message>
     <message>
-        <location line="-1944"/>
+        <location line="-1957"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Se ha reconstruido la sesión local de Lightning. El almacén de cifrado anterior se ha apartado, no se ha eliminado, y sigue en la carpeta de datos de esta cuenta. Ya puedes iniciar sesión de nuevo.</translation>
     </message>
@@ -8119,7 +8547,7 @@ Tamaño: %3</translation>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3153"/>
+        <location line="+3166"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -8128,22 +8556,22 @@ Tamaño: %3</translation>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-3533"/>
+        <location line="-3546"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3335"/>
+        <location line="+3348"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconocida: %1</translation>
     </message>
     <message>
-        <location line="-3535"/>
+        <location line="-3548"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Todavía no se puede enviar a salas cifradas: el envío cifrado del SDK de Rust no está verificado.</translation>
     </message>
     <message>
-        <location line="+503"/>
+        <location line="+516"/>
         <source>The sticker could not be sent.</source>
         <translation>No se pudo enviar la pegatina.</translation>
     </message>
@@ -8842,36 +9270,36 @@ Tamaño: %3</translation>
         <location filename="../qml/SettingsScreen.qml" line="+53"/>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+535"/>
+        <location line="+552"/>
         <location line="+604"/>
-        <location line="+2989"/>
+        <location line="+3100"/>
         <source>Account</source>
         <translation>Cuenta</translation>
     </message>
     <message>
-        <location line="-4131"/>
+        <location line="-4259"/>
         <source>account profile</source>
         <translation>cuenta perfil</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5028"/>
+        <location line="+5156"/>
         <source>Homeserver</source>
         <translation>Servidor doméstico</translation>
     </message>
     <message>
-        <location line="-5028"/>
+        <location line="-5156"/>
         <source>homeserver server url</source>
         <translation>servidor doméstico url</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5062"/>
+        <location line="+5190"/>
         <source>Start minimized</source>
         <translation>Iniciar minimizado</translation>
     </message>
     <message>
-        <location line="-5062"/>
+        <location line="-5190"/>
         <source>startup minimized</source>
         <translation>inicio arranque minimizado</translation>
     </message>
@@ -8882,12 +9310,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1284"/>
+        <location line="+1301"/>
         <source>Theme</source>
         <translation>Tema</translation>
     </message>
     <message>
-        <location line="-1283"/>
+        <location line="-1300"/>
         <source>theme moss indigo teal light dark graphite midnight nordic purple warm</source>
         <translation>tema claro oscuro musgo índigo turquesa grafito medianoche nórdico morado cálido</translation>
     </message>
@@ -8898,22 +9326,22 @@ Tamaño: %3</translation>
         <location line="+3"/>
         <location line="+2"/>
         <location line="+8"/>
-        <location line="+508"/>
+        <location line="+525"/>
         <location line="+608"/>
         <location line="+128"/>
         <source>Appearance</source>
         <translation>Apariencia</translation>
     </message>
     <message>
-        <location line="-1265"/>
-        <location line="+976"/>
+        <location line="-1282"/>
+        <location line="+993"/>
         <location line="+777"/>
         <location line="+83"/>
         <source>Match system light/dark</source>
         <translation>Seguir el modo claro/oscuro del sistema</translation>
     </message>
     <message>
-        <location line="-1835"/>
+        <location line="-1852"/>
         <source>match system auto theme</source>
         <translation>seguir sistema tema automático</translation>
     </message>
@@ -8924,57 +9352,57 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+1907"/>
+        <location line="+1924"/>
         <source>Message layout</source>
         <translation>Diseño de los mensajes</translation>
     </message>
     <message>
-        <location line="-1906"/>
+        <location line="-1923"/>
         <source>message layout modern bubbles compact</source>
         <translation>diseño mensajes moderno burbujas compacto</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1928"/>
+        <location line="+1945"/>
         <source>Text size</source>
         <translation>Tamaño del texto</translation>
     </message>
     <message>
-        <location line="-1928"/>
+        <location line="-1945"/>
         <source>text size font scale</source>
         <translation>tamaño texto fuente escala</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2022"/>
+        <location line="+2039"/>
         <location line="+16"/>
         <source>Interface zoom</source>
         <translation>Zoom de la interfaz</translation>
     </message>
     <message>
-        <location line="-2037"/>
+        <location line="-2054"/>
         <source>interface zoom scale bigger ui size</source>
         <translation>zoom interfaz escala tamaño más grande</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2106"/>
+        <location line="+2123"/>
         <source>Font</source>
         <translation>Fuente</translation>
     </message>
     <message>
-        <location line="-2106"/>
+        <location line="-2123"/>
         <source>font family typeface</source>
         <translation>fuente tipografía familia</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2281"/>
+        <location line="+2298"/>
         <source>Code font</source>
         <translation>Fuente de código</translation>
     </message>
     <message>
-        <location line="-2280"/>
+        <location line="-2297"/>
         <source>code font monospace mono fixed width typeface</source>
         <translation>fuente de código monoespacio mono tipo de letra de ancho fijo</translation>
     </message>
@@ -8986,35 +9414,35 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+2347"/>
+        <location line="+2364"/>
         <source>Your own fonts</source>
         <translation>Tus propias fuentes</translation>
     </message>
     <message>
-        <location line="-2346"/>
+        <location line="-2363"/>
         <source>import font file ttf otf install custom typeface</source>
         <translation>importar archivo de fuente ttf otf instalar tipo de letra personalizado</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2759"/>
+        <location line="+2776"/>
         <source>Language</source>
         <translation>Idioma</translation>
     </message>
     <message>
-        <location line="-2759"/>
+        <location line="-2776"/>
         <source>language locale</source>
         <translation>idioma configuración regional</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+963"/>
+        <location line="+980"/>
         <location line="+1598"/>
         <source>Show room activity</source>
         <translation>Mostrar la actividad de la sala</translation>
     </message>
     <message>
-        <location line="-2560"/>
+        <location line="-2577"/>
         <source>room activity membership joins leaves profile</source>
         <translation>actividad sala membresía entradas salidas perfil</translation>
     </message>
@@ -9028,48 +9456,48 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-9"/>
-        <location line="+2604"/>
+        <location line="+2621"/>
         <source>Mouse-wheel speed</source>
         <translation>Velocidad de la rueda del ratón</translation>
     </message>
     <message>
-        <location line="-2603"/>
+        <location line="-2620"/>
         <source>wheel speed scroll timeline</source>
         <translation>rueda velocidad desplazamiento cronología</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+991"/>
+        <location line="+1008"/>
         <location line="+1591"/>
         <source>Joins, leaves and invites</source>
         <translation>Se une, sale e invita.</translation>
     </message>
     <message>
-        <location line="-2581"/>
+        <location line="-2598"/>
         <source>membership join leave invite kick ban activity hide</source>
         <translation>membresía unirse salir invitar patear prohibir actividad ocultar</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+996"/>
+        <location line="+1013"/>
         <location line="+1593"/>
         <source>Display name and avatar changes</source>
         <translation>Cambios de nombre para mostrar y avatar</translation>
     </message>
     <message>
-        <location line="-2588"/>
+        <location line="-2605"/>
         <source>profile change display name avatar activity hide</source>
         <translation>perfil cambiar nombre para mostrar avatar actividad ocultar</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1000"/>
+        <location line="+1017"/>
         <location line="+1823"/>
         <source>Reduce motion</source>
         <translation>Reducir el movimiento</translation>
     </message>
     <message>
-        <location line="-2822"/>
+        <location line="-2839"/>
         <source>reduced motion animation accessibility vestibular</source>
         <translation>movimiento reducido animación accesibilidad vestibular</translation>
     </message>
@@ -9082,36 +9510,36 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-8"/>
-        <location line="+1003"/>
+        <location line="+1020"/>
         <location line="+1830"/>
         <source>Smooth scrolling</source>
         <translation>Desplazamiento suave</translation>
     </message>
     <message>
-        <location line="-2832"/>
+        <location line="-2849"/>
         <source>smooth scrolling scroll wheel glide animation instant jumpy mouse</source>
         <translation>desplazamiento suave rueda de desplazamiento animación de deslizamiento ratón nervioso instantáneo</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2853"/>
+        <location line="+2870"/>
         <source>Clock</source>
         <translation>Reloj</translation>
     </message>
     <message>
-        <location line="-2852"/>
+        <location line="-2869"/>
         <source>clock 24 hour time format am pm timestamp</source>
         <translation>reloj formato de hora de 24 horas am pm marca de tiempo</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1002"/>
+        <location line="+1019"/>
         <location line="+1906"/>
         <source>Show Space banners</source>
         <translation>Mostrar pancartas espaciales</translation>
     </message>
     <message>
-        <location line="-2907"/>
+        <location line="-2924"/>
         <source>space banner header image hide show</source>
         <translation>espacio banner encabezado imagen ocultar mostrar</translation>
     </message>
@@ -9124,35 +9552,35 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+2940"/>
+        <location line="+2957"/>
         <source>Conversation list width</source>
         <translation>Ancho de la lista de conversaciones</translation>
     </message>
     <message>
-        <location line="-2939"/>
+        <location line="-2956"/>
         <source>room list width panel size sidebar</source>
         <translation>barra lateral del tamaño del panel del ancho de la lista de habitaciones</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2954"/>
+        <location line="+2971"/>
         <source>Side panel width</source>
         <translation>Ancho del panel lateral</translation>
     </message>
     <message>
-        <location line="-2953"/>
+        <location line="-2970"/>
         <source>side panel width members threads size</source>
         <translation>Ancho del panel lateral Tamaño de las roscas de los miembros</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1000"/>
+        <location line="+1017"/>
         <location line="+1969"/>
         <source>Enter starts a new line</source>
         <translation>Enter inicia una nueva línea</translation>
     </message>
     <message>
-        <location line="-2968"/>
+        <location line="-2985"/>
         <source>enter newline send composer message box return</source>
         <translation>ingresar nueva línea enviar cuadro de mensaje del compositor regresar</translation>
     </message>
@@ -9167,47 +9595,47 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-14"/>
-        <location line="+1004"/>
+        <location line="+1021"/>
         <location line="+2076"/>
         <source>Send text with an attachment as its caption</source>
         <translation>Enviar texto con un archivo adjunto como título</translation>
     </message>
     <message>
-        <location line="-3079"/>
+        <location line="-3096"/>
         <source>caption attachment upload text description</source>
         <translation>subtítulo adjunto subir texto descripción</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3113"/>
+        <location line="+3130"/>
         <source>Message box buttons</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3112"/>
+        <location line="-3129"/>
         <source>composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2984"/>
+        <location line="+3001"/>
         <source>Check spelling as you type</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2983"/>
+        <location line="-3000"/>
         <source>spell spelling checker dictionary typo underline language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2991"/>
+        <location line="+3008"/>
         <location line="+13"/>
         <source>Spelling language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3003"/>
+        <location line="-3020"/>
         <source>spell spelling language dictionary automatic system</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9215,25 +9643,25 @@ Tamaño: %3</translation>
         <location line="+3"/>
         <location line="+2"/>
         <location line="+3"/>
-        <location line="+444"/>
+        <location line="+461"/>
         <location line="+612"/>
         <location line="+2121"/>
         <source>Keyboard shortcuts</source>
         <translation>Atajos de teclado</translation>
     </message>
     <message>
-        <location line="-3181"/>
+        <location line="-3198"/>
         <source>keyboard shortcut shortcuts key keys binding rebind hotkey</source>
         <translation>atajo de teclado atajos clave teclas vinculante volver a vincular tecla de acceso rápido</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3312"/>
+        <location line="+3329"/>
         <source>Reset all shortcuts</source>
         <translation>Restablecer todos los atajos</translation>
     </message>
     <message>
-        <location line="-3311"/>
+        <location line="-3328"/>
         <source>reset shortcuts default keys</source>
         <translation>restablecer las teclas predeterminadas de los atajos</translation>
     </message>
@@ -9291,56 +9719,95 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+895"/>
-        <location line="+2974"/>
+        <location line="+912"/>
+        <location line="+3052"/>
         <source>Desktop notifications</source>
         <translation>Notificaciones de escritorio</translation>
     </message>
     <message>
-        <location line="-3868"/>
+        <location line="-3963"/>
         <source>notifications desktop enable</source>
         <translation>notificaciones escritorio activar</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+4"/>
+        <location line="+5"/>
         <location line="+3"/>
-        <location line="+415"/>
+        <location line="+427"/>
         <location line="+616"/>
-        <location line="+2818"/>
+        <location line="+2896"/>
         <source>Notifications</source>
         <translation>Notificaciones</translation>
     </message>
     <message>
-        <location line="-3854"/>
-        <location line="+3871"/>
+        <location line="-3949"/>
+        <location line="+3966"/>
         <source>Notification preview</source>
         <translation>Vista previa de las notificaciones</translation>
     </message>
     <message>
-        <location line="-3870"/>
+        <location line="-3965"/>
         <source>notification preview privacy sender message</source>
         <translation>notificación vista previa privacidad remitente mensaje</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <location line="+3904"/>
+        <location line="+3"/>
+        <source>Notification preview in encrypted rooms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>notification preview encrypted body privacy hide message text</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <location line="+4027"/>
         <source>Notification sound</source>
         <translation>Sonido de las notificaciones</translation>
     </message>
     <message>
-        <location line="-3903"/>
+        <location line="-4026"/>
         <source>notification sound mute</source>
         <translation>notificación sonido silenciar</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3334"/>
+        <location line="+3338"/>
+        <source>Read receipts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3337"/>
+        <source>read receipt receipts private seen ticks blue m.read.private privacy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <location line="+6"/>
+        <source>Privacy &amp; security · Reading and typing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-4"/>
+        <location line="+3371"/>
+        <source>Let others see when I am typing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3370"/>
+        <source>typing notice notification composing indicator privacy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <location line="+3412"/>
         <source>Share my online status</source>
         <translation>Compartir mi estado de conexión</translation>
     </message>
     <message>
-        <location line="-3333"/>
+        <location line="-3411"/>
         <source>presence online idle offline status share</source>
         <translation>presencia en línea ausente desconectado estado compartir</translation>
     </message>
@@ -9351,12 +9818,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3356"/>
+        <location line="+3434"/>
         <source>Ignored users</source>
         <translation>Usuarios ignorados</translation>
     </message>
     <message>
-        <location line="-3355"/>
+        <location line="-3433"/>
         <source>ignore ignored block user mute person hide</source>
         <translation>ignorar ignorado bloquear usuario silenciar persona ocultar</translation>
     </message>
@@ -9383,20 +9850,20 @@ Tamaño: %3</translation>
         <location line="+3"/>
         <location line="+363"/>
         <location line="+624"/>
-        <location line="+4340"/>
+        <location line="+4451"/>
         <location line="+445"/>
         <source>Sessions</source>
         <translation>Sesiones</translation>
     </message>
     <message>
-        <location line="-5811"/>
+        <location line="-5922"/>
         <location line="+862"/>
-        <location line="+2638"/>
+        <location line="+2716"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation>Cargar vistas previas automáticamente en salas sin cifrar</translation>
     </message>
     <message>
-        <location line="-3499"/>
+        <location line="-3577"/>
         <source>link preview privacy</source>
         <translation>vista previa enlace privacidad</translation>
     </message>
@@ -9408,24 +9875,24 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+3502"/>
+        <location line="+3580"/>
         <source>Load previews in encrypted rooms</source>
         <translation>Cargar vistas previas en salas cifradas</translation>
     </message>
     <message>
-        <location line="-3501"/>
+        <location line="-3579"/>
         <source>link preview encrypted</source>
         <translation>vista previa enlace cifrado</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3573"/>
+        <location line="+3651"/>
         <location line="+7"/>
         <source>Autoplay and prefetch media</source>
         <translation>Reproducir y precargar multimedia automáticamente</translation>
     </message>
     <message>
-        <location line="-3579"/>
+        <location line="-3657"/>
         <source>gif autoplay prefetch video audio media</source>
         <translation>gif reproducción automática precarga video audio multimedia</translation>
     </message>
@@ -9436,12 +9903,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3616"/>
+        <location line="+3694"/>
         <source>GIF safe search</source>
         <translation>Búsqueda segura de GIF</translation>
     </message>
     <message>
-        <location line="-3615"/>
+        <location line="-3693"/>
         <source>gif safe search rating</source>
         <translation>gif búsqueda segura clasificación</translation>
     </message>
@@ -9454,36 +9921,36 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+3641"/>
+        <location line="+3719"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation>Proveedor de GIF preferido</translation>
     </message>
     <message>
-        <location line="-3647"/>
+        <location line="-3725"/>
         <source>gif provider giphy klipy</source>
         <translation>gif proveedor giphy klipy</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3680"/>
+        <location line="+3758"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation>Guardar los GIF usados recientemente</translation>
     </message>
     <message>
-        <location line="-3682"/>
+        <location line="-3760"/>
         <source>gif recents store</source>
         <translation>gif recientes guardar</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4982"/>
+        <location line="+5093"/>
         <source>Security status</source>
         <translation>Estado de seguridad</translation>
     </message>
     <message>
-        <location line="-4981"/>
+        <location line="-5092"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>e2ee cifrado estado firma cruzada copia de seguridad</translation>
     </message>
@@ -9497,13 +9964,13 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-3258"/>
-        <location line="+6323"/>
+        <location line="+6434"/>
         <location line="+19"/>
         <source>Recovery key or passphrase</source>
         <translation>Clave de recuperación o frase de contraseña</translation>
     </message>
     <message>
-        <location line="-6341"/>
+        <location line="-6452"/>
         <source>recovery key passphrase backup restore</source>
         <translation>clave recuperación frase contraseña copia seguridad restaurar</translation>
     </message>
@@ -9516,23 +9983,23 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+6407"/>
+        <location line="+6518"/>
         <source>Import room keys</source>
         <translation>Importar claves de sala</translation>
     </message>
     <message>
-        <location line="-6406"/>
+        <location line="-6517"/>
         <source>import room keys export</source>
         <translation>importar claves sala exportar</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6630"/>
+        <location line="+6741"/>
         <source>Danger Zone</source>
         <translation>Zona de peligro</translation>
     </message>
     <message>
-        <location line="-6629"/>
+        <location line="-6740"/>
         <source>reset danger local session</source>
         <translation>restablecer peligro sesión local</translation>
     </message>
@@ -9543,23 +10010,23 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6092"/>
+        <location line="+6203"/>
         <source>Current session</source>
         <translation>Sesión actual</translation>
     </message>
     <message>
-        <location line="-6091"/>
+        <location line="-6202"/>
         <source>device id session status</source>
         <translation>id dispositivo sesión estado</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6150"/>
+        <location line="+6261"/>
         <source>Verify this session</source>
         <translation>Verificar esta sesión</translation>
     </message>
     <message>
-        <location line="-6149"/>
+        <location line="-6260"/>
         <source>verify verification sas cross-signing</source>
         <translation>verificar verificación sas firma cruzada</translation>
     </message>
@@ -9580,12 +10047,12 @@ Tamaño: %3</translation>
         <location line="+3"/>
         <location line="+354"/>
         <location line="+631"/>
-        <location line="+5720"/>
+        <location line="+5831"/>
         <source>Labs</source>
         <translation>Labs</translation>
     </message>
     <message>
-        <location line="-6711"/>
+        <location line="-6822"/>
         <source>Sync mode</source>
         <translation>Modo de sincronización</translation>
     </message>
@@ -9606,12 +10073,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6753"/>
+        <location line="+6864"/>
         <source>Refresh current room</source>
         <translation>Actualizar la sala actual</translation>
     </message>
     <message>
-        <location line="-6752"/>
+        <location line="-6863"/>
         <source>refresh reload timeline</source>
         <translation>actualizar recargar cronología</translation>
     </message>
@@ -9620,12 +10087,12 @@ Tamaño: %3</translation>
         <location line="+1"/>
         <location line="+353"/>
         <location line="+678"/>
-        <location line="+5755"/>
+        <location line="+5866"/>
         <source>About</source>
         <translation>Acerca de</translation>
     </message>
     <message>
-        <location line="-6787"/>
+        <location line="-6898"/>
         <source>about version license</source>
         <translation>acerca de versión licencia</translation>
     </message>
@@ -9664,13 +10131,13 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+4098"/>
+        <location line="+4209"/>
         <location line="+1340"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-5283"/>
+        <location line="-5394"/>
         <source>Needs attention</source>
         <translation>Requiere atención</translation>
     </message>
@@ -9681,12 +10148,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+2938"/>
+        <location line="+3016"/>
         <source>Clear index</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2925"/>
+        <location line="-3003"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9702,14 +10169,14 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3760"/>
+        <location line="+3871"/>
         <location line="+310"/>
         <location line="+1873"/>
         <source>Clear</source>
         <translation>Borrar</translation>
     </message>
     <message>
-        <location line="-5933"/>
+        <location line="-6044"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>¿Eliminar de este dispositivo todos los GIF de proveedores que has guardado? Los GIF que guardaste desde conversaciones no se ven afectados. Esta acción no se puede deshacer.</translation>
     </message>
@@ -9868,7 +10335,37 @@ Tamaño: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+348"/>
+        <location line="+221"/>
+        <source>Reading and typing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>Send read receipts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Private — only my own devices</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Do not send read receipts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Private receipts still clear the unread badge on your own other devices; nobody else sees them. Not sending them at all keeps your place only on this device. Either way, receipts you have already sent cannot be taken back, and other people&apos;s receipts are still shown to you.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+26"/>
+        <source>Typing notices are the most frequent thing a chat client discloses — every few keystrokes, to everyone in the room. Turning this off does not hide other people&apos;s.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+142"/>
         <source>Message search index</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9881,7 +10378,17 @@ Tamaño: %3</translation>
         </translation>
     </message>
     <message>
-        <location line="+884"/>
+        <location line="+426"/>
+        <source>In encrypted rooms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Same as other rooms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+474"/>
         <source>Name colour</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9921,7 +10428,7 @@ Tamaño: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5490"/>
+        <location line="-5601"/>
         <source>Moss Light</source>
         <translation>Moss Light</translation>
     </message>
@@ -10261,12 +10768,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+2171"/>
+        <location line="+2282"/>
         <source>Choose image…</source>
         <translation>Elegir imagen…</translation>
     </message>
     <message>
-        <location line="-2164"/>
+        <location line="-2275"/>
         <source>Reset to Lightning default</source>
         <translation>Restablecer al icono predeterminado de Lightning</translation>
     </message>
@@ -10469,7 +10976,7 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
         <translation>Privacidad de red, estado del cifrado y recuperación.</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+98"/>
         <source>Presence</source>
         <translation>Presencia</translation>
     </message>
@@ -10632,26 +11139,29 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
     </message>
     <message>
         <location line="+43"/>
+        <location line="+46"/>
         <source>Sender and message</source>
         <translation>Remitente y mensaje</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-45"/>
+        <location line="+46"/>
         <source>Sender only</source>
         <translation>Solo el remitente</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-45"/>
+        <location line="+46"/>
         <source>Private</source>
         <translation>Privado</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="-33"/>
         <source>Sender only (the default) never shows message text in notifications. Encrypted messages that cannot be decrypted always show a generic notification. Notifications are suppressed while the room is open, focused, and at the latest message.</source>
         <translation>«Solo el remitente» (la opción predeterminada) nunca muestra el texto del mensaje en las notificaciones. Los mensajes cifrados que no se pueden descifrar muestran siempre una notificación genérica. Las notificaciones se suprimen mientras la sala está abierta, enfocada y situada en el mensaje más reciente.</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+54"/>
         <source>Off</source>
         <translation>Desactivado</translation>
     </message>
@@ -10733,13 +11243,13 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
         <translation>Sin definir</translation>
     </message>
     <message>
-        <location line="-2648"/>
-        <location line="+2657"/>
+        <location line="-2759"/>
+        <location line="+2768"/>
         <source>Edit</source>
         <translation>Editar</translation>
     </message>
     <message>
-        <location line="-2503"/>
+        <location line="-2614"/>
         <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
         <translation>Cuando está encendido, Lightning sigue el esquema del sistema: Moss Light en modo claro, Indigo Night en modo oscuro.</translation>
     </message>
@@ -10774,12 +11284,12 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
         <translation>Canales enumera cada espacio en el que te encuentras como una carpeta, con las salas que contiene debajo. Rooms sin espacio y tus mensajes directos permanecen juntos en Rooms.</translation>
     </message>
     <message>
-        <location line="+1776"/>
+        <location line="+1854"/>
         <source>Your homeserver loads the preview, so the linked site sees your server rather than you. If your server cannot — many have previews turned off — Lightning loads it directly instead, which may reveal your IP address and request timing to a site the sender chose. Asking your homeserver also tells it which link was previewed, which in an encrypted room it would not otherwise know. No JavaScript is executed. Both switches are off by default; leave them off and use the “Show” button on each message&apos;s link card to decide one at a time.</source>
         <translation>Su servidor doméstico carga la vista previa, por lo que el sitio vinculado ve su servidor en lugar de usted. Si su servidor no puede (muchos tienen las vistas previas desactivadas), Lightning lo carga directamente, lo que puede revelar su dirección IP y solicitar tiempo para un sitio que el remitente eligió. Preguntarle a su servidor doméstico también le indica qué enlace se obtuvo una vista previa, algo que de otro modo no sabría en una sala cifrada. No se ejecuta ningún JavaScript. Ambos interruptores están apagados de forma predeterminada; déjelos fuera y use el botón “Mostrar” en la tarjeta de enlace de cada mensaje para decidir uno a la vez.</translation>
     </message>
     <message>
-        <location line="+684"/>
+        <location line="+717"/>
         <source>Edit display name</source>
         <translation>Editar el nombre visible</translation>
     </message>
@@ -10882,8 +11392,8 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
         <translation>Sin banner</translation>
     </message>
     <message>
-        <location line="-2491"/>
-        <location line="+2206"/>
+        <location line="-2602"/>
+        <location line="+2317"/>
         <location line="+304"/>
         <source>Remove</source>
         <translation>Eliminar</translation>
@@ -11797,6 +12307,11 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Formato de mensaje</translation>
     </message>
     <message>
+        <location line="+1"/>
+        <source>Calls</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+10"/>
         <source>Quit Lightning</source>
         <translation>Salir de Lightning</translation>
@@ -11860,6 +12375,16 @@ Nota: importar claves no verifica esta sesión.</translation>
         <location line="+3"/>
         <source>Mark the open conversation as read</source>
         <translation>Marcar la conversación abierta como leída</translation>
+    </message>
+    <message>
+        <location line="+25"/>
+        <source>Mute or unmute the microphone</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Deafen or undeafen</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+14"/>
@@ -14005,7 +14530,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>%1 inició una llamada.</translation>
     </message>
     <message>
-        <location line="+1128"/>
+        <location line="+1136"/>
         <source>%1 is typing…</source>
         <translation>%1 está escribiendo…</translation>
     </message>
@@ -14047,12 +14572,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5832"/>
+        <location line="+5889"/>
         <source>Space</source>
         <translation>Espacio</translation>
     </message>
     <message>
-        <location line="-5831"/>
+        <location line="-5888"/>
         <source>Home</source>
         <translation>Inicio</translation>
     </message>
@@ -14361,8 +14886,26 @@ Nota: importar claves no verifica esta sesión.</translation>
         <source>Return to the newest message</source>
         <translation>Volver al mensaje más reciente</translation>
     </message>
+    <message numerus="yes">
+        <location line="+184"/>
+        <source>%n message(s) selected</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+625"/>
+        <location line="+2"/>
+        <source>Tap messages to select them</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Forward…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+477"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>Sala añadida: esperando la confirmación del servidor.</translation>
     </message>
@@ -14704,7 +15247,8 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Las salas siguen existiendo y tú sigues en ellas: solo salen de la lista de este espacio.</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="-1812"/>
+        <location line="+1826"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>

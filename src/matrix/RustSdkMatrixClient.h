@@ -302,6 +302,7 @@ public:
 
     void sendTyping(const QString &roomId, bool isTyping, int timeoutMs = 20000) override;
     void sendReadReceipt(const QString &roomId, const QString &eventId) override;
+    void setReadReceiptPrivacy(int mode) override;
     void setRoomMarkedUnread(const QString &roomId, bool unread) override;
     bool supportsRoomFavourites() const override { return true; }
     void setRoomFavourite(const QString &roomId, bool favourite) override;
@@ -999,6 +1000,9 @@ private:
     QString m_syncMode = QStringLiteral("stopped");
     QString m_lastSyncState;
     QHash<QString, QString> m_lastReceiptSent;
+    // Held here as well as on the bridge so it survives a login: the setting
+    // is read at startup, before any bridge exists to hold it.
+    int m_readReceiptPrivacy = 0;
     QString m_typingRoom;
     QHash<QString, QList<TimelineEvent>> m_timelines;
     // One Rust poll normally contains a whole backward-pagination page, but

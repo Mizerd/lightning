@@ -410,6 +410,11 @@ public:
                             int timeoutMs = 20000) = 0;
     virtual void sendReadReceipt(const QString &roomId,
                                  const QString &eventId) = 0;
+    /// Who is told that this account has read a message: 0 public, 1 private
+    /// (`m.read.private`), 2 nobody. Applies to every receipt sent after it,
+    /// and never retracts one already sent — a receipt is published and the
+    /// protocol has no un-send. Backends without receipt privacy ignore it.
+    virtual void setReadReceiptPrivacy(int mode) { Q_UNUSED(mode); }
     virtual void setRoomMarkedUnread(const QString &roomId, bool unread)
     {
         Q_UNUSED(roomId);

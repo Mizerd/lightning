@@ -47,6 +47,7 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
     const QString viewCat = tr("View");
     const QString roomCat = tr("Conversation");
     const QString composeCat = tr("Message formatting");
+    const QString callCat = tr("Calls");
 
     // THE SEED LIST IS THE CONTRACT. Every row here must be WIRED to
     // something — a registry entry whose QML site was never migrated is a
@@ -98,6 +99,34 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
         { QStringLiteral("room.markRead"), roomCat,
           tr("Mark the open conversation as read"),
           QStringLiteral("Ctrl+Shift+M"), GlobalContext },
+
+        // ── Calls ───────────────────────────────────────────────────────
+        //
+        // GlobalContext, and deliberately so: the whole value of a mute key
+        // is that it works while you are doing something else — reading the
+        // room, typing a note in another conversation — which is exactly
+        // when you need to mute in a hurry. An EditorContext mute would be
+        // unreachable at the one moment it matters.
+        //
+        // Discord's own keys are Ctrl+Shift+M and Ctrl+Shift+D, and NEITHER
+        // was available: Ctrl+Shift+M is already room.markRead, and
+        // Ctrl+Shift+D is in the RESERVED table below (the screenshot-demo
+        // controls). Two actions cannot share a default — validationError()
+        // refuses the conflict, and the rebinding page would open on an
+        // unresolvable state the first time a user saw it — so both fall
+        // back to free keys that keep the mnemonic: U for unmute, H for
+        // hear. Anyone who wants Discord's keys can rebind, which is what
+        // the rebinding feature is for.
+        //
+        // They are inert when no call is running, rather than absent: a key
+        // that quietly does nothing outside a call is better than one that
+        // takes the sequence away from something else while a call is up.
+        { QStringLiteral("call.toggleMute"), callCat,
+          tr("Mute or unmute the microphone"), QStringLiteral("Ctrl+Shift+U"),
+          GlobalContext },
+        { QStringLiteral("call.toggleDeafen"), callCat,
+          tr("Deafen or undeafen"), QStringLiteral("Ctrl+Shift+H"),
+          GlobalContext },
 
         // ── Message formatting (Editor context) ─────────────────────────
         // These call the composer's existing applyFormat(), which the

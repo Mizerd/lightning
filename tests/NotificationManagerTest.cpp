@@ -39,6 +39,10 @@ class NotificationManagerTest : public QObject
 
 private Q_SLOTS:
     void readingARoomWithdrawsItsGhostNotifications();
+    // 2026-09-05 notification actions.
+    void anActionCarriesTheAccountTheCardWasRaisedFor();
+    void anInlineReplyKeepsThePayloadUntilTheTextArrives();
+    void anEmptyInlineReplySendsNothing();
     void withdrawingSparesTheIncomingCallRing();
     void directMessageNotifiesWithSenderOnlyDefault()
     {
@@ -605,6 +609,104 @@ void NotificationManagerTest::withdrawingSparesTheIncomingCallRing()
 
     manager.closeRoomNotifications(QStringLiteral("!ringing:x"));
     QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+}
+
+
+// ── Notification actions ────────────────────────────────────────────────
+//
+// The whole hazard here is TIME. A card sits on the desktop for as long as
+// the user leaves it, and they can switch accounts or sign out while it is
+// there. So every action has to carry the account the card was raised FOR,
+// and the app layer compares that against the live one — a reply sent under
+// the wrong identity succeeds, which is exactly why nothing would report it.
+
+void NotificationManagerTest::anActionCarriesTheAccountTheCardWasRaisedFor()
+{
+    NotificationManager manager;
+    manager.setAccountUserId(QStringLiteral("@ann:example.org"));
+
+    TimelineEvent event;
+    event.roomId = QStringLiteral("!room:example.org");
+    event.eventId = QStringLiteral("$msg:example.org");
+    event.sender = QStringLiteral("@bob:example.org");
+    event.body = QStringLiteral("hello");
+    auto context = baseContext();
+    manager.processEvent(event, context);
+
+    // No DBus daemon under test, so the delivery records no id of its own —
+    // stand in for the Notify() reply exactly as the other action cases do.
+    QVariantMap p;
+    p.insert(QStringLiteral("roomId"), QStringLiteral("!room:example.org"));
+    p.insert(QStringLiteral("eventId"), QStringLiteral("$msg:example.org"));
+    p.insert(QStringLiteral("threadRootId"), QString());
+    p.insert(QStringLiteral("accountUserId"), QStringLiteral("@ann:example.org"));
+    manager.recordPayloadForTest(11, p);
+
+    // The account CHANGES while the card is still on screen. This is the
+    // case the guard exists for.
+    manager.setAccountUserId(QStringLiteral("@bea:example.org"));
+
+    QSignalSpy spy(&manager, &NotificationManager::markReadRequested);
+    QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                              Q_ARG(quint32, 11u),
+                              Q_ARG(QString, QStringLiteral("mark-read")));
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.first().at(0).toString(), QStringLiteral("@ann:example.org"));
+    QVERIFY2(spy.first().at(0).toString() != manager.accountUserId(),
+             "the action must report the account it was RAISED for, not the "
+             "one that happens to be live when it arrives");
+    QCOMPARE(spy.first().at(1).toString(), QStringLiteral("!room:example.org"));
+}
+
+// An inline reply arrives in TWO parts on some daemons: ActionInvoked with
+// the action id, then NotificationReplied with the text. Forgetting the
+// payload on the first would leave the second with no room to send to — and
+// it would only ever fail on the desktop nobody tested.
+void NotificationManagerTest::anInlineReplyKeepsThePayloadUntilTheTextArrives()
+{
+    NotificationManager manager;
+    manager.setAccountUserId(QStringLiteral("@ann:example.org"));
+    QVariantMap p;
+    p.insert(QStringLiteral("roomId"), QStringLiteral("!room:example.org"));
+    p.insert(QStringLiteral("eventId"), QStringLiteral("$msg:example.org"));
+    p.insert(QStringLiteral("threadRootId"), QStringLiteral("$root:example.org"));
+    p.insert(QStringLiteral("accountUserId"), QStringLiteral("@ann:example.org"));
+    manager.recordPayloadForTest(12, p);
+
+    QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                              Q_ARG(quint32, 12u),
+                              Q_ARG(QString, QStringLiteral("inline-reply")));
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+
+    QSignalSpy spy(&manager, &NotificationManager::replyRequested);
+    QMetaObject::invokeMethod(&manager, "onNotificationReplied",
+                              Q_ARG(quint32, 12u),
+                              Q_ARG(QString, QStringLiteral("  on my way  ")));
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.first().at(0).toString(), QStringLiteral("@ann:example.org"));
+    QCOMPARE(spy.first().at(1).toString(), QStringLiteral("!room:example.org"));
+    // A reply to a threaded message belongs in that thread (§8), and the
+    // root has been in the payload since the click routing landed.
+    QCOMPARE(spy.first().at(2).toString(), QStringLiteral("$root:example.org"));
+    QCOMPARE(spy.first().at(3).toString(), QStringLiteral("on my way"));
+    // Consumed: a second submission of the same card sends nothing.
+    QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+}
+
+void NotificationManagerTest::anEmptyInlineReplySendsNothing()
+{
+    NotificationManager manager;
+    QVariantMap p;
+    p.insert(QStringLiteral("roomId"), QStringLiteral("!room:example.org"));
+    p.insert(QStringLiteral("eventId"), QStringLiteral("$msg:example.org"));
+    p.insert(QStringLiteral("accountUserId"), QStringLiteral("@ann:example.org"));
+    manager.recordPayloadForTest(13, p);
+
+    QSignalSpy spy(&manager, &NotificationManager::replyRequested);
+    QMetaObject::invokeMethod(&manager, "onNotificationReplied",
+                              Q_ARG(quint32, 13u),
+                              Q_ARG(QString, QStringLiteral("   ")));
+    QCOMPARE(spy.count(), 0);
 }
 
 QTEST_MAIN(NotificationManagerTest)

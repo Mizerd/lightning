@@ -32,6 +32,45 @@ Item {
         onActivated:
             app.settings.spacesRailVisible = !app.settings.spacesRailVisible
     }
+    // ── Call audio, from anywhere in the window ─────────────────────────
+    //
+    // The point of a mute key is that it works while you are doing something
+    // ELSE — reading another room, typing a note — which is precisely when
+    // you need to mute in a hurry and cannot go hunting for the call bar. So
+    // these are window-global rather than scoped to the call surface, and
+    // they follow the same LANE SELECTION the bar's own buttons use: the SFU
+    // lane while a group call is live, the legacy 1:1 lane otherwise. Wiring
+    // them to one lane would leave the key dead in half of all calls.
+    //
+    // No call running: nothing happens, deliberately and silently. The
+    // alternative — not declaring the Shortcut at all until a call starts —
+    // would take the sequence away from whatever else wanted it, at the one
+    // moment the user is least able to notice.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.toggleMute")]
+        }
+        onActivated: {
+            if (app.groupCall.active)
+                app.groupCall.toggleMicrophoneMuted()
+            else if (app.calls.muteControlAvailable)
+                app.calls.toggleMicrophoneMuted()
+        }
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.toggleDeafen")]
+        }
+        onActivated: {
+            if (app.groupCall.active)
+                app.groupCall.toggleDeafened()
+            else if (app.calls.muteControlAvailable)
+                app.calls.toggleDeafened()
+        }
+    }
+
     // v0.6.1: Ctrl+K quick switcher over rooms / DMs / Spaces / invites.
     Shortcut {
         sequences: {

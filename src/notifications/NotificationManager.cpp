@@ -172,6 +172,11 @@ NotificationManager::NotificationManager(QObject *parent)
     QDBusConnection bus = QDBusConnection::sessionBus();
     bus.connect(kService, kPath, kInterface, QStringLiteral("ActionInvoked"),
                 this, SLOT(onActionInvoked(quint32,QString)));
+    // The inline-reply extension's completion signal. Connecting on a daemon
+    // that never emits it is harmless.
+    bus.connect(kService, kPath, kInterface,
+                QStringLiteral("NotificationReplied"),
+                this, SLOT(onNotificationReplied(quint32,QString)));
     bus.connect(kService, kPath, kInterface,
                 QStringLiteral("NotificationClosed"), this,
                 SLOT(onNotificationClosed(quint32,quint32)));
@@ -346,6 +351,11 @@ void NotificationManager::processEvent(const TimelineEvent &event,
     payload.insert(QStringLiteral("roomId"), event.roomId);
     payload.insert(QStringLiteral("eventId"), event.eventId);
     payload.insert(QStringLiteral("threadRootId"), event.threadRootId);
+    // WHICH ACCOUNT this notification belongs to. A card outlives the
+    // account that raised it — the user can switch or sign out while it is
+    // still on screen — so every action taken on it is checked against this
+    // rather than against whatever account is current when it arrives.
+    payload.insert(QStringLiteral("accountUserId"), m_accountUserId);
     // Carried so the delivery can raise the urgency: a message that names
     // the user is the one it is least acceptable to miss.
     payload.insert(QStringLiteral("mention"),
@@ -378,6 +388,7 @@ void NotificationManager::showGeneric(const QString &title,
     payload.insert(QStringLiteral("roomId"), roomId);
     payload.insert(QStringLiteral("eventId"), QString{});
     payload.insert(QStringLiteral("threadRootId"), QString{});
+    payload.insert(QStringLiteral("accountUserId"), m_accountUserId);
     deliver(title, safeBody, payload, false, avatarMxc);
 }
 
@@ -526,8 +537,15 @@ QString NotificationManager::bodyForServer(QDBusInterface &notifications,
             notifications.call(QStringLiteral("GetCapabilities"));
         m_bodyMarkup = caps.isValid()
             && caps.value().contains(QStringLiteral("body-markup"));
+        // Same round trip answers whether an inline reply box exists. The
+        // action is offered ONLY when the daemon says so: a daemon without
+        // it renders the action as a plain button that can never produce
+        // text, which is a reply affordance that silently does nothing.
+        m_inlineReply = caps.isValid()
+            && caps.value().contains(QStringLiteral("inline-reply"));
         m_bodyMarkupKnown = true;
-        qCInfo(lcNotify) << "notification server body-markup =" << m_bodyMarkup;
+        qCInfo(lcNotify) << "notification server body-markup =" << m_bodyMarkup
+                         << "inline-reply =" << m_inlineReply;
     }
     return m_bodyMarkup ? body.toHtmlEscaped() : body;
 }
@@ -544,7 +562,6 @@ void NotificationManager::deliverNow(const QString &title,
         qCInfo(lcNotify) << "notification service unavailable";
         return;
     }
-    const QStringList actions{ QStringLiteral("default"), tr("Open") };
     const NotificationIdentity identity = notificationIdentity();
     QVariantMap hints{
         { QStringLiteral("desktop-entry"), identity.desktopEntry },
@@ -599,6 +616,30 @@ void NotificationManager::deliverNow(const QString &title,
     // text on every server, so escaping it would show the entities.
     const QString safeBody = bodyForServer(notifications, body);
 
+    // Actions are assembled AFTER bodyForServer, because that is what
+    // performs (and caches) the GetCapabilities round trip that decides
+    // whether an inline reply box exists to offer.
+    //
+    // Gated on the payload carrying a real EVENT, not merely a room. The
+    // generic notices — an invite, a verification request — leave eventId
+    // empty and are exactly the cards where both actions are wrong: an
+    // invited room cannot be marked read and cannot be replied into, so
+    // offering the buttons would only produce two failures.
+    QStringList actions{ QStringLiteral("default"), tr("Open") };
+    const bool actionable =
+        !payload.value(QStringLiteral("roomId")).toString().isEmpty()
+        && !payload.value(QStringLiteral("eventId")).toString().isEmpty();
+    if (actionable) {
+        actions << QStringLiteral("mark-read") << tr("Mark as read");
+        if (m_inlineReply) {
+            // The freedesktop id for a reply action is fixed by the
+            // extension; the LABEL is ours.
+            actions << QStringLiteral("inline-reply") << tr("Reply");
+            hints.insert(QStringLiteral("x-kde-reply-placeholder-text"),
+                         tr("Reply…"));
+        }
+    }
+
     QDBusReply<quint32> reply = notifications.call(
         QStringLiteral("Notify"), QStringLiteral("Lightning"), quint32(0),
         identity.appIcon, title, safeBody, actions, hints, int(-1));
@@ -625,6 +666,24 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
         }
         return;
     }
+    if (action == QLatin1String("mark-read")) {
+        const QVariantMap payload = m_pendingPayloads.value(id);
+        forgetPayload(id);
+        if (payload.isEmpty())
+            return;
+        Q_EMIT markReadRequested(
+            payload.value(QStringLiteral("accountUserId")).toString(),
+            payload.value(QStringLiteral("roomId")).toString(),
+            payload.value(QStringLiteral("eventId")).toString());
+        return;
+    }
+    // `inline-reply` arrives as an ActionInvoked too on some daemons, with
+    // the text following in NotificationReplied. The payload must therefore
+    // SURVIVE this call — dropping it here would leave the reply with no
+    // room to go to, which is exactly the shape of bug that only appears on
+    // the one desktop nobody tested.
+    if (action == QLatin1String("inline-reply"))
+        return;
     if (action != QLatin1String("default"))
         return;
     const QVariantMap payload = m_pendingPayloads.value(id);
@@ -635,6 +694,23 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
                          payload.value(QStringLiteral("eventId")).toString(),
                          payload.value(QStringLiteral("threadRootId"))
                              .toString());
+}
+
+void NotificationManager::onNotificationReplied(quint32 id, const QString &text)
+{
+    const QVariantMap payload = m_pendingPayloads.value(id);
+    forgetPayload(id);
+    if (payload.isEmpty())
+        return;
+    // An empty submission is not a message. Daemons differ on whether they
+    // even deliver one, and sending it would post an empty event.
+    const QString body = text.trimmed();
+    if (body.isEmpty())
+        return;
+    Q_EMIT replyRequested(
+        payload.value(QStringLiteral("accountUserId")).toString(),
+        payload.value(QStringLiteral("roomId")).toString(),
+        payload.value(QStringLiteral("threadRootId")).toString(), body);
 }
 
 void NotificationManager::onNotificationClosed(quint32 id, quint32 reason)

@@ -379,6 +379,36 @@ Rectangle {
             }
         }
 
+        // ── Pop out (picture-in-picture) ──
+        //
+        // Manual entry to the same floating window Main.qml opens by itself
+        // when the window is minimised. Offered here because "I want the call
+        // floating while I use another application" is a wish the automatic
+        // rule cannot read: an unminimised window that is simply behind
+        // something else is indistinguishable, to Qt, from one in front.
+        Loader {
+            active: root.live && !root.compact
+            visible: active
+            sourceComponent: CallControlButton {
+                objectName: "callBarPipButton"
+                // close_fullscreen, not picture_in_picture_alt: THE ICON
+                // FONT IS A SUBSET (see qml/Icon.qml and
+                // scripts/generate-icon-font.sh), and a name that is not in
+                // the subset renders as TOFU in a packaged build while
+                // looking fine on a machine with the full font installed.
+                // "Make it small and detach it" is what this does anyway.
+                iconName: "close_fullscreen"
+                role: "neutral"
+                diameter: root.controlDiameter
+                glyphSize: root.controlGlyph
+                tooltip: qsTr("Pop the call out into a floating window")
+                onClicked: {
+                    if (app.groupCall && app.groupCall.stageState)
+                        app.groupCall.stageState.setPictureInPicture(true)
+                }
+            }
+        }
+
         // ── Microphone + device chooser ──
         RowLayout {
             spacing: 0

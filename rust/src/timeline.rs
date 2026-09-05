@@ -655,14 +655,26 @@ impl TimelineRegistry {
         runtime: &tokio::runtime::Runtime,
         room_id: String,
         root_event_id: String,
+        privacy: i32,
     ) -> Result<(), String> {
+        // 2 = tell nobody. A thread receipt has no fully-read marker to fall
+        // back to (m.fully_read is room-scoped), so "off" here is genuinely
+        // sending nothing, and the caller's unread state stays local.
+        if privacy == 2 {
+            return Ok(());
+        }
         let Some((timeline, _gen, _lifecycle)) =
             self.thread_timeline_for(&room_id, &root_event_id)
         else {
             return Err("No live thread timeline is open for that root.".to_owned());
         };
+        let receipt_type = if privacy == 1 {
+            ReceiptType::ReadPrivate
+        } else {
+            ReceiptType::Read
+        };
         runtime.spawn(async move {
-            let _ = timeline.mark_as_read(ReceiptType::Read).await;
+            let _ = timeline.mark_as_read(receipt_type).await;
         });
         Ok(())
     }

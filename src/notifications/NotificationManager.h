@@ -109,6 +109,15 @@ public:
         std::function<QImage(const QString &, bool request)> image,
         std::function<bool(const QString &)> failed);
     void avatarCacheChanged();
+    /// The account notifications are currently being raised FOR. Recorded in
+    /// every click payload so a reply or mark-as-read taken after an account
+    /// switch can be refused rather than sent from the wrong identity.
+    void setAccountUserId(const QString &userId) { m_accountUserId = userId; }
+    QString accountUserId() const { return m_accountUserId; }
+    /// Whether the notification daemon offers an inline reply box. False
+    /// until the first delivery has queried GetCapabilities, and false on a
+    /// build without DBus.
+    bool inlineReplySupported() const { return m_inlineReply; }
 
     // Pure policy — no I/O, no logging. Exposed for tests.
     static Decision decide(const TimelineEvent &event, const Context &context);
@@ -171,10 +180,27 @@ Q_SIGNALS:
                        const QString &threadRootId);
     // The user pressed Decline on the incoming-call notification.
     void callDeclineRequested(const QString &callId);
+    // v0.9.0 notification actions. Both carry the ACCOUNT the notification
+    // was raised for, because a desktop notification outlives the account
+    // that produced it: the user can switch accounts, or sign out entirely,
+    // while the card is still on screen. Acting on it under whichever
+    // account happens to be current would send a reply from the wrong
+    // identity into a room the new account may not even be in — a mistake
+    // that is invisible until someone else points it out. The app layer
+    // compares this against the live account and refuses a mismatch.
+    void markReadRequested(const QString &accountUserId, const QString &roomId,
+                           const QString &eventId);
+    void replyRequested(const QString &accountUserId, const QString &roomId,
+                        const QString &threadRootId, const QString &text);
 
 private Q_SLOTS:
     // DBus signal receivers (freedesktop Notifications).
     void onActionInvoked(quint32 id, const QString &action);
+    // The daemon's inline reply box was submitted. Not part of the
+    // freedesktop spec proper — it is the KDE/Plasma `inline-reply`
+    // extension, which GNOME's daemon also implements — so the action is
+    // only ever offered when GetCapabilities advertises it.
+    void onNotificationReplied(quint32 id, const QString &text);
     void onNotificationClosed(quint32 id, quint32 reason);
     void onCallRingTick();
 
@@ -236,6 +262,11 @@ private:
     // HTML-escaped before it is sent. See deliverNow().
     bool m_bodyMarkup = false;
     bool m_bodyMarkupKnown = false;
+    // Whether the daemon advertises `inline-reply`. Queried in the same
+    // GetCapabilities round trip as body-markup, because there is no reason
+    // to make two.
+    bool m_inlineReply = false;
+    QString m_accountUserId;
 
     // Incoming-call ring state: the active call, its notification id (for
     // replaces_id and CloseNotification), the repeat timer and deadline.

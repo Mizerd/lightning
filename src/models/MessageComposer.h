@@ -295,6 +295,17 @@ Q_SIGNALS:
                       int failed, bool truncated);
     void attachmentRejected(const QString &reason);
 
+public:
+    /// Whether "… is typing" leaves this device at all (Settings ->
+    /// Privacy). A seam rather than a SettingsManager dependency: this class
+    /// has none, and its test target does not link one.
+    ///
+    /// Turning it OFF while a notice is live sends the STOP immediately
+    /// rather than waiting for the server's timeout — the user asked to stop
+    /// disclosing it, and "in up to 30 seconds" is not that.
+    void setTypingNotificationsEnabled(bool enabled);
+    bool typingNotificationsEnabled() const { return m_typingEnabled; }
+
 private Q_SLOTS:
     void onAttachmentQueueFinished(quint64 opId, const QString &roomId,
                                    bool ok, const QString &category);
@@ -358,6 +369,7 @@ private:
     QHash<quint64, VoiceOp> m_voiceOps;
     bool    m_canSend = false;
     bool    m_typingActive = false;
+    bool    m_typingEnabled = true;
     QTimer  m_typingRefresh;
 
     // v0.7.x drafts. The debounce is stopped BEFORE every room change and

@@ -82,6 +82,41 @@ class SettingsManager : public QObject
     // 1 = sender only (default), 2 = private ("New Matrix notification").
     Q_PROPERTY(int notificationPreview READ notificationPreview
                    WRITE setNotificationPreview NOTIFY notificationPreviewChanged)
+    // v0.9.0: a SEPARATE preview level for ENCRYPTED rooms.
+    //
+    // One setting could not express the thing people actually want. A
+    // notification body is written to the desktop's notification daemon, its
+    // log, and on some setups a lock screen — plaintext, outside every
+    // guarantee the room was encrypted to make. Someone can reasonably want
+    // full previews from a public project room and nothing but "New message"
+    // from an encrypted one, and before this the only way to get the second
+    // was to lose the first.
+    //
+    // Values are PreviewMode (0 sender+message, 1 sender only, 2 private),
+    // plus 3 = FollowGeneral, which is the default so nobody's existing
+    // behaviour changes. Same idiom as RoomMode::FollowDefault.
+    Q_PROPERTY(int notificationPreviewEncrypted READ notificationPreviewEncrypted
+                   WRITE setNotificationPreviewEncrypted
+                   NOTIFY notificationPreviewEncryptedChanged)
+    // v0.9.0: who is told that this account has read a message.
+    //
+    // 0 public (default, unchanged), 1 private — MSC2285 `m.read.private`,
+    // stable since Matrix 1.4: the server records it so THIS account's other
+    // devices still clear their unread badge, and no other member ever sees
+    // it — and 2 off, which tells nobody at all including your own devices.
+    //
+    // The fully-read marker is sent in every mode. It is account data and
+    // only this user can read it; losing it would mean losing your own place
+    // in a conversation, which is not what a privacy setting should cost.
+    Q_PROPERTY(int readReceiptMode READ readReceiptMode
+                   WRITE setReadReceiptMode NOTIFY readReceiptModeChanged)
+    // v0.9.0: whether "… is typing" leaves this device. Typing notices are
+    // the highest-frequency thing a client discloses — one per few
+    // keystrokes, to every member of the room — and they say when you are at
+    // the keyboard, not just what you eventually send.
+    Q_PROPERTY(bool sendTypingNotifications READ sendTypingNotifications
+                   WRITE setSendTypingNotifications
+                   NOTIFY sendTypingNotificationsChanged)
     // v0.6.1: notification sound. 0 = off, 1 = mentions and direct messages
     // (default), 2 = all displayed notifications. Sound rides on the same
     // decision as the notification, so muted / active-room / mentions-only
@@ -464,6 +499,20 @@ public:
 
     bool notificationsEnabled() const;
     int notificationPreview() const;
+    int notificationPreviewEncrypted() const;
+    void setNotificationPreviewEncrypted(int v);
+    /// The preview level to APPLY, given what is known about the room. When
+    /// encryption is unknown the STRICTER of the two wins: guessing
+    /// "unencrypted" would put a body on screen the user asked to withhold,
+    /// and the reverse only withholds one they would have allowed.
+    Q_INVOKABLE int effectiveNotificationPreview(bool encrypted,
+                                                 bool encryptionKnown) const;
+    bool callPictureInPicture() const;
+    void setCallPictureInPicture(bool v);
+    int readReceiptMode() const;
+    void setReadReceiptMode(int v);
+    bool sendTypingNotifications() const;
+    void setSendTypingNotifications(bool v);
     int notificationSound() const;
     void setNotificationSound(int mode);
     bool ringForCalls() const;
@@ -688,6 +737,14 @@ public:
     /// scoped WITH the global fallback, because unlike a per-person volume
     /// this is a fact about your own hardware and is the same on every
     /// account you sign into on this machine.
+    // v0.9.0: pop the call out into a small always-on-top window when the
+    // main window is minimised or closed to the tray. Default ON — that is
+    // the behaviour every other call client has and the only situation the
+    // window is useful in — and it never appears while the main window is on
+    // screen, which is what keeps "default on" from being intrusive.
+    Q_PROPERTY(bool callPictureInPicture READ callPictureInPicture
+                   WRITE setCallPictureInPicture
+                   NOTIFY callPictureInPictureChanged)
     Q_PROPERTY(int microphoneGain READ microphoneGain WRITE setMicrophoneGain
                    NOTIFY microphoneGainChanged)
     int microphoneGain() const;
@@ -940,6 +997,10 @@ Q_SIGNALS:
     void customAppIconEnabledChanged();
     void notificationsEnabledChanged();
     void notificationPreviewChanged();
+    void notificationPreviewEncryptedChanged();
+    void callPictureInPictureChanged();
+    void readReceiptModeChanged();
+    void sendTypingNotificationsChanged();
     void notificationSoundChanged();
     void ringForCallsChanged();
     void callDevicePreferenceChanged();

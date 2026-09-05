@@ -655,6 +655,15 @@ public:
     void enableCallMediaEngine();
 
 private:
+
+    /// Push the two disclosure settings — read-receipt privacy and typing
+    /// notices — into the client and composer. Called on change and on every
+    /// client attachment, because a fresh bridge starts permissive.
+    void applyPrivacyPreferences();
+    /// Whether a notification action may act: the account it was raised for
+    /// is still the live one. Refuses and tells the user otherwise — a card
+    /// outlives its account, and acting under the wrong one is invisible.
+    bool notificationActionIsForCurrentAccount(const QString &accountUserId);
     void copyImageBytesToClipboard(const QString &mediaKey, bool ok,
                                    const QByteArray &bytes,
                                    const QString &category);

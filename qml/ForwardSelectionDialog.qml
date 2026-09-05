@@ -106,6 +106,11 @@ Dialog {
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
+                // Ours, not the server's — but the contract scan is
+                // deliberately conservative and does not try to tell the
+                // difference, because the day it guesses wrong is the day
+                // somebody's display name renders as markup.
+                textFormat: Text.PlainText
                 text: app.forward.forwardMode === "context"
                       ? qsTr("Each copy will name the original sender, this "
                              + "room and the time — visible to everyone in "

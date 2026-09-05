@@ -34,7 +34,8 @@ MessageComposer::MessageComposer(QObject *parent)
 {
     m_typingRefresh.setInterval(kTypingRefreshMs);
     connect(&m_typingRefresh, &QTimer::timeout, this, [this] {
-        if (m_client && !m_roomId.isEmpty() && m_typingActive)
+        if (m_client && !m_roomId.isEmpty() && m_typingActive
+            && m_typingEnabled)
             m_client->sendTyping(m_roomId, true, kTypingTimeoutMs);
     });
     connect(m_attachments, &AttachmentQueueModel::countChanged, this, [this] {
@@ -1132,7 +1133,7 @@ void MessageComposer::refreshTypingState()
 {
     if (!m_client || m_roomId.isEmpty())
         return;
-    const bool wantTyping = !m_text.trimmed().isEmpty();
+    const bool wantTyping = m_typingEnabled && !m_text.trimmed().isEmpty();
     if (wantTyping && !m_typingActive) {
         m_typingActive = true;
         m_client->sendTyping(m_roomId, true, kTypingTimeoutMs);
@@ -1140,6 +1141,17 @@ void MessageComposer::refreshTypingState()
     } else if (!wantTyping && m_typingActive) {
         stopTyping();
     }
+}
+
+void MessageComposer::setTypingNotificationsEnabled(bool enabled)
+{
+    if (m_typingEnabled == enabled)
+        return;
+    m_typingEnabled = enabled;
+    if (!enabled)
+        stopTyping();
+    else
+        refreshTypingState();
 }
 
 void MessageComposer::stopTyping()

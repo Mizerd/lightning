@@ -126,6 +126,34 @@ void CallStageState::toggleFullScreen()
     setFullScreen(!m_fullScreen);
 }
 
+void CallStageState::setPictureInPicture(bool pip)
+{
+    if (m_pictureInPicture == pip)
+        return;
+    m_pictureInPicture = pip;
+    // Exclusive with full screen, in one direction only that matters:
+    // entering PiP leaves full screen. Both render the focused surface, and
+    // the video router hands one sink to whoever attached LAST — so the two
+    // together would leave one of them showing a black rectangle, and which
+    // one would depend on event-loop ordering.
+    //
+    // Deliberately NOT symmetric: setFullScreen() does not clear PiP,
+    // because full screen already refuses to enter without a focused surface
+    // and the PiP window stands its own surface down when it is not visible.
+    // Adding the reverse clause would mean two flags each clearing the other
+    // and one call sequence that oscillates.
+    if (pip && m_fullScreen) {
+        m_fullScreen = false;
+        Q_EMIT fullScreenChanged();
+    }
+    Q_EMIT pictureInPictureChanged();
+}
+
+void CallStageState::togglePictureInPicture()
+{
+    setPictureInPicture(!m_pictureInPicture);
+}
+
 void CallStageState::onShareEnded(const QString &shareId)
 {
     m_dismissedShareIds.remove(shareId);
@@ -227,12 +255,18 @@ void CallStageState::clear()
     const bool hadPin = !m_pinnedIdentity.isEmpty();
     const bool hadMode = m_layoutPreference != QLatin1String("auto");
     const bool hadFullScreen = m_fullScreen;
+    const bool hadPip = m_pictureInPicture;
     m_pinnedIdentity.clear();
     m_layoutPreference = QStringLiteral("auto");
     m_dismissedShareIds.clear();
     // The call ended. A full-screen window outliving it would cover the
     // desktop with a call that is over.
     m_fullScreen = false;
+    // Same reasoning: a floating call window outliving the call is a window
+    // the user has to dismiss for a conversation that is already over.
+    m_pictureInPicture = false;
+    if (hadPip)
+        Q_EMIT pictureInPictureChanged();
     if (hadPin)
         Q_EMIT pinnedIdentityChanged();
     if (hadMode)

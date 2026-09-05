@@ -2443,6 +2443,88 @@ private Q_SLOTS:
         QCOMPARE(stage->fullScreen(), true);
     }
 
+    // ── Picture-in-picture ──────────────────────────────────────────────
+    //
+    // The flag lives in the state object rather than in QML for the reason
+    // full screen does: the CALL's lifecycle has to be able to drop it, and
+    // a QML-owned flag would outlive a call that ended.
+    void pictureInPictureAndFullScreenAreMutuallyExclusive()
+    {
+        // WHY THIS MATTERS AND IS NOT TIDINESS: SfuVideoRouter holds ONE
+        // sink per track and the LAST attach owns it. Two surfaces rendering
+        // the same participant means one of them shows a black rectangle,
+        // and which one depends on event-loop ordering — the 2026-08-27
+        // "when i full screen it it stop shwoing video" round is exactly
+        // this shape. Enforcing it here rather than hoping no QML site opens
+        // both is what makes it impossible instead of unlikely.
+        //
+        // UNFIXED TREE: does not compile; there was no picture-in-picture.
+        SfuCallController call;
+        CallStageState *stage = call.stageState();
+        QVERIFY(stage);
+        QCOMPARE(stage->pictureInPicture(), false);
+
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_a"), false) }),
+        });
+        stage->setFullScreen(true);
+        QCOMPARE(stage->fullScreen(), true);
+
+        QSignalSpy pipSpy(stage, &CallStageState::pictureInPictureChanged);
+        QSignalSpy fsSpy(stage, &CallStageState::fullScreenChanged);
+        stage->setPictureInPicture(true);
+        QCOMPARE(stage->pictureInPicture(), true);
+        QCOMPARE(pipSpy.count(), 1);
+        QVERIFY2(!stage->fullScreen(),
+                 "entering picture-in-picture must leave full screen: both "
+                 "render the focused surface and only one can hold its sink");
+        QCOMPARE(fsSpy.count(), 1);
+
+        // Idempotent, like every other flag here.
+        stage->setPictureInPicture(true);
+        QCOMPARE(pipSpy.count(), 1);
+    }
+
+    void aCallEndingTakesTheFloatingWindowWithIt()
+    {
+        // A floating always-on-top window for a call that is over is a
+        // window the user has to go and dismiss by hand — and it would be
+        // showing a frozen last frame while it waited. Same rule full screen
+        // already has, for the same reason.
+        SfuCallController call;
+        CallStageState *stage = call.stageState();
+        QVERIFY(stage);
+        stage->setPictureInPicture(true);
+        QCOMPARE(stage->pictureInPicture(), true);
+
+        QSignalSpy pipSpy(stage, &CallStageState::pictureInPictureChanged);
+        stage->clear();
+        QCOMPARE(stage->pictureInPicture(), false);
+        QCOMPARE(pipSpy.count(), 1);
+    }
+
+    // Unlike full screen, picture-in-picture is NOT refused without a focused
+    // surface: a voice-only call is exactly when a floating window is most
+    // useful, and it shows the participant count and the controls rather
+    // than a black rectangle. Pinned here so the two rules are not "fixed"
+    // into agreement later by someone who notices they differ.
+    void pictureInPictureIsOfferedOnAVoiceOnlyCall()
+    {
+        SfuCallController call;
+        CallStageState *stage = call.stageState();
+        QVERIFY(stage);
+        QCOMPARE(stage->spotlightShareId(), QString());
+        QCOMPARE(stage->pinnedIdentity(), QString());
+        // Full screen refuses this exact state...
+        stage->setFullScreen(true);
+        QCOMPARE(stage->fullScreen(), false);
+        // ...and picture-in-picture accepts it.
+        stage->setPictureInPicture(true);
+        QCOMPARE(stage->pictureInPicture(), true);
+    }
+
     void fullScreenDropsItselfWhenTheFocusedSurfaceGoesAway()
     {
         // The share ends, or the user unpins, while full screen is up. The

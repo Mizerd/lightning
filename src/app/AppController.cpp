@@ -232,6 +232,17 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_settings.get(), &SettingsManager::spellCheckLanguageChanged, this,
             [this] { m_spell.setPreferredLanguage(m_settings->spellCheckLanguage()); });
 
+    // Privacy: the two settings that decide what this device DISCLOSES while
+    // the user is simply reading and typing. Pushed in the same shape as the
+    // spell knobs — Settings writes, this applies — and applied once here so
+    // a stored choice is in force from the first receipt, not from the first
+    // time the user reopens the settings page.
+    applyPrivacyPreferences();
+    connect(m_settings.get(), &SettingsManager::readReceiptModeChanged, this,
+            [this] { applyPrivacyPreferences(); });
+    connect(m_settings.get(), &SettingsManager::sendTypingNotificationsChanged,
+            this, [this] { applyPrivacyPreferences(); });
+
     // System tray. Created only while the user has asked for it — an icon in
     // somebody's tray for a feature they never turned on is noise — and only
     // where the platform actually has one.
@@ -555,8 +566,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         context.themeId = int(m_settings->theme());
         context.roomMode = static_cast<NotificationManager::RoomMode>(
             m_settings->roomNotificationMode(roomId));
+        // An encrypted room may withhold more than the rest. The room row is
+        // the only place this layer knows the room's encryption from, and it
+        // carries `encryptionKnown` separately because "not known yet" is a
+        // real third state during hydration — see effectiveNotificationPreview.
         context.previewMode = static_cast<NotificationManager::PreviewMode>(
-            m_settings->notificationPreview());
+            m_settings->effectiveNotificationPreview(
+                notifyRoomRow.value(QStringLiteral("encrypted")).toBool(),
+                notifyRoomRow.value(QStringLiteral("encryptionKnown")).toBool()));
         context.notificationsEnabled = m_settings->notificationsEnabled();
         // "ON SCREEN" IS THREAD-AWARE. A reply in a thread whose panel is not
         // open is not visible just because the room behind it is: the room
@@ -597,6 +614,52 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this](const QString &roomId, const QString &eventId,
                    const QString &threadRootId) {
         Q_EMIT notificationOpenRequested(roomId, eventId, threadRootId);
+    });
+    // ── Notification actions, and the account check they both need ──────
+    //
+    // A notification card outlives the account that raised it. The user can
+    // switch accounts, or sign out, while it is still on screen — and the
+    // desktop will happily deliver the action minutes later. Acting on it
+    // under whichever account is current would mark ANOTHER account's room
+    // read, or worse, send a reply from the wrong identity into a room the
+    // current account may not even be in. Nothing would report it: the send
+    // would succeed.
+    //
+    // So both actions are refused on a mismatch and the user is told, rather
+    // than silently switching the account for them — a notification button
+    // is not an instruction to change who you are signed in as.
+    connect(m_notifications.get(), &NotificationManager::markReadRequested,
+            this, [this](const QString &accountUserId, const QString &roomId,
+                         const QString &eventId) {
+        Q_UNUSED(eventId);
+        if (!notificationActionIsForCurrentAccount(accountUserId))
+            return;
+        if (m_roomList)
+            m_roomList->markRoomRead(roomId);
+        m_notifications->closeRoomNotifications(roomId);
+    });
+    connect(m_notifications.get(), &NotificationManager::replyRequested, this,
+            [this](const QString &accountUserId, const QString &roomId,
+                   const QString &threadRootId, const QString &text) {
+        if (!notificationActionIsForCurrentAccount(accountUserId))
+            return;
+        if (!m_client || roomId.isEmpty() || text.isEmpty())
+            return;
+        // A reply to a THREADED message belongs in that thread. Sending it
+        // to the room instead would be a visible mistake — §8's first
+        // invariant — and the payload has carried the root all along.
+        if (!threadRootId.isEmpty())
+            m_client->sendThreadReply(roomId, threadRootId, text);
+        else
+            m_client->sendTextMessage(roomId, text);
+        // Replying IS reading. Leaving the room unread after the user has
+        // answered it is the kind of small wrongness that makes a feature
+        // feel broken.
+        if (m_roomList)
+            m_roomList->markRoomRead(roomId);
+        m_notifications->closeRoomNotifications(roomId);
+        qCInfo(lcApp) << "notification reply sent"
+                      << "thread=" << !threadRootId.isEmpty();
     });
     // Server-reported per-room notification mode. ONLY an explicit
     // user-defined room rule reconciles the device-local cache (server
@@ -764,6 +827,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this](const QString &) { m_trayUnreadCoalesce.start(); });
 
     m_mediaHistory->setClient(m_client.get());
+    // A fresh client starts with PUBLIC receipts, so the stored privacy
+    // choice has to be pushed at every attachment, not only when it changes.
+    applyPrivacyPreferences();
     m_spaces->setClient(m_client.get());
     m_threads->setClient(m_client.get());
     m_presence->setClient(m_client.get());
@@ -2020,6 +2086,46 @@ AppController::AppController(Backend backend, bool screenshotDemo,
 }
 
 AppController::~AppController() = default;
+
+bool AppController::notificationActionIsForCurrentAccount(
+    const QString &accountUserId)
+{
+    const QString current = m_client ? m_client->currentUserId() : QString();
+    if (!current.isEmpty() && accountUserId == current)
+        return true;
+    // Deliberately NOT silent. A button the user pressed that does nothing
+    // is worse than one that explains itself, and this is the one case where
+    // the explanation genuinely matters: they believe they have replied.
+    //
+    // The notice names no room and no message — it is raised through the
+    // generic path, whose body must already be safe — because the whole
+    // point is that we are no longer signed in as the account that could
+    // legitimately see either.
+    qCWarning(lcApp) << "notification action refused: account changed";
+    // Gated like every other generic notice: a user who has turned desktop
+    // notifications off in the meantime should not get one back, even to
+    // explain a refusal. The refusal still happens — this is only whether we
+    // say so on the desktop.
+    if (m_notifications && m_settings->notificationsEnabled()) {
+        m_notifications->showGeneric(
+            tr("Lightning"),
+            tr("That notification was for a different account, so nothing "
+               "was sent. Switch back to that account and try again."));
+    }
+    return false;
+}
+
+void AppController::applyPrivacyPreferences()
+{
+    // Two settings, one place. Both are about what leaves this device while
+    // the user is only reading and typing, and both have to be applied on
+    // change AND on client attachment — a fresh bridge starts permissive.
+    if (m_client)
+        m_client->setReadReceiptPrivacy(m_settings->readReceiptMode());
+    if (m_composer)
+        m_composer->setTypingNotificationsEnabled(
+            m_settings->sendTypingNotifications());
+}
 
 void AppController::prepareForShutdown()
 {
@@ -3942,6 +4048,12 @@ void AppController::onLoginSucceeded()
     m_lastSessionUserId = uid;
     if (accountChanged)
         clearCrossAccountCaches();
+    // Every notification raised from now on is stamped with THIS account, so
+    // a reply or mark-as-read taken after the next switch can be refused
+    // instead of acting under the wrong identity. Set after the cache clear,
+    // which drops the previous account's still-pending payloads.
+    if (m_notifications)
+        m_notifications->setAccountUserId(uid);
     // v0.6.6: the local-starred-GIF store is account-scoped storage (see
     // GifStarredStore's header) — point it at this account's own directory
     // on every login, including the first one and a same-account restore
@@ -4128,6 +4240,9 @@ void AppController::clearCrossAccountCaches()
     m_pendingStarKeys.clear();
     m_pendingCopyKeys.clear();
     m_notifications->clearPending();
+    // No account: anything still on screen belongs to nobody, and an action
+    // on it must not be attributed to whoever signs in next.
+    m_notifications->setAccountUserId(QString());
     m_knownInvites.clear();
     // Encrypted-room drafts are memory-only and account-scoped; the next
     // account must never see them. (Persisted drafts live under the
@@ -4533,8 +4648,10 @@ void AppController::removeAccount(const QString &userId)
         // one race that leaves key material on disk while reporting success —
         // exactly the data-at-rest defect §6 has a rule against. Wait for the
         // close first; removal is a deliberate, rare action and can afford it.
+#ifdef ENABLE_RUST_SDK_BACKEND
         RustSdkMatrixClient::waitForRustRetirement(
             RustSdkMatrixClient::kStoreCloseBudgetMs);
+#endif
         const auto removed = matrix::app_data::removeAccountRustState(identity);
 
         // v0.6.6: the local-starred-GIF store lives under the CANONICAL

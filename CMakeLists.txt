@@ -909,6 +909,7 @@ set(APP_QML_FILES
     qml/CallDeviceMenu.qml
     qml/CallShareOptionsMenu.qml
     qml/CallDeviceSettings.qml
+    qml/CallPipWindow.qml
     qml/CallHeaderBar.qml
     qml/CallTileBadge.qml
     qml/CallParticipantTile.qml

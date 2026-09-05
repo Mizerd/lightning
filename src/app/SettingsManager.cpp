@@ -1172,6 +1172,89 @@ void SettingsManager::setNotificationPreview(int mode)
     Q_EMIT notificationPreviewChanged();
 }
 
+int SettingsManager::notificationPreviewEncrypted() const
+{
+    // 3 = follow the general setting, so an upgrade changes nothing.
+    const int mode = m_store->value(
+        QStringLiteral("notifications/previewEncrypted"), 3).toInt();
+    return (mode < 0 || mode > 3) ? 3 : mode;
+}
+
+void SettingsManager::setNotificationPreviewEncrypted(int mode)
+{
+    if (mode < 0 || mode > 3)
+        mode = 3;
+    if (notificationPreviewEncrypted() == mode)
+        return;
+    m_store->setValue(QStringLiteral("notifications/previewEncrypted"), mode);
+    Q_EMIT notificationPreviewEncryptedChanged();
+}
+
+int SettingsManager::effectiveNotificationPreview(bool encrypted,
+                                                 bool encryptionKnown) const
+{
+    const int general = notificationPreview();
+    const int forEncrypted = notificationPreviewEncrypted();
+    if (forEncrypted == 3)
+        return general;
+    if (encrypted && encryptionKnown)
+        return forEncrypted;
+    if (!encryptionKnown) {
+        // Unknown. A higher PreviewMode discloses LESS, so the stricter of
+        // the two is the larger number. Erring the other way would put a
+        // message body on the desktop that the user asked an encrypted room
+        // to withhold, and we would only find out from the person reading it
+        // over their shoulder.
+        return std::max(general, forEncrypted);
+    }
+    return general;
+}
+
+bool SettingsManager::callPictureInPicture() const
+{
+    return m_store->value(QStringLiteral("calls/pictureInPicture"), true)
+        .toBool();
+}
+
+void SettingsManager::setCallPictureInPicture(bool v)
+{
+    if (callPictureInPicture() == v)
+        return;
+    m_store->setValue(QStringLiteral("calls/pictureInPicture"), v);
+    Q_EMIT callPictureInPictureChanged();
+}
+
+int SettingsManager::readReceiptMode() const
+{
+    // 0 = public, which is what every previous version sent.
+    const int mode =
+        m_store->value(QStringLiteral("privacy/readReceiptMode"), 0).toInt();
+    return (mode < 0 || mode > 2) ? 0 : mode;
+}
+
+void SettingsManager::setReadReceiptMode(int mode)
+{
+    if (mode < 0 || mode > 2)
+        mode = 0;
+    if (readReceiptMode() == mode)
+        return;
+    m_store->setValue(QStringLiteral("privacy/readReceiptMode"), mode);
+    Q_EMIT readReceiptModeChanged();
+}
+
+bool SettingsManager::sendTypingNotifications() const
+{
+    return m_store->value(QStringLiteral("privacy/sendTyping"), true).toBool();
+}
+
+void SettingsManager::setSendTypingNotifications(bool v)
+{
+    if (sendTypingNotifications() == v)
+        return;
+    m_store->setValue(QStringLiteral("privacy/sendTyping"), v);
+    Q_EMIT sendTypingNotificationsChanged();
+}
+
 int SettingsManager::notificationSound() const
 {
     // 1 = mentions and direct messages: the conservative default.
