@@ -57,6 +57,23 @@ export QML_SOURCES_PATHS="$ROOT/work/lightning/qml"
 # Offscreen is required so the validation job (and headless users) can run
 # the bundle; wayland keeps the primary platform native.
 export EXTRA_PLATFORM_PLUGINS="libqoffscreen.so;libqwayland-generic.so;libqwayland-egl.so"
+# Plugin DIRECTORIES linuxdeploy-plugin-qt does not deploy on its own, and
+# the 0.9.0 AppImage shipped without both:
+#   tls                        — Qt's OpenSSL backend. Without it every
+#                                QNetworkAccessManager https request fails
+#                                ("TLS initialization failed"): the update
+#                                manifest fetch, the update download, the GIF
+#                                self-test. usr/plugins/tls existed and was
+#                                EMPTY. Matrix traffic was unaffected (rustls).
+#   wayland-shell-integration  — xdg-shell. Without it Qt logs "No shell
+#                                integration named xdg-shell found", refuses
+#                                its own wayland platform plugin and falls back
+#                                to xcb, i.e. XWayland — where a screen share
+#                                captures a black root window.
+#   wayland-decoration-client / wayland-graphics-integration-client — the
+#                                client-side decorations a compositor without
+#                                server-side ones needs, and the EGL path.
+export EXTRA_QT_PLUGINS="tls;wayland-shell-integration;wayland-decoration-client;wayland-graphics-integration-client"
 export VERSION="$LOGICAL_VERSION"
 export LDAI_OUTPUT="$OUT"
 export APPIMAGE_EXTRACT_AND_RUN=1

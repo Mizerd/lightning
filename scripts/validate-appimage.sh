@@ -140,6 +140,16 @@ for img_plugin in libqwebp kimg_jxl; do
     test -f "$tree/usr/plugins/imageformats/$img_plugin.so" \
         || die "$img_plugin.so missing from the AppImage payload"
 done
+# Qt plugin directories linuxdeploy-plugin-qt only deploys when asked
+# (EXTRA_QT_PLUGINS in build-appimage.sh). The 0.9.0 AppImage shipped with an
+# EMPTY usr/plugins/tls (no https through Qt: updater, GIF self-test) and no
+# wayland-shell-integration (Qt refused its wayland plugin and ran under
+# XWayland). Graceful fallback and silent absence are the same observable
+# unless something asserts the payload — so this does.
+for qt_plugin in tls/libqopensslbackend.so wayland-shell-integration/libxdg-shell.so; do
+    test -f "$tree/usr/plugins/$qt_plugin" \
+        || die "Qt plugin missing from the AppImage payload: usr/plugins/$qt_plugin"
+done
 test -f "$tree/apprun-hooks/gstreamer.sh" \
     || die "the AppRun hook that points GStreamer at the bundled plugins is missing"
 
