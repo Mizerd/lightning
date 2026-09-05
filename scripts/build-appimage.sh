@@ -344,6 +344,46 @@ printf 'Qt image-format plugins staged: %d (%s)\n' \
     "${#QT_IMAGE_REQUIRED_PLUGINS[@]}" \
     "$(printf '%s ' "${QT_IMAGE_REQUIRED_PLUGINS[@]%%:*}")"
 
+# ── Qt Wayland integration plugins ───────────────────────────────────────
+# linuxdeploy-plugin-qt deploys the wayland PLATFORM plugin (libqwayland-
+# generic/-egl) and libQt6WaylandClient, but NOT the shell-integration,
+# decoration-client or graphics-integration-client plugins: naming them in
+# EXTRA_QT_PLUGINS is silently ignored by the pinned alpha build (0.9.1
+# pipeline 174 -- tls deployed from that same list, wayland-shell-integration
+# did not, and validate-appimage caught the empty payload). Without
+# libxdg-shell.so Qt logs "No shell integration named xdg-shell found",
+# refuses its own wayland platform plugin and falls back to XWayland, where a
+# screen share captures a black root window -- the exact regression 1b773c2
+# set out to fix. Hand-staged here like the GStreamer and image-format
+# plugins so it does not depend on the plugin's EXTRA_QT_PLUGINS handling;
+# their NEEDED libraries (Qt6WaylandClient, wayland-client) are bundled by
+# linuxdeploy either way, and --library points at the SOURCE so its walk runs.
+QT_PLUGIN_SRC_BASE="/usr/lib/x86_64-linux-gnu/qt6/plugins"
+QT_WAYLAND_REQUIRED_PLUGINS=(
+    "wayland-shell-integration/libxdg-shell.so"
+)
+QT_WAYLAND_OPTIONAL_DIRS=(
+    "wayland-decoration-client"
+    "wayland-graphics-integration-client"
+)
+for wl_rel in "${QT_WAYLAND_REQUIRED_PLUGINS[@]}"; do
+    wl_src="$QT_PLUGIN_SRC_BASE/$wl_rel"
+    [[ -f "$wl_src" ]] || die "Qt Wayland plugin $wl_rel not found at $wl_src: the build job did not install qt6-wayland, so the AppImage would fall back to XWayland (black screen share)"
+    mkdir -p "$APPDIR/usr/plugins/$(dirname "$wl_rel")"
+    cp "$wl_src" "$APPDIR/usr/plugins/$wl_rel"
+    LINUXDEPLOY_PLUGIN_ARGS+=(--library "$wl_src")
+done
+wl_optional=0
+for wl_dir in "${QT_WAYLAND_OPTIONAL_DIRS[@]}"; do
+    if [[ -d "$QT_PLUGIN_SRC_BASE/$wl_dir" ]] && compgen -G "$QT_PLUGIN_SRC_BASE/$wl_dir/*.so" >/dev/null; then
+        mkdir -p "$APPDIR/usr/plugins/$wl_dir"
+        cp "$QT_PLUGIN_SRC_BASE/$wl_dir"/*.so "$APPDIR/usr/plugins/$wl_dir/"
+        wl_optional=$((wl_optional+1))
+    fi
+done
+printf 'Qt Wayland integration plugins staged: %d required + %d optional dir(s)\n' \
+    "${#QT_WAYLAND_REQUIRED_PLUGINS[@]}" "$wl_optional"
+
 # Declared to linuxdeploy so their own NEEDED libraries are bundled into
 # usr/lib, where the AppRun's LD_LIBRARY_PATH will find them.
 #
