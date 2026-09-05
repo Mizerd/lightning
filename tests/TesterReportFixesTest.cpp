@@ -328,6 +328,31 @@ private Q_SLOTS:
         QCOMPARE(cards, 2);
     }
 
+    // "when the window is fully narrowed add … that would show voice
+    // messages, emojis, gifs and all the rest": a compact row hides the
+    // emoji and GIF buttons, and it used to leave only the microphone. Now
+    // the microphone hides too and one "…" button carries all four actions.
+    void aCompactComposerRowOffersAnOverflowMenu()
+    {
+        const QString bar = read(QStringLiteral("MessageComposerBar.qml"));
+        const int mic = bar.indexOf(QStringLiteral("objectName: \"composerMicButton\""));
+        QVERIFY(mic > 0);
+        QVERIFY2(bar.mid(mic, 1600).contains(QStringLiteral("&& !root.compactInputRow")),
+                 "the microphone must yield to the overflow in a compact row");
+        const int more = bar.indexOf(QStringLiteral("objectName: \"composerOverflowButton\""));
+        QVERIFY(more > 0);
+        QVERIFY2(bar.mid(more, 900).contains(QStringLiteral("visible: root.compactInputRow")),
+                 "the overflow button exists only in a compact row");
+        const int menu = bar.indexOf(QStringLiteral("id: composerOverflowMenu"));
+        QVERIFY(menu > 0);
+        const QString decl = bar.mid(menu, 2200);
+        for (const char *item : { "composerOverflowEmojiItem", "composerOverflowMediaItem",
+                                  "composerOverflowVoiceItem", "composerOverflowSendLaterItem" }) {
+            QVERIFY2(decl.contains(QLatin1String(item)), item);
+        }
+        QVERIFY2(decl.contains(QStringLiteral("y: -height - 4")), "the menu opens above the composer");
+    }
+
     void theReactionRowFillsItsRowSoItCanWrap()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

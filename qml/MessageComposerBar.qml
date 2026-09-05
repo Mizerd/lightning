@@ -54,6 +54,29 @@ Item {
     // Active-state flags for the toolbar chips, recomputed from the live
     // selection (MarkdownFormat::state on the C++ side).
     property var formatFlags: ({})
+    // The voice button's action, shared with the compact-row "…" menu.
+    function startVoiceMessage() {
+            // Failure on this FIRST press is reported from
+            // the return value: the failure Connections
+            // only arms once this composer owns the
+            // recorder. A press while the thread composer
+            // is recording is REFUSED (never stolen), so
+            // that recording keeps its owner and its
+            // controls.
+            if (!app.startVoiceRecording("room")) {
+                // A refusal because something is already
+                // recording is NOT "unavailable" — saying
+                // so would send the user looking for a
+                // hardware fault that does not exist.
+                root.attachmentNotice =
+                    app.voiceRecordingBusy()
+                    ? qsTr("A recording is already in "
+                           + "progress.")
+                    : qsTr("Voice recording is unavailable.")
+                noticeTimer.restart()
+            }
+    }
+
     function focusStagedAttachmentSend() {
         // Focus the INPUT, not the composer surface.
         //
@@ -2808,35 +2831,40 @@ Item {
                         // whatever the setting says — the pill IS the way to
                         // stop it, and hiding it mid-record would strand a
                         // live capture.
+                        // In a compact row the "…" button below carries
+                        // this action (and the emoji and GIF ones the row
+                        // has no space for) in one menu — reported: "when
+                        // the window is fully narrowed add … or something
+                        // that would show voice messages, emojis, gifs and
+                        // all the rest instead of just voice messages".
                         visible: !root.voiceActive
                                  && root.composerButtonShown("voice")
+                                 && !root.compactInputRow
                         enabled: app.currentRoomId !== ""
                                  && app.composer.attachmentsSupported
                         Accessible.name: qsTr("Record a voice message")
                         ToolTip.text: qsTr("Record a voice message")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
-                        onClicked: {
-                            // Failure on this FIRST press is reported from
-                            // the return value: the failure Connections
-                            // only arms once this composer owns the
-                            // recorder. A press while the thread composer
-                            // is recording is REFUSED (never stolen), so
-                            // that recording keeps its owner and its
-                            // controls.
-                            if (!app.startVoiceRecording("room")) {
-                                // A refusal because something is already
-                                // recording is NOT "unavailable" — saying
-                                // so would send the user looking for a
-                                // hardware fault that does not exist.
-                                root.attachmentNotice =
-                                    app.voiceRecordingBusy()
-                                    ? qsTr("A recording is already in "
-                                           + "progress.")
-                                    : qsTr("Voice recording is unavailable.")
-                                noticeTimer.restart()
-                            }
-                        }
+                        onClicked: root.startVoiceMessage()
+                    }
+                    IconButton {
+                        objectName: "composerOverflowButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: AppTheme.radiusControl
+                        iconName: "more_horiz"
+                        iconSize: 20
+                        // Compact rows only: everything the row had to hide
+                        // (emoji, GIFs and stickers, the voice message, send
+                        // later) lives in one menu here.
+                        visible: root.compactInputRow && !root.voiceActive
+                        enabled: app.currentRoomId !== ""
+                        Accessible.name: qsTr("More")
+                        ToolTip.text: qsTr("More")
+                        ToolTip.visible: hovered && !composerOverflowMenu.visible
+                        ToolTip.delay: 500
+                        onClicked: composerOverflowMenu.open()
                     }
                     Rectangle {
                         id: voicePill
@@ -3063,6 +3091,48 @@ Item {
                 }
             }
             }
+        }
+    }
+
+    // The compact row's "…" menu (see composerOverflowButton). Anchored
+    // above the composer card exactly like the send-options menu.
+    AppMenu {
+        id: composerOverflowMenu
+        objectName: "composerOverflowMenu"
+        parent: composerCard
+        x: Math.max(0, composerCard.width - width)
+        y: -height - 4
+        AppMenuItem {
+            objectName: "composerOverflowEmojiItem"
+            iconName: "mood"
+            text: qsTr("Emoji")
+            enabled: app.currentRoomId !== ""
+            onTriggered: root.openEmojiPicker(true)
+        }
+        AppMenuItem {
+            objectName: "composerOverflowMediaItem"
+            iconName: "gif_box"
+            text: qsTr("GIFs and stickers")
+            visible: app.gif.available || app.stickers.available
+            height: visible ? implicitHeight : 0
+            enabled: app.currentRoomId !== ""
+            onTriggered: root.openMediaPicker(true)
+        }
+        AppMenuItem {
+            objectName: "composerOverflowVoiceItem"
+            iconName: "mic"
+            text: qsTr("Record a voice message")
+            visible: root.composerButtonShown("voice")
+            height: visible ? implicitHeight : 0
+            enabled: app.currentRoomId !== "" && app.composer.attachmentsSupported
+            onTriggered: root.startVoiceMessage()
+        }
+        AppMenuItem {
+            objectName: "composerOverflowSendLaterItem"
+            iconName: "schedule"
+            text: qsTr("Send later…")
+            enabled: app.composer.canSend
+            onTriggered: root.openSendLater()
         }
     }
 

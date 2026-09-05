@@ -1729,7 +1729,7 @@
         <translation>रंग चयनकर्ता बंद करें</translation>
     </message>
     <message>
-        <location line="+189"/>
+        <location line="+197"/>
         <source>Colour, as a hex value</source>
         <translation>रंग, हेक्स मान के रूप में</translation>
     </message>
@@ -5133,7 +5133,7 @@ Size: %3</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+572"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+595"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -5420,11 +5420,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+1"/>
+        <location line="+351"/>
         <source>Emoji</source>
         <translation>इमोजी</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="-303"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
@@ -5434,13 +5435,14 @@ Size: %3</source>
         <translation>स्टिकर</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+39"/>
         <location line="+1"/>
+        <location line="+278"/>
         <source>Record a voice message</source>
         <translation>वॉइस संदेश रिकॉर्ड करें</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="-3051"/>
         <source>A recording is already in progress.</source>
         <translation>एक रिकॉर्डिंग पहले से चल रही है।</translation>
     </message>
@@ -5448,6 +5450,12 @@ Size: %3</source>
         <location line="+2"/>
         <source>Voice recording is unavailable.</source>
         <translation>वॉइस रिकॉर्डिंग उपलब्ध नहीं है।</translation>
+    </message>
+    <message>
+        <location line="+2788"/>
+        <location line="+1"/>
+        <source>More</source>
+        <translation type="unfinished">और</translation>
     </message>
     <message>
         <location line="+75"/>
@@ -5491,17 +5499,17 @@ Size: %3</source>
         <translation>भेजें</translation>
     </message>
     <message>
-        <location line="+95"/>
+        <location line="+137"/>
         <source>Scheduled messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-96"/>
+        <location line="-138"/>
         <source>Save edit</source>
         <translation>संपादन सहेजें</translation>
     </message>
     <message>
-        <location line="-224"/>
+        <location line="-229"/>
         <source>Insert a GIF or sticker</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5512,11 +5520,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+3"/>
+        <location line="+311"/>
         <source>GIFs and stickers</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+219"/>
+        <location line="-87"/>
         <source>Send message</source>
         <translation>संदेश भेजें</translation>
     </message>
@@ -5537,7 +5546,8 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+62"/>
+        <location line="+21"/>
         <source>Send later…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5703,12 +5713,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+2187"/>
+        <location line="+2215"/>
         <source>Retry</source>
         <translation>फिर कोशिश करें</translation>
     </message>
     <message>
-        <location line="-2150"/>
+        <location line="-2178"/>
         <source>Cancel</source>
         <translation>रद्द करें</translation>
     </message>
@@ -5876,23 +5886,23 @@ Size: %3</source>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2123"/>
+        <location line="+2151"/>
         <source>Save as…</source>
         <translation>इस रूप में सहेजें…</translation>
     </message>
     <message>
-        <location line="-2093"/>
+        <location line="-2121"/>
         <source>Show image</source>
         <translation>छवि दिखाएँ</translation>
     </message>
     <message>
         <location line="+20"/>
-        <location line="+644"/>
+        <location line="+672"/>
         <source>Show link preview</source>
         <translation>लिंक पूर्वावलोकन दिखाएँ</translation>
     </message>
     <message>
-        <location line="-635"/>
+        <location line="-663"/>
         <source>Copy image</source>
         <translation>इमेज कॉपी करें</translation>
     </message>
@@ -6034,14 +6044,14 @@ Size: %3</source>
         <translation>प्रीव्यू दिखाएँ</translation>
     </message>
     <message>
-        <location line="+2009"/>
-        <location line="+107"/>
+        <location line="+2026"/>
+        <location line="+118"/>
         <source>Dismiss link preview</source>
         <translation>लिंक पूर्वावलोकन ख़ारिज करें</translation>
     </message>
     <message>
-        <location line="-106"/>
-        <location line="+107"/>
+        <location line="-117"/>
+        <location line="+118"/>
         <source>Dismiss preview</source>
         <translation>पूर्वावलोकन ख़ारिज करें</translation>
     </message>
@@ -8084,12 +8094,12 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2107"/>
+        <location line="+2125"/>
         <source>Open</source>
         <translation type="unfinished">खोलें</translation>
     </message>
     <message>
-        <location line="-1511"/>
+        <location line="-1529"/>
         <source>Export room…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8139,20 +8149,20 @@ Size: %3</source>
         <translation>रूम का नाम</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <location line="+20"/>
-        <location line="+110"/>
+        <location line="+11"/>
+        <location line="+26"/>
+        <location line="+116"/>
         <location line="+448"/>
         <source>Save</source>
         <translation>सहेजें</translation>
     </message>
     <message>
-        <location line="-563"/>
+        <location line="-575"/>
         <source>Topic</source>
         <translation>विषय</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+91"/>
         <source>Your profile in this room</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8167,7 +8177,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+23"/>
         <source>Change picture…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15233,7 +15243,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+534"/>
+        <location filename="../qml/TimelinePane.qml" line="+549"/>
         <source>Seen by 1 person</source>
         <translation>1 व्यक्ति ने देखा</translation>
     </message>
@@ -15257,17 +15267,17 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5893"/>
+        <location line="+5900"/>
         <source>Space</source>
         <translation>स्पेस</translation>
     </message>
     <message>
-        <location line="-5892"/>
+        <location line="-5899"/>
         <source>Home</source>
         <translation>होम</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+34"/>
         <location line="+2"/>
         <source>Room encrypted</source>
         <translation>कक्ष एन्क्रिप्टेड है</translation>

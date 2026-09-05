@@ -1741,7 +1741,7 @@
         <translation>إغلاق منتقي الألوان</translation>
     </message>
     <message>
-        <location line="+189"/>
+        <location line="+197"/>
         <source>Colour, as a hex value</source>
         <translation>اللون بصيغة ست عشرية</translation>
     </message>
@@ -5189,7 +5189,7 @@ Size: %3</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+572"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+595"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -5476,11 +5476,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+1"/>
+        <location line="+351"/>
         <source>Emoji</source>
         <translation>رمز تعبيري</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="-303"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
@@ -5490,13 +5491,14 @@ Size: %3</source>
         <translation>ملصق</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+39"/>
         <location line="+1"/>
+        <location line="+278"/>
         <source>Record a voice message</source>
         <translation>تسجيل رسالة صوتية</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="-3051"/>
         <source>A recording is already in progress.</source>
         <translation>هناك تسجيل قيد التنفيذ بالفعل.</translation>
     </message>
@@ -5504,6 +5506,12 @@ Size: %3</source>
         <location line="+2"/>
         <source>Voice recording is unavailable.</source>
         <translation>التسجيل الصوتي غير متاح.</translation>
+    </message>
+    <message>
+        <location line="+2788"/>
+        <location line="+1"/>
+        <source>More</source>
+        <translation type="unfinished">المزيد</translation>
     </message>
     <message>
         <location line="+75"/>
@@ -5547,17 +5555,17 @@ Size: %3</source>
         <translation>إرسال</translation>
     </message>
     <message>
-        <location line="+95"/>
+        <location line="+137"/>
         <source>Scheduled messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-96"/>
+        <location line="-138"/>
         <source>Save edit</source>
         <translation>حفظ التعديل</translation>
     </message>
     <message>
-        <location line="-224"/>
+        <location line="-229"/>
         <source>Insert a GIF or sticker</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5568,11 +5576,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+3"/>
+        <location line="+311"/>
         <source>GIFs and stickers</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+219"/>
+        <location line="-87"/>
         <source>Send message</source>
         <translation>إرسال الرسالة</translation>
     </message>
@@ -5593,7 +5602,8 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+62"/>
+        <location line="+21"/>
         <source>Send later…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5763,12 +5773,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+2187"/>
+        <location line="+2215"/>
         <source>Retry</source>
         <translation>إعادة المحاولة</translation>
     </message>
     <message>
-        <location line="-2150"/>
+        <location line="-2178"/>
         <source>Cancel</source>
         <translation>إلغاء</translation>
     </message>
@@ -5936,23 +5946,23 @@ Size: %3</source>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2123"/>
+        <location line="+2151"/>
         <source>Save as…</source>
         <translation>حفظ باسم…</translation>
     </message>
     <message>
-        <location line="-2093"/>
+        <location line="-2121"/>
         <source>Show image</source>
         <translation>إظهار الصورة</translation>
     </message>
     <message>
         <location line="+20"/>
-        <location line="+644"/>
+        <location line="+672"/>
         <source>Show link preview</source>
         <translation>إظهار معاينة الرابط</translation>
     </message>
     <message>
-        <location line="-635"/>
+        <location line="-663"/>
         <source>Copy image</source>
         <translation>نسخ الصورة</translation>
     </message>
@@ -6094,14 +6104,14 @@ Size: %3</source>
         <translation>إظهار المعاينة</translation>
     </message>
     <message>
-        <location line="+2009"/>
-        <location line="+107"/>
+        <location line="+2026"/>
+        <location line="+118"/>
         <source>Dismiss link preview</source>
         <translation>رفض معاينة الرابط</translation>
     </message>
     <message>
-        <location line="-106"/>
-        <location line="+107"/>
+        <location line="-117"/>
+        <location line="+118"/>
         <source>Dismiss preview</source>
         <translation>رفض المعاينة</translation>
     </message>
@@ -8164,12 +8174,12 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2107"/>
+        <location line="+2125"/>
         <source>Open</source>
         <translation type="unfinished">فتح</translation>
     </message>
     <message>
-        <location line="-1511"/>
+        <location line="-1529"/>
         <source>Export room…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8219,20 +8229,20 @@ Size: %3</source>
         <translation>اسم الغرفة</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <location line="+20"/>
-        <location line="+110"/>
+        <location line="+11"/>
+        <location line="+26"/>
+        <location line="+116"/>
         <location line="+448"/>
         <source>Save</source>
         <translation>حفظ</translation>
     </message>
     <message>
-        <location line="-563"/>
+        <location line="-575"/>
         <source>Topic</source>
         <translation>الموضوع</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+91"/>
         <source>Your profile in this room</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8247,7 +8257,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+23"/>
         <source>Change picture…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15357,7 +15367,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+534"/>
+        <location filename="../qml/TimelinePane.qml" line="+549"/>
         <source>Seen by 1 person</source>
         <translation>قرأها شخص واحد</translation>
     </message>
@@ -15385,17 +15395,17 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5893"/>
+        <location line="+5900"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location line="-5892"/>
+        <location line="-5899"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+34"/>
         <location line="+2"/>
         <source>Room encrypted</source>
         <translation>الغرفة معمّاة</translation>

@@ -1732,7 +1732,7 @@
         <translation>Uždarykite spalvų parinkiklį</translation>
     </message>
     <message>
-        <location line="+189"/>
+        <location line="+197"/>
         <source>Colour, as a hex value</source>
         <translation>Spalva, kaip šešioliktainė vertė</translation>
     </message>
@@ -5147,7 +5147,7 @@ Dydis: %3</translation>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+572"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+595"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -5434,11 +5434,12 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+1"/>
+        <location line="+351"/>
         <source>Emoji</source>
         <translation>Jaustukai</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="-303"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
@@ -5448,13 +5449,14 @@ Dydis: %3</translation>
         <translation>Lipdukas</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+39"/>
         <location line="+1"/>
+        <location line="+278"/>
         <source>Record a voice message</source>
         <translation>Įrašykite balso pranešimą</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="-3051"/>
         <source>A recording is already in progress.</source>
         <translation>Jau vyksta įrašymas.</translation>
     </message>
@@ -5462,6 +5464,12 @@ Dydis: %3</translation>
         <location line="+2"/>
         <source>Voice recording is unavailable.</source>
         <translation>Balso įrašymas nepasiekiamas.</translation>
+    </message>
+    <message>
+        <location line="+2788"/>
+        <location line="+1"/>
+        <source>More</source>
+        <translation type="unfinished">Daugiau</translation>
     </message>
     <message>
         <location line="+75"/>
@@ -5505,17 +5513,17 @@ Dydis: %3</translation>
         <translation>Siųsti</translation>
     </message>
     <message>
-        <location line="+95"/>
+        <location line="+137"/>
         <source>Scheduled messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-96"/>
+        <location line="-138"/>
         <source>Save edit</source>
         <translation>Išsaugoti redagavimą</translation>
     </message>
     <message>
-        <location line="-224"/>
+        <location line="-229"/>
         <source>Insert a GIF or sticker</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5526,11 +5534,12 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+3"/>
+        <location line="+311"/>
         <source>GIFs and stickers</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+219"/>
+        <location line="-87"/>
         <source>Send message</source>
         <translation>Siųsti žinutę</translation>
     </message>
@@ -5551,7 +5560,8 @@ Dydis: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+62"/>
+        <location line="+21"/>
         <source>Send later…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5723,12 +5733,12 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+2187"/>
+        <location line="+2215"/>
         <source>Retry</source>
         <translation>Bandykite dar kartą</translation>
     </message>
     <message>
-        <location line="-2150"/>
+        <location line="-2178"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
@@ -5896,23 +5906,23 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2123"/>
+        <location line="+2151"/>
         <source>Save as…</source>
         <translation>Išsaugoti kaip…</translation>
     </message>
     <message>
-        <location line="-2093"/>
+        <location line="-2121"/>
         <source>Show image</source>
         <translation>Rodyti vaizdą</translation>
     </message>
     <message>
         <location line="+20"/>
-        <location line="+644"/>
+        <location line="+672"/>
         <source>Show link preview</source>
         <translation>Rodyti nuorodos peržiūrą</translation>
     </message>
     <message>
-        <location line="-635"/>
+        <location line="-663"/>
         <source>Copy image</source>
         <translation>Kopijuoti vaizdą</translation>
     </message>
@@ -6049,14 +6059,14 @@ Dydis: %3</translation>
         <translation>Atsakymo tikslas</translation>
     </message>
     <message>
-        <location line="+137"/>
-        <location line="+107"/>
+        <location line="+154"/>
+        <location line="+118"/>
         <source>Dismiss link preview</source>
         <translation>Atsisakyti nuorodos peržiūros</translation>
     </message>
     <message>
-        <location line="-106"/>
-        <location line="+107"/>
+        <location line="-117"/>
+        <location line="+118"/>
         <source>Dismiss preview</source>
         <translation>Atsisakyti peržiūros</translation>
     </message>
@@ -8104,12 +8114,12 @@ Dydis: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2107"/>
+        <location line="+2125"/>
         <source>Open</source>
         <translation type="unfinished">Atidaryti</translation>
     </message>
     <message>
-        <location line="-1511"/>
+        <location line="-1529"/>
         <source>Export room…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8159,20 +8169,20 @@ Dydis: %3</translation>
         <translation>Kambario pavadinimas</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <location line="+20"/>
-        <location line="+110"/>
+        <location line="+11"/>
+        <location line="+26"/>
+        <location line="+116"/>
         <location line="+448"/>
         <source>Save</source>
         <translation>Išsaugoti</translation>
     </message>
     <message>
-        <location line="-563"/>
+        <location line="-575"/>
         <source>Topic</source>
         <translation>Tema</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+91"/>
         <source>Your profile in this room</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8187,7 +8197,7 @@ Dydis: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+23"/>
         <source>Change picture…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15264,7 +15274,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+534"/>
+        <location filename="../qml/TimelinePane.qml" line="+549"/>
         <source>Seen by 1 person</source>
         <translation>Matė 1 žmogus</translation>
     </message>
@@ -15289,17 +15299,17 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5893"/>
+        <location line="+5900"/>
         <source>Space</source>
         <translation>Erdvė</translation>
     </message>
     <message>
-        <location line="-5892"/>
+        <location line="-5899"/>
         <source>Home</source>
         <translation>Pradžia</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+34"/>
         <location line="+2"/>
         <source>Room encrypted</source>
         <translation>Kambarys užšifruotas</translation>
