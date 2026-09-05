@@ -425,29 +425,29 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1744"/>
+        <location line="+1748"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning no pudo leer el archivo seleccionado.</translation>
     </message>
     <message>
-        <location line="-1750"/>
+        <location line="-1754"/>
         <source>A room-key import is already in progress.</source>
         <translation>Ya hay una importación de claves de sala en curso.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2303"/>
+        <location line="+2307"/>
         <source>Not signed in.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-2301"/>
+        <location line="-2305"/>
         <source>Room-key import failed.</source>
         <translation>Falló la importación de claves de sala.</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+89"/>
         <source>Lightning</source>
         <translation type="unfinished">Lightning</translation>
     </message>
@@ -8529,12 +8529,12 @@ Tamaño: %3</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+1941"/>
+        <location line="+1963"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning no pudo restablecer por completo la sesión local de esta cuenta. Revisa los registros de la aplicación y los permisos del sistema de archivos, y vuelve a intentarlo.</translation>
     </message>
     <message>
-        <location line="-1957"/>
+        <location line="-1979"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Se ha reconstruido la sesión local de Lightning. El almacén de cifrado anterior se ha apartado, no se ha eliminado, y sigue en la carpeta de datos de esta cuenta. Ya puedes iniciar sesión de nuevo.</translation>
     </message>
@@ -8547,7 +8547,7 @@ Tamaño: %3</translation>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3166"/>
+        <location line="+3188"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -8556,15 +8556,15 @@ Tamaño: %3</translation>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-3546"/>
+        <location line="-3568"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3348"/>
+        <location line="+3370"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconocida: %1</translation>
     </message>
     <message>
-        <location line="-3548"/>
+        <location line="-3570"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -8576,7 +8576,7 @@ Tamaño: %3</translation>
         <translation>No se pudo enviar la pegatina.</translation>
     </message>
     <message>
-        <location line="+798"/>
+        <location line="+820"/>
         <source>Rust SDK backend does not implement %1 yet.</source>
         <translation>El backend del SDK de Rust todavía no implementa %1.</translation>
     </message>
@@ -13605,6 +13605,100 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
 </context>
 <context>
+    <name>StickerPackEditor</name>
+    <message>
+        <location filename="../qml/StickerPackEditor.qml" line="+83"/>
+        <source>Saved.</source>
+        <translation type="unfinished">Guardado.</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>That name is already used in this pack.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>That name cannot be used.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>That is no longer in the pack.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>You do not have permission to change this room&apos;s pack.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>That change could not be saved.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Manage pack</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Pack name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <location line="+111"/>
+        <source>Rename</source>
+        <translation type="unfinished">Renombrar</translation>
+    </message>
+    <message>
+        <location line="-99"/>
+        <source>Leave the name empty to use the default — for a room&apos;s pack that is the room&apos;s own name.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>This pack belongs to a room, and you do not have permission to change it here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+87"/>
+        <source>Save</source>
+        <translation type="unfinished">Guardar</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Remove</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>This pack has no images.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Delete everything in this pack</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Delete pack</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Done</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>This removes every image and the pack&apos;s name. It cannot be undone, and for a room&apos;s pack everyone in the room loses it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>StickerPicker</name>
     <message>
         <location filename="../qml/StickerPicker.qml" line="+169"/>
@@ -13638,7 +13732,17 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Añadir una pegatina</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+22"/>
+        <source>Manage this pack</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Manage pack</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+21"/>
         <source>Reload sticker packs</source>
         <translation>Recargar paquetes de pegatinas</translation>
     </message>

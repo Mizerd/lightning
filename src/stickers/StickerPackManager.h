@@ -87,6 +87,10 @@ class StickerPackManager : public QObject
     Q_PROPERTY(int revision READ revision NOTIFY stateChanged)
     // A save ("add to my stickers") is in flight. One at a time.
     Q_PROPERTY(bool saving READ saving NOTIFY stateChanged)
+    // A pack edit is in flight. Separate from `saving` because the two are
+    // different actions on different surfaces, and one disabling the other
+    // would be a mystery rather than a safeguard.
+    Q_PROPERTY(bool editing READ editing NOTIFY stateChanged)
     // A room-pack enable/disable is in flight. One at a time: two concurrent
     // read-modify-writes of the same account-data event would race, and the
     // second would be built on a copy the first had already superseded.
@@ -105,6 +109,7 @@ public:
     bool loading() const { return m_fetchOp != 0; }
     bool loaded() const { return m_loaded; }
     bool saving() const { return m_saveOp != 0; }
+    bool editing() const { return m_editOp != 0; }
     StickerPackModel *packs() const { return m_packs; }
     StickerImageModel *images() const { return m_images; }
     QString selectedPackId() const { return m_selectedPackId; }
@@ -175,6 +180,31 @@ public:
     // enable. NOT applied optimistically: the write completes, the
     // authoritative snapshot is re-read, so a refusal cannot leave a switch
     // showing a state the account does not have.
+    // ── Pack management (MSC2545 CRUD, v0.9.0) ──────────────────────────
+    //
+    // `packId` is the same identifier the models expose. An account pack has
+    // no room; a room pack carries both a room id and a state key, and every
+    // one of these is refused unless `canManagePack(packId)` says this
+    // account may write it.
+    //
+    // All four go through ONE op slot (`m_editOp`), so the UI can disable
+    // itself on `editing` and a second click cannot race the first.
+    Q_INVOKABLE void removeImageFromPack(const QString &packId,
+                                         const QString &shortcode);
+    Q_INVOKABLE void renameImageInPack(const QString &packId,
+                                       const QString &from, const QString &to);
+    Q_INVOKABLE void renamePack(const QString &packId, const QString &name);
+    Q_INVOKABLE void deletePack(const QString &packId);
+    /// Whether this account may EDIT the named pack. An account pack is
+    /// always yes; a room pack asks the snapshot's own recorded permission,
+    /// and the ABSENCE of that claim is not permission. Mirrors canSaveToRoom.
+    Q_INVOKABLE bool canManagePack(const QString &packId) const;
+    /// Everything a management surface needs about one pack, in one call:
+    /// its id, its display name, and whether this account may write it.
+    /// Empty map when the id is unknown. One call rather than a row lookup
+    /// plus `get(row)` plus `canManagePack`, because that arrangement puts
+    /// the permission rule half in QML.
+    Q_INVOKABLE QVariantMap packInfo(const QString &packId) const;
     Q_INVOKABLE void setRoomPackEnabled(const QString &packId, bool enabled);
     // A room-pack enable/disable is in flight.
     bool togglingRoomPack() const { return m_roomsOp != 0; }
@@ -229,6 +259,12 @@ Q_SIGNALS:
     // tell the user their sticker went somewhere it did not.
     void saveFinished(bool ok, const QString &category,
                       const QString &shortcode, const QString &scope);
+    /// A pack edit finished. `category` is empty on success and carries the
+    /// bridge's own class otherwise ("not_found", "shortcode_taken",
+    /// "forbidden", ...). `shortcode` is the code a rename actually applied,
+    /// which can differ from what was typed because it is sanitized.
+    void editFinished(bool ok, const QString &category,
+                      const QString &shortcode);
     // A room-pack enable/disable finished. `category` is empty on success.
     void roomPackToggleFinished(bool ok, const QString &category,
                                 bool enabled);
@@ -239,6 +275,11 @@ private:
                          bool roomCanManage, const QVariantList &packs);
     void onSaveFinished(quint64 opId, bool ok, const QString &category,
                         const QString &shortcode);
+    void onEditFinished(quint64 opId, bool ok, const QString &category,
+                        const QString &shortcode);
+    /// The one dispatcher behind all four editing verbs.
+    void editPack(const QString &packId, const QString &action,
+                  const QString &argA, const QString &argB);
     void onRoomsSet(quint64 opId, bool ok, const QString &category,
                     const QString &roomId, const QString &stateKey,
                     bool enabled);
@@ -270,6 +311,7 @@ private:
     quint64 m_nextOpId = 1;
     quint64 m_fetchOp = 0;
     quint64 m_saveOp = 0;
+    quint64 m_editOp = 0;
     // What the in-flight save targets: "account" or "room". Both paths share
     // one slot and one report, so the report has to carry which it was.
     QString m_saveScope;

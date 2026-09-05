@@ -6467,6 +6467,66 @@ pub unsafe extern "C" fn mx_rust_stickers_add_to_user_pack(
     })
 }
 
+/// MSC2545 pack MANAGEMENT: remove an image, rename its shortcode, rename
+/// the pack, or empty it.
+///
+/// `room_id` empty selects this account's OWN pack (`im.ponies.user_emotes`,
+/// account data); otherwise the room pack under `state_key`, which is
+/// power-level gated exactly as adding to one is.
+///
+/// `action` is one of "remove_image", "rename_image", "set_name",
+/// "delete_pack". `arg_a` / `arg_b` carry that action's operands — the
+/// shortcode; the old and new shortcodes; the new name; nothing. One entry
+/// point rather than four, because the four differ only in their operands
+/// and every one of them is the same read-modify-write against the same two
+/// stores.
+///
+/// Answers asynchronously with `sticker_pack_edit_result`. Nothing is applied
+/// optimistically: the caller re-reads the authoritative pack, so a refusal
+/// cannot leave a picker showing something the server does not have.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_stickers_edit_pack(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    state_key: *const c_char,
+    action: *const c_char,
+    arg_a: *const c_char,
+    arg_b: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let state_key = unsafe { cstr_arg(state_key) }?;
+        let action = unsafe { cstr_arg(action) }?;
+        let arg_a = unsafe { cstr_arg(arg_a) }?;
+        let arg_b = unsafe { cstr_arg(arg_b) }?;
+        // Validated HERE and refused with a message, rather than defaulted to
+        // one of the four: a typo that silently deleted a pack because the
+        // fallback happened to be DeletePack is exactly the accident this
+        // shape makes possible if it is careless.
+        let edit = match action.as_str() {
+            "remove_image" => {
+                if arg_a.is_empty() {
+                    return Err("no shortcode given".to_owned());
+                }
+                stickers::PackEdit::RemoveImage { shortcode: arg_a }
+            }
+            "rename_image" => {
+                if arg_a.is_empty() || arg_b.is_empty() {
+                    return Err("rename needs both shortcodes".to_owned());
+                }
+                stickers::PackEdit::RenameImage { from: arg_a, to: arg_b }
+            }
+            "set_name" => stickers::PackEdit::SetName { name: arg_a },
+            "delete_pack" => stickers::PackEdit::DeletePack,
+            _ => return Err("unknown pack edit".to_owned()),
+        };
+        stickers::edit_pack(bridge, op_id, room_id, state_key, edit)
+            .map(|_| String::new())
+    })
+}
+
 /// v0.7.x Matrix presence: one bounded polling round over a JSON array of
 /// user ids (capped in presence.rs). Answers as a single `presence_batch`
 /// poll event carrying per-user ok/state/currently_active/last_active_ago.

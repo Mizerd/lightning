@@ -2843,6 +2843,28 @@ void RustSdkMatrixClient::uploadStickerToUserPack(
     }
 }
 
+void RustSdkMatrixClient::editStickerPack(
+    const QString &roomId, const QString &stateKey, const QString &action,
+    const QString &argA, const QString &argB, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || action.isEmpty())
+        return;
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray key = stateKey.toUtf8();
+    const QByteArray verb = action.toUtf8();
+    const QByteArray a = argA.toUtf8();
+    const QByteArray b = argB.toUtf8();
+    const QString result = takeRustString(mx_rust_stickers_edit_pack(
+        m_rustHandle, room.constData(), key.constData(), verb.constData(),
+        a.constData(), b.constData(), opId));
+    // A synchronous refusal still has to REPORT: the caller is waiting on the
+    // op id and would otherwise sit disabled forever.
+    if (!result.isEmpty()) {
+        Q_EMIT stickerPackEditFinished(opId, false, QStringLiteral("rejected"),
+                                       QString());
+    }
+}
+
 void RustSdkMatrixClient::addStickerToUserPack(
     const QString &shortcode, const QString &url, const QString &body,
     const QString &mimetype, quint64 width, quint64 height, quint64 size,
@@ -8277,6 +8299,15 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("state_key")).toString(),
             event.value(QStringLiteral("enabled")).toBool(false));
+        return true;
+    }
+    if (type == QLatin1String("sticker_pack_edit_result")) {
+        Q_EMIT stickerPackEditFinished(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("category")).toString(),
+            event.value(QStringLiteral("shortcode")).toString());
         return true;
     }
     if (type == QLatin1String("sticker_pack_add_result")) {

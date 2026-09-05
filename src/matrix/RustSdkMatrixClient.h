@@ -350,6 +350,9 @@ public:
                               const QString &body, const QString &mimetype,
                               quint64 width, quint64 height, quint64 size,
                               quint64 opId) override;
+    void editStickerPack(const QString &roomId, const QString &stateKey,
+                         const QString &action, const QString &argA,
+                         const QString &argB, quint64 opId) override;
     bool supportsRoomBanners() const override { return true; }
     void fetchRoomBanner(const QString &roomId, quint64 opId) override;
     void setRoomBanner(const QString &roomId, const QString &localPath,

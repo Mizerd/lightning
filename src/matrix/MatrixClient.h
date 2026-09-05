@@ -619,6 +619,30 @@ public:
         Q_UNUSED(mimetype); Q_UNUSED(width); Q_UNUSED(height);
         Q_UNUSED(size); Q_UNUSED(opId);
     }
+    // MSC2545 pack MANAGEMENT (v0.9.0): remove one image, rename its
+    // shortcode, rename the pack, or empty it.
+    //
+    // `roomId` empty means this account's OWN pack (account data); otherwise
+    // the room pack under `stateKey`, which is power-level gated exactly as
+    // adding to one is. `action` is one of "remove_image", "rename_image",
+    // "set_name", "delete_pack"; argA/argB carry that action's operands.
+    //
+    // ONE verb rather than four, because the four differ only in their
+    // operands and every one is the same read-modify-write against the same
+    // two stores — and because a backend implementing three of four is a
+    // shape this interface makes too easy.
+    //
+    // Reports on stickerPackEditFinished. Nothing is applied optimistically:
+    // the caller re-reads the authoritative pack, so a refusal cannot leave
+    // a picker showing something the server does not have.
+    virtual void editStickerPack(const QString &roomId,
+                                 const QString &stateKey,
+                                 const QString &action, const QString &argA,
+                                 const QString &argB, quint64 opId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(action);
+        Q_UNUSED(argA); Q_UNUSED(argB); Q_UNUSED(opId);
+    }
     // v0.7 "follow account default": drop this room's user-defined push
     // rules so the account's rules decide again. Success reports on the
     // dedicated roomNotificationModeCleared signal — NOT on
@@ -1663,6 +1687,11 @@ Q_SIGNALS:
                               bool roomCanManage, const QVariantList &packs);
     // The result of saving a sticker into im.ponies.user_emotes. `category`
     // is "duplicate", "pack_full", or a coarse room-error class.
+    /// Result of editStickerPack. `shortcode` carries the code actually
+    /// applied by a rename — which the caller needs, because a rename is
+    /// sanitized and the stored code may differ from what was typed.
+    void stickerPackEditFinished(quint64 opId, bool ok, const QString &category,
+                                 const QString &shortcode);
     void stickerPackAddFinished(quint64 opId, bool ok, const QString &category,
                                 const QString &shortcode);
     // The result of turning a room's pack on or off globally.

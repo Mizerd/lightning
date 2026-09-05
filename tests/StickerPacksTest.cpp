@@ -137,6 +137,21 @@ public:
         roomPackShortcode = shortcode;
         lastRoomPackOp = opId;
     }
+    int editCalls = 0;
+    QString editRoom, editStateKey, editAction, editArgA, editArgB;
+    quint64 lastEditOp = 0;
+    void editStickerPack(const QString &roomId, const QString &stateKey,
+                         const QString &action, const QString &argA,
+                         const QString &argB, quint64 opId) override
+    {
+        ++editCalls;
+        editRoom = roomId;
+        editStateKey = stateKey;
+        editAction = action;
+        editArgA = argA;
+        editArgB = argB;
+        lastEditOp = opId;
+    }
     void addStickerToUserPack(const QString &shortcode, const QString &url,
                               const QString &body, const QString &mimetype,
                               quint64, quint64, quint64,
@@ -793,6 +808,217 @@ private Q_SLOTS:
         const int afterSnapshot = manager.revision();
         manager.setUsage(QStringLiteral("emoticon"));
         QVERIFY(manager.revision() > afterSnapshot);
+    }
+
+    // ── Pack management (MSC2545 CRUD) ──────────────────────────────────
+    //
+    // Four verbs share one op slot and one permission rule. What is pinned
+    // here is that they route to the right STORE, that the permission rule
+    // is asked before anything is sent, and that a second click cannot race
+    // the first.
+
+    void anAccountPackIsAlwaysManageableAndARoomPackAsksThePowerLevel()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+
+        QVariantMap roomPack = pack(QStringLiteral("room:!r:example.org:"),
+                                    QStringLiteral("room"),
+                                    QStringLiteral("Cat Lovers"),
+                                    { image(QStringLiteral("dog"), kMxcC,
+                                            true, false) });
+        // Not manageable: the snapshot did not say this account may write it.
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"),
+                   QStringLiteral("Your pack"),
+                   { image(QStringLiteral("cat"), kMxcA, true, false) }),
+              roomPack });
+        QVERIFY2(manager.canManagePack(QStringLiteral("user")),
+                 "an account's own pack is account data; nobody holds a "
+                 "power level over it");
+        QVERIFY2(!manager.canManagePack(QStringLiteral("room:!r:example.org:")),
+                 "the ABSENCE of the claim is not permission");
+        QVERIFY(!manager.canManagePack(QStringLiteral("nosuchpack")));
+
+        // ...and with the claim present, it is.
+        roomPack.insert(QStringLiteral("canManage"), true);
+        manager.applySnapshotForTest(kRoom, true, { roomPack });
+        QVERIFY(manager.canManagePack(QStringLiteral("room:!r:example.org:")));
+    }
+
+    void anUnmanageablePackSendsNothingAtAll()
+    {
+        // The UI hides the actions, but the gate is HERE: a caller that did
+        // not ask must not reach the server and collect a refusal.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("room:!r:example.org:"),
+                   QStringLiteral("room"), QStringLiteral("Cat Lovers"),
+                   { image(QStringLiteral("dog"), kMxcC, true, false) }) });
+
+        manager.removeImageFromPack(QStringLiteral("room:!r:example.org:"),
+                                    QStringLiteral("dog"));
+        manager.renamePack(QStringLiteral("room:!r:example.org:"),
+                           QStringLiteral("Mine now"));
+        manager.deletePack(QStringLiteral("room:!r:example.org:"));
+        QCOMPARE(client.editCalls, 0);
+        QVERIFY(!manager.editing());
+    }
+
+    void eachVerbSendsItsOwnActionToTheRightStore()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"),
+                   QStringLiteral("Your pack"),
+                   { image(QStringLiteral("cat"), kMxcA, true, false) }) });
+
+        manager.removeImageFromPack(QStringLiteral("user"),
+                                    QStringLiteral("cat"));
+        QCOMPARE(client.editCalls, 1);
+        QCOMPARE(client.editAction, QStringLiteral("remove_image"));
+        QCOMPARE(client.editArgA, QStringLiteral("cat"));
+        // An ACCOUNT pack carries no room: an empty room id is what selects
+        // the account-data store on the far side, so a stray room id here
+        // would write somebody's room instead.
+        QVERIFY2(client.editRoom.isEmpty(),
+                 "an account pack must not be routed to a room");
+
+        // One op slot: a second verb while the first is in flight sends
+        // nothing rather than racing it.
+        manager.renamePack(QStringLiteral("user"), QStringLiteral("Mine"));
+        QCOMPARE(client.editCalls, 1);
+        QVERIFY(manager.editing());
+
+        // The answer frees it, and the next verb goes through.
+        Q_EMIT client.stickerPackEditFinished(client.lastEditOp, true,
+                                              QString(), QString());
+        QVERIFY(!manager.editing());
+        manager.renamePack(QStringLiteral("user"), QStringLiteral("Mine"));
+        QCOMPARE(client.editCalls, 2);
+        QCOMPARE(client.editAction, QStringLiteral("set_name"));
+        QCOMPARE(client.editArgA, QStringLiteral("Mine"));
+    }
+
+    void anEmptyPackNameIsSentRatherThanRefused()
+    {
+        // Clearing the name is a REAL state — for a room pack it restores
+        // MSC2545's fallback to the room's own name. A guard that treated
+        // empty as "nothing to do" would make that unreachable.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"),
+                   QStringLiteral("Your pack"),
+                   { image(QStringLiteral("cat"), kMxcA, true, false) }) });
+
+        manager.renamePack(QStringLiteral("user"), QString());
+        QCOMPARE(client.editCalls, 1);
+        QCOMPARE(client.editAction, QStringLiteral("set_name"));
+        QVERIFY(client.editArgA.isEmpty());
+    }
+
+    void arenameNeedsBothNamesAndAnEmptyTargetIsRefusedLocally()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"),
+                   QStringLiteral("Your pack"),
+                   { image(QStringLiteral("cat"), kMxcA, true, false) }) });
+
+        manager.renameImageInPack(QStringLiteral("user"), QStringLiteral("cat"),
+                                  QStringLiteral("   "));
+        manager.renameImageInPack(QStringLiteral("user"), QString(),
+                                  QStringLiteral("dog"));
+        QCOMPARE(client.editCalls, 0);
+
+        manager.renameImageInPack(QStringLiteral("user"), QStringLiteral("cat"),
+                                  QStringLiteral("kitty"));
+        QCOMPARE(client.editCalls, 1);
+        QCOMPARE(client.editAction, QStringLiteral("rename_image"));
+        QCOMPARE(client.editArgA, QStringLiteral("cat"));
+        QCOMPARE(client.editArgB, QStringLiteral("kitty"));
+    }
+
+    void aFailedEditDoesNotRereadAndReportsTheCategory()
+    {
+        // Nothing was applied optimistically, so a refusal must leave the
+        // last known pack alone rather than emptying the picker.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"),
+                   QStringLiteral("Your pack"),
+                   { image(QStringLiteral("cat"), kMxcA, true, false) }) });
+        const int fetchesBefore = client.fetchCalls;
+
+        QSignalSpy spy(&manager, &StickerPackManager::editFinished);
+        manager.renameImageInPack(QStringLiteral("user"), QStringLiteral("cat"),
+                                  QStringLiteral("dog"));
+        Q_EMIT client.stickerPackEditFinished(
+            client.lastEditOp, false, QStringLiteral("shortcode_taken"),
+            QString());
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.first().at(1).toString(),
+                 QStringLiteral("shortcode_taken"));
+        QCOMPARE(client.fetchCalls, fetchesBefore);
+        QCOMPARE(manager.images()->count(), 1);
+        QVERIFY(!manager.editing());
+    }
+
+    void anAnswerForAnOldOperationIsIgnored()
+    {
+        // A late answer from a previous edit must not free the slot the
+        // current one is holding, or the UI re-enables mid-flight.
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"),
+                   QStringLiteral("Your pack"),
+                   { image(QStringLiteral("cat"), kMxcA, true, false) }) });
+
+        manager.deletePack(QStringLiteral("user"));
+        const quint64 current = client.lastEditOp;
+        QVERIFY(manager.editing());
+        Q_EMIT client.stickerPackEditFinished(current + 999, true, QString(),
+                                              QString());
+        QVERIFY2(manager.editing(),
+                 "a stale answer must not free the live operation");
+        Q_EMIT client.stickerPackEditFinished(current, true, QString(),
+                                              QString());
+        QVERIFY(!manager.editing());
+    }
+
+    void packInfoAnswersIdentityAndPermissionInOneCall()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"),
+                   QStringLiteral("Your pack"),
+                   { image(QStringLiteral("cat"), kMxcA, true, false) }) });
+
+        const QVariantMap info = manager.packInfo(QStringLiteral("user"));
+        QCOMPARE(info.value(QStringLiteral("packId")).toString(),
+                 QStringLiteral("user"));
+        QCOMPARE(info.value(QStringLiteral("displayName")).toString(),
+                 QStringLiteral("Your pack"));
+        QCOMPARE(info.value(QStringLiteral("canManage")).toBool(), true);
+        // An unknown id answers EMPTY rather than a map of blanks, so a
+        // caller cannot mistake it for a real pack it may edit.
+        QVERIFY(manager.packInfo(QStringLiteral("nope")).isEmpty());
     }
 };
 

@@ -883,6 +883,7 @@ set(APP_QML_FILES
     qml/MediaBrowserTile.qml
     qml/MediaBrowserRow.qml
     qml/JumpToDateDialog.qml
+    qml/StickerPackEditor.qml
     qml/StickerPicker.qml
     qml/QuickSwitcher.qml
     qml/ImageViewerOverlay.qml
@@ -3212,6 +3213,19 @@ if(BUILD_TESTING)
     target_link_libraries(rtc-session-test PRIVATE Qt6::Test)
     add_test(NAME rtc-session COMMAND rtc-session-test)
     set_tests_properties(rtc-session PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # v0.9.0: the general load gate. A load-time QML error is invisible to
+    # qmlformat, to qmlcachegen and to every contract suite that reads source
+    # text — see the header of QmlComponentLoadTest.cpp.
+    qt_add_executable(qml-component-load-test
+        tests/QmlComponentLoadTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(qml-component-load-test)
+    target_link_libraries(qml-component-load-test PRIVATE Qt6::Test)
+    add_test(NAME qml-component-load COMMAND qml-component-load-test)
+    set_tests_properties(qml-component-load PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # 2026-08-18 round 2: incoming-call corner card contracts + a real

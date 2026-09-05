@@ -880,6 +880,18 @@ char *mx_rust_stickers_upload_to_user_pack(void *client,
                                            const char *local_path,
                                            uint64_t op_id);
 
+/* MSC2545 pack management. `room_id` empty = this account's own pack
+ * (account data); otherwise the room pack under `state_key`, power-level
+ * gated exactly as adding to one is. `action` is one of "remove_image",
+ * "rename_image", "set_name", "delete_pack"; arg_a/arg_b carry that
+ * action's operands. Answers with `sticker_pack_edit_result`. */
+char *mx_rust_stickers_edit_pack(void *client,
+                                 const char *room_id,
+                                 const char *state_key,
+                                 const char *action,
+                                 const char *arg_a,
+                                 const char *arg_b,
+                                 unsigned long long op_id);
 char *mx_rust_stickers_add_to_user_pack(void *client,
                                         const char *shortcode,
                                         const char *url,

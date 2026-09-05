@@ -70,6 +70,8 @@ void StickerPackManager::setClient(MatrixClient *client)
                 &StickerPackManager::onPacksReceived);
         connect(m_client, &MatrixClient::stickerPackAddFinished, this,
                 &StickerPackManager::onSaveFinished);
+        connect(m_client, &MatrixClient::stickerPackEditFinished, this,
+                &StickerPackManager::onEditFinished);
         connect(m_client, &MatrixClient::stickerPackRoomsSet, this,
                 &StickerPackManager::onRoomsSet);
         // An account change invalidates every pack: packs are account data.
@@ -262,6 +264,113 @@ void StickerPackManager::saveSticker(const QString &url, const QString &body,
                                    static_cast<quint64>(qMax<qint64>(0, size)),
                                    opId);
     emitStateChanged();
+}
+
+// ── Pack management (MSC2545 CRUD) ──────────────────────────────────────
+//
+// Four verbs, ONE op slot and one dispatcher. The four differ only in the
+// operands they send; every other rule — who may write, what happens on
+// success, what happens on refusal — is identical, and writing it four times
+// is how three of them end up correct.
+
+bool StickerPackManager::canManagePack(const QString &packId) const
+{
+    if (!m_client || !available() || packId.isEmpty())
+        return false;
+    const int row = m_packs->indexOfPack(packId);
+    if (row < 0)
+        return false;
+    const stickers::Pack &pack = m_packs->packs().at(row);
+    // This account's own pack: always. It is account data and nobody else
+    // can hold a power level over it.
+    if (pack.source != QLatin1String("room"))
+        return true;
+    // A room pack: the SNAPSHOT's own recorded permission, exactly as
+    // canSaveToRoom reads it. The absence of the claim is not permission —
+    // the server would refuse anyway, and asking first is what lets the UI
+    // stop offering an action that cannot work.
+    return pack.canManage && !pack.roomId.isEmpty();
+}
+
+QVariantMap StickerPackManager::packInfo(const QString &packId) const
+{
+    const int row = packId.isEmpty() ? -1 : m_packs->indexOfPack(packId);
+    if (row < 0)
+        return {};
+    const stickers::Pack &pack = m_packs->packs().at(row);
+    return QVariantMap{
+        { QStringLiteral("packId"), pack.id },
+        { QStringLiteral("displayName"), pack.displayName },
+        { QStringLiteral("source"), pack.source },
+        { QStringLiteral("canManage"), canManagePack(packId) },
+    };
+}
+
+void StickerPackManager::editPack(const QString &packId, const QString &action,
+                                  const QString &argA, const QString &argB)
+{
+    if (!m_client || m_editOp != 0 || !canManagePack(packId))
+        return;
+    const int row = m_packs->indexOfPack(packId);
+    if (row < 0)
+        return;
+    const stickers::Pack &pack = m_packs->packs().at(row);
+    const bool isRoom = pack.source == QLatin1String("room");
+    const quint64 opId = m_nextOpId++;
+    m_editOp = opId;
+    m_client->editStickerPack(isRoom ? pack.roomId : QString(),
+                              isRoom ? pack.stateKey : QString(),
+                              action, argA, argB, opId);
+    emitStateChanged();
+}
+
+void StickerPackManager::removeImageFromPack(const QString &packId,
+                                             const QString &shortcode)
+{
+    if (shortcode.isEmpty())
+        return;
+    editPack(packId, QStringLiteral("remove_image"), shortcode, QString());
+}
+
+void StickerPackManager::renameImageInPack(const QString &packId,
+                                           const QString &from,
+                                           const QString &to)
+{
+    if (from.isEmpty() || to.trimmed().isEmpty())
+        return;
+    editPack(packId, QStringLiteral("rename_image"), from, to);
+}
+
+void StickerPackManager::renamePack(const QString &packId, const QString &name)
+{
+    // An EMPTY name is meaningful and must reach the bridge: it clears the
+    // display name, which for a room pack restores the MSC2545 fallback to
+    // the room's own name. Refusing it here would make "no custom name" an
+    // unreachable state.
+    editPack(packId, QStringLiteral("set_name"), name, QString());
+}
+
+void StickerPackManager::deletePack(const QString &packId)
+{
+    editPack(packId, QStringLiteral("delete_pack"), QString(), QString());
+}
+
+void StickerPackManager::onEditFinished(quint64 opId, bool ok,
+                                        const QString &category,
+                                        const QString &shortcode)
+{
+    if (opId == 0 || opId != m_editOp)
+        return;
+    m_editOp = 0;
+    if (ok) {
+        // Same rule the save path follows: nothing was applied optimistically,
+        // so the authoritative pack is the one that arrives next. A failed
+        // READ afterwards keeps the last known pack rather than emptying it.
+        m_stale = true;
+        refresh();
+    }
+    emitStateChanged();
+    Q_EMIT editFinished(ok, category, shortcode);
 }
 
 void StickerPackManager::setRoomPackEnabled(const QString &packId,
@@ -462,6 +571,7 @@ void StickerPackManager::onLoggedOut()
 {
     m_fetchOp = 0;
     m_saveOp = 0;
+    m_editOp = 0;
     m_saveScope.clear();
     m_roomsOp = 0;
     m_refreshOwed = false;

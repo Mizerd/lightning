@@ -224,6 +224,40 @@ AnchoredPopup {
                 ToolTip.delay: 500
                 onClicked: stickerFileDialog.open()
             }
+            // MANAGE THE SELECTED PACK. Only offered when there IS a
+            // selected pack, and the editor itself is read-only when this
+            // account may not write it — the two are different states and
+            // hiding the second would leave a room member unable to even
+            // look at what a pack contains.
+            IconButton {
+                objectName: "stickerManageButton"
+                storm: true
+                size: "md"
+                // edit_square, not "edit": the icon font is a SUBSET
+                // (scripts/generate-icon-font.sh) and Icon.qml answers an
+                // unknown name with an empty string — so a wrong name here
+                // is a BLANK BUTTON, which is harder to notice than tofu.
+                iconName: "edit_square"
+                enabled: picker.stickers.available
+                         && picker.stickers.selectedPackId.length > 0
+                         && !picker.stickers.editing
+                Accessible.name: qsTr("Manage this pack")
+                ToolTip.text: qsTr("Manage pack")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                onClicked: {
+                    // One call, answered by the manager: it already owns the
+                    // row lookup AND the permission rule, and asking the
+                    // model directly would put half of that in QML.
+                    var pack = picker.stickers.packInfo(
+                        picker.stickers.selectedPackId)
+                    if (!pack || !pack.packId)
+                        return
+                    packEditor.stickers = picker.stickers
+                    packEditor.openFor(pack.packId, pack.displayName,
+                                       pack.canManage)
+                }
+            }
             IconButton {
                 storm: true
                 size: "md"
@@ -626,4 +660,8 @@ AnchoredPopup {
     }
 
     } // contentItem Item
+
+    StickerPackEditor {
+        id: packEditor
+    }
 }

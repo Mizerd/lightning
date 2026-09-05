@@ -1301,6 +1301,250 @@ pub(crate) fn add_image_to_pack_content(
     Ok((content, code))
 }
 
+/// One editing operation on a pack, independent of WHERE the pack lives.
+///
+/// The user pack (`im.ponies.user_emotes`, account data) and a room pack
+/// (`im.ponies.room_emotes`, room state) differ only in how the content is
+/// read and written. Every RULE about what the content may become is the
+/// same, so the rules live in the pure transforms and this enum is what
+/// carries the caller's intent across the one shared writer.
+pub(crate) enum PackEdit {
+    RemoveImage { shortcode: String },
+    RenameImage { from: String, to: String },
+    SetName { name: String },
+    /// Empty the pack entirely. Matrix has no "delete this account data"
+    /// verb — an empty object is the idiom — and a room pack is emptied the
+    /// same way, by writing an empty state event. Neither is a redaction:
+    /// the event stays in the room's history, as every state event does.
+    DeletePack,
+}
+
+impl PackEdit {
+    /// Applied to a content object. Returns the content to write plus
+    /// whatever the caller needs to be told back (the applied shortcode for
+    /// a rename, empty otherwise).
+    fn apply(&self, existing: Value) -> Result<(Value, String), String> {
+        match self {
+            PackEdit::RemoveImage { shortcode } => {
+                remove_image_from_pack_content(existing, shortcode)
+                    .map(|c| (c, String::new()))
+            }
+            PackEdit::RenameImage { from, to } => {
+                rename_image_in_pack_content(existing, from, to)
+            }
+            PackEdit::SetName { name } => {
+                set_pack_display_name_content(existing, name)
+                    .map(|c| (c, String::new()))
+            }
+            // Deliberately does not preserve the name: "delete this pack"
+            // that left a named empty pack behind would not read as deleted.
+            PackEdit::DeletePack => Ok((json!({}), String::new())),
+        }
+    }
+}
+
+/// Edit a pack — the user's own, or a room's.
+///
+/// `room_id` empty selects the USER pack; otherwise the room pack under
+/// `state_key`. One writer for both, because the alternative is six almost
+/// identical async functions and a rule that gets fixed in five of them.
+///
+/// Read-modify-write in both cases, for the reason the add path already
+/// gives: a concurrent edit by another moderator (or by this account on
+/// another device) must not be clobbered by a stale copy of ours.
+pub(crate) fn edit_pack(
+    bridge: &RustClient,
+    op_id: u64,
+    room_id: String,
+    state_key: String,
+    edit: PackEdit,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+
+    bridge.spawn_room_action(async move {
+        let outcome = if room_id.is_empty() {
+            edit_user_pack_inner(&client, &edit).await
+        } else {
+            edit_room_pack_inner(&client, &room_id, &state_key, &edit).await
+        };
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let (ok, category, shortcode) = match outcome {
+            Ok(code) => (true, String::new(), code),
+            Err(category) => (false, category, String::new()),
+        };
+        enqueue(
+            &events,
+            json!({
+                "type": "sticker_pack_edit_result",
+                "op_id": op_id,
+                "lifecycle": lifecycle,
+                "ok": ok,
+                "category": category,
+                "shortcode": shortcode,
+            }),
+        );
+    });
+    Ok(())
+}
+
+async fn edit_user_pack_inner(
+    client: &matrix_sdk::Client,
+    edit: &PackEdit,
+) -> Result<String, String> {
+    let ty = GlobalAccountDataEventType::from(USER_EMOTES);
+    // A 404 here is NOT the normal first use it is on the add path: every
+    // one of these operations edits something that must already exist, so
+    // "there is no pack" is a real answer and reporting success would leave
+    // a picker showing an image the account does not have.
+    let existing = match client.account().fetch_account_data(ty.clone()).await {
+        Ok(Some(raw)) => serde_json::from_str::<Value>(raw.json().get())
+            .unwrap_or_else(|_| json!({})),
+        Ok(None) => return Err("not_found".to_owned()),
+        Err(err) => return Err(classify_room_error(&err.to_string()).to_owned()),
+    };
+    let (content, code) = edit.apply(existing)?;
+    let raw = matrix_sdk::ruma::serde::Raw::new(&content)
+        .map_err(|_| "rejected".to_owned())?
+        .cast_unchecked();
+    client
+        .account()
+        .set_account_data_raw(ty, raw)
+        .await
+        .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+    Ok(code)
+}
+
+async fn edit_room_pack_inner(
+    client: &matrix_sdk::Client,
+    room_id: &str,
+    state_key: &str,
+    edit: &PackEdit,
+) -> Result<String, String> {
+    let room = joined_room(client, room_id).map_err(|_| "unknown_room".to_owned())?;
+    // THE SAME GATE THE ADD PATH USES, and for the same reason: the room's
+    // own required level for `im.ponies.room_emotes`, asked of the SDK, and
+    // FALSE when the membership cannot be read. Deleting a room's whole
+    // sticker pack is a more destructive act than adding to it, so the gate
+    // being identical rather than merely similar is the point.
+    if !can_manage_room_packs(client, room_id).await {
+        return Err("forbidden".to_owned());
+    }
+    let existing = match read_one_room_pack(client, room_id, state_key).await {
+        Some((content, _name)) => content,
+        None => return Err("not_found".to_owned()),
+    };
+    let (content, code) = edit.apply(existing)?;
+    room.send_state_event_raw(ROOM_EMOTES, state_key, content)
+        .await
+        .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+    Ok(code)
+}
+
+/// Remove one image from a pack, by shortcode.
+///
+/// PURE, and shared by the user-pack and room-pack writers for the same
+/// reason `add_image_to_pack_content` is: two copies of a rule drift, and
+/// this one decides what a user's own pack looks like afterwards.
+///
+/// Removing the LAST image leaves an empty `images` map rather than deleting
+/// the key. MSC2545 treats a pack with no images as an empty pack, which is
+/// what "I removed everything" should mean — and a client that reads the
+/// `pack` block for a display name still finds it, so an empty pack the user
+/// deliberately made keeps its name instead of silently reverting to the
+/// room's.
+pub(crate) fn remove_image_from_pack_content(
+    existing: Value,
+    shortcode: &str,
+) -> Result<Value, String> {
+    let mut content = existing;
+    let images = content
+        .get_mut("images")
+        .and_then(|v| v.as_object_mut())
+        .ok_or_else(|| "not_found".to_owned())?;
+    if images.remove(shortcode).is_none() {
+        // NOT an error worth a scary message, but not a success either: the
+        // caller re-reads the pack afterwards, and reporting "removed" for
+        // something that was never there would make a stale picker look
+        // authoritative.
+        return Err("not_found".to_owned());
+    }
+    Ok(content)
+}
+
+/// Change one image's SHORTCODE, keeping its entry intact.
+///
+/// The shortcode is the map KEY in MSC2545, so a rename is a re-key rather
+/// than a field edit — which is exactly why it belongs here as one transform
+/// and not as a remove-then-add at the call site: a remove that succeeded
+/// followed by an add that failed would DELETE the image the user was trying
+/// to rename.
+///
+/// Returns the code actually applied. A collision is refused rather than
+/// silently suffixed: `add` may invent `blob-2` because the user is adding
+/// something new and any name will do, but someone deliberately renaming to
+/// a name that is taken means the one they typed, and quietly storing a
+/// different one would be a lie they only discover later.
+pub(crate) fn rename_image_in_pack_content(
+    existing: Value,
+    from: &str,
+    to: &str,
+) -> Result<(Value, String), String> {
+    let code = sanitize_shortcode(to);
+    if code.is_empty() {
+        return Err("invalid_shortcode".to_owned());
+    }
+    if code == from {
+        // Nothing to do, and reporting it as done is honest: the pack ends
+        // in the state the user asked for.
+        return Ok((existing, code));
+    }
+    let mut content = existing;
+    let images = content
+        .get_mut("images")
+        .and_then(|v| v.as_object_mut())
+        .ok_or_else(|| "not_found".to_owned())?;
+    if images.contains_key(&code) {
+        return Err("shortcode_taken".to_owned());
+    }
+    let entry = images.remove(from).ok_or_else(|| "not_found".to_owned())?;
+    images.insert(code.clone(), entry);
+    Ok((content, code))
+}
+
+/// Set (or clear) a pack's display name.
+///
+/// An empty name REMOVES the field rather than storing "". For a room pack
+/// that matters: MSC2545 says a room pack with no `display_name` falls back
+/// to the ROOM's name, so an empty string would show as a blank tab in every
+/// other client where absence shows the room.
+pub(crate) fn set_pack_display_name_content(
+    existing: Value,
+    name: &str,
+) -> Result<Value, String> {
+    let trimmed = one_line(name, MAX_BODY_CHARS);
+    let mut content = existing;
+    if !content.is_object() {
+        content = json!({});
+    }
+    if content.get("pack").and_then(|p| p.as_object()).is_none() {
+        content["pack"] = json!({});
+    }
+    let pack = content["pack"]
+        .as_object_mut()
+        .ok_or_else(|| "rejected".to_owned())?;
+    if trimmed.is_empty() {
+        pack.remove("display_name");
+    } else {
+        pack.insert("display_name".to_owned(), json!(trimmed));
+    }
+    Ok(content)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn add_to_user_pack_inner(
     client: &matrix_sdk::Client,
@@ -1845,5 +2089,184 @@ mod tests {
         assert!(!mimetype_allowed(Some("")));
         // Absent is unknown, which is allowed.
         assert!(mimetype_allowed(None));
+    }
+
+    // ── Pack management (MSC2545 CRUD) ──────────────────────────────────
+    //
+    // These transforms decide what a user's own pack — and a room's shared
+    // one — look like afterwards, so what is pinned here is the difference
+    // between the operations, not merely that they run.
+
+    #[test]
+    fn removing_an_image_takes_only_that_one() {
+        let content = json!({
+            "pack": { "display_name": "Blobs" },
+            "images": {
+                "blob": { "url": "mxc://example.org/a" },
+                "wave": { "url": "mxc://example.org/b" },
+            }
+        });
+        let out = remove_image_from_pack_content(content, "blob").unwrap();
+        let images = out["images"].as_object().unwrap();
+        assert!(!images.contains_key("blob"));
+        assert!(images.contains_key("wave"));
+        // The pack's own name is not collateral damage.
+        assert_eq!(out["pack"]["display_name"], json!("Blobs"));
+    }
+
+    #[test]
+    fn removing_something_absent_is_reported_not_swallowed() {
+        // The caller re-reads the pack after a success. Reporting "removed"
+        // for something that was never there would make a stale picker look
+        // authoritative.
+        let content = json!({ "images": { "blob": { "url": "mxc://e/a" } } });
+        assert_eq!(
+            remove_image_from_pack_content(content, "nope").unwrap_err(),
+            "not_found"
+        );
+        // And a pack with no images at all is the same answer, not a panic.
+        assert_eq!(
+            remove_image_from_pack_content(json!({}), "blob").unwrap_err(),
+            "not_found"
+        );
+    }
+
+    #[test]
+    fn removing_the_last_image_leaves_an_empty_pack_that_keeps_its_name() {
+        // Deliberately NOT the same as deleting the pack. A room pack with no
+        // display_name falls back to the ROOM's name in every client, so
+        // dropping the name here would rename the user's pack behind them.
+        let content = json!({
+            "pack": { "display_name": "Blobs" },
+            "images": { "blob": { "url": "mxc://example.org/a" } }
+        });
+        let out = remove_image_from_pack_content(content, "blob").unwrap();
+        assert!(out["images"].as_object().unwrap().is_empty());
+        assert_eq!(out["pack"]["display_name"], json!("Blobs"));
+    }
+
+    #[test]
+    fn renaming_keeps_the_entry_and_refuses_a_taken_name() {
+        let content = json!({
+            "images": {
+                "blob": { "url": "mxc://example.org/a", "usage": ["emoticon"] },
+                "wave": { "url": "mxc://example.org/b" },
+            }
+        });
+        let (out, code) =
+            rename_image_in_pack_content(content.clone(), "blob", "blobcat")
+                .unwrap();
+        assert_eq!(code, "blobcat");
+        let images = out["images"].as_object().unwrap();
+        assert!(!images.contains_key("blob"));
+        // The whole entry moved, not just the url: usage decides whether it
+        // is offered as an inline emoticon at all.
+        assert_eq!(images["blobcat"]["url"], json!("mxc://example.org/a"));
+        assert_eq!(images["blobcat"]["usage"], json!(["emoticon"]));
+
+        // A COLLISION IS REFUSED, not silently suffixed. `add` may invent
+        // "wave-2" because any name will do for something new; someone
+        // deliberately renaming meant the name they typed, and storing a
+        // different one is a lie they find out about later.
+        assert_eq!(
+            rename_image_in_pack_content(content.clone(), "blob", "wave")
+                .unwrap_err(),
+            "shortcode_taken"
+        );
+        // Renaming something absent is not a silent no-op either.
+        assert_eq!(
+            rename_image_in_pack_content(content.clone(), "ghost", "x")
+                .unwrap_err(),
+            "not_found"
+        );
+        // A name that sanitizes to nothing is refused before anything moves.
+        assert_eq!(
+            rename_image_in_pack_content(content, "blob", "   ").unwrap_err(),
+            "invalid_shortcode"
+        );
+    }
+
+    #[test]
+    fn renaming_to_the_same_name_succeeds_without_losing_the_image() {
+        // The naive re-key (remove then insert) is fine here, but a naive
+        // GUARD ("refuse if the target exists") would refuse this — and the
+        // pack does end in the state the user asked for, so refusing would
+        // be wrong.
+        let content = json!({ "images": { "blob": { "url": "mxc://e/a" } } });
+        let (out, code) =
+            rename_image_in_pack_content(content, "blob", "blob").unwrap();
+        assert_eq!(code, "blob");
+        assert_eq!(out["images"]["blob"]["url"], json!("mxc://e/a"));
+    }
+
+    #[test]
+    fn an_empty_pack_name_removes_the_field_rather_than_storing_blank() {
+        // MSC2545: a room pack with no display_name falls back to the ROOM's
+        // name. An empty string would show as a blank tab everywhere that
+        // absence would have shown the room.
+        let named =
+            set_pack_display_name_content(json!({}), "  Blobs  ").unwrap();
+        assert_eq!(named["pack"]["display_name"], json!("Blobs"));
+        let cleared = set_pack_display_name_content(named, "").unwrap();
+        assert!(cleared["pack"].as_object().unwrap().get("display_name")
+                    .is_none());
+        // The images survive a rename in either direction.
+        let with_images = json!({
+            "pack": { "display_name": "Old" },
+            "images": { "blob": { "url": "mxc://e/a" } }
+        });
+        let out = set_pack_display_name_content(with_images, "New").unwrap();
+        assert_eq!(out["pack"]["display_name"], json!("New"));
+        assert_eq!(out["images"]["blob"]["url"], json!("mxc://e/a"));
+    }
+
+    #[test]
+    fn deleting_a_pack_leaves_nothing_behind_including_its_name() {
+        // "Delete this pack" that left a named empty pack would not read as
+        // deleted — and in a room, every other client would keep showing the
+        // tab. Matrix has no delete verb for either store; an empty object
+        // is the idiom, and it is not a redaction: the event stays in
+        // history like every state event does.
+        let content = json!({
+            "pack": { "display_name": "Blobs" },
+            "images": { "blob": { "url": "mxc://e/a" } }
+        });
+        let (out, code) = PackEdit::DeletePack.apply(content).unwrap();
+        assert_eq!(code, "");
+        assert_eq!(out, json!({}));
+    }
+
+    #[test]
+    fn every_edit_dispatches_to_its_own_transform() {
+        // The FFI takes the action as a STRING, so this pins that each arm
+        // does its own thing — the accident this shape allows is one action
+        // quietly running another's code.
+        let base = json!({
+            "pack": { "display_name": "Blobs" },
+            "images": {
+                "blob": { "url": "mxc://e/a" },
+                "wave": { "url": "mxc://e/b" },
+            }
+        });
+        let (removed, _) = PackEdit::RemoveImage { shortcode: "blob".into() }
+            .apply(base.clone())
+            .unwrap();
+        assert_eq!(removed["images"].as_object().unwrap().len(), 1);
+
+        let (renamed, code) = PackEdit::RenameImage {
+            from: "blob".into(),
+            to: "blobcat".into(),
+        }
+        .apply(base.clone())
+        .unwrap();
+        assert_eq!(code, "blobcat");
+        assert_eq!(renamed["images"].as_object().unwrap().len(), 2);
+
+        let (named, _) = PackEdit::SetName { name: "Other".into() }
+            .apply(base.clone())
+            .unwrap();
+        assert_eq!(named["pack"]["display_name"], json!("Other"));
+        // ...and the images are untouched by a rename of the PACK.
+        assert_eq!(named["images"].as_object().unwrap().len(), 2);
     }
 }
