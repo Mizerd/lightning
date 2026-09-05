@@ -1185,6 +1185,35 @@ and never loaded. OPEN OPERATOR STEP: rebuild the image under a new tag
 before the MJPG app half lands, then move `libgstjpeg.dll` back to the
 required list — both, or the next release dies the same way.
 
+**THE 0.9.0 APPIMAGE SHIPPED WITHOUT QT'S TLS BACKEND AND WITHOUT THE
+WAYLAND SHELL INTEGRATION, and nothing could have caught it.** Seen live the
+day it shipped: `qt.qpa.wayland: No shell integration named "xdg-shell"
+found … Could not load the Qt platform plugin "wayland"`, so it ran under
+XWayland (where a screen share captures a black root window), and
+`usr/plugins/tls` existed and was EMPTY, so every https request through
+QNetworkAccessManager fails — the update manifest fetch and the update
+download included, which means **a 0.9.0 AppImage will never offer the
+next release by itself**; Matrix traffic was unaffected (rustls).
+linuxdeploy-plugin-qt deploys neither directory unless `EXTRA_QT_PLUGINS`
+names it. Deploy `1b773c2` names `tls`, `wayland-shell-integration`,
+`wayland-decoration-client` and `wayland-graphics-integration-client`, and
+`validate-appimage.sh` asserts the two files, because graceful fallback and
+silent absence are the same observable until something asserts the payload
+(the fourth time this shape has bitten: sctp, ximagesrc, opengl, now this).
+Whether 0.7.x–0.8.x AppImages ever self-updated is unknown — no AppImage
+upgrade was ever live-tested (§2).
+
+**A first room open can paginate to the room's start, and that is a
+BUDGET, not a bug (yet).** Reported as "the very first room loads a few
+times, like buffering"; the log shows ~13 `viewport_fill` pages, 217 events,
+until `reached_start=true`, and later opens of the same room stop after one
+page because the event cache holds it. The fill's `maxInvisibleFillRetries`
+is 60 ON PURPOSE (rows that add no visible height advance the cursor through
+collapsed activity runs so a reader never has to expand a group to reach
+older history); a room whose recent history is mostly hidden state pays that
+on first open. Not changed. If it is tightened, the deliberate reason in
+`qml/TimelinePane.qml` must be answered, not deleted.
+
 **Qt version differences the dev shell cannot show you.** Pipeline 105's
 `build-deb` died on `CallController.h` holding
 `return m_mediaBackend != nullptr;` INLINE where `m_mediaBackend` is a

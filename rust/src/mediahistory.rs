@@ -80,6 +80,9 @@ impl MediaEntry {
             "mxc": self.mxc,
             "thumbnail_mxc": self.thumbnail_mxc,
             "encrypted": self.encrypted,
+            // The registry key a tile fetches through — the event id, exactly
+            // as the timeline keys its own rows (see stored_media_from_event).
+            "media_key": self.event_id,
             "url": self.url,
             "host": self.host,
         })
@@ -227,6 +230,47 @@ pub(crate) fn host_of(url: &str) -> String {
 ///
 /// `value` is the event JSON as the SDK hands it over — already decrypted
 /// when decryption succeeded, still `m.room.encrypted` when it did not.
+/// The SAME record the timeline registers for one of its own image rows
+/// (`TimelineRegistry::remember_media`), built from a raw event, so a media
+/// browser tile can fetch through the registry exactly like a timeline row
+/// does. Without this every encrypted attachment in the browser asked the
+/// server for a thumbnail of ciphertext — impossible — and every tile logged
+/// `failed … category=network` (reported with a screenshot). The encrypted
+/// source carries the key material the decrypt path needs; the plain one is
+/// just the mxc. Thumbnails come from `info.thumbnail_file` / `thumbnail_url`.
+pub(crate) fn stored_media_from_event(value: &Value) -> Option<crate::timeline::StoredMedia> {
+    use matrix_sdk::ruma::events::room::{EncryptedFile, MediaSource};
+    use matrix_sdk::ruma::OwnedMxcUri;
+    fn source_of(container: &Value, file_key: &str, url_key: &str) -> Option<MediaSource> {
+        if let Some(file) = container.get(file_key).filter(|f| f.is_object()) {
+            return serde_json::from_value::<EncryptedFile>(file.clone())
+                .ok()
+                .map(|f| MediaSource::Encrypted(Box::new(f)));
+        }
+        container
+            .get(url_key)
+            .and_then(|u| u.as_str())
+            .filter(|u| u.starts_with("mxc://") && u.len() > "mxc://".len())
+            .map(|u| MediaSource::Plain(OwnedMxcUri::from(u)))
+    }
+    let content = value.get("content")?;
+    let source = source_of(content, "file", "url")?;
+    let info = content.get("info");
+    let thumbnail = info.and_then(|i| source_of(i, "thumbnail_file", "thumbnail_url"));
+    let filename = content
+        .get("filename")
+        .or_else(|| content.get("body"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_owned();
+    let mimetype = info
+        .and_then(|i| i.get("mimetype"))
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+    let declared_size = info.and_then(|i| i.get("size")).and_then(|v| v.as_u64());
+    Some(crate::timeline::StoredMedia { source, thumbnail, filename, mimetype, declared_size })
+}
+
 pub(crate) fn classify(value: &Value) -> Scanned {
     let mut out = Scanned::default();
     let type_str = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -523,6 +567,41 @@ mod tests {
         assert_eq!(scanned.entries[0].body, "look at this");
         assert_eq!(scanned.entries[0].filename, "holiday.png");
     }
+
+    #[test]
+    fn an_encrypted_attachment_registers_its_key_material_and_its_thumbnail() {
+        use matrix_sdk::ruma::events::room::MediaSource;
+        let value = serde_json::json!({
+            "type": "m.room.message", "event_id": "$enc", "sender": "@a:x",
+            "content": {
+                "msgtype": "m.image", "body": "pins.png",
+                "file": { "url": "mxc://example.org/enc", "key": { "kty": "oct", "key_ops": ["encrypt","decrypt"], "alg": "A256CTR", "k": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "ext": true }, "iv": "AAAAAAAAAAAAAAAAAAAAAA", "hashes": { "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }, "v": "v2" },
+                "info": { "mimetype": "image/png", "size": 1234,
+                          "thumbnail_file": { "url": "mxc://example.org/encthumb", "key": { "kty": "oct", "key_ops": ["encrypt","decrypt"], "alg": "A256CTR", "k": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "ext": true }, "iv": "AAAAAAAAAAAAAAAAAAAAAA", "hashes": { "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }, "v": "v2" } }
+            }
+        });
+        let media = stored_media_from_event(&value).expect("an image registers");
+        assert!(matches!(media.source, MediaSource::Encrypted(_)), "the key material must travel");
+        assert!(matches!(media.thumbnail, Some(MediaSource::Encrypted(_))));
+        assert_eq!(media.filename, "pins.png");
+        assert_eq!(media.mimetype.as_deref(), Some("image/png"));
+        assert_eq!(media.declared_size, Some(1234));
+    }
+
+    #[test]
+    fn a_plain_attachment_registers_plain_sources_and_text_registers_nothing() {
+        use matrix_sdk::ruma::events::room::MediaSource;
+        let plain = serde_json::json!({ "event_id": "$p", "content": {
+            "msgtype": "m.image", "body": "a.png", "url": "mxc://example.org/plain",
+            "info": { "thumbnail_url": "mxc://example.org/plainthumb" } } });
+        let media = stored_media_from_event(&plain).expect("registers");
+        assert!(matches!(media.source, MediaSource::Plain(_)));
+        assert!(matches!(media.thumbnail, Some(MediaSource::Plain(_))));
+        let text = serde_json::json!({ "event_id": "$t", "content": { "msgtype": "m.text", "body": "hi" } });
+        assert!(stored_media_from_event(&text).is_none());
+        let bogus = serde_json::json!({ "event_id": "$b", "content": { "msgtype": "m.image", "body": "x", "url": "https://not-mxc/" } });
+        assert!(stored_media_from_event(&bogus).is_none(), "only mxc sources register");
+    }
 }
 
 /// Where a room's independent backwards walk has reached.
@@ -537,4 +616,5 @@ pub(crate) struct Cursor {
     pub exhausted: bool,
     pub scanned_total: u64,
     pub undecryptable_total: u64,
+
 }

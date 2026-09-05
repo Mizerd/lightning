@@ -4829,6 +4829,50 @@ Item {
                                                 }
                                             }
                                         }
+                                        // A tenth swatch for ANY colour: the nine slots are the theme's own
+                                        // inks, and a colour that is none of them shows here with the ring.
+                                        // Tapping it opens the picker below; nothing is sent until Apply, since
+                                        // the picker reports every drag step and each set is a server write.
+                                        Rectangle {
+                                            id: nameColorCustomSwatch
+                                            objectName: "nameColorCustomSwatch"
+                                            implicitWidth: 30
+                                            implicitHeight: 30
+                                            radius: 15
+                                            readonly property bool ownIsCustom: {
+                                                const own = app.nameColors.ownColor.toLowerCase()
+                                                if (own.length === 0) return false
+                                                for (let i = 0; i < 9; ++i)
+                                                    if (String(AppTheme.nameInkForSlot(i)).toLowerCase() === own)
+                                                        return false
+                                                return true
+                                            }
+                                            color: ownIsCustom ? app.nameColors.ownColor : AppTheme.stormPanel
+                                            border.width: ownIsCustom ? 3 : 1
+                                            border.color: ownIsCustom ? AppTheme.stormText : AppTheme.stormBorderStrong
+                                            Icon {
+                                                anchors.centerIn: parent
+                                                name: "add"
+                                                size: 16
+                                                color: AppTheme.stormText
+                                                visible: !nameColorCustomSwatch.ownIsCustom
+                                            }
+                                            Accessible.role: Accessible.Button
+                                            Accessible.name: qsTr("Custom colour")
+                                            ToolTip.text: qsTr("Custom colour…")
+                                            ToolTip.visible: customHover.hovered
+                                            ToolTip.delay: 600
+                                            HoverHandler { id: customHover }
+                                            TapHandler {
+                                                onTapped: {
+                                                    nameColorPicker.draft = app.nameColors.ownColor.length > 0
+                                                        ? app.nameColors.ownColor
+                                                        : String(AppTheme.nameInkForSlot(0))
+                                                    nameColorPicker.selectedColor = nameColorPicker.draft
+                                                    nameColorPicker.open = !nameColorPicker.open
+                                                }
+                                            }
+                                        }
                                         Item { Layout.fillWidth: true }
                                         AppButton {
                                             objectName: "clearNameColorButton"
@@ -4838,6 +4882,68 @@ Item {
                                             enabled: !app.nameColors.busy
                                                      && app.nameColors.ownColor.length > 0
                                             onClicked: app.nameColors.setOwnColor("")
+                                        }
+                                    }
+                                    // The custom picker, inline like the theme editor's, hidden until the
+                                    // tenth swatch opens it. `draft` is what the picker currently shows;
+                                    // Apply is the one write.
+                                    ColorPickerPanel {
+                                        id: nameColorPicker
+                                        objectName: "nameColorPicker"
+                                        property bool open: false
+                                        property string draft: ""
+                                        Layout.fillWidth: true
+                                        visible: open
+                                        title: qsTr("Custom name colour")
+                                        subtitle: qsTr("Any colour. Other people see it adjusted to stay readable on their theme.")
+                                        suggestions: {
+                                            const out = []
+                                            for (let i = 0; i < 9; ++i)
+                                                out.push(String(AppTheme.nameInkForSlot(i)))
+                                            return out
+                                        }
+                                        function toHex(c) {
+                                            function two(v) {
+                                                const s = Math.round(v * 255).toString(16).toUpperCase()
+                                                return s.length < 2 ? "0" + s : s
+                                            }
+                                            return "#" + two(c.r) + two(c.g) + two(c.b)
+                                        }
+                                        onPicked: (value) => draft = toHex(value)
+                                        onClosed: open = false
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        visible: nameColorPicker.open
+                                        spacing: AppTheme.spacing8
+                                        Rectangle {
+                                            implicitWidth: 30
+                                            implicitHeight: 30
+                                            radius: 15
+                                            color: nameColorPicker.draft.length > 0 ? nameColorPicker.draft : "transparent"
+                                            border.width: 1
+                                            border.color: AppTheme.stormBorderStrong
+                                        }
+                                        Label {
+                                            objectName: "nameColorDraftLabel"
+                                            text: nameColorPicker.draft
+                                            color: AppTheme.stormTextSecondary
+                                            font.family: AppTheme.monoFont
+                                            font.pixelSize: AppTheme.textMeta
+                                        }
+                                        Item { Layout.fillWidth: true }
+                                        AppButton {
+                                            objectName: "applyNameColorButton"
+                                            storm: true
+                                            text: qsTr("Apply")
+                                            enabled: !app.nameColors.busy && nameColorPicker.draft.length > 0
+                                                     && nameColorPicker.draft.toLowerCase() !== app.nameColors.ownColor.toLowerCase()
+                                            onClicked: app.nameColors.setOwnColor(nameColorPicker.draft)
+                                        }
+                                        AppButton {
+                                            storm: true
+                                            text: qsTr("Cancel")
+                                            onClicked: nameColorPicker.open = false
                                         }
                                     }
                                     Label {

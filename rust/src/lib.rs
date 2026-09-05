@@ -7252,6 +7252,7 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
         let room = client.get_room(&parsed).ok_or_else(|| "unknown room".to_owned())?;
         let events = Arc::clone(&bridge.events);
         let cursors = Arc::clone(&bridge.media_history);
+        let timelines = Arc::clone(&bridge.timelines);
         let encrypted_room = room.encryption_state().is_encrypted();
         // Clamped: the panel asks for a screenful, and an unbounded limit is
         // one request that can stall the walk for a very long time.
@@ -7307,6 +7308,19 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
                         let found = mediahistory::classify(&value);
                         if found.undecryptable {
                             undecryptable += 1;
+                        }
+                        // Register the attachment's sources under its event
+                        // id, the way the timeline does for its own rows, so
+                        // the browser's tiles fetch (and decrypt) through the
+                        // registry instead of asking the server to thumbnail
+                        // ciphertext.
+                        if !found.entries.is_empty() {
+                            if let (Some(media), Some(event_id)) = (
+                                mediahistory::stored_media_from_event(&value),
+                                value.get("event_id").and_then(|v| v.as_str()),
+                            ) {
+                                timelines.remember_media(event_id.to_owned(), media);
+                            }
                         }
                         for entry in found.entries {
                             entries.push(entry.to_json());

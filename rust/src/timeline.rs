@@ -285,7 +285,7 @@ impl TimelineRegistry {
     }
 
     /// Record a media source captured during item serialization.
-    fn remember_media(&self, key: String, media: StoredMedia) {
+    pub(crate) fn remember_media(&self, key: String, media: StoredMedia) {
         if key.is_empty() {
             return;
         }

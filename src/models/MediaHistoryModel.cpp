@@ -80,6 +80,7 @@ QHash<int, QByteArray> MediaHistoryModel::roleNames() const
         { DurationMsRole, "durationMs" },
         { MxcRole, "mxc" },
         { ThumbnailMxcRole, "thumbnailMxc" },
+        { MediaKeyRole, "mediaKey" },
         { EncryptedRole, "encrypted" },
         { UrlRole, "url" },
         { HostRole, "host" },
@@ -106,6 +107,7 @@ QVariant MediaHistoryModel::data(const QModelIndex &index, int role) const
     case DurationMsRole: return e.durationMs;
     case MxcRole: return e.mxc;
     case ThumbnailMxcRole: return e.thumbnailMxc;
+    case MediaKeyRole: return e.mediaKey;
     case EncryptedRole: return e.encrypted;
     case UrlRole: return e.url;
     case HostRole: return e.host;
@@ -228,6 +230,7 @@ QVariantMap MediaHistoryModel::entryAt(int row) const
         { QStringLiteral("size"), e.size },
         { QStringLiteral("mxc"), e.mxc },
         { QStringLiteral("thumbnailMxc"), e.thumbnailMxc },
+        { QStringLiteral("mediaKey"), e.mediaKey },
         { QStringLiteral("encrypted"), e.encrypted },
         { QStringLiteral("url"), e.url },
         { QStringLiteral("host"), e.host },
@@ -293,6 +296,7 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
         e.durationMs = row.value(QStringLiteral("durationMs")).toLongLong();
         e.mxc = row.value(QStringLiteral("mxc")).toString();
         e.thumbnailMxc = row.value(QStringLiteral("thumbnailMxc")).toString();
+        e.mediaKey = row.value(QStringLiteral("mediaKey")).toString();
         e.encrypted = row.value(QStringLiteral("encrypted")).toBool();
         e.host = row.value(QStringLiteral("host")).toString();
         added.append(e);

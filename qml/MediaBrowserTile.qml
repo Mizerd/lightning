@@ -20,6 +20,7 @@ Item {
     required property string filename
     required property string mxc
     required property string thumbnailMxc
+    required property string mediaKey
     required property bool encrypted
     required property string sender
     required property string eventId
@@ -36,6 +37,14 @@ Item {
         var _ = tile.resolveTick
         if (!visual || !app.mediaBridge.supported)
             return ""
+        // Through the media REGISTRY, keyed like a timeline row, whenever the
+        // scanner registered one: that is the only path that can decrypt an
+        // encrypted attachment's thumbnail. Asking the server for a thumbnail
+        // of an encrypted mxc is impossible, and every tile in an encrypted
+        // room failed with "network" (reported with a screenshot). The mxc
+        // path below stays for a row the scanner could not register.
+        if (tile.mediaKey.length > 0)
+            return app.mediaBridge.mediaSource(tile.mediaKey, "list_thumb")
         var uri = tile.thumbnailMxc.length > 0 ? tile.thumbnailMxc
                                                : (kind === "image" ? tile.mxc : "")
         return uri.length > 0 ? app.mediaBridge.mxcImageSource(uri, 256) : ""

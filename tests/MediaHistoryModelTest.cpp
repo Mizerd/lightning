@@ -185,6 +185,30 @@ private Q_SLOTS:
 
     // A page for a room the panel has moved away from must not land. The
     // panel can be pointed at another room while a request is in flight.
+    // Every tile fetches through the media registry when the scanner
+    // registered a key for it — the only path that can decrypt an encrypted
+    // attachment's thumbnail. The key rides the row as `mediaKey`; a row
+    // without one keeps the plain mxc route.
+    void theRegistryKeyRidesTheRow()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!r:example.org"));
+        QVariantMap keyed = entry(QStringLiteral("$enc"), QStringLiteral("image"));
+        keyed.insert(QStringLiteral("mediaKey"), QStringLiteral("$enc"));
+        keyed.insert(QStringLiteral("encrypted"), true);
+        const QVariantList page = { keyed, entry(QStringLiteral("$plain"), QStringLiteral("image")) };
+        Q_EMIT client.mediaHistoryPage(0, QStringLiteral("!r:example.org"),
+                                       page, 2, 2, 0, false, false);
+        QCOMPARE(model.loadedCount(), 2);
+        QCOMPARE(model.data(model.index(0), MediaHistoryModel::MediaKeyRole).toString(),
+                 QStringLiteral("$enc"));
+        QVERIFY(model.roleNames().values().contains(QByteArray("mediaKey")));
+        QVERIFY(model.data(model.index(1), MediaHistoryModel::MediaKeyRole).toString().isEmpty());
+    }
+
     void aPageForAnotherRoomIsIgnored()
     {
         MockMatrixClient client;

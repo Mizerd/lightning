@@ -86,6 +86,7 @@ public:
         MxcRole,
         ThumbnailMxcRole,
         EncryptedRole,
+        MediaKeyRole,
         UrlRole,
         HostRole,
         /// "Today" / "Yesterday" / "This week" / "March 2026" / "Older",
@@ -157,6 +158,9 @@ private:
         qint64 durationMs = 0;
         QString mxc;
         QString thumbnailMxc;
+        /// The media registry key a tile fetches through — the event id, as
+        /// the Rust scanner registered it. Empty for rows without a source.
+        QString mediaKey;
         bool encrypted = false;
         QString url;
         QString host;

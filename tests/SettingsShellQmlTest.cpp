@@ -10,6 +10,7 @@
 
 #include <QtTest/QtTest>
 
+#include <QColor>
 #include <QGuiApplication>
 #include <QImage>
 #include <QQmlApplicationEngine>
@@ -768,6 +769,42 @@ private slots:
                      "Escape no longer reaches the timeline's own shortcut");
         QCOMPARE(int(m_controller->currentScreen()),
                  int(AppController::MainScreen));
+    }
+
+    // "add an option for custom display name color, not just a few premade
+    // options": a tenth swatch opens the colour picker, and Apply is the one
+    // server write — the picker reports every drag step. The written value
+    // must be a colour that is none of the nine slots.
+    void aCustomNameColourReachesTheServerOnApply()
+    {
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        m_controller->showSettingsSection(QStringLiteral("account"));
+        QCoreApplication::processEvents();
+        auto *swatch = item("nameColorCustomSwatch");
+        QVERIFY2(swatch, "the custom swatch is missing beside the nine");
+        auto *picker = item("nameColorPicker");
+        QVERIFY(picker);
+        QVERIFY(!picker->isVisible());
+        clickItem(swatch);
+        QTRY_VERIFY(picker->isVisible());
+        // The picker's own signal, as a drag would raise it.
+        QVERIFY(QMetaObject::invokeMethod(picker, "picked",
+                                          Q_ARG(QColor, QColor(0x12, 0x34, 0x56))));
+        QCoreApplication::processEvents();
+        QCOMPARE(picker->property("draft").toString(), QStringLiteral("#123456"));
+        QVERIFY2(mock->mockNameColors.value(mock->currentUserId()).isEmpty(),
+                 "nothing may be written before Apply");
+        auto *apply = item("applyNameColorButton");
+        QVERIFY(apply);
+        QTRY_VERIFY(apply->isEnabled());
+        clickItem(apply);
+        QTRY_COMPARE(mock->mockNameColors.value(mock->currentUserId()),
+                     QStringLiteral("#123456"));
+        // Leave the shell on the main screen for the cases that follow.
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        m_controller->showMain();
+        QCoreApplication::processEvents();
     }
 
     void openSettingsFromRoomInfoClearsThePanel()

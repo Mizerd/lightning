@@ -499,6 +499,22 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
 
 ### Settings, usability, and accessibility
 
+- **Media browser tiles fetch through the media registry** (2026-09-05).
+  The history scanner registers every attachment's sources under its event
+  id — the same `StoredMedia` record and key the timeline registers for its
+  own rows (`mediahistory::stored_media_from_event`, `TimelineRegistry::
+  remember_media`) — and the row carries `mediaKey`, which the tile hands to
+  `mediaBridge.mediaSource(key, "list_thumb")`. That is the only path that
+  can decrypt an encrypted attachment's thumbnail: the old tile asked the
+  server to thumbnail an encrypted mxc, which is impossible, and every tile
+  in an encrypted room failed with `category=network` (reported with a
+  screenshot from the 0.9.0 AppImage and reproduced in the source build).
+  The plain mxc route stays for a row the scanner could not register.
+- **A custom display-name colour** (2026-09-05): a tenth swatch beside the
+  nine theme inks opens the theme editor's `ColorPickerPanel` inline; the
+  picker reports every drag step, so nothing is written until **Apply**, the
+  one `setOwnColor` call. Readers still see it through
+  `IdentityPalette.legibleChoice`, adjusted for their theme.
 - **Settings is built once and kept** (2026-09-05). `Main.qml`'s loader used
   to follow the current screen, so the 7,000-line screen was instantiated on
   every open and destroyed on every close — measured with
