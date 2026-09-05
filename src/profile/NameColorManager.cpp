@@ -15,7 +15,8 @@ bool isColour(const QString &value)
 }
 } // namespace
 
-NameColorManager::NameColorManager(QObject *parent) : QObject(parent) {}
+NameColorManager::NameColorManager(QObject *parent) : QObject(parent) {
+    m_clock.start();}
 
 void NameColorManager::setClient(MatrixClient *client)
 {
@@ -36,6 +37,7 @@ void NameColorManager::setClient(MatrixClient *client)
         const QString expected = m_pending.take(opId);
         if (expected.isEmpty() || expected != userId)
             return;   // not ours, or an answer for another account's user
+        m_inFlight.remove(userId);
         setSupported(supported);
         // "" is a real answer — this user chose no colour — and it is stored
         // as one so the fetch is not repeated on every binding evaluation.
@@ -92,14 +94,30 @@ QString NameColorManager::colorFor(const QString &userId)
 {
     if (userId.isEmpty() || !available() || !m_supported)
         return {};
-    if (m_asked.contains(userId))
+    if (m_asked.contains(userId)) {
+        // REFRESH, BOUNDED. A colour someone changed while this client ran
+        // used to stay cached for the whole session ("others need to restart
+        // their client to see the new colour"). Past the interval the next
+        // read re-asks — once, never while an ask is in flight — and keeps
+        // serving the cached answer; a changed reply bumps the revision.
+        if (m_refreshMs >= 0 && !m_inFlight.contains(userId)
+            && m_clock.elapsed() - m_askedAt.value(userId) >= m_refreshMs) {
+            m_askedAt.insert(userId, m_clock.elapsed());
+            m_inFlight.insert(userId);
+            const quint64 op = m_nextOp++;
+            m_pending.insert(op, userId);
+            m_client->fetchNameColor(userId, op);
+        }
         return m_colors.value(userId);
+    }
     // FIRST CALL DISPATCHES. This is reached from a binding that re-evaluates
     // for every name on screen, so the ask must happen exactly once per user
     // — m_asked is inserted BEFORE the request, not in the reply, or a
     // timeline of thirty messages from one sender dispatches thirty fetches
     // before the first answer lands.
     m_asked.insert(userId);
+    m_askedAt.insert(userId, m_clock.elapsed());
+    m_inFlight.insert(userId);
     const quint64 op = m_nextOp++;
     m_pending.insert(op, userId);
     m_client->fetchNameColor(userId, op);
@@ -127,6 +145,8 @@ void NameColorManager::clear()
 {
     m_colors.clear();
     m_asked.clear();
+    m_askedAt.clear();
+    m_inFlight.clear();
     m_pending.clear();
     m_pendingSet = 0;
     m_lastError.clear();

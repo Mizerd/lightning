@@ -64,6 +64,48 @@ private Q_SLOTS:
     // "This user has no colour" is an ANSWER and must be remembered as one.
     // Storing only non-empty replies would re-ask forever for exactly the
     // users who are most common — the ones who never set a colour.
+    // "make sure others don't need to restart their client to see the new
+    // colour": past the refresh interval the next read re-asks, exactly once,
+    // keeps serving the cached answer meanwhile, and a CHANGED reply bumps
+    // the revision every name binding depends on.
+    void aChangedColourReachesARunningClientOnTheNextRead()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.mockNameColors.insert(QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("#aabbcc"));
+        NameColorManager manager;
+        manager.setClient(&client);
+        // A long interval for the first answer, so the waits below dispatch
+        // nothing of their own; then zero, so the next read is past it.
+        manager.setRefreshIntervalForTest(60 * 1000);
+        QSignalSpy revisions(&manager, &NameColorManager::revisionChanged);
+
+        manager.colorFor(QStringLiteral("@bob:mock.local"));
+        QCOMPARE(client.nameColorFetches, 1);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            manager.colorFor(QStringLiteral("@bob:mock.local")),
+            QStringLiteral("#aabbcc"), kSignalTimeoutMs);
+        const int fetchesAfterFirstAnswer = client.nameColorFetches;
+        const int revisionsAfterFirstAnswer = revisions.count();
+        manager.setRefreshIntervalForTest(0);
+
+        // Bob picks a new colour on his own client. The next read here
+        // re-asks once — the reads in between, while it is in flight, do not.
+        client.mockNameColors.insert(QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("#123456"));
+        QCOMPARE(manager.colorFor(QStringLiteral("@bob:mock.local")),
+                 QStringLiteral("#aabbcc"));   // cached answer served meanwhile
+        manager.colorFor(QStringLiteral("@bob:mock.local"));
+        manager.colorFor(QStringLiteral("@bob:mock.local"));
+        QCOMPARE(client.nameColorFetches, fetchesAfterFirstAnswer + 1);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            manager.colorFor(QStringLiteral("@bob:mock.local")),
+            QStringLiteral("#123456"), kSignalTimeoutMs);
+        QVERIFY2(revisions.count() > revisionsAfterFirstAnswer,
+                 "a changed colour must bump the revision the bindings read");
+    }
+
     void aUserWithNoColourIsNotAskedAboutAgain()
     {
         MockMatrixClient client;

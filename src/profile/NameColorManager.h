@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
 #include <QSet>
@@ -68,6 +69,11 @@ public:
     Q_INVOKABLE QString colorFor(const QString &userId);
     /// Set or clear (empty) the local account's colour.
     Q_INVOKABLE void setOwnColor(const QString &value);
+    /// How long a fetched colour is trusted before the next read of it
+    /// re-asks the server (default five minutes). A changed answer bumps
+    /// `revision`, so every name on screen follows without a restart; an
+    /// unchanged one changes nothing. Tests set 0 to make every read re-ask.
+    void setRefreshIntervalForTest(int ms) { m_refreshMs = ms; }
     /// Drop everything — a new account must not inherit the last one's map.
     void clear();
 
@@ -89,6 +95,13 @@ private:
     // "no colour" is remembered as an ANSWER and not re-asked forever.
     QSet<QString> m_asked;
     QHash<quint64, QString> m_pending;
+    // When each user was last asked (m_clock ms) and who has an ask in
+    // flight — a refresh re-asks at most once per interval, never twice at
+    // once, and the cached answer is served meanwhile.
+    QHash<QString, qint64> m_askedAt;
+    QSet<QString> m_inFlight;
+    QElapsedTimer m_clock;
+    int m_refreshMs = 5 * 60 * 1000;
     quint64 m_nextOp = 1;
     quint64 m_pendingSet = 0;
     int m_revision = 0;
