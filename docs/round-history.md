@@ -206,6 +206,14 @@ contract, the refutation rule and the probe rule are in the standing warnings.
   needs a read on the maintainer's desktop. Withdrawing a shown balloon on
   Windows or macOS is not possible through Qt; that needs the native toast
   APIs, recorded as the follow-up.
+- **Favourites rank again.** "favoriting a room should raise it to the top
+  in channels mode" and "no favorite tab exists in classic mode". Channels
+  sorts a favourite first within its group; Classic gives favourites a rank
+  and a "Favourites" header between the invites and the feed, which REVERSES
+  the 2026-08 decision that a star should not buy rank (a starred room
+  frozen above live traffic) — the maintainer asked for Element's shape, and
+  the retired `favouritesBoundaryRoomId` stays retired because the header
+  now separates the groups.
 - **Minimising popped the call out.** The automatic picture-in-picture
   (desktop-integration round) fired on every minimise and every close to the
   tray, and it shipped ON. A window appearing on its own for a reader who

@@ -77,7 +77,10 @@ backend capability checks and honest live-test status.
   Conversation list), plus the Spaces rail above both. Full contract in
   `docs/navigation-layouts.md`; read it before touching any of this. The
   load-bearing parts:
-  * **Classic** — one activity-ordered conversation list. The default and the
+  * **Classic** — one activity-ordered conversation list: invites, then
+    **Favourites under a header of their own** (Element's shape, restored
+    2026-09-05 at Rokas's request after the 2026-08 round had retired the
+    group so a star would not buy rank), then the feed. The default and the
     clamp target for an out-of-range stored value, because it works in an
     account with no Spaces at all.
   * **Channels** — Sable's model, reworked 2026-08-26 into THREE VIEWS the
@@ -800,6 +803,9 @@ the first account's client, which is the cross-user claim.
 - The "Voice connected" bar in the navigation column keeps its four buttons
   inside itself at the column's floor: the status text is the part that
   yields (elides), never the hang-up button.
+- In Channels a favourite sorts FIRST within its group — Home's Rooms and
+  Direct Messages, the tab's Chats, a Space's rooms and People — and recency
+  orders the rest; the group structure is untouched.
 - A Channels room row carries a favourite star between the name and the
   call glyph: filled while the room is a favourite, an empty outline while
   the row is hovered, and a click toggles the `m.favourite` tag (the same

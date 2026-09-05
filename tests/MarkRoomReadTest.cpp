@@ -26,6 +26,7 @@
 #include "matrix/MatrixClient.h"
 #include "models/RoomListModel.h"
 
+#include <QTimeZone>
 #include <QtTest/QtTest>
 
 namespace {
@@ -127,6 +128,45 @@ private Q_SLOTS:
     // The regression. With an empty loaded timeline — the normal state of
     // every room that is not open — the old code sent nothing at all. It
     // must now reach the backend that can resolve the event itself.
+    // 2026-09-05, "no favorite tab exists in classic mode, it just says added
+    // to favorite": a favourite ranks above the feed under a header of its
+    // own — Element's shape — with invites still first and recency ordering
+    // each rank. An invite cannot carry a tag, so a favourite flag on one
+    // changes nothing.
+    void aFavouriteRanksAboveTheFeedUnderItsOwnHeader()
+    {
+        CapableClient client;
+        RoomInfo busy = makeRoom(QStringLiteral("!busy:x"));
+        busy.lastActivity =
+            QDateTime(QDate(2026, 9, 5), QTime(12, 0), QTimeZone::UTC);
+        RoomInfo quiet = makeRoom(QStringLiteral("!quiet:x"));
+        quiet.lastActivity = busy.lastActivity.addSecs(-3600);
+        quiet.isFavourite = true;
+        RoomInfo pending = makeRoom(QStringLiteral("!invite:x"));
+        pending.membership = RoomInfo::Invited;
+        pending.isFavourite = true;
+        client.roomSet = { busy, quiet, pending };
+        RoomListModel model;
+        model.setClient(&client);
+        Q_EMIT client.roomsChanged();
+
+        QCOMPARE(model.rowCount(), 3);
+        auto idAt = [&](int row) {
+            return model.data(model.index(row), RoomListModel::RoomIdRole).toString();
+        };
+        auto categoryAt = [&](int row) {
+            return model.data(model.index(row), RoomListModel::CategoryRole).toString();
+        };
+        QCOMPARE(idAt(0), QStringLiteral("!invite:x"));
+        QCOMPARE(categoryAt(0), QStringLiteral("invite"));
+        QCOMPARE(idAt(1), QStringLiteral("!quiet:x"));
+        QCOMPARE(categoryAt(1), QStringLiteral("favourite"));
+        QCOMPARE(idAt(2), QStringLiteral("!busy:x"));
+        QCOMPARE(categoryAt(2), QStringLiteral("conversation"));
+        QCOMPARE(RoomListModel::orderRankOf(quiet), 1);
+        QCOMPARE(RoomListModel::orderRankOf(busy), 2);
+    }
+
     void closedRoomIsMarkedReadThroughTheCapableBackend()
     {
         CapableClient client;

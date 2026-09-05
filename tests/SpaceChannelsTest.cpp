@@ -253,6 +253,7 @@ private Q_SLOTS:
     void directMessageChatsAreNewestFirst();
     void aSpacesRoomsAreNewestFirstNotInChildOrder();
     void aRoomMovesWhenSomebodySpeaksInIt();
+    void aFavouriteRisesToTheTopOfItsGroup();
     // THE DIRECT MESSAGES TAB MUST SURVIVE A SPACE-LIST REBUILD.
     //
     // SpaceManager drops the active scope when it is not a joined Space, which
@@ -1593,6 +1594,39 @@ void SpaceChannelsTest::directMessageChatsAreNewestFirst()
     QVERIFY2(names.indexOf(QStringLiteral("Zoe"))
                  < names.indexOf(QStringLiteral("Ada")),
              "People chats are still alphabetical, not newest-first");
+}
+
+// 2026-09-05: "favoriting a room should raise it to the top in channels
+// mode". Within its group — Home's Rooms, Home's Direct Messages, the tab's
+// Chats, a Space's rooms — a favourite sorts first, and recency decides the
+// rest. Named so recency alone gives the OPPOSITE order.
+void SpaceChannelsTest::aFavouriteRisesToTheTopOfItsGroup()
+{
+    Fixture f;
+    auto quiet = room(QStringLiteral("!quiet:x"), QStringLiteral("Quiet"));
+    quiet.lastActivity = ago(900);
+    quiet.isFavourite = true;
+    auto busy = room(QStringLiteral("!busy:x"), QStringLiteral("Busy"));
+    busy.lastActivity = ago(10);
+    auto oldDm = dm(QStringLiteral("!olddm:x"), QStringLiteral("Old friend"));
+    oldDm.lastActivity = ago(900);
+    oldDm.isFavourite = true;
+    auto newDm = dm(QStringLiteral("!newdm:x"), QStringLiteral("New friend"));
+    newDm.lastActivity = ago(10);
+    f.build({ quiet, busy, oldDm, newDm });
+
+    f.selectHome();
+    QStringList names = namesOf(f.model);
+    QVERIFY2(names.indexOf(QStringLiteral("Quiet")) < names.indexOf(QStringLiteral("Busy")),
+             "a favourite room did not rise above a busier one at Home");
+    QVERIFY2(names.indexOf(QStringLiteral("Old friend"))
+                 < names.indexOf(QStringLiteral("New friend")),
+             "a favourite DM did not rise above a busier one in Home's group");
+
+    f.selectPeople();
+    names = namesOf(f.model);
+    QVERIFY(names.indexOf(QStringLiteral("Old friend"))
+            < names.indexOf(QStringLiteral("New friend")));
 }
 
 void SpaceChannelsTest::aSpacesRoomsAreNewestFirstNotInChildOrder()

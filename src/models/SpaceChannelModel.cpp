@@ -38,6 +38,13 @@ bool SpaceChannelModel::byRecency(const Row &a, const Row &b)
                                     b.lastActivity, b.name, b.id);
 }
 
+bool SpaceChannelModel::byFavouriteThenRecency(const Row &a, const Row &b)
+{
+    if (a.favourite != b.favourite)
+        return a.favourite;
+    return byRecency(a, b);
+}
+
 bool SpaceChannelModel::Row::operator==(const Row &other) const
 {
     return id == other.id && name == other.name && kind == other.kind
@@ -649,8 +656,8 @@ int SpaceChannelModel::buildHome(QVector<Row> &rows,
     // it, so the thing you were looking for never moved to where you were
     // looking.
     std::sort(invites.begin(), invites.end(), byRecency);
-    std::sort(unparented.begin(), unparented.end(), byRecency);
-    std::sort(directs.begin(), directs.end(), byRecency);
+    std::sort(unparented.begin(), unparented.end(), byFavouriteThenRecency);
+    std::sort(directs.begin(), directs.end(), byFavouriteThenRecency);
 
     int shown = 0;
     if (!invites.isEmpty()) {
@@ -701,7 +708,7 @@ int SpaceChannelModel::buildPeople(QVector<Row> &rows,
     }
     // Chats newest first, like every other conversation list here.
     std::sort(invites.begin(), invites.end(), byRecency);
-    std::sort(chats.begin(), chats.end(), byRecency);
+    std::sort(chats.begin(), chats.end(), byFavouriteThenRecency);
 
     int shown = 0;
     if (!invites.isEmpty()) {
@@ -785,7 +792,7 @@ int SpaceChannelModel::buildSpace(QVector<Row> &rows,
         // only the order inside a group is. m.space.child order is the
         // Space admin's idea of importance, which is not the same question as
         // where the conversation is.
-        std::sort(children.begin(), children.end(), byRecency);
+        std::sort(children.begin(), children.end(), byFavouriteThenRecency);
         shown += appendGroup(rows, header, children);
     }
     shown += appendSpacePeople(rows, byId);
@@ -850,7 +857,7 @@ int SpaceChannelModel::appendSpacePeople(QVector<Row> &rows,
     if (people.isEmpty())
         return 0;
     // A Space's People are conversations too, so they follow the same rule.
-    std::sort(people.begin(), people.end(), byRecency);
+    std::sort(people.begin(), people.end(), byFavouriteThenRecency);
     Row header;
     header.id = spacePeopleGroupId();
     header.kind = GroupKind;

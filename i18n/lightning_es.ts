@@ -396,7 +396,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+814"/>
+        <location filename="../src/app/AppController.cpp" line="+820"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -555,12 +555,12 @@
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2318"/>
+        <location line="+2332"/>
         <source>Not signed in.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-2316"/>
+        <location line="-2330"/>
         <source>Room-key import failed.</source>
         <translation>Falló la importación de claves de sala.</translation>
     </message>
@@ -770,7 +770,7 @@
         <translation>Borrar los datos locales de este dispositivo no lo solucionaría y destruiría claves de cifrado que todavía necesitas.</translation>
     </message>
     <message>
-        <location line="+415"/>
+        <location line="+429"/>
         <source>This backend cannot change your display name.</source>
         <translation>Este backend no puede cambiar tu nombre visible.</translation>
     </message>
@@ -6721,13 +6721,13 @@ Tamaño: %3</translation>
 <context>
     <name>NotificationManager</name>
     <message>
-        <location filename="../src/notifications/NotificationManager.cpp" line="+634"/>
-        <location line="+159"/>
+        <location filename="../src/notifications/NotificationManager.cpp" line="+639"/>
+        <location line="+210"/>
         <source>Open</source>
         <translation>Abrir</translation>
     </message>
     <message>
-        <location line="-154"/>
+        <location line="-205"/>
         <source>Mark as read</source>
         <translation type="unfinished">Marcar como leída</translation>
     </message>
@@ -6742,7 +6742,7 @@ Tamaño: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+149"/>
+        <location line="+200"/>
         <source>Decline</source>
         <translation>Rechazar</translation>
     </message>
@@ -6750,7 +6750,7 @@ Tamaño: %3</translation>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-532"/>
+        <location line="-586"/>
         <source>Matrix room</source>
         <translation>Sala de Matrix</translation>
     </message>
@@ -8586,12 +8586,12 @@ Tamaño: %3</translation>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+138"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+140"/>
         <source>Invites</source>
         <translation>Invitaciones</translation>
     </message>
     <message>
-        <location line="-91"/>
+        <location line="-93"/>
         <source>People</source>
         <translation>Personas</translation>
     </message>
@@ -8611,7 +8611,12 @@ Tamaño: %3</translation>
         <translation>Conversaciones</translation>
     </message>
     <message>
-        <location line="+168"/>
+        <location line="+92"/>
+        <source>Favourites</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+80"/>
         <source>Sign in to see rooms</source>
         <translation>Inicia sesión para ver tus salas</translation>
     </message>
@@ -13304,7 +13309,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+598"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+605"/>
         <source>Create Room</source>
         <translation>Crear habitación</translation>
     </message>
@@ -16044,7 +16049,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>TrayIcon</name>
     <message numerus="yes">
-        <location filename="../src/app/TrayIcon.cpp" line="+182"/>
+        <location filename="../src/app/TrayIcon.cpp" line="+186"/>
         <source>%n unread message(s)</source>
         <comment>system tray tooltip</comment>
         <translation>

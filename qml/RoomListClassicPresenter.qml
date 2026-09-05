@@ -122,11 +122,11 @@ Item {
                 // was re-typed inline in seven places across the app.
                 // These are the shared section-label tokens.
                 //
-                // categoryOf() now yields exactly two values — "invite"
+                // categoryOf() yields three values — "invite", "favourite"
                 // and "conversation" — because the joined rows below the
-                // invites are ONE activity feed with DMs and rooms
-                // interleaved. Splitting that by kind would repeat its
-                // header every time the two alternate, which in a list
+                // invites and the favourites are ONE activity feed with DMs
+                // and rooms interleaved. Splitting that by kind would repeat
+                // its header every time the two alternate, which in a list
                 // ordered by when people spoke is constantly.
                 //
                 // So the conversation section takes its name from the
@@ -134,9 +134,13 @@ Item {
                 // contains. Under "All" it says Conversations, because
                 // calling a list that holds both People or Rooms would be
                 // a lie about half of it.
+                // "favourite" is back as a section since 2026-09-05, at the
+                // maintainer's request: Element's shape.
                 text: section === "invite"
                       ? qsTr("Invites")
-                      : root.conversationSectionLabel
+                      : (section === "favourite"
+                         ? qsTr("Favourites")
+                         : root.conversationSectionLabel)
                 color: AppTheme.sectionLabelColor
                 font.family: AppTheme.menuSectionFont
                 font.pixelSize: AppTheme.menuSectionSize

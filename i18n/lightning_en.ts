@@ -396,7 +396,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+814"/>
+        <location filename="../src/app/AppController.cpp" line="+820"/>
         <source>Room invitation</source>
         <translation type="unfinished"></translation>
     </message>
@@ -555,12 +555,12 @@
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2318"/>
+        <location line="+2332"/>
         <source>Not signed in.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2316"/>
+        <location line="-2330"/>
         <source>Room-key import failed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -770,7 +770,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+415"/>
+        <location line="+429"/>
         <source>This backend cannot change your display name.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6719,13 +6719,13 @@ Size: %3</source>
 <context>
     <name>NotificationManager</name>
     <message>
-        <location filename="../src/notifications/NotificationManager.cpp" line="+634"/>
-        <location line="+159"/>
+        <location filename="../src/notifications/NotificationManager.cpp" line="+639"/>
+        <location line="+210"/>
         <source>Open</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-154"/>
+        <location line="-205"/>
         <source>Mark as read</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6740,7 +6740,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+149"/>
+        <location line="+200"/>
         <source>Decline</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6748,7 +6748,7 @@ Size: %3</source>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-532"/>
+        <location line="-586"/>
         <source>Matrix room</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8584,12 +8584,12 @@ Size: %3</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+138"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+140"/>
         <source>Invites</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-91"/>
+        <location line="-93"/>
         <source>People</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8609,7 +8609,12 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+168"/>
+        <location line="+92"/>
+        <source>Favourites</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+80"/>
         <source>Sign in to see rooms</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13295,7 +13300,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+598"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+605"/>
         <source>Create Room</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16035,7 +16040,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TrayIcon</name>
     <message numerus="yes">
-        <location filename="../src/app/TrayIcon.cpp" line="+182"/>
+        <location filename="../src/app/TrayIcon.cpp" line="+186"/>
         <source>%n unread message(s)</source>
         <comment>system tray tooltip</comment>
         <translation>

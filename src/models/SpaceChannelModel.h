@@ -321,6 +321,10 @@ private:
     /// rooms that disagree about which is newer is a bug the user sees as
     /// rooms swapping places when they switch layout.
     static bool byRecency(const Row &a, const Row &b);
+    /// Favourites first within a group, then recency (2026-09-05: "favoriting
+    /// a room should raise it to the top in channels mode"). The group is
+    /// still the structure; the star only decides the order inside it.
+    static bool byFavouriteThenRecency(const Row &a, const Row &b);
 
     /// Cancels any queued rebuild before running, so that after this returns
     /// nothing armed under the previous state is still on its way. Every

@@ -503,9 +503,11 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded) con
         // past the entire People section. Favourites made it worse: starring
         // a conversation froze it above live traffic forever.
         //
-        // A favourite keeps its star and everything else it does; what it no
-        // longer gets is RANK, because a list sorted by importance-someone-
-        // declared-once is not a list of what is happening now.
+        // A favourite kept its star and lost its RANK under that reasoning;
+        // on 2026-09-05 the maintainer asked for Element's Favourites section
+        // back ("no favorite tab exists in classic mode"), so a favourite
+        // ranks above the feed again, under its own header. Within every
+        // rank the order is still recency.
         //
         // v0.7.x room upgrades: a room whose successor the user can reach
         // sorts BELOW every live room of the same rank. Deliberately a
@@ -755,21 +757,33 @@ int RoomListModel::orderRankOf(const RoomInfo &room)
     // joined cannot carry their tags anyway.
     if (room.membership == RoomInfo::Invited)
         return 0;
-    return 1;
+    // FAVOURITES NEXT, under a header of their own — Element's shape, at the
+    // maintainer's request (2026-09-05: "no favorite tab exists in classic
+    // mode, it just says added to favorite"). This reverses the 2026-08 call
+    // that a star should not buy rank; that reasoning (a starred room frozen
+    // above live traffic) is exactly what a Favourites section is for, and
+    // the person using the list asked for it.
+    if (room.isFavourite)
+        return 1;
+    return 2;
 }
 
 QString RoomListModel::categoryOf(const RoomInfo &room)
 {
-    // Two values, because there are two ranks. "conversation" covers DMs and
-    // rooms alike: they are interleaved by recency, so any finer split would
-    // repeat its header every time the two kinds alternate — which, in a list
-    // ordered by when people spoke, is constantly.
+    // Three values, because there are three ranks. "conversation" covers DMs
+    // and rooms alike: they are interleaved by recency, so any finer split
+    // would repeat its header every time the two kinds alternate — which, in
+    // a list ordered by when people spoke, is constantly. "favourite" is the
+    // one declared group above them (2026-09-05).
     //
     // The label a user reads is chosen by the presenter from the active
     // filter (People / Rooms / Unread / everything), because that is what the
     // section actually contains; the model does not need to know.
-    return orderRankOf(room) == 0 ? QStringLiteral("invite")
-                                  : QStringLiteral("conversation");
+    switch (orderRankOf(room)) {
+    case 0: return QStringLiteral("invite");
+    case 1: return QStringLiteral("favourite");
+    default: return QStringLiteral("conversation");
+    }
 }
 
 void RoomListModel::updateUnreadTotals()
