@@ -23,6 +23,7 @@
 #include "crypto/CryptoHealthModel.h"
 #include "crypto/CryptoManager.h"
 #include "crypto/QrImageProvider.h"
+#include "crypto/QrLoginController.h"
 #include "app/TrayIcon.h"
 #include "text/SpellChecker.h"
 
@@ -305,6 +306,8 @@ class AppController : public QObject
     Q_PROPERTY(EmojiCatalog* emojiCatalog READ emojiCatalog CONSTANT)
     Q_PROPERTY(MediaManager* media READ media CONSTANT)
     Q_PROPERTY(CryptoManager* crypto READ crypto CONSTANT)
+    // MSC4108: signing another device in from this one.
+    Q_PROPERTY(QrLoginController* qrLogin READ qrLogin CONSTANT)
     // v0.6.0 checkpoint 7: read-only E2EE health/readiness (app.cryptoHealth).
     Q_PROPERTY(CryptoHealthModel* cryptoHealth READ cryptoHealth CONSTANT)
     // v0.9 (phase 9): key-backup / recovery management (app.backup).
@@ -597,6 +600,7 @@ public:
     EmojiCatalog *emojiCatalog() const { return m_emojiCatalog.get(); }
     MediaManager *media() const;
     CryptoManager *crypto() const;
+    QrLoginController *qrLogin() const { return m_qrLogin.get(); }
     CryptoHealthModel *cryptoHealth() const { return m_cryptoHealth.get(); }
     QObject *backup() const;
     QObject *scheduledSends() const;
@@ -660,6 +664,9 @@ private:
     /// notices — into the client and composer. Called on change and on every
     /// client attachment, because a fresh bridge starts permissive.
     void applyPrivacyPreferences();
+    /// Push MSC4153 into the Rust process global. Read when a client is
+    /// BUILT, so this affects the next sign-in, never the live session.
+    void applyStrictDeviceTrust();
     /// Whether a notification action may act: the account it was raised for
     /// is still the live one. Refuses and tells the user otherwise — a card
     /// outlives its account, and acting under the wrong one is invisible.
@@ -1460,6 +1467,7 @@ private:
     // SDK-reported progress flags. `clearVerificationQr` is the single
     // point that drops both, and every flow-ending path calls it.
     QrCodeStore m_qrCodeStore;
+    std::unique_ptr<QrLoginController> m_qrLogin;
     StagedImageStore m_stagedImages;
     ImageCropper m_imageCrop;
     TrayIcon m_tray;

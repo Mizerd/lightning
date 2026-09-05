@@ -211,6 +211,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_timelineView = std::make_unique<ReverseListProxyModel>(this);
     m_timelineView->setSourceModel(m_timeline.get());
     m_composer     = std::make_unique<MessageComposer>(this);
+    // MSC4108. Given the SAME code store verification uses: both DISPLAY one
+    // code at a time, and a stale token renders nothing, so one slot is
+    // correct rather than merely convenient.
+    m_qrLogin      = std::make_unique<QrLoginController>(this);
+    m_qrLogin->setQrStore(&m_qrCodeStore);
     m_richComposer = std::make_unique<RichComposerBridge>(this);
     m_richComposer->setComposer(m_composer.get());
     // Clipboard images never become files, so their bytes are registered
@@ -240,6 +245,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     applyPrivacyPreferences();
     connect(m_settings.get(), &SettingsManager::readReceiptModeChanged, this,
             [this] { applyPrivacyPreferences(); });
+    // MSC4153 is applied at CLIENT BUILD time, so it is pushed here — before
+    // any sign-in — and again whenever it changes, which affects the NEXT
+    // client. The UI says so; nothing here pretends it is live.
+    connect(m_settings.get(), &SettingsManager::strictDeviceTrustChanged, this,
+            [this] { applyStrictDeviceTrust(); });
+    applyStrictDeviceTrust();
     connect(m_settings.get(), &SettingsManager::sendTypingNotificationsChanged,
             this, [this] { applyPrivacyPreferences(); });
 
@@ -827,6 +838,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this](const QString &) { m_trayUnreadCoalesce.start(); });
 
     m_mediaHistory->setClient(m_client.get());
+    m_qrLogin->setClient(m_client.get());
     // A fresh client starts with PUBLIC receipts, so the stored privacy
     // choice has to be pushed at every attachment, not only when it changes.
     applyPrivacyPreferences();
@@ -2113,6 +2125,16 @@ bool AppController::notificationActionIsForCurrentAccount(
                "was sent. Switch back to that account and try again."));
     }
     return false;
+}
+
+void AppController::applyStrictDeviceTrust()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    // Guarded: the symbol exists only in a Rust-enabled build, and an
+    // unguarded call is exactly what broke the non-Rust tree earlier in this
+    // round (§16's standing lesson).
+    RustSdkMatrixClient::setStrictDeviceTrust(m_settings->strictDeviceTrust());
+#endif
 }
 
 void AppController::applyPrivacyPreferences()

@@ -1224,6 +1224,20 @@ void SettingsManager::setCallPictureInPicture(bool v)
     Q_EMIT callPictureInPictureChanged();
 }
 
+bool SettingsManager::strictDeviceTrust() const
+{
+    return m_store->value(QStringLiteral("privacy/strictDeviceTrust"), false)
+        .toBool();
+}
+
+void SettingsManager::setStrictDeviceTrust(bool v)
+{
+    if (strictDeviceTrust() == v)
+        return;
+    m_store->setValue(QStringLiteral("privacy/strictDeviceTrust"), v);
+    Q_EMIT strictDeviceTrustChanged();
+}
+
 int SettingsManager::readReceiptMode() const
 {
     // 0 = public, which is what every previous version sent.

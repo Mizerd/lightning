@@ -619,6 +619,30 @@ public:
         Q_UNUSED(mimetype); Q_UNUSED(width); Q_UNUSED(height);
         Q_UNUSED(size); Q_UNUSED(opId);
     }
+    // ── MSC4108: sign ANOTHER device in from this one (v0.9.0) ──────────
+    //
+    // Lightning implements only the already-signed-in side: we show a QR a
+    // new device scans, or we take the text of one a new device shows. The
+    // reverse — signing THIS device in from a code — needs the OAuth
+    // device-code grant, which rust/src/oauth.rs deliberately does not
+    // request; see qrlogin.rs.
+    //
+    // `qrLoginGenerate`/`qrLoginScan` answer with the flow's GENERATION, or
+    // 0 when the backend refused. Everything after that arrives on
+    // qrLoginProgress. Backends without it report unsupported.
+    virtual bool supportsQrLogin() const { return false; }
+    virtual quint64 qrLoginGenerate() { return 0; }
+    virtual quint64 qrLoginScan(const QString &payload)
+    {
+        Q_UNUSED(payload);
+        return 0;
+    }
+    virtual void qrLoginSubmitCheckCode(quint64 generation, int code)
+    {
+        Q_UNUSED(generation); Q_UNUSED(code);
+    }
+    virtual void qrLoginCancel() {}
+
     // MSC2545 pack MANAGEMENT (v0.9.0): remove one image, rename its
     // shortcode, rename the pack, or empty it.
     //
@@ -1687,6 +1711,23 @@ Q_SIGNALS:
                               bool roomCanManage, const QVariantList &packs);
     // The result of saving a sticker into im.ponies.user_emotes. `category`
     // is "duplicate", "pack_full", or a coarse room-error class.
+    /// One step of an MSC4108 sign-in-another-device flow.
+    ///
+    /// `step` is the state name ("starting", "qr_ready", "check_code_needed",
+    /// "check_code_shown", "waiting_for_auth", "syncing_secrets", "done",
+    /// "failed"). `detail` carries that step's own payload, because the steps
+    /// do not share one — "qr_ready" alone brings a size, packed bits AND the
+    /// same code as text, and flattening those into positional arguments
+    /// would give every other step three that mean nothing.
+    ///
+    /// Keys, by step: qr_ready -> qrSize (int), qrBits (base64 string),
+    /// qrText (string); check_code_shown -> checkCode (int); waiting_for_auth
+    /// -> verificationUri (string); failed -> category (string).
+    ///
+    /// `generation` identifies the flow. A step naming an old generation is
+    /// from a flow the user has already left and must be ignored.
+    void qrLoginProgress(quint64 generation, const QString &step,
+                         const QVariantMap &detail);
     /// Result of editStickerPack. `shortcode` carries the code actually
     /// applied by a rename — which the caller needs, because a rename is
     /// sanitized and the stored code may differ from what was typed.

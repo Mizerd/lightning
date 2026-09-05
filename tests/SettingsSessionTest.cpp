@@ -115,6 +115,7 @@ private Q_SLOTS:
     void typingNotificationsDefaultOnAndPersist();
     void theEncryptedPreviewLevelDefaultsToFollowingTheGeneralOne();
     void anUnknownEncryptionStateTakesTheStricterLevel();
+    void strictDeviceTrustDefaultsOffAndPersists();
 
 private:
     QTemporaryDir m_configHome;
@@ -1033,6 +1034,31 @@ void SettingsSessionTest::hiddenComposerButtonsDefaultToNoneAndNormalize()
 // Three settings that decide what leaves this device while the user is only
 // looking at a room. Their DEFAULTS are the load-bearing part: an upgrade
 // must not change what an existing install discloses, in either direction.
+
+void SettingsSessionTest::strictDeviceTrustDefaultsOffAndPersists()
+{
+    {
+        SettingsManager settings;
+        // OFF, and the default is the load-bearing part. Enabling MSC4153
+        // makes anyone who has not cross-signed their own devices
+        // unreadable — doing that to an existing install without being asked
+        // would read as the client breaking, not as a privacy improvement.
+        QVERIFY(!settings.strictDeviceTrust());
+
+        QSignalSpy spy(&settings, &SettingsManager::strictDeviceTrustChanged);
+        settings.setStrictDeviceTrust(true);
+        QVERIFY(settings.strictDeviceTrust());
+        QCOMPARE(spy.count(), 1);
+        settings.setStrictDeviceTrust(true);
+        QCOMPARE(spy.count(), 1);
+    }
+    // It has to SURVIVE a restart, because a restart is when it applies:
+    // the SDK reads it while building a client and offers no runtime setter.
+    // A setting that reset on restart would therefore never take effect at
+    // all, and the UI's "takes effect next start" would be a lie.
+    SettingsManager reopened;
+    QVERIFY(reopened.strictDeviceTrust());
+}
 
 void SettingsSessionTest::readReceiptModeDefaultsToPublicPersistsAndClamps()
 {

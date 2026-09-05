@@ -85,6 +85,7 @@ mod sso;
 mod stickers;
 mod uia;
 mod presence;
+mod qrlogin;
 mod profile;
 mod rooms;
 mod rtc;
@@ -219,6 +220,9 @@ struct RustClient {
     // honoured by two of three is not a privacy setting. One value, read by
     // all three.
     receipt_privacy: Arc<AtomicI32>,
+    /// MSC4108 sign-in-another-device state: the generation, the one-shot
+    /// check-code sender and the running task. See rust/src/qrlogin.rs.
+    qr_login: Arc<qrlogin::QrLoginState>,
     receipt_serial: Arc<tokio::sync::Mutex<()>>,
     invite_actions: Arc<Mutex<BTreeSet<String>>>,
     // Server-synchronized per-room notification mode (SDK push rules).
@@ -344,6 +348,7 @@ impl RustClient {
             active_typing_room: Arc::new(Mutex::new(None)),
             receipt_targets: Arc::new(Mutex::new(HashMap::new())),
             receipt_privacy: Arc::new(AtomicI32::new(0)),
+            qr_login: Arc::new(qrlogin::QrLoginState::new()),
             receipt_serial: Arc::new(tokio::sync::Mutex::new(())),
             invite_actions: Arc::new(Mutex::new(BTreeSet::new())),
             notification_mode_targets: Arc::new(Mutex::new(HashMap::new())),
@@ -3472,6 +3477,25 @@ fn pack_qr_modules(modules: &[bool], size: usize) -> Option<String> {
     Some(base64::engine::general_purpose::STANDARD.encode(&packed))
 }
 
+/// Encode arbitrary bytes as a QR code and return the (size, packed-bits)
+/// pair the UI draws.
+///
+/// Split out of `render_qr_payload` when MSC4108 login arrived: it needs the
+/// same encoder over `QrCodeData::to_bytes()` rather than over a
+/// `QrVerification`, and the C++ side has no QR encoder at all.
+pub(crate) fn render_qr_bytes(bytes: &[u8]) -> Option<(usize, String)> {
+    use matrix_sdk_base::crypto::matrix_sdk_qrcode::qrcode::{EcLevel, QrCode};
+    // The lowest error correction the format allows. A sign-in payload is
+    // large and this is read from a screen a few centimetres away, not off a
+    // printed label — spending capacity on redundancy here only makes the
+    // code denser and harder to scan.
+    let code = QrCode::with_error_correction_level(bytes, EcLevel::L).ok()?;
+    let size = code.width();
+    let modules: Vec<bool> =
+        code.to_colors().into_iter().map(|c| c.select(true, false)).collect();
+    pack_qr_modules(&modules, size).map(|bits| (size, bits))
+}
+
 /// Render an SDK `QrVerification` to the (size, packed-bits) pair the UI
 /// needs. Returns `None` if the SDK could not encode the code at all.
 fn render_qr_payload(qr: &QrVerification) -> Option<(usize, String)> {
@@ -6467,6 +6491,62 @@ pub unsafe extern "C" fn mx_rust_stickers_add_to_user_pack(
     })
 }
 
+// ── MSC4108: signing another device in from this one ───────────────────
+//
+// All four answer immediately with the flow's GENERATION (or an error) and
+// then report through `qr_login_progress` poll events. See rust/src/qrlogin.rs
+// for why the progress stream is not optional and why only this direction is
+// implemented.
+
+/// Show a QR code here for a new device to scan. Returns the generation.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_qr_login_generate(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        qrlogin::grant_generate(bridge).map(|gen| gen.to_string())
+    })
+}
+
+/// Consume the QR a new device is showing, as its base64 text. Lightning
+/// bundles no camera decoder; the UI says so rather than implying one.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_qr_login_scan(
+    ptr: *mut c_void,
+    payload: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let payload = unsafe { cstr_arg(payload) }?;
+        qrlogin::grant_scan(bridge, payload).map(|gen| gen.to_string())
+    })
+}
+
+/// Answer the generate-side flow with the two digits the new device showed.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_qr_login_check_code(
+    ptr: *mut c_void,
+    generation: u64,
+    code: c_int,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        if !(0..=99).contains(&code) {
+            return Err("a check code is two digits".to_owned());
+        }
+        qrlogin::submit_check_code(bridge, generation, code as u8)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_qr_login_cancel(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        qrlogin::cancel(bridge);
+        Ok(String::new())
+    })
+}
+
 /// MSC2545 pack MANAGEMENT: remove an image, rename its shortcode, rename
 /// the pack, or empty it.
 ///
@@ -8843,6 +8923,32 @@ pub unsafe extern "C" fn mx_rust_free_cstring(ptr: *mut c_char) {
     }));
 }
 
+/// MSC4153 "invisible crypto": whether this process builds its clients to
+/// exclude devices that are not cross-signed.
+///
+/// A PROCESS GLOBAL rather than a parameter, because `build_client` is the
+/// one build path for password login, OAuth sign-in and the auth-method
+/// probe, and threading a settings argument through all of them (and through
+/// the callers that have no settings to give) would put the same value in
+/// four places for one switch.
+///
+/// It is read at BUILD time and never afterwards. matrix-sdk 0.18 exposes no
+/// runtime setter for either half of this — `decryption_settings()` is
+/// read-only and there is no `set_room_key_recipient_strategy` at all — so a
+/// change genuinely does require a new client, and the UI says so rather
+/// than pretending otherwise.
+static STRICT_DEVICE_TRUST: AtomicBool = AtomicBool::new(false);
+
+/// Set by the app layer BEFORE a login. Takes effect on the next client that
+/// is built, which is the honest contract the SDK allows.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_strict_device_trust(enabled: c_int) -> *mut c_char {
+    ffi_string(|| {
+        STRICT_DEVICE_TRUST.store(enabled != 0, Ordering::SeqCst);
+        Ok(String::new())
+    })
+}
+
 async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, String> {
     // v0.7: OneShot backup download — the Element-like verified-session
     // bootstrap. When this device completes SAS verification, the SDK's
@@ -8909,6 +9015,31 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
         .handle_refresh_tokens()
         .with_encryption_settings(encryption_settings)
         .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false });
+
+    // MSC4153, and it is deliberately ONE switch driving BOTH halves.
+    //
+    // The two knobs are independent in the SDK and setting only one gives an
+    // ASYMMETRIC client: we would refuse to share room keys with devices that
+    // are not cross-signed while still decrypting what those devices send us,
+    // or the exact reverse. Neither half is the feature; the pair is.
+    //
+    //   send    — IdentityBasedStrategy is what the SDK's own documentation
+    //             identifies as Element's "exclude insecure devices" mode.
+    //   receive — CrossSignedOrLegacy, NEVER CrossSigned. The strict variant
+    //             refuses legacy Megolm sessions — the ones created before
+    //             clients collected trust information — which would turn a
+    //             user's existing history into undecryptable events the
+    //             moment they enabled a privacy setting.
+    if STRICT_DEVICE_TRUST.load(Ordering::SeqCst) {
+        builder = builder
+            .with_room_key_recipient_strategy(
+                matrix_sdk_base::crypto::CollectStrategy::IdentityBasedStrategy,
+            )
+            .with_decryption_settings(matrix_sdk_base::crypto::DecryptionSettings {
+                sender_device_trust_requirement:
+                    matrix_sdk_base::crypto::TrustRequirement::CrossSignedOrLegacy,
+            });
+    }
     if !store_path.as_os_str().is_empty() {
         builder = builder.sqlite_store(store_path, None);
     }

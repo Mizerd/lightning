@@ -303,6 +303,11 @@ public:
     void sendTyping(const QString &roomId, bool isTyping, int timeoutMs = 20000) override;
     void sendReadReceipt(const QString &roomId, const QString &eventId) override;
     void setReadReceiptPrivacy(int mode) override;
+    /// MSC4153 "invisible crypto", process-wide. STATIC and handle-free
+    /// because the Rust side reads it when a client is BUILT — there is no
+    /// runtime setter in matrix-sdk 0.18 for either half — so it must be set
+    /// before a sign-in rather than on a live client.
+    static void setStrictDeviceTrust(bool enabled);
     void setRoomMarkedUnread(const QString &roomId, bool unread) override;
     bool supportsRoomFavourites() const override { return true; }
     void setRoomFavourite(const QString &roomId, bool favourite) override;
@@ -350,6 +355,11 @@ public:
                               const QString &body, const QString &mimetype,
                               quint64 width, quint64 height, quint64 size,
                               quint64 opId) override;
+    bool supportsQrLogin() const override { return true; }
+    quint64 qrLoginGenerate() override;
+    quint64 qrLoginScan(const QString &payload) override;
+    void qrLoginSubmitCheckCode(quint64 generation, int code) override;
+    void qrLoginCancel() override;
     void editStickerPack(const QString &roomId, const QString &stateKey,
                          const QString &action, const QString &argA,
                          const QString &argB, quint64 opId) override;

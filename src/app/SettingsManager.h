@@ -108,6 +108,22 @@ class SettingsManager : public QObject
     // The fully-read marker is sent in every mode. It is account data and
     // only this user can read it; losing it would mean losing your own place
     // in a conversation, which is not what a privacy setting should cost.
+    // v0.9.0 MSC4153 "invisible crypto": refuse to share room keys with — and
+    // refuse to decrypt from — devices that are not cross-signed.
+    //
+    // Default OFF, and that is a decision. Turning it on retroactively changes
+    // what is readable: a contact who has never verified their own devices
+    // becomes unreadable, and doing that to an existing install without being
+    // asked would read as "Lightning broke". It is offered, explained, and
+    // chosen.
+    //
+    // RESTART TO APPLY, which the UI says plainly. matrix-sdk 0.18 exposes no
+    // runtime setter for either half of it — `decryption_settings()` is
+    // read-only and there is no recipient-strategy setter at all — so the
+    // alternative would be tearing down and rebuilding the whole client,
+    // store and timeline registry underneath the user.
+    Q_PROPERTY(bool strictDeviceTrust READ strictDeviceTrust
+                   WRITE setStrictDeviceTrust NOTIFY strictDeviceTrustChanged)
     Q_PROPERTY(int readReceiptMode READ readReceiptMode
                    WRITE setReadReceiptMode NOTIFY readReceiptModeChanged)
     // v0.9.0: whether "… is typing" leaves this device. Typing notices are
@@ -509,6 +525,8 @@ public:
                                                  bool encryptionKnown) const;
     bool callPictureInPicture() const;
     void setCallPictureInPicture(bool v);
+    bool strictDeviceTrust() const;
+    void setStrictDeviceTrust(bool v);
     int readReceiptMode() const;
     void setReadReceiptMode(int v);
     bool sendTypingNotifications() const;
@@ -999,6 +1017,7 @@ Q_SIGNALS:
     void notificationPreviewChanged();
     void notificationPreviewEncryptedChanged();
     void callPictureInPictureChanged();
+    void strictDeviceTrustChanged();
     void readReceiptModeChanged();
     void sendTypingNotificationsChanged();
     void notificationSoundChanged();

@@ -127,7 +127,15 @@ ItemDelegate {
             text: qsTr("Copy link")
             visible: row.kind === "link" && row.url.length > 0
             height: visible ? implicitHeight : 0
-            onTriggered: app.copyToClipboard(row.url)
+            // The SAME hidden-TextEdit route MessageDelegate uses. There is
+            // no `app.copyToClipboard` — this called one and would have
+            // failed at runtime the first time anyone used the menu item.
+            onTriggered: {
+                clipboardHelper.text = row.url
+                clipboardHelper.selectAll()
+                clipboardHelper.copy()
+                clipboardHelper.text = ""
+            }
         }
     }
 
@@ -148,5 +156,14 @@ ItemDelegate {
         var m = Math.floor(total / 60)
         var s = total % 60
         return m + ":" + (s < 10 ? "0" : "") + s
+    }
+
+    // Off-screen and never focusable: QML has no clipboard API, so a
+    // TextEdit's copy() is the route every other surface here uses.
+    TextEdit {
+        id: clipboardHelper
+        visible: false
+        width: 0
+        height: 0
     }
 }

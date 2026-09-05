@@ -2521,6 +2521,14 @@ void RustSdkMatrixClient::sendTyping(const QString &roomId, bool typing, int)
     }
 }
 
+void RustSdkMatrixClient::setStrictDeviceTrust(bool enabled)
+{
+    const QString result = takeRustString(
+        mx_rust_set_strict_device_trust(enabled ? 1 : 0));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "strict device trust command rejected";
+}
+
 void RustSdkMatrixClient::setReadReceiptPrivacy(int mode)
 {
     // Remembered even with no handle, so the value survives a login: the
@@ -2841,6 +2849,63 @@ void RustSdkMatrixClient::uploadStickerToUserPack(
         Q_EMIT stickerPackAddFinished(opId, false, QStringLiteral("rejected"),
                                       QString());
     }
+}
+
+// ── MSC4108 sign-in-another-device ─────────────────────────────────────
+//
+// The two starters answer with the flow's generation as a decimal string;
+// anything else is an error message and means the flow did not start.
+
+quint64 RustSdkMatrixClient::qrLoginGenerate()
+{
+    if (!m_loggedIn || !m_rustHandle)
+        return 0;
+    const QString result =
+        takeRustString(mx_rust_qr_login_generate(m_rustHandle));
+    bool ok = false;
+    const quint64 generation = result.toULongLong(&ok);
+    if (!ok || generation == 0) {
+        qCWarning(lcRust) << "qr login could not start";
+        return 0;
+    }
+    return generation;
+}
+
+quint64 RustSdkMatrixClient::qrLoginScan(const QString &payload)
+{
+    if (!m_loggedIn || !m_rustHandle || payload.trimmed().isEmpty())
+        return 0;
+    // The payload is a QR code's own base64 text. It is NOT logged, here or
+    // anywhere: it carries the ephemeral public key and the rendezvous URL
+    // for a channel that is about to receive this account's cross-signing
+    // secrets.
+    const QByteArray data = payload.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_qr_login_scan(m_rustHandle, data.constData()));
+    bool ok = false;
+    const quint64 generation = result.toULongLong(&ok);
+    if (!ok || generation == 0) {
+        qCWarning(lcRust) << "qr login could not start from a scanned code";
+        return 0;
+    }
+    return generation;
+}
+
+void RustSdkMatrixClient::qrLoginSubmitCheckCode(quint64 generation, int code)
+{
+    if (!m_loggedIn || !m_rustHandle || generation == 0)
+        return;
+    const QString result = takeRustString(
+        mx_rust_qr_login_check_code(m_rustHandle, generation, code));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "qr login check code rejected";
+}
+
+void RustSdkMatrixClient::qrLoginCancel()
+{
+    if (!m_rustHandle)
+        return;
+    takeRustString(mx_rust_qr_login_cancel(m_rustHandle));
 }
 
 void RustSdkMatrixClient::editStickerPack(
@@ -8299,6 +8364,38 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("state_key")).toString(),
             event.value(QStringLiteral("enabled")).toBool(false));
+        return true;
+    }
+    if (type == QLatin1String("qr_login_progress")) {
+        const QString step = event.value(QStringLiteral("step")).toString();
+        QVariantMap detail;
+        // Only the keys this step actually carries, so a consumer cannot
+        // read a stale value from a previous step's shape.
+        if (event.contains(QStringLiteral("qr_size"))) {
+            detail.insert(QStringLiteral("qrSize"),
+                          event.value(QStringLiteral("qr_size")).toInt());
+            detail.insert(QStringLiteral("qrBits"),
+                          event.value(QStringLiteral("qr_bits")).toString());
+            detail.insert(QStringLiteral("qrText"),
+                          event.value(QStringLiteral("qr_text")).toString());
+        }
+        if (event.contains(QStringLiteral("check_code"))) {
+            detail.insert(QStringLiteral("checkCode"),
+                          event.value(QStringLiteral("check_code")).toInt());
+        }
+        if (event.contains(QStringLiteral("verification_uri"))) {
+            detail.insert(
+                QStringLiteral("verificationUri"),
+                event.value(QStringLiteral("verification_uri")).toString());
+        }
+        if (event.contains(QStringLiteral("category"))) {
+            detail.insert(QStringLiteral("category"),
+                          event.value(QStringLiteral("category")).toString());
+        }
+        Q_EMIT qrLoginProgress(
+            static_cast<quint64>(
+                event.value(QStringLiteral("generation")).toDouble(0)),
+            step, detail);
         return true;
     }
     if (type == QLatin1String("sticker_pack_edit_result")) {

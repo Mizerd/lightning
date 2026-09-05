@@ -688,6 +688,8 @@ set(APP_SOURCES
     src/crypto/E2eeDiagnostics.cpp
     src/crypto/QrImageProvider.h
     src/crypto/QrImageProvider.cpp
+    src/crypto/QrLoginController.h
+    src/crypto/QrLoginController.cpp
     src/spaces/SpaceManager.h
     src/spaces/SpaceManager.cpp
     src/threads/ThreadManager.h
@@ -885,6 +887,7 @@ set(APP_QML_FILES
     qml/JumpToDateDialog.qml
     qml/StickerPackEditor.qml
     qml/StickerPicker.qml
+    qml/QrLoginDialog.qml
     qml/QuickSwitcher.qml
     qml/ImageViewerOverlay.qml
     qml/AccountMenu.qml
@@ -3213,6 +3216,17 @@ if(BUILD_TESTING)
     target_link_libraries(rtc-session-test PRIVATE Qt6::Test)
     add_test(NAME rtc-session COMMAND rtc-session-test)
     set_tests_properties(rtc-session PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # v0.9.0 MSC4108: the sign-in-another-device state machine.
+    qt_add_executable(qr-login-controller-test
+        tests/QrLoginControllerTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(qr-login-controller-test)
+    target_link_libraries(qr-login-controller-test PRIVATE Qt6::Test)
+    add_test(NAME qr-login-controller COMMAND qr-login-controller-test)
+    set_tests_properties(qr-login-controller PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # v0.9.0: the general load gate. A load-time QML error is invisible to

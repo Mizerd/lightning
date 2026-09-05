@@ -183,6 +183,12 @@ Item {
           keywords: qsTr("notification sound mute"), section: "notifications",
           breadcrumb: qsTr("Notifications") },
 
+        { title: qsTr("Only exchange messages with verified devices"),
+          keywords: qsTr("invisible crypto msc4153 cross-signed verified "
+                         + "device trust insecure exclude encryption"),
+          section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Device trust") },
+
         { title: qsTr("Read receipts"),
           keywords: qsTr("read receipt receipts private seen ticks blue "
                          + "m.read.private privacy"),
@@ -245,6 +251,11 @@ Item {
         { title: qsTr("Current session"),
           keywords: qsTr("device id session status"), section: "sessions",
           breadcrumb: qsTr("Sessions") },
+        { title: qsTr("Sign in another device"),
+          keywords: qsTr("qr code scan sign in another device phone link "
+                         + "msc4108 login"),
+          section: "sessions", breadcrumb: qsTr("Sessions") },
+
         { title: qsTr("Verify this session"),
           keywords: qsTr("verify verification sas cross-signing"),
           section: "sessions", breadcrumb: qsTr("Sessions") },
@@ -3503,6 +3514,67 @@ Item {
                             lineHeightMode: Text.ProportionalHeight
                         }
 
+                        // v0.9.0 MSC4153. Placed under Privacy & security
+                        // rather than beside the E2EE health cards because
+                        // it is a CHOICE about who you talk to, not a
+                        // diagnostic — and because turning it on can make
+                        // messages unreadable, which is a privacy trade the
+                        // user makes rather than a repair they run.
+                        Label {
+                            text: qsTr("Device trust")
+                            color: AppTheme.stormText
+                            font.pixelSize: AppTheme.textTitle
+                            font.weight: AppTheme.weightStrong
+                            Layout.topMargin: AppTheme.spacing8
+                        }
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+
+                                CheckBox {
+                                    objectName: "strictDeviceTrustCheck"
+                                    palette.windowText: AppTheme.stormText
+                                    text: qsTr("Only exchange messages with "
+                                               + "verified devices")
+                                    checked: app.settings.strictDeviceTrust
+                                    onToggled:
+                                        app.settings.strictDeviceTrust = checked
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Room keys are not shared with "
+                                               + "devices their owner has not "
+                                               + "cross-signed, and messages "
+                                               + "from such devices are not "
+                                               + "decrypted. This is stricter "
+                                               + "and it has a cost: anyone "
+                                               + "who has not verified their "
+                                               + "own devices becomes "
+                                               + "unreadable to you, and you "
+                                               + "to them. Messages you can "
+                                               + "already read stay readable.")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    font.weight: AppTheme.weightStrong
+                                    // Honest, and specific about WHY: the SDK
+                                    // reads this when it builds a client and
+                                    // offers no way to change it afterwards.
+                                    text: qsTr("Takes effect the next time "
+                                               + "Lightning starts.")
+                                }
+                            }
+                        }
+
                         // v0.9.0: what this device tells the room while the
                         // user is only READING and TYPING. Both of these are
                         // continuous disclosures nobody consciously sends,
@@ -5701,6 +5773,41 @@ Item {
                             lineHeightMode: Text.ProportionalHeight
                         }
 
+                        // v0.9.0 MSC4108: sign another device in from this
+                        // one. It lives under Sessions because that is what
+                        // it produces — a new session, already verified —
+                        // and because someone looking for "how do I get
+                        // Lightning onto my phone" looks here.
+                        SettingsCard {
+                            visible: app.qrLogin && app.qrLogin.available
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                MenuSectionLabel {
+                                    text: qsTr("Sign in another device")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Use a code instead of a "
+                                               + "password. The new device is "
+                                               + "signed in and verified in "
+                                               + "one step, so it can read "
+                                               + "your existing encrypted "
+                                               + "conversations immediately.")
+                                }
+                                AppButton {
+                                    objectName: "qrLoginOpenButton"
+                                    text: qsTr("Sign in another device…")
+                                    onClicked: qrLoginDialog.openDialog()
+                                }
+                            }
+                        }
+
                         // v0.6.5 (SPEC 1r): the own-account trust chain,
                         // driven by REAL crypto state only — never another
                         // user's, never optimistic. Brand-fixed by design
@@ -7255,5 +7362,9 @@ Item {
             }
             }
         }
+    }
+
+    QrLoginDialog {
+        id: qrLoginDialog
     }
 }

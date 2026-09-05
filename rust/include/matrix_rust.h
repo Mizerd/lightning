@@ -885,6 +885,21 @@ char *mx_rust_stickers_upload_to_user_pack(void *client,
  * gated exactly as adding to one is. `action` is one of "remove_image",
  * "rename_image", "set_name", "delete_pack"; arg_a/arg_b carry that
  * action's operands. Answers with `sticker_pack_edit_result`. */
+/* MSC4153 "invisible crypto": exclude devices that are not cross-signed,
+ * both when SHARING room keys and when DECRYPTING what arrives. Process-wide
+ * and read when a client is BUILT — matrix-sdk 0.18 has no runtime setter for
+ * either half — so a change takes effect at the next sign-in, not now. Takes
+ * no client handle for that reason. */
+char *mx_rust_set_strict_device_trust(int enabled);
+/* MSC4108: sign ANOTHER device in from this one. The two starters answer
+ * with the flow's GENERATION as a decimal string (or an error message) and
+ * then report through `qr_login_progress` poll events. `scan` takes the QR's
+ * own base64 TEXT — Lightning bundles no camera decoder. */
+char *mx_rust_qr_login_generate(void *client);
+char *mx_rust_qr_login_scan(void *client, const char *payload);
+char *mx_rust_qr_login_check_code(void *client, unsigned long long generation,
+                                  int code);
+char *mx_rust_qr_login_cancel(void *client);
 char *mx_rust_stickers_edit_pack(void *client,
                                  const char *room_id,
                                  const char *state_key,
