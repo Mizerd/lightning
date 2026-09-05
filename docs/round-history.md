@@ -39,12 +39,50 @@ contract, the refutation rule and the probe rule are in the standing warnings.
   name) pairs it resolved; hydration and profile answers re-announce only the
   rows whose pair changed. Proven by `memberHydrationRerendersOnlyRowsWhoseMentionsChanged`
   (one body announcement, for the one row that mentions the renamed member).
+- **The media band closed on the newest side and moved the reader.** Its
+  first working cut gated rows on both sides of the viewport, so a picture in
+  a row between the reader and the live edge loaded late, grew, and pushed
+  the reader ("teleports me around"). Rows older than the reader grow away
+  from them; the band is open all the way to the newest row now and only
+  history beyond 2.5 viewports waits.
 - **All media rows fetched at open.** The un-virtualized Column instantiates
   every row, and each image row asked the bridge on `Component.onCompleted` —
   in an encrypted room without server thumbnails that is a FULL download per
-  image. A content-coordinate band published by the pane at discrete moments
-  gates the ask; a row entering the band asks then. Unmeasured live: the lag
-  report has no capture yet (CLAUDE.md §16 open items carry the recipe).
+  image. A band gates the ask now: an INDEX RANGE the pane computes at
+  discrete moments and the row Loader assigns to the delegate, the same shape
+  as `rowOnScreen`. The first cut compared the delegate's own y with
+  content bounds, and inside the per-row Loader that y is always 0 — no
+  saving at the newest end, no pictures deep in history. Caught by the
+  maintainer's live run the same evening.
+- **Only the call room was slow — and why.** The maintainer's observation
+  that every other room opened instantly pointed at the room, not the client:
+  its history is MatrixRTC membership churn, one state event per participant
+  per minute of every call, thousands of them, each a timeline item to
+  paginate, ingest, instantiate and count. They are filtered out of every
+  timeline at the SDK now (`lightning_event_filter`); the pagination
+  controller tolerates twelve consecutive empty pages so the fill can walk
+  through a run of them.
+- **The room-open cost, measured.** A timestamped log put a first open of a
+  call room at 9 history pages / 4.2 s and a re-open at 18 / 11 s; each page
+  is ~70 ms dispatch + network (or ~1 ms from the event cache) + 100-250 ms
+  of ingest and fill-loop timers. A second log, after the budget change,
+  showed 14 pages in 4.4 s with every page served from the cache in ~1 ms:
+  the remaining cost was the fill loop itself — rows land before the
+  controller finishes the batch, the fill check they trigger finds it busy
+  and waits on the 250 ms retry timer, once per page. The fill now re-checks
+  the moment the controller goes idle. A third log then showed the other
+  half: a re-open ran 32 pages and 600+ rows in 6.4 s, the invisible-page
+  budget never tripping because every page added a little height, and the
+  instantiation of those rows was the freeze. The fill is capped at 240 rows
+  now (`maxViewportFillRows`), which is the scale 0.8.3 stopped at. `a5e64a6` had raised the invisible-page
+  budget from 8 to 60 so a collapsed run never blocks older history; it is
+  12 now, and a wheel towards older history on content too short to scroll
+  requests the next page, which keeps that promise without paying for it on
+  every open. REFUTED by the same log: doubling the page size after an
+  invisible page — Synapse took 1.5-1.8 s per 100-event page (17 ms/event
+  vs 5.5 at 20), the fill overshot to ~600 rows, and the re-open went from
+  4 s to 11 s. The event cache keeps one page after a room closes
+  (`shrink_to_last_chunk`), so a re-open pays the fill again, from the store.
 - **Emoji in packaged builds.** The SAS verification labels and every surface
   that never names a face (tooltips) drew monochrome or missing emoji on the
   AppImage's Qt 6.8. The verification labels name `app.emojiFontFamily`; the
@@ -52,7 +90,17 @@ contract, the refutation rule and the probe rule are in the standing warnings.
   (`FontManager::withEmojiFallback`), so unnamed surfaces inherit it.
 - **The profile card.** The banner drew over the popover's border and met its
   rounded corner at a notch: inset by the border width, radius reduced to
-  match. The membership chip was content-sized while the row's other chips
+  match. Its corners were then reported as a staircase: `MultiEffect`'s mask
+  defaults (threshold 0, spread 0) are a hard step on the mask's alpha, so
+  the mask rectangle's own antialiased corner pixels came out fully opaque;
+  `qquickmultieffect.cpp` derives the low-side ramp as
+  `[(t-1)(1+s)+1, t(1+s)]` for threshold `t` and spread `s` — threshold 0
+  with spread 1 ramps over [-1, 0] and made the empty corners OPAQUE (square
+  corners), threshold 1 with spread 1 ramps over [1, 2] and hid the whole
+  banner (an empty box), both seen the same evening; the ramp that maps mask
+  alpha 0 -> 0 and 1 -> 1 is `maskThresholdMin: 0.5` with
+  `maskSpreadAtMin: 1.0`. Read the source, not the docs, for a shader's
+  arithmetic. The gradient Canvas paints antialiased now too. The membership chip was content-sized while the row's other chips
   shared `uniformHeight`. The avatar's presence tooltip opened on top of the
   avatar; it now sits to its right. The Message button's glyph read as
   pixelated: `Icon` renders natively (hinted, device-pixel) instead of through
@@ -62,6 +110,87 @@ contract, the refutation rule and the probe rule are in the standing warnings.
   window with the share" (a Repeater over the share model showing only the
   spotlighted share, the tile grid stepping aside), dropped when the share
   ends.
+- **The share surface.** Reported from the popout's fill mode and the main
+  stage alike: "no border, just a stream thrown in there", and the owner
+  nameplate covering the picture. The tile's own 1px edge sat at the window
+  edge and the aspect-fit video left bare strips beside it. A frame now
+  follows the painted picture — computed from the frame size, because
+  `VideoOutput.contentRect` did not describe it on the live build — and the
+  tile's own edge steps aside while the picture shows, or there were two
+  frames (reported the same evening). On a big surface the nameplate fades
+  after three idle seconds the way the full-screen controls do.
+- **Two read receipts for one reader.** Receipt hosting (a call row hosting
+  the bodiless rows after it) drew the same avatar on the call row and on the
+  message after it: the backend still carried the reader's receipt on the
+  older row. A reader has one position now — the newest row carrying them
+  wins — and the host they left is announced so it drops them.
+  The first cut of that announcement read the model's cached receipt index
+  as "before" — and every handler invalidates that index ahead of the call,
+  so the snapshot was always empty and no old host was ever announced. The
+  regression test failed on it in the full run, which is the whole argument
+  for a test that fails on the old code. The handlers capture the positions
+  ahead of their mutation now, keyed by EVENT ID because an insert or a
+  removal shifts every row index, and the announcement covers the host a
+  reader left, the host they arrived at, and the neighbour above the row
+  (a span can split or merge there).
+- **The selection circle never filled.** `rowSelected` called
+  `app.forward.isSelected()`, a plain function Qt cannot observe, so the
+  binding ran once and never again: the footer counted "1 message(s)
+  selected" while every circle stayed empty. The same lesson as the
+  CallStage `indexOfShare` note — a binding on a plain call needs a
+  NOTIFYing property in it — so it names `selectedCount`, which changes on
+  every toggle. The hovered row's time also drew over the circle (the same
+  gutter); it yields while selecting, and the circle is solid so it reads
+  over an avatar.
+- **"Home" read "Ho…", and every room name carried a stray ellipsis.** The
+  header title's `Layout.maximumWidth` was its own `implicitWidth`, a
+  FRACTION (53.28 px for "Home"), and a Layout hands an item an integer
+  width — 53 — so the label elided by a quarter of a pixel. Measured
+  offscreen with a replica of the header (width 53, `truncated` true;
+  ceiled: 54, false). `Math.ceil` on the bound. GENERALISE: a Layout bound
+  derived from a text's implicit size must be rounded UP.
+- **The hang-up button left the voice bar.** A non-fill Text in a Layout is
+  fixed at its own width, so at the navigation column's floor "Voice
+  connected" kept its width and the row overflowed through the bar's edge.
+  The text column is shrinkable and the status text elides; the buttons
+  never move.
+- **A popped-out share came back as a grey box.** The popout's click-to-fill
+  tiles lived in a Repeater gated on the fill flag alone, not on the window
+  showing, so they survived a pop-in unattached — the main stage's tiles had
+  claimed the sinks back — and the next pop-out showed the same tiles with
+  no frames until a restart. Gated on `root.visible` like the grid Loader
+  beside it, which is the router's one-owner rule applied to the second
+  surface; the reader's fill choice itself is kept.
+- **Direct messages at Home.** "add people dms to home page too, so they are
+  listed under rooms but keep a separate people dms tab too": Home lists the
+  joined DMs again as a Direct Messages group after Rooms (its own collapse
+  key), the DM invites stay in the tab, a Space view still never carries a
+  DM, and the People chip is offered at Home too, where it narrows the view
+  to that group.
+- **The mention popup followed the sentence.** After a rich-mode pill was
+  inserted the composer kept scanning back to the pill's own "@" — the
+  markdown editor records each inserted mention as a ref and refuses a
+  token overlapping one, the rich editor recorded nothing — so every
+  keystroke reopened the popup matching "SpongeMan as a true profes…"
+  against nobody. Two fixes: the rich editor refuses a token that starts
+  inside a matrix.to anchor, and the tokenizer ends a token at its SECOND
+  space (one keeps two-word names completable; Element allows none).
+- **Selection mode followed the reader into the next room.** A selection
+  belongs to the room it was started in; the controller cancels it on a
+  room change now (`switchingRoomsEndsAMessageSelection`).
+- **"1 message(s) selected".** Thirteen English plural entries in the
+  catalog were still empty, so `%n` strings shipped their source text; they
+  carry both forms now.
+- **A star for favourites in Channels.** Favourites rise to the top of their
+  group and nothing said why. The row draws a star between the name and the
+  call glyph: filled while favourite, an empty outline on hover, a click
+  toggles the same `m.favourite` tag the menu writes. Drawn on a Canvas
+  rather than a glyph, because the bundled Material subset is instanced at
+  FILL 0 and has only the outline.
+- **The Home tile's badge counts the DMs it lists.** With the Direct
+  Messages group at Home, the rail's Home badge adds the People total to the
+  unparented rooms' — a room in two views is counted by both tiles, as a
+  room under two Spaces already was — and the attribution tests say so.
 - **Minimising popped the call out.** The automatic picture-in-picture
   (desktop-integration round) fired on every minimise and every close to the
   tray, and it shipped ON. A window appearing on its own for a reader who

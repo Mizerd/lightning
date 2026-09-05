@@ -1203,16 +1203,73 @@ silent absence are the same observable until something asserts the payload
 Whether 0.7.x–0.8.x AppImages ever self-updated is unknown — no AppImage
 upgrade was ever live-tested (§2).
 
-**A first room open can paginate to the room's start, and that is a
-BUDGET, not a bug (yet).** Reported as "the very first room loads a few
-times, like buffering"; the log shows ~13 `viewport_fill` pages, 217 events,
-until `reached_start=true`, and later opens of the same room stop after one
-page because the event cache holds it. The fill's `maxInvisibleFillRetries`
-is 60 ON PURPOSE (rows that add no visible height advance the cursor through
-collapsed activity runs so a reader never has to expand a group to reach
-older history); a room whose recent history is mostly hidden state pays that
-on first open. Not changed. If it is tightened, the deliberate reason in
-`qml/TimelinePane.qml` must be answered, not deleted.
+**A ROOM OPEN COSTS THE HISTORY FILL'S PAGE COUNT TIMES ~400 MS, AND
+`maxInvisibleFillRetries` IS THAT COUNT'S CEILING (measured 2026-09-05,
+timestamped log on the maintainer's desktop).** `a5e64a6` (2026-08-31, in
+0.8.4) raised the fill's budget for pages that add rows but no visible height
+from the old no-progress cap of 8 to 60, so a collapsed activity run never
+has to be expanded to reach older history. In a call room whose tail is RTC
+membership churn (one state event per participant per minute, every one a
+hidden row) that meant 9 pages on a first open (4.2 s) and 18 on a re-open
+(11 s), each page ≈ 70 ms dispatch + network (110 ms from the server, ~1 ms
+from the event cache) + 100-250 ms of ingest and the fill loop's own
+timers. Reported as "ten seconds to load a room" and "you broke initial
+loading". It is 12 now (≈240 hidden events, more than the 184-event run
+`a5e64a6` was written for), and a wheel towards older history on content
+too short to scroll asks for the next page (`requestNearTop(true)` from the
+WheelHandler), so the reader is never stuck behind a group either. The
+fill also decides how many rows a room holds after open, which is the scroll
+frame cost (~14 ms at 900 rows): a bigger budget makes scrolling worse too.
+
+**PAGE DOUBLING WAS TRIED THE SAME DAY AND REFUTED BY THE SAME LOG.** Asking
+for 100 events after an invisible page: Synapse answered a 100-event
+/messages in 1.5-1.8 s (17 ms per event) against 110 ms for 20 (5.5 ms
+per event), the fill overshot to ~600 rows, and the re-open went from 4 s
+to 11 s. Do not re-propose bigger pages as the answer to the fill; fewer
+pages is.
+
+**MATRIXRTC MEMBERSHIP STATE IS FILTERED OUT OF EVERY TIMELINE AT THE SDK
+(`lightning_event_filter`, rust/src/timeline.rs).** A call re-publishes one
+`m.call.member` (msc3401 / msc4143 / stable) state event per participant per
+MINUTE, so a room that hosts calls carries thousands; every one was a timeline
+item — paginated twenty at a time, ingested as a hidden activity row,
+instantiated as a delegate, counted by the fill. The maintainer's key
+observation (2026-09-05): ONE room lagged and every other opened instantly.
+Nothing on screen needs them (the "started a call" row is the notification
+event; the call UI reads membership from room STATE). The controller's
+no-progress budget is 12 empty pages (was 2) so the fill can walk a churn
+run; the pane's row cap bounds what is inserted.
+
+**THE FILL IS BOUNDED BY ROWS, NOT ONLY BY INVISIBLE PAGES
+(`maxViewportFillRows`, 240).** The invisible-page budget cannot bound a room
+whose every page adds a little height — a collapsed activity run growing by a
+line per page, one visible message per twenty hidden ones — because each such
+page counts as progress and resets it. Measured 2026-09-05: a re-open ran 32
+pages and 600+ rows in 6.4 s with the page budget never tripping. Every row
+is a delegate in the un-virtualized Column: that instantiation is the
+"freezes for five seconds", and the same 600 rows are the one-second stall
+when the row window releases them all at the live edge. 0.8.3 stopped at
+eight pages, ~160 rows; the cap restores that scale and the reader's scroll
+loads the rest a page at a time.
+
+**THE FILL LOOP MUST FOLLOW THE CONTROLLER, NOT ITS RETRY TIMER.** Rows
+land before `PaginationController` finishes a batch, so the fill check they
+trigger finds `busy` true and waits on the 250 ms retry timer — once per
+page. With every page served from the event cache in ~1 ms, that timer WAS
+the room-open time (14 pages, 4.4 s, timestamped log 2026-09-05). The pane
+re-checks the fill on the controller's `stateChanged` when it is idle.
+
+**THE MEDIA BAND IS AN INDEX RANGE THE ROW LOADER ASSIGNS, exactly like
+`rowOnScreen`, AND IT NEVER CLOSES ON THE NEWEST SIDE.** A picture loading
+late in a row between the reader and the live edge grows below the reader
+and moves them; rows older than the reader grow away from them. Only history
+beyond 2.5 viewports waits. Its first cut compared the delegate's own `y` against
+content-coordinate bounds — and inside the per-row Loader a delegate's y is
+always 0, so every row was "in band" at the newest end (no saving) and no row
+was deep in history (no picture ever loaded there). The pane computes
+`mediaBandFirstRow/LastRow` with `viewRowAtContentY` at discrete moments and
+the Loader sets `mediaInBand` on the delegate; the delegate's own default is
+permissive for hosts without a band.
 
 **Qt version differences the dev shell cannot show you.** Pipeline 105's
 `build-deb` died on `CallController.h` holding
@@ -1890,16 +1947,26 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   index the way appended Spaces once did — and it needs a capture of the
   REJECTED DIFF (op, index, the id it collided with) before a fix, not a
   theory. Do not re-apply the Space exclusion; that one is still in place.
-- **Rooms "lag when they load" on 0.9.0, worse in rooms with a lot of
-  media (Rokas, 2026-09-05, "not confirmed"; users report the same).** NOT
-  reproduced here — no capture exists yet, and the standing rule applies:
-  one capture beats another theory. What this round changed on evidence from
-  code alone: member hydration no longer rebuilds every message body, and
-  media rows outside the viewport band no longer fetch at open (both above).
-  Ruled OUT by reading, not by measurement: the search sweep (startup and
-  every five minutes, 40 rooms, off the GUI thread), the per-room deep index
-  (explicit button only), first-unread paging (button only). The next step is
-  a capture, not a fourth theory:
+- **Rooms "lag when they load" on 0.9.0 (Rokas, 2026-09-05; users report
+  the same).** MEASURED the same evening with a timestamped log: the history
+  fill's page count (see the standing warning above) — 9 pages / 4.2 s on
+  a first open, 18 / 11 s on a re-open of a call room. Fixed by lowering the
+  invisible-page budget from 60 to 12 plus the wheel-on-short-content
+  request; live re-check NOT TESTED at the time of writing. Also changed on
+  code evidence: member hydration no longer rebuilds every message body, and
+  media rows outside the viewport band no longer fetch at open. Ruled OUT by
+  reading: the search sweep (startup and every five minutes, off the GUI
+  thread), the per-room deep index and first-unread paging (buttons only).
+  **22:48 the same day, after the filter build: "messages are hard to load
+  when a call is happening in the room."** No capture yet. Ruled out by
+  reading: the per-minute membership state does NOT fire `membersChanged`
+  (only a full roster does, RustSdkMatrixClient.cpp ~8824), so the identity
+  sweep is not it, and the events are filtered before they become items.
+  The leading explanation is the one the maintainer found for the share
+  blur: the machine is at 100% CPU during a call, and a page costs ~100-250
+  ms of GUI-thread ingest and delegate instantiation that then stretches.
+  Needs the stall trace DURING a call, plus the CPU figure at the time.
+  For anything that remains, the capture recipe:
 
       LIGHTNING_GUI_STALL_TRACE=100 QT_LOGGING_RULES="lightning.media.trace=true" \
         scripts/run-dev.sh --log-file /tmp/lightning-roomload.log
@@ -1907,6 +1974,31 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   then open three rooms, one media-heavy, and read the stall lines (each
   names a category: `image-decode`, `timeline-diff`, `row-reveal`,
   `timeline-reset`, `rust-poll-drain`) and the `media … cache=` lines.
+- **A received share blurs for a moment, then fast-forwards to the present,
+  at irregular one-to-five-minute intervals (0.9.0 AppImage, 2026-09-05).**
+  A full call log showed the engine's frame counters FLAT — `dropped= 0`,
+  no key gaps — through every incident, so the receive path above RTP is
+  healthy and the event lives below it: packet loss with a keyframe
+  request, or the sender's encoder stalling and bursting. Nothing in the
+  client runs on that cadence. The instrument exists now:
+  `LIGHTNING_CALL_STATS_TRACE=5` logs, every five seconds and per SSRC,
+  packets / loss / jitter / kbps / PLI / NACK / FIR for both webrtcbins and
+  the remote side's round trip and fraction lost about what we send. Run
+  it on BOTH ends of the call, note the wall-clock time of a blur, and read
+  the lines around it; a `pli` step with `lost` climbing is the network, a
+  `kbps` dip on the sender's outbound with no loss is the encoder.
+  **CAUSE IDENTIFIED BY THE MAINTAINER, 2026-09-05 22:22: it happens when the
+  SENDING machine's CPU is at 100%.** That is the encoder case above: `vp8enc`
+  (software, `deadline=1 threads=4`, ~0.56 cores at 1080p30 per the table in
+  the standing warnings) is starved by the load, frames queue and then burst,
+  and the receiver — whose counters were flat — sees a stall and a
+  fast-forward. Not fixed. Leads, none shipped and none measured: raise the
+  encoder's streaming-thread priority from the pipeline's `stream-status`
+  bus message (GStreamer creates those threads itself); trade quality for
+  time under load (`cpu-used`, a lower rung); a hardware encoder path
+  (VA-API / NVENC), which is a packaging question as much as a code one.
+  The stats trace shows this shape as a `kbps` dip on the sender's outbound
+  with no loss.
 - **Full screen opens on the primary monitor**, not the one the app is on.
   Investigated 2026-09-04 (Task A §6) and NOT changed: `placeOnThisApplications
   Screen()`'s arithmetic is already self-consistent in Qt's own space, and its

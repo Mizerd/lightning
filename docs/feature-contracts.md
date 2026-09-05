@@ -82,7 +82,12 @@ backend capability checks and honest live-test status.
     account with no Spaces at all.
   * **Channels** — Sable's model, reworked 2026-08-26 into THREE VIEWS the
     rail chooses between: **Home** (Create Room / Join with Address / Explore
-    Spaces / Message Search, then the room invites and the rooms in no Space),
+    Spaces / Message Search, then the room invites, the rooms in no Space,
+    and — since 2026-09-05, at Rokas's request — a **Direct Messages** group
+    of the joined DMs after Rooms, with its own collapse key; the DM invites
+    stay in the tab, the People chip is offered at Home too, where it
+    narrows the view to that group, and the rail's Home badge counts those
+    DMs as well as the unparented rooms),
     **Direct Messages** (Create Chat, the DM invites and the DMs) and **one
     per Space** (Lobby / Message Search, its own DIRECT child rooms, its
     subspaces as sibling folders). It no longer falls back to Classic at
@@ -711,26 +716,87 @@ the first account's client, which is the cross-user claim.
 - Member hydration (`membersChanged`) re-announces the identity roles on every
   row and the BODY roles only on rows whose recorded names changed; a
   hydration that changes nothing re-renders nothing.
+- Read receipts: a reader has ONE position. With receipt hosting (a host row
+  draws the receipts of the bodiless rows after it), a receipt the backend
+  still carries on an older row while the same reader is on a newer one is
+  shown only at the newer one, and the host the reader left is re-announced
+  so it stops drawing them.
+
+### MatrixRTC membership events are not timeline items (2026-09-05)
+
+- Every Lightning timeline is built with `lightning_event_filter`: the SDK's
+  default filter minus MatrixRTC membership state
+  (`org.matrix.msc3401.call.member`, `org.matrix.msc4143.rtc.member`,
+  `m.call.member`, `m.rtc.member`). A call re-publishes one per participant
+  per minute; a room that hosts calls carried thousands, each paginated,
+  ingested, instantiated and counted. The "started a call" row is the
+  notification event and stays; the call UI reads membership from room state;
+  the collapsed activity group simply no longer lists them. The pagination
+  controller allows twelve consecutive empty pages (was two) so the fill can
+  walk through such a run; the pane's row cap bounds what is inserted.
 
 ### Media rows and the viewport band (2026-09-05)
 
 - An image row asks the media bridge for its picture only while it lies inside
-  the pane's media band: content-coordinate bounds published by
-  `TimelinePane` (2.5 viewports towards the newest end, 1.5 towards history)
-  and moved only at load, model reset, viewport resize, and the settle after a
-  gesture. A row entering the band asks then; a row that already holds its
-  picture is left alone. Fixtures and the thread panel, which publish no
-  band, are permissive.
+  the pane's media band: a ROW-INDEX range `TimelinePane` computes from the
+  viewport (2.5 viewports towards the newest end, 1.5 towards history) at
+  load, model reset, viewport resize, and 300 ms after the last content
+  movement, and assigns to each row through the row Loader — the same shape
+  as `rowOnScreen`. A row entering the band asks then; a row that already
+  holds its picture is left alone. Fixtures and the thread panel, which
+  assign no band, are permissive.
+- The history fill spends at most 12 pages on rows that add no visible height
+  (was 60 since `a5e64a6`); after that a wheel towards older history on
+  content too short to scroll requests the next page, so a collapsed
+  activity run never has to be expanded to reach older history.
+
+### Call diagnostics: the RTP statistics trace (2026-09-05)
+
+- `LIGHTNING_CALL_STATS_TRACE=<seconds>` (1/true/yes = 5) makes the media
+  engine ask both webrtcbins for their statistics on that interval and log,
+  per SSRC, packets, loss, jitter, the bitrate over the interval, PLI / NACK
+  / FIR counts, and for what this client sends the remote side's round-trip
+  time and fraction lost. Numbers and the media kind only, no identifiers.
+  Off unless set; stops with the call.
 
 ### The hover action bar and the call popout (2026-09-05)
 
 - The message hover bar offers Edit (before More) under exactly the context
   menu's gate — own, editable, not a local echo — and starts the composer's
   edit for that message.
-- The call popout offers "Fill this window with the share": the spotlighted
-  (or first) share alone, edge to edge, the tile grid hidden; the same button
-  restores everyone, and the mode drops on its own when the share ends. It is
+- The call popout fills itself with a share when that share's tile is
+  clicked (or through the bar's fill button): the share alone, no control
+  bar, a small margin; clicking the filled share or pressing Escape brings
+  the tiles back, and the mode drops on its own when the share ends. It is
   local to the popout window and does not touch the stage's spotlight.
+- A share tile frames the PICTURE (the painted rectangle computed from the
+  frame size, a 2px light edge with a small radius; the spotlight accent
+  rides on it), not the tile bounds, and while the picture shows the tile's
+  own edge steps aside so there is ONE frame. Only the keyboard focus ring
+  still draws on the tile. On a surface 480px or wider the owner nameplate
+  behaves like the full-screen controls: shown for three seconds after the
+  tile appears or the pointer moves over it, then faded; small grid tiles
+  keep it.
+- The popout's fill tiles exist only while the window SHOWS, exactly like
+  its tile grid: a share tile claims its track's sink when it is built and
+  the main stage's tiles claim it back on pop-in, so a fill tile that
+  outlived a pop-in came back as a grey box. The reader's fill choice is
+  kept across pop-outs.
+- The "Voice connected" bar in the navigation column keeps its four buttons
+  inside itself at the column's floor: the status text is the part that
+  yields (elides), never the hang-up button.
+- A Channels room row carries a favourite star between the name and the
+  call glyph: filled while the room is a favourite, an empty outline while
+  the row is hovered, and a click toggles the `m.favourite` tag (the same
+  write as the row's menu). Neither favourite nor hovered: no star, no
+  reserved width, so the unread pill never moves.
+- A mention query ends at its second space, and a completed rich-mode pill
+  (a matrix.to anchor) is never re-read as a token; the markdown editor's
+  recorded refs already refused that.
+- The room header's title bound (`Layout.maximumWidth`) is ceiled: a Layout
+  hands an item an integer width and the title's own implicitWidth is a
+  fraction, so an unrounded bound elided every name by a quarter pixel
+  ("Ho…" at Home).
 
 ### Local message search
 
@@ -1158,6 +1224,15 @@ receives the copy — who may not be in the source room.
 The dialog stays open through the send and reports PER PAIR, with a retry for
 the failures. N×M sends can partially fail, and "sent" because one of twelve
 worked is a lie the user would act on. Capped at 50 messages.
+
+The selection circle on each row follows `app.forward.selectedCount` — the
+row's `isSelected()` check is a plain call Qt cannot observe, and on its own
+it ran once (2026-09-05: the footer counted, the circles stayed empty). While
+selecting, the gutter belongs to the circle: the hovered row's timestamp does
+not draw there, the circle is solid so it reads over an avatar, and the row's
+content shifts right so the circle has a column of its own. Only messages
+select: a call card or a state row has an event id but is not forwardable.
+A selection ends when the reader leaves the room it was started in.
 
 Attachments in a bulk selection are REPORTED as needing the single-message
 path rather than silently skipped: unbounded parallel uploads are forbidden
