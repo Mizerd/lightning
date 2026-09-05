@@ -319,7 +319,14 @@ private:
 
     // Automatic-fill safety. Both reset on every room (re)open.
     int m_fillRequests = 0;
-    int m_maxFillRequests = 8;
+    // Consecutive fill requests that inserted NOTHING before the fill gives
+    // up. 12, not 8, since 2026-09-05: MatrixRTC membership churn no longer
+    // becomes timeline items (rust/src/timeline.rs, lightning_event_filter),
+    // so a page of twenty such events inserts zero rows and costs only its
+    // fetch — a two-hour call leaves ~240 of them between two messages, and
+    // the fill must be allowed to walk through that run. The pane's own row
+    // cap (maxViewportFillRows) bounds what does get inserted.
+    int m_maxFillRequests = 12;
     int m_noProgressStrikes = 0;
     bool m_fillStopped = false;
     // Consecutive automatic (non-user) NearTop batches that added no visible
@@ -348,7 +355,7 @@ private:
     QHash<QString, ScrollAnchor> m_scrollAnchors;
     int m_highlightDurationMs = kDefaultHighlightDurationMs;
 
-    static constexpr int kMaxNoProgressStrikes = 2;
+    static constexpr int kMaxNoProgressStrikes = 12; // see m_maxFillRequests
     static constexpr int kMaxNearTopEmptyStrikes = 4;
     static constexpr int kMaxNavigationBatches = 8;
     static constexpr int kMaxScrollAnchors = 64;

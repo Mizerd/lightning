@@ -51,9 +51,11 @@ use matrix_sdk::{
     },
     Client,
 };
+use matrix_sdk::ruma::{events::AnySyncTimelineEvent, room_version_rules::RoomVersionRules};
 use matrix_sdk_ui::{
     eyeball_im::VectorDiff,
     timeline::{
+        default_event_filter,
         thread_list_service::{ThreadListItem, ThreadListService},
         AttachmentConfig, AttachmentSource, EncryptedMessage, EventSendState,
         EventTimelineItem, MsgLikeKind, PollResult, Timeline, TimelineBuilder,
@@ -109,6 +111,40 @@ pub(crate) const ROOM_MENTION_SENTINEL: &str = "@room";
 /// Matches the size Element X uses for scroll-triggered backfill: large
 /// enough to fill a screen, small enough to stay responsive.
 pub const PAGINATION_BATCH: u16 = 20;
+
+/// The event filter every Lightning timeline is built with: the SDK's own
+/// defaults, minus MatrixRTC MEMBERSHIP state.
+///
+/// A call keeps one `org.matrix.msc3401.call.member` (or msc4143 / stable
+/// `m.call.member` / `m.rtc.member`) state event per participant per MINUTE
+/// alive by re-publishing it, so a room that hosts calls carries thousands of
+/// them. Each one used to become a timeline item: paginated through twenty at
+/// a time, ingested as a hidden activity row, instantiated as a delegate in
+/// the un-virtualized Column, counted by the viewport fill — measured
+/// 2026-09-05 as the reason ONE room took five seconds to open and stalled
+/// on scroll while every other room was instant. Nothing on screen needs
+/// them: the "started a call" row is the notification event, the call UI
+/// reads membership from room STATE (`rtc.rs`), and the collapsed activity
+/// group is happier without a line per minute. Dropped at the source.
+pub(crate) fn lightning_event_filter(
+    event: &AnySyncTimelineEvent,
+    rules: &RoomVersionRules,
+) -> bool {
+    default_event_filter(event, rules) && !is_rtc_membership_event(event)
+}
+
+pub(crate) fn is_rtc_membership_event(event: &AnySyncTimelineEvent) -> bool {
+    let AnySyncTimelineEvent::State(state) = event else {
+        return false;
+    };
+    matches!(
+        state.event_type().to_string().as_str(),
+        "org.matrix.msc3401.call.member"
+            | "org.matrix.msc4143.rtc.member"
+            | "m.call.member"
+            | "m.rtc.member"
+    )
+}
 
 /// Bound for joining timeline/import tasks during shutdown. Only a
 /// last-resort error boundary — tasks are cancelled/joined deterministically
@@ -2136,6 +2172,7 @@ async fn open_room_task(
     // body-text heuristic — and the thread ROOT (no thread_root, only a
     // thread_summary) still stays in the main timeline.
     let timeline = match TimelineBuilder::new(&room)
+        .event_filter(lightning_event_filter)
         .with_focus(TimelineFocus::Live { hide_threaded_events: true })
         .track_read_marker_and_receipts(TimelineReadReceiptTracking::MessageLikeEvents)
         .build()
@@ -2301,6 +2338,7 @@ async fn open_thread_task(
     };
 
     let timeline = match TimelineBuilder::new(&room)
+        .event_filter(lightning_event_filter)
         .with_focus(TimelineFocus::Thread { root_event_id: root_ref })
         .build()
         .await
@@ -2584,6 +2622,7 @@ async fn build_transient_thread_timeline(
     let room = client.get_room(&room_ref)?;
     let root_ref = EventId::parse(root_event_id).ok()?;
     TimelineBuilder::new(&room)
+        .event_filter(lightning_event_filter)
         .with_focus(TimelineFocus::Thread { root_event_id: root_ref })
         .build()
         .await
@@ -4531,7 +4570,10 @@ pub fn sessions_by_room_from_import(
 
 #[cfg(test)]
 mod tests {
-    use super::{sessions_by_room_from_import, state_row_text, TimelineRegistry};
+    use super::{
+        is_rtc_membership_event, sessions_by_room_from_import, state_row_text, TimelineRegistry,
+    };
+    use matrix_sdk::ruma::events::AnySyncTimelineEvent;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
     use std::sync::{Arc, Mutex};
 
@@ -5480,5 +5522,53 @@ mod tests {
                 .len(),
             0
         );
+    }
+
+    // 2026-09-05: MatrixRTC membership churn must not become timeline items
+    // (one state event per participant per minute of every call).
+    #[test]
+    fn rtc_membership_state_is_filtered_and_messages_are_not() {
+        let member: AnySyncTimelineEvent = serde_json::from_value(serde_json::json!({
+            "type": "org.matrix.msc3401.call.member",
+            "state_key": "@a:example.org",
+            "sender": "@a:example.org",
+            "event_id": "$m",
+            "origin_server_ts": 1,
+            "content": { "memberships": [] }
+        }))
+        .expect("a call member state event deserializes");
+        assert!(is_rtc_membership_event(&member));
+
+        let custom: AnySyncTimelineEvent = serde_json::from_value(serde_json::json!({
+            "type": "org.matrix.msc4143.rtc.member",
+            "state_key": "@a:example.org_DEV",
+            "sender": "@a:example.org",
+            "event_id": "$r",
+            "origin_server_ts": 1,
+            "content": {}
+        }))
+        .expect("a custom state event deserializes");
+        assert!(is_rtc_membership_event(&custom));
+
+        let message: AnySyncTimelineEvent = serde_json::from_value(serde_json::json!({
+            "type": "m.room.message",
+            "sender": "@a:example.org",
+            "event_id": "$t",
+            "origin_server_ts": 1,
+            "content": { "msgtype": "m.text", "body": "hi" }
+        }))
+        .expect("a message deserializes");
+        assert!(!is_rtc_membership_event(&message));
+
+        let topic: AnySyncTimelineEvent = serde_json::from_value(serde_json::json!({
+            "type": "m.room.topic",
+            "state_key": "",
+            "sender": "@a:example.org",
+            "event_id": "$s",
+            "origin_server_ts": 1,
+            "content": { "topic": "x" }
+        }))
+        .expect("a topic state event deserializes");
+        assert!(!is_rtc_membership_event(&topic));
     }
 }

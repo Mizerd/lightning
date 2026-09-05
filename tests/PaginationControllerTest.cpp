@@ -473,18 +473,26 @@ private Q_SLOTS:
         controller.setClient(&client);
         controller.setRoomId(kRoomA);
 
-        for (int i = 0; i < 2; ++i) {
+        // Twelve empty pages before the fill gives up (was two until
+        // 2026-09-05): MatrixRTC membership churn is filtered out of the
+        // timeline at the SDK, so an empty page costs only its fetch and a
+        // run of ~240 such events sits between two messages in a call room.
+        for (int i = 0; i < 11; ++i) {
             controller.requestViewportFill();
             client.beginLoading(kRoomA);
             client.completeBatch(kRoomA, 0, false);
+            QVERIFY2(!controller.fillStopped(), "the fill must walk through a churn run");
         }
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 0, false);
         QVERIFY(controller.fillStopped());
 
         controller.requestViewportFill();
-        QCOMPARE(client.loadOlderCalls, 2); // fill refused
+        QCOMPARE(client.loadOlderCalls, 12); // fill refused
 
         controller.requestNearTop();
-        QCOMPARE(client.loadOlderCalls, 3); // user gesture still allowed
+        QCOMPARE(client.loadOlderCalls, 13); // user gesture still allowed
     }
 
     // The per-room viewport-fill cap bounds CONSECUTIVE unproductive fills,
