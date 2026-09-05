@@ -347,9 +347,11 @@ private Q_SLOTS:
         QVERIFY(menu > 0);
         const QString decl = bar.mid(menu, 2200);
         for (const char *item : { "composerOverflowEmojiItem", "composerOverflowMediaItem",
-                                  "composerOverflowVoiceItem", "composerOverflowSendLaterItem" }) {
+                                  "composerOverflowVoiceItem" }) {
             QVERIFY2(decl.contains(QLatin1String(item)), item);
         }
+        // Send later stays under the send button's chevron, not here.
+        QVERIFY(!decl.contains(QStringLiteral("composerOverflowSendLaterItem")));
         QVERIFY2(decl.contains(QStringLiteral("y: -height - 4")), "the menu opens above the composer");
     }
 

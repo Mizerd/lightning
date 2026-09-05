@@ -2856,8 +2856,9 @@ Item {
                         iconName: "more_horiz"
                         iconSize: 20
                         // Compact rows only: everything the row had to hide
-                        // (emoji, GIFs and stickers, the voice message, send
-                        // later) lives in one menu here.
+                        // (emoji, GIFs and stickers, the voice message) lives
+                        // in one menu here. Send later stays under the send
+                        // button's own chevron.
                         visible: root.compactInputRow && !root.voiceActive
                         enabled: app.currentRoomId !== ""
                         Accessible.name: qsTr("More")
@@ -3126,13 +3127,6 @@ Item {
             height: visible ? implicitHeight : 0
             enabled: app.currentRoomId !== "" && app.composer.attachmentsSupported
             onTriggered: root.startVoiceMessage()
-        }
-        AppMenuItem {
-            objectName: "composerOverflowSendLaterItem"
-            iconName: "schedule"
-            text: qsTr("Send later…")
-            enabled: app.composer.canSend
-            onTriggered: root.openSendLater()
         }
     }
 
