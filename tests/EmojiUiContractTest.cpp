@@ -84,8 +84,10 @@ private Q_SLOTS:
         // monochrome first entry would satisfy every check above and
         // reintroduce the defect.
         // Derived from QML_DIR so no new compile definition is needed.
+        // 2026-09-05: the list moved to FontManager::emojiFamily(), which
+        // also feeds the application default font's fallback family.
         const QString catalog =
-            read(QStringLiteral(QML_DIR "/../src/app/AppController.cpp"));
+            read(QStringLiteral(QML_DIR "/../src/app/FontManager.cpp"));
         QVERIFY(!catalog.isEmpty());
         const int colour = catalog.indexOf(QLatin1String("Noto Color Emoji"));
         const int mono = catalog.indexOf(QLatin1String("\"Noto Emoji\""));

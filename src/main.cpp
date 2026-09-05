@@ -36,6 +36,7 @@
 #include <QSet>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QApplication>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QLibraryInfo>
@@ -1272,7 +1273,16 @@ int main(int argc, char *argv[])
         qputenv("QT_MEDIA_BACKEND", "ffmpeg");
 #endif
 
-    QGuiApplication app(argc, argv);
+    // QApplication, not QGuiApplication, since 0.9.1. QSystemTrayIcon on
+    // X11 has two implementations: a StatusNotifierItem over D-Bus when a
+    // watcher is on the session bus, and the legacy XEmbed tray otherwise —
+    // and the legacy one is a QWidget. Enabling the tray on a desktop whose
+    // bar speaks XEmbed only (i3bar, polybar, tint2 …) therefore aborted a
+    // QGuiApplication process with "QWidget: Cannot create a QWidget without
+    // QApplication" (reported from NixOS on 0.9.0). Nothing else here is a
+    // widget; QtWidgets was already linked for the tray, and a QML
+    // application under QApplication renders exactly as before.
+    QApplication app(argc, argv);
     // Opt-in GUI-thread stall tracing (LIGHTNING_GUI_STALL_TRACE): a
     // heartbeat + watchdog that logs any event-loop stall over the
     // threshold with a coarse category. Duration and category literal
@@ -1328,9 +1338,11 @@ int main(int argc, char *argv[])
     // persisted per-account family is applied after the controller exists
     // (before the QML engine loads), so the first rendered frame already
     // uses the selected font.
-    QFont uiFont(QStringLiteral("Manrope"));
-    uiFont.setPixelSize(14);
-    QGuiApplication::setFont(uiFont);
+    // The emoji face rides along as the second family: a tooltip or a
+    // native menu that never names a face then draws colour emoji too. See
+    // FontManager::emojiFamily().
+    QGuiApplication::setFont(
+        FontManager::withEmojiFallback(QStringLiteral("Manrope"), 14));
 
     // Re-run through QCommandLineParser so --help / --version behave when a
     // user passes them alongside another Qt flag we do not know about, and
@@ -1464,9 +1476,7 @@ int main(int argc, char *argv[])
     // left alone so re-installing the font brings it back. Mono is pushed
     // into AppTheme from Main.qml; icon and emoji roles are never affected.
     const auto applyUiFont = [](const QString &family) {
-        QFont font(family);
-        font.setPixelSize(14);
-        QGuiApplication::setFont(font);
+        QGuiApplication::setFont(FontManager::withEmojiFallback(family, 14));
     };
     applyUiFont(fontManager.uiFamily());
     QObject::connect(&fontManager, &FontManager::selectionChanged,

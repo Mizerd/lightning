@@ -105,6 +105,16 @@ public:
     static constexpr qint64 kMaxFontFileBytes = 32LL * 1024 * 1024;
     static constexpr int kMaxImportedFonts = 16;
 
+    // The colour emoji face the host actually has ("" when none), resolved
+    // once. Named explicitly wherever emoji are drawn because Qt's automatic
+    // per-character fallback differs by Qt version (6.8 picks a monochrome
+    // face where 6.11 picks colour), and folded into the application default
+    // font's family list so surfaces that never name a face — tooltips,
+    // native menus — inherit it too.
+    static QString emojiFamily();
+    // `family` first, the emoji face second (when there is one).
+    static QFont withEmojiFallback(const QString &family, int pixelSize);
+
     explicit FontManager(SettingsManager *settings, QObject *parent = nullptr);
 
     // Registers every stored import with QFontDatabase. Call once, after

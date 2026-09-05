@@ -82,13 +82,17 @@ void TrayIcon::setEnabled(bool enabled)
     if (!platformSupportsTray())
         return;
 
-    // Deliberately NO context menu. QSystemTrayIcon takes a QMenu, which is a
-    // QtWidgets type and needs a QApplication; this process constructs a
-    // QGuiApplication, and switching the whole application over to widgets to
-    // gain two menu entries would be a large change for a small one. Instead
-    // EVERY activation — left click, double click and right click — brings
-    // the window back, so the icon is never a dead end, and quitting stays
-    // where it already was: in the window (Ctrl+Q).
+    // Deliberately NO context menu. A QMenu is a widget, and a tray menu
+    // would need its own design (what it offers, how it tracks unread and
+    // account state) rather than two entries bolted on. Instead EVERY
+    // activation — left click, double click and right click — brings the
+    // window back, so the icon is never a dead end, and quitting stays where
+    // it already was: in the window (Ctrl+Q).
+    //
+    // The process IS a QApplication since 0.9.1 (see main.cpp): on X11 with
+    // no StatusNotifier watcher Qt falls back to an XEmbed icon that is a
+    // QWidget, and under a QGuiApplication that fallback aborted the process
+    // the moment this setting was switched on.
     m_icon = new QSystemTrayIcon(this);
     // The window icon, so the tray matches the task switcher. A custom app
     // icon set by the user is already installed as the application icon, so

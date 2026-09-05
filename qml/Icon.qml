@@ -147,5 +147,11 @@ Text {
     color: AppTheme.textSecondary
     verticalAlignment: Text.AlignVCenter
     horizontalAlignment: Text.AlignHCenter
-    renderType: Text.QtRendering
+    // Native (hinted, device-pixel) rasterisation, not the distance-field
+    // path: an icon is a static glyph at one size, and the distance field's
+    // resampling is what read as "pixelated" on the profile card's Message
+    // button (2026-09-05). The scale factor is applied through the DPR, so
+    // native glyphs stay crisp under interface zoom; only an animated
+    // `scale` transform would soften them, and no icon here is scaled.
+    renderType: Text.NativeRendering
 }

@@ -290,6 +290,12 @@ ColumnLayout {
                     spacing: 2
                     Label {
                         text: modelData.symbol || ""
+                        // The colour emoji face by NAME: Qt 6.8 (every
+                        // packaged build) picks a monochrome face for these
+                        // codepoints when left to per-character fallback,
+                        // which is how the AppImage showed black-and-white
+                        // and missing verification emoji (2026-09-05).
+                        font.family: app.emojiFontFamily || ""
                         font.pixelSize: 28
                         horizontalAlignment: Text.AlignHCenter
                         Layout.alignment: Qt.AlignHCenter

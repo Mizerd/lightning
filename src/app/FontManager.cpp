@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFont>
 #include <QFontDatabase>
 #include <QRawFont>
 #include <QLoggingCategory>
@@ -544,4 +545,38 @@ bool FontManager::removeImportedFont(const QString &fileName)
     Q_EMIT importedFontsChanged();
     Q_EMIT selectionChanged();
     return true;
+}
+
+QString FontManager::emojiFamily()
+{
+    // Resolved once: QFontDatabase::families() is not cheap, and the answer
+    // cannot change while the process runs. Colour faces first, by platform
+    // likelihood; the monochrome Noto Emoji last — better than tofu, worse
+    // than colour. Nothing installed answers "", so a surface leaves its
+    // face alone: claiming a font that is not there is worse than fallback.
+    static const QString family = [] {
+        static const char *const kCandidates[] = {
+            "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji",
+            "Twemoji",          "JoyPixels",         "EmojiOne Color",
+            "Noto Emoji",
+        };
+        const QStringList installed = QFontDatabase::families();
+        for (const char *candidate : kCandidates) {
+            const QString name = QString::fromLatin1(candidate);
+            if (installed.contains(name, Qt::CaseInsensitive))
+                return name;
+        }
+        return QString();
+    }();
+    return family;
+}
+
+QFont FontManager::withEmojiFallback(const QString &family, int pixelSize)
+{
+    QFont font(family);
+    const QString emoji = emojiFamily();
+    if (!emoji.isEmpty() && emoji.compare(family, Qt::CaseInsensitive) != 0)
+        font.setFamilies({ family, emoji });
+    font.setPixelSize(pixelSize);
+    return font;
 }
