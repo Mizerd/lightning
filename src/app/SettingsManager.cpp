@@ -1212,7 +1212,12 @@ int SettingsManager::effectiveNotificationPreview(bool encrypted,
 
 bool SettingsManager::callPictureInPicture() const
 {
-    return m_store->value(QStringLiteral("calls/pictureInPicture"), true)
+    // OFF by default since 2026-09-05. Shipped on, this popped the call out
+    // the moment the main window was minimised — a window appearing on its
+    // own for a reader who only wanted the app out of the way ("that
+    // shouldn't happen"). The pop-out stays available from the call bar,
+    // and the automatic one is the opt-in.
+    return m_store->value(QStringLiteral("calls/pictureInPicture"), false)
         .toBool();
 }
 

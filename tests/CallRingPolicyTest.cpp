@@ -227,6 +227,21 @@ private Q_SLOTS:
         QCOMPARE(changed.count(), 1);
     }
 
+    // 2026-09-05: the automatic pop-out shipped ON and fired on every
+    // minimise — a window appearing on its own for a reader who only wanted
+    // the app out of the way. It is the opt-in now; the call bar's manual
+    // pop-out is unaffected.
+    void theAutomaticPopOutIsOptIn()
+    {
+        AppController controller(AppController::MockBackend);
+        QCOMPARE(controller.settings()->callPictureInPicture(), false);
+        QSignalSpy changed(controller.settings(),
+                           &SettingsManager::callPictureInPictureChanged);
+        controller.settings()->setCallPictureInPicture(true);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(controller.settings()->callPictureInPicture(), true);
+    }
+
     void missedCallClassificationIsExact()
     {
         using ER = CallController::EndReason;
