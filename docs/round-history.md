@@ -191,6 +191,21 @@ contract, the refutation rule and the probe rule are in the standing warnings.
   Messages group at Home, the rail's Home badge adds the People total to the
   unparented rooms' — a room in two views is counted by both tiles, as a
   room under two Spaces already was — and the attribution tests say so.
+- **Notifications on Windows were nothing at all, and a read KDE
+  notification stayed in the history.** Delivery had one path, the
+  freedesktop daemon over D-Bus; a build without QtDBus logged a line and
+  showed nothing. The tray icon's balloon is Qt's only other delivery
+  (Windows: a toast in the Action Centre; macOS: a user notification) and
+  it needs a VISIBLE icon, so on those platforms the icon follows the
+  notifications setting as well as close-to-tray, the manager keeps the one
+  payload the balloon carries and a click routes to its room. And the
+  read-withdrawal (`closeRoomNotifications`) never reached KDE's history
+  because an EXPIRED popup (freedesktop reason 1) forgot its payload —
+  expired stays withdrawable now, dismissed and closed are forgotten. NOT
+  LIVE-TESTED on any platform: Windows and macOS need a packaged build, KDE
+  needs a read on the maintainer's desktop. Withdrawing a shown balloon on
+  Windows or macOS is not possible through Qt; that needs the native toast
+  APIs, recorded as the follow-up.
 - **Minimising popped the call out.** The automatic picture-in-picture
   (desktop-integration round) fired on every minimise and every close to the
   tray, and it shipped ON. A window appearing on its own for a reader who

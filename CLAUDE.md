@@ -1171,6 +1171,19 @@ costume. THREE MINUTES LOCALLY: take the unit's own compile command from
 macOS error before the fix and passed after; run it over every source that
 names `QDBus` before a release.
 
+**A BUILD WITHOUT QtDBus HAD NO NOTIFICATIONS AT ALL (2026-09-05, "no
+notifications on windows at all").** `deliverNow` had one path, the
+freedesktop daemon; the `#else` logged a line. The tray icon's balloon is
+Qt's only other delivery and it needs a VISIBLE icon, so on those platforms
+`refreshTrayState` shows the icon while notifications are enabled, the
+manager keeps the one payload a balloon carries, and a click routes to its
+room. NOT LIVE-TESTED on Windows or macOS (needs a packaged build). A
+balloon cannot be withdrawn through Qt — read-dismissal there needs the
+native toast APIs (WinRT `ToastNotificationHistory.Remove`,
+`UNUserNotificationCenter removeDeliveredNotifications`), a follow-up.
+And on KDE the read-withdrawal never reached the history because an EXPIRED
+popup (reason 1) forgot its payload; it keeps it now. Also not yet seen live.
+
 **THE WINDOWS BUILDER IMAGE IS BUILT BY HAND UNDER A FIXED TAG, AND A
 DOCKERFILE CHANGE ALONE CHANGES NOTHING.** Pipeline 172 compiled and linked
 Windows and then died in `stage-windows-runtime.py` on "required GStreamer

@@ -2925,6 +2925,8 @@ if(BUILD_TESTING)
         src/app/ModerationController.cpp
         src/notifications/NotificationManager.h
         src/notifications/NotificationManager.cpp
+        src/app/TrayIcon.h
+        src/app/TrayIcon.cpp
         src/notifications/FallbackAvatar.h
         src/notifications/FallbackAvatar.cpp
         src/theme/IdentityColors.h
@@ -2945,7 +2947,7 @@ if(BUILD_TESTING)
     )
     target_include_directories(moderation-test PRIVATE src)
     target_link_libraries(moderation-test PRIVATE
-        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Widgets Qt6::Test)
     if(TARGET Qt6::DBus)
         target_link_libraries(moderation-test PRIVATE Qt6::DBus)
         target_compile_definitions(moderation-test PRIVATE HAVE_QT_DBUS=1)
@@ -3560,6 +3562,8 @@ if(BUILD_TESTING)
         tests/NotificationManagerTest.cpp
         src/notifications/NotificationManager.h
         src/notifications/NotificationManager.cpp
+        src/app/TrayIcon.h
+        src/app/TrayIcon.cpp
         src/storage/AppDataPaths.cpp
         src/storage/PortableMode.cpp
         src/notifications/FallbackAvatar.h
@@ -3572,8 +3576,10 @@ if(BUILD_TESTING)
         src/models/UserLookup.cpp
     )
     target_include_directories(notification-manager-test PRIVATE src)
+    # TrayIcon (the balloon delivery for builds without QtDBus) is a
+    # QSystemTrayIcon, which lives in QtWidgets.
     target_link_libraries(notification-manager-test PRIVATE
-        Qt6::Core Qt6::Gui Qt6::Test)
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
     if(TARGET Qt6::DBus)
         target_link_libraries(notification-manager-test PRIVATE Qt6::DBus)
         target_compile_definitions(notification-manager-test

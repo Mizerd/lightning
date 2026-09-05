@@ -1,5 +1,7 @@
 #include "notifications/NotificationManager.h"
 
+#include "app/TrayIcon.h"
+
 #include "storage/AppDataPaths.h"
 #include "notifications/FallbackAvatar.h"
 
@@ -565,7 +567,10 @@ void NotificationManager::deliverNow(const QString &title,
     QDBusInterface notifications(kService, kPath, kInterface,
                                  QDBusConnection::sessionBus());
     if (!notifications.isValid()) {
-        qCInfo(lcNotify) << "notification service unavailable";
+        // No daemon on this session bus: the tray balloon is the one
+        // delivery left, when the icon is showing.
+        if (!deliverThroughTray(title, body, payload, avatar))
+            qCInfo(lcNotify) << "notification service unavailable";
         return;
     }
     const NotificationIdentity identity = notificationIdentity();
@@ -652,13 +657,55 @@ void NotificationManager::deliverNow(const QString &title,
     if (reply.isValid())
         recordPayload(reply.value(), payload);
 #else
-    Q_UNUSED(title);
-    Q_UNUSED(body);
-    Q_UNUSED(payload);
+    // No QtDBus in this build (Windows, macOS). Until 2026-09-05 this
+    // logged a line and showed NOTHING — "no notifications on windows at
+    // all" — so the tray balloon carries the notification: Windows shows it
+    // as a toast in the Action Centre, macOS as a user notification. The
+    // sound is the platform's own for a balloon.
     Q_UNUSED(sound);
-    Q_UNUSED(avatar);
-    qCInfo(lcNotify) << "native notifications unavailable on this build";
+    if (!deliverThroughTray(title, body, payload, avatar))
+        qCInfo(lcNotify) << "native notifications unavailable on this build";
 #endif
+}
+
+void NotificationManager::setFallbackTray(TrayIcon *tray)
+{
+    if (m_fallbackTray == tray)
+        return;
+    if (m_fallbackTray)
+        disconnect(m_fallbackTray, nullptr, this, nullptr);
+    m_fallbackTray = tray;
+    if (m_fallbackTray) {
+        connect(m_fallbackTray, &TrayIcon::messageClicked, this,
+                &NotificationManager::onFallbackMessageClicked);
+    }
+}
+
+bool NotificationManager::deliverThroughTray(const QString &title,
+                                             const QString &body,
+                                             const QVariantMap &payload,
+                                             const QImage &avatar)
+{
+    if (!m_fallbackTray || !m_fallbackTray->showMessage(title, body, avatar))
+        return false;
+    // ONE balloon at a time on both platforms: a newer one replaces the
+    // older, so the payload a click resolves to is the latest delivered.
+    m_lastFallbackPayload = payload;
+    if (!payload.value(QStringLiteral("roomId")).toString().isEmpty())
+        qCInfo(lcNotify) << "notification delivered through the tray balloon";
+    return true;
+}
+
+void NotificationManager::onFallbackMessageClicked()
+{
+    const QVariantMap payload = m_lastFallbackPayload;
+    m_lastFallbackPayload.clear();
+    const QString roomId = payload.value(QStringLiteral("roomId")).toString();
+    if (roomId.isEmpty())
+        return;
+    Q_EMIT openRequested(roomId,
+                         payload.value(QStringLiteral("eventId")).toString(),
+                         payload.value(QStringLiteral("threadRootId")).toString());
 }
 
 void NotificationManager::onActionInvoked(quint32 id, const QString &action)
@@ -721,7 +768,6 @@ void NotificationManager::onNotificationReplied(quint32 id, const QString &text)
 
 void NotificationManager::onNotificationClosed(quint32 id, quint32 reason)
 {
-    Q_UNUSED(reason);
     if (id != 0 && id == m_activeCallNotificationId) {
         // The user (or daemon) dismissed the call card: stop re-ringing,
         // but do NOT decline — dismissing a notification is not an answer,
@@ -729,6 +775,16 @@ void NotificationManager::onNotificationClosed(quint32 id, quint32 reason)
         m_activeCallNotificationId = 0;
         m_callRingTimer.stop();
     }
+    // freedesktop reasons: 1 expired, 2 dismissed by the user, 3 closed by
+    // a CloseNotification call, 4 undefined. An EXPIRED popup is not gone:
+    // KDE and GNOME keep it in their notification history, and that is
+    // exactly the entry a later read must withdraw (closeRoomNotifications)
+    // — forgetting it here is why a KDE notification stayed in the history
+    // after its room had been read in this client (2026-09-05). Everything
+    // else really is gone from the desktop.
+    constexpr quint32 kExpired = 1;
+    if (reason == kExpired)
+        return;
     forgetPayload(id);
 }
 

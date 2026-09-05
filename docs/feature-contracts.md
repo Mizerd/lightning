@@ -468,6 +468,21 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
 
 ### Notifications
 
+- **Delivery, per platform (2026-09-05).** A build with QtDBus (Linux) talks
+  to the freedesktop daemon and gets actions, inline reply and per-id
+  withdrawal. A build without it (Windows, macOS) delivers through the tray
+  icon's balloon — Windows shows it as a toast in the Action Centre, macOS
+  as a user notification — which needs a visible icon, so there the icon
+  shows while notifications are enabled (as well as with close-to-tray). One
+  balloon at a time; a click opens the room it was raised for. A balloon
+  cannot be withdrawn through Qt: read-dismissal on those platforms needs
+  the native toast APIs and is a recorded follow-up.
+- **Reading a room withdraws its notifications.** `closeRoomNotifications`
+  runs when a room's unread clears, on Mark as read and on a reply, and it
+  reaches the desktop's HISTORY: an expired popup (freedesktop reason 1)
+  keeps its payload, since KDE and GNOME keep the entry, while a dismissed
+  or closed one is forgotten.
+
 - Native freedesktop notifications when Qt DBus and a notification service
   are available
 - SDK-derived mention metadata, direct-message and per-room local modes,

@@ -6,6 +6,8 @@
 #include <QIcon>
 #include <QPainter>
 #include <QPixmap>
+#include <QImage>
+#include <QPixmap>
 #include <QSystemTrayIcon>
 
 namespace {
@@ -105,6 +107,8 @@ void TrayIcon::setEnabled(bool enabled)
                 Q_UNUSED(reason);
                 Q_EMIT showRequested();
             });
+    connect(m_icon, &QSystemTrayIcon::messageClicked, this,
+            &TrayIcon::messageClicked);
     refreshTooltip();
     m_icon->show();
 }
@@ -182,4 +186,19 @@ void TrayIcon::refreshTooltip()
             + tr("%n unread message(s)", "system tray tooltip", m_unread);
     }
     m_icon->setToolTip(text);
+}
+
+bool TrayIcon::showMessage(const QString &title, const QString &body,
+                           const QImage &image)
+{
+    if (!m_icon || !m_icon->isVisible())
+        return false;
+    // Ten seconds: Windows treats the value as a hint and macOS ignores it,
+    // so it only has to be reasonable.
+    constexpr int kMillis = 10000;
+    if (image.isNull())
+        m_icon->showMessage(title, body, QSystemTrayIcon::Information, kMillis);
+    else
+        m_icon->showMessage(title, body, QIcon(QPixmap::fromImage(image)), kMillis);
+    return true;
 }

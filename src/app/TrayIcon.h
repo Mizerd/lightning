@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 
+class QImage;
 class QSystemTrayIcon;
 
 // The system-tray presence, and nothing else.
@@ -57,9 +58,20 @@ public:
     // is testable on a machine with no system tray at all.
     static QString badgeLabel(int count, bool anyUnread);
 
+    // A desktop notification through the icon's own balloon — the ONLY
+    // delivery Qt offers where there is no freedesktop daemon (Windows shows
+    // it as a toast in the Action Centre, macOS as a user notification).
+    // False when the icon is not showing: a balloon needs a visible icon, and
+    // the caller is told rather than left believing something was shown.
+    // `image` is the sender's avatar, or null for the application icon.
+    bool showMessage(const QString &title, const QString &body,
+                     const QImage &image);
+
 Q_SIGNALS:
     // The user clicked the icon; bring the window back.
     void showRequested();
+    // The user clicked the balloon shown by showMessage().
+    void messageClicked();
 
 private:
     void refreshTooltip();

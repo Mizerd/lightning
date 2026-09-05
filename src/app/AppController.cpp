@@ -265,6 +265,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             this, &AppController::trayShowRequested);
     connect(m_settings.get(), &SettingsManager::closeToTrayChanged,
             this, &AppController::refreshTrayState);
+    connect(m_settings.get(), &SettingsManager::notificationsEnabledChanged,
+            this, &AppController::refreshTrayState);
     refreshTrayState();
 
     // Window geometry: settle the "can this still be restored?" question once,
@@ -357,6 +359,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_forward      = std::make_unique<ForwardController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
     m_mediaBridge  = std::make_unique<MediaBridge>(this);
+    // The tray balloon is the notification delivery where there is no
+    // freedesktop daemon (Windows, macOS) — see refreshTrayState for why the
+    // icon shows there.
+    m_notifications->setFallbackTray(&m_tray);
     m_notifications->setAvatarProvider(
         [this](const QString &mxc, bool request) {
             if (request)
@@ -4126,8 +4132,22 @@ void AppController::onLoginSucceeded()
 
 void AppController::refreshTrayState()
 {
-    m_tray.setEnabled(m_settings && m_settings->closeToTray()
-                      && TrayIcon::platformSupportsTray());
+    // WHERE THE TRAY CARRIES THE NOTIFICATIONS, IT SHOWS WHILE THEY ARE ON.
+    // A build without QtDBus (Windows, macOS) has no freedesktop daemon to
+    // talk to, and Qt's only other delivery is the tray icon's balloon —
+    // which needs a visible icon. Until 2026-09-05 those platforms showed
+    // no notification at all unless "keep running in the tray" happened to
+    // be on. So there the icon follows the notifications setting as well as
+    // the close-to-tray one; on a D-Bus desktop nothing changes.
+#ifdef HAVE_QT_DBUS
+    constexpr bool kTrayCarriesNotifications = false;
+#else
+    constexpr bool kTrayCarriesNotifications = true;
+#endif
+    const bool wanted = m_settings
+        && (m_settings->closeToTray()
+            || (kTrayCarriesNotifications && m_settings->notificationsEnabled()));
+    m_tray.setEnabled(wanted && TrayIcon::platformSupportsTray());
     if (m_tray.enabled()) {
         m_tray.setAccountLabel(m_lastSessionUserId);
         // A tray turned on while messages are already waiting must open with

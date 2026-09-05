@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QPointer>
 #include <QImage>
 #include <QList>
 #include <QObject>
@@ -11,6 +12,7 @@
 #include <functional>
 
 struct TimelineEvent;
+class TrayIcon;
 
 // v0.6.0 checkpoint 11: native desktop notifications.
 //
@@ -173,6 +175,13 @@ public:
     // Count of generic notices raised (missed calls, invites, ...): lets
     // integration tests observe the AppController gating without a daemon.
     int genericNoticeCountForTest() const { return m_genericNoticeCount; }
+    // The tray balloon is the delivery where no freedesktop daemon exists
+    // (Windows, macOS): see deliverThroughTray. The manager keeps the ONE
+    // payload the balloon carries — the platforms show one balloon at a
+    // time and a new one replaces it — so a click routes to that room.
+    void setFallbackTray(TrayIcon *tray);
+    void deliverThroughTrayForTest(const QVariantMap &payload)
+    { m_lastFallbackPayload = payload; }
 
 Q_SIGNALS:
     // The user activated a notification. Identity only — no tokens.
@@ -202,6 +211,8 @@ private Q_SLOTS:
     // only ever offered when GetCapabilities advertises it.
     void onNotificationReplied(quint32 id, const QString &text);
     void onNotificationClosed(quint32 id, quint32 reason);
+    // The tray balloon (Windows / macOS delivery) was clicked.
+    void onFallbackMessageClicked();
     void onCallRingTick();
 
 private:
@@ -239,6 +250,12 @@ public:
     void closeRoomNotifications(const QString &roomId);
 private:
     void forgetPayload(quint32 id);
+    /// The balloon delivery, for builds and sessions with no freedesktop
+    /// daemon. True when the tray showed it.
+    bool deliverThroughTray(const QString &title, const QString &body,
+                            const QVariantMap &payload, const QImage &avatar);
+    QPointer<TrayIcon> m_fallbackTray;
+    QVariantMap m_lastFallbackPayload;
 
     // Bounded number of click payloads retained for routing.
     static constexpr int kMaxPendingPayloads = 64;

@@ -44,6 +44,8 @@ private Q_SLOTS:
     void anInlineReplyKeepsThePayloadUntilTheTextArrives();
     void anEmptyInlineReplySendsNothing();
     void withdrawingSparesTheIncomingCallRing();
+    void anExpiredNotificationStaysWithdrawableUntilTheRoomIsRead();
+    void aTrayBalloonClickOpensTheRoomItWasRaisedFor();
     void directMessageNotifiesWithSenderOnlyDefault()
     {
         const auto decision =
@@ -707,6 +709,60 @@ void NotificationManagerTest::anEmptyInlineReplySendsNothing()
                               Q_ARG(quint32, 13u),
                               Q_ARG(QString, QStringLiteral("   ")));
     QCOMPARE(spy.count(), 0);
+}
+
+// 2026-09-05: "if message is read, in client can you make kde notification
+// go away too". It was meant to — closeRoomNotifications runs when a room's
+// unread clears — but the popup EXPIRING (freedesktop reason 1) forgot the
+// payload, and an expired notification is exactly what KDE keeps in its
+// history. Expired stays withdrawable; dismissed and closed are gone.
+void NotificationManagerTest::anExpiredNotificationStaysWithdrawableUntilTheRoomIsRead()
+{
+    NotificationManager manager;
+    QVariantMap p;
+    p.insert(QStringLiteral("roomId"), QStringLiteral("!late:x"));
+    p.insert(QStringLiteral("eventId"), QStringLiteral("$e:example.org"));
+    p.insert(QStringLiteral("threadRootId"), QString{});
+    manager.recordPayloadForTest(7, p);
+    manager.recordPayloadForTest(8, p);
+    manager.recordPayloadForTest(9, p);
+
+    QMetaObject::invokeMethod(&manager, "onNotificationClosed",
+                              Q_ARG(quint32, 7u), Q_ARG(quint32, 1u)); // expired
+    QCOMPARE(manager.pendingPayloadCountForTest(), 3);
+    QMetaObject::invokeMethod(&manager, "onNotificationClosed",
+                              Q_ARG(quint32, 8u), Q_ARG(quint32, 2u)); // dismissed
+    QCOMPARE(manager.pendingPayloadCountForTest(), 2);
+    QMetaObject::invokeMethod(&manager, "onNotificationClosed",
+                              Q_ARG(quint32, 9u), Q_ARG(quint32, 3u)); // closed by us
+    QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+
+    // Reading the room withdraws the expired one from the history.
+    manager.closeRoomNotifications(QStringLiteral("!late:x"));
+    QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+}
+
+// The tray balloon is the delivery on Windows and macOS (no freedesktop
+// daemon; until 2026-09-05 those builds showed nothing at all). One balloon
+// at a time, so a click routes to the payload delivered last.
+void NotificationManagerTest::aTrayBalloonClickOpensTheRoomItWasRaisedFor()
+{
+    NotificationManager manager;
+    QSignalSpy opened(&manager, &NotificationManager::openRequested);
+    QVariantMap p;
+    p.insert(QStringLiteral("roomId"), QStringLiteral("!tray:x"));
+    p.insert(QStringLiteral("eventId"), QStringLiteral("$t:example.org"));
+    p.insert(QStringLiteral("threadRootId"), QStringLiteral("$root:example.org"));
+    manager.deliverThroughTrayForTest(p);
+
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    QCOMPARE(opened.count(), 1);
+    QCOMPARE(opened.at(0).at(0).toString(), QStringLiteral("!tray:x"));
+    QCOMPARE(opened.at(0).at(1).toString(), QStringLiteral("$t:example.org"));
+    QCOMPARE(opened.at(0).at(2).toString(), QStringLiteral("$root:example.org"));
+    // The balloon is consumed: a second click opens nothing.
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    QCOMPARE(opened.count(), 1);
 }
 
 QTEST_MAIN(NotificationManagerTest)
