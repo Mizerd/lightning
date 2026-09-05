@@ -411,7 +411,7 @@
         <translation>Vous avez été invité à %1</translation>
     </message>
     <message>
-        <location line="+150"/>
+        <location line="+159"/>
         <source>Incoming voice call</source>
         <translation>Appel vocal entrant</translation>
     </message>
@@ -1373,12 +1373,12 @@
 <context>
     <name>CallPipWindow</name>
     <message>
-        <location filename="../qml/CallPipWindow.qml" line="+118"/>
+        <location filename="../qml/CallPipWindow.qml" line="+133"/>
         <source>Lightning call</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+142"/>
+        <location line="+153"/>
         <source>Call in progress</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1391,7 +1391,7 @@
         </translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+35"/>
         <source>Unmute microphone</source>
         <translation type="unfinished">Activer le microphone</translation>
     </message>
@@ -1513,17 +1513,17 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+287"/>
+        <location line="+370"/>
         <source>Screen share</source>
         <translation>Partage d&apos;écran</translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="-219"/>
         <source>Waiting for the picture…</source>
         <translation>En attendant la photo…</translation>
     </message>
     <message>
-        <location line="+200"/>
+        <location line="+242"/>
         <source>Screen share volume</source>
         <translation>Volume de partage d&apos;écran</translation>
     </message>
@@ -1683,6 +1683,16 @@
         <location line="+2"/>
         <source>%1, unread</source>
         <translation>%1, non lu</translation>
+    </message>
+    <message>
+        <location line="+171"/>
+        <source>Remove from favourites</source>
+        <translation type="unfinished">Retirer des favoris</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Add to favourites</source>
+        <translation type="unfinished">Ajouter aux favoris</translation>
     </message>
 </context>
 <context>
@@ -4882,14 +4892,14 @@ Taille : %3</translation>
         <translation>Profil de %1</translation>
     </message>
     <message>
-        <location line="+279"/>
+        <location line="+305"/>
         <location line="+407"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Présence indisponible</translation>
     </message>
     <message>
-        <location line="-877"/>
+        <location line="-903"/>
         <source>Invited</source>
         <translation>Invité</translation>
     </message>
@@ -4909,7 +4919,7 @@ Taille : %3</translation>
         <translation>Lien du profil copié</translation>
     </message>
     <message>
-        <location line="+704"/>
+        <location line="+730"/>
         <source>Bio</source>
         <translation>Biographie</translation>
     </message>
@@ -5073,7 +5083,7 @@ Taille : %3</translation>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-1300"/>
+        <location line="-1326"/>
         <source>Matrix ID copied</source>
         <translation>Identifiant Matrix copié</translation>
     </message>
@@ -5144,7 +5154,7 @@ Taille : %3</translation>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+595"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+605"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -5453,7 +5463,7 @@ Taille : %3</translation>
         <translation>Enregistrer un message vocal</translation>
     </message>
     <message>
-        <location line="-3052"/>
+        <location line="-3062"/>
         <source>A recording is already in progress.</source>
         <translation>Un enregistrement est déjà en cours.</translation>
     </message>
@@ -5463,7 +5473,7 @@ Taille : %3</translation>
         <translation>L&apos;enregistrement vocal est indisponible.</translation>
     </message>
     <message>
-        <location line="+2789"/>
+        <location line="+2799"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">Plus</translation>
@@ -5575,7 +5585,7 @@ Taille : %3</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+854"/>
+        <location filename="../qml/MessageDelegate.qml" line="+865"/>
         <source>Today</source>
         <translation>Aujourd&apos;hui</translation>
     </message>
@@ -5595,12 +5605,12 @@ Taille : %3</translation>
         <translation>Nouveaux messages</translation>
     </message>
     <message>
-        <location line="+215"/>
+        <location line="+220"/>
         <source>Avatar for %1</source>
         <translation>Avatar de %1</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+59"/>
         <location line="+257"/>
         <source>Sent at %1</source>
         <translation>Envoyé à %1</translation>
@@ -8906,7 +8916,7 @@ Taille : %3</translation>
         <translation>Découvrir des salons</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+91"/>
         <location line="+3"/>
         <location line="+2"/>
         <source>All</source>
@@ -13310,20 +13320,25 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+116"/>
+        <location line="+133"/>
         <source>Message Search</source>
         <translation>Recherche de messages</translation>
     </message>
     <message>
-        <location line="-74"/>
-        <location line="+44"/>
+        <location line="-81"/>
+        <location line="+51"/>
         <source>Invites</source>
         <translation>Invitations</translation>
     </message>
     <message>
-        <location line="-37"/>
+        <location line="-44"/>
         <source>Rooms</source>
         <translation>Salons</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Direct Messages</source>
+        <translation type="unfinished">Messages directs</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -13354,7 +13369,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Tous les salons</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+37"/>
         <source>Other rooms</source>
         <translation>Autres salons</translation>
     </message>
@@ -15191,7 +15206,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+828"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+903"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 a changé son nom affiché de « %2 » en « %3 » et a changé son avatar.</translation>
     </message>
@@ -15241,7 +15256,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>%1 a démarré un appel.</translation>
     </message>
     <message>
-        <location line="+1223"/>
+        <location line="+1247"/>
         <source>%1 is typing…</source>
         <translation>%1 est en train d&apos;écrire…</translation>
     </message>
@@ -15283,17 +15298,17 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5939"/>
+        <location line="+6022"/>
         <source>Space</source>
         <translation>Espace</translation>
     </message>
     <message>
-        <location line="-5938"/>
+        <location line="-6021"/>
         <source>Home</source>
         <translation>Accueil</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+43"/>
         <location line="+2"/>
         <source>Room encrypted</source>
         <translation>Salon chiffré</translation>
@@ -15343,12 +15358,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4545"/>
+        <location line="+4619"/>
         <source>Room information</source>
         <translation>Informations du salon</translation>
     </message>
     <message>
-        <location line="-4324"/>
+        <location line="-4398"/>
         <source>This room has been upgraded.</source>
         <translation>Ce salon a été mis à niveau.</translation>
     </message>
@@ -15523,7 +15538,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>La recherche n&apos;a pas pu aboutir.</translation>
     </message>
     <message>
-        <location line="+3597"/>
+        <location line="+3671"/>
         <source>Loading older messages…</source>
         <translation>Chargement des messages plus anciens…</translation>
     </message>
@@ -16761,7 +16776,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>VoiceConnectedBar</name>
     <message>
-        <location filename="../qml/VoiceConnectedBar.qml" line="+47"/>
+        <location filename="../qml/VoiceConnectedBar.qml" line="+55"/>
         <source>Voice connected</source>
         <translation>Voix connectée</translation>
     </message>
@@ -16771,7 +16786,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Connexion…</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+35"/>
         <source>Unmute microphone</source>
         <translation>Activer le microphone</translation>
     </message>

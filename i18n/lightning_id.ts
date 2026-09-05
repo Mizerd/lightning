@@ -409,7 +409,7 @@
         <translation>Anda diundang ke %1</translation>
     </message>
     <message>
-        <location line="+150"/>
+        <location line="+159"/>
         <source>Incoming voice call</source>
         <translation>Panggilan suara masuk</translation>
     </message>
@@ -1371,12 +1371,12 @@
 <context>
     <name>CallPipWindow</name>
     <message>
-        <location filename="../qml/CallPipWindow.qml" line="+118"/>
+        <location filename="../qml/CallPipWindow.qml" line="+133"/>
         <source>Lightning call</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+142"/>
+        <location line="+153"/>
         <source>Call in progress</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1388,7 +1388,7 @@
         </translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+35"/>
         <source>Unmute microphone</source>
         <translation type="unfinished">Suarakan mikrofon</translation>
     </message>
@@ -1510,17 +1510,17 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+287"/>
+        <location line="+370"/>
         <source>Screen share</source>
         <translation>Berbagi layar</translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="-219"/>
         <source>Waiting for the picture…</source>
         <translation>Di tunggu gambarnya…</translation>
     </message>
     <message>
-        <location line="+200"/>
+        <location line="+242"/>
         <source>Screen share volume</source>
         <translation>Volume berbagi layar</translation>
     </message>
@@ -1680,6 +1680,16 @@
         <location line="+2"/>
         <source>%1, unread</source>
         <translation>%1, belum dibaca</translation>
+    </message>
+    <message>
+        <location line="+171"/>
+        <source>Remove from favourites</source>
+        <translation type="unfinished">Hapus dari favorit</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Add to favourites</source>
+        <translation type="unfinished">Tambahkan ke favorit</translation>
     </message>
 </context>
 <context>
@@ -4868,14 +4878,14 @@ Ukuran: %3</translation>
         <translation>Profil untuk %1</translation>
     </message>
     <message>
-        <location line="+279"/>
+        <location line="+305"/>
         <location line="+407"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Kehadiran tidak tersedia</translation>
     </message>
     <message>
-        <location line="-877"/>
+        <location line="-903"/>
         <source>Invited</source>
         <translation>Diundang</translation>
     </message>
@@ -4895,7 +4905,7 @@ Ukuran: %3</translation>
         <translation>Tautan profil disalin</translation>
     </message>
     <message>
-        <location line="+704"/>
+        <location line="+730"/>
         <source>Bio</source>
         <translation>Biografi</translation>
     </message>
@@ -5059,7 +5069,7 @@ Ukuran: %3</translation>
         <translation>Batal</translation>
     </message>
     <message>
-        <location line="-1300"/>
+        <location line="-1326"/>
         <source>Matrix ID copied</source>
         <translation>ID Matrix disalin</translation>
     </message>
@@ -5130,7 +5140,7 @@ Ukuran: %3</translation>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+595"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+605"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -5439,7 +5449,7 @@ Ukuran: %3</translation>
         <translation>Rekam pesan suara</translation>
     </message>
     <message>
-        <location line="-3052"/>
+        <location line="-3062"/>
         <source>A recording is already in progress.</source>
         <translation>Rekaman sedang berlangsung.</translation>
     </message>
@@ -5449,7 +5459,7 @@ Ukuran: %3</translation>
         <translation>Perekaman suara tidak tersedia.</translation>
     </message>
     <message>
-        <location line="+2789"/>
+        <location line="+2799"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">Lainnya</translation>
@@ -5561,7 +5571,7 @@ Ukuran: %3</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+854"/>
+        <location filename="../qml/MessageDelegate.qml" line="+865"/>
         <source>Today</source>
         <translation>Hari ini</translation>
     </message>
@@ -5581,12 +5591,12 @@ Ukuran: %3</translation>
         <translation>Pesan baru</translation>
     </message>
     <message>
-        <location line="+215"/>
+        <location line="+220"/>
         <source>Avatar for %1</source>
         <translation>Avatar untuk %1</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+59"/>
         <location line="+257"/>
         <source>Sent at %1</source>
         <translation>Dikirim pukul %1</translation>
@@ -8884,7 +8894,7 @@ Ukuran: %3</translation>
         <translation>Temukan ruang</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+91"/>
         <location line="+3"/>
         <location line="+2"/>
         <source>All</source>
@@ -13284,20 +13294,25 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+116"/>
+        <location line="+133"/>
         <source>Message Search</source>
         <translation>Pencarian Pesan</translation>
     </message>
     <message>
-        <location line="-74"/>
-        <location line="+44"/>
+        <location line="-81"/>
+        <location line="+51"/>
         <source>Invites</source>
         <translation>Undangan</translation>
     </message>
     <message>
-        <location line="-37"/>
+        <location line="-44"/>
         <source>Rooms</source>
         <translation>Ruang</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Direct Messages</source>
+        <translation type="unfinished">Pesan Langsung</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -13328,7 +13343,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Semua ruang</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+37"/>
         <source>Other rooms</source>
         <translation>Ruang lainnya</translation>
     </message>
@@ -15160,7 +15175,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+828"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+903"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 mengubah nama tampilannya dari “%2” menjadi “%3” dan mengubah avatarnya.</translation>
     </message>
@@ -15210,7 +15225,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>%1 memulai panggilan.</translation>
     </message>
     <message>
-        <location line="+1223"/>
+        <location line="+1247"/>
         <source>%1 is typing…</source>
         <translation>%1 sedang mengetik…</translation>
     </message>
@@ -15251,17 +15266,17 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5939"/>
+        <location line="+6022"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
     <message>
-        <location line="-5938"/>
+        <location line="-6021"/>
         <source>Home</source>
         <translation>Beranda</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+43"/>
         <location line="+2"/>
         <source>Room encrypted</source>
         <translation>Ruang terenkripsi</translation>
@@ -15311,12 +15326,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4545"/>
+        <location line="+4619"/>
         <source>Room information</source>
         <translation>Informasi ruang</translation>
     </message>
     <message>
-        <location line="-4324"/>
+        <location line="-4398"/>
         <source>This room has been upgraded.</source>
         <translation>Ruang ini telah ditingkatkan.</translation>
     </message>
@@ -15491,7 +15506,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Pencarian tidak dapat diselesaikan.</translation>
     </message>
     <message>
-        <location line="+3597"/>
+        <location line="+3671"/>
         <source>Loading older messages…</source>
         <translation>Memuat pesan lama…</translation>
     </message>
@@ -16721,7 +16736,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>VoiceConnectedBar</name>
     <message>
-        <location filename="../qml/VoiceConnectedBar.qml" line="+47"/>
+        <location filename="../qml/VoiceConnectedBar.qml" line="+55"/>
         <source>Voice connected</source>
         <translation>Suara terhubung</translation>
     </message>
@@ -16731,7 +16746,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Menghubungkan…</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+35"/>
         <source>Unmute microphone</source>
         <translation>Suarakan mikrofon</translation>
     </message>

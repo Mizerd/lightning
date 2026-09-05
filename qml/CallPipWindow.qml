@@ -101,9 +101,24 @@ Window {
     // Off again with the same button, and dropped on its own when the share
     // ends. Local state of this window: the stage's spotlight is untouched.
     property bool shareFills: false
+    // The share the reader clicked to fill the window with; falls back to
+    // the spotlighted/first share when it is gone.
+    property string fillShareId: ""
+    readonly property string fillShareShown:
+        root.fillShareId.length > 0 && root.shareModel
+            && root.shareModel.indexOfShare(root.fillShareId) >= 0
+        ? root.fillShareId : root.shareIdShown
     readonly property bool shareFillActive:
-        root.shareFills && root.groupLive && root.shareIdShown.length > 0
-    onShareIdShownChanged: if (root.shareIdShown.length === 0) root.shareFills = false
+        root.shareFills && root.groupLive && root.fillShareShown.length > 0
+    onFillShareShownChanged: if (root.fillShareShown.length === 0) root.shareFills = false
+    // No chrome at all while a share fills the window (2026-09-05 request):
+    // the bar hides, a click on the share restores the tiles, so does
+    // Escape. Clicking a share tile in the grid is what fills the window.
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.shareFillActive
+        onActivated: root.shareFills = false
+    }
 
     // NO TRANSIENT PARENT, and this is load-bearing rather than tidy.
     //
@@ -198,7 +213,14 @@ Window {
             Repeater {
                 id: shareFillTiles
                 objectName: "pipShareFill"
-                model: root.shareFillActive ? root.shareModel : null
+                // ONLY WHILE THE WINDOW SHOWS, like the grid below. A tile
+                // claims its track's sink when it is BUILT, and the main
+                // stage's tiles claim it back when this window hides; fill
+                // tiles that outlived a pop-in kept existing unattached, so
+                // the next pop-out showed a grey empty box until a restart
+                // (2026-09-05 report). The reader's fill choice itself is
+                // kept, so popping out again returns to the filled share.
+                model: root.visible && root.shareFillActive ? root.shareModel : null
                 delegate: Item {
                     id: fillCell
                     required property int index
@@ -207,8 +229,11 @@ Window {
                     required property string ownerDisplayName
                     required property string trackKey
                     required property bool local
-                    readonly property bool shown: fillCell.shareId === root.shareIdShown
+                    readonly property bool shown: fillCell.shareId === root.fillShareShown
                     anchors.fill: parent
+                    // A little breathing room so the picture's frame is not
+                    // the window edge.
+                    anchors.margins: AppTheme.spacing6
                     visible: shown
                     CallShareTile {
                         anchors.fill: parent
@@ -220,6 +245,7 @@ Window {
                         local: fillCell.local
                         compact: true
                         focused: true
+                        onActivated: root.shareFills = false
                     }
                 }
             }
@@ -238,8 +264,8 @@ Window {
                     focusedShareId: root.shareIdShown
                     focusedIdentity: root.pinnedIdentityShown
                     onShareActivated: shareId => {
-                        if (root.stageState)
-                            root.stageState.restoreShare(shareId)
+                        root.fillShareId = shareId
+                        root.shareFills = true
                     }
                     onParticipantActivated: identity => {
                         if (root.stageState)
@@ -284,6 +310,7 @@ Window {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 44
+            visible: !root.shareFillActive
             color: AppTheme.surface
             Rectangle {
                 anchors.top: parent.top

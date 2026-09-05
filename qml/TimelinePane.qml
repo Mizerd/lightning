@@ -1007,7 +1007,16 @@ Rectangle {
                             // text's OWN width so a short name still hugs its
                             // text and the lock sits right beside it.
                             Layout.fillWidth: true
-                            Layout.maximumWidth: Math.min(header.width * 0.5, implicitWidth)
+                            // CEILED. A Layout hands an item an integer
+                            // width and this bound was the label's own
+                            // implicitWidth, a FRACTION (53.28 px for
+                            // "Home"): the label got 53 and elided by a
+                            // quarter pixel — "Ho…" at Home, and a trailing
+                            // ellipsis on every room name (measured
+                            // offscreen 2026-09-05: width 53, truncated
+                            // true; ceiled: 54, false).
+                            Layout.maximumWidth: Math.min(header.width * 0.5,
+                                                          Math.ceil(implicitWidth))
                         }
                         Icon {
                             id: encryptionLock
@@ -1929,13 +1938,30 @@ Rectangle {
                 // Flickable is rotated), so on a fresh open the band covers
                 // the newest 2.5 viewports and reaches 1.5 viewports the
                 // other way once the reader is deep in history.
-                property real mediaBandMinY: 0
-                property real mediaBandMaxY: 0
-                readonly property bool mediaBandActive: mediaBandMaxY > mediaBandMinY
+                // An INDEX RANGE, like visibleFirstRow/visibleLastRow, and for
+                // the same reason: inside the per-row Loader a delegate's own
+                // y is 0, so a geometry test on the delegate cannot place it
+                // (the first cut of this band did exactly that and was
+                // permissive at the newest end and closed deep in history).
+                // Permissive until the first refresh.
+                property int mediaBandFirstRow: 0
+                property int mediaBandLastRow: 2147483647
                 function refreshMediaBand() {
+                    if (count <= 0) {
+                        mediaBandFirstRow = 0
+                        mediaBandLastRow = 2147483647
+                        return
+                    }
                     var h = Math.max(height, 400)
-                    mediaBandMinY = contentY - h * 1.5
-                    mediaBandMaxY = contentY + h * 2.5
+                    // The band never closes on the NEWEST side: a picture
+                    // that loads late in a row between the reader and the
+                    // live edge grows below the reader and moves them
+                    // ("teleports", 2026-09-05, the first cut of this band).
+                    // Rows older than the reader grow away from them, so
+                    // only history beyond 2.5 viewports waits.
+                    var last = viewRowAtContentY(contentY + h * 2.5)
+                    mediaBandFirstRow = 0
+                    mediaBandLastRow = last < 0 ? count - 1 : last
                 }
                 // Every kind of movement ends here — a programmatic landing
                 // (jump to event, first unread, a glide) never touches the
@@ -2100,6 +2126,10 @@ Rectangle {
                             // one float comparison per row per pixel scrolled.
                             rowOnScreen: index >= timeline.visibleFirstRow
                                          && index <= timeline.visibleLastRow
+                            // Same shape for the media band: an index range
+                            // the pane moves at discrete moments.
+                            mediaInBand: index >= timeline.mediaBandFirstRow
+                                         && index <= timeline.mediaBandLastRow
                         }
                     }
                 }
@@ -2266,6 +2296,17 @@ Rectangle {
                     target: app.pagination
                     function onStateChanged() {
                         timeline.recomputePresentationReady()
+                        // The fill's next page follows the controller, not a
+                        // timer. Rows land BEFORE the controller finishes the
+                        // batch, so the fill check they trigger finds the
+                        // controller still busy and falls into its 250 ms
+                        // retry — one such wait per page, fourteen pages on a
+                        // first open, served from the event cache in ~1 ms
+                        // each (timestamped log, 2026-09-05). Re-checking the
+                        // moment the controller goes idle costs nothing when
+                        // the viewport is already filled.
+                        if (!app.pagination.busy)
+                            timeline.maybeFillViewport()
                     }
                 }
 
@@ -4650,6 +4691,17 @@ Rectangle {
                         var canMove = timeline.wheelCanMove(towardsOlder)
                         var minY = timeline.wheelMinY()
                         var maxY = timeline.wheelMaxY()
+                        // Content shorter than the viewport cannot scroll, so
+                        // the near-top trigger (which watches contentY) can
+                        // never fire — the fill's invisible-page budget is
+                        // what loads history here, and once it is spent the
+                        // reader's wheel towards older history is the ask.
+                        // User-initiated, so the controller re-arms its
+                        // near-top cap; it still suppresses duplicates while a
+                        // page is in flight.
+                        if (towardsOlder && !canMove && maxY <= minY + 0.5
+                                && app.pagination && !app.pagination.reachedStart)
+                            app.pagination.requestNearTop(true)
                         if (event.pixelDelta.y !== 0) {
                             timeline.cancelWheelMotion()
                             timeline.contentY = app.timelineScroll.pixelTargetY(
@@ -4845,7 +4897,35 @@ Rectangle {
                 /// reader must never have to expand an activity group to reach
                 /// older history. Still bounded: an enormous room stops here
                 /// rather than paginating to its start.
-                readonly property int maxInvisibleFillRetries: 60
+                // 12, not the 60 a5e64a6 set (2026-09-05). Sixty was chosen so
+                // a reader never has to expand a collapsed activity run to
+                // reach older history, and that stays true — but each of those
+                // pages is a round trip plus twenty instantiated rows, spent on
+                // EVERY open (the event cache keeps one page after a close),
+                // and a call room whose tail is membership churn paid nine to
+                // eighteen of them before its first visible message: the
+                // "ten seconds to load a room" report, measured at 400 ms a
+                // page. Twelve pages is ~240 hidden events, about the largest
+                // run seen (184); past that the reader pulls the next page by
+                // scrolling up on the short content (see wheel handling),
+                // which is what they would do anyway.
+                readonly property int maxInvisibleFillRetries: 12
+                // A HARD CAP ON ROWS the fill may load, whatever their
+                // visibility. The invisible-page budget cannot bound a room
+                // whose every page adds a LITTLE height (a collapsed activity
+                // run that grows by one line per page, one visible message
+                // per twenty hidden ones): each such page counts as progress
+                // and resets it. Measured 2026-09-05 on a call room: a
+                // re-open ran 32 pages and 600+ rows in 6.4 s with the page
+                // budget never tripping, and every one of those rows is a
+                // delegate in the un-virtualized Column — that instantiation
+                // was the "freezes for five seconds" and, once loaded, the
+                // one-second stall when the row window released them all at
+                // the live edge. 0.8.3 stopped at eight pages, ~160 rows.
+                // 240 keeps the a5e64a6 case (184 hidden events before the
+                // messages) and hands anything deeper to the reader's own
+                // scroll, one page at a time.
+                readonly property int maxViewportFillRows: 240
                 property int viewportFillInvisibleRetries: 0
                 property int viewportFillRetries: 0
                 /// contentHeight at the previous fill attempt, or -1 for "no
@@ -4905,6 +4985,9 @@ Rectangle {
                             if (app.pagination.reachedStart) return "reachedStart"
                             if (app.pagination.fillStopped) return "fillStopped"
                             if (app.pagination.failed) return "failed"
+                            if ((app.timeline ? app.timeline.count : 0)
+                                    >= maxViewportFillRows)
+                                return "rowBudget"
                             if (viewportFillRetries >= maxViewportFillRetries)
                                 return "noProgressBudget"
                             if (viewportFillInvisibleRetries

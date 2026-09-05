@@ -161,9 +161,9 @@
     <message numerus="yes">
         <location line="+10"/>
         <source>%n new</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n new</numerusform>
+            <numerusform>%n new</numerusform>
         </translation>
     </message>
     <message>
@@ -411,7 +411,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+150"/>
+        <location line="+159"/>
         <source>Incoming voice call</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1373,25 +1373,25 @@
 <context>
     <name>CallPipWindow</name>
     <message>
-        <location filename="../qml/CallPipWindow.qml" line="+118"/>
+        <location filename="../qml/CallPipWindow.qml" line="+133"/>
         <source>Lightning call</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+142"/>
+        <location line="+153"/>
         <source>Call in progress</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
         <location line="+10"/>
         <source>%n participant(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n participant</numerusform>
+            <numerusform>%n participants</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+35"/>
         <source>Unmute microphone</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1513,17 +1513,17 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+287"/>
+        <location line="+370"/>
         <source>Screen share</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="-219"/>
         <source>Waiting for the picture…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+200"/>
+        <location line="+242"/>
         <source>Screen share volume</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1682,6 +1682,16 @@
     <message>
         <location line="+2"/>
         <source>%1, unread</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+171"/>
+        <source>Remove from favourites</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Add to favourites</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -3204,9 +3214,9 @@ Size: %3</source>
     <message numerus="yes">
         <location filename="../qml/ForwardSelectionDialog.qml" line="+75"/>
         <source>Forward %n message(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Forward %n message</numerusform>
+            <numerusform>Forward %n messages</numerusform>
         </translation>
     </message>
     <message>
@@ -3242,17 +3252,17 @@ Size: %3</source>
     <message numerus="yes">
         <location line="+3"/>
         <source>Sent %n copy(ies).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Sent %n copy.</numerusform>
+            <numerusform>Sent %n copies.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%1 of %2 sent — %n failed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%1 of %2 sent — %n failed.</numerusform>
+            <numerusform>%1 of %2 sent — %n failed.</numerusform>
         </translation>
     </message>
     <message>
@@ -4716,33 +4726,33 @@ Size: %3</source>
     <message numerus="yes">
         <location line="+6"/>
         <source>%n item(s) — all of this room&apos;s history.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n item — all of this room&apos;s history.</numerusform>
+            <numerusform>%n items — all of this room&apos;s history.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n item(s) so far — reading older messages…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n item so far — reading older messages…</numerusform>
+            <numerusform>%n items so far — reading older messages…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n item(s) in the %1 message(s) read so far.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n item in the %1 message(s) read so far.</numerusform>
+            <numerusform>%n items in the %1 message(s) read so far.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+5"/>
         <source>%n message(s) could not be decrypted and may hold more.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n message could not be decrypted and may hold more.</numerusform>
+            <numerusform>%n messages could not be decrypted and may hold more.</numerusform>
         </translation>
     </message>
     <message>
@@ -4880,14 +4890,14 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+279"/>
+        <location line="+305"/>
         <location line="+407"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-877"/>
+        <location line="-903"/>
         <source>Invited</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4907,7 +4917,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+704"/>
+        <location line="+730"/>
         <source>Bio</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5071,7 +5081,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1300"/>
+        <location line="-1326"/>
         <source>Matrix ID copied</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5142,7 +5152,7 @@ Size: %3</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+595"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+605"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -5451,7 +5461,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3052"/>
+        <location line="-3062"/>
         <source>A recording is already in progress.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5461,7 +5471,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2789"/>
+        <location line="+2799"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished"></translation>
@@ -5573,7 +5583,7 @@ Size: %3</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+854"/>
+        <location filename="../qml/MessageDelegate.qml" line="+865"/>
         <source>Today</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5593,12 +5603,12 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+215"/>
+        <location line="+220"/>
         <source>Avatar for %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+59"/>
         <location line="+257"/>
         <source>Sent at %1</source>
         <translation type="unfinished"></translation>
@@ -6928,17 +6938,17 @@ Size: %3</source>
     <message numerus="yes">
         <location line="+9"/>
         <source>%n rule(s) — this list is long and only the first were read.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n rule — this list is long and only the first were read.</numerusform>
+            <numerusform>%n rules — this list is long and only the first were read.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n rule(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n rule.</numerusform>
+            <numerusform>%n rules.</numerusform>
         </translation>
     </message>
     <message>
@@ -8886,9 +8896,9 @@ Size: %3</source>
     <message numerus="yes">
         <location line="+18"/>
         <source>Activity, %n unseen</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Activity, %n unseen</numerusform>
+            <numerusform>Activity, %n unseen</numerusform>
         </translation>
     </message>
     <message>
@@ -8904,7 +8914,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+91"/>
         <location line="+3"/>
         <location line="+2"/>
         <source>All</source>
@@ -13301,19 +13311,24 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+116"/>
+        <location line="+133"/>
         <source>Message Search</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-74"/>
-        <location line="+44"/>
+        <location line="-81"/>
+        <location line="+51"/>
         <source>Invites</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-37"/>
+        <location line="-44"/>
         <source>Rooms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Direct Messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -13345,7 +13360,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+37"/>
         <source>Other rooms</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15182,7 +15197,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+828"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+903"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15232,7 +15247,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1223"/>
+        <location line="+1247"/>
         <source>%1 is typing…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15274,17 +15289,17 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5939"/>
+        <location line="+6022"/>
         <source>Space</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5938"/>
+        <location line="-6021"/>
         <source>Home</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+43"/>
         <location line="+2"/>
         <source>Room encrypted</source>
         <translation type="unfinished"></translation>
@@ -15334,12 +15349,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4545"/>
+        <location line="+4619"/>
         <source>Room information</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4324"/>
+        <location line="-4398"/>
         <source>This room has been upgraded.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15514,7 +15529,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+3597"/>
+        <location line="+3671"/>
         <source>Loading older messages…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15591,9 +15606,9 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+184"/>
         <source>%n message(s) selected</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n message selected</numerusform>
+            <numerusform>%n messages selected</numerusform>
         </translation>
     </message>
     <message>
@@ -16752,7 +16767,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VoiceConnectedBar</name>
     <message>
-        <location filename="../qml/VoiceConnectedBar.qml" line="+47"/>
+        <location filename="../qml/VoiceConnectedBar.qml" line="+55"/>
         <source>Voice connected</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16762,7 +16777,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+35"/>
         <source>Unmute microphone</source>
         <translation type="unfinished"></translation>
     </message>

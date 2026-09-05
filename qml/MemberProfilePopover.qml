@@ -524,6 +524,9 @@ Popup {
             Canvas {
                 id: banner
                 objectName: "profileBanner"
+                // The gradient's rounded corners are painted by QPainter;
+                // without this they are aliased too.
+                antialiasing: true
                 // Inset by the popover's own border so the frame draws
                 // AROUND the banner instead of under it: drawn edge to edge,
                 // the banner covered the 1px border along the top and its
@@ -630,6 +633,23 @@ Popup {
                 layer.effect: MultiEffect {
                     maskEnabled: true
                     maskSource: bannerCornerMask
+                    // The defaults (threshold 0, spread 0) are a hard STEP on
+                    // the mask's alpha, so the mask rectangle's own smooth
+                    // corner pixels came out fully opaque — the staircase
+                    // along the banner's top corners (2026-09-05 screenshot).
+                    // Read from qquickmultieffect.cpp rather than the docs:
+                    // the low-side ramp runs from (t - 1)(1 + s) + 1 up to
+                    // t(1 + s) for threshold t and spread s. Threshold 0 with
+                    // spread 1 ramps over [-1, 0] and made the empty corners
+                    // OPAQUE (square corners); threshold 1 with spread 1
+                    // ramps over [1, 2] and made the whole banner transparent
+                    // (an empty box) — both seen the same evening. The ramp
+                    // that maps mask alpha 0 -> 0 and 1 -> 1 is threshold 0.5
+                    // with spread 1: [0, 1].
+                    maskThresholdMin: 0.5
+                    maskSpreadAtMin: 1.0
+                    maskThresholdMax: 1.0
+                    maskSpreadAtMax: 0.0
                 }
                 Image {
                     id: bannerImage
@@ -715,8 +735,10 @@ Popup {
                 id: avatarWrap
                 x: AppTheme.spacing16
                 y: banner.height - 28
-                width: 62
-                height: 62
+                // A 2px ring (was 3px): "make the outline around the pfp
+                // thinner", 2026-09-05.
+                width: 60
+                height: 60
                 Rectangle {
                     anchors.fill: parent
                     radius: width / 2
@@ -767,8 +789,12 @@ Popup {
                         id: avatarPresenceTip
                         objectName: "profileAvatarPresenceTip"
                         parent: avatarWrap
-                        x: avatarWrap.width + AppTheme.spacing6
-                        y: Math.round((avatarWrap.height - height) / 2)
+                        // Beside the DOT it explains, not floating at the
+                        // avatar's middle (2026-09-05 screenshot).
+                        x: avatarPresenceDot.x + avatarPresenceDot.width
+                           + AppTheme.spacing4
+                        y: Math.round(avatarPresenceDot.y
+                                      + (avatarPresenceDot.height - height) / 2)
                         z: 20
                         visible: avatarDotHover.hovered && !avatarTipDelay.running
                                  && (avatarPresenceDot.statusText.length > 0

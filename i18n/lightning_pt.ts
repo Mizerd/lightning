@@ -411,7 +411,7 @@
         <translation>Foi convidado para %1</translation>
     </message>
     <message>
-        <location line="+150"/>
+        <location line="+159"/>
         <source>Incoming voice call</source>
         <translation>Chamada de voz recebida</translation>
     </message>
@@ -1373,12 +1373,12 @@
 <context>
     <name>CallPipWindow</name>
     <message>
-        <location filename="../qml/CallPipWindow.qml" line="+118"/>
+        <location filename="../qml/CallPipWindow.qml" line="+133"/>
         <source>Lightning call</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+142"/>
+        <location line="+153"/>
         <source>Call in progress</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1391,7 +1391,7 @@
         </translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+35"/>
         <source>Unmute microphone</source>
         <translation type="unfinished">Ativar microfone</translation>
     </message>
@@ -1513,17 +1513,17 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+287"/>
+        <location line="+370"/>
         <source>Screen share</source>
         <translation>Compartilhamento de tela</translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="-219"/>
         <source>Waiting for the picture…</source>
         <translation>Esperando a foto…</translation>
     </message>
     <message>
-        <location line="+200"/>
+        <location line="+242"/>
         <source>Screen share volume</source>
         <translation>Volume de compartilhamento de tela</translation>
     </message>
@@ -1683,6 +1683,16 @@
         <location line="+2"/>
         <source>%1, unread</source>
         <translation>%1, não lido</translation>
+    </message>
+    <message>
+        <location line="+171"/>
+        <source>Remove from favourites</source>
+        <translation type="unfinished">Remover dos favoritos</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Add to favourites</source>
+        <translation type="unfinished">Adicionar aos favoritos</translation>
     </message>
 </context>
 <context>
@@ -4882,14 +4892,14 @@ Tamanho: %3</translation>
         <translation>Perfil de %1</translation>
     </message>
     <message>
-        <location line="+279"/>
+        <location line="+305"/>
         <location line="+407"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Presença indisponível</translation>
     </message>
     <message>
-        <location line="-877"/>
+        <location line="-903"/>
         <source>Invited</source>
         <translation>Convidado</translation>
     </message>
@@ -4909,7 +4919,7 @@ Tamanho: %3</translation>
         <translation>Link do perfil copiado</translation>
     </message>
     <message>
-        <location line="+704"/>
+        <location line="+730"/>
         <source>Bio</source>
         <translation>Biografia</translation>
     </message>
@@ -5073,7 +5083,7 @@ Tamanho: %3</translation>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-1300"/>
+        <location line="-1326"/>
         <source>Matrix ID copied</source>
         <translation>ID Matrix copiado</translation>
     </message>
@@ -5144,7 +5154,7 @@ Tamanho: %3</translation>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+595"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+605"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -5453,7 +5463,7 @@ Tamanho: %3</translation>
         <translation>Gravar uma mensagem de voz</translation>
     </message>
     <message>
-        <location line="-3052"/>
+        <location line="-3062"/>
         <source>A recording is already in progress.</source>
         <translation>Já está em curso uma gravação.</translation>
     </message>
@@ -5463,7 +5473,7 @@ Tamanho: %3</translation>
         <translation>A gravação de voz está indisponível.</translation>
     </message>
     <message>
-        <location line="+2789"/>
+        <location line="+2799"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">Mais</translation>
@@ -5575,7 +5585,7 @@ Tamanho: %3</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+854"/>
+        <location filename="../qml/MessageDelegate.qml" line="+865"/>
         <source>Today</source>
         <translation>Hoje</translation>
     </message>
@@ -5595,12 +5605,12 @@ Tamanho: %3</translation>
         <translation>Novas mensagens</translation>
     </message>
     <message>
-        <location line="+215"/>
+        <location line="+220"/>
         <source>Avatar for %1</source>
         <translation>Avatar de %1</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+59"/>
         <location line="+257"/>
         <source>Sent at %1</source>
         <translation>Enviada às %1</translation>
@@ -8906,7 +8916,7 @@ Tamanho: %3</translation>
         <translation>Descobrir salas</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+91"/>
         <location line="+3"/>
         <location line="+2"/>
         <source>All</source>
@@ -13310,20 +13320,25 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+116"/>
+        <location line="+133"/>
         <source>Message Search</source>
         <translation>Pesquisa de mensagens</translation>
     </message>
     <message>
-        <location line="-74"/>
-        <location line="+44"/>
+        <location line="-81"/>
+        <location line="+51"/>
         <source>Invites</source>
         <translation>Convites</translation>
     </message>
     <message>
-        <location line="-37"/>
+        <location line="-44"/>
         <source>Rooms</source>
         <translation>Salas</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Direct Messages</source>
+        <translation type="unfinished">Mensagens Diretas</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -13354,7 +13369,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Todas as salas</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+37"/>
         <source>Other rooms</source>
         <translation>Outras salas</translation>
     </message>
@@ -15191,7 +15206,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+828"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+903"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 mudou o nome de exibição de «%2» para «%3» e mudou o avatar.</translation>
     </message>
@@ -15241,7 +15256,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>%1 iniciou uma chamada.</translation>
     </message>
     <message>
-        <location line="+1223"/>
+        <location line="+1247"/>
         <source>%1 is typing…</source>
         <translation>%1 está a escrever…</translation>
     </message>
@@ -15283,17 +15298,17 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5939"/>
+        <location line="+6022"/>
         <source>Space</source>
         <translation>Espaço</translation>
     </message>
     <message>
-        <location line="-5938"/>
+        <location line="-6021"/>
         <source>Home</source>
         <translation>Início</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+43"/>
         <location line="+2"/>
         <source>Room encrypted</source>
         <translation>Sala encriptada</translation>
@@ -15343,12 +15358,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4545"/>
+        <location line="+4619"/>
         <source>Room information</source>
         <translation>Informações da sala</translation>
     </message>
     <message>
-        <location line="-4324"/>
+        <location line="-4398"/>
         <source>This room has been upgraded.</source>
         <translation>Esta sala foi atualizada.</translation>
     </message>
@@ -15523,7 +15538,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Não foi possível concluir a procura.</translation>
     </message>
     <message>
-        <location line="+3597"/>
+        <location line="+3671"/>
         <source>Loading older messages…</source>
         <translation>A carregar mensagens mais antigas…</translation>
     </message>
@@ -16761,7 +16776,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>VoiceConnectedBar</name>
     <message>
-        <location filename="../qml/VoiceConnectedBar.qml" line="+47"/>
+        <location filename="../qml/VoiceConnectedBar.qml" line="+55"/>
         <source>Voice connected</source>
         <translation>Voz conectada</translation>
     </message>
@@ -16771,7 +16786,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>A ligar…</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+35"/>
         <source>Unmute microphone</source>
         <translation>Ativar microfone</translation>
     </message>

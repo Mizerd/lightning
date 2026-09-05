@@ -419,7 +419,7 @@
         <translation>تمت دعوتك إلى %1</translation>
     </message>
     <message>
-        <location line="+150"/>
+        <location line="+159"/>
         <source>Incoming voice call</source>
         <translation>مكالمة صوتية واردة</translation>
     </message>
@@ -1381,12 +1381,12 @@
 <context>
     <name>CallPipWindow</name>
     <message>
-        <location filename="../qml/CallPipWindow.qml" line="+118"/>
+        <location filename="../qml/CallPipWindow.qml" line="+133"/>
         <source>Lightning call</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+142"/>
+        <location line="+153"/>
         <source>Call in progress</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1403,7 +1403,7 @@
         </translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+35"/>
         <source>Unmute microphone</source>
         <translation type="unfinished">إلغاء كتم صوت الميكروفون</translation>
     </message>
@@ -1525,17 +1525,17 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+287"/>
+        <location line="+370"/>
         <source>Screen share</source>
         <translation>مشاركة الشاشة</translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="-219"/>
         <source>Waiting for the picture…</source>
         <translation>في انتظار الصورة…</translation>
     </message>
     <message>
-        <location line="+200"/>
+        <location line="+242"/>
         <source>Screen share volume</source>
         <translation>حجم مشاركة الشاشة</translation>
     </message>
@@ -1695,6 +1695,16 @@
         <location line="+2"/>
         <source>%1, unread</source>
         <translation>%1، غير مقروءة</translation>
+    </message>
+    <message>
+        <location line="+171"/>
+        <source>Remove from favourites</source>
+        <translation type="unfinished">إزالة من المفضلة</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Add to favourites</source>
+        <translation type="unfinished">إضافة إلى المفضلة</translation>
     </message>
 </context>
 <context>
@@ -4938,14 +4948,14 @@ Size: %3</source>
         <translation>ملف %1 الشخصي</translation>
     </message>
     <message>
-        <location line="+279"/>
+        <location line="+305"/>
         <location line="+407"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>الحضور غير متاح</translation>
     </message>
     <message>
-        <location line="-877"/>
+        <location line="-903"/>
         <source>Invited</source>
         <translation>مدعو</translation>
     </message>
@@ -4965,7 +4975,7 @@ Size: %3</source>
         <translation>تم نسخ رابط الملف الشخصي</translation>
     </message>
     <message>
-        <location line="+704"/>
+        <location line="+730"/>
         <source>Bio</source>
         <translation>السيرة الذاتية</translation>
     </message>
@@ -5129,7 +5139,7 @@ Size: %3</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-1300"/>
+        <location line="-1326"/>
         <source>Matrix ID copied</source>
         <translation>نُسخ معرّف Matrix</translation>
     </message>
@@ -5200,7 +5210,7 @@ Size: %3</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+595"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+605"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -5509,7 +5519,7 @@ Size: %3</source>
         <translation>تسجيل رسالة صوتية</translation>
     </message>
     <message>
-        <location line="-3052"/>
+        <location line="-3062"/>
         <source>A recording is already in progress.</source>
         <translation>هناك تسجيل قيد التنفيذ بالفعل.</translation>
     </message>
@@ -5519,7 +5529,7 @@ Size: %3</source>
         <translation>التسجيل الصوتي غير متاح.</translation>
     </message>
     <message>
-        <location line="+2789"/>
+        <location line="+2799"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">المزيد</translation>
@@ -5631,7 +5641,7 @@ Size: %3</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+854"/>
+        <location filename="../qml/MessageDelegate.qml" line="+865"/>
         <source>Today</source>
         <translation>اليوم</translation>
     </message>
@@ -5651,12 +5661,12 @@ Size: %3</source>
         <translation>رسائل جديدة</translation>
     </message>
     <message>
-        <location line="+215"/>
+        <location line="+220"/>
         <source>Avatar for %1</source>
         <translation>صورة %1 الرمزية</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+59"/>
         <location line="+257"/>
         <source>Sent at %1</source>
         <translation>أُرسلت في %1</translation>
@@ -8994,7 +9004,7 @@ Size: %3</source>
         <translation>اكتشاف الغرف</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+91"/>
         <location line="+3"/>
         <location line="+2"/>
         <source>All</source>
@@ -13414,20 +13424,25 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+116"/>
+        <location line="+133"/>
         <source>Message Search</source>
         <translation>بحث الرسائل</translation>
     </message>
     <message>
-        <location line="-74"/>
-        <location line="+44"/>
+        <location line="-81"/>
+        <location line="+51"/>
         <source>Invites</source>
         <translation>الدعوات</translation>
     </message>
     <message>
-        <location line="-37"/>
+        <location line="-44"/>
         <source>Rooms</source>
         <translation>الغرف</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Direct Messages</source>
+        <translation type="unfinished">الرسائل المباشرة</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -13458,7 +13473,7 @@ Note: importing keys does not verify this session.</source>
         <translation>كل الغرف</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+37"/>
         <source>Other rooms</source>
         <translation>غرف أخرى</translation>
     </message>
@@ -15315,7 +15330,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+828"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+903"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>غيّر %1 اسمه الظاهر من «%2» إلى «%3» وغيّر صورته الرمزية.</translation>
     </message>
@@ -15365,7 +15380,7 @@ Note: importing keys does not verify this session.</source>
         <translation>بدأ %1مكالمة.</translation>
     </message>
     <message>
-        <location line="+1223"/>
+        <location line="+1247"/>
         <source>%1 is typing…</source>
         <translation>%1 يكتب…</translation>
     </message>
@@ -15411,17 +15426,17 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5939"/>
+        <location line="+6022"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location line="-5938"/>
+        <location line="-6021"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+43"/>
         <location line="+2"/>
         <source>Room encrypted</source>
         <translation>الغرفة معمّاة</translation>
@@ -15471,12 +15486,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4545"/>
+        <location line="+4619"/>
         <source>Room information</source>
         <translation>معلومات الغرفة</translation>
     </message>
     <message>
-        <location line="-4324"/>
+        <location line="-4398"/>
         <source>This room has been upgraded.</source>
         <translation>تمت ترقية هذه الغرفة.</translation>
     </message>
@@ -15651,7 +15666,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعذّر إتمام البحث.</translation>
     </message>
     <message>
-        <location line="+3597"/>
+        <location line="+3671"/>
         <source>Loading older messages…</source>
         <translation>جارٍ تحميل رسائل أقدم…</translation>
     </message>
@@ -16921,7 +16936,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VoiceConnectedBar</name>
     <message>
-        <location filename="../qml/VoiceConnectedBar.qml" line="+47"/>
+        <location filename="../qml/VoiceConnectedBar.qml" line="+55"/>
         <source>Voice connected</source>
         <translation>صوت متصل</translation>
     </message>
@@ -16931,7 +16946,7 @@ Note: importing keys does not verify this session.</source>
         <translation>جارٍ الاتصال…</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+35"/>
         <source>Unmute microphone</source>
         <translation>إلغاء كتم صوت الميكروفون</translation>
     </message>

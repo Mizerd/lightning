@@ -411,7 +411,7 @@
         <translation>আপনাকে %1-এ আমন্ত্রণ জানানো হয়েছে</translation>
     </message>
     <message>
-        <location line="+150"/>
+        <location line="+159"/>
         <source>Incoming voice call</source>
         <translation>আগত ভয়েস কল</translation>
     </message>
@@ -1373,12 +1373,12 @@
 <context>
     <name>CallPipWindow</name>
     <message>
-        <location filename="../qml/CallPipWindow.qml" line="+118"/>
+        <location filename="../qml/CallPipWindow.qml" line="+133"/>
         <source>Lightning call</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+142"/>
+        <location line="+153"/>
         <source>Call in progress</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1391,7 +1391,7 @@
         </translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+35"/>
         <source>Unmute microphone</source>
         <translation type="unfinished">মাইক্রোফোন আনমিউট করুন</translation>
     </message>
@@ -1513,17 +1513,17 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+287"/>
+        <location line="+370"/>
         <source>Screen share</source>
         <translation>স্ক্রিন শেয়ার</translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="-219"/>
         <source>Waiting for the picture…</source>
         <translation>ছবির অপেক্ষায়…</translation>
     </message>
     <message>
-        <location line="+200"/>
+        <location line="+242"/>
         <source>Screen share volume</source>
         <translation>স্ক্রীন শেয়ার ভলিউম</translation>
     </message>
@@ -1683,6 +1683,16 @@
         <location line="+2"/>
         <source>%1, unread</source>
         <translation>%1, অপঠিত</translation>
+    </message>
+    <message>
+        <location line="+171"/>
+        <source>Remove from favourites</source>
+        <translation type="unfinished">প্রিয় থেকে সরান</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Add to favourites</source>
+        <translation type="unfinished">প্রিয়তে যোগ করুন</translation>
     </message>
 </context>
 <context>
@@ -4882,14 +4892,14 @@ Size: %3</source>
         <translation>%1-এর প্রোফাইল</translation>
     </message>
     <message>
-        <location line="+279"/>
+        <location line="+305"/>
         <location line="+407"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>উপস্থিতি উপলব্ধ নয়</translation>
     </message>
     <message>
-        <location line="-877"/>
+        <location line="-903"/>
         <source>Invited</source>
         <translation>আমন্ত্রিত</translation>
     </message>
@@ -4909,7 +4919,7 @@ Size: %3</source>
         <translation>প্রোফাইল লিঙ্ক কপি করা হয়েছে</translation>
     </message>
     <message>
-        <location line="+704"/>
+        <location line="+730"/>
         <source>Bio</source>
         <translation>বায়ো</translation>
     </message>
@@ -5073,7 +5083,7 @@ Size: %3</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-1300"/>
+        <location line="-1326"/>
         <source>Matrix ID copied</source>
         <translation>Matrix আইডি অনুলিপি হয়েছে</translation>
     </message>
@@ -5144,7 +5154,7 @@ Size: %3</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+595"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+605"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -5453,7 +5463,7 @@ Size: %3</source>
         <translation>ভয়েস বার্তা রেকর্ড করুন</translation>
     </message>
     <message>
-        <location line="-3052"/>
+        <location line="-3062"/>
         <source>A recording is already in progress.</source>
         <translation>একটি রেকর্ডিং ইতিমধ্যেই চলছে।</translation>
     </message>
@@ -5463,7 +5473,7 @@ Size: %3</source>
         <translation>ভয়েস রেকর্ডিং উপলব্ধ নয়।</translation>
     </message>
     <message>
-        <location line="+2789"/>
+        <location line="+2799"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">আরও</translation>
@@ -5575,7 +5585,7 @@ Size: %3</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+854"/>
+        <location filename="../qml/MessageDelegate.qml" line="+865"/>
         <source>Today</source>
         <translation>আজ</translation>
     </message>
@@ -5595,12 +5605,12 @@ Size: %3</source>
         <translation>নতুন বার্তা</translation>
     </message>
     <message>
-        <location line="+215"/>
+        <location line="+220"/>
         <source>Avatar for %1</source>
         <translation>%1-এর অবতার</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+59"/>
         <location line="+257"/>
         <source>Sent at %1</source>
         <translation>%1-এ পাঠানো</translation>
@@ -8906,7 +8916,7 @@ Size: %3</source>
         <translation>রুম খুঁজুন</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+91"/>
         <location line="+3"/>
         <location line="+2"/>
         <source>All</source>
@@ -13310,20 +13320,25 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+116"/>
+        <location line="+133"/>
         <source>Message Search</source>
         <translation>বার্তা অনুসন্ধান</translation>
     </message>
     <message>
-        <location line="-74"/>
-        <location line="+44"/>
+        <location line="-81"/>
+        <location line="+51"/>
         <source>Invites</source>
         <translation>আমন্ত্রণ</translation>
     </message>
     <message>
-        <location line="-37"/>
+        <location line="-44"/>
         <source>Rooms</source>
         <translation>রুম</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Direct Messages</source>
+        <translation type="unfinished">সরাসরি বার্তা</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -13354,7 +13369,7 @@ Note: importing keys does not verify this session.</source>
         <translation>সব রুম</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+37"/>
         <source>Other rooms</source>
         <translation>অন্যান্য রুম</translation>
     </message>
@@ -15191,7 +15206,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+828"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+903"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 তাঁর প্রদর্শিত নাম “%2” থেকে “%3” করেছেন এবং অবতার বদলেছেন।</translation>
     </message>
@@ -15241,7 +15256,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1একটি কল শুরু করেছে৷</translation>
     </message>
     <message>
-        <location line="+1223"/>
+        <location line="+1247"/>
         <source>%1 is typing…</source>
         <translation>%1 লিখছেন…</translation>
     </message>
@@ -15283,17 +15298,17 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5939"/>
+        <location line="+6022"/>
         <source>Space</source>
         <translation>স্পেস</translation>
     </message>
     <message>
-        <location line="-5938"/>
+        <location line="-6021"/>
         <source>Home</source>
         <translation>হোম</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+43"/>
         <location line="+2"/>
         <source>Room encrypted</source>
         <translation>রুম এনক্রিপ্টেড</translation>
@@ -15343,12 +15358,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4545"/>
+        <location line="+4619"/>
         <source>Room information</source>
         <translation>রুমের তথ্য</translation>
     </message>
     <message>
-        <location line="-4324"/>
+        <location line="-4398"/>
         <source>This room has been upgraded.</source>
         <translation>এই রুমটি আপগ্রেড করা হয়েছে।</translation>
     </message>
@@ -15523,7 +15538,7 @@ Note: importing keys does not verify this session.</source>
         <translation>অনুসন্ধান সম্পূর্ণ করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+3597"/>
+        <location line="+3671"/>
         <source>Loading older messages…</source>
         <translation>পুরনো বার্তা লোড হচ্ছে…</translation>
     </message>
@@ -16761,7 +16776,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VoiceConnectedBar</name>
     <message>
-        <location filename="../qml/VoiceConnectedBar.qml" line="+47"/>
+        <location filename="../qml/VoiceConnectedBar.qml" line="+55"/>
         <source>Voice connected</source>
         <translation>ভয়েস সংযুক্ত</translation>
     </message>
@@ -16771,7 +16786,7 @@ Note: importing keys does not verify this session.</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+35"/>
         <source>Unmute microphone</source>
         <translation>মাইক্রোফোন আনমিউট করুন</translation>
     </message>

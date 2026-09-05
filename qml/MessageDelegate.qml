@@ -38,12 +38,26 @@ Item {
     /// the pane, which is what already resolves it for the header.
     property string sourceRoomName: ""
     readonly property bool selectionMode: app.forward.selecting === true
+    // MESSAGES select. A call card or a state row has an event id too, and
+    // the circle drew over the call card's own glyph (2026-09-05 screenshot);
+    // forwarding "X started a call" is not a thing anyone asked for.
     readonly property bool rowSelectable:
         model.isVirtual !== true && model.redacted !== true
         && model.isLocalEcho !== true
+        && !root.isCallEvent && !root.isStateActivity
         && root.eventIdForActions() !== ""
+    /// The circle's own column while selecting. The row's content shifts
+    /// right by this much so the circle never sits on the avatar or the
+    /// text (it drew over the avatar on identity rows).
+    readonly property real selectionGutterWidth: 26
+    // isSelected() is a plain call Qt cannot observe, so on its own this
+    // binding never re-ran after a toggle: the footer counted "1 message(s)
+    // selected" while every circle stayed empty (2026-09-05 report).
+    // selectedCount changes on every toggle and carries the dependency; it
+    // is a true precondition as well.
     readonly property bool rowSelected:
         root.selectionMode && root.rowSelectable
+        && app.forward.selectedCount > 0
         && app.forward.isSelected(root.eventIdForActions())
 
     function toggleSelectionForThisRow() {
@@ -93,13 +107,10 @@ Item {
     // moves it at discrete moments, so this costs one comparison per row
     // per settle, never one per scroll frame. A host without a band
     // (fixtures, the thread panel) is permissive.
-    readonly property bool mediaInBand: {
-        var v = root.timelineView
-        if (!v || v.mediaBandActive !== true)
-            return true
-        return root.y + root.height >= v.mediaBandMinY
-            && root.y <= v.mediaBandMaxY
-    }
+    // Settable for the same reason rowOnScreen is: in the room timeline the
+    // per-row Loader assigns it from the pane's index range. A host without a
+    // band (the thread ListView, fixtures) leaves it permissive.
+    property bool mediaInBand: true
 
     readonly property bool isVirtualRow: model.isVirtual === true
     readonly property bool isStateActivity: model.isStateActivity === true
@@ -1130,7 +1141,9 @@ Item {
         anchors.leftMargin: 2
         anchors.verticalCenter: parent.verticalCenter
         width: 18; height: 18; radius: 9
-        color: root.rowSelected ? AppTheme.accent : "transparent"
+        // Solid when empty too, so the circle reads over an avatar on an
+        // identity row instead of vanishing into it.
+        color: root.rowSelected ? AppTheme.accent : AppTheme.background
         border.width: 1
         border.color: root.rowSelected ? AppTheme.accent : AppTheme.borderStrong
         z: 20
@@ -1188,7 +1201,10 @@ Item {
         id: layout
         visible: !root.isVirtualRow && !root.isStateActivity && !root.isCallEvent
         y: root.messageTopSpacing
-        width: parent.width
+        // Indented while selecting so the selection circle has a column of
+        // its own (see selectionGutterWidth).
+        x: root.selectionMode && root.rowSelectable ? root.selectionGutterWidth : 0
+        width: parent.width - x
         spacing: 2
         z: 1
 
@@ -1284,8 +1300,11 @@ Item {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.rightMargin: 5
+                    // The gutter is the selection circle's while selecting:
+                    // the hovered row's time drew over the circle
+                    // ("blocked by date", 2026-09-05).
                     active: !root.showsIdentity && rowHover.hovered
-                            && !root.compactMode
+                            && !root.compactMode && !root.selectionMode
                     sourceComponent: Label {
                         objectName: "continuationTimestamp"
                         // ONE clock format for the whole application

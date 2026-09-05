@@ -283,10 +283,13 @@ private Q_SLOTS:
         // 520 px), bounded by the text's own width so the lock hugs a short
         // name.
         QVERIFY2(before.contains(QStringLiteral(
-                     "Layout.maximumWidth: Math.min(header.width * 0.5, implicitWidth)")),
+                     "Layout.maximumWidth: Math.min(header.width * 0.5,\n"
+                     "                                                          Math.ceil(implicitWidth))")),
                  "the name's fill must be bounded by its own text width");
         const int cap = before.indexOf(QStringLiteral("Layout.maximumWidth: Math.min("));
-        QVERIFY2(before.mid(qMax(0, cap - 200), 200).contains(QStringLiteral("Layout.fillWidth: true")),
+        // A wide window: the bound now carries a comment explaining the
+        // ceiling (2026-09-05), and the fill sits above it.
+        QVERIFY2(before.mid(qMax(0, cap - 1400), 1400).contains(QStringLiteral("Layout.fillWidth: true")),
                  "the name must fill so a narrow header can shrink it");
     }
 
@@ -496,9 +499,16 @@ private Q_SLOTS:
                      "active: root.visible && root.groupLive && !root.shareFillActive")),
                  "the tile grid must step aside while the share fills the window");
         QVERIFY2(src.contains(QStringLiteral(
-                     "onShareIdShownChanged: if (root.shareIdShown.length === 0) "
+                     "onFillShareShownChanged: if (root.fillShareShown.length === 0) "
                      "root.shareFills = false")),
                  "the fill mode must drop when the share ends");
+        // A click fills, a click restores, Escape restores, and the bar is
+        // gone while the share fills the window.
+        QVERIFY(src.contains(QStringLiteral("root.fillShareId = shareId\n"
+                                            "                        root.shareFills = true")));
+        QVERIFY(src.contains(QStringLiteral("onActivated: root.shareFills = false")));
+        QVERIFY(src.contains(QStringLiteral("visible: !root.shareFillActive\n"
+                                            "            color: AppTheme.surface")));
     }
 
     void theProfileCardFramesItsBannerAndSizesItsChips()
@@ -509,6 +519,12 @@ private Q_SLOTS:
         const QString bannerBlock = src.mid(banner, 900);
         QVERIFY2(bannerBlock.contains(QStringLiteral("width: parent.width - 2 * frame")),
                  "the banner must sit inside the popover's border");
+        // Smooth corners: the mask must not be a hard step on its alpha.
+        QVERIFY2(src.contains(QStringLiteral("maskSpreadAtMin: 1.0")),
+                 "the banner mask must carry its antialiased edge through");
+        QVERIFY2(src.contains(QStringLiteral("maskThresholdMin: 0.5")),
+                 "the low-side ramp is [(t-1)(1+s)+1, t(1+s)]: only t=0.5, s=1 maps 0->0 and 1->1");
+        QVERIFY(bannerBlock.contains(QStringLiteral("antialiasing: true")));
         const int chip = src.indexOf(QStringLiteral("objectName: \"profileMembershipChip\""));
         QVERIFY(chip > 0);
         QVERIFY2(src.mid(chip, 400).contains(QStringLiteral("height: profileChipRow.uniformHeight")),
@@ -518,8 +534,8 @@ private Q_SLOTS:
         const QString dotBlock = src.mid(dot, 2400);
         QVERIFY2(dotBlock.contains(QStringLiteral("hoverStatus: false")),
                  "the dot's own tooltip opens on top of the avatar");
-        QVERIFY2(dotBlock.contains(QStringLiteral("x: avatarWrap.width + AppTheme.spacing6")),
-                 "the presence tip must sit to the right of the avatar");
+        QVERIFY2(dotBlock.contains(QStringLiteral("x: avatarPresenceDot.x + avatarPresenceDot.width")),
+                 "the presence tip must sit beside the dot it explains");
         QVERIFY2(src.contains(QStringLiteral("_fillFromServer()")),
                  "a member the roster cannot name must be asked from the server");
         QVERIFY(src.contains(QStringLiteral("app.userProfiles.lookup(userId)")));
@@ -528,7 +544,7 @@ private Q_SLOTS:
     void mediaRowsWaitForTheBand()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
-        QVERIFY(delegate.contains(QStringLiteral("readonly property bool mediaInBand")));
+        QVERIFY(delegate.contains(QStringLiteral("property bool mediaInBand: true")));
         QVERIFY2(delegate.contains(QStringLiteral("if (!root.mediaInBand) return")),
                  "an image row outside the band must not ask the bridge");
         QVERIFY2(delegate.contains(QStringLiteral("function onMediaInBandChanged()")),
@@ -537,8 +553,125 @@ private Q_SLOTS:
         QVERIFY(pane.contains(QStringLiteral("function refreshMediaBand()")));
         // Moved at discrete moments only — never bound to contentY, which
         // would re-run every row's comparison on every scroll frame.
-        QVERIFY(pane.contains(QStringLiteral("property real mediaBandMinY: 0")));
+        // An index range assigned by the row loader, never a geometry test
+        // inside the delegate (whose y is 0 there).
+        QVERIFY(pane.contains(QStringLiteral("property int mediaBandFirstRow: 0")));
+        QVERIFY(pane.contains(QStringLiteral("mediaInBand: index >= timeline.mediaBandFirstRow")));
         QVERIFY(pane.count(QStringLiteral("refreshMediaBand()")) >= 5);
+    }
+
+    void shareTilesFrameThePictureAndFadeTheNameplate()
+    {
+        const QString src = read(QStringLiteral("CallShareTile.qml"));
+        const int frame = src.indexOf(QStringLiteral("objectName: \"callShareVideoFrame\""));
+        QVERIFY2(frame > 0, "the painted video has no frame");
+        QVERIFY2(src.mid(frame, 900).contains(QStringLiteral("output.videoSink.videoSize.width")),
+                 "the frame must follow the painted picture, not the tile bounds");
+        QVERIFY2(src.contains(QStringLiteral("(pictureFramed ? 0 : (root.focused ? 2 : 1))")),
+                 "the tile edge must step aside while the picture frame draws");
+        QVERIFY(src.contains(QStringLiteral("objectName: \"callSharePlateIdleTimer\"")));
+        const int plate = src.indexOf(QStringLiteral("objectName: \"callShareNameplate\""));
+        QVERIFY(plate > 0);
+        QVERIFY2(src.mid(plate, 400).contains(QStringLiteral(
+                     "opacity: surface.plateAutoHides && surface.plateIdle ? 0 : 1")),
+                 "the nameplate must fade once the surface is idle");
+    }
+
+    void theFillFollowsTheControllerNotATimer()
+    {
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+        const int at = pane.indexOf(QStringLiteral("function onStateChanged() {"));
+        QVERIFY(at > 0);
+        QVERIFY2(pane.mid(at, 900).contains(QStringLiteral(
+                     "if (!app.pagination.busy)\n"
+                     "                            timeline.maybeFillViewport()")),
+                 "a finished batch must re-check the fill at once, not after the retry timer");
+        // And the band never closes on the newest side.
+        QVERIFY(pane.contains(QStringLiteral("mediaBandFirstRow = 0\n")));
+        // The fill is bounded by ROWS as well as by invisible pages: a room
+        // whose every page adds a little height defeats the page budget.
+        QVERIFY(pane.contains(QStringLiteral("readonly property int maxViewportFillRows: 240")));
+        QVERIFY2(pane.contains(QStringLiteral("return \"rowBudget\"")),
+                 "the fill must decline on the row cap, by name");
+    }
+
+    // 2026-09-05, the third report batch. Selection circles never filled
+    // while the footer counted correctly; the hovered row's time drew over
+    // the circle; "Home" read "Ho…"; the hang-up button left the voice bar;
+    // a popped-out share came back as a grey box.
+    void theSelectionCircleFollowsTheCountAndOwnsTheGutter()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY2(delegate.contains(QStringLiteral("&& app.forward.selectedCount > 0\n"
+                                                  "        && app.forward.isSelected(")),
+                 "rowSelected must name a NOTIFYing property: isSelected() is a plain call");
+        const int loader = delegate.indexOf(
+            QStringLiteral("active: !root.showsIdentity && rowHover.hovered"));
+        QVERIFY(loader > 0);
+        QVERIFY2(delegate.mid(loader, 160).contains(QStringLiteral("!root.selectionMode")),
+                 "the hover timestamp must yield the gutter to the selection circle");
+        // The circle has a column of its own: the content shifts right while
+        // selecting, so it never sits on the avatar. And only MESSAGES
+        // select — a call card drew the circle over its own glyph.
+        QVERIFY(delegate.contains(QStringLiteral(
+            "x: root.selectionMode && root.rowSelectable ? root.selectionGutterWidth : 0")));
+        QVERIFY(delegate.contains(QStringLiteral("&& !root.isCallEvent && !root.isStateActivity\n"
+                                                 "        && root.eventIdForActions() !== \"\"")));
+    }
+
+    void theRoomTitleNeverElidesByAFraction()
+    {
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+        QVERIFY2(pane.contains(QStringLiteral("Math.min(header.width * 0.5,\n"
+                                              "                                                          Math.ceil(implicitWidth))")),
+                 "a fractional maximumWidth is floored by the Layout and the title elides");
+    }
+
+    void theVoiceBarKeepsItsButtonsInsideItself()
+    {
+        const QString bar = read(QStringLiteral("VoiceConnectedBar.qml"));
+        const int status = bar.indexOf(QStringLiteral("qsTr(\"Voice connected\")"));
+        QVERIFY(status > 0);
+        QVERIFY2(bar.mid(status, 500).contains(QStringLiteral("elide: Text.ElideRight")),
+                 "the status text must yield before the hang-up button leaves the bar");
+        QVERIFY2(bar.count(QStringLiteral("Layout.minimumWidth: 0")) >= 2,
+                 "the text column must be shrinkable");
+    }
+
+    // The favourite star (2026-09-05 request): filled while favourite, an
+    // empty outline on hover, a click toggles the tag; between the name and
+    // the call glyph so the pill never moves.
+    void theChannelRowOffersAFavouriteStar()
+    {
+        const QString row = read(QStringLiteral("ChannelDelegate.qml"));
+        const int star = row.indexOf(QStringLiteral("objectName: \"channelFavouriteStar\""));
+        QVERIFY2(star > 0, "no favourite star in the channel row");
+        const QString block = row.mid(star, 2600);
+        QVERIFY(block.contains(QStringLiteral("&& (root.isFavourite || root.hovered)")));
+        QVERIFY2(block.contains(QStringLiteral("onClicked: root.setFavourite(!root.isFavourite)")),
+                 "the star must toggle the same tag the menu writes");
+        QVERIFY(block.contains(QStringLiteral("readonly property bool filled: root.isFavourite")));
+        QVERIFY2(row.contains(QStringLiteral("anchors.right: favouriteStar.left")),
+                 "the name must yield to the star, not the pill");
+    }
+
+    // A completed rich-mode pill is not a token, and a query with a second
+    // space is not a name.
+    void aCompletedMentionDoesNotReopenThePopup()
+    {
+        const QString bar = read(QStringLiteral("MessageComposerBar.qml"));
+        QVERIFY2(bar.contains(QStringLiteral(
+                     "richInput.getFormattedText(tok.start, tok.start + 1)")),
+                 "the rich editor must refuse a token that starts inside a pill anchor");
+        QVERIFY(bar.contains(QStringLiteral(".indexOf(\"matrix.to/#/\") >= 0")));
+    }
+
+    void thePopoutFillTilesLiveOnlyWhileTheWindowShows()
+    {
+        const QString src = read(QStringLiteral("CallPipWindow.qml"));
+        QVERIFY2(src.contains(QStringLiteral(
+                     "model: root.visible && root.shareFillActive ? root.shareModel : null")),
+                 "fill tiles that outlive a pop-in come back unattached: a grey box");
     }
 
     void emojiSurfacesNameTheColourFace()

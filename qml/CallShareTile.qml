@@ -105,7 +105,15 @@ Item {
         // A share tile is always a panel: there is content in it, or there is
         // about to be. It never takes the bare-avatar shape.
         color: AppTheme.stormInset
-        border.width: root.focused || root.activeFocus ? 2 : 1
+        // While the picture is showing, the picture's own frame (below) is
+        // the only frame — a second edge around the tile bounds read as
+        // "two frames" on the popout and the stage (2026-09-05). The
+        // keyboard focus ring still draws on the tile, since it is about the
+        // tile and not the picture.
+        readonly property bool pictureFramed:
+            videoLoader.visible && videoLoader.item
+            && videoLoader.item.pictureFramed === true
+        border.width: root.activeFocus ? 2 : (pictureFramed ? 0 : (root.focused ? 2 : 1))
         border.color: root.activeFocus
                       ? AppTheme.focusRing
                       : (root.focused ? AppTheme.accentBorder
@@ -124,6 +132,7 @@ Item {
                 /// in flight.
                 readonly property bool hasFrame:
                     output.videoSink && output.videoSink.videoSize.width > 0
+                readonly property bool pictureFramed: videoFrame.visible
 
                 VideoOutput {
                     id: output
@@ -133,6 +142,38 @@ Item {
                     // person is showing, which is usually exactly where their
                     // toolbars and tabs are.
                     fillMode: VideoOutput.PreserveAspectFit
+                }
+                // A frame around the PICTURE, not around the tile: on a big
+                // surface the aspect-fit video leaves bare strips at the
+                // sides and the tile's own 1px edge sits at the window edge,
+                // so the stream read as "thrown in there" (2026-09-05 report,
+                // popout and main stage alike). The painted rectangle is
+                // computed here from the frame size — VideoOutput's own
+                // contentRect did not describe it on the live build.
+                Rectangle {
+                    id: videoFrame
+                    objectName: "callShareVideoFrame"
+                    readonly property real videoW:
+                        output.videoSink ? output.videoSink.videoSize.width : 0
+                    readonly property real videoH:
+                        output.videoSink ? output.videoSink.videoSize.height : 0
+                    readonly property real fit:
+                        videoW > 0 && videoH > 0
+                        ? Math.min(output.width / videoW, output.height / videoH)
+                        : 0
+                    readonly property real paintedW: Math.round(videoW * fit)
+                    readonly property real paintedH: Math.round(videoH * fit)
+                    x: output.x + Math.round((output.width - paintedW) / 2)
+                    y: output.y + Math.round((output.height - paintedH) / 2)
+                    width: paintedW
+                    height: paintedH
+                    visible: fit > 0
+                    color: "transparent"
+                    radius: AppTheme.radiusSm
+                    border.width: 2
+                    // Carries the spotlight accent the tile edge used to.
+                    border.color: root.focused ? AppTheme.accentBorder
+                                               : Qt.rgba(1, 1, 1, 0.34)
                 }
 
                 function attach() {
@@ -207,12 +248,54 @@ Item {
         // Nameplate: bottom-left pill, the share glyph INSIDE it ahead of the
         // name, always visible. This is the affordance that says "this is a
         // screen, and whose".
+        // On a big surface the plate covers the picture, so it behaves like
+        // the full-screen controls: shown for a few seconds after the tile
+        // appears or the pointer moves over it, then faded out. Small grid
+        // tiles keep it, there it IS the tile's label.
+        readonly property bool plateAutoHides: root.width >= 480
+        property int plateIdleTicks: 0
+        property bool plateIdle: false
+        Timer {
+            id: plateIdleTimer
+            objectName: "callSharePlateIdleTimer"
+            interval: 500
+            repeat: true
+            running: surface.plateAutoHides && !surface.plateIdle
+            onTriggered: {
+                surface.plateIdleTicks += 1
+                if (surface.plateIdleTicks >= 6) // 3 s
+                    surface.plateIdle = true
+            }
+        }
+        onPlateAutoHidesChanged: {
+            surface.plateIdleTicks = 0
+            surface.plateIdle = false
+        }
+        property real plateLastX: -1
+        property real plateLastY: -1
+        HoverHandler {
+            id: plateHover
+            enabled: surface.plateAutoHides
+            onPointChanged: {
+                const p = plateHover.point.position
+                if (Math.abs(p.x - surface.plateLastX) < 1
+                    && Math.abs(p.y - surface.plateLastY) < 1)
+                    return
+                surface.plateLastX = p.x
+                surface.plateLastY = p.y
+                surface.plateIdleTicks = 0
+                surface.plateIdle = false
+            }
+        }
         Rectangle {
             id: namePlate
             objectName: "callShareNameplate"
             anchors.left: parent.left
             anchors.bottom: parent.bottom
             anchors.margins: root.compact ? 6 : 8
+            opacity: surface.plateAutoHides && surface.plateIdle ? 0 : 1
+            visible: opacity > 0
+            Behavior on opacity { NumberAnimation { duration: 220 } }
             implicitWidth: Math.min(plate.implicitWidth + 12,
                                     surface.width - (root.compact ? 12 : 16))
             implicitHeight: plate.implicitHeight + 6

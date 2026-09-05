@@ -33,8 +33,16 @@ Rectangle {
 
         ColumnLayout {
             Layout.fillWidth: true
+            // SHRINKABLE, or the buttons cannot fit. A non-fill Text is fixed
+            // at its own width inside a Layout, so at the column's narrow
+            // floor the "Voice connected" line kept its width and pushed the
+            // hang-up button out through the bar's edge (2026-09-05
+            // screenshot). The text yields and elides; the buttons never move.
+            Layout.minimumWidth: 0
             spacing: 0
             RowLayout {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 spacing: 4
                 Icon {
                     name: "call"
@@ -48,6 +56,9 @@ Rectangle {
                     color: app.groupCall.state === SfuCallController.Connected ? AppTheme.success : AppTheme.warning
                     font.pixelSize: 11
                     font.weight: Font.DemiBold
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    elide: Text.ElideRight
                 }
             }
             Text {
