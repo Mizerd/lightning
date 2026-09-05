@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(lightning
-    VERSION 0.9.0
+    VERSION 0.9.1
     DESCRIPTION "Lightning — native C++/Qt Matrix desktop client"
     LANGUAGES CXX
 )
@@ -8,7 +8,7 @@ project(lightning
 include(CTest)
 
 # Human-facing release label. Keep in sync with project() and rust/Cargo.toml.
-set(APP_VERSION_LABEL "0.9.0")
+set(APP_VERSION_LABEL "0.9.1")
 
 # Build metadata surfaced by `lightning-matrix --build-info` (booleans/strings
 # only; never secrets). The source SHA is resolved from git at configure time
