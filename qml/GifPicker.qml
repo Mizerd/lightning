@@ -347,7 +347,18 @@ AnchoredPopup {
         // That call early-returns when the provider is unchanged (coming back
         // from Saved/Recent to the provider that was already active), so the
         // browse grid can legitimately still be empty at this point.
-        if (picker.gif.results.count === 0)
+        //
+        // BUT NOT WHEN A SEARCH IS IN FLIGHT. setActiveProvider() clears the
+        // results synchronously and re-issues the current query on the new
+        // provider; the answer has not arrived yet, so `count === 0` is true
+        // here for a grid that is about to fill — and showTrending() then
+        // REPLACED that search with trending. Reported as "if I type something
+        // and change provider it doesn't show my search, I have to delete a
+        // letter for it to refresh". The mode is what says whether an empty
+        // grid is idle or pending.
+        if (picker.gif.results.count === 0
+                && picker.gif.mode !== GifSearchController.Search
+                && picker.gif.mode !== GifSearchController.Category)
             picker.gif.showTrending()
     }
 

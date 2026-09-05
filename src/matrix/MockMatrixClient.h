@@ -2,6 +2,7 @@
 
 #include "matrix/MatrixClient.h"
 
+#include <tuple>
 #include <QHash>
 #include <QList>
 #include <QSet>
@@ -406,6 +407,19 @@ public:
     /// logic that exists once, in Rust, with its own tests. A second copy here
     /// could pass while the real one failed.
     QVariantList mockWidgets;
+    // Pinned messages: off by default so no existing fixture grows a Pinned
+    // tab; a test that needs the room-info strip to overflow turns it on.
+    bool mockSupportsPinnedMessages = false;
+    bool supportsPinnedMessages() const override
+    { return mockSupportsPinnedMessages; }
+    // Whether the mock says this account may write widget state — true so
+    // tests can exercise add/remove; a test proves the gate by flipping it.
+    bool mockWidgetsCanManage = true;
+    // Every widget write the controller asked for: (roomId, widgetId, json).
+    QList<std::tuple<QString, QString, QString>> widgetWrites;
+    quint64 writeRoomWidget(const QString &roomId, const QString &widgetId,
+                            const QString &contentJson) override;
+    quint64 m_mockWidgetWriteOp = 0;
     QString lastWidgetTheme;
     QString lastWidgetLanguage;
     quint64 localSearch(const QString &query, const QString &roomId,

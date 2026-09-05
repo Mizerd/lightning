@@ -20,6 +20,23 @@ issue whose body links a 2018 Google Doc; MSC2764 ("Widgets, the spec") is
 closed and unmerged, and its `travis/widgets` branch holds the only
 machine-readable schema there is. What exists is what Element deploys.
 
+## Adding and removing (v0.9.0)
+
+The Widgets tab offers **Add widget…** and a per-row **Remove** when the
+room's power levels let this account write `im.vector.modular.widgets` —
+asked of the SDK on every read (`can_manage` on the `room_widgets` answer),
+never inferred from a role label. Adding writes the same state event Element
+writes, field for field (`type`, `url`, `name`, `data`, `creatorUserId`), under
+a fresh UUID state key; removing writes an empty object, Element's own
+tombstone, which the reader already treats as "no widget".
+
+The picker offers KINDS, not services: a web page, an Etherpad pad, a Jitsi
+meeting, a video, an image, a Grafana dashboard. There is no integration
+manager, because those are web applications that would have to be embedded —
+the thing this document is about not doing. A `url` that is not `https` with
+a host and no credentials is refused in the dialog AND on the Rust side: a
+widget this client would refuse to open must not be published.
+
 ## What Lightning implements
 
 * **Discovery.** `im.vector.modular.widgets` room state, and `m.widget` read as

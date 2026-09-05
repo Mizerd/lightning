@@ -21,7 +21,10 @@
 
 #include "app/AppController.h"
 #include "profile/ProfileBioManager.h"
+#include "app/PinnedMessagesController.h"
+#include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
+#include "matrix/MockMatrixClient.h"
 #include "auth/AuthManager.h"
 #include "gif/GifSearchController.h"
 #include "gif/GifStarredStore.h"
@@ -623,6 +626,150 @@ private slots:
                  QStringLiteral("none"));
     }
 
+    // ── Room info tabs wrap instead of running off the panel ──────────────
+    //
+    // Reported with a screenshot: six tabs in a narrow panel "go off screen,
+    // they should wrap to another line or something". The single strip is
+    // kept while it fits and a two-row pair takes over when it overflows —
+    // driven by the REAL layout at two real widths, not by poking the policy
+    // property, because a wrap that never triggers looks exactly like one
+    // that does in a test that sets `tabsWrap` by hand.
+    void roomInfoTabsWrapIntoTwoRowsWhenThePanelIsNarrow()
+    {
+        auto *timeline = timelinePane();
+        QVERIFY(timeline);
+        m_controller->showMain();
+        QCoreApplication::processEvents();
+        auto *panel = item("roomInfoPanel");
+        QVERIFY(panel);
+        auto *strip = item("roomInfoTabs");
+        QVERIFY(strip);
+
+        // Wide: one row, the pair absent.
+        m_controller->settings()->setSidePanelWidth(700);
+        QVERIFY(timeline->setProperty("infoOpen", true));
+        QTRY_VERIFY(panel->isVisible());
+        QTRY_VERIFY2(panel->width() > 500,
+                     qPrintable(QString::number(panel->width())));
+        QTRY_VERIFY(!strip->property("overflowing").toBool());
+        QTRY_VERIFY2(strip->height() > 0,
+                     "the single strip must keep its height while it fits");
+        QVERIFY(!item("roomInfoTabsRow0"));
+
+        // Narrow: the strip collapses and two rows carry every tab. The
+        // fixture's four tabs (236 px) fit the 260 px floor, so give it the
+        // Pinned tab the real backend always offers — five tabs is the
+        // reported shape — by turning pins on and re-opening the room so
+        // `pinnedAvailable` re-reads it.
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        mock->mockSupportsPinnedMessages = true;
+        // `supported` is read live off the client; the binding learns of a
+        // change through this signal, which is what the backend announces.
+        Q_EMIT m_controller->pinned()->supportedChanged();
+        // The Pinned tab also needs the panel to be showing the room the pin
+        // controller tracks — what openForRoom() sets when the (i) button
+        // opens the panel, done here by hand because the mock shell opened
+        // it at the state level above.
+        m_controller->roomInfo()->setRoomId(QStringLiteral("!general:mock.local"));
+        m_controller->pinned()->setRoomId(QStringLiteral("!general:mock.local"));
+        QTRY_COMPARE(strip->property("model").toList().size(), 5);
+        m_controller->settings()->setSidePanelWidth(260);
+        QTRY_COMPARE(panel->width(), 260.0);
+        QTRY_VERIFY2(strip->property("overflowing").toBool(),
+                     qPrintable(QStringLiteral("natural %1 px in %2 px, %3 tabs")
+                                    .arg(strip->implicitWidth()).arg(strip->width())
+                                    .arg(strip->property("model").toList().size())));
+        QTRY_COMPARE(strip->height(), 0.0);
+        auto *row0 = item("roomInfoTabsRow0");
+        auto *row1 = item("roomInfoTabsRow1");
+        QVERIFY2(row0 && row1, "the wrapped pair was not built");
+        QTRY_VERIFY2(row0->height() > 0 && row1->height() > 0,
+                     qPrintable(QStringLiteral("rows %1 / %2 px")
+                                    .arg(row0->height()).arg(row1->height())));
+        QVERIFY(row0->isVisible() && row1->isVisible());
+        QVERIFY(row0->width() > 0);
+        const int all = strip->property("model").toList().size();
+        const int split = row0->property("model").toList().size()
+                          + row1->property("model").toList().size();
+        QCOMPARE(split, all);
+        QVERIFY(row0->property("model").toList().size() >= 2);
+        // Neither half may itself overflow the panel, or nothing was gained.
+        QVERIFY(!row0->property("overflowing").toBool());
+        QVERIFY(!row1->property("overflowing").toBool());
+
+        // Wide again: the single strip comes back and the pair goes.
+        m_controller->settings()->setSidePanelWidth(700);
+        QTRY_VERIFY(strip->height() > 0);
+        QTRY_VERIFY(!item("roomInfoTabsRow0"));
+        QVERIFY(timeline->setProperty("infoOpen", false));
+        mock->mockSupportsPinnedMessages = false;
+        Q_EMIT m_controller->pinned()->supportedChanged();
+        m_controller->roomInfo()->setRoomId(QString());
+    }
+
+    // ── Settings is built once and kept ──────────────────────────────────
+    //
+    // Reported: "when i open settings it takes like a second to open the
+    // menu". The loader used to follow the current screen, rebuilding the
+    // whole screen on every open. The pinned mechanism is identity: the SAME
+    // item survives a close and serves the next open, hidden in between —
+    // and a section requested while it is alive still lands, which used to
+    // ride on Component.onCompleted alone.
+    void settingsStaysBuiltBetweenOpensAndStillLandsOnTheRequestedSection()
+    {
+        auto *loader = item("settingsViewLoader");
+        QVERIFY(loader);
+        m_controller->showSettings();
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(loader->isVisible());
+        QObject *first = loader->property("item").value<QObject *>();
+        QVERIFY(first);
+
+        m_controller->showMain();
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(!loader->isVisible());
+        QCOMPARE(loader->property("item").value<QObject *>(), first);
+
+        m_controller->showSettingsSection(QStringLiteral("sessions"));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(loader->isVisible());
+        QCOMPARE(loader->property("item").value<QObject *>(), first);
+        QCOMPARE(first->property("section").toString(),
+                 QStringLiteral("sessions"));
+        // Focus lands in the screen on a re-open, not left on the composer.
+        QTRY_VERIFY(first->property("activeFocus").toBool());
+
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        QCOMPARE(first->property("section").toString(),
+                 QStringLiteral("appearance"));
+        m_controller->showMain();
+        QCoreApplication::processEvents();
+    }
+
+    // Found in review of the kept-alive screen: its window-level Escape
+    // Shortcut used to die with the screen. Kept alive and hidden, it stayed
+    // armed — and two enabled Shortcuts on one sequence make Qt fire
+    // NEITHER, so Escape stopped closing the info panel on the main screen.
+    // Driven with a real key on the window, after a real open and close.
+    void escapeStillClosesTheInfoPanelAfterSettingsHasBeenOpened()
+    {
+        m_controller->showSettings();
+        QCoreApplication::processEvents();
+        m_controller->showMain();
+        QCoreApplication::processEvents();
+        auto *timeline = timelinePane();
+        QVERIFY(timeline);
+        QVERIFY(timeline->setProperty("infoOpen", true));
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QCoreApplication::processEvents();
+        QTRY_VERIFY2(!timeline->property("infoOpen").toBool(),
+                     "Escape no longer reaches the timeline's own shortcut");
+        QCOMPARE(int(m_controller->currentScreen()),
+                 int(AppController::MainScreen));
+    }
+
     void openSettingsFromRoomInfoClearsThePanel()
     {
         auto *timeline = timelinePane();
@@ -669,15 +816,25 @@ private slots:
                  QStringLiteral("none"));
     }
 
-    // ── SPEC 1v: 44px header, "Compact" label, search + inline controls ────
+    // ── SPEC 1v: header, "Compact" label, search + inline controls ────────
+    //
+    // The header was a 44 px title bar; the room header band it replaces on
+    // screen is AppTheme.headerBandHeight (60). Reported: "the top part where
+    // it says Lightning is thicker than the one in settings … so opening
+    // settings feels more smooth and less changy". The invariant is EQUALITY
+    // with the band it swaps in for, read off the live room header rather
+    // than a literal, so the two cannot drift apart again.
 
-    void headerUses44pxTitleBarTreatment()
+    void headerIsAsTallAsTheRoomHeaderBandItReplaces()
     {
+        auto *band = item("roomHeaderBand");
+        QVERIFY(band);
         m_controller->showSettings();
         QCoreApplication::processEvents();
         auto *bar = item("settingsHeaderBar");
         QVERIFY(bar);
-        QCOMPARE(bar->height(), 44.0);
+        QVERIFY(bar->height() >= 44.0);
+        QCOMPARE(bar->height(), band->height());
         QVERIFY(item("settingsHeaderTitle"));
     }
 

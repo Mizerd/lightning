@@ -999,6 +999,16 @@ public:
                                 const QString &language)
     { Q_UNUSED(roomId); Q_UNUSED(theme); Q_UNUSED(language); return 0; }
     virtual bool supportsWidgets() const { return false; }
+    /// Add or REMOVE a widget: write `contentJson` as the room's
+    /// `im.vector.modular.widgets` state under `widgetId`. An empty object
+    /// removes (Element's own tombstone). Power-level gated on the Rust side,
+    /// and a non-https `url` is refused there: this client opens widgets in
+    /// the browser and would refuse to open one. Answers on
+    /// roomWidgetWritten. Backends without widgets return 0.
+    virtual quint64 writeRoomWidget(const QString &roomId,
+                                    const QString &widgetId,
+                                    const QString &contentJson)
+    { Q_UNUSED(roomId); Q_UNUSED(widgetId); Q_UNUSED(contentJson); return 0; }
 
     // ── Room media history ───────────────────────────────────────────────
     //
@@ -1860,8 +1870,15 @@ Q_SIGNALS:
     /// A room's widgets. Each entry: id, creator, kind, name, url, refusal,
     /// discloses. `url` is the RESOLVED and VALIDATED address; when it is
     /// empty, `refusal` says why the widget cannot be opened.
+    /// `canManage`: whether THIS account may write the room's widget state,
+    /// asked of the SDK's power levels — so a surface offers Add and Remove
+    /// only when they can work, rather than offering them and failing.
     void roomWidgetsReceived(quint64 opId, const QString &roomId, bool ok,
-                             const QVariantList &widgets);
+                             bool canManage, const QVariantList &widgets);
+    /// A widget write finished. `category` is empty on success and a coarse
+    /// room-error class otherwise ("forbidden", "unknown_room", ...).
+    void roomWidgetWritten(quint64 opId, const QString &roomId, bool ok,
+                           const QString &category);
     /// One page of a room's independent media-history walk.
     ///
     /// `scanned` counts events EXAMINED, not matched — the panel needs it to

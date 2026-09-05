@@ -1,5 +1,8 @@
 #include "models/WidgetController.h"
 
+#include <QJsonDocument>
+#include <QUuid>
+
 #include "app/UrlLauncher.h"
 #include "matrix/MatrixClient.h"
 
@@ -24,7 +27,7 @@ void WidgetController::setClient(MatrixClient *client)
     }
     connect(m_client, &MatrixClient::roomWidgetsReceived, this,
             [this](quint64 opId, const QString &roomId, bool ok,
-                   const QVariantList &widgets) {
+                   bool canManage, const QVariantList &widgets) {
         // BOTH checks. The op id alone would let an answer for a room the user
         // has since left repaint the panel, because ids are unique per request
         // and not per room.
@@ -35,12 +38,39 @@ void WidgetController::setClient(MatrixClient *client)
             setState(QStringLiteral("error"));
             return;
         }
+        m_canManage = canManage;
         beginResetModel();
         m_rows.clear();
         for (const QVariant &value : widgets)
             m_rows.append(value.toMap());
         endResetModel();
         setState(QStringLiteral("ready"));
+    });
+    connect(m_client, &MatrixClient::roomWidgetWritten, this,
+            [this](quint64 opId, const QString &roomId, bool ok,
+                   const QString &category) {
+        if (opId == 0 || opId != m_writeOp)
+            return;
+        // Final for OUR op whatever room is showing now — leaving the op
+        // behind after a room switch wedged `writing` for the session
+        // (found in review).
+        m_writeOp = 0;
+        if (roomId != m_roomId) {
+            Q_EMIT stateChanged();
+            return;
+        }
+        // Nothing was applied optimistically: on success the authoritative
+        // list is re-read, so the panel shows what the room holds rather than
+        // what was asked for. A refusal leaves the last known list alone.
+        if (ok)
+            refresh();
+        const QString error = ok ? QString() : category;
+        if (error != m_lastWriteError) {
+            m_lastWriteError = error;
+            Q_EMIT lastWriteErrorChanged();
+        }
+        Q_EMIT stateChanged();
+        Q_EMIT writeFinished(ok, category);
     });
     // One account's widgets must never surface under another's.
     connect(m_client, &MatrixClient::loggedOut, this, [this] { clear(); });
@@ -65,16 +95,126 @@ void WidgetController::setRoomId(const QString &roomId)
         return;
     m_roomId = roomId;
     m_pendingOp = 0;   // an answer for the old room must not repaint the new one
+    m_writeOp = 0;     // and a write for it is no longer ours to wait for
+    // The new room has granted nothing until its own read says so.
+    m_canManage = false;
+    if (!m_lastWriteError.isEmpty()) {
+        m_lastWriteError.clear();
+        Q_EMIT lastWriteErrorChanged();
+    }
     beginResetModel();
     m_rows.clear();
     endResetModel();
     Q_EMIT roomIdChanged();
     setState(QStringLiteral("idle"));
+    Q_EMIT stateChanged();
+}
+
+bool WidgetController::urlIsAcceptable(const QString &text) const
+{
+    // The SAME rule UrlLauncher applies at the one exit to the browser, and
+    // the same one the Rust write re-checks: https, a host, no credentials.
+    // A widget this client would refuse to open must not be published.
+    const QUrl url(text.trimmed(), QUrl::StrictMode);
+    return url.isValid() && url.scheme().toLower() == QLatin1String("https")
+        && !url.host().isEmpty() && url.userInfo().isEmpty();
+}
+
+QJsonObject WidgetController::widgetContent(const QString &kind,
+                                            const QString &name,
+                                            const QString &url,
+                                            const QString &creatorUserId)
+{
+    // Element's shape, field for field, so every client that lists widgets
+    // reads this one. `waitForIframeLoad` is Element's own default and is
+    // meaningless to a client that never embeds; it is written because a
+    // reader that expects it exists.
+    QJsonObject content{
+        { QStringLiteral("type"), kind },
+        { QStringLiteral("url"), url.trimmed() },
+        { QStringLiteral("name"), name.trimmed() },
+        { QStringLiteral("creatorUserId"), creatorUserId },
+        { QStringLiteral("waitForIframeLoad"), true },
+    };
+    QJsonObject data;
+    if (kind == QLatin1String("m.jitsi")) {
+        // A Jitsi widget carries its conference in `data`, which is what
+        // Element reads rather than the URL. Derived from the URL the user
+        // gave: host and first path segment.
+        const QUrl u(url.trimmed());
+        const QString conference =
+            u.path().section(QLatin1Char('/'), 0, 0, QString::SectionSkipEmpty);
+        data.insert(QStringLiteral("domain"), u.host());
+        data.insert(QStringLiteral("conferenceId"), conference);
+        data.insert(QStringLiteral("isAudioOnly"), false);
+    }
+    content.insert(QStringLiteral("data"), data);
+    return content;
+}
+
+void WidgetController::addWidget(const QString &kind, const QString &name,
+                                 const QString &url)
+{
+    if (!supported() || m_roomId.isEmpty() || m_writeOp != 0 || !m_canManage)
+        return;
+    static const QStringList kKinds{
+        QStringLiteral("m.custom"), QStringLiteral("m.etherpad"),
+        QStringLiteral("m.jitsi"), QStringLiteral("m.video"),
+        QStringLiteral("m.image"), QStringLiteral("m.grafana"),
+    };
+    if (!kKinds.contains(kind) || !urlIsAcceptable(url))
+        return;
+    // The id is the state key. Opaque and fresh: Element reads the id back
+    // from the envelope, and a guessable id would let a later write from
+    // another client land on this widget's key by accident.
+    const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QJsonObject content = widgetContent(
+        kind, name.isEmpty() ? kind : name, url, m_client->currentUserId());
+    const quint64 op = m_client->writeRoomWidget(
+        m_roomId, id,
+        QString::fromUtf8(QJsonDocument(content).toJson(QJsonDocument::Compact)));
+    if (op == 0) {
+        Q_EMIT writeFinished(false, QStringLiteral("rejected"));
+        return;
+    }
+    m_writeOp = op;
+    Q_EMIT stateChanged();
+}
+
+void WidgetController::removeWidget(int row)
+{
+    if (!supported() || m_roomId.isEmpty() || m_writeOp != 0 || !m_canManage)
+        return;
+    if (row < 0 || row >= m_rows.size())
+        return;
+    const QVariantMap &target = m_rows.at(row);
+    // The reader strips control characters and bounds the DISPLAY id; the
+    // tombstone must name the exact state key, and a row the reader could
+    // not name exactly (or that came from the legacy `m.widget` type, which
+    // this tombstone does not cover) is not removable (found in review).
+    if (target.value(QStringLiteral("removable"), true).toBool() == false)
+        return;
+    const QString id = target.value(QStringLiteral("stateKey"),
+                                    target.value(QStringLiteral("id"))).toString();
+    if (id.isEmpty())
+        return;
+    // An EMPTY content object is the removal — how Element removes a widget,
+    // and what widget_from_state already reads as "no widget".
+    const quint64 op = m_client->writeRoomWidget(m_roomId, id,
+                                                 QStringLiteral("{}"));
+    if (op == 0) {
+        Q_EMIT writeFinished(false, QStringLiteral("rejected"));
+        return;
+    }
+    m_writeOp = op;
+    Q_EMIT stateChanged();
 }
 
 void WidgetController::clear()
 {
     m_pendingOp = 0;
+    m_writeOp = 0;
+    m_canManage = false;
     beginResetModel();
     m_rows.clear();
     endResetModel();
@@ -124,6 +264,10 @@ QVariant WidgetController::data(const QModelIndex &index, int role) const
     case DisclosesRole: return row.value(QStringLiteral("discloses"));
     case OpenableRole:
         return !row.value(QStringLiteral("url")).toString().isEmpty();
+    case StateKeyRole:  return row.value(QStringLiteral("stateKey"));
+    // Absent (mock rows, older payloads) reads as removable, matching
+    // removeWidget()'s own default.
+    case RemovableRole: return row.value(QStringLiteral("removable"), true);
     default: return {};
     }
 }
@@ -139,6 +283,8 @@ QHash<int, QByteArray> WidgetController::roleNames() const
         { RefusalRole,   "refusal" },
         { DisclosesRole, "discloses" },
         { OpenableRole,  "openable" },
+        { StateKeyRole,  "stateKey" },
+        { RemovableRole, "removable" },
     };
 }
 

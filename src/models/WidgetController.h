@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QJsonObject>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -47,6 +48,16 @@ class WidgetController : public QAbstractListModel
     /// Whether this backend can read widgets at all — lets a surface be absent
     /// rather than present and empty.
     Q_PROPERTY(bool supported READ supported NOTIFY stateChanged)
+    /// Whether this account may ADD or REMOVE widgets here. From the room's
+    /// own power levels via the last read; false until a read has answered.
+    /// The absence of the claim is not permission.
+    Q_PROPERTY(bool canManage READ canManage NOTIFY stateChanged)
+    /// A write is in flight. One at a time: the UI disables itself on this so
+    /// a second click cannot race the first.
+    Q_PROPERTY(bool writing READ writing NOTIFY stateChanged)
+    /// The category of the last write that failed, empty after a success or
+    /// a room change — so the Widgets tab can say a Remove did nothing.
+    Q_PROPERTY(QString lastWriteError READ lastWriteError NOTIFY lastWriteErrorChanged)
 
 public:
     enum Roles {
@@ -58,6 +69,8 @@ public:
         RefusalRole,
         DisclosesRole,
         OpenableRole,
+        StateKeyRole,
+        RemovableRole,
     };
     Q_ENUM(Roles)
 
@@ -80,6 +93,32 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     Q_INVOKABLE void refresh();
+
+    // ── Adding and removing (v0.9.0) ────────────────────────────────────
+    //
+    // Lightning still never EMBEDS a widget (docs/widgets.md). Adding one is
+    // writing a room-state event that every client — including this one —
+    // then lists and opens in a browser. `kind` is one of the MSC1236 types
+    // this picker offers ("m.custom", "m.etherpad", "m.jitsi", "m.video",
+    // "m.image", "m.grafana"); `url` must be https with a host and no
+    // credentials, checked here so the dialog can refuse before sending and
+    // again on the Rust side so a caller that did not ask cannot bypass it.
+    Q_INVOKABLE bool urlIsAcceptable(const QString &text) const;
+    Q_INVOKABLE void addWidget(const QString &kind, const QString &name,
+                               const QString &url);
+    /// Remove by ROW, never by an id QML could name: the id is the row's own.
+    Q_INVOKABLE void removeWidget(int row);
+    bool canManage() const { return m_canManage; }
+    bool writing() const { return m_writeOp != 0; }
+    QString lastWriteError() const { return m_lastWriteError; }
+
+    /// The event content addWidget() would publish — exposed so a test can
+    /// pin the shape without a client. `id`/`creatorUserId` are what Element
+    /// reads back from the envelope anyway; they are written for clients that
+    /// read the content instead.
+    static QJsonObject widgetContent(const QString &kind, const QString &name,
+                                     const QString &url,
+                                     const QString &creatorUserId);
     /// Open one widget in the user's browser, BY ROW.
     ///
     /// Deliberately not "open this URL". QML never names an address here, so
@@ -100,6 +139,9 @@ public:
 Q_SIGNALS:
     void roomIdChanged();
     void stateChanged();
+    /// A write finished. `category` is empty on success.
+    void writeFinished(bool ok, const QString &category);
+    void lastWriteErrorChanged();
 
 private:
     void setState(const QString &state);
@@ -112,4 +154,7 @@ private:
     QString m_state = QStringLiteral("idle");
     QList<QVariantMap> m_rows;
     quint64 m_pendingOp = 0;
+    quint64 m_writeOp = 0;
+    QString m_lastWriteError;
+    bool m_canManage = false;
 };

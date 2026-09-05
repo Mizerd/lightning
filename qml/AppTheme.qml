@@ -128,9 +128,18 @@ QtObject {
     readonly property color _bgDark:             "#09182C"
     readonly property color _sidebarLight:       "#DEEBFD"
     readonly property color _sidebarDark:        "#1B263B"
-    readonly property color _cardLight:          "#FFFFFF"
+    // NOT pure white. Reported with screenshots: the search field, the
+    // composer bar, the status strip and the Classic card were the only
+    // #FFFFFF on a pale-blue canvas and "looked very out of place". A whisper
+    // of the theme's own hue keeps every rung the contrast audit measured —
+    // this is still the lightest surface by a clear margin — and stops it
+    // reading as a hole punched in the window.
+    readonly property color _cardLight:          "#F5F9FE"
     readonly property color _cardDark:           "#273246"
-    readonly property color _cardElevatedLight:  "#E8F7FF"
+    // Stepped down with the card tint (review: #E8F7FF against #F5F9FE was
+    // 1.017:1, the collapsed-elevation defect the 2026-08-21 audit named);
+    // this sits a clear rung below the card and above the canvas.
+    readonly property color _cardElevatedLight:  "#E4EEFA"
     readonly property color _cardElevatedDark:   "#333D50"
     readonly property color _hoverLight:         "#CEE3FA"
     readonly property color _hoverDark:          "#2B4A6A"
@@ -304,7 +313,8 @@ QtObject {
     readonly property color _mosBg:            "#D2E5D6"
     readonly property color _mosRail:          "#C8DBCD"
     readonly property color _mosSidebar:       "#DCEEE2"
-    readonly property color _mosCard:          "#FFFFFF"
+    // See _cardLight: a whisper of moss rather than pure white.
+    readonly property color _mosCard:          "#F6FBF7"
     readonly property color _mosCardElevated:  "#EAF8ED"
     readonly property color _mosHover:         "#D4E6D8"
     readonly property color _mosSelected:      "#D1F1E5"

@@ -14,6 +14,8 @@
 #include "matrix/MockMatrixClient.h"
 #include "models/WidgetController.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSignalSpy>
 #include <QtTest/QtTest>
 
@@ -146,7 +148,7 @@ private Q_SLOTS:
         // A hand-delivered answer naming the wrong room is ignored even with a
         // matching op id — the id is unique per REQUEST, not per room.
         Q_EMIT client.roomWidgetsReceived(999, QStringLiteral("!elsewhere:x"),
-                                          true, client.mockWidgets);
+                                          true, true, client.mockWidgets);
         QTest::qWait(30);
         QCOMPARE(model.rowCount({}), 0);
     }
@@ -218,6 +220,178 @@ private Q_SLOTS:
         QCOMPARE(model.rowCount({}), 0);
         QCOMPARE(model.openWidget(0), false);
     }
+
+    // ── Adding and removing (v0.9.0) ────────────────────────────────────
+    //
+    // The controller writes the same state event Element writes; what is
+    // pinned is the GATE (the room's power level, as the read reported it),
+    // the SHAPE of what is published, that removal is by row, and that the
+    // address rule is the one UrlLauncher applies at the exit to the browser.
+
+    void addingIsRefusedWhenTheRoomDidNotGrantIt()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.mockWidgetsCanManage = false;
+        WidgetController model;
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!r:mock.local"));
+        model.refresh();
+        QVERIFY(QTest::qWaitFor([&] {
+            return model.state() == QLatin1String("ready");
+        }, kSignalTimeoutMs));
+        QVERIFY2(!model.canManage(), "the read said no");
+        model.addWidget(QStringLiteral("m.custom"), QStringLiteral("x"),
+                        QStringLiteral("https://ok.example/"));
+        model.removeWidget(0);
+        QVERIFY2(client.widgetWrites.isEmpty(),
+                 "a refused account must send nothing, not send and fail");
+        // And BEFORE any read has answered, the same: absence of the claim
+        // is not permission.
+        WidgetController fresh;
+        fresh.setClient(&client);
+        fresh.setRoomId(QStringLiteral("!r:mock.local"));
+        fresh.addWidget(QStringLiteral("m.custom"), QStringLiteral("x"),
+                        QStringLiteral("https://ok.example/"));
+        QVERIFY(client.widgetWrites.isEmpty());
+    }
+
+    void addingPublishesElementsShapeUnderAFreshIdAndRereads()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        WidgetController model;
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!r:mock.local"));
+        model.refresh();
+        QVERIFY(QTest::qWaitFor([&] {
+            return model.state() == QLatin1String("ready");
+        }, kSignalTimeoutMs));
+        QVERIFY(model.canManage());
+
+        QSignalSpy done(&model, &WidgetController::writeFinished);
+        model.addWidget(QStringLiteral("m.jitsi"), QStringLiteral("Standup"),
+                        QStringLiteral("https://meet.example/daily-sync"));
+        QVERIFY(model.writing());
+        QCOMPARE(client.widgetWrites.size(), 1);
+        const auto &[room, id, json] = client.widgetWrites.first();
+        QCOMPARE(room, QStringLiteral("!r:mock.local"));
+        QVERIFY2(!id.isEmpty() && id != QLatin1String("Standup"),
+                 "the state key is an opaque id, never the name");
+        const QJsonObject content = QJsonDocument::fromJson(json.toUtf8()).object();
+        QCOMPARE(content.value(QStringLiteral("type")).toString(),
+                 QStringLiteral("m.jitsi"));
+        QCOMPARE(content.value(QStringLiteral("url")).toString(),
+                 QStringLiteral("https://meet.example/daily-sync"));
+        QCOMPARE(content.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Standup"));
+        QCOMPARE(content.value(QStringLiteral("creatorUserId")).toString(),
+                 client.currentUserId());
+        // A Jitsi widget carries its conference in `data`, which is what
+        // Element reads rather than the URL.
+        const QJsonObject data = content.value(QStringLiteral("data")).toObject();
+        QCOMPARE(data.value(QStringLiteral("domain")).toString(),
+                 QStringLiteral("meet.example"));
+        QCOMPARE(data.value(QStringLiteral("conferenceId")).toString(),
+                 QStringLiteral("daily-sync"));
+
+        // A second add while one is in flight is refused, not queued.
+        model.addWidget(QStringLiteral("m.custom"), QStringLiteral("y"),
+                        QStringLiteral("https://ok.example/"));
+        QCOMPARE(client.widgetWrites.size(), 1);
+
+        // Success re-reads rather than applying optimistically.
+        QVERIFY(done.wait(kSignalTimeoutMs));
+        QCOMPARE(done.first().at(0).toBool(), true);
+        QVERIFY(!model.writing());
+    }
+
+    void removingWritesAnEmptyObjectUnderTheRowsOwnId()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.mockWidgets = {
+            widget(QStringLiteral("w1"), QStringLiteral("https://ok.example/a")),
+            widget(QStringLiteral("w2"), QStringLiteral("https://ok.example/b")),
+        };
+        WidgetController model;
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!r:mock.local"));
+        model.refresh();
+        QVERIFY(QTest::qWaitFor([&] {
+            return model.state() == QLatin1String("ready");
+        }, kSignalTimeoutMs));
+
+        model.removeWidget(1);
+        QCOMPARE(client.widgetWrites.size(), 1);
+        const auto &[room, id, json] = client.widgetWrites.first();
+        QCOMPARE(id, QStringLiteral("w2"));
+        // An EMPTY object is the tombstone — Element's own removal, and what
+        // the reader already treats as "no widget".
+        QCOMPARE(QJsonDocument::fromJson(json.toUtf8()).object().size(), 0);
+        // Out-of-range rows send nothing.
+        model.removeWidget(7);
+        model.removeWidget(-1);
+        QCOMPARE(client.widgetWrites.size(), 1);
+    }
+
+    // Found in review: an answer arriving after a room switch used to be
+    // dropped WITH the op id still set, so `writing` stayed true and every
+    // Add/Remove button was disabled for the rest of the session. And the
+    // permission claim must not survive the switch either.
+    void aWriteAnsweredAfterARoomSwitchDoesNotWedgeTheController()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        WidgetController model;
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!a:mock.local"));
+        model.refresh();
+        QVERIFY(QTest::qWaitFor([&] {
+            return model.state() == QLatin1String("ready");
+        }, kSignalTimeoutMs));
+        QVERIFY(model.canManage());
+        model.addWidget(QStringLiteral("m.custom"), QStringLiteral("x"),
+                        QStringLiteral("https://ok.example/"));
+        QVERIFY(model.writing());
+        // The user moves on before the server answers.
+        model.setRoomId(QStringLiteral("!b:mock.local"));
+        QVERIFY2(!model.canManage(), "room B has granted nothing yet");
+        QTRY_VERIFY2(!model.writing(), "the answer for A must free the controller");
+        // And B is writable again once its own read says so.
+        model.refresh();
+        QVERIFY(QTest::qWaitFor([&] {
+            return model.state() == QLatin1String("ready");
+        }, kSignalTimeoutMs));
+        model.addWidget(QStringLiteral("m.custom"), QStringLiteral("y"),
+                        QStringLiteral("https://ok.example/"));
+        QCOMPARE(client.widgetWrites.size(), 2);
+    }
+
+    void theAddressRuleIsTheOneTheBrowserExitApplies()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        WidgetController model;
+        model.setClient(&client);
+        QVERIFY(model.urlIsAcceptable(QStringLiteral("https://pad.example/p/x")));
+        QVERIFY(model.urlIsAcceptable(QStringLiteral("  https://pad.example/  ")));
+        QVERIFY(!model.urlIsAcceptable(QStringLiteral("http://pad.example/")));
+        QVERIFY(!model.urlIsAcceptable(QStringLiteral("https://u:p@pad.example/")));
+        QVERIFY(!model.urlIsAcceptable(QStringLiteral("javascript:alert(1)")));
+        QVERIFY(!model.urlIsAcceptable(QStringLiteral("https://")));
+        QVERIFY(!model.urlIsAcceptable(QString()));
+        // And the write refuses the same input it advertises as bad.
+        model.setRoomId(QStringLiteral("!r:mock.local"));
+        model.refresh();
+        QVERIFY(QTest::qWaitFor([&] {
+            return model.state() == QLatin1String("ready");
+        }, kSignalTimeoutMs));
+        model.addWidget(QStringLiteral("m.custom"), QStringLiteral("x"),
+                        QStringLiteral("http://pad.example/"));
+        QVERIFY(client.widgetWrites.isEmpty());
+    }
+
 };
 
 QTEST_MAIN(WidgetControllerTest)

@@ -499,6 +499,8 @@ public:
     void forgetIndexedRoom(const QString &roomId) override;
     void clearSearchIndex() override;
     bool supportsLocalSearch() const override { return m_rustHandle != nullptr; }
+    quint64 writeRoomWidget(const QString &roomId, const QString &widgetId,
+                            const QString &contentJson) override;
     quint64 roomWidgets(const QString &roomId, const QString &theme,
                         const QString &language) override;
     bool supportsWidgets() const override { return m_rustHandle != nullptr; }

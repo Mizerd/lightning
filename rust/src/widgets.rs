@@ -65,10 +65,129 @@ fn bounded(value: &str) -> String {
         .collect()
 }
 
+/// Whether THIS account may write the room's widget state. The room's own
+/// required level for `im.vector.modular.widgets`, asked of the SDK — never a
+/// role label — and FALSE when the membership cannot be read. Same helper
+/// shape as `can_manage_room_packs` and the policy-list gate, because it is
+/// the same question about a different event type.
+pub(crate) async fn can_manage_widgets(
+    client: &matrix_sdk::Client,
+    room: &matrix_sdk::room::Room,
+) -> bool {
+    use matrix_sdk::ruma::events::StateEventType;
+    let Some(own) = client.user_id() else {
+        return false;
+    };
+    room.get_member_no_sync(own)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|m| m.can_send_state(StateEventType::from(WIDGETS_TYPE)))
+}
+
+/// Add or REMOVE one widget: write `content` under `widget_id` as the state
+/// key. An empty object is the removal — it is how Element removes a widget,
+/// and `widget_from_state` already reads that shape as "no widget".
+///
+/// The content is BUILT on the C++ side from a validated https URL, a name
+/// and a kind; this end re-checks only what a bridge must: that the room is
+/// joined, that the account holds the power level, and that the JSON is an
+/// object. It does NOT accept a `url` that is not https — a widget is opened
+/// in the user's browser and `UrlLauncher` refuses anything else, so writing
+/// one would publish a widget this client itself cannot open.
+/// Every synchronous refusal of a widget write, in one place so the test
+/// below exercises the SAME code the writer runs (a review found the
+/// previous test re-implementing the predicate and pinning nothing).
+///
+/// The id bound matches `bounded()`'s (512, no control characters), so
+/// any key the reader can name exactly the writer can tombstone. `url` may
+/// be ABSENT — an empty object is the tombstone — but if present it must
+/// be a string naming an https address with a host and no credentials:
+/// nothing this client would refuse to open is ever published.
+pub(crate) fn validate_widget_write(widget_id: &str, content: &Value) -> Result<(), String> {
+    if widget_id.trim().is_empty()
+        || widget_id.chars().count() > MAX_TEXT
+        || widget_id.chars().any(char::is_control)
+    {
+        return Err("invalid widget id".to_owned());
+    }
+    if !content.is_object() {
+        return Err("widget content must be an object".to_owned());
+    }
+    match content.get("url") {
+        None => Ok(()),
+        Some(Value::String(url)) => {
+            let ok = url::Url::parse(url)
+                .map(|u| u.scheme() == "https" && u.username().is_empty()
+                     && u.password().is_none() && u.host_str().is_some())
+                .unwrap_or(false);
+            if ok { Ok(()) } else { Err("a widget address must be https".to_owned()) }
+        }
+        Some(_) => Err("a widget address must be a string".to_owned()),
+    }
+}
+
+pub(crate) fn write_room_widget(
+    bridge: &crate::RustClient,
+    op_id: u64,
+    room_id: String,
+    widget_id: String,
+    content: Value,
+) -> Result<(), String> {
+    use std::sync::Arc;
+    validate_widget_write(&widget_id, &content)?;
+    let client = crate::rooms::require_client(bridge)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let outcome = async {
+            let room = crate::rooms::joined_room(&client, &room_id)
+                .map_err(|_| "unknown_room".to_owned())?;
+            if !can_manage_widgets(&client, &room).await {
+                return Err("forbidden".to_owned());
+            }
+            room.send_state_event_raw(WIDGETS_TYPE, &widget_id, content)
+                .await
+                .map_err(|err| {
+                    crate::rooms::classify_room_error(&err.to_string()).to_owned()
+                })?;
+            Ok::<(), String>(())
+        }
+        .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let (ok, category) = match outcome {
+            Ok(()) => (true, String::new()),
+            Err(category) => (false, category),
+        };
+        crate::enqueue(
+            &events,
+            json!({
+                "type": "room_widget_written",
+                "op_id": op_id,
+                "lifecycle": lifecycle,
+                "room_id": room_id,
+                "ok": ok,
+                "category": category,
+            }),
+        );
+    });
+    Ok(())
+}
+
 /// One widget, as the UI sees it.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Widget {
     pub id: String,
+    /// The state key EXACTLY as the event carries it — `id` above is the
+    /// bounded display form. A tombstone must name this one.
+    pub state_key: String,
+    /// Whether this client can write the tombstone for it: the event is of
+    /// the type the writer publishes and the key survived `bounded`
+    /// unchanged. The panel hides Remove otherwise (found in review).
+    pub removable: bool,
     pub creator: String,
     pub kind: String,
     pub name: String,
@@ -107,8 +226,12 @@ pub(crate) fn widget_from_state(value: &Value) -> Option<Widget> {
         .and_then(|v| v.as_str())
         .filter(|s| !s.trim().is_empty())
         .unwrap_or(kind);
+    let event_type = value.get("type").and_then(|v| v.as_str()).unwrap_or(WIDGETS_TYPE);
+    let removable = event_type == WIDGETS_TYPE && bounded(state_key) == state_key;
     Some(Widget {
         id: bounded(state_key),
+        state_key: state_key.to_owned(),
+        removable,
         creator: bounded(sender),
         kind: bounded(kind),
         name: bounded(name),
@@ -414,6 +537,8 @@ pub(crate) fn widget_payload(
     };
     json!({
         "id": widget.id,
+        "stateKey": widget.state_key,
+        "removable": widget.removable,
         "creator": widget.creator,
         "kind": widget.kind,
         "name": widget.name,
@@ -591,5 +716,39 @@ mod tests {
         // the notice is never empty and never implies "this learns nothing".
         let plain = disclosures("https://ok.example/", "https://ok.example/");
         assert_eq!(plain, vec!["connection"]);
+    }
+
+    // ── The write side ──────────────────────────────────────────────────
+    //
+    // Only the checks that run BEFORE a task is spawned can be tested here;
+    // the power-level gate needs a live room. What is pinned is that a widget
+    // this client could not open is never published: `UrlLauncher` refuses
+    // anything but http/https, and a widget row is opened in the browser.
+    #[test]
+    fn a_widget_that_lightning_could_not_open_is_refused_before_any_task() {
+        // THE WRITER'S OWN predicate, not a copy of it: write_room_widget
+        // calls validate_widget_write before it touches the client, so a
+        // change to the rule fails here rather than in a room.
+        let bad_urls = ["http://pad.example/p/x", "https://user:pw@pad.example/",
+                        "ftp://pad.example/", "javascript:alert(1)", "",
+                        "https://"];
+        for url in bad_urls {
+            let content = json!({ "type": "m.custom", "url": url, "name": "x" });
+            assert!(validate_widget_write("w1", &content).is_err(),
+                    "{url} must not pass the https-only check");
+        }
+        let good = json!({ "type": "m.custom", "url": "https://pad.example/p/notes" });
+        assert!(validate_widget_write("w1", &good).is_ok());
+        // The tombstone carries no url at all, and must pass.
+        assert!(validate_widget_write("w1", &json!({})).is_ok());
+        // A url that is not a string is not an address.
+        assert!(validate_widget_write("w1", &json!({ "url": 7 })).is_err());
+        // The id bound is the reader's: what it can name, the writer can
+        // tombstone — and nothing beyond that or carrying a control char.
+        assert!(validate_widget_write(&"k".repeat(512), &json!({})).is_ok());
+        assert!(validate_widget_write(&"k".repeat(513), &json!({})).is_err());
+        assert!(validate_widget_write("bad\u{7}key", &json!({})).is_err());
+        assert!(validate_widget_write("  ", &json!({})).is_err());
+        assert!(validate_widget_write("w1", &json!("not an object")).is_err());
     }
 }

@@ -724,14 +724,39 @@ ApplicationWindow {
     // Full application-view Settings: occupies the entire content area
     // below the window title bar. The spaces rail, room list, timeline,
     // composer, and any right-side panel are hidden while it is open.
+    //
+    // BUILT ONCE AND KEPT. Reported: "when i open settings it takes like a
+    // second to open the menu, it should be instant". Measured with
+    // LIGHTNING_GUI_STALL_TRACE=100: opening Settings blocked the GUI thread
+    // for 428 ms, because `active` followed the current screen and so the
+    // 7,000-line SettingsScreen was instantiated from scratch on EVERY open
+    // and torn down on every close. Now the first build sticks (`warm`), a
+    // closed Settings merely hides, and every later open is a visibility
+    // flip. The first build is also started ahead of the user, asynchronously
+    // (the incubator interleaves with painting, so it is not a stall) a
+    // moment after the main screen shows; an open that arrives before that
+    // finishes still builds synchronously, exactly as before.
     Loader {
+        id: settingsViewLoader
         objectName: "settingsViewLoader"
         anchors.fill: parent
-        active: app.currentScreen === 2
-        visible: active
+        property bool warm: false
+        active: warm || app.currentScreen === 2
+        visible: app.currentScreen === 2
+        asynchronous: !visible
         z: 5
         sourceComponent: SettingsScreen {}
-        onLoaded: item.forceActiveFocus()
+        onLoaded: {
+            warm = true
+            if (visible)
+                item.forceActiveFocus()
+        }
+        onVisibleChanged: if (visible && item) item.forceActiveFocus()
+    }
+    Timer {
+        interval: 2500
+        running: app.currentScreen === 1 && !settingsViewLoader.warm
+        onTriggered: settingsViewLoader.warm = true
     }
 
     // ── Development-only screenshot-demo control panel ───────────────────

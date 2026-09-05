@@ -1177,6 +1177,10 @@ Q_SIGNALS:
     // what a first version of the retry test could not distinguish.
     void roomNotificationModesRetried(int roomCount);
     void currentScreenChanged();
+    // A section asked for by showSettingsSection(); the kept-alive settings
+    // screen listens, since Component.onCompleted runs only on its first
+    // build.
+    void settingsSectionRequested(const QString &section);
     void appIconChanged();
     void initialSyncDoneChanged();
     void accountSwitchingChanged();

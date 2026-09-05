@@ -228,8 +228,15 @@ Item {
                     }
                     AppButton {
                         objectName: "homeSecurityButton"
-                        text: qsTr("Open security")
-                        onClicked: app.showSettingsSection("privacy")
+                        // "Set up backup", to SESSIONS. This said "Open
+                        // security" and opened Privacy & security, which has
+                        // no key-backup control at all — the "Set up recovery
+                        // and backup" button lives under Sessions. Reported
+                        // as "when I click open it just shows me settings and
+                        // I have no clue what to do here". A call to action
+                        // has to land on the action.
+                        text: qsTr("Set up backup")
+                        onClicked: app.showSettingsSection("sessions")
                     }
                 }
             }

@@ -890,6 +890,7 @@ set(APP_QML_FILES
     qml/StickerPackEditor.qml
     qml/StickerPicker.qml
     qml/PolicyListDialog.qml
+    qml/AddWidgetDialog.qml
     qml/QrLoginDialog.qml
     qml/QuickSwitcher.qml
     qml/ImageViewerOverlay.qml

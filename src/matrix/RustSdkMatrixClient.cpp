@@ -6521,6 +6521,26 @@ quint64 RustSdkMatrixClient::requestMediaHistoryPage(const QString &roomId,
     return opId;
 }
 
+quint64 RustSdkMatrixClient::writeRoomWidget(const QString &roomId,
+                                             const QString &widgetId,
+                                             const QString &contentJson)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty() || widgetId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray id = widgetId.toUtf8();
+    const QByteArray content = contentJson.toUtf8();
+    const QString result = takeRustString(mx_rust_room_widget_write(
+        m_rustHandle, room.constData(), id.constData(), content.constData(),
+        opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "widget write rejected";
+        return 0;
+    }
+    return opId;
+}
+
 quint64 RustSdkMatrixClient::roomWidgets(const QString &roomId,
                                         const QString &theme,
                                         const QString &language)
@@ -8901,6 +8921,15 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("message")).toString());
         return true;
     }
+    if (type == QLatin1String("room_widget_written")) {
+        Q_EMIT roomWidgetWritten(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
     if (type == QLatin1String("room_widgets")) {
         QVariantList widgets;
         for (const QJsonValue &v :
@@ -8923,9 +8952,9 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 { QStringLiteral("discloses"), discloses },
             });
         }
-        Q_EMIT roomWidgetsReceived(
-            opId(), event.value(QStringLiteral("room_id")).toString(),
-            event.value(QStringLiteral("ok")).toBool(), widgets);
+        Q_EMIT roomWidgetsReceived(opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("can_manage")).toBool(false), widgets);
         return true;
     }
     if (type == QLatin1String("local_search_result")) {

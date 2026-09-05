@@ -12,6 +12,34 @@ import MatrixClient
 // snapshot from RoomInfoController; nothing here is persisted.
 Rectangle {
     id: root
+
+    // ── Section tabs: one coherent segmented row ─────────────────────
+    //
+    // ...that becomes TWO rows when it has to. `fitWidth` compacts the
+    // strip and `dense` trims its padding, and with five tabs that is
+    // still ~370px, against a panel whose floor is 260 (TimelinePane's
+    // clamp). Reported with a screenshot: "Widgets" cut off at the panel
+    // edge. Compaction exhausted, the honest options were a wider floor
+    // — which fights the user's own resize — or wrapping. This wraps.
+    //
+    // How: the full strip stays in the layout as the MEASURE (its
+    // `overflowing` is exactly "the natural width exceeds what I was
+    // given"), but collapses to zero height when it overflows, and a
+    // two-row pair takes its place. It must not be hidden with
+    // `visible`: a Layout ignores invisible items, its width would drop
+    // to 0, `overflowing` would flip back, and the two states would
+    // chase each other every frame.
+    readonly property bool tabsWrap: roomInfoTabs.overflowing
+    readonly property var tabModel: {
+        const tabs = [{ label: qsTr("Overview"), value: "overview" }]
+        if (root.pinnedAvailable)
+            tabs.push({ label: qsTr("Pinned"), value: "pinned" })
+        tabs.push({ label: qsTr("People"), value: "people" })
+        tabs.push({ label: qsTr("Media"), value: "media" })
+        if (root.widgetsAvailable)
+            tabs.push({ label: qsTr("Widgets"), value: "widgets" })
+        return tabs
+    }
     color: AppTheme.sidebar
     visible: width > 0
     // A LAST LINE OF DEFENCE, not a layout fix. Everything in here is meant
@@ -264,11 +292,36 @@ Rectangle {
         }
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
-        // ── Section tabs: one coherent segmented row ─────────────────────
         SegmentedControl {
+            id: roomInfoTabs
             objectName: "roomInfoTabs"
             storm: true
-            Layout.margins: AppTheme.spacing6
+            // The HORIZONTAL margins never follow tabsWrap: `overflowing`
+            // is "implicitWidth > width", so a margin that changed with it
+            // would change the very width it is measured against and the
+            // two states would chase each other through the layout.
+            Layout.leftMargin: AppTheme.spacing6
+            Layout.rightMargin: AppTheme.spacing6
+            Layout.topMargin: root.tabsWrap ? 0 : AppTheme.spacing6
+            Layout.bottomMargin: root.tabsWrap ? 0 : AppTheme.spacing6
+            Layout.maximumHeight: root.tabsWrap ? 0 : implicitHeight
+            // THE LOAD-BEARING LINE. Segments are not fillWidth, so a Layout
+            // holds each at its implicit width, and this RowLayout reports
+            // their SUM as its minimum. The panel's ColumnLayout inherits
+            // that minimum, TimelinePane's RowLayout honours it, and the
+            // whole panel is pushed off the window's right edge rather than
+            // narrowed — measured live: at the 260 px floor the close button,
+            // the Save buttons and the last tab were outside the frame.
+            // `overflowing` is "implicitWidth > width", and with the natural
+            // width as the floor it could never come true. A zero minimum
+            // lets the panel keep its width and hands the overflow to the
+            // strip, where the wrap can see it.
+            Layout.minimumWidth: 0
+            opacity: root.tabsWrap ? 0 : 1
+            // Out of the Tab order and the accessibility tree while the pair
+            // is showing instead.
+            enabled: !root.tabsWrap
+            clip: true
             // fitWidth compacts the row into the width its HOST gives it, so
             // it needs to be given one. Without fillWidth this RowLayout takes
             // its own implicit width and simply overflows the panel — which
@@ -294,18 +347,36 @@ Rectangle {
             // Built up rather than spelled out per combination: two
             // conditional tabs would otherwise need four hard-coded arrays,
             // and the next one eight.
-            model: {
-                const tabs = [{ label: qsTr("Overview"), value: "overview" }]
-                if (root.pinnedAvailable)
-                    tabs.push({ label: qsTr("Pinned"), value: "pinned" })
-                tabs.push({ label: qsTr("People"), value: "people" })
-                tabs.push({ label: qsTr("Media"), value: "media" })
-                if (root.widgetsAvailable)
-                    tabs.push({ label: qsTr("Widgets"), value: "widgets" })
-                return tabs
-            }
+            model: root.tabModel
             current: root.section
             onActivated: (value) => root.section = value
+        }
+        // The wrapped form: the same tabs, split across two rows at the
+        // midpoint. Both rows share `current`, so selection reads as one
+        // control. Kept in the layout only while wrapping, and never
+        // `fitWidth`: each half fits its row, and compacting a half would
+        // make the two rows read at different sizes.
+        Repeater {
+            model: root.tabsWrap ? 2 : 0
+            SegmentedControl {
+                required property int index
+                objectName: "roomInfoTabsRow" + index
+                storm: true
+                dense: true
+                Layout.leftMargin: AppTheme.spacing6
+                Layout.rightMargin: AppTheme.spacing6
+                Layout.topMargin: index === 0 ? AppTheme.spacing6 : 0
+                Layout.bottomMargin: index === 1 ? AppTheme.spacing6 : 2
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                model: {
+                    const all = root.tabModel
+                    const cut = Math.ceil(all.length / 2)
+                    return index === 0 ? all.slice(0, cut) : all.slice(cut)
+                }
+                current: root.section
+                onActivated: (value) => root.section = value
+            }
         }
 
         // ── Overview ─────────────────────────────────────────────────────
@@ -1974,6 +2045,35 @@ Rectangle {
                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                     wrapMode: Text.Wrap
                 }
+                // ADDING ONE. Offered only when the room's power levels say
+                // this account may write widget state — the absence of that
+                // claim is not permission — and never while a write is in
+                // flight. The dialog is a picker of the kinds every client
+                // lists (a page, a pad, a Jitsi call, ...); Lightning still
+                // opens the result in the browser like any other widget.
+                // Reported as "there isn't an add button with a browser".
+                // A refused or failed write says so here; it used to be silent
+                // outside the add dialog (found in review).
+                Label {
+                    objectName: "roomInfoWidgetWriteError"
+                    Layout.fillWidth: true
+                    visible: app.widgets.lastWriteError.length > 0
+                    wrapMode: Text.WordWrap
+                    textFormat: Text.PlainText
+                    color: AppTheme.danger
+                    font.pixelSize: AppTheme.textMeta
+                    text: app.widgets.lastWriteError === "forbidden"
+                          ? qsTr("You do not have permission to change widgets here.")
+                          : qsTr("Could not change the widgets (%1).").arg(app.widgets.lastWriteError)
+                }
+                AppButton {
+                    objectName: "roomInfoAddWidgetButton"
+                    visible: app.widgets.supported && app.widgets.canManage
+                    enabled: !app.widgets.writing
+                    text: qsTr("Add widget…")
+                    iconName: "add"
+                    onClicked: addWidgetDialog.openDialog()
+                }
                 Repeater {
                     model: app.widgets.supported ? app.widgets : null
                     RowLayout {
@@ -1983,6 +2083,7 @@ Rectangle {
                         required property string kind
                         required property string refusal
                         required property bool openable
+                        required property bool removable
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing8
                         Icon {
@@ -2028,6 +2129,18 @@ Rectangle {
                                 // slider.
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             }
+                        }
+                        // Remove BY ROW: the controller resolves the id
+                        // itself, so QML can never name a widget id.
+                        AppButton {
+                            objectName: "roomInfoRemoveWidgetButton"
+                            visible: app.widgets.canManage && widgetRow.removable
+                            enabled: !app.widgets.writing
+                            kind: "ghost"
+                            size: "sm"
+                            text: qsTr("Remove")
+                            Layout.alignment: Qt.AlignTop
+                            onClicked: app.widgets.removeWidget(widgetRow.index)
                         }
                         AppButton {
                             objectName: "roomInfoOpenWidget"
@@ -2119,5 +2232,8 @@ Rectangle {
 
     PolicyListDialog {
         id: policyListDialog
+    }
+    AddWidgetDialog {
+        id: addWidgetDialog
     }
 }

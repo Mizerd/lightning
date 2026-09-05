@@ -2925,6 +2925,7 @@ void AppController::showSettingsSection(const QString &section)
 {
     m_requestedSettingsSection = section;
     showSettings();
+    Q_EMIT settingsSectionRequested(section);
 }
 
 QString AppController::takeRequestedSettingsSection()

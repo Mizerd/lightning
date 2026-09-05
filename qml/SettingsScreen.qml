@@ -672,6 +672,21 @@ Item {
         if (requested.length > 0)
             section = mapLegacySection(requested)
     }
+    // The screen is built once and kept (qml/Main.qml), so "Open security"
+    // from a banner while it is already alive arrives here rather than in
+    // Component.onCompleted. On a cold build both fire with the same value.
+    Connections {
+        target: app
+        function onSettingsSectionRequested(requested) {
+            if (requested.length > 0)
+                section = mapLegacySection(requested)
+            // Consume the pending request too, so a later rebuild does not
+            // replay it. If this screen is still incubating (the idle
+            // pre-build), the signal is missed and Component.onCompleted
+            // takes it instead — which is why C++ must not clear it.
+            app.takeRequestedSettingsSection()
+        }
+    }
 
     function goBack() {
         app.loggedIn ? app.showMain() : app.showLogin()
@@ -707,12 +722,21 @@ Item {
         // bitten once before by a window-level Shortcut swallowing a key the
         // focused item needed (a "Space pauses media" Shortcut silently broke
         // timeline paging and the emoji grids).
-        enabled: !accountIdentityCard.editingDisplayName
+        //
+        // `root.visible` IS LOAD-BEARING: the screen is built once and KEPT
+        // (qml/Main.qml), so this window-level Shortcut now outlives every
+        // open. A QML Shortcut is matched by window, never by its item's
+        // visibility, so without the gate a hidden Settings would still
+        // answer Escape on the main screen — and two enabled Shortcuts on
+        // one sequence make Qt fire NEITHER (qml/TimelinePane.qml), which is
+        // how Escape would have stopped closing the info panel. Found in
+        // review.
+        enabled: root.visible && !accountIdentityCard.editingDisplayName
         onActivated: root.goBack()
     }
-    // SPEC 1v: focuses the settings search field. Scoped to this Item
-    // (a Loader-hosted view — see settingsViewLoader), so it only exists
-    // while Settings is actually open.
+    // SPEC 1v: focuses the settings search field. Enabled only while the
+    // screen is on screen: the Loader that hosts it keeps it alive between
+    // opens now (see settingsViewLoader), so existence no longer scopes it.
     //
     // The sequence comes from ShortcutRegistry now (default still Ctrl+,).
     // `bindingRevision` is read INSIDE the binding ON PURPOSE: sequenceFor()
@@ -726,6 +750,7 @@ Item {
             var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("app.settingsSearch")]
         }
+        enabled: root.visible
         onActivated: settingsSearchField.forceActiveFocus()
     }
 
@@ -857,12 +882,20 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        // ── Settings header (SPEC 1v: 44px title-bar treatment) — section
-        // icon in accent, "Settings — <section>", bare close X ────────────
+        // ── Settings header — section icon in accent, "Settings —
+        // <section>", bare close X ───────────────────────────────────────
+        //
+        // THE SAME HEIGHT AS THE MAIN SCREEN'S HEADER BAND. SPEC 1v drew this
+        // at 44px while the room-list and timeline headers are
+        // AppTheme.headerBandHeight (60), so opening Settings made the top of
+        // the window visibly jump. Reported: "the top part is thicker than
+        // the one in settings — make the settings one wider so opening
+        // settings feels more smooth and less changy". One token, so the two
+        // cannot drift apart again.
         Rectangle {
             objectName: "settingsHeaderBar"
             Layout.fillWidth: true
-            implicitHeight: 44
+            implicitHeight: AppTheme.headerBandHeight
             color: AppTheme.stormDeep
             RowLayout {
                 anchors.fill: parent
@@ -5101,7 +5134,12 @@ Item {
                                 app.banners && app.banners.supported
                             readonly property string ownUserId:
                                 app.accounts ? app.accounts.activeUserId : ""
-                            Component.onCompleted: profileBannerCard.ask()
+                            // On every OPEN, not once at creation: the
+                            // screen is built ahead of time and kept, so
+                            // "when created" is "at launch, once".
+                            readonly property bool shown: root.visible
+                            onShownChanged: if (shown) profileBannerCard.ask()
+                            Component.onCompleted: if (root.visible) profileBannerCard.ask()
                             onOwnUserIdChanged: profileBannerCard.ask()
                             function ask() {
                                 if (app.banners && app.banners.available
@@ -5897,7 +5935,12 @@ Item {
                             implicitHeight: backupCol.implicitHeight
                                             + AppTheme.spacing16 * 2
                             property string pendingConfirm: ""
-                            Component.onCompleted: if (app.backup) app.backup.requestProgress()
+                            // Re-asked on every open (the screen is kept
+                            // alive), or the "backed up N of M" figures would
+                            // freeze at their launch-time values.
+                            readonly property bool shown: root.visible
+                            onShownChanged: if (shown && app.backup) app.backup.requestProgress()
+                            Component.onCompleted: if (root.visible && app.backup) app.backup.requestProgress()
                             ColumnLayout {
                                 id: backupCol
                                 anchors.fill: parent

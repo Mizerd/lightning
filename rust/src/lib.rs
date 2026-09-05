@@ -6493,6 +6493,28 @@ pub unsafe extern "C" fn mx_rust_stickers_add_to_user_pack(
     })
 }
 
+/// Add or remove a room widget. `content_json` is the full event content
+/// (an empty object removes). Answers with `room_widget_written`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_room_widget_write(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    widget_id: *const c_char,
+    content_json: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let widget_id = unsafe { cstr_arg(widget_id) }?;
+        let content_json = unsafe { cstr_arg(content_json) }?;
+        let content: serde_json::Value = serde_json::from_str(&content_json)
+            .map_err(|_| "widget content is not JSON".to_owned())?;
+        widgets::write_room_widget(bridge, op_id, room_id, widget_id, content)
+            .map(|_| String::new())
+    })
+}
+
 // ── Policy lists (Mjolnir-style moderation) ────────────────────────────
 //
 // Read a policy room's rules, publish or remove one, subscribe to a list,
@@ -7357,6 +7379,7 @@ pub unsafe extern "C" fn mx_rust_room_widgets(
         let device_id = client.device_id().map(|d| d.to_string()).unwrap_or_default();
         bridge.spawn_room_action(async move {
             let found = widgets::read_room_widgets(&client, &room).await;
+            let can_manage = widgets::can_manage_widgets(&client, &room).await;
             // The user's own profile, read from the store — these are values a
             // widget URL may template, and resolving them per widget would be
             // one request per row.
@@ -7391,7 +7414,7 @@ pub unsafe extern "C" fn mx_rust_room_widgets(
                 .collect();
             enqueue(&events, json!({
                 "type": "room_widgets", "op_id": op_id, "room_id": room_id,
-                "ok": true, "widgets": payloads,
+                "ok": true, "can_manage": can_manage, "widgets": payloads,
             }));
         });
         Ok(String::new())
@@ -13261,11 +13284,21 @@ mod first_sync_watchdog_tests {
         let flip = Arc::clone(&first);
         // The response lands between the first and second step, which is the
         // case that separates "report once and stop" from "report forever".
+        // Keyed on the FIRST REPORT rather than on a clock: a fixed 15 ms
+        // sleep against 10/20/30 ms steps flaked under a loaded machine
+        // (one run in eight during full validation). The poll flips the
+        // flag within a millisecond of the first report and the second step
+        // is 90 ms away, so scheduling delay has to reach 90 ms to matter.
+        let seen_by = Arc::clone(&events);
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(15)).await;
+            while seen_by.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
             flip.store(false, Ordering::SeqCst);
         });
-        watch_first_sync_response(&events, &first, &steps()).await;
+        let wide = vec![Duration::from_millis(10), Duration::from_millis(100),
+                        Duration::from_millis(200)];
+        watch_first_sync_response(&events, &first, &wide).await;
 
         let seen = drain(&events.lock().unwrap());
         assert_eq!(seen.len(), 1,

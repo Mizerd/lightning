@@ -891,6 +891,16 @@ char *mx_rust_stickers_upload_to_user_pack(void *client,
  * either half — so a change takes effect at the next sign-in, not now. Takes
  * no client handle for that reason. */
 char *mx_rust_set_strict_device_trust(int enabled);
+/* Add or remove a room widget (`im.vector.modular.widgets` state under
+ * `widget_id`). `content_json` is the full event content; an empty object
+ * removes. Power-level gated on the Rust side; a non-https `url` is refused
+ * because this client opens widgets in the browser and would refuse to open
+ * one. Answers with `room_widget_written`. The read answer (`room_widgets`)
+ * now carries `can_manage` so the UI offers Add/Remove only when they work. */
+char *mx_rust_room_widget_write(void *client, const char *room_id,
+                                const char *widget_id,
+                                const char *content_json,
+                                unsigned long long op_id);
 /* Policy lists (Mjolnir-style moderation). Read a room's `m.policy.rule.*`
  * state, publish or remove one rule (`recommendation` empty removes), manage
  * the subscribed-list account data, and ask whether the subscribed lists

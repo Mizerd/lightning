@@ -2822,7 +2822,7 @@ quint64 MockMatrixClient::roomWidgets(const QString &roomId,
     const quint64 op = ++m_opCounter;
     const QVariantList rows = mockWidgets;
     QTimer::singleShot(0, this, [this, op, roomId, rows] {
-        Q_EMIT roomWidgetsReceived(op, roomId, true, rows);
+        Q_EMIT roomWidgetsReceived(op, roomId, true, mockWidgetsCanManage, rows);
     });
     return op;
 }
@@ -3123,4 +3123,18 @@ void MockMatrixClient::setOwnDisplayName(const QString &name, quint64 opId)
         mockDisplayNames.insert(userId, name);
         Q_EMIT ownDisplayNameChanged(opId, true, QString());
     });
+}
+
+quint64 MockMatrixClient::writeRoomWidget(const QString &roomId,
+                                          const QString &widgetId,
+                                          const QString &contentJson)
+{
+    widgetWrites.append({ roomId, widgetId, contentJson });
+    const quint64 opId = ++m_mockWidgetWriteOp;
+    // Answered asynchronously like the real backend, so a controller that
+    // acted before the answer would be caught here too.
+    QTimer::singleShot(0, this, [this, opId, roomId] {
+        Q_EMIT roomWidgetWritten(opId, roomId, true, QString());
+    });
+    return opId;
 }
