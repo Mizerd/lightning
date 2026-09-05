@@ -249,11 +249,18 @@ private Q_SLOTS:
         const int at = bar.indexOf(QStringLiteral("id: sendOptionsButton"));
         QVERIFY(at > 0);
         const QString block = bar.mid(at, 2600);
-        QVERIFY2(!block.contains(QStringLiteral("sendOptionsMenu.popup()")),
-                 "a bare popup() lands on the pointer, over the message box");
-        QVERIFY2(block.contains(QStringLiteral("sendOptionsMenu.popup("))
-                     && block.contains(QStringLiteral("-sendOptionsMenu.height")),
-                 "the menu must be placed above its button");
+        QVERIFY2(!block.contains(QStringLiteral("sendOptionsMenu.popup(")),
+                 "popup(x, y) computes the place on the click, when the menu's "
+                 "height is still 0 on its first open — it landed on the bar");
+        QVERIFY2(block.contains(QStringLiteral("sendOptionsMenu.open()")),
+                 "open() lets the menu's own bindings place it");
+        const int menu = bar.indexOf(QStringLiteral("id: sendOptionsMenu"));
+        QVERIFY(menu > 0);
+        const QString decl = bar.mid(menu, 900);
+        QVERIFY2(decl.contains(QStringLiteral("y: -height - 4")),
+                 "the menu must bind its y above the composer");
+        QVERIFY2(decl.contains(QStringLiteral("parent: root")),
+                 "above the COMPOSER, not the button inside it");
     }
 
     // "why is the lock so far away from the room name": the name label was

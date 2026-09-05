@@ -3052,14 +3052,13 @@ Item {
                         // inside it (reported twice, with screenshots). The
                         // menu's bottom edge now sits above the composer's
                         // top edge, so nothing of the bar is hidden.
-                        onClicked: {
-                            const rightEdge = sendOptionsButton.mapToItem(
-                                root, sendOptionsButton.width, 0).x
-                            sendOptionsMenu.popup(
-                                root,
-                                Math.max(0, rightEdge - sendOptionsMenu.width),
-                                -sendOptionsMenu.height - 4)
-                        }
+                        // open(), not popup(x, y): the menu carries its own
+                        // position as BINDINGS (see sendOptionsMenu), because
+                        // a value computed here on the first click reads the
+                        // menu's height as 0 — its content is built lazily —
+                        // and placed its top 4 px above the bar with the rest
+                        // hanging down over it (reported three times).
+                        onClicked: sendOptionsMenu.open()
                     }
                 }
             }
@@ -3070,6 +3069,14 @@ Item {
     AppMenu {
         id: sendOptionsMenu
         objectName: "composerSendOptionsMenu"
+        // Above the WHOLE composer, right-aligned to its button, as bindings:
+        // `height` is 0 until the menu's content is first built, so these
+        // re-evaluate the moment it is known and the menu never lands on the
+        // bar. `x` reads `width` for the same reason.
+        parent: root
+        x: Math.max(0, sendOptionsButton.mapToItem(root, sendOptionsButton.width, 0).x
+                       - width)
+        y: -height - 4
         AppMenuItem {
             objectName: "composerSendLaterMenuItem"
             iconName: "schedule"
