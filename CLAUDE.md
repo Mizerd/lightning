@@ -26,22 +26,28 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.8.3** (`v0.8.3` -> `24fbe9c`), tagged
-2026-08-30; notes in `docs/releases/v0.8.3.md`. **0.8.4 is IN FLIGHT** as of
-2026-09-02 at Rokas's explicit request: the version bump is prepared on `main`
-and reads **0.8.4** in `CMakeLists.txt` (both `project()` and
-`APP_VERSION_LABEL`), `rust/Cargo.toml`, `rust/Cargo.lock`, and the Rust/HTTP
-user agent (derived from `CARGO_PKG_VERSION`). Any bump after it is a new
-release checkpoint and only on Rokas's explicit request (§14).
+Latest published release: **Lightning 0.9.0** (`v0.9.0` -> `9dc6a07`), tagged
+2026-09-05 by project 7 pipeline **173, 22/22 green**; notes in
+`docs/releases/v0.9.0.md`. The synchronized version reads **0.9.0** in
+`CMakeLists.txt` (both `project()` and `APP_VERSION_LABEL`), `rust/Cargo.toml`,
+`rust/Cargo.lock`, and the Rust/HTTP user agent (derived from
+`CARGO_PKG_VERSION`). Any bump after it is a new release checkpoint and only on
+Rokas's explicit request (§14). 0.8.4 (`v0.8.4` -> `49249e8`, pipeline 170,
+2026-09-02) was released before it; this file had still called it IN FLIGHT.
 
-The anonymous verification bar (§14) has NOT yet been run for 0.8.4. It was
-run and passed for 0.8.0: the annotated tag peeled to `6f203be` on both
-GitLab and GitHub; all 10 package links returned 200 under curl; the `latest`
-manifest reported 0.8.0 / `v0.8.0` with `mirror_url` on all six artifacts; its
-Ed25519 signature (`lightning-release-2026a`) VERIFIED and two separately
-tampered copies were REJECTED; the GitHub mirror carried 10 assets and a deb
-fetched from it matched the GitLab-signed SHA-256 exactly. Run the same bar
-against every release, 0.8.4 included.
+The anonymous verification bar (§14) was run for 0.9.0 on 2026-09-05 and
+PASSED in full: the GitLab release sits at `9dc6a07` with every package link
+200 under curl; the `latest` manifest reports 0.9.0 / `v0.9.0`, six artifacts
+all carrying `mirror_url`, macOS absent; its Ed25519 signature
+(`lightning-release-2026a`) VERIFIED against the public key extracted from
+the shipped `.deb`'s own binary and a one-field-changed copy was REJECTED;
+the GitHub annotated tag peels to the same commit, the mirror carries 10
+assets, and a `.deb` fetched from GitHub matched the GitLab-signed SHA-256.
+The script is `verify-release.sh` in the session scratchpad; the recipe is
+in §14. Pipelines 171 and 172 were CANCELLED on the way (§16: the QtDBus
+guard, and the Windows builder image). It was run and passed for 0.8.0 too
+(tag peeled to `6f203be` on both hosts, 10 links, manifest signature verified
+and tampered copies rejected). Run the same bar against every release.
 
 `matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to
 **0.18.0** in `rust/Cargo.lock`; UI and base are exact-pinned in
@@ -64,7 +70,8 @@ the same round; both were already in the lock file, so the build stays
 
 | Version | Commit | Deploy pipeline | Notes file |
 |---|---|---|---|
-| 0.8.4 | IN FLIGHT 2026-09-02 | — | `docs/releases/v0.8.4.md` |
+| 0.9.0 | `9dc6a07` | 173, 22/22 green (171 lost `build-windows` + macOS to the QtDBus guard, 172 `build-windows` to the builder image) | `docs/releases/v0.9.0.md` |
+| 0.8.4 | `49249e8` | 170 | `docs/releases/v0.8.4.md` |
 | 0.8.3 | `24fbe9c` | not recorded here | `docs/releases/v0.8.3.md` |
 | 0.8.2 | `a8523b7` | not recorded here | `docs/releases/v0.8.2.md` |
 | 0.8.1 | `b3d36ec` | not recorded here | `docs/releases/v0.8.1.md` |
@@ -1151,6 +1158,32 @@ nix develop -c cmake --build /tmp/build-nowebrtc -j18
 0.8.0's first attempt got through. Run it before a release and after touching
 `src/calls/`. Out-of-tree, `presence-manager` fails because it walks up to
 find the repository it scans; that is the harness, not the code.
+
+**WINDOWS AND macOS BUILD WITHOUT QtDBus, AND NO LOCAL TREE DOES.** The
+0.9.0 release lost pipeline 171 to `NotificationManager.cpp:536: 'QDBusReply'
+does not name a type`: `bodyForServer()` — the daemon capability probe that
+gained the inline-reply query in the desktop-integration round — was defined
+outside every `HAVE_QT_DBUS` block, and every Linux tree has the bus so none
+of them could show it. Same class as the no-WebRTC lesson above, third
+costume. THREE MINUTES LOCALLY: take the unit's own compile command from
+`ninja -C build -t commands CMakeFiles/lightning-matrix.dir/<src>.o`, strip
+`-DHAVE_QT_DBUS`, add `-fsyntax-only` — it reproduced the exact Windows and
+macOS error before the fix and passed after; run it over every source that
+names `QDBus` before a release.
+
+**THE WINDOWS BUILDER IMAGE IS BUILT BY HAND UNDER A FIXED TAG, AND A
+DOCKERFILE CHANGE ALONE CHANGES NOTHING.** Pipeline 172 compiled and linked
+Windows and then died in `stage-windows-runtime.py` on "required GStreamer
+plugin is missing from the builder image: libgstjpeg.dll" — the plugin was
+added to `packaging/windows/Dockerfile` AND to the required list on
+2026-09-02, but the image on the runner host (`...-v5`, 10.195.35.2) is
+rebuilt only by the four-step operator procedure in lightning-deploy
+`docs/windows-runner-operations.md`, which never ran. Deploy `37a4dd1` makes
+the plugin OPTIONAL (staged when present, a WARNING when not) because the
+app's camera chain cannot negotiate `image/jpeg` yet, so it would be staged
+and never loaded. OPEN OPERATOR STEP: rebuild the image under a new tag
+before the MJPG app half lands, then move `libgstjpeg.dll` back to the
+required list — both, or the next release dies the same way.
 
 **Qt version differences the dev shell cannot show you.** Pipeline 105's
 `build-deb` died on `CallController.h` holding
