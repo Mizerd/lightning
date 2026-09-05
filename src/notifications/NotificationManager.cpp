@@ -529,6 +529,11 @@ void NotificationManager::flushAvatarWaits(bool fallbackAll)
 //
 // The SUMMARY is deliberately never escaped: it is plain text on every
 // server, so entities would show through.
+// Under HAVE_QT_DBUS like every other use of the bus in this file: Windows
+// and macOS build without QtDBus, and the 0.9.0 Windows and macOS package
+// jobs both died here ("'QDBusReply' does not name a type") — a failure no
+// Linux tree can show, since every one of them has the bus.
+#ifdef HAVE_QT_DBUS
 QString NotificationManager::bodyForServer(QDBusInterface &notifications,
                                            const QString &body)
 {
@@ -549,6 +554,7 @@ QString NotificationManager::bodyForServer(QDBusInterface &notifications,
     }
     return m_bodyMarkup ? body.toHtmlEscaped() : body;
 }
+#endif
 
 void NotificationManager::deliverNow(const QString &title,
                                      const QString &body,
