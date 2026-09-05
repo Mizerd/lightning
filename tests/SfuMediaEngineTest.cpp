@@ -151,6 +151,20 @@ private slots:
         }
     }
 
+    // LIGHTNING_CALL_STATS_TRACE: unset/0/off = no trace; 1/true/yes = 5 s;
+    // a number = that many seconds, bounded.
+    void statsTraceIntervalParsesItsEnvironment()
+    {
+        QCOMPARE(SfuMediaEngine::statsTraceIntervalMs(QString()), 0);
+        QCOMPARE(SfuMediaEngine::statsTraceIntervalMs(QStringLiteral("0")), 0);
+        QCOMPARE(SfuMediaEngine::statsTraceIntervalMs(QStringLiteral("off")), 0);
+        QCOMPARE(SfuMediaEngine::statsTraceIntervalMs(QStringLiteral("1")), 5000);
+        QCOMPARE(SfuMediaEngine::statsTraceIntervalMs(QStringLiteral("true")), 5000);
+        QCOMPARE(SfuMediaEngine::statsTraceIntervalMs(QStringLiteral("10")), 10000);
+        QCOMPARE(SfuMediaEngine::statsTraceIntervalMs(QStringLiteral("abc")), 5000);
+        QCOMPARE(SfuMediaEngine::statsTraceIntervalMs(QStringLiteral("9999")), 600000);
+    }
+
     void startingAndStoppingIsClean()
     {
         SfuMediaEngine engine;

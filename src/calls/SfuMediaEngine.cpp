@@ -581,6 +581,8 @@ void SfuMediaEngine::stop()
             ::close(it.value());
     }
     m_publishedFds.clear();
+    m_statsTimer.stop();
+    m_lastRtpBytes.clear();
     destroyPeer(m_publisher);
     destroyPeer(m_subscriber);
     // Engine state is per session; the user's intent lives in the
@@ -784,6 +786,7 @@ bool SfuMediaEngine::ensurePeer(Target target)
     g_signal_connect(webrtc, "on-ice-candidate", G_CALLBACK(onIceCandidate),
                      this);
     g_signal_connect(webrtc, "pad-added", G_CALLBACK(onPadAdded), this);
+    armStatsTrace();
     // WHETHER THE CONNECTION EVER COMES UP.
     //
     // Nothing observed this, and its absence is why "no audio" could not be
@@ -3489,6 +3492,199 @@ double SfuMediaEngine::receiveVolumeForTest(const QString &streamId) const
     g_value_unset(&item);
     gst_iterator_free(it);
     return found;
+}
+
+// ── RTP statistics trace ─────────────────────────────────────────────────
+
+int SfuMediaEngine::statsTraceIntervalMs(const QString &raw)
+{
+    const QString v = raw.trimmed().toLower();
+    if (v.isEmpty() || v == QLatin1String("0") || v == QLatin1String("off")
+        || v == QLatin1String("false") || v == QLatin1String("no"))
+        return 0;
+    if (v == QLatin1String("1") || v == QLatin1String("true")
+        || v == QLatin1String("yes") || v == QLatin1String("on"))
+        return 5000;
+    bool ok = false;
+    const int seconds = v.toInt(&ok);
+    if (!ok || seconds <= 0)
+        return 5000;
+    return qBound(1, seconds, 600) * 1000;
+}
+
+void SfuMediaEngine::armStatsTrace()
+{
+    if (m_statsIntervalMs < 0) {
+        m_statsIntervalMs = qEnvironmentVariableIsSet("LIGHTNING_CALL_STATS_TRACE")
+            ? statsTraceIntervalMs(qEnvironmentVariable("LIGHTNING_CALL_STATS_TRACE"))
+            : 0;
+        if (m_statsIntervalMs > 0) {
+            m_statsTimer.setInterval(m_statsIntervalMs);
+            m_statsTimer.setSingleShot(false);
+            connect(&m_statsTimer, &QTimer::timeout, this,
+                    &SfuMediaEngine::requestStats);
+            qCInfo(lcSfuMedia) << "rtp stats trace armed intervalMs="
+                               << m_statsIntervalMs;
+        }
+    }
+    if (m_statsIntervalMs > 0 && !m_statsTimer.isActive())
+        m_statsTimer.start();
+}
+
+namespace {
+
+struct StatsWalk {
+    QList<SfuMediaEngine::RtpStat> out;
+    QString peer;
+};
+
+gboolean collectStat(GQuark, const GValue *value, gpointer data)
+{
+    auto *walk = static_cast<StatsWalk *>(data);
+    if (!GST_VALUE_HOLDS_STRUCTURE(value))
+        return TRUE;
+    const GstStructure *s = gst_value_get_structure(value);
+    if (!s)
+        return TRUE;
+    GstWebRTCStatsType type = GST_WEBRTC_STATS_CODEC;
+    if (!gst_structure_get(s, "type", GST_TYPE_WEBRTC_STATS_TYPE, &type, nullptr))
+        return TRUE;
+    if (type != GST_WEBRTC_STATS_INBOUND_RTP
+        && type != GST_WEBRTC_STATS_OUTBOUND_RTP
+        && type != GST_WEBRTC_STATS_REMOTE_INBOUND_RTP)
+        return TRUE;
+
+    SfuMediaEngine::RtpStat st;
+    st.peer = walk->peer;
+    st.dir = type == GST_WEBRTC_STATS_INBOUND_RTP ? QStringLiteral("inbound")
+           : type == GST_WEBRTC_STATS_OUTBOUND_RTP ? QStringLiteral("outbound")
+           : QStringLiteral("remote-inbound");
+    guint ssrc = 0;
+    if (gst_structure_has_field(s, "ssrc"))
+        gst_structure_get_uint(s, "ssrc", &ssrc);
+    st.ssrc = ssrc;
+    if (gst_structure_has_field(s, "kind")) {
+        if (const gchar *kind = gst_structure_get_string(s, "kind"))
+            st.kind = QString::fromUtf8(kind);
+    }
+    auto u64 = [&](const char *field, quint64 *dst) {
+        if (!gst_structure_has_field(s, field))
+            return;
+        guint64 v = 0;
+        if (gst_structure_get_uint64(s, field, &v))
+            *dst = v;
+    };
+    auto u32 = [&](const char *field, quint32 *dst) {
+        if (!gst_structure_has_field(s, field))
+            return;
+        guint v = 0;
+        if (gst_structure_get_uint(s, field, &v))
+            *dst = v;
+    };
+    auto i64 = [&](const char *field, qint64 *dst) {
+        if (!gst_structure_has_field(s, field))
+            return;
+        gint64 v = 0;
+        if (gst_structure_get_int64(s, field, &v))
+            *dst = v;
+    };
+    auto dbl = [&](const char *field, double *dst) {
+        if (!gst_structure_has_field(s, field))
+            return;
+        gdouble v = 0;
+        if (gst_structure_get_double(s, field, &v))
+            *dst = v;
+    };
+    if (type == GST_WEBRTC_STATS_INBOUND_RTP) {
+        u64("packets-received", &st.packets);
+        i64("packets-lost", &st.lost);
+        dbl("jitter", &st.jitter);
+        u64("bytes-received", &st.bytes);
+        u32("pli-count", &st.pli);
+        u32("nack-count", &st.nack);
+        u32("fir-count", &st.fir);
+    } else if (type == GST_WEBRTC_STATS_OUTBOUND_RTP) {
+        u64("packets-sent", &st.packets);
+        u64("bytes-sent", &st.bytes);
+        u32("pli-count", &st.pli);
+        u32("nack-count", &st.nack);
+        u32("fir-count", &st.fir);
+    } else {
+        i64("packets-lost", &st.lost);
+        dbl("jitter", &st.jitter);
+        dbl("round-trip-time", &st.rtt);
+        dbl("fraction-lost", &st.fractionLost);
+    }
+    walk->out.append(st);
+    return TRUE;
+}
+
+} // namespace
+
+void SfuMediaEngine::requestStats()
+{
+    const auto ask = [this](Peer &peer, bool publisher) {
+        if (!peer.webrtc)
+            return;
+        GstPromise *promise = gst_promise_new_with_change_func(
+            onStatsReady, promiseCtxNew(this, peer.webrtc, publisher),
+            promiseCtxFree);
+        g_signal_emit_by_name(peer.webrtc, "get-stats", nullptr, promise);
+    };
+    ask(m_publisher, true);
+    ask(m_subscriber, false);
+}
+
+void SfuMediaEngine::onStatsReady(GstPromise *promise, void *userData)
+{
+    // GStreamer thread. Read the reply here (a plain structure walk), then
+    // hand numbers to the engine's thread; the alive registry in marshal()
+    // drops the hand-off if the engine is gone.
+    auto *ctx = static_cast<PromiseCtx *>(userData);
+    StatsWalk walk;
+    walk.peer = ctx->publisher ? QStringLiteral("pub") : QStringLiteral("sub");
+    if (const GstStructure *reply = gst_promise_get_reply(promise))
+        gst_structure_foreach(reply, collectStat, &walk);
+    gst_promise_unref(promise);
+    if (walk.out.isEmpty())
+        return;
+    SfuMediaEngine *engine = ctx->engine;
+    const QList<RtpStat> stats = walk.out;
+    marshal(engine, [engine, stats] { engine->logStats(stats); });
+}
+
+void SfuMediaEngine::logStats(const QList<RtpStat> &stats)
+{
+    const qint64 now = monotonicMs();
+    for (const RtpStat &st : stats) {
+        if (st.dir == QLatin1String("remote-inbound")) {
+            qCInfo(lcSfuMedia).nospace().noquote()
+                << "rtp stats peer=" << st.peer << " " << st.dir
+                << " ssrc=" << st.ssrc << " lost=" << st.lost
+                << " jitterMs=" << QString::number(st.jitter * 1000.0, 'f', 1)
+                << " rttMs=" << QString::number(st.rtt * 1000.0, 'f', 1)
+                << " fractionLost="
+                << QString::number(st.fractionLost, 'f', 3);
+            continue;
+        }
+        double kbps = -1;
+        const auto last = m_lastRtpBytes.constFind(st.ssrc);
+        if (last != m_lastRtpBytes.constEnd() && now > last->first
+            && st.bytes >= last->second) {
+            kbps = double(st.bytes - last->second) * 8.0
+                   / double(now - last->first);
+        }
+        m_lastRtpBytes.insert(st.ssrc, qMakePair(now, st.bytes));
+        qCInfo(lcSfuMedia).nospace().noquote()
+            << "rtp stats peer=" << st.peer << " " << st.dir
+            << " ssrc=" << st.ssrc
+            << (st.kind.isEmpty() ? QString() : QStringLiteral(" kind=") + st.kind)
+            << " packets=" << st.packets << " lost=" << st.lost
+            << " jitterMs=" << QString::number(st.jitter * 1000.0, 'f', 1)
+            << " kbps=" << (kbps < 0 ? QStringLiteral("?")
+                                     : QString::number(kbps, 'f', 0))
+            << " pli=" << st.pli << " nack=" << st.nack << " fir=" << st.fir;
+    }
 }
 
 void SfuMediaEngine::setVideoRouter(SfuVideoRouter *router)

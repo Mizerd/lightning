@@ -38,6 +38,7 @@
 #include <QRect>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 #include <QVariantList>
 
 typedef struct _GstElement GstElement;
@@ -777,6 +778,45 @@ private:
     /// Not owned. QPointer so a router destroyed before the engine cannot
     /// be dereferenced from a late streaming-thread callback.
     QPointer<SfuVideoRouter> m_videoRouter;
+
+    // ── Opt-in RTP statistics trace (LIGHTNING_CALL_STATS_TRACE) ─────────
+    //
+    // The frame counters this engine logs (encrypted / decrypted / dropped)
+    // sit ABOVE the RTP layer: a share that blurs for a moment and then
+    // fast-forwards to the present shows nothing in them, because packet
+    // loss, a keyframe request and a bitrate dip all happen below
+    // depayloading (2026-09-05 report, counters flat at dropped=0 through
+    // every incident). This asks both webrtcbins for their stats on a timer
+    // and logs numbers only — per SSRC: packets, loss, jitter, bitrate over
+    // the interval, PLI/NACK/FIR counts, and the remote side's round trip
+    // and fraction lost about what we send. No identifiers beyond the SSRC
+    // and the media kind. Off unless the variable is set; the value is the
+    // interval in seconds (1/true/yes = 5 s).
+public:
+    static int statsTraceIntervalMs(const QString &raw);
+    struct RtpStat {
+        QString peer;      // "pub" / "sub"
+        QString dir;       // inbound / outbound / remote-inbound
+        QString kind;      // audio / video / "" when the build does not say
+        quint32 ssrc = 0;
+        quint64 packets = 0;
+        qint64 lost = 0;
+        double jitter = 0;     // seconds
+        quint64 bytes = 0;
+        quint32 pli = 0;
+        quint32 nack = 0;
+        quint32 fir = 0;
+        double rtt = 0;        // seconds, remote-inbound only
+        double fractionLost = 0;
+    };
+private:
+    void armStatsTrace();
+    void requestStats();
+    static void onStatsReady(GstPromise *promise, void *userData);
+    void logStats(const QList<RtpStat> &stats);
+    QTimer m_statsTimer;
+    int m_statsIntervalMs = -1;   // -1: environment not read yet
+    QHash<quint32, QPair<qint64, quint64>> m_lastRtpBytes; // ssrc -> (ms, bytes)
 
     QStringList m_iceUris;
     QString m_iceUsername;
