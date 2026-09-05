@@ -4749,7 +4749,7 @@ Taille : %3</translation>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+450"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+478"/>
         <source>Profile for %1</source>
         <translation>Profil de %1</translation>
     </message>
@@ -4760,7 +4760,7 @@ Taille : %3</translation>
         <translation>Présence indisponible</translation>
     </message>
     <message>
-        <location line="-811"/>
+        <location line="-815"/>
         <source>Invited</source>
         <translation>Invité</translation>
     </message>
@@ -4780,7 +4780,7 @@ Taille : %3</translation>
         <translation>Lien du profil copié</translation>
     </message>
     <message>
-        <location line="+643"/>
+        <location line="+647"/>
         <source>Bio</source>
         <translation>Biographie</translation>
     </message>
@@ -4871,24 +4871,24 @@ Taille : %3</translation>
     </message>
     <message>
         <location line="+63"/>
-        <location line="+149"/>
+        <location line="+171"/>
         <source>Remove</source>
         <translation>Exclure</translation>
     </message>
     <message>
-        <location line="-146"/>
-        <location line="+147"/>
+        <location line="-168"/>
+        <location line="+169"/>
         <source>Ban</source>
         <translation>Bannir</translation>
     </message>
     <message>
-        <location line="-144"/>
-        <location line="+145"/>
+        <location line="-166"/>
+        <location line="+167"/>
         <source>Unban</source>
         <translation>Lever le bannissement</translation>
     </message>
     <message>
-        <location line="-127"/>
+        <location line="-149"/>
         <source>Remove %1 from the room</source>
         <translation>Exclure %1 du salon</translation>
     </message>
@@ -4903,7 +4903,17 @@ Taille : %3</translation>
         <translation>Lever le bannissement de %1</translation>
     </message>
     <message>
-        <location line="+74"/>
+        <location line="+57"/>
+        <source>On a moderation list you follow — %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>On a moderation list you follow.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+37"/>
         <source>Remove %1 from this room?</source>
         <translation>Exclure %1 de ce salon ?</translation>
     </message>
@@ -4934,7 +4944,7 @@ Taille : %3</translation>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-1212"/>
+        <location line="-1238"/>
         <source>Matrix ID copied</source>
         <translation>Identifiant Matrix copié</translation>
     </message>
@@ -4965,7 +4975,7 @@ Taille : %3</translation>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+197"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+195"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Les pièces jointes ne sont pas prises en charge par ce backend.</translation>
     </message>
@@ -5067,24 +5077,24 @@ Taille : %3</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+50"/>
+        <location line="+38"/>
         <source>Emoji…</source>
         <translation>Émoji…</translation>
     </message>
     <message>
-        <location line="-43"/>
-        <location line="+50"/>
+        <location line="-31"/>
+        <location line="+38"/>
         <source>GIFs and stickers…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-49"/>
-        <location line="+50"/>
+        <location line="-37"/>
+        <location line="+38"/>
         <source>GIF…</source>
         <translation>GIF…</translation>
     </message>
     <message>
-        <location line="-35"/>
+        <location line="-23"/>
         <source>Attach files…</source>
         <translation>Joindre des fichiers…</translation>
     </message>
@@ -5094,12 +5104,7 @@ Taille : %3</translation>
         <translation>Créer un sondage…</translation>
     </message>
     <message>
-        <location line="+12"/>
-        <source>Share a place…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+258"/>
+        <location line="+254"/>
         <source>Failed</source>
         <translation>Échec</translation>
     </message>
@@ -5753,12 +5758,12 @@ Taille : %3</translation>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2110"/>
+        <location line="+2123"/>
         <source>Save as…</source>
         <translation>Enregistrer sous…</translation>
     </message>
     <message>
-        <location line="-2080"/>
+        <location line="-2093"/>
         <source>Show image</source>
         <translation>Afficher l&apos;image</translation>
     </message>
@@ -5948,7 +5953,7 @@ Taille : %3</translation>
         <translation>Aperçu indisponible</translation>
     </message>
     <message>
-        <location line="+609"/>
+        <location line="+622"/>
         <source>Remove from saved</source>
         <translation>Retirer des enregistrés</translation>
     </message>
@@ -8892,12 +8897,12 @@ Taille : %3</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2121"/>
+        <location line="+2104"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning n&apos;a pas pu réinitialiser complètement la session locale de ce compte. Vérifiez les journaux de l&apos;application et les permissions du système de fichiers, puis réessayez.</translation>
     </message>
     <message>
-        <location line="-2137"/>
+        <location line="-2120"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Session Lightning locale reconstruite. Le magasin de chiffrement précédent a été mis de côté, pas supprimé, et se trouve toujours dans le dossier de données de ce compte. Vous pouvez vous reconnecter.</translation>
     </message>
@@ -8910,7 +8915,7 @@ Taille : %3</translation>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3346"/>
+        <location line="+3329"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -8919,15 +8924,15 @@ Taille : %3</translation>
         <translation>Non connecté.</translation>
     </message>
     <message>
-        <location line="-3726"/>
+        <location line="-3709"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3528"/>
+        <location line="+3511"/>
         <source>Unknown room: %1</source>
         <translation>Salon inconnu : %1</translation>
     </message>
     <message>
-        <location line="-3728"/>
+        <location line="-3711"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -8939,12 +8944,7 @@ Taille : %3</translation>
         <translation>L&apos;autocollant n&apos;a pas pu être envoyé.</translation>
     </message>
     <message>
-        <location line="+81"/>
-        <source>That location could not be sent.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+889"/>
+        <location line="+953"/>
         <source>Rust SDK backend does not implement %1 yet.</source>
         <translation>Le backend Rust SDK n&apos;implémente pas encore %1.</translation>
     </message>
@@ -12698,54 +12698,6 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <location line="+135"/>
         <source>The call ended because the connection was lost.</source>
         <translation>L&apos;appel a pris fin car la connexion a été perdue.</translation>
-    </message>
-</context>
-<context>
-    <name>ShareLocationDialog</name>
-    <message>
-        <location filename="../qml/ShareLocationDialog.qml" line="+95"/>
-        <source>Share a place</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+14"/>
-        <source>Paste a map link or coordinates</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+19"/>
-        <source>Latitude</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+16"/>
-        <source>Longitude</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+17"/>
-        <source>What is here? (optional)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+9"/>
-        <source>The coordinates and this description are sent to the room as an ordinary message. Lightning does not know where you are — it sends exactly what is typed here.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+13"/>
-        <source>Latitude must be between -90 and 90, and longitude between -180 and 180.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+9"/>
-        <source>Cancel</source>
-        <translation type="unfinished">Annuler</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Send</source>
-        <translation type="unfinished">Envoyer</translation>
     </message>
 </context>
 <context>

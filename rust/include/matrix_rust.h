@@ -891,12 +891,6 @@ char *mx_rust_stickers_upload_to_user_pack(void *client,
  * either half — so a change takes effect at the next sign-in, not now. Takes
  * no client handle for that reason. */
 char *mx_rust_set_strict_device_trust(int enabled);
-/* Send a STATIC location (m.location, MSC3488). Coordinates are validated
- * and the geo: URI is built on the Rust side, so a point Lightning would
- * refuse to render is one it can never send. LIVE location sharing is
- * deliberately not offered: this client has no position source. */
-char *mx_rust_send_location(void *client, const char *room_id, double lat,
-                            double lon, const char *description);
 /* Policy lists (Mjolnir-style moderation). Read a room's `m.policy.rule.*`
  * state, publish or remove one rule (`recommendation` empty removes), manage
  * the subscribed-list account data, and ask whether the subscribed lists

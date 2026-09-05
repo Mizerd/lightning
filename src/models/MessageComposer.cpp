@@ -1,7 +1,5 @@
 #include "models/MessageComposer.h"
 
-#include <cmath>
-
 #include <QRegularExpression>
 
 #include "app/DraftStore.h"
@@ -1093,38 +1091,6 @@ void MessageComposer::endPoll(const QString &pollEventId,
 {
     if (!m_client || m_roomId.isEmpty() || pollEventId.isEmpty()) return;
     m_client->endPoll(m_roomId, threadRootId, pollEventId);
-}
-
-bool MessageComposer::locationSupported() const
-{
-    return m_client && m_client->supportsSendLocation();
-}
-
-bool MessageComposer::locationIsValid(double lat, double lon) const
-{
-    // The SAME bounds the bridge applies, so the button is disabled on the
-    // same input the send would refuse. Duplicated deliberately: the bridge
-    // is the enforcement and this is the affordance, and a UI that can only
-    // learn "no" by trying is a UI that reports failures the user could have
-    // been spared.
-    return std::isfinite(lat) && std::isfinite(lon) && lat >= -90.0
-        && lat <= 90.0 && lon >= -180.0 && lon <= 180.0;
-}
-
-void MessageComposer::sendLocation(double lat, double lon,
-                                   const QString &description)
-{
-    if (!m_client || m_roomId.isEmpty() || !locationIsValid(lat, lon))
-        return;
-    // NOTE the thread context is NOT threaded through: the bridge's
-    // send_location uses the ROOM timeline. A location sent from a thread
-    // panel would land in the room, which is §8's first invariant — so the
-    // affordance is offered only on the room composer (MessageComposerBar
-    // gates on `!root.threadMode`), and this refuses rather than silently
-    // sending to the wrong place.
-    if (!m_threadRootId.isEmpty())
-        return;
-    m_client->sendLocation(m_roomId, lat, lon, description);
 }
 
 void MessageComposer::createPoll(const QString &question,

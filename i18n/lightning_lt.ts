@@ -4763,7 +4763,7 @@ Dydis: %3</translation>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+275"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+299"/>
         <source>Invited</source>
         <translation>Pakviestas</translation>
     </message>
@@ -4788,7 +4788,7 @@ Dydis: %3</translation>
         <translation>Profilio nuoroda nukopijuota</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+122"/>
         <source>Profile for %1</source>
         <translation>%1 profilis</translation>
     </message>
@@ -4890,24 +4890,24 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+63"/>
-        <location line="+149"/>
+        <location line="+171"/>
         <source>Remove</source>
         <translation>Pašalinti</translation>
     </message>
     <message>
-        <location line="-146"/>
-        <location line="+147"/>
+        <location line="-168"/>
+        <location line="+169"/>
         <source>Ban</source>
         <translation>Uždrausti</translation>
     </message>
     <message>
-        <location line="-144"/>
-        <location line="+145"/>
+        <location line="-166"/>
+        <location line="+167"/>
         <source>Unban</source>
         <translation>Atšaukti draudimą</translation>
     </message>
     <message>
-        <location line="-127"/>
+        <location line="-149"/>
         <source>Remove %1 from the room</source>
         <translation>Pašalinkite %1 iš kambario</translation>
     </message>
@@ -4922,7 +4922,17 @@ Dydis: %3</translation>
         <translation>Atšaukti draudimą %1</translation>
     </message>
     <message>
-        <location line="+74"/>
+        <location line="+57"/>
+        <source>On a moderation list you follow — %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>On a moderation list you follow.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+37"/>
         <source>Remove %1 from this room?</source>
         <translation>Pašalinti %1 iš šio kambario?</translation>
     </message>
@@ -4979,7 +4989,7 @@ Dydis: %3</translation>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+197"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+195"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Ši posistemė nepalaiko priedų.</translation>
     </message>
@@ -5081,24 +5091,24 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+50"/>
+        <location line="+38"/>
         <source>Emoji…</source>
         <translation>Jaustukai…</translation>
     </message>
     <message>
-        <location line="-43"/>
-        <location line="+50"/>
+        <location line="-31"/>
+        <location line="+38"/>
         <source>GIFs and stickers…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-49"/>
-        <location line="+50"/>
+        <location line="-37"/>
+        <location line="+38"/>
         <source>GIF…</source>
         <translation>GIF…</translation>
     </message>
     <message>
-        <location line="-35"/>
+        <location line="-23"/>
         <source>Attach files…</source>
         <translation>Pridėti failus…</translation>
     </message>
@@ -5108,12 +5118,7 @@ Dydis: %3</translation>
         <translation>Sukurti apklausą…</translation>
     </message>
     <message>
-        <location line="+12"/>
-        <source>Share a place…</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+258"/>
+        <location line="+254"/>
         <source>Failed</source>
         <translation>Nepavyko</translation>
     </message>
@@ -5773,12 +5778,12 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2110"/>
+        <location line="+2123"/>
         <source>Save as…</source>
         <translation>Išsaugoti kaip…</translation>
     </message>
     <message>
-        <location line="-2080"/>
+        <location line="-2093"/>
         <source>Show image</source>
         <translation>Rodyti vaizdą</translation>
     </message>
@@ -5963,7 +5968,7 @@ Dydis: %3</translation>
         <translation>Peržiūra negalima</translation>
     </message>
     <message>
-        <location line="+609"/>
+        <location line="+622"/>
         <source>Remove from saved</source>
         <translation>Pašalinti iš išsaugotų</translation>
     </message>
@@ -8914,12 +8919,12 @@ Dydis: %3</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2121"/>
+        <location line="+2104"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>„Lightning“ nepavyko visiškai iš naujo nustatyti šios paskyros vietinės sesijos. Patikrinkite programų žurnalus ir failų sistemos leidimus, tada bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="-2137"/>
+        <location line="-2120"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Atkurta vietinė Lightning sesija. Ankstesnė šifravimo saugykla buvo perkelta, neištrinta ir vis dar yra šios paskyros duomenų kataloge. Galite prisijungti dar kartą.</translation>
     </message>
@@ -8932,7 +8937,7 @@ Dydis: %3</translation>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3346"/>
+        <location line="+3329"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -8941,15 +8946,15 @@ Dydis: %3</translation>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-3726"/>
+        <location line="-3709"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3528"/>
+        <location line="+3511"/>
         <source>Unknown room: %1</source>
         <translation>Nežinomas kambarys: %1</translation>
     </message>
     <message>
-        <location line="-3728"/>
+        <location line="-3711"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -8961,12 +8966,7 @@ Dydis: %3</translation>
         <translation>Nepavyko išsiųsti lipduko.</translation>
     </message>
     <message>
-        <location line="+81"/>
-        <source>That location could not be sent.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+889"/>
+        <location line="+953"/>
         <source>Rust SDK backend does not implement %1 yet.</source>
         <translation>Rust SDK posistemėje funkcija %1 dar neįdiegta.</translation>
     </message>
@@ -12724,54 +12724,6 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <location line="+135"/>
         <source>The call ended because the connection was lost.</source>
         <translation>Skambutis nutrūko, nes nutrūko ryšys.</translation>
-    </message>
-</context>
-<context>
-    <name>ShareLocationDialog</name>
-    <message>
-        <location filename="../qml/ShareLocationDialog.qml" line="+95"/>
-        <source>Share a place</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+14"/>
-        <source>Paste a map link or coordinates</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+19"/>
-        <source>Latitude</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+16"/>
-        <source>Longitude</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+17"/>
-        <source>What is here? (optional)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+9"/>
-        <source>The coordinates and this description are sent to the room as an ordinary message. Lightning does not know where you are — it sends exactly what is typed here.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+13"/>
-        <source>Latitude must be between -90 and 90, and longitude between -180 and 180.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+9"/>
-        <source>Cancel</source>
-        <translation type="unfinished">Atšaukti</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Send</source>
-        <translation type="unfinished">Siųsti</translation>
     </message>
 </context>
 <context>

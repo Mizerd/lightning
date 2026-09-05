@@ -8,7 +8,6 @@
 
 #include "matrix/MockMatrixClient.h"
 #include "matrix/RustTimelineIngest.h"
-#include "models/MessageComposer.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -31,26 +30,6 @@ QJsonObject locationItem(const QString &body, double lat, double lon,
     }
     return o;
 }
-
-// A client that records what it was asked to send.
-class SendingClient final : public MockMatrixClient
-{
-    Q_OBJECT
-public:
-    bool supportsSendLocation() const override { return true; }
-    int calls = 0;
-    double lastLat = 0.0;
-    double lastLon = 0.0;
-    QString lastDescription;
-    void sendLocation(const QString &, double lat, double lon,
-                      const QString &description) override
-    {
-        ++calls;
-        lastLat = lat;
-        lastLon = lon;
-        lastDescription = description;
-    }
-};
 
 const QString kRoom = QStringLiteral("!r:example.org");
 
@@ -136,53 +115,6 @@ private Q_SLOTS:
         QVERIFY(bare.locationDescription.isEmpty());
     }
 
-    // The composer refuses the same points the bridge would, so the UI can
-    // disable its own button rather than sending and being told no.
-    void theComposerRefusesAPointThatIsNotOnEarth()
-    {
-        SendingClient client;
-        MessageComposer composer;
-        composer.setClient(&client);
-        composer.setRoomId(QStringLiteral("!r:example.org"));
-        QVERIFY(composer.locationSupported());
-
-        QVERIFY(composer.locationIsValid(51.5, -0.12));
-        QVERIFY(composer.locationIsValid(0.0, 0.0));
-        QVERIFY(composer.locationIsValid(-90.0, -180.0));
-        QVERIFY(composer.locationIsValid(90.0, 180.0));
-        QVERIFY(!composer.locationIsValid(91.0, 0.0));
-        QVERIFY(!composer.locationIsValid(0.0, 181.0));
-        QVERIFY(!composer.locationIsValid(qQNaN(), 0.0));
-        QVERIFY(!composer.locationIsValid(qInf(), 0.0));
-
-        composer.sendLocation(91.0, 0.0, QStringLiteral("nowhere"));
-        QCOMPARE(client.calls, 0);
-
-        composer.sendLocation(51.5, -0.12, QStringLiteral("The pub"));
-        QCOMPARE(client.calls, 1);
-        QCOMPARE(client.lastDescription, QStringLiteral("The pub"));
-    }
-
-    // A location sent while the composer holds a thread root would land in
-    // the ROOM — the bridge's send path uses the room timeline — and a
-    // thread reply appearing in the main timeline is §8's first invariant.
-    void aLocationIsNeverSentWhileTheComposerIsInAThread()
-    {
-        SendingClient client;
-        MessageComposer composer;
-        composer.setClient(&client);
-        composer.setRoomId(QStringLiteral("!r:example.org"));
-        composer.beginThreadReply(QStringLiteral("$root:example.org"),
-                                  QStringLiteral("the root"));
-
-        composer.sendLocation(51.5, -0.12, QStringLiteral("The pub"));
-        QVERIFY2(client.calls == 0,
-                 "a location sent from a thread would land in the room");
-
-        composer.cancelReplyOrEdit();
-        composer.sendLocation(51.5, -0.12, QStringLiteral("The pub"));
-        QCOMPARE(client.calls, 1);
-    }
 };
 
 QTEST_MAIN(LocationMessageTest)

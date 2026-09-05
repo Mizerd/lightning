@@ -1769,6 +1769,19 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   `\u{1F590}\u{FE0F}`, lowered by redacting it. Three lanes (our send, two
   sync handlers, one bounded join-time sweep for hands raised before we
   arrived).
+- **The `room_list malformed diff rejected` storm is BACK on one account
+  (2026-09-05, reported from a live log).** `4185a92` fixed it by keeping
+  Space ids out of `m_roomOrder`; a session on `test_matrix.smetonis.net`
+  logged the rejection twelve times in a minute — `room_list_set` and one
+  `room_list_insert` — each requesting a fresh snapshot, which is the
+  documented shape of the loop (every re-emit refetches the room list's
+  avatars). NOT reproduced on `lightningtest` (13 rooms, no Spaces) in two
+  sessions the same day, and nothing in the v0.9.0 round touches the room
+  list. So it is account-shape dependent — the leading suspicion is an
+  invite, a knock or a left room in that account's list drifting the SDK's
+  index the way appended Spaces once did — and it needs a capture of the
+  REJECTED DIFF (op, index, the id it collided with) before a fix, not a
+  theory. Do not re-apply the Space exclusion; that one is still in place.
 - **Full screen opens on the primary monitor**, not the one the app is on.
   Investigated 2026-09-04 (Task A §6) and NOT changed: `placeOnThisApplications
   Screen()`'s arithmetic is already self-consistent in Qt's own space, and its

@@ -204,10 +204,23 @@ Popup {
         ignoreNotice = ""
         modReasonField.text = ""
         inviteBackChecked = true
+        policyReason = ""
+        policyMatched = false
         _refreshModeration()
         _refreshIgnored()
         open()
     }
+
+    // v0.9.0 policy lists. Whether a list THIS ACCOUNT FOLLOWS covers the
+    // person, asked on open and answered asynchronously. This is the surface
+    // that makes the feature's promise true — "Lightning tells you when
+    // someone is covered by a list you follow, and you decide" — and the
+    // deciding is the Ignore item in the overflow menu, deliberately the same
+    // action as always, because a followed list is somebody else's judgement
+    // and nothing here acts on it by itself (docs/feature-contracts.md,
+    // 'Policy lists').
+    property bool policyMatched: false
+    property string policyReason: ""
 
     // v0.7.x account-wide ignore (m.ignored_user_list). Recomputed on the
     // controller's revision because a plain binding cannot observe a
@@ -220,6 +233,17 @@ Popup {
                       && userId.length > 0
                       && app.moderation.isIgnored(userId)
     }
+    Connections {
+        target: app.policy
+        function onCheckFinished(entity, matched, detail) {
+            if (entity !== root.userId)
+                return
+            root.policyMatched = matched
+            root.policyReason = matched && detail && detail.reason
+                                ? detail.reason : ""
+        }
+    }
+
     Connections {
         target: app.moderation
         function onStateChanged() { root._refreshIgnored() }
@@ -442,6 +466,10 @@ Popup {
         // and it refuses outright on a server without extended profiles.
         if (app.bio)
             app.bio.request(userId)
+        // Same discipline again: a check is a network read of every followed
+        // list, so it happens on the open edge, never in a binding.
+        if (app.policy && app.policy.available && !isOwn)
+            app.policy.check("user", userId)
     }
 
     contentItem: ColumnLayout {
@@ -1428,6 +1456,28 @@ Popup {
                         }
                     }
                 }
+            }
+
+            // v0.9.0: a followed moderation list covers this person. Shown
+            // as INFORMATION with the reason the list gives, not acted on:
+            // the Ignore item in the overflow menu is the user's decision.
+            // The reason is text written by whoever runs that list — never
+            // markup.
+            Label {
+                objectName: "profilePolicyNotice"
+                visible: root.policyMatched && !root.isOwn
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                text: root.policyReason.length > 0
+                      ? qsTr("On a moderation list you follow — %1")
+                            .arg(root.policyReason)
+                      : qsTr("On a moderation list you follow.")
+                color: AppTheme.warning
+                font.pixelSize: AppTheme.textMeta
+                font.weight: AppTheme.weightStrong
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
+                wrapMode: Text.Wrap
             }
 
             // v0.7.x: account-wide ignore. The ACTION lives in the chip

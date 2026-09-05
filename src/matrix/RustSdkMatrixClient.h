@@ -355,9 +355,6 @@ public:
                               const QString &body, const QString &mimetype,
                               quint64 width, quint64 height, quint64 size,
                               quint64 opId) override;
-    bool supportsSendLocation() const override { return true; }
-    void sendLocation(const QString &roomId, double lat, double lon,
-                      const QString &description) override;
     bool supportsPolicyLists() const override { return true; }
     void fetchPolicyRules(const QString &roomId, quint64 opId) override;
     void writePolicyRule(const QString &roomId, const QString &kind,

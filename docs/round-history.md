@@ -126,6 +126,15 @@ mistakes cost.
 - **A removed policy rule is an empty content object**, and must not parse as
   a rule with an empty entity — which matches nothing under a careful matcher
   and EVERYTHING under a careless one.
+- **A desktop "share my location" is "paste a link", so it was removed the
+  day it was built.** The first version had latitude/longitude fields
+  because a desktop has no better input; the maintainer's reaction was
+  "why would I not just send the map link directly?", and the honest answer
+  is that they would. Wrapping the link in an `m.location` bought a native
+  pin on phones and cost a dialog, a menu item and a code path — not worth
+  it. RECEIVING stayed, because that is interop with the phones people
+  actually use. Generalise: before building an input for a desktop, ask what
+  the user would type into it and whether the composer already accepts that.
 - **An unreadable coordinate must be ABSENT, not 0,0.** Zero is a real spot in
   the Atlantic; a UI reading it draws a confident link to the wrong place. And
   0,0 is itself a real place, so the flag exists rather than a magic-value

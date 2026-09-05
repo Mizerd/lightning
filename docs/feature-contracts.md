@@ -1211,6 +1211,14 @@ from showing that a list covers someone and offering to act. Lightning
 already has ignore (`m.ignored_user_list`, server-side and account-wide) and
 kick/ban/unban; this feeds them. The dialog says so, and a test pins it.
 
+WHERE it tells you: the member profile popover asks the controller on open
+(`app.policy.check("user", …)`) and, when a followed list covers the person,
+shows "On a moderation list you follow — <the list's reason>" beside the
+existing ignore report. The action is the popover's ordinary Ignore item,
+deliberately unchanged. Until 2026-09-05 the check existed with NO caller —
+the README's "Lightning tells you" was not true on screen — which is worth
+remembering as a shape: a controller method proves nothing about a surface.
+
 Details that decide whether a REAL list is readable at all:
 
 * `recommendation` crosses as a STRING, not an enum. ruma models
@@ -1244,13 +1252,17 @@ it is STILL CURRENT (`is_live()` checks the flag AND `ts + timeout`; showing
 an expired share as live tells the reader somebody is somewhere they may have
 left).
 
-SENDING a static location is implemented (`Share a place…` in the composer's
-attach menu). **Sending a LIVE location is deliberately not.** A desktop has
-no position source; `send_location_beacon` exists to be called repeatedly
+**SENDING is deliberately not implemented, in either form.** A static send
+from a desktop is "paste a map link", which an ordinary message already is;
+wrapping it in an `m.location` bought a native pin on phones and cost a
+dialog, a menu item and a code path, and the maintainer judged that not worth
+it (2026-09-05 — a first version with coordinate fields was built and
+removed the same day). A LIVE send would be worse than absent: a desktop has
+no position source, `send_location_beacon` exists to be called repeatedly
 with new positions, and a "live" share that never moves is a lie told to
 everyone in the room under a banner saying otherwise.
 
-Two rules:
+Two rules on the receive side:
 
 * **An unreadable or out-of-range point leaves the coordinates ABSENT, never
   0,0.** A geo URI is a field of a message anyone can send. Zero is a real
@@ -1267,7 +1279,6 @@ Two rules:
   `xdg-open`.
 
 ruma parses no geo URIs (`LocationContent::new` takes a `String`), so
-`rust/src/location.rs` owns the parser and the builder, and they agree — a
-point Lightning would refuse to render is one it can never send.
+`rust/src/location.rs` owns the parser.
 
 Live validation: **NOT TESTED**.

@@ -37,9 +37,9 @@ the room's own power level allows it. Forward several messages to several rooms
 at once, with or without naming where they came from, and be told which copies
 failed rather than a single "sent". Search uses the homeserver's own index in
 unencrypted rooms and the loaded timeline in encrypted ones, and says which it is
-doing — a server cannot search ciphertext. Share a place as a real
-`m.location` message, and read the ones other people send — including live
-shares, which say whether they are still current.
+doing — a server cannot search ciphertext. Locations
+that other people send from their phones — including live shares — render as
+a card with a map link and, for a live share, whether it is still current.
 
 **Moderation and safety.** Mjolnir-style policy lists: read a room's published
 ban rules, publish and remove your own where the room's power level allows,

@@ -4983,9 +4983,22 @@ Item {
                 imageBox.isRasterImage && model.mediaSourceAvailable === true
                 && app.mediaBridge.supported && !imageBox.pendingMedia
             property bool starred: false
+            // `app` resolved DEFENSIVELY, exactly as commit 30ee39b does for
+            // the receipt chips. This runs from Component.onCompleted, and a
+            // delegate built synchronously from inside a property-change
+            // handler can see a POISONED context lookup for the one
+            // unqualified `app` it evaluates first. §16 listed this site as
+            // "structurally exposed, not observed failing" — a real session
+            // log on 2026-09-05 then showed exactly
+            //   MessageDelegate.qml: ReferenceError: app is not defined
+            //   (exception occurred during delayed function evaluation)
+            // from this line. Guarded rather than reordered: the canary
+            // pattern is the recorded fix and reordering `app` references
+            // just moves which one absorbs the poisoned lookup.
             function refreshStarredState() {
-                imageBox.starred = imageBox.starEligible
-                    && app.isChatGifStarred(model.mediaKey || "")
+                var a = (typeof app !== "undefined" && app) ? app : null
+                imageBox.starred = imageBox.starEligible && a !== null
+                    && a.isChatGifStarred(model.mediaKey || "")
             }
             Component.onCompleted: {
                 refreshBridgeSource()

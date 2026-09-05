@@ -220,15 +220,6 @@ public:
     // non-empty when the acting delegate lives in the thread panel, so the
     // backend can route through the thread-focused timeline. Aggregation
     // and permission enforcement stay SDK/server-side.
-    /// Send a STATIC location into the composer's current context.
-    ///
-    /// Only static — see MatrixClient::sendLocation. Refuses a point that is
-    /// not on Earth here as well as in the bridge, so the UI can disable its
-    /// own button rather than sending and being told no.
-    Q_INVOKABLE bool locationSupported() const;
-    Q_INVOKABLE bool locationIsValid(double lat, double lon) const;
-    Q_INVOKABLE void sendLocation(double lat, double lon,
-                                  const QString &description);
     Q_INVOKABLE bool pollsSupported() const;
     Q_INVOKABLE void votePoll(const QString &pollEventId,
                               const QStringList &answerIds,

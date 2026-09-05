@@ -6,14 +6,18 @@
 //! an IP address would be inaccurate AND a privacy decision nobody asked
 //! for. So:
 //!
-//! * RECEIVING both kinds is implemented in full. It needs no position.
-//! * SENDING a static location is implemented: the user supplies the point,
-//!   which is the ordinary "the restaurant is here" case.
-//! * SENDING a LIVE location is deliberately NOT implemented.
+//! * RECEIVING both kinds is implemented in full. It needs no position, and
+//!   it is the half with real value: Element X and Element mobile send
+//!   `m.location` and live shares from phones, and before this they arrived
+//!   here as "unsupported" with body text.
+//! * SENDING is deliberately NOT implemented, in either form. A static send
+//!   from a desktop is "paste a map link", which an ordinary message already
+//!   is; wrapping it in an event bought a native pin on phones and cost a
+//!   dialog and a menu item, and the maintainer judged that not worth it
+//!   (2026-09-05). A LIVE send would be worse than absent:
 //!   `Room::send_location_beacon` exists to be called repeatedly with new
 //!   positions, and a live share that never moves is a lie told to everyone
-//!   in the room under a banner that says otherwise. A button for it would
-//!   be worse than its absence.
+//!   in the room under a banner that says otherwise.
 //!
 //! # Parsing is ours
 //!
@@ -79,22 +83,6 @@ pub(crate) fn parse_geo_uri(uri: &str) -> Option<GeoPoint> {
             .filter(|v| v.is_finite() && *v >= 0.0)
     });
     Some(GeoPoint { lat, lon, uncertainty_m })
-}
-
-/// Build a `geo:` URI from coordinates, for sending. `None` when they are
-/// not a real point on Earth.
-///
-/// Six decimal places is about 0.1 m at the equator — far finer than any
-/// desktop user's input — and stopping there keeps a hand-entered coordinate
-/// from being published with fifteen digits of false precision.
-pub(crate) fn geo_uri(lat: f64, lon: f64) -> Option<String> {
-    if !lat.is_finite() || !lon.is_finite() {
-        return None;
-    }
-    if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lon) {
-        return None;
-    }
-    Some(format!("geo:{lat:.6},{lon:.6}"))
 }
 
 /// Put a location's fields on a timeline event.
@@ -177,27 +165,6 @@ mod tests {
         assert!(parse_geo_uri("geo:51.5008").is_none());
         assert!(parse_geo_uri("").is_none());
         assert!(parse_geo_uri("geo:abc,def").is_none());
-    }
-
-    #[test]
-    fn building_a_uri_refuses_the_same_points_parsing_does() {
-        // The two must agree, or Lightning can send something it would then
-        // refuse to render.
-        assert_eq!(geo_uri(51.5008, -0.1247).as_deref(),
-                   Some("geo:51.500800,-0.124700"));
-        assert!(geo_uri(91.0, 0.0).is_none());
-        assert!(geo_uri(0.0, 181.0).is_none());
-        assert!(geo_uri(f64::NAN, 0.0).is_none());
-        assert!(geo_uri(f64::INFINITY, 0.0).is_none());
-
-        // Round trip: everything this builds, the parser accepts.
-        for (lat, lon) in [(0.0, 0.0), (-90.0, -180.0), (90.0, 180.0),
-                           (51.5008, -0.1247)] {
-            let uri = geo_uri(lat, lon).unwrap();
-            let back = parse_geo_uri(&uri).unwrap();
-            assert!((back.lat - lat).abs() < 1e-5, "{uri}");
-            assert!((back.lon - lon).abs() < 1e-5, "{uri}");
-        }
     }
 
     #[test]

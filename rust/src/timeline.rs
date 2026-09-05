@@ -1272,69 +1272,6 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// Send a STATIC location (`m.location`, MSC3488).
-    ///
-    /// Only static. `Room::send_location_beacon` exists to be called
-    /// repeatedly with new positions, and this client has no position
-    /// source — a "live" share that never moves is a lie told to everyone in
-    /// the room under a banner that says otherwise. See rust/src/location.rs.
-    ///
-    /// The URI is BUILT here from validated numbers rather than accepted as
-    /// a string, so a point Lightning would refuse to render is one it can
-    /// never send either.
-    pub fn send_location(
-        self: &Arc<Self>,
-        runtime: &tokio::runtime::Runtime,
-        room_id: String,
-        lat: f64,
-        lon: f64,
-        description: String,
-    ) -> Result<(), String> {
-        let Some(uri) = crate::location::geo_uri(lat, lon) else {
-            return Err("that is not a point on Earth".to_owned());
-        };
-        let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
-            return Err("No live timeline is open for that room.".to_owned());
-        };
-        // The BODY is what a client with no map shows, so it must stand on
-        // its own. The user's description when they gave one; the coordinates
-        // otherwise — never an empty string, which would render as a blank
-        // message everywhere that does not know what a location is.
-        let body = if description.trim().is_empty() {
-            format!("{lat:.5}, {lon:.5}")
-        } else {
-            description.trim().chars().take(500).collect()
-        };
-        let registry = Arc::clone(self);
-        let events = Arc::clone(&self.events);
-        runtime.spawn(async move {
-            use matrix_sdk::ruma::events::room::message::{
-                LocationMessageEventContent, MessageType, RoomMessageEventContent,
-            };
-            // `new` fills the legacy fields AND the extensible ones, so a
-            // client of either generation reads it.
-            let location = LocationMessageEventContent::new(body, uri);
-            let message =
-                RoomMessageEventContent::new(MessageType::Location(location));
-            let content = AnyMessageLikeEventContent::RoomMessage(message);
-            if timeline.send(content).await.is_err()
-                && registry.is_current(room_gen, lifecycle)
-            {
-                enqueue(
-                    &events,
-                    json!({
-                        "type": "timeline_send_failed",
-                        "room_id": room_id,
-                        "room_generation": room_gen,
-                        "lifecycle": lifecycle,
-                        "category": "rejected",
-                    }),
-                );
-            }
-        });
-        Ok(())
-    }
-
     /// v0.5.9: send an attachment through the SDK timeline. The send queue
     /// path (`use_send_queue`) provides an SDK-owned local echo that flows
     /// through the existing diff stream — sending, sent and failed states

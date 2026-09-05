@@ -889,7 +889,6 @@ set(APP_QML_FILES
     qml/JumpToDateDialog.qml
     qml/StickerPackEditor.qml
     qml/StickerPicker.qml
-    qml/ShareLocationDialog.qml
     qml/PolicyListDialog.qml
     qml/QrLoginDialog.qml
     qml/QuickSwitcher.qml

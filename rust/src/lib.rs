@@ -6493,27 +6493,6 @@ pub unsafe extern "C" fn mx_rust_stickers_add_to_user_pack(
     })
 }
 
-/// Send a STATIC location. Only static — see rust/src/location.rs for why a
-/// client with no position source must not offer a live share.
-#[no_mangle]
-pub unsafe extern "C" fn mx_rust_send_location(
-    ptr: *mut c_void,
-    room_id: *const c_char,
-    lat: f64,
-    lon: f64,
-    description: *const c_char,
-) -> *mut c_char {
-    ffi_string(|| {
-        let bridge = unsafe { bridge(ptr)? };
-        let room_id = unsafe { cstr_arg(room_id) }?;
-        let description = unsafe { cstr_arg(description) }?;
-        bridge
-            .timelines
-            .send_location(&bridge.runtime, room_id, lat, lon, description)
-            .map(|_| String::new())
-    })
-}
-
 // ── Policy lists (Mjolnir-style moderation) ────────────────────────────
 //
 // Read a policy room's rules, publish or remove one, subscribe to a list,

@@ -619,25 +619,6 @@ public:
         Q_UNUSED(mimetype); Q_UNUSED(width); Q_UNUSED(height);
         Q_UNUSED(size); Q_UNUSED(opId);
     }
-    /// Send a STATIC location, `m.location` (MSC3488). v0.9.0.
-    ///
-    /// Only static, and that is a decision rather than a gap: a live share
-    /// (MSC3672) exists to be updated with new positions, and this client
-    /// has no position source — a "live" share that never moves is a lie
-    /// told to everyone in the room under a banner that says otherwise.
-    /// RECEIVING a live share is fully supported.
-    ///
-    /// Coordinates are validated and the `geo:` URI is built on the Rust
-    /// side, so a point Lightning would refuse to render is one it can never
-    /// send. Backends without it do nothing.
-    virtual bool supportsSendLocation() const { return false; }
-    virtual void sendLocation(const QString &roomId, double lat, double lon,
-                              const QString &description)
-    {
-        Q_UNUSED(roomId); Q_UNUSED(lat); Q_UNUSED(lon);
-        Q_UNUSED(description);
-    }
-
     // ── Policy lists, Mjolnir-style (v0.9.0) ────────────────────────────
     //
     // `m.policy.rule.*` state published in a room. Reading needs a raw
