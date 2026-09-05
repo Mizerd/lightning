@@ -15,6 +15,8 @@
 //   Rooms    >                                           Subspace   >
 //     room 1
 //     room 2
+//   Direct Messages >
+//     person 1
 //
 // This is Sable's model, matched deliberately. The rail carries Home, a
 // People tab and then every Space; picking one decides WHICH of the three
@@ -36,6 +38,12 @@
 // made the People filter chip produce nothing. Both problems are gone once
 // DMs have a tab of their own — the DM group does not need to survive a
 // scope, and Home does not need to repeat what the rail already shows.
+//
+// 2026-09-05: Home lists the joined DMs AGAIN, as a Direct Messages group of
+// its own after Rooms, because the maintainer asked for them there ("listed
+// under rooms but keep a separate people dms tab too"). That is a second
+// listing of the same conversations, not a scope: the tab stays the complete
+// list and keeps the DM invites, and a Space view still never carries one.
 //
 // Deliberate consequences, each one tested:
 //
@@ -242,6 +250,10 @@ public:
     /// Space's child, so a DM can never appear under a Space heading.
     static QString directsGroupId() { return QStringLiteral("@directs"); }
     static QString roomsGroupId() { return QStringLiteral("@rooms"); }
+    /// Home's own Direct Messages group (2026-09-05): the joined DMs listed
+    /// again under Rooms. Collapsed independently of `directsGroupId()`,
+    /// which is the tab's group.
+    static QString homeDirectsGroupId() { return QStringLiteral("@home-directs"); }
     /// The People group inside a SPACE view: the DMs you have with people who
     /// are in that Space. A different group from `directsGroupId()`, and it
     /// has to be — the two are collapsed independently, and one of them is a

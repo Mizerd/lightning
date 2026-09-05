@@ -215,7 +215,7 @@ ItemDelegate {
             active: root.channelName.length > 0
             anchors.left: roomAvatar.right
             anchors.leftMargin: 8
-            anchors.right: callGlyph.left
+            anchors.right: favouriteStar.left
             anchors.rightMargin: 6
             anchors.verticalCenter: parent.verticalCenter
             sourceComponent: Label {
@@ -227,6 +227,76 @@ ItemDelegate {
                 font.pixelSize: AppTheme.textBody
                 font.weight: root.readsUnread && !root.muted ? AppTheme.weightMedium : AppTheme.weightBody
                 color: root.active ? AppTheme.channelSelectedText : (root.muted ? AppTheme.channelCategoryText : (root.readsUnread ? AppTheme.channelTextUnread : AppTheme.channelText))
+            }
+        }
+
+        // The favourite star (2026-09-05 request): FILLED while the room is
+        // a favourite — favourites rise to the top of their group and nothing
+        // said why — an EMPTY outline while the row is hovered, inviting one,
+        // and a click toggles the same m.favourite tag the row's menu writes.
+        // Between the name and the call glyph so the unread pill never
+        // moves; a row that is neither favourite nor hovered has no star and
+        // reserves no width. Drawn rather than a glyph: the bundled icon
+        // subset is instanced at FILL 0, so it has only the outline, and one
+        // path drawn twice keeps the two states the same shape.
+        Loader {
+            id: favouriteStar
+            objectName: "channelFavouriteStar"
+            readonly property bool shown:
+                app.roomList.roomFavouritesSupported === true && !root.isInvite
+                && (root.isFavourite || root.hovered)
+            active: shown
+            visible: active
+            width: active ? 16 : 0
+            height: 16
+            anchors.right: callGlyph.left
+            anchors.rightMargin: callGlyph.width > 0 ? 6 : 0
+            anchors.verticalCenter: parent.verticalCenter
+            sourceComponent: Item {
+                Canvas {
+                    id: starCanvas
+                    anchors.fill: parent
+                    antialiasing: true
+                    readonly property bool filled: root.isFavourite
+                    readonly property color ink: root.isFavourite
+                        ? AppTheme.accent
+                        : (root.active ? AppTheme.channelSelectedText
+                                       : AppTheme.channelCategoryText)
+                    onFilledChanged: requestPaint()
+                    onInkChanged: requestPaint()
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.reset()
+                        var cx = width / 2, cy = height / 2
+                        var outer = width / 2 - 1.5, inner = outer * 0.47
+                        ctx.beginPath()
+                        for (var i = 0; i < 10; ++i) {
+                            var r = (i % 2 === 0) ? outer : inner
+                            var a = -Math.PI / 2 + i * Math.PI / 5
+                            var x = cx + r * Math.cos(a), y = cy + r * Math.sin(a)
+                            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+                        }
+                        ctx.closePath()
+                        ctx.lineJoin = "round"
+                        if (filled) {
+                            ctx.fillStyle = ink
+                            ctx.fill()
+                        } else {
+                            ctx.lineWidth = 1.4
+                            ctx.strokeStyle = ink
+                            ctx.stroke()
+                        }
+                    }
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    anchors.margins: -4
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.setFavourite(!root.isFavourite)
+                }
+                Accessible.role: Accessible.Button
+                Accessible.name: root.isFavourite ? qsTr("Remove from favourites")
+                                                  : qsTr("Add to favourites")
             }
         }
 

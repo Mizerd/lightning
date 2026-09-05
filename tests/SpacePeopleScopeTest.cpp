@@ -425,10 +425,12 @@ private Q_SLOTS:
         f.select(SpaceManager::peopleId());
         QTRY_VERIFY(namesOf(f.model).contains(QStringLiteral("Ada")));
         QVERIFY(namesOf(f.model).contains(QStringLiteral("Zoe")));
-        // Home still carries no DMs at all.
+        // Home lists EVERY joined DM again since 2026-09-05 (its own Direct
+        // Messages group, at the maintainer's request): the scope is the
+        // Space view's alone.
         f.select(SpaceManager::allRoomsId());
-        QTRY_VERIFY(!namesOf(f.model).contains(QStringLiteral("Ada")));
-        QVERIFY(!namesOf(f.model).contains(QStringLiteral("Zoe")));
+        QTRY_VERIFY(namesOf(f.model).contains(QStringLiteral("Ada")));
+        QVERIFY(namesOf(f.model).contains(QStringLiteral("Zoe")));
     }
 
     void aRosterIsAnAnswerAboutOneAccount()

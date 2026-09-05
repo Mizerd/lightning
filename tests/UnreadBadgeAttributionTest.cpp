@@ -192,7 +192,7 @@ private slots:
 
     void directMessageUnreadReachesTheDirectMessagesTile();
     void directMessageHighlightReachesTheDirectMessagesTile();
-    void homeStopsCountingDirectMessagesOnceTheyHaveTheirOwnTile();
+    void homeCountsTheDirectMessagesItListsAgain();
     void homeStopsCountingRoomsThatBelongToASpace();
     void classicHomeStillCountsEverythingBecauseItListsEverything();
     void otherRoomsTileCountsTheRoomsItLists();
@@ -282,14 +282,20 @@ void UnreadBadgeAttributionTest::directMessageHighlightReachesTheDirectMessagesT
 
 // ── B. Home counted what Home cannot show ────────────────────────────────
 
-void UnreadBadgeAttributionTest::homeStopsCountingDirectMessagesOnceTheyHaveTheirOwnTile()
+void UnreadBadgeAttributionTest::homeCountsTheDirectMessagesItListsAgain()
 {
     load(workspace(0, 0, /*dm*/ 3), /*channels*/ true);
 
-    QCOMPARE(railUnread(*m_rail).value(SpaceManager::allRoomsId()), 0);
-    // The reason it must be 0: Home does not list the DM.
-    QVERIFY(!channelRoomIds(*m_channels, SpaceManager::allRoomsId())
-                 .contains(kDm));
+    // Until 2026-09-05 this was 0, because Home did not list the DM once it
+    // had a tile of its own. Home lists the joined DMs again now (a Direct
+    // Messages group after Rooms, at the maintainer's request), so its badge
+    // counts them again — a badge counts what its view lists, and a room in
+    // two views is counted by both tiles, exactly as a room under two Spaces
+    // already is.
+    QCOMPARE(railUnread(*m_rail).value(SpaceManager::allRoomsId()), 3);
+    QVERIFY(channelRoomIds(*m_channels, SpaceManager::allRoomsId())
+                .contains(kDm));
+    QCOMPARE(railUnread(*m_rail).value(SpaceManager::peopleId()), 3);
 }
 
 void UnreadBadgeAttributionTest::homeStopsCountingRoomsThatBelongToASpace()
@@ -348,6 +354,7 @@ void UnreadBadgeAttributionTest::everyUnreadIsReachableFromSomeTile()
         { kGeneral, kWork },
         { kLoose,   SpaceManager::orphansId() },
         { kDm,      SpaceManager::peopleId() },
+        { kDm,      SpaceManager::allRoomsId() }, // listed at Home too (2026-09-05)
     };
 
     for (const auto &pair : expected) {
@@ -361,13 +368,14 @@ void UnreadBadgeAttributionTest::everyUnreadIsReachableFromSomeTile()
     }
 
     // Nothing may be counted into a tile that cannot show it. Home keeps the
-    // loose room — it lists that one — and must drop the other two, so its
-    // total is exactly the unparented unread and not the account's.
-    QCOMPARE(unread.value(SpaceManager::allRoomsId()), 1);
+    // loose room and, since 2026-09-05, the DM — it lists both — and must
+    // drop the Space's room, so its total is those two and not the
+    // account's.
+    QCOMPARE(unread.value(SpaceManager::allRoomsId()), 2);
     const QStringList home =
         channelRoomIds(*m_channels, SpaceManager::allRoomsId());
     QVERIFY(home.contains(kLoose));
-    QVERIFY(!home.contains(kDm));
+    QVERIFY(home.contains(kDm));
     QVERIFY(!home.contains(kGeneral));
 }
 

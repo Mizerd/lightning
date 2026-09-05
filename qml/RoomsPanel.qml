@@ -467,6 +467,12 @@ Rectangle {
                 readonly property bool spaceView:
                     app.spaceChannels
                     && app.spaceChannels.viewKind === "space"
+                // Home carries a Direct Messages group of its own since
+                // 2026-09-05, so the People chip means something there too:
+                // that group alone.
+                readonly property bool homeView:
+                    app.spaceChannels
+                    && app.spaceChannels.viewKind === "home"
                 // THE mapping, in one place. The chip below reads it and so
                 // does the Binding that drives the model — they used to carry
                 // separate copies, and adding People to the chip row without
@@ -477,17 +483,17 @@ Rectangle {
                     const stored = app.settings.roomFilterMode
                     if (stored === 3)
                         return 3
-                    // People passes through ONLY in a Space view, where it
-                    // means that Space's people. At Home or in Direct
-                    // Messages the chip is not offered, and letting a stored
-                    // People through there would filter a view whose chip is
-                    // not on screen.
-                    if (stored === 1 && filterChips.spaceView)
+                    // People passes through where the chip is OFFERED: a
+                    // Space view (that Space's people) and Home (its Direct
+                    // Messages group). In the Direct Messages view the chip
+                    // is not on screen, and letting a stored People through
+                    // there would filter a view whose chip is not offered.
+                    if (stored === 1 && (filterChips.spaceView || filterChips.homeView))
                         return 1
                     return 0
                 }
                 model: channelsLayout
-                       ? (spaceView
+                       ? ((spaceView || homeView)
                           ? [ { label: qsTr("All"), value: 0 },
                               { label: qsTr("People"), value: 1 },
                               { label: qsTr("Unreads"), value: 3 } ]

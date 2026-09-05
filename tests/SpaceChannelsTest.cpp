@@ -328,8 +328,10 @@ private Q_SLOTS:
                                QStringLiteral("Message Search") }));
         QVERIFY2(!names.contains(QStringLiteral("Work")),
                  "Home repeated a Space the rail already lists");
-        QVERIFY2(!names.contains(QStringLiteral("Ada")),
-                 "a DM is at Home as well as in its own tab");
+        // Since 2026-09-05 Home lists the joined DMs again, as a group of
+        // its own after Rooms (homeListsTheJoinedDirectMessagesUnderRooms).
+        QVERIFY2(names.contains(QStringLiteral("Ada")),
+                 "Home lost its Direct Messages group");
         QVERIFY(names.contains(QStringLiteral("Rooms")));
         QVERIFY(names.contains(QStringLiteral("lounge")));
 
@@ -421,7 +423,7 @@ private Q_SLOTS:
     // then in a "Direct messages" group that every other view had to carry so
     // a scope could not delete it. A tab settles both: one home for a DM, and
     // no other view has to keep it reachable.
-    void directMessagesLiveInTheirOwnTabAndNowhereElse()
+    void directMessagesLiveInTheirOwnTabAndNeverUnderASpace()
     {
         Fixture f;
         f.build(workspace());
@@ -442,15 +444,64 @@ private Q_SLOTS:
                               SpaceChannelModel::RoomIdRole).toString(),
                  SpaceChannelModel::directsGroupId());
 
-        // ONE place. Neither Home nor any Space carries the DM as well.
+        // The tab is the COMPLETE list. Home lists the joined DMs again
+        // since 2026-09-05, as a Direct Messages group of its own after
+        // Rooms (the next case); a Space view never carries one, because
+        // Matrix cannot make a DM a Space's child.
         f.selectHome();
         names = namesOf(f.model);
-        QVERIFY2(!names.contains(QStringLiteral("Ada")),
-                 "the DM is at Home as well as in its own tab");
         QCOMPARE(names.mid(names.indexOf(QStringLiteral("Rooms")) + 1, 1),
                  QStringList{ QStringLiteral("lounge") });
+        QVERIFY(names.contains(QStringLiteral("Ada")));
         f.selectSpace(QStringLiteral("!work:x"));
         QVERIFY(!namesOf(f.model).contains(QStringLiteral("Ada")));
+    }
+
+    // 2026-09-05, maintainer's request: "add people dms to home page too, so
+    // they are listed under rooms but keep a separate people dms tab too".
+    // Home gains a Direct Messages group AFTER Rooms holding the joined DMs;
+    // a DM invite stays in the tab's Invites group; the People chip at Home
+    // narrows the view to that group; the tab itself is untouched.
+    void homeListsTheJoinedDirectMessagesUnderRooms()
+    {
+        Fixture f;
+        QList<RoomInfo> rooms = workspace();
+        auto pending = dm(QStringLiteral("!dm-invite:x"), QStringLiteral("Grace"));
+        pending.membership = RoomInfo::Invited;
+        rooms.append(pending);
+        f.build(rooms);
+
+        f.selectHome();
+        QStringList names = namesOf(f.model);
+        const int roomsAt = names.indexOf(QStringLiteral("Rooms"));
+        const int directsAt = names.indexOf(QStringLiteral("Direct Messages"));
+        QVERIFY2(directsAt >= 0, "Home has no Direct Messages group");
+        QVERIFY2(directsAt > roomsAt, "the Direct Messages group must follow Rooms");
+        QCOMPARE(kindsOf(f.model).at(directsAt), QStringLiteral("group"));
+        QCOMPARE(names.mid(directsAt + 1), QStringList{ QStringLiteral("Ada") });
+        QCOMPARE(f.model.data(f.model.index(directsAt, 0),
+                              SpaceChannelModel::RoomIdRole).toString(),
+                 SpaceChannelModel::homeDirectsGroupId());
+        QVERIFY(SpaceChannelModel::homeDirectsGroupId().startsWith(QLatin1Char('@')));
+        QVERIFY2(SpaceChannelModel::homeDirectsGroupId()
+                     != SpaceChannelModel::directsGroupId(),
+                 "Home's group and the tab's group must collapse independently");
+        QVERIFY2(!names.contains(QStringLiteral("Grace")),
+                 "a DM invite belongs to the tab's Invites group, not to Home");
+
+        // The People chip at Home: the Direct Messages group alone.
+        f.model.setFilterMode(1);
+        names = namesOf(f.model);
+        QVERIFY(names.contains(QStringLiteral("Ada")));
+        QVERIFY(!names.contains(QStringLiteral("lounge")));
+        QVERIFY(!names.contains(QStringLiteral("Rooms")));
+        f.model.setFilterMode(0);
+
+        // The tab is untouched: the complete list, invite included.
+        f.selectPeople();
+        names = namesOf(f.model);
+        QVERIFY(names.contains(QStringLiteral("Ada")));
+        QVERIFY(names.contains(QStringLiteral("Grace")));
     }
 
     // Every one of the four command rows carries an id the host dispatches on

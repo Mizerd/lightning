@@ -616,6 +616,7 @@ int SpaceChannelModel::buildHome(QVector<Row> &rows,
     // accepted. Nothing is dropped: every invite is in exactly one view.
     QVector<Row> invites;
     QVector<Row> unparented;
+    QVector<Row> directs;
     for (const RoomInfo &info : allRooms) {
         if (info.isSpace)
             continue;
@@ -624,8 +625,16 @@ int SpaceChannelModel::buildHome(QVector<Row> &rows,
                 invites.append(roomRow(info));
             continue;
         }
-        if (info.membership != RoomInfo::Joined || info.isDirect)
+        if (info.membership != RoomInfo::Joined)
             continue;
+        // The joined DMs, listed here AS WELL as in the People tab
+        // (2026-09-05, maintainer's request): a group of their own after
+        // Rooms. A DM invite is not repeated — it lives in the tab's Invites
+        // group, where accepting it lands.
+        if (info.isDirect) {
+            directs.append(roomRow(info));
+            continue;
+        }
         // Every joined room no Space's own view will list.
         if (m_spaces && m_spaces->roomInAnySpace(info.id))
             continue;
@@ -641,6 +650,7 @@ int SpaceChannelModel::buildHome(QVector<Row> &rows,
     // looking.
     std::sort(invites.begin(), invites.end(), byRecency);
     std::sort(unparented.begin(), unparented.end(), byRecency);
+    std::sort(directs.begin(), directs.end(), byRecency);
 
     int shown = 0;
     if (!invites.isEmpty()) {
@@ -656,6 +666,13 @@ int SpaceChannelModel::buildHome(QVector<Row> &rows,
         header.kind = GroupKind;
         header.name = tr("Rooms");
         shown += appendGroup(rows, header, unparented);
+    }
+    if (!directs.isEmpty()) {
+        Row header;
+        header.id = homeDirectsGroupId();
+        header.kind = GroupKind;
+        header.name = tr("Direct Messages");
+        shown += appendGroup(rows, header, directs);
     }
     return shown;
 }

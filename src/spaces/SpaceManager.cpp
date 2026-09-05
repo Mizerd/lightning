@@ -243,18 +243,24 @@ QVariant SpaceManager::data(const QModelIndex &index, int role) const
         case TopicRole:        return QString{};
         case AvatarUrlRole:    return QString{};
         case ChildCountRole:   return m_allRoomIds.size();
-        // A TILE COUNTS WHAT ITS VIEW LISTS. In Channels, DMs are on their
-        // own tile and a Space's rooms are on the Space's tile, and Home
-        // lists neither — so counting them here sends the user to Home
-        // looking for a message that can never appear there. Classic has no
-        // People tab and its Home lists the whole account, so there the
-        // whole-account total is the honest one.
+        // A TILE COUNTS WHAT ITS VIEW LISTS. In Channels, a Space's rooms
+        // are on the Space's tile and Home does not list them — so counting
+        // them here sends the user to Home looking for a message that can
+        // never appear there. DMs are on their own tile AND, since
+        // 2026-09-05, listed at Home again (a Direct Messages group after
+        // Rooms, at the maintainer's request), so Home counts them too: a
+        // room in two views is counted by both tiles, exactly as a room under
+        // two Spaces already is. Classic has no People tab and its Home lists
+        // the whole account, so there the whole-account total is the honest
+        // one.
         case UnreadTotalRole:
-            return m_directMessagesHaveOwnTile ? m_unparentedUnreadTotal
-                                               : m_homeUnreadTotal;
+            return m_directMessagesHaveOwnTile
+                ? m_unparentedUnreadTotal + m_peopleUnreadTotal
+                : m_homeUnreadTotal;
         case HighlightTotalRole:
-            return m_directMessagesHaveOwnTile ? m_unparentedHighlightTotal
-                                               : m_homeHighlightTotal;
+            return m_directMessagesHaveOwnTile
+                ? m_unparentedHighlightTotal + m_peopleHighlightTotal
+                : m_homeHighlightTotal;
         case LevelRole: return 0;
         case ParentSpaceIdRole: return QString{};
         case ChildSpaceCountRole: return 0;
