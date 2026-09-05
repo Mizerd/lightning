@@ -925,6 +925,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         m_rtc->discover(m_currentRoomId);
     });
 
+    // A selection belongs to the room it was started in: leaving that room
+    // leaves the mode too (2026-09-05: "when i went into another room the
+    // message select was still active" — the circles followed the reader
+    // into a room whose messages were not the ones counted).
+    connect(this, &AppController::currentRoomIdChanged, this, [this] {
+        if (m_forward && m_forward->selecting())
+            m_forward->cancelSelecting();
+    });
+
     // ── Incoming-call notification + ring ──
     connect(m_calls.get(), &CallController::incomingCallStarted, this,
             [this](const QString &roomId, const QString &callId,

@@ -101,6 +101,31 @@ private Q_SLOTS:
         settings.sync();
     }
 
+    // 2026-09-05: "when i went into another room the message select was
+    // still active". A selection belongs to the room it was started in, so
+    // leaving that room leaves the mode too.
+    void switchingRoomsEndsAMessageSelection()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+
+        const QString roomA = QStringLiteral("!mock-room:mock.local");
+        app.setCurrentRoomId(roomA);
+        app.forward()->beginSelecting(roomA);
+        QVERIFY(app.forward()->selecting());
+
+        app.setCurrentRoomId(QString());
+        QVERIFY2(!app.forward()->selecting(),
+                 "the selection followed the reader out of its room");
+        QCOMPARE(app.forward()->selectedCount(), 0);
+    }
+
     // v0.6.5: opening a room hydrates its member roster exactly once per
     // account session — the roster feeds the displayNameFor cache that
     // mention chips, reply headers, and thread summaries resolve through

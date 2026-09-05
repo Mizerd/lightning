@@ -102,12 +102,21 @@ Token activeToken(const QString &text, int cursorPos)
         cursorPos = text.length();
 
     int at = -1;
+    int spaces = 0;
     for (int i = cursorPos - 1; i >= 0; --i) {
         const QChar c = text.at(i);
         if (c == QLatin1Char('@')) {
             at = i;
             break;
         }
+        // ONE space at most: "@John Sm" is still a name being typed, but a
+        // second space means the reader has moved on to the sentence, and a
+        // popup matching "SpongeMan as a true profes…" against nobody sat
+        // over the composer until the message was sent (2026-09-05 report).
+        // Element allows no space at all; one keeps two-word names
+        // completable.
+        if (c.isSpace() && ++spaces > 1)
+            return tok;
         if (!isQueryChar(c))
             return tok; // an invalid character before the cursor: no token
         if (cursorPos - i > kMaxQuery)

@@ -70,6 +70,15 @@ private slots:
         QVERIFY(t.active);
         QCOMPARE(t.query, QStringLiteral("John Sm"));
 
+        // A SECOND space ends the token: the reader has moved on to the
+        // sentence, and the popup must not follow them through it
+        // (2026-09-05: "@SpongeMan as a true profes…" matched against
+        // nobody, over the composer, for the whole message).
+        QVERIFY(!activeToken(QStringLiteral("@SpongeMan as a"), 15).active);
+        QVERIFY(!activeToken(QStringLiteral("@SpongeMan as a true profesional"), 32).active);
+        // Up to the second space it is still a name.
+        QVERIFY(activeToken(QStringLiteral("@SpongeMan as"), 13).active);
+
         // A query longer than 40 characters is not an active token.
         const QString longQuery = QStringLiteral("@") + QString(41, QChar('a'));
         QVERIFY(!activeToken(longQuery, longQuery.length()).active);

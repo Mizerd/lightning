@@ -301,6 +301,16 @@ Item {
         }
         var plain = richInput.getText(0, richInput.length)
         var tok = app.composer.mentionTokenAt(plain, richInput.cursorPosition)
+        // A COMPLETED pill is an anchor in the document, not a token. The
+        // markdown editor records each inserted mention as a ref and
+        // mentionTokenAt() refuses a token overlapping one; the rich editor
+        // records nothing there, so the scan kept finding the pill's own "@"
+        // and reopened the popup on every keystroke after it, matching the
+        // rest of the sentence against nobody (2026-09-05 screenshot).
+        if (tok && tok.active === true
+                && richInput.getFormattedText(tok.start, tok.start + 1)
+                       .indexOf("matrix.to/#/") >= 0)
+            tok = { active: false }
         if (tok && tok.active === true) {
             root.mentionTokenStart = tok.start
             app.mentionSuggestions.roomId = app.currentRoomId
