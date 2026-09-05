@@ -259,8 +259,13 @@ private Q_SLOTS:
         const QString decl = bar.mid(menu, 900);
         QVERIFY2(decl.contains(QStringLiteral("y: -height - 4")),
                  "the menu must bind its y above the composer");
-        QVERIFY2(decl.contains(QStringLiteral("parent: root")),
-                 "above the COMPOSER, not the button inside it");
+        QVERIFY2(decl.contains(QStringLiteral("parent: composerCard")),
+                 "above the composer CARD, the way the GIF picker anchors");
+        QVERIFY2(decl.contains(QStringLiteral("x: Math.max(0, composerCard.width - width)")),
+                 "right-aligned through the card's observable width, so a "
+                 "resize moves it");
+        QVERIFY2(!decl.contains(QStringLiteral("mapToItem")),
+                 "mapToItem() is not observable: it parked the menu at x = 0");
     }
 
     // "why is the lock so far away from the room name": the name label was

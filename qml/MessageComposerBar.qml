@@ -3069,13 +3069,14 @@ Item {
     AppMenu {
         id: sendOptionsMenu
         objectName: "composerSendOptionsMenu"
-        // Above the WHOLE composer, right-aligned to its button, as bindings:
-        // `height` is 0 until the menu's content is first built, so these
-        // re-evaluate the moment it is known and the menu never lands on the
-        // bar. `x` reads `width` for the same reason.
-        parent: root
-        x: Math.max(0, sendOptionsButton.mapToItem(root, sendOptionsButton.width, 0).x
-                       - width)
+        // Anchored the way the GIF picker is (AnchoredPopup): parented to the
+        // composer CARD and right-aligned to it through the card's own width,
+        // which is observable — so the menu follows a window resize. A
+        // mapToItem() call is not observable and evaluated before the button
+        // was laid out, which parked the menu at x = 0 (reported). `height`
+        // is 0 until the content is first built, so `y` is a binding too.
+        parent: composerCard
+        x: Math.max(0, composerCard.width - width)
         y: -height - 4
         AppMenuItem {
             objectName: "composerSendLaterMenuItem"
