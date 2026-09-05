@@ -6938,7 +6938,7 @@ Ukuran: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+76"/>
+        <location line="+83"/>
         <source>The sign-in took too long and the code expired. Start again to get a new one.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6950,6 +6950,11 @@ Ukuran: %3</translation>
     <message>
         <location line="+2"/>
         <source>Those digits did not match. The two devices are not talking to each other — start again rather than retyping.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>This device has no recovery set up, so it has no keys to send. Set up recovery and backup first, then try again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

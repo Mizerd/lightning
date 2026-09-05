@@ -94,12 +94,23 @@ impl Default for QrLoginState {
 /// and URLs, and a category is what a message can be written from.
 fn classify(err: &str) -> &'static str {
     let lower = err.to_ascii_lowercase();
-    if lower.contains("expired") || lower.contains("timeout") || lower.contains("timed out") {
-        "expired"
-    } else if lower.contains("cancel") {
-        "cancelled"
+    // THIS ONE FIRST, and it is the case a real attempt actually hits.
+    //
+    // `QRCodeGrantLoginError::MissingSecretsBackup` is what an account with
+    // no cross-signing or key backup gets — the whole point of the flow is to
+    // send the new device those secrets, and there are none to send. Found by
+    // running it: the generic "could not be completed" is true and useless,
+    // because the fix is one button away on the same settings page.
+    if lower.contains("secrets backup") || lower.contains("secret backup") {
+        "no_secrets"
     } else if lower.contains("checkcode") || lower.contains("check code") {
         "check_code"
+    } else if lower.contains("cancel") {
+        "cancelled"
+    } else if lower.contains("expired") || lower.contains("timeout")
+        || lower.contains("timed out") || lower.contains("not found")
+    {
+        "expired"
     } else if lower.contains("unsupported") || lower.contains("not supported")
         || lower.contains("endpoint")
     {
@@ -219,6 +230,12 @@ pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
         }
         match outcome {
             Ok(()) => emit(&events, gen, json!({ "step": "done" })),
+            // The CATEGORY crosses; the error TEXT never does, because these
+            // errors quote channel state and URLs. The C++ side logs the
+            // category (QrLoginController::fail) — without that a failure was
+            // undiagnosable from a user's log, which is how a real attempt
+            // showed only the generic message with no way to tell whether the
+            // server, the account or the code was at fault.
             Err(err) => emit(
                 &events,
                 gen,
@@ -390,6 +407,21 @@ mod tests {
         assert_eq!(
             classify("NoDeviceAuthorizationEndpoint"),
             "unsupported"
+        );
+        // The case a real attempt hits: an account with no cross-signing and
+        // no key backup has no secrets to send the new device. Found by
+        // running the flow, not by reading the error list.
+        assert_eq!(classify("Secrets backup not set up"), "no_secrets");
+        // ...and it must WIN over the others, because the SDK's message for
+        // it can also mention a rendezvous session.
+        assert_eq!(
+            classify("Secrets backup not set up: session not found"),
+            "no_secrets"
+        );
+        // The rendezvous session going missing is an expiry, not a mystery.
+        assert_eq!(
+            classify("The rendezvous session was not found and might have expired"),
+            "expired"
         );
         // Anything unrecognised must NOT be reported as one of the specific
         // causes — a wrong specific reason is worse than an honest generic

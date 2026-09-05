@@ -160,6 +160,13 @@ void QrLoginController::releaseStoredCode()
 
 void QrLoginController::fail(const QString &category)
 {
+    // The CATEGORY, never the error text — the bridge does not send that, and
+    // these errors quote channel state and URLs. Logged because without it a
+    // failed sign-in is undiagnosable from a user's log: a real attempt
+    // showed only the generic message with no way to tell whether the server,
+    // the account or the code was at fault. A category is one of five fixed
+    // words and carries nothing about the account.
+    qCWarning(lcQrLogin) << "qr login failed category=" << category;
     m_state = QStringLiteral("failed");
     m_flowActive = false;
     m_qrText.clear();
@@ -176,6 +183,11 @@ void QrLoginController::fail(const QString &category)
         m_errorText = tr("Those digits did not match. The two devices are "
                          "not talking to each other — start again rather "
                          "than retyping.");
+    } else if (category == QLatin1String("no_secrets")) {
+        // The fix is one button away on the same page, so say which button.
+        m_errorText = tr("This device has no recovery set up, so it has no "
+                         "keys to send. Set up recovery and backup first, "
+                         "then try again.");
     } else if (category == QLatin1String("unsupported")) {
         m_errorText = tr("Your homeserver does not support signing in with "
                          "a code.");
