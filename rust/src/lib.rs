@@ -84,6 +84,7 @@ mod search;
 mod sso;
 mod stickers;
 mod uia;
+mod policy;
 mod presence;
 mod qrlogin;
 mod profile;
@@ -6488,6 +6489,89 @@ pub unsafe extern "C" fn mx_rust_stickers_add_to_user_pack(
             bridge, op_id, shortcode, url, body, mimetype, width, height, size,
         )
         .map(|_| String::new())
+    })
+}
+
+// ── Policy lists (Mjolnir-style moderation) ────────────────────────────
+//
+// Read a policy room's rules, publish or remove one, subscribe to a list,
+// and ask whether the subscribed lists cover an entity. Nothing here ACTS on
+// a match — see rust/src/policy.rs for why that is the user's call.
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_policy_fetch_rules(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        policy::fetch_rules(bridge, op_id, room_id).map(|_| String::new())
+    })
+}
+
+/// `recommendation` empty REMOVES the rule (an empty state event, the
+/// Mjolnir convention and the only removal Matrix state has).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_policy_write_rule(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    kind: *const c_char,
+    entity: *const c_char,
+    recommendation: *const c_char,
+    reason: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let kind = unsafe { cstr_arg(kind) }?;
+        let entity = unsafe { cstr_arg(entity) }?;
+        let recommendation = unsafe { cstr_arg(recommendation) }?;
+        let reason = unsafe { cstr_arg(reason) }?;
+        policy::write_rule(bridge, op_id, room_id, kind, entity, recommendation, reason)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_policy_subscribe(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    subscribed: c_int,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        policy::subscribe(bridge, op_id, room_id, subscribed != 0).map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_policy_subscriptions(
+    ptr: *mut c_void,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        policy::fetch_subscriptions(bridge, op_id).map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_policy_check(
+    ptr: *mut c_void,
+    kind: *const c_char,
+    entity: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let kind = unsafe { cstr_arg(kind) }?;
+        let entity = unsafe { cstr_arg(entity) }?;
+        policy::check_entity(bridge, op_id, kind, entity).map(|_| String::new())
     })
 }
 

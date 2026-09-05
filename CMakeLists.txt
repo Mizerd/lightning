@@ -690,6 +690,8 @@ set(APP_SOURCES
     src/crypto/QrImageProvider.cpp
     src/crypto/QrLoginController.h
     src/crypto/QrLoginController.cpp
+    src/app/PolicyListController.h
+    src/app/PolicyListController.cpp
     src/spaces/SpaceManager.h
     src/spaces/SpaceManager.cpp
     src/threads/ThreadManager.h
@@ -887,6 +889,7 @@ set(APP_QML_FILES
     qml/JumpToDateDialog.qml
     qml/StickerPackEditor.qml
     qml/StickerPicker.qml
+    qml/PolicyListDialog.qml
     qml/QrLoginDialog.qml
     qml/QuickSwitcher.qml
     qml/ImageViewerOverlay.qml
@@ -3216,6 +3219,18 @@ if(BUILD_TESTING)
     target_link_libraries(rtc-session-test PRIVATE Qt6::Test)
     add_test(NAME rtc-session COMMAND rtc-session-test)
     set_tests_properties(rtc-session PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # v0.9.0: Mjolnir-style policy lists — op discipline, and the decision
+    # that following a list does not enforce it.
+    qt_add_executable(policy-list-controller-test
+        tests/PolicyListControllerTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(policy-list-controller-test)
+    target_link_libraries(policy-list-controller-test PRIVATE Qt6::Test)
+    add_test(NAME policy-list-controller COMMAND policy-list-controller-test)
+    set_tests_properties(policy-list-controller PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # v0.9.0 MSC4108: the sign-in-another-device state machine.

@@ -544,6 +544,22 @@ Rectangle {
                     // the room's own details rather than in the timeline
                     // header — which already carries five icon buttons and is
                     // the first row to crowd at 125% scaling.
+                    // MODERATION RULES. Offered for every room, not only
+                    // rooms that already have some: a policy room's whole
+                    // purpose is to hold rules, and a button that appears
+                    // only once one exists cannot be used to make the first.
+                    // Whether this account may PUBLISH is decided inside, by
+                    // the room's power levels.
+                    AppButton {
+                        objectName: "roomInfoPolicyButton"
+                        visible: app.policy && app.policy.available
+                        text: qsTr("Moderation rules…")
+                        onClicked: policyListDialog.openFor(
+                            app.roomInfo.roomId, root.roomData.name || "")
+                        ToolTip.text: qsTr("Ban lists this room publishes")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                    }
                     AppButton {
                         objectName: "roomInfoExportButton"
                         text: qsTr("Export room…")
@@ -2099,5 +2115,9 @@ Rectangle {
                 }
             }
         }
+    }
+
+    PolicyListDialog {
+        id: policyListDialog
     }
 }

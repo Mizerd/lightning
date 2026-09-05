@@ -214,6 +214,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // MSC4108. Given the SAME code store verification uses: both DISPLAY one
     // code at a time, and a stale token renders nothing, so one slot is
     // correct rather than merely convenient.
+    m_policy       = std::make_unique<PolicyListController>(this);
     m_qrLogin      = std::make_unique<QrLoginController>(this);
     m_qrLogin->setQrStore(&m_qrCodeStore);
     m_richComposer = std::make_unique<RichComposerBridge>(this);
@@ -839,6 +840,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
 
     m_mediaHistory->setClient(m_client.get());
     m_qrLogin->setClient(m_client.get());
+    m_policy->setClient(m_client.get());
     // A fresh client starts with PUBLIC receipts, so the stored privacy
     // choice has to be pushed at every attachment, not only when it changes.
     applyPrivacyPreferences();

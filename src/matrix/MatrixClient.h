@@ -619,6 +619,43 @@ public:
         Q_UNUSED(mimetype); Q_UNUSED(width); Q_UNUSED(height);
         Q_UNUSED(size); Q_UNUSED(opId);
     }
+    // ── Policy lists, Mjolnir-style (v0.9.0) ────────────────────────────
+    //
+    // `m.policy.rule.*` state published in a room. Reading needs a raw
+    // /state fetch because the SDK's state store is empty for uncommon
+    // types; writing is power-level gated; the subscription list is this
+    // account's own account data.
+    //
+    // NOTHING here acts on a match. A subscribed list is somebody else's
+    // judgement, and hiding people on the strength of it — with no way to
+    // see that it happened — is a different feature from showing that a
+    // list covers someone and offering to act.
+    virtual bool supportsPolicyLists() const { return false; }
+    virtual void fetchPolicyRules(const QString &roomId, quint64 opId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(opId);
+    }
+    /// `recommendation` empty REMOVES the rule.
+    virtual void writePolicyRule(const QString &roomId, const QString &kind,
+                                 const QString &entity,
+                                 const QString &recommendation,
+                                 const QString &reason, quint64 opId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(kind); Q_UNUSED(entity);
+        Q_UNUSED(recommendation); Q_UNUSED(reason); Q_UNUSED(opId);
+    }
+    virtual void setPolicySubscribed(const QString &roomId, bool subscribed,
+                                     quint64 opId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(subscribed); Q_UNUSED(opId);
+    }
+    virtual void fetchPolicySubscriptions(quint64 opId) { Q_UNUSED(opId); }
+    virtual void checkPolicyEntity(const QString &kind, const QString &entity,
+                                   quint64 opId)
+    {
+        Q_UNUSED(kind); Q_UNUSED(entity); Q_UNUSED(opId);
+    }
+
     // ── MSC4108: sign ANOTHER device in from this one (v0.9.0) ──────────
     //
     // Lightning implements only the already-signed-in side: we show a QR a
@@ -1711,6 +1748,19 @@ Q_SIGNALS:
                               bool roomCanManage, const QVariantList &packs);
     // The result of saving a sticker into im.ponies.user_emotes. `category`
     // is "duplicate", "pack_full", or a coarse room-error class.
+    /// One policy room's rules. `truncated` says the read hit its bound —
+    /// a partial answer that does not say so reads as a complete one.
+    void policyRulesReceived(quint64 opId, bool ok, const QString &roomId,
+                             bool canWrite, bool truncated,
+                             const QVariantList &rules);
+    void policyRuleWritten(quint64 opId, bool ok, const QString &category);
+    void policySubscriptionsReceived(quint64 opId, bool ok,
+                                     const QString &category,
+                                     const QStringList &rooms);
+    /// Whether the subscribed lists cover an entity. `detail` carries
+    /// roomId, ruleEntity, ruleKind and reason when matched.
+    void policyCheckFinished(quint64 opId, const QString &entity, bool matched,
+                             const QVariantMap &detail);
     /// One step of an MSC4108 sign-in-another-device flow.
     ///
     /// `step` is the state name ("starting", "qr_ready", "check_code_needed",

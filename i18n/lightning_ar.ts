@@ -286,7 +286,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+810"/>
+        <location filename="../src/app/AppController.cpp" line="+811"/>
         <source>Room invitation</source>
         <translation>دعوة إلى غرفة</translation>
     </message>
@@ -301,7 +301,7 @@
         <translation>تمت دعوتك إلى %1</translation>
     </message>
     <message>
-        <location line="+149"/>
+        <location line="+150"/>
         <source>Incoming voice call</source>
         <translation>مكالمة صوتية واردة</translation>
     </message>
@@ -6752,6 +6752,176 @@ Size: %3</source>
     </message>
 </context>
 <context>
+    <name>PolicyListController</name>
+    <message>
+        <location filename="../src/app/PolicyListController.cpp" line="+189"/>
+        <source>That room&apos;s rules could not be read.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>You do not have permission to publish rules in this room.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>That rule could not be published.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>You are already following as many lists as Lightning supports.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>That list could not be followed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>PolicyListDialog</name>
+    <message>
+        <location filename="../qml/PolicyListDialog.qml" line="+64"/>
+        <source>Moderation rules in %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Moderation rules</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Follow this list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Following a list does not block anyone by itself. Lightning will tell you when someone is covered by a list you follow, and you decide what to do — this is somebody else&apos;s judgement, not a setting.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Reading the room&apos;s rules…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+5"/>
+        <source>%n rule(s) — this list is long and only the first were read.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>%n rule(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+45"/>
+        <source>everyone on this server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>this room</source>
+        <translation type="unfinished">هذه الغرفة</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>this user</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>ban</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>other recommendation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>%1 · %2 · %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>%1 · %2</source>
+        <translation type="unfinished">%1 · %2</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Remove</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Add a rule</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>User</source>
+        <translation type="unfinished">المستخدم</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>@someone:example.org or *.example.org</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Reason (published with the rule)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Publish</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>`*` matches any run of characters and `?` matches one. A rule and its reason are public to everyone who can read this room.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>You do not have permission to publish rules in this room, so this is a read-only view of its list.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Done</source>
+        <translation type="unfinished">تم</translation>
+    </message>
+</context>
+<context>
     <name>PopupResizeGrip</name>
     <message>
         <location filename="../qml/PopupResizeGrip.qml" line="+103"/>
@@ -7826,7 +7996,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1714"/>
+        <location line="+1730"/>
         <source>Open</source>
         <translation type="unfinished">فتح</translation>
     </message>
@@ -7836,12 +8006,22 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-362"/>
+        <location line="-378"/>
         <source>Choose your avatar for this room</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+364"/>
+        <location line="+369"/>
+        <source>Moderation rules…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Ban lists this room publishes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>Save this room&apos;s loaded messages to a file</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8755,12 +8935,12 @@ Size: %3</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2028"/>
+        <location line="+2102"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>تعذّر على Lightning إعادة ضبط الجلسة المحلية لهذا الحساب بالكامل. تحقّق من سجلات التطبيق وأذونات نظام الملفات ثم أعد المحاولة.</translation>
     </message>
     <message>
-        <location line="-2044"/>
+        <location line="-2118"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>أُعيد بناء جلسة Lightning المحلية. نُحّي مخزن التعمية السابق جانبًا ولم يُحذف، وما زال في مجلد بيانات هذا الحساب. يمكنك تسجيل الدخول مجددًا.</translation>
     </message>
@@ -8773,7 +8953,7 @@ Size: %3</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3253"/>
+        <location line="+3327"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -8782,15 +8962,15 @@ Size: %3</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-3633"/>
+        <location line="-3707"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3435"/>
+        <location line="+3509"/>
         <source>Unknown room: %1</source>
         <translation>غرفة غير معروفة: %1</translation>
     </message>
     <message>
-        <location line="-3635"/>
+        <location line="-3709"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -8802,7 +8982,7 @@ Size: %3</source>
         <translation>لا يمكن إرسال الملصق.</translation>
     </message>
     <message>
-        <location line="+877"/>
+        <location line="+951"/>
         <source>Rust SDK backend does not implement %1 yet.</source>
         <translation>خلفية Rust SDK لا تطبّق %1 بعد.</translation>
     </message>

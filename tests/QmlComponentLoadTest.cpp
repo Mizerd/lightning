@@ -41,6 +41,7 @@ constexpr const char *kComponents[] = {
     // v0.9.0 additions — the reason this suite exists now.
     "StickerPackEditor",     // pack CRUD dialog
     "QrLoginDialog",         // MSC4108 sign-in-another-device
+    "PolicyListDialog",      // Mjolnir-style moderation lists
     "CallPipWindow",         // the floating call window
     "MediaBrowser",          // room media/files/links over all history
     "ForwardSelectionDialog",

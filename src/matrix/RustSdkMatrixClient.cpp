@@ -2851,6 +2851,80 @@ void RustSdkMatrixClient::uploadStickerToUserPack(
     }
 }
 
+// ── Policy lists ───────────────────────────────────────────────────────
+
+void RustSdkMatrixClient::fetchPolicyRules(const QString &roomId, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
+        return;
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_policy_fetch_rules(m_rustHandle, room.constData(), opId));
+    if (!result.isEmpty()) {
+        Q_EMIT policyRulesReceived(opId, false, roomId, false, false, {});
+    }
+}
+
+void RustSdkMatrixClient::writePolicyRule(const QString &roomId,
+                                          const QString &kind,
+                                          const QString &entity,
+                                          const QString &recommendation,
+                                          const QString &reason, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
+        return;
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray k = kind.toUtf8();
+    const QByteArray e = entity.toUtf8();
+    const QByteArray rec = recommendation.toUtf8();
+    const QByteArray why = reason.toUtf8();
+    const QString result = takeRustString(mx_rust_policy_write_rule(
+        m_rustHandle, room.constData(), k.constData(), e.constData(),
+        rec.constData(), why.constData(), opId));
+    // A synchronous refusal still reports: the caller holds an op slot and
+    // would otherwise sit disabled forever.
+    if (!result.isEmpty())
+        Q_EMIT policyRuleWritten(opId, false, QStringLiteral("rejected"));
+}
+
+void RustSdkMatrixClient::setPolicySubscribed(const QString &roomId,
+                                              bool subscribed, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
+        return;
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_policy_subscribe(
+        m_rustHandle, room.constData(), subscribed ? 1 : 0, opId));
+    if (!result.isEmpty()) {
+        Q_EMIT policySubscriptionsReceived(opId, false,
+                                           QStringLiteral("rejected"), {});
+    }
+}
+
+void RustSdkMatrixClient::fetchPolicySubscriptions(quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle)
+        return;
+    const QString result =
+        takeRustString(mx_rust_policy_subscriptions(m_rustHandle, opId));
+    if (!result.isEmpty()) {
+        Q_EMIT policySubscriptionsReceived(opId, false,
+                                           QStringLiteral("rejected"), {});
+    }
+}
+
+void RustSdkMatrixClient::checkPolicyEntity(const QString &kind,
+                                            const QString &entity,
+                                            quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || entity.isEmpty())
+        return;
+    const QByteArray k = kind.toUtf8();
+    const QByteArray e = entity.toUtf8();
+    takeRustString(mx_rust_policy_check(m_rustHandle, k.constData(),
+                                        e.constData(), opId));
+}
+
 // ── MSC4108 sign-in-another-device ─────────────────────────────────────
 //
 // The two starters answer with the flow's generation as a decimal string;
@@ -8364,6 +8438,62 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("state_key")).toString(),
             event.value(QStringLiteral("enabled")).toBool(false));
+        return true;
+    }
+    if (type == QLatin1String("policy_rules")) {
+        QVariantList rules;
+        const QJsonArray rows = event.value(QStringLiteral("rules")).toArray();
+        for (const QJsonValue &row : rows)
+            rules.append(row.toObject().toVariantMap());
+        Q_EMIT policyRulesReceived(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("can_write")).toBool(false),
+            event.value(QStringLiteral("truncated")).toBool(false), rules);
+        return true;
+    }
+    if (type == QLatin1String("policy_rule_written")) {
+        Q_EMIT policyRuleWritten(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+    if (type == QLatin1String("policy_subscriptions")) {
+        QStringList rooms;
+        const QJsonArray raw = event.value(QStringLiteral("rooms")).toArray();
+        for (const QJsonValue &room : raw)
+            rooms.append(room.toString());
+        Q_EMIT policySubscriptionsReceived(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("category")).toString(), rooms);
+        return true;
+    }
+    if (type == QLatin1String("policy_check")) {
+        QVariantMap detail;
+        // Only the keys a MATCH carries, so a caller cannot read a stale
+        // reason off a check that found nothing.
+        if (event.value(QStringLiteral("matched")).toBool(false)) {
+            detail.insert(QStringLiteral("roomId"),
+                          event.value(QStringLiteral("room_id")).toString());
+            detail.insert(
+                QStringLiteral("ruleEntity"),
+                event.value(QStringLiteral("rule_entity")).toString());
+            detail.insert(QStringLiteral("ruleKind"),
+                          event.value(QStringLiteral("rule_kind")).toString());
+            detail.insert(QStringLiteral("reason"),
+                          event.value(QStringLiteral("reason")).toString());
+        }
+        Q_EMIT policyCheckFinished(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("entity")).toString(),
+            event.value(QStringLiteral("matched")).toBool(false), detail);
         return true;
     }
     if (type == QLatin1String("qr_login_progress")) {

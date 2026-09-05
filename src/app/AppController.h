@@ -23,6 +23,7 @@
 #include "crypto/CryptoHealthModel.h"
 #include "crypto/CryptoManager.h"
 #include "crypto/QrImageProvider.h"
+#include "app/PolicyListController.h"
 #include "crypto/QrLoginController.h"
 #include "app/TrayIcon.h"
 #include "text/SpellChecker.h"
@@ -308,6 +309,8 @@ class AppController : public QObject
     Q_PROPERTY(CryptoManager* crypto READ crypto CONSTANT)
     // MSC4108: signing another device in from this one.
     Q_PROPERTY(QrLoginController* qrLogin READ qrLogin CONSTANT)
+    // Mjolnir-style policy lists.
+    Q_PROPERTY(PolicyListController* policy READ policy CONSTANT)
     // v0.6.0 checkpoint 7: read-only E2EE health/readiness (app.cryptoHealth).
     Q_PROPERTY(CryptoHealthModel* cryptoHealth READ cryptoHealth CONSTANT)
     // v0.9 (phase 9): key-backup / recovery management (app.backup).
@@ -601,6 +604,7 @@ public:
     MediaManager *media() const;
     CryptoManager *crypto() const;
     QrLoginController *qrLogin() const { return m_qrLogin.get(); }
+    PolicyListController *policy() const { return m_policy.get(); }
     CryptoHealthModel *cryptoHealth() const { return m_cryptoHealth.get(); }
     QObject *backup() const;
     QObject *scheduledSends() const;
@@ -1468,6 +1472,7 @@ private:
     // point that drops both, and every flow-ending path calls it.
     QrCodeStore m_qrCodeStore;
     std::unique_ptr<QrLoginController> m_qrLogin;
+    std::unique_ptr<PolicyListController> m_policy;
     StagedImageStore m_stagedImages;
     ImageCropper m_imageCrop;
     TrayIcon m_tray;

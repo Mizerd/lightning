@@ -891,6 +891,23 @@ char *mx_rust_stickers_upload_to_user_pack(void *client,
  * either half — so a change takes effect at the next sign-in, not now. Takes
  * no client handle for that reason. */
 char *mx_rust_set_strict_device_trust(int enabled);
+/* Policy lists (Mjolnir-style moderation). Read a room's `m.policy.rule.*`
+ * state, publish or remove one rule (`recommendation` empty removes), manage
+ * the subscribed-list account data, and ask whether the subscribed lists
+ * cover an entity. Answers arrive as `policy_rules`, `policy_rule_written`,
+ * `policy_subscriptions` and `policy_check`. NOTHING here acts on a match:
+ * a subscribed list is somebody else's judgement and the user decides. */
+char *mx_rust_policy_fetch_rules(void *client, const char *room_id,
+                                 unsigned long long op_id);
+char *mx_rust_policy_write_rule(void *client, const char *room_id,
+                                const char *kind, const char *entity,
+                                const char *recommendation, const char *reason,
+                                unsigned long long op_id);
+char *mx_rust_policy_subscribe(void *client, const char *room_id,
+                               int subscribed, unsigned long long op_id);
+char *mx_rust_policy_subscriptions(void *client, unsigned long long op_id);
+char *mx_rust_policy_check(void *client, const char *kind, const char *entity,
+                           unsigned long long op_id);
 /* MSC4108: sign ANOTHER device in from this one. The two starters answer
  * with the flow's GENERATION as a decimal string (or an error message) and
  * then report through `qr_login_progress` poll events. `scan` takes the QR's

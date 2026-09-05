@@ -355,6 +355,16 @@ public:
                               const QString &body, const QString &mimetype,
                               quint64 width, quint64 height, quint64 size,
                               quint64 opId) override;
+    bool supportsPolicyLists() const override { return true; }
+    void fetchPolicyRules(const QString &roomId, quint64 opId) override;
+    void writePolicyRule(const QString &roomId, const QString &kind,
+                         const QString &entity, const QString &recommendation,
+                         const QString &reason, quint64 opId) override;
+    void setPolicySubscribed(const QString &roomId, bool subscribed,
+                             quint64 opId) override;
+    void fetchPolicySubscriptions(quint64 opId) override;
+    void checkPolicyEntity(const QString &kind, const QString &entity,
+                           quint64 opId) override;
     bool supportsQrLogin() const override { return true; }
     quint64 qrLoginGenerate() override;
     quint64 qrLoginScan(const QString &payload) override;
