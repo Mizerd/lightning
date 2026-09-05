@@ -3045,15 +3045,21 @@ Item {
                                       : qsTr("Send options")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
-                        // ABOVE the composer, right-aligned to this button.
-                        // A bare popup() opened at the pointer, i.e. over the
-                        // message box, hiding what was about to be sent
-                        // (reported: "could this open above the send prompt
-                        // so not to cover it all").
-                        onClicked: sendOptionsMenu.popup(
-                            sendOptionsButton,
-                            sendOptionsButton.width - sendOptionsMenu.width,
-                            -sendOptionsMenu.height - 4)
+                        // ABOVE THE WHOLE COMPOSER, right-aligned to this
+                        // button. A bare popup() opened at the pointer, over
+                        // the message box; anchoring 4 px above the BUTTON
+                        // still covered the bar, because the button sits
+                        // inside it (reported twice, with screenshots). The
+                        // menu's bottom edge now sits above the composer's
+                        // top edge, so nothing of the bar is hidden.
+                        onClicked: {
+                            const rightEdge = sendOptionsButton.mapToItem(
+                                root, sendOptionsButton.width, 0).x
+                            sendOptionsMenu.popup(
+                                root,
+                                Math.max(0, rightEdge - sendOptionsMenu.width),
+                                -sendOptionsMenu.height - 4)
+                        }
                     }
                 }
             }
