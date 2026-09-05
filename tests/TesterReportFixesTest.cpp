@@ -278,13 +278,16 @@ private Q_SLOTS:
         const int lock = pane.indexOf(QStringLiteral("id: encryptionLock"));
         QVERIFY(lock > 0);
         const QString before = pane.mid(lock - 2600, 2600);
-        QVERIFY2(before.contains(QStringLiteral("Layout.fillWidth: false")),
-                 "the room name must not fill the row");
-        QVERIFY2(before.contains(QStringLiteral("Layout.maximumWidth: header.width * 0.5")),
-                 "the cap is what still lets a long name elide");
-        QVERIFY2(!before.mid(before.indexOf(QStringLiteral("Layout.fillWidth: false")))
-                      .contains(QStringLiteral("Layout.fillWidth: true")),
-                 "no fill between the name and the lock");
+        // Fill, so a narrow header can shrink the name (a non-fill item is
+        // fixed at its preferred width and the icons drew over the title at
+        // 520 px), bounded by the text's own width so the lock hugs a short
+        // name.
+        QVERIFY2(before.contains(QStringLiteral(
+                     "Layout.maximumWidth: Math.min(header.width * 0.5, implicitWidth)")),
+                 "the name's fill must be bounded by its own text width");
+        const int cap = before.indexOf(QStringLiteral("Layout.maximumWidth: Math.min("));
+        QVERIFY2(before.mid(qMax(0, cap - 200), 200).contains(QStringLiteral("Layout.fillWidth: true")),
+                 "the name must fill so a narrow header can shrink it");
     }
 
     // "shouldn't this say the start of the text and not the end": a
@@ -302,6 +305,27 @@ private Q_SLOTS:
         QVERIFY(at > 0);
         QVERIFY2(panel.mid(at, 700).contains(QStringLiteral("cursorPosition = 0")),
                  "the topic field must rewind to its start");
+    }
+
+    // "still no images in previews, like github or gitlab": a server-route
+    // preview delivers og:image as an mxc:// the homeserver cached, and
+    // previewImageSource() takes only an inline data: payload. Both preview
+    // cards must route an mxc through the media bridge's mxc path.
+    void serverPreviewImagesGoThroughTheMediaRoute()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        int from = 0;
+        int cards = 0;
+        while (true) {
+            const int at = delegate.indexOf(QStringLiteral("if (src.indexOf(\"mxc://\") === 0)"), from);
+            if (at < 0)
+                break;
+            QVERIFY2(delegate.mid(at, 200).contains(QStringLiteral("app.mediaBridge.mxcImageSource(src, 512)")),
+                     "an mxc preview image must use the media route");
+            ++cards;
+            from = at + 1;
+        }
+        QCOMPARE(cards, 2);
     }
 
     void theReactionRowFillsItsRowSoItCanWrap()

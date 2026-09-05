@@ -999,8 +999,15 @@ Rectangle {
                             // so a long name shrinks to half the header and
                             // elides while a short one hugs its own text and
                             // the lock sits right beside it.
-                            Layout.fillWidth: false
-                            Layout.maximumWidth: header.width * 0.5
+                            // fillWidth so a NARROW header can take space
+                            // out of the name (a non-fill item is fixed at
+                            // its preferred width and cannot be shrunk — that
+                            // is how the icons ended up drawn over the title
+                            // at 520 px), with maximumWidth bounded by the
+                            // text's OWN width so a short name still hugs its
+                            // text and the lock sits right beside it.
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: Math.min(header.width * 0.5, implicitWidth)
                         }
                         Icon {
                             id: encryptionLock

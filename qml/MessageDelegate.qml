@@ -4338,10 +4338,27 @@ Item {
                 p.isGif === true && app.settings.gifAutoplay !== 2
                 ? app.mediaBridge.previewAnimatedSource(p.imageSource || "",
                                                         p.imageMime || "") : ""
-            readonly property string staticSource:
-                (p.imageSource || "").length > 0
-                ? app.mediaBridge.previewImageSource(p.imageSource || "",
-                                                     p.imageMime || "") : ""
+            // A SERVER-route preview (the homeserver's /preview_url) delivers
+            // og:image as an mxc:// URI it cached itself; previewImageSource
+            // accepts only an inline data: payload (the direct route), so
+            // every server preview drew no picture (reported: "still no
+            // images in previews, like github or gitlab"). An mxc goes
+            // through the same authenticated media route as an avatar, and
+            // the tick re-reads the binding when that fetch lands.
+            property int previewTick: 0
+            Connections {
+                target: app.mediaBridge
+                function onMediaCached(cacheKey) { previewTick += 1 }
+            }
+            readonly property string staticSource: {
+                var _ = previewTick
+                var src = p.imageSource || ""
+                if (src.length === 0)
+                    return ""
+                if (src.indexOf("mxc://") === 0)
+                    return app.mediaBridge.mxcImageSource(src, 512)
+                return app.mediaBridge.previewImageSource(src, p.imageMime || "")
+            }
 
             implicitWidth: displayWidth
             implicitHeight: Math.max(1, displayWidth * aspectRatio)
@@ -4429,10 +4446,21 @@ Item {
                 p.isGif === true && app.settings.gifAutoplay !== 2
                 ? app.mediaBridge.previewAnimatedSource(p.imageSource || "",
                                                         p.imageMime || "") : ""
-            readonly property string previewStatic:
-                (p.imageSource || "").length > 0
-                ? app.mediaBridge.previewImageSource(p.imageSource || "",
-                                                     p.imageMime || "") : ""
+            // Same mxc-or-data split as the full card above.
+            property int previewTick: 0
+            Connections {
+                target: app.mediaBridge
+                function onMediaCached(cacheKey) { previewTick += 1 }
+            }
+            readonly property string previewStatic: {
+                var _ = previewTick
+                var src = p.imageSource || ""
+                if (src.length === 0)
+                    return ""
+                if (src.indexOf("mxc://") === 0)
+                    return app.mediaBridge.mxcImageSource(src, 512)
+                return app.mediaBridge.previewImageSource(src, p.imageMime || "")
+            }
             readonly property real fullW: Math.min(400, bubble.width - 8)
             // The consent gate is ONE band, so it sizes to its own content
             // instead of claiming the full preview width for a link nobody
