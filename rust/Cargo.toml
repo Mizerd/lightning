@@ -116,11 +116,17 @@ unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(ruma_unstable_exhaustive_types)',
 ] }
 
+# UNWIND, not abort. With `panic = "abort"` a panic anywhere in the Rust
+# side — including inside matrix-sdk — aborts the whole desktop app. On
+# 2026-09-05 matrix-sdk 0.18's event cache hit an `.expect("failed to remove
+# an event")` (InvalidItemIndex { index: 99 } while deduplicating a sync) and
+# took Lightning down mid-chat, although the SDK runs that task under its own
+# TaskMonitor with catch_unwind precisely so a panic there is contained.
+# Every FFI entry point in src/lib.rs is wrapped in catch_unwind (the
+# `ffi_*` helpers), so no panic ever unwinds across the C boundary; tokio
+# tasks and our own threads are contained the same way. Abort bought nothing
+# and cost the session.
 [profile.release]
 lto = true
 codegen-units = 1
-panic = "abort"
 strip = "symbols"
-
-[profile.dev]
-panic = "abort"
