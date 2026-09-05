@@ -6,6 +6,7 @@ import json
 import pathlib
 import re
 import shutil
+import sys
 import subprocess
 
 SYSROOT = pathlib.Path("/usr/x86_64-w64-mingw32/sys-root/mingw")
@@ -78,6 +79,23 @@ QML_RUNTIME_ENTRIES = (
 # from this msvcrt toolchain's, so they import libstdc++ symbols the staged
 # libstdc++-6.dll does not export (docs/windows-packaging.md).
 GSTREAMER_PLUGIN_DIR = "gstreamer-1.0"
+# Plugins the builder image MAY carry. Staged when present, logged when not,
+# never fatal — for a plugin the shipped app does not yet use.
+#
+# libgstjpeg.dll was added to packaging/windows/Dockerfile on 2026-09-02 and
+# to the required list at the same time, but the builder image on the runner
+# host is built by hand under a fixed tag (docs/windows-runner-operations.md,
+# "Changing the builder image") and was never rebuilt — so the 0.9.0 release
+# died twice in `build-windows` on "required GStreamer plugin is missing from
+# the builder image". Requiring it was premature: Lightning's camera chain
+# (src/calls/SfuMediaEngine.cpp, captureEntryFilter) still cannot negotiate
+# image/jpeg, so the decoder would be staged and never loaded. Move it back
+# to GSTREAMER_PLUGINS the moment the app half lands AND the image is rebuilt
+# under a new tag; both, or the next release dies the same way.
+OPTIONAL_GSTREAMER_PLUGINS = (
+    "libgstjpeg.dll",              # jpegdec (MJPG camera modes)
+)
+
 GSTREAMER_PLUGINS = (
     "libgstapp.dll",               # appsink, appsrc
     "libgstaudioconvert.dll",      # audioconvert
@@ -118,7 +136,8 @@ GSTREAMER_PLUGINS = (
     # of Qt and libgstopengl. A DLL of the right name is not the element: the
     # same distinction that shipped Windows for months with libgstsctp-1.0-0
     # present and `sctpenc` missing.
-    "libgstjpeg.dll",              # jpegdec (MJPG camera modes)
+    # jpegdec (libgstjpeg.dll) is OPTIONAL below, not here — see
+    # OPTIONAL_GSTREAMER_PLUGINS.
     "libgstsrtp.dll",              # srtpenc, srtpdec, used inside dtlssrtp*
     # glupload, glcolorconvert, glcolorscale, gldownload — the opt-in GPU
     # scale path for a screen share (LIGHTNING_SHARE_GPU=1).
@@ -249,6 +268,18 @@ def main() -> None:
                 f"(voice and video calls would be dead in the package): {source}"
             )
         shutil.copy2(source, gstreamer_destination / name)
+    staged_optional = []
+    for name in OPTIONAL_GSTREAMER_PLUGINS:
+        source = SYSROOT / "lib/gstreamer-1.0" / name
+        if source.is_file():
+            shutil.copy2(source, gstreamer_destination / name)
+            staged_optional.append(name)
+        else:
+            print(
+                "WARNING: optional GStreamer plugin is not in the builder image "
+                f"and was not staged (rebuild the image to ship it): {name}",
+                file=sys.stderr,
+            )
 
     qwindows = args.stage / "plugins/platforms/qwindows.dll"
     qtmultimedia = args.stage / "qml/QtMultimedia/quickmultimediaplugin.dll"
@@ -330,7 +361,8 @@ def main() -> None:
         "application": "Lightning.exe",
         "update_helper": "lightning-updater.exe",
         "gstreamer_plugins": sorted(
-            f"{GSTREAMER_PLUGIN_DIR}/{name}" for name in GSTREAMER_PLUGINS
+            f"{GSTREAMER_PLUGIN_DIR}/{name}"
+            for name in (*GSTREAMER_PLUGINS, *staged_optional)
         ),
         "pe_files": sorted(str(p.relative_to(args.stage)) for p in scanned),
         "imports": dict(sorted(graph.items())),
