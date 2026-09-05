@@ -184,11 +184,14 @@ private Q_SLOTS:
         const QString block = delegate.mid(start, end - start);
         QVERIFY(block.contains(QStringLiteral("radius: AppTheme.radiusTile")));
         QVERIFY(block.contains(QStringLiteral("border.color: AppTheme.borderStrong")));
-        // Four buttons now: Hide (image and sticker rows only), React, Reply,
-        // More. Hide leads, which is where Element's own bar puts it on an
-        // image row — it is the only action there that is about the picture
-        // rather than about the message.
-        QCOMPARE(block.count(QStringLiteral("radius: AppTheme.radiusControl")), 4);
+        // Five buttons now: Hide (image and sticker rows only), React, Reply,
+        // Edit (own editable messages only, 2026-09-05), More. Hide leads,
+        // which is where Element's own bar puts it on an image row — it is
+        // the only action there that is about the picture rather than about
+        // the message.
+        QCOMPARE(block.count(QStringLiteral("radius: AppTheme.radiusControl")), 5);
+        QVERIFY2(block.contains(QStringLiteral("objectName: \"messageEditButton\"")),
+                 "the Edit control is not on the action bar");
         QVERIFY2(block.contains(QStringLiteral("objectName: \"messageHideMediaButton\"")),
                  "the local hide-image control is not on the action bar");
         // v0.7 perf round: the menu is created lazily, so the open state is

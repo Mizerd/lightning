@@ -95,6 +95,16 @@ Window {
     readonly property string pinnedIdentityShown:
         root.stageState ? root.stageState.pinnedIdentity : ""
 
+    // "Fill the window with the share" (2026-09-05 request): the popout
+    // shows ONLY the share, edge to edge, so it can live on a second monitor
+    // as a dedicated share window while the main window stays on the room.
+    // Off again with the same button, and dropped on its own when the share
+    // ends. Local state of this window: the stage's spotlight is untouched.
+    property bool shareFills: false
+    readonly property bool shareFillActive:
+        root.shareFills && root.groupLive && root.shareIdShown.length > 0
+    onShareIdShownChanged: if (root.shareIdShown.length === 0) root.shareFills = false
+
     // NO TRANSIENT PARENT, and this is load-bearing rather than tidy.
     //
     // A Window declared inside another Window gets that one as its
@@ -181,12 +191,45 @@ Window {
             // main stage's tiles are gone — see the header. The grid is
             // bound to the REAL models, so a share whose track key fills in
             // after its row appears still attaches its sink.
+            // The share alone, when asked for. A Repeater over the share
+            // model rather than a lookup: the tile's inputs are the model's
+            // own roles, and only the row that is the share shown gets a
+            // size — the others stay invisible and empty.
+            Repeater {
+                id: shareFillTiles
+                objectName: "pipShareFill"
+                model: root.shareFillActive ? root.shareModel : null
+                delegate: Item {
+                    id: fillCell
+                    required property int index
+                    required property string shareId
+                    required property string ownerIdentity
+                    required property string ownerDisplayName
+                    required property string trackKey
+                    required property bool local
+                    readonly property bool shown: fillCell.shareId === root.shareIdShown
+                    anchors.fill: parent
+                    visible: shown
+                    CallShareTile {
+                        anchors.fill: parent
+                        visible: fillCell.shown
+                        shareId: fillCell.shareId
+                        ownerIdentity: fillCell.ownerIdentity
+                        ownerDisplayName: fillCell.ownerDisplayName
+                        trackKey: fillCell.trackKey
+                        local: fillCell.local
+                        compact: true
+                        focused: true
+                    }
+                }
+            }
+
             Loader {
                 id: pipGrid
                 objectName: "pipGrid"
                 anchors.fill: parent
                 anchors.margins: AppTheme.spacing4
-                active: root.visible && root.groupLive
+                active: root.visible && root.groupLive && !root.shareFillActive
                 visible: active
                 sourceComponent: CallTileGrid {
                     shareModel: root.shareModel
@@ -280,6 +323,19 @@ Window {
                         else
                             app.calls.toggleDeafened()
                     }
+                }
+                CallControlButton {
+                    objectName: "pipShareFillButton"
+                    visible: root.groupLive && root.shareIdShown.length > 0
+                    iconName: root.shareFillActive ? "close_fullscreen"
+                                                   : "fit_screen"
+                    role: root.shareFillActive ? "active" : "neutral"
+                    diameter: 30
+                    glyphSize: 17
+                    tooltip: root.shareFillActive
+                             ? qsTr("Show everyone again")
+                             : qsTr("Fill this window with the share")
+                    onClicked: root.shareFills = !root.shareFills
                 }
                 CallControlButton {
                     objectName: "pipRestoreButton"

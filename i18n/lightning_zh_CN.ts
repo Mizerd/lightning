@@ -394,7 +394,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+811"/>
+        <location filename="../src/app/AppController.cpp" line="+814"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -444,7 +444,7 @@
         <translation>你错过了 %1 中的一通语音通话</translation>
     </message>
     <message>
-        <location line="+304"/>
+        <location line="+306"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>房间已创建，但未能将其添加到空间。</translation>
     </message>
@@ -1371,12 +1371,12 @@
 <context>
     <name>CallPipWindow</name>
     <message>
-        <location filename="../qml/CallPipWindow.qml" line="+108"/>
+        <location filename="../qml/CallPipWindow.qml" line="+118"/>
         <source>Lightning call</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="+142"/>
         <source>Call in progress</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1408,7 +1408,17 @@
         <translation type="unfinished">聋哑人</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+17"/>
+        <source>Show everyone again</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Fill this window with the share</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Back to Lightning</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4853,18 +4863,19 @@ Size: %3</source>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+478"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+510"/>
         <source>Profile for %1</source>
         <translation>%1 的个人资料</translation>
     </message>
     <message>
-        <location line="+624"/>
+        <location line="+279"/>
+        <location line="+407"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>无法获取在线状态</translation>
     </message>
     <message>
-        <location line="-815"/>
+        <location line="-877"/>
         <source>Invited</source>
         <translation>已邀请</translation>
     </message>
@@ -4884,7 +4895,7 @@ Size: %3</source>
         <translation>个人资料链接已复制</translation>
     </message>
     <message>
-        <location line="+647"/>
+        <location line="+704"/>
         <source>Bio</source>
         <translation>简介</translation>
     </message>
@@ -4899,7 +4910,7 @@ Size: %3</source>
         <translation>复制个人资料链接</translation>
     </message>
     <message>
-        <location line="+71"/>
+        <location line="+76"/>
         <source>Administrator</source>
         <translation>管理员</translation>
     </message>
@@ -4929,7 +4940,7 @@ Size: %3</source>
         <translation>复制用户 ID</translation>
     </message>
     <message>
-        <location line="-341"/>
+        <location line="-346"/>
         <source>Message</source>
         <translation>发消息</translation>
     </message>
@@ -4939,7 +4950,7 @@ Size: %3</source>
         <translation>与 %1 开始或打开私聊</translation>
     </message>
     <message>
-        <location line="+328"/>
+        <location line="+333"/>
         <source>Copy Matrix ID %1</source>
         <translation>复制 Matrix ID %1</translation>
     </message>
@@ -5048,7 +5059,7 @@ Size: %3</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-1238"/>
+        <location line="-1300"/>
         <source>Matrix ID copied</source>
         <translation>已复制 Matrix ID</translation>
     </message>
@@ -5406,12 +5417,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+351"/>
+        <location line="+352"/>
         <source>Emoji</source>
         <translation>表情</translation>
     </message>
     <message>
-        <location line="-303"/>
+        <location line="-304"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
@@ -5423,12 +5434,12 @@ Size: %3</source>
     <message>
         <location line="+39"/>
         <location line="+1"/>
-        <location line="+278"/>
+        <location line="+279"/>
         <source>Record a voice message</source>
         <translation>录制语音消息</translation>
     </message>
     <message>
-        <location line="-3051"/>
+        <location line="-3052"/>
         <source>A recording is already in progress.</source>
         <translation>已有录音正在进行。</translation>
     </message>
@@ -5438,7 +5449,7 @@ Size: %3</source>
         <translation>语音录制不可用。</translation>
     </message>
     <message>
-        <location line="+2788"/>
+        <location line="+2789"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">更多</translation>
@@ -5485,17 +5496,17 @@ Size: %3</source>
         <translation>发送</translation>
     </message>
     <message>
-        <location line="+137"/>
+        <location line="+130"/>
         <source>Scheduled messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-138"/>
+        <location line="-131"/>
         <source>Save edit</source>
         <translation>保存修改</translation>
     </message>
     <message>
-        <location line="-229"/>
+        <location line="-230"/>
         <source>Insert a GIF or sticker</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5506,7 +5517,7 @@ Size: %3</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+311"/>
+        <location line="+312"/>
         <source>GIFs and stickers</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5532,8 +5543,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+62"/>
-        <location line="+21"/>
+        <location line="+76"/>
         <source>Send later…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5551,7 +5561,7 @@ Size: %3</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+836"/>
+        <location filename="../qml/MessageDelegate.qml" line="+854"/>
         <source>Today</source>
         <translation>今天</translation>
     </message>
@@ -5599,12 +5609,12 @@ Size: %3</source>
     <message>
         <location line="+117"/>
         <location line="+1096"/>
-        <location line="+910"/>
+        <location line="+940"/>
         <source>Reply</source>
         <translation>回复</translation>
     </message>
     <message>
-        <location line="-1986"/>
+        <location line="-2016"/>
         <source>(original message not loaded)</source>
         <translation>（原消息未加载）</translation>
     </message>
@@ -5698,12 +5708,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+2215"/>
+        <location line="+2245"/>
         <source>Retry</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location line="-2178"/>
+        <location line="-2208"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
@@ -5714,12 +5724,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+215"/>
-        <location line="+1206"/>
+        <location line="+1236"/>
         <source>Hide image</source>
         <translation>隐藏图像</translation>
     </message>
     <message>
-        <location line="-1202"/>
+        <location line="-1232"/>
         <source>Hide</source>
         <translation>隐藏</translation>
     </message>
@@ -5739,7 +5749,12 @@ Size: %3</source>
         <translation>回复消息</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+26"/>
+        <source>Edit message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+26"/>
         <source>More message actions</source>
         <translation>更多消息操作</translation>
     </message>
@@ -5871,12 +5886,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2151"/>
+        <location line="+2166"/>
         <source>Save as…</source>
         <translation>另存为…</translation>
     </message>
     <message>
-        <location line="-2121"/>
+        <location line="-2136"/>
         <source>Show image</source>
         <translation>显示图片</translation>
     </message>
@@ -5912,7 +5927,8 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="-1229"/>
+        <location line="+1236"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
@@ -6024,12 +6040,12 @@ Size: %3</source>
         <translation>回复对象</translation>
     </message>
     <message>
-        <location line="-1872"/>
+        <location line="-1902"/>
         <source>Show preview</source>
         <translation>显示预览</translation>
     </message>
     <message>
-        <location line="+2026"/>
+        <location line="+2056"/>
         <location line="+118"/>
         <source>Dismiss link preview</source>
         <translation>关闭链接预览</translation>
@@ -6066,7 +6082,7 @@ Size: %3</source>
         <translation>无法预览</translation>
     </message>
     <message>
-        <location line="+622"/>
+        <location line="+637"/>
         <source>Remove from saved</source>
         <translation>取消保存</translation>
     </message>
@@ -15144,7 +15160,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+794"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+828"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 将显示名称从“%2”改为“%3”，并更换了头像。</translation>
     </message>
@@ -15194,7 +15210,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 started a call.</translation>
     </message>
     <message>
-        <location line="+1179"/>
+        <location line="+1223"/>
         <source>%1 is typing…</source>
         <translation>%1 正在输入…</translation>
     </message>
@@ -15235,12 +15251,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5900"/>
+        <location line="+5939"/>
         <source>Space</source>
         <translation>空间</translation>
     </message>
     <message>
-        <location line="-5899"/>
+        <location line="-5938"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
@@ -15295,12 +15311,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4506"/>
+        <location line="+4545"/>
         <source>Room information</source>
         <translation>房间信息</translation>
     </message>
     <message>
-        <location line="-4285"/>
+        <location line="-4324"/>
         <source>This room has been upgraded.</source>
         <translation>此房间已升级。</translation>
     </message>
@@ -15475,7 +15491,7 @@ Note: importing keys does not verify this session.</source>
         <translation>搜索无法完成。</translation>
     </message>
     <message>
-        <location line="+3558"/>
+        <location line="+3597"/>
         <source>Loading older messages…</source>
         <translation>正在加载更早的消息…</translation>
     </message>
@@ -15974,7 +15990,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TrayIcon</name>
     <message numerus="yes">
-        <location filename="../src/app/TrayIcon.cpp" line="+178"/>
+        <location filename="../src/app/TrayIcon.cpp" line="+182"/>
         <source>%n unread message(s)</source>
         <comment>system tray tooltip</comment>
         <translation>
@@ -16578,7 +16594,7 @@ Note: importing keys does not verify this session.</source>
         <translation>它没有</translation>
     </message>
     <message>
-        <location line="+67"/>
+        <location line="+73"/>
         <source>Accept</source>
         <translation>接受</translation>
     </message>
@@ -16935,7 +16951,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+1340"/>
+        <location filename="../src/main.cpp" line="+1352"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>原生 Qt/QML Matrix 客户端。后端：--backend={mock,http,rust}。默认：rust（在没有 Rust SDK 的构建中为 http）。</translation>
     </message>

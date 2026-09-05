@@ -469,6 +469,88 @@ private Q_SLOTS:
         QVERIFY2(card.contains(QStringLiteral("audioSpeedMenu")),
                  "the speed control must be selectable, not cycle-only");
     }
+
+    // ── 2026-09-05, the second evening on 0.9.0 ──────────────────────────
+
+    void theHoverBarOffersEdit()
+    {
+        const QString src = read(QStringLiteral("MessageDelegate.qml"));
+        const int edit = src.indexOf(QStringLiteral("objectName: \"messageEditButton\""));
+        const int more = src.indexOf(QStringLiteral("id: threadMoreButton"));
+        QVERIFY2(edit > 0, "the hover bar has no Edit button");
+        QVERIFY2(more > edit, "Edit sits before More on the bar");
+        const QString block = src.mid(edit, more - edit);
+        QVERIFY2(block.contains(QStringLiteral("canEditEvent(")),
+                 "Edit must use the same gate as the context menu's Edit");
+        QVERIFY2(block.contains(QStringLiteral("app.composer.beginEdit(")),
+                 "Edit must start the composer's edit, not a menu");
+    }
+
+    void thePopoutCanFillItselfWithTheShare()
+    {
+        const QString src = read(QStringLiteral("CallPipWindow.qml"));
+        QVERIFY(src.contains(QStringLiteral("objectName: \"pipShareFillButton\"")));
+        QVERIFY(src.contains(QStringLiteral("property bool shareFills")));
+        QVERIFY(src.contains(QStringLiteral("objectName: \"pipShareFill\"")));
+        QVERIFY2(src.contains(QStringLiteral(
+                     "active: root.visible && root.groupLive && !root.shareFillActive")),
+                 "the tile grid must step aside while the share fills the window");
+        QVERIFY2(src.contains(QStringLiteral(
+                     "onShareIdShownChanged: if (root.shareIdShown.length === 0) "
+                     "root.shareFills = false")),
+                 "the fill mode must drop when the share ends");
+    }
+
+    void theProfileCardFramesItsBannerAndSizesItsChips()
+    {
+        const QString src = read(QStringLiteral("MemberProfilePopover.qml"));
+        const int banner = src.indexOf(QStringLiteral("objectName: \"profileBanner\""));
+        QVERIFY(banner > 0);
+        const QString bannerBlock = src.mid(banner, 900);
+        QVERIFY2(bannerBlock.contains(QStringLiteral("width: parent.width - 2 * frame")),
+                 "the banner must sit inside the popover's border");
+        const int chip = src.indexOf(QStringLiteral("objectName: \"profileMembershipChip\""));
+        QVERIFY(chip > 0);
+        QVERIFY2(src.mid(chip, 400).contains(QStringLiteral("height: profileChipRow.uniformHeight")),
+                 "the membership chip must share the row's height");
+        const int dot = src.indexOf(QStringLiteral("objectName: \"profileAvatarPresenceDot\""));
+        QVERIFY(dot > 0);
+        const QString dotBlock = src.mid(dot, 2400);
+        QVERIFY2(dotBlock.contains(QStringLiteral("hoverStatus: false")),
+                 "the dot's own tooltip opens on top of the avatar");
+        QVERIFY2(dotBlock.contains(QStringLiteral("x: avatarWrap.width + AppTheme.spacing6")),
+                 "the presence tip must sit to the right of the avatar");
+        QVERIFY2(src.contains(QStringLiteral("_fillFromServer()")),
+                 "a member the roster cannot name must be asked from the server");
+        QVERIFY(src.contains(QStringLiteral("app.userProfiles.lookup(userId)")));
+    }
+
+    void mediaRowsWaitForTheBand()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(delegate.contains(QStringLiteral("readonly property bool mediaInBand")));
+        QVERIFY2(delegate.contains(QStringLiteral("if (!root.mediaInBand) return")),
+                 "an image row outside the band must not ask the bridge");
+        QVERIFY2(delegate.contains(QStringLiteral("function onMediaInBandChanged()")),
+                 "a row entering the band must ask then");
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+        QVERIFY(pane.contains(QStringLiteral("function refreshMediaBand()")));
+        // Moved at discrete moments only — never bound to contentY, which
+        // would re-run every row's comparison on every scroll frame.
+        QVERIFY(pane.contains(QStringLiteral("property real mediaBandMinY: 0")));
+        QVERIFY(pane.count(QStringLiteral("refreshMediaBand()")) >= 5);
+    }
+
+    void emojiSurfacesNameTheColourFace()
+    {
+        const QString panel = read(QStringLiteral("VerificationPanel.qml"));
+        const int symbol = panel.indexOf(QStringLiteral("text: modelData.symbol || \"\""));
+        QVERIFY(symbol > 0);
+        QVERIFY2(panel.mid(symbol, 600).contains(QStringLiteral("font.family: app.emojiFontFamily")),
+                 "verification emoji must name the colour face (Qt 6.8 fallback is monochrome)");
+        const QString icon = read(QStringLiteral("Icon.qml"));
+        QVERIFY(icon.contains(QStringLiteral("renderType: Text.NativeRendering")));
+    }
 };
 
 int main(int argc, char *argv[])

@@ -82,6 +82,24 @@ Item {
         rowOnScreen
         && (!root.timelineView
             || root.timelineView.speculativeMediaAllowed !== false)
+    // Whether this row is close enough to the viewport for its PICTURE to be
+    // worth fetching now (2026-09-05). The rows of a room are all
+    // instantiated, so before this every image in the loaded history asked
+    // the bridge for its payload the moment the room opened — hundreds of
+    // downloads, decodes and, in an encrypted room without server
+    // thumbnails, full-size files — all competing with the rows the reader
+    // was actually looking at. The pane publishes a band in content
+    // coordinates (see `refreshMediaBand` in TimelinePane.qml) and only
+    // moves it at discrete moments, so this costs one comparison per row
+    // per settle, never one per scroll frame. A host without a band
+    // (fixtures, the thread panel) is permissive.
+    readonly property bool mediaInBand: {
+        var v = root.timelineView
+        if (!v || v.mediaBandActive !== true)
+            return true
+        return root.y + root.height >= v.mediaBandMinY
+            && root.y <= v.mediaBandMaxY
+    }
 
     readonly property bool isVirtualRow: model.isVirtual === true
     readonly property bool isStateActivity: model.isStateActivity === true
@@ -2853,6 +2871,36 @@ Item {
                         }
                     }
                     IconButton {
+                        id: threadEditButton
+                        objectName: "messageEditButton"
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: AppTheme.radiusControl
+                        iconName: "edit_square"
+                        iconSize: 18
+                        // The same gate as the context menu's Edit: own,
+                        // editable text, not a local echo. Evaluated when
+                        // the bar is built for the hovered row.
+                        visible: root.timelineModel
+                                 && root.timelineModel.canEditEvent(
+                                        root.eventIdForActions())
+                        Accessible.name: qsTr("Edit message")
+                        ToolTip {
+                            visible: threadEditButton.hovered
+                            delay: 500
+                            text: qsTr("Edit")
+                            y: messageActionBar.tooltipsBelow
+                               ? threadEditButton.height + AppTheme.spacingXS
+                               : -implicitHeight - AppTheme.spacingXS
+                        }
+                        onClicked: {
+                            var id = root.eventIdForActions()
+                            app.composer.beginEdit(
+                                id,
+                                root.timelineModel.visibleTextForEvent(id),
+                                root.timelineModel.sanitizedHtmlForEvent(id))
+                        }
+                    }
+                    IconButton {
                         id: threadMoreButton
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl
@@ -4961,6 +5009,10 @@ Item {
                 // bytes already cached stay cached, and revealing takes the
                 // ordinary cache path.
                 if (root.mediaHidden) return
+                // Out of the media band: nothing is asked for yet. The
+                // band-entry Connections below asks the moment the reader
+                // settles near this row (see `mediaInBand` on the root).
+                if (!root.mediaInBand) return
                 // Fetch the animated bytes whenever autoplay is not Never, so
                 // OnHover playback starts instantly on hover.
                 if (isGif && app.settings.gifAutoplay !== 2 && !pendingMedia) {
@@ -5054,6 +5106,17 @@ Item {
                 bridgeFailed = false
                 refreshBridgeSource()
                 refreshStarredState()
+            }
+            // The reader settled near this row: ask now if nothing has been
+            // asked for yet. A row that already holds its picture (or an
+            // animated one) is left alone.
+            Connections {
+                target: root
+                function onMediaInBandChanged() {
+                    if (root.mediaInBand && imageBox.bridgeSource.length === 0
+                        && imageBox.animatedSource.length === 0)
+                        imageBox.refreshBridgeSource()
+                }
             }
             // A row created before the SDK confirmed mediaSourceAvailable/
             // bridge support keeps starEligible (and thus starred)

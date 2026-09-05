@@ -396,7 +396,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+811"/>
+        <location filename="../src/app/AppController.cpp" line="+814"/>
         <source>Room invitation</source>
         <translation>Invitation au salon</translation>
     </message>
@@ -446,7 +446,7 @@
         <translation>Vous avez manqué un appel vocal dans %1</translation>
     </message>
     <message>
-        <location line="+304"/>
+        <location line="+306"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Le salon a été créé, mais son ajout à l&apos;espace a échoué.</translation>
     </message>
@@ -1373,12 +1373,12 @@
 <context>
     <name>CallPipWindow</name>
     <message>
-        <location filename="../qml/CallPipWindow.qml" line="+108"/>
+        <location filename="../qml/CallPipWindow.qml" line="+118"/>
         <source>Lightning call</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="+142"/>
         <source>Call in progress</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1411,7 +1411,17 @@
         <translation type="unfinished">Assourdir</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+17"/>
+        <source>Show everyone again</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Fill this window with the share</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Back to Lightning</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4867,18 +4877,19 @@ Taille : %3</translation>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+478"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+510"/>
         <source>Profile for %1</source>
         <translation>Profil de %1</translation>
     </message>
     <message>
-        <location line="+624"/>
+        <location line="+279"/>
+        <location line="+407"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Présence indisponible</translation>
     </message>
     <message>
-        <location line="-815"/>
+        <location line="-877"/>
         <source>Invited</source>
         <translation>Invité</translation>
     </message>
@@ -4898,7 +4909,7 @@ Taille : %3</translation>
         <translation>Lien du profil copié</translation>
     </message>
     <message>
-        <location line="+647"/>
+        <location line="+704"/>
         <source>Bio</source>
         <translation>Biographie</translation>
     </message>
@@ -4913,7 +4924,7 @@ Taille : %3</translation>
         <translation>Copier le lien du profil</translation>
     </message>
     <message>
-        <location line="+71"/>
+        <location line="+76"/>
         <source>Administrator</source>
         <translation>Administrateur</translation>
     </message>
@@ -4943,7 +4954,7 @@ Taille : %3</translation>
         <translation>Copier l&apos;ID utilisateur</translation>
     </message>
     <message>
-        <location line="-341"/>
+        <location line="-346"/>
         <source>Message</source>
         <translation>Message</translation>
     </message>
@@ -4953,7 +4964,7 @@ Taille : %3</translation>
         <translation>Démarrer ou ouvrir une conversation privée avec %1</translation>
     </message>
     <message>
-        <location line="+328"/>
+        <location line="+333"/>
         <source>Copy Matrix ID %1</source>
         <translation>Copier l&apos;identifiant Matrix %1</translation>
     </message>
@@ -5062,7 +5073,7 @@ Taille : %3</translation>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-1238"/>
+        <location line="-1300"/>
         <source>Matrix ID copied</source>
         <translation>Identifiant Matrix copié</translation>
     </message>
@@ -5420,12 +5431,12 @@ Taille : %3</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+351"/>
+        <location line="+352"/>
         <source>Emoji</source>
         <translation>Émoji</translation>
     </message>
     <message>
-        <location line="-303"/>
+        <location line="-304"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
@@ -5437,12 +5448,12 @@ Taille : %3</translation>
     <message>
         <location line="+39"/>
         <location line="+1"/>
-        <location line="+278"/>
+        <location line="+279"/>
         <source>Record a voice message</source>
         <translation>Enregistrer un message vocal</translation>
     </message>
     <message>
-        <location line="-3051"/>
+        <location line="-3052"/>
         <source>A recording is already in progress.</source>
         <translation>Un enregistrement est déjà en cours.</translation>
     </message>
@@ -5452,7 +5463,7 @@ Taille : %3</translation>
         <translation>L&apos;enregistrement vocal est indisponible.</translation>
     </message>
     <message>
-        <location line="+2788"/>
+        <location line="+2789"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">Plus</translation>
@@ -5499,17 +5510,17 @@ Taille : %3</translation>
         <translation>Envoyer</translation>
     </message>
     <message>
-        <location line="+137"/>
+        <location line="+130"/>
         <source>Scheduled messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-138"/>
+        <location line="-131"/>
         <source>Save edit</source>
         <translation>Enregistrer la modification</translation>
     </message>
     <message>
-        <location line="-229"/>
+        <location line="-230"/>
         <source>Insert a GIF or sticker</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5520,7 +5531,7 @@ Taille : %3</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+311"/>
+        <location line="+312"/>
         <source>GIFs and stickers</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5546,8 +5557,7 @@ Taille : %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+62"/>
-        <location line="+21"/>
+        <location line="+76"/>
         <source>Send later…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5565,7 +5575,7 @@ Taille : %3</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+836"/>
+        <location filename="../qml/MessageDelegate.qml" line="+854"/>
         <source>Today</source>
         <translation>Aujourd&apos;hui</translation>
     </message>
@@ -5613,12 +5623,12 @@ Taille : %3</translation>
     <message>
         <location line="+117"/>
         <location line="+1096"/>
-        <location line="+910"/>
+        <location line="+940"/>
         <source>Reply</source>
         <translation>Répondre</translation>
     </message>
     <message>
-        <location line="-1986"/>
+        <location line="-2016"/>
         <source>(original message not loaded)</source>
         <translation>(message d&apos;origine non chargé)</translation>
     </message>
@@ -5713,12 +5723,12 @@ Taille : %3</translation>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+2215"/>
+        <location line="+2245"/>
         <source>Retry</source>
         <translation>Réessayer</translation>
     </message>
     <message>
-        <location line="-2178"/>
+        <location line="-2208"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
     </message>
@@ -5729,12 +5739,12 @@ Taille : %3</translation>
     </message>
     <message>
         <location line="+215"/>
-        <location line="+1206"/>
+        <location line="+1236"/>
         <source>Hide image</source>
         <translation>Masquer l&apos;image</translation>
     </message>
     <message>
-        <location line="-1202"/>
+        <location line="-1232"/>
         <source>Hide</source>
         <translation>Masquer</translation>
     </message>
@@ -5754,7 +5764,12 @@ Taille : %3</translation>
         <translation>Répondre au message</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+26"/>
+        <source>Edit message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+26"/>
         <source>More message actions</source>
         <translation>Plus d&apos;actions sur le message</translation>
     </message>
@@ -5886,12 +5901,12 @@ Taille : %3</translation>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2151"/>
+        <location line="+2166"/>
         <source>Save as…</source>
         <translation>Enregistrer sous…</translation>
     </message>
     <message>
-        <location line="-2121"/>
+        <location line="-2136"/>
         <source>Show image</source>
         <translation>Afficher l&apos;image</translation>
     </message>
@@ -5927,7 +5942,8 @@ Taille : %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="-1229"/>
+        <location line="+1236"/>
         <source>Edit</source>
         <translation>Modifier</translation>
     </message>
@@ -6039,12 +6055,12 @@ Taille : %3</translation>
         <translation>Cible de la réponse</translation>
     </message>
     <message>
-        <location line="-1872"/>
+        <location line="-1902"/>
         <source>Show preview</source>
         <translation>Afficher l&apos;aperçu</translation>
     </message>
     <message>
-        <location line="+2026"/>
+        <location line="+2056"/>
         <location line="+118"/>
         <source>Dismiss link preview</source>
         <translation>Ignorer l&apos;aperçu du lien</translation>
@@ -6081,7 +6097,7 @@ Taille : %3</translation>
         <translation>Aperçu indisponible</translation>
     </message>
     <message>
-        <location line="+622"/>
+        <location line="+637"/>
         <source>Remove from saved</source>
         <translation>Retirer des enregistrés</translation>
     </message>
@@ -15175,7 +15191,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+794"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+828"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 a changé son nom affiché de « %2 » en « %3 » et a changé son avatar.</translation>
     </message>
@@ -15225,7 +15241,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>%1 a démarré un appel.</translation>
     </message>
     <message>
-        <location line="+1179"/>
+        <location line="+1223"/>
         <source>%1 is typing…</source>
         <translation>%1 est en train d&apos;écrire…</translation>
     </message>
@@ -15267,12 +15283,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5900"/>
+        <location line="+5939"/>
         <source>Space</source>
         <translation>Espace</translation>
     </message>
     <message>
-        <location line="-5899"/>
+        <location line="-5938"/>
         <source>Home</source>
         <translation>Accueil</translation>
     </message>
@@ -15327,12 +15343,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4506"/>
+        <location line="+4545"/>
         <source>Room information</source>
         <translation>Informations du salon</translation>
     </message>
     <message>
-        <location line="-4285"/>
+        <location line="-4324"/>
         <source>This room has been upgraded.</source>
         <translation>Ce salon a été mis à niveau.</translation>
     </message>
@@ -15507,7 +15523,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>La recherche n&apos;a pas pu aboutir.</translation>
     </message>
     <message>
-        <location line="+3558"/>
+        <location line="+3597"/>
         <source>Loading older messages…</source>
         <translation>Chargement des messages plus anciens…</translation>
     </message>
@@ -16013,7 +16029,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>TrayIcon</name>
     <message numerus="yes">
-        <location filename="../src/app/TrayIcon.cpp" line="+178"/>
+        <location filename="../src/app/TrayIcon.cpp" line="+182"/>
         <source>%n unread message(s)</source>
         <comment>system tray tooltip</comment>
         <translation>
@@ -16618,7 +16634,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Il ne l&apos;a pas fait</translation>
     </message>
     <message>
-        <location line="+67"/>
+        <location line="+73"/>
         <source>Accept</source>
         <translation>Accepter</translation>
     </message>
@@ -16975,7 +16991,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+1340"/>
+        <location filename="../src/main.cpp" line="+1352"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Client Matrix natif Qt/QML. Backend : --backend={mock,http,rust}. Par défaut : rust (http dans les versions sans le Rust SDK).</translation>
     </message>

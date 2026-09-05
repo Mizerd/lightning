@@ -1916,6 +1916,39 @@ Rectangle {
             // height with no special case.
             Flickable {
                 id: timeline
+                // ── The media band (2026-09-05) ──────────────────────────
+                // Content-coordinate range within which rows may fetch their
+                // pictures now; rows outside it wait (MessageDelegate's
+                // `mediaInBand`). Deliberately NOT bound to contentY: every
+                // row compares itself against these two numbers, and a
+                // binding would re-run that comparison in every row on
+                // every scroll frame — the per-row-binding cost this pane
+                // has paid for before. It moves at discrete moments only:
+                // load, model reset, a viewport resize, and the settle
+                // after a gesture. Content y 0 is the NEWEST row (the
+                // Flickable is rotated), so on a fresh open the band covers
+                // the newest 2.5 viewports and reaches 1.5 viewports the
+                // other way once the reader is deep in history.
+                property real mediaBandMinY: 0
+                property real mediaBandMaxY: 0
+                readonly property bool mediaBandActive: mediaBandMaxY > mediaBandMinY
+                function refreshMediaBand() {
+                    var h = Math.max(height, 400)
+                    mediaBandMinY = contentY - h * 1.5
+                    mediaBandMaxY = contentY + h * 2.5
+                }
+                // Every kind of movement ends here — a programmatic landing
+                // (jump to event, first unread, a glide) never touches the
+                // wheel/drag settle timer, so the band would otherwise stay
+                // where the reader left it by hand. Restarting a timer per
+                // contentY change is cheap; the band itself moves once, 300
+                // ms after the last change, which is when the rows compare.
+                Timer {
+                    id: mediaBandSettle
+                    interval: 300
+                    repeat: false
+                    onTriggered: timeline.refreshMediaBand()
+                }
                 objectName: "timelineListView"
                 anchors.fill: parent
                 clip: true
@@ -4539,6 +4572,7 @@ Rectangle {
                     objectName: "scrollSettleTimer"
                     interval: 250
                     onTriggered: {
+                        timeline.refreshMediaBand()
                         timeline.updateStickAndPaginate()
                         timeline.saveRoomPosition()
                         timeline.captureViewAnchor()
@@ -4974,6 +5008,7 @@ Rectangle {
                     }
                 }
                 onHeightChanged: {
+                    refreshMediaBand()
                     maybeFillViewport()
                     recomputePresentationReady()
                     // Viewport resizes (window, right panel, find bar) keep
@@ -5107,6 +5142,7 @@ Rectangle {
                 }
 
                 onContentYChanged: {
+                    mediaBandSettle.restart()
                     // Unconditional: the activation range must track the
                     // viewport even for programmatic moves.
                     scheduleVisibleRowRange()
@@ -5133,11 +5169,13 @@ Rectangle {
                     // Scrolling settled: recompute whether we are at the
                     // bottom (return-to-bottom must clear unread — the
                     // coordinator reacts to the nearBottom binding).
+                    refreshMediaBand()
                     stickToBottom = atBottomEdge()
                     saveRoomPosition()
                     captureViewAnchor()
                 }
                 Component.onCompleted: {
+                    refreshMediaBand()
                     Qt.callLater(scrollToEndDeferred)
                     maybeFillViewport()
                     // The pane may be (re)created while a room is already
@@ -5170,6 +5208,7 @@ Rectangle {
                         // any autoscroll gesture, which survives a reset with
                         // nothing left to scroll.
                         timeline.cancelWheelMotion()
+                        timeline.refreshMediaBand()
                         root.stopAutoscroll()
                         // Any reset discards the rows these surfaces were
                         // opened from — including a same-room jump-to-live

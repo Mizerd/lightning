@@ -398,7 +398,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+811"/>
+        <location filename="../src/app/AppController.cpp" line="+814"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -448,7 +448,7 @@
         <translation>Praleidote balso skambutį %1</translation>
     </message>
     <message>
-        <location line="+304"/>
+        <location line="+306"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Kambarys buvo sukurtas, bet nepavyko jo pridėti prie erdvės.</translation>
     </message>
@@ -1375,12 +1375,12 @@
 <context>
     <name>CallPipWindow</name>
     <message>
-        <location filename="../qml/CallPipWindow.qml" line="+108"/>
+        <location filename="../qml/CallPipWindow.qml" line="+118"/>
         <source>Lightning call</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="+142"/>
         <source>Call in progress</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1414,7 +1414,17 @@
         <translation type="unfinished">Kurčias</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+17"/>
+        <source>Show everyone again</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Fill this window with the share</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Back to Lightning</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4881,7 +4891,7 @@ Dydis: %3</translation>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+299"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+331"/>
         <source>Invited</source>
         <translation>Pakviestas</translation>
     </message>
@@ -4911,7 +4921,7 @@ Dydis: %3</translation>
         <translation>%1 profilis</translation>
     </message>
     <message>
-        <location line="+415"/>
+        <location line="+472"/>
         <source>Message</source>
         <translation>Pranešimas</translation>
     </message>
@@ -4936,7 +4946,8 @@ Dydis: %3</translation>
         <translation>Kopijuoti profilio nuorodą</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="-354"/>
+        <location line="+407"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Dalyvavimas nepasiekiamas</translation>
@@ -5434,12 +5445,12 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+351"/>
+        <location line="+352"/>
         <source>Emoji</source>
         <translation>Jaustukai</translation>
     </message>
     <message>
-        <location line="-303"/>
+        <location line="-304"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
@@ -5451,12 +5462,12 @@ Dydis: %3</translation>
     <message>
         <location line="+39"/>
         <location line="+1"/>
-        <location line="+278"/>
+        <location line="+279"/>
         <source>Record a voice message</source>
         <translation>Įrašykite balso pranešimą</translation>
     </message>
     <message>
-        <location line="-3051"/>
+        <location line="-3052"/>
         <source>A recording is already in progress.</source>
         <translation>Jau vyksta įrašymas.</translation>
     </message>
@@ -5466,7 +5477,7 @@ Dydis: %3</translation>
         <translation>Balso įrašymas nepasiekiamas.</translation>
     </message>
     <message>
-        <location line="+2788"/>
+        <location line="+2789"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">Daugiau</translation>
@@ -5513,17 +5524,17 @@ Dydis: %3</translation>
         <translation>Siųsti</translation>
     </message>
     <message>
-        <location line="+137"/>
+        <location line="+130"/>
         <source>Scheduled messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-138"/>
+        <location line="-131"/>
         <source>Save edit</source>
         <translation>Išsaugoti redagavimą</translation>
     </message>
     <message>
-        <location line="-229"/>
+        <location line="-230"/>
         <source>Insert a GIF or sticker</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5534,7 +5545,7 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+311"/>
+        <location line="+312"/>
         <source>GIFs and stickers</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5560,8 +5571,7 @@ Dydis: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+62"/>
-        <location line="+21"/>
+        <location line="+76"/>
         <source>Send later…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5579,7 +5589,7 @@ Dydis: %3</translation>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+836"/>
+        <location filename="../qml/MessageDelegate.qml" line="+854"/>
         <source>Today</source>
         <translation>Šiandien</translation>
     </message>
@@ -5627,12 +5637,12 @@ Dydis: %3</translation>
     <message>
         <location line="+117"/>
         <location line="+1096"/>
-        <location line="+910"/>
+        <location line="+940"/>
         <source>Reply</source>
         <translation>Atsakyti</translation>
     </message>
     <message>
-        <location line="-1986"/>
+        <location line="-2016"/>
         <source>(original message not loaded)</source>
         <translation>(originali žinutė neįkelta)</translation>
     </message>
@@ -5733,12 +5743,12 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+2215"/>
+        <location line="+2245"/>
         <source>Retry</source>
         <translation>Bandykite dar kartą</translation>
     </message>
     <message>
-        <location line="-2178"/>
+        <location line="-2208"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
@@ -5749,12 +5759,12 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+215"/>
-        <location line="+1206"/>
+        <location line="+1236"/>
         <source>Hide image</source>
         <translation>Slėpti vaizdą</translation>
     </message>
     <message>
-        <location line="-1202"/>
+        <location line="-1232"/>
         <source>Hide</source>
         <translation>Slėpti</translation>
     </message>
@@ -5774,7 +5784,12 @@ Dydis: %3</translation>
         <translation>Atsakyti į žinutę</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+26"/>
+        <source>Edit message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+26"/>
         <source>More message actions</source>
         <translation>Daugiau pranešimų veiksmų</translation>
     </message>
@@ -5906,12 +5921,12 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2151"/>
+        <location line="+2166"/>
         <source>Save as…</source>
         <translation>Išsaugoti kaip…</translation>
     </message>
     <message>
-        <location line="-2121"/>
+        <location line="-2136"/>
         <source>Show image</source>
         <translation>Rodyti vaizdą</translation>
     </message>
@@ -5947,7 +5962,8 @@ Dydis: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="-1229"/>
+        <location line="+1236"/>
         <source>Edit</source>
         <translation>Redaguoti</translation>
     </message>
@@ -6096,7 +6112,7 @@ Dydis: %3</translation>
         <translation>Peržiūra negalima</translation>
     </message>
     <message>
-        <location line="+622"/>
+        <location line="+637"/>
         <source>Remove from saved</source>
         <translation>Pašalinti iš išsaugotų</translation>
     </message>
@@ -15206,7 +15222,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+794"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+828"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 pakeitė rodomą pavadinimą iš „%2“ į „%3“ ir pakeitė savo avatarą.</translation>
     </message>
@@ -15256,7 +15272,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>%1 pradėjo skambutį.</translation>
     </message>
     <message>
-        <location line="+1179"/>
+        <location line="+1223"/>
         <source>%1 is typing…</source>
         <translation>%1 rašo…</translation>
     </message>
@@ -15299,12 +15315,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+5900"/>
+        <location line="+5939"/>
         <source>Space</source>
         <translation>Erdvė</translation>
     </message>
     <message>
-        <location line="-5899"/>
+        <location line="-5938"/>
         <source>Home</source>
         <translation>Pradžia</translation>
     </message>
@@ -15359,12 +15375,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4506"/>
+        <location line="+4545"/>
         <source>Room information</source>
         <translation>Informacija apie kambarį</translation>
     </message>
     <message>
-        <location line="-4285"/>
+        <location line="-4324"/>
         <source>This room has been upgraded.</source>
         <translation>Šis kambarys buvo atnaujintas.</translation>
     </message>
@@ -15539,7 +15555,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Paieškos užbaigti nepavyko.</translation>
     </message>
     <message>
-        <location line="+3558"/>
+        <location line="+3597"/>
         <source>Loading older messages…</source>
         <translation>Įkeliami senesni pranešimai…</translation>
     </message>
@@ -16052,7 +16068,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>TrayIcon</name>
     <message numerus="yes">
-        <location filename="../src/app/TrayIcon.cpp" line="+178"/>
+        <location filename="../src/app/TrayIcon.cpp" line="+182"/>
         <source>%n unread message(s)</source>
         <comment>system tray tooltip</comment>
         <translation>
@@ -16658,7 +16674,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>To nepadarė</translation>
     </message>
     <message>
-        <location line="+67"/>
+        <location line="+73"/>
         <source>Accept</source>
         <translation>Priimti</translation>
     </message>
@@ -17015,7 +17031,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+1340"/>
+        <location filename="../src/main.cpp" line="+1352"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Vietinė Qt/QML Matrix programa. Posistemė: --backend={mock,http,rust}. Numatytoji: rust (versijose be Rust SDK – http).</translation>
     </message>
