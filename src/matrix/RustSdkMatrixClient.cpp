@@ -7655,11 +7655,24 @@ quint64 RustSdkMatrixClient::fetchMedia(const QString &mediaKey, int kind,
         return 0;
     const quint64 opId = nextOpId();
     const QByteArray key = mediaKey.toUtf8();
+    // Kinds 0 (full), 1 (thumb) and 2 (list thumb) all exist on the Rust
+    // side; the old clamp to 0..1 turned every list-thumbnail request into a
+    // full-thumbnail one, which for an encrypted attachment with no embedded
+    // thumbnail meant downloading the whole file to fill a 42 px tile.
     const QString result = takeRustString(mx_rust_media_fetch(
         m_rustHandle, key.constData(),
-        static_cast<unsigned int>(qBound(0, kind, 1)), opId,
+        static_cast<unsigned int>(qBound(0, kind, 2)), opId,
         static_cast<unsigned int>(qBound(0, timeoutClass, 2))));
-    return result.isEmpty() ? opId : 0;
+    if (!result.isEmpty()) {
+        // A synchronous refusal ("unknown media item", …) used to vanish
+        // into a return of 0 — a tile that stays a placeholder with nothing
+        // in the log. The reason is a constant string from the bridge; no
+        // key, path or body is in it.
+        qCWarning(lcRust) << "media fetch refused kind=" << kind
+                                << "reason=" << result;
+        return 0;
+    }
+    return opId;
 }
 
 void RustSdkMatrixClient::cancelMediaFetch(quint64 opId)

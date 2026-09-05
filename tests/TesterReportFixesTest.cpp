@@ -287,6 +287,23 @@ private Q_SLOTS:
                  "no fill between the name and the lock");
     }
 
+    // "shouldn't this say the start of the text and not the end": a
+    // TextField parks its cursor at the end when its text is set, so the
+    // Edit-room topic showed its tail. Every edit field in the panel that
+    // receives remote text rewinds when it is not being typed in.
+    void editRoomFieldsShowTheStartOfALongValue()
+    {
+        const QString panel = read(QStringLiteral("RoomInfoPanel.qml"));
+        int at = panel.indexOf(QStringLiteral("placeholderText: qsTr(\"Room name\")"));
+        QVERIFY(at > 0);
+        QVERIFY2(panel.mid(at, 700).contains(QStringLiteral("cursorPosition = 0")),
+                 "the room name field must rewind to its start");
+        at = panel.indexOf(QStringLiteral("placeholderText: qsTr(\"Topic\")"));
+        QVERIFY(at > 0);
+        QVERIFY2(panel.mid(at, 700).contains(QStringLiteral("cursorPosition = 0")),
+                 "the topic field must rewind to its start");
+    }
+
     void theReactionRowFillsItsRowSoItCanWrap()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

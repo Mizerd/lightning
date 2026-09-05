@@ -296,12 +296,27 @@ Rectangle {
 
     Connections {
         target: app
-        // Full-view Settings clears every right-side surface; exiting
-        // Settings must not restore any of them.
+        // Full-view Settings hides the whole chat shell. The info panel used
+        // to be CLOSED here and stay closed on return ("nothing reopens
+        // implicitly", 99c9e12); the maintainer reversed that once Settings
+        // opened instantly enough to visit often: "if I go to settings and
+        // back to the room it closes the preview". So the panel and its
+        // section are remembered and restored on the way back. The find bar
+        // is still closed: its query belongs to the moment it was typed.
+        property bool infoOpenBeforeSettings: false
+        property string infoSectionBeforeSettings: ""
         function onCurrentScreenChanged() {
             if (app.currentScreen === 2) {
+                infoOpenBeforeSettings = root.infoOpen
+                infoSectionBeforeSettings = root.infoOpen ? infoPanel.section : ""
                 root.infoOpen = false
                 root.searchOpen = false
+            } else if (app.currentScreen === 1 && infoOpenBeforeSettings
+                       && app.currentRoomId !== "") {
+                infoOpenBeforeSettings = false
+                if (infoSectionBeforeSettings.length > 0)
+                    infoPanel.section = infoSectionBeforeSettings
+                root.infoOpen = true
             }
         }
         function onCurrentRoomIdChanged() {

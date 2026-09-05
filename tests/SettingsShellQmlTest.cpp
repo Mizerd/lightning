@@ -807,13 +807,20 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    void openSettingsFromRoomInfoClearsThePanel()
+    // The panel is hidden with the rest of the chat shell while Settings is
+    // up, and COMES BACK with its section when Settings closes — reported:
+    // "if I go to settings and back to the room it closes the preview". It
+    // used to stay closed by design (99c9e12); the maintainer reversed that.
+    void openSettingsFromRoomInfoHidesThePanelAndRestoresIt()
     {
         auto *timeline = timelinePane();
         QVERIFY(timeline);
         // Simulate the member/info panel at the state level (its content is
         // a Rust-backend surface; the state machine is what matters here).
         QVERIFY(timeline->setProperty("infoOpen", true));
+        auto *panel = item("roomInfoPanel");
+        QVERIFY(panel);
+        QVERIFY(panel->setProperty("section", QStringLiteral("media")));
         QCOMPARE(timeline->property("rightPanelState").toString(),
                  QStringLiteral("info"));
 
@@ -821,6 +828,16 @@ private slots:
         QCoreApplication::processEvents();
         QCOMPARE(timeline->property("infoOpen").toBool(), false);
 
+        m_controller->showMain();
+        QCoreApplication::processEvents();
+        QTRY_VERIFY2(timeline->property("infoOpen").toBool(),
+                     "the panel must come back after Settings");
+        QCOMPARE(panel->property("section").toString(), QStringLiteral("media"));
+        // Close it so the rest of this case sees the old expectations.
+        QVERIFY(timeline->setProperty("infoOpen", false));
+        QCoreApplication::processEvents();
+        m_controller->showSettings();
+        QCoreApplication::processEvents();
         m_controller->showMain();
         QCoreApplication::processEvents();
         // Exiting Settings does NOT restore the panel.

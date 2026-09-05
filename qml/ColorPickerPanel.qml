@@ -207,6 +207,10 @@ Item {
             }
 
             MouseArea {
+                // A drag on the field or the hue strip must not become a Flickable
+                // scroll: hosted inline in Settings (the name-colour picker), the page
+                // used to steal the press once the pointer moved a few pixels.
+                preventStealing: true
                 anchors.fill: parent
                 onPositionChanged: (m) => field.pick(m)
                 onPressed: (m) => field.pick(m)
@@ -262,6 +266,10 @@ Item {
                 }
             }
             MouseArea {
+                // A drag on the field or the hue strip must not become a Flickable
+                // scroll: hosted inline in Settings (the name-colour picker), the page
+                // used to steal the press once the pointer moved a few pixels.
+                preventStealing: true
                 anchors.fill: parent
                 onPositionChanged: (m) => hueStrip.pick(m)
                 onPressed: (m) => hueStrip.pick(m)

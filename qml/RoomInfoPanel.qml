@@ -708,6 +708,12 @@ Rectangle {
                             Layout.minimumWidth: 60
                             Layout.fillWidth: true
                             placeholderText: qsTr("Room name")
+                            // Show the START of a long value. A TextField parks its cursor at
+                            // the end when its text is set, so a topic wider than the field
+                            // showed its tail ("…ative Matrix desktop client.") — reported.
+                            // Only while the reader is not typing here.
+                            onTextChanged: if (!activeFocus) cursorPosition = 0
+                            Component.onCompleted: cursorPosition = 0
                             text: root.roomData.name || ""
                         }
                         AppButton {
@@ -728,6 +734,12 @@ Rectangle {
                             Layout.minimumWidth: 60
                             Layout.fillWidth: true
                             placeholderText: qsTr("Topic")
+                            // Show the START of a long value. A TextField parks its cursor at
+                            // the end when its text is set, so a topic wider than the field
+                            // showed its tail ("…ative Matrix desktop client.") — reported.
+                            // Only while the reader is not typing here.
+                            onTextChanged: if (!activeFocus) cursorPosition = 0
+                            Component.onCompleted: cursorPosition = 0
                             text: root.roomData.topic || ""
                         }
                         AppButton {
@@ -840,6 +852,12 @@ Rectangle {
                             Layout.minimumWidth: 0
                             enabled: !app.roomInfo.roomProfilePending
                             placeholderText: qsTr("Your name in this room")
+                            // Show the START of a long value. A TextField parks its cursor at
+                            // the end when its text is set, so a topic wider than the field
+                            // showed its tail ("…ative Matrix desktop client.") — reported.
+                            // Only while the reader is not typing here.
+                            onTextChanged: if (!activeFocus) cursorPosition = 0
+                            Component.onCompleted: cursorPosition = 0
                         }
                         AppButton {
                             text: qsTr("Save")
