@@ -13,6 +13,7 @@
 #include <QVariantMap>
 
 class MatrixClient;
+class UserProfileResolver;
 
 class TimelineModel : public QAbstractListModel
 {
@@ -242,6 +243,10 @@ public:
     explicit TimelineModel(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
+    // Global profiles for mention targets the member snapshot cannot name
+    // (2026-09-05). Optional; without one an unknown target shows its
+    // localpart, exactly as before.
+    void setProfileResolver(UserProfileResolver *resolver);
 
     QString roomId() const { return m_roomId; }
     void setRoomId(const QString &roomId);
@@ -519,6 +524,11 @@ private Q_SLOTS:
     void onLoggedOut();
     void onTypingChanged(const QString &roomId);
     void onMembersChanged(const QString &roomId);
+    // Re-render ONLY the rows whose mention pills would now read differently
+    // (a member arrived, was renamed, or a global profile answered), and
+    // announce them by row. Shared by member hydration and the profile
+    // resolver; see the comment in onMembersChanged().
+    int refreshStaleMentionRows();
     void onPaginationStateChanged(const QString &roomId);
 
 private:
@@ -615,6 +625,19 @@ private:
     // costly part). Invalidated per event on edit/replace/redact and
     // wholesale on member hydration, theme-color change, and reload.
     mutable QHash<QString, QString> m_sanitizedHtmlCache;
+    // Every (user id -> name the render used) pair a cached sanitize walk
+    // resolved, per event. This is what makes member hydration PRECISE: a
+    // hydration re-resolves each recorded pair and forgets only the rows
+    // where an answer changed, instead of dropping every cached body and
+    // rebuilding every row (which was a full timeline relayout on each
+    // first room open — the buffering readers reported on 0.9.0).
+    mutable QHash<QString, QList<QPair<QString, QString>>> m_htmlMemberDeps;
+    UserProfileResolver *m_profiles = nullptr;
+    // The name a mention pill shows for `userId` right now: the room's own
+    // member name, else the resolver's global profile, else empty (the
+    // sanitizer then prints the localpart). `ask` lets a render request an
+    // unknown profile; a comparison must not.
+    QString mentionNameFor(const QString &userId, bool ask) const;
     std::function<QString(const QString &)> m_inlineImageResolver;
     /// True once any loaded event's formatted body carries an emoticon, so
     /// the media-arrival re-read costs nothing without one.

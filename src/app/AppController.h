@@ -33,6 +33,7 @@
 #include "profile/ProfileBannerManager.h"
 #include "profile/ProfileBadges.h"
 #include "profile/ProfileBioManager.h"
+#include "profile/UserProfileResolver.h"
 #include "media/MediaBridge.h"
 #include "media/StagedImageStore.h"
 #include "media/ImageCropper.h"
@@ -252,6 +253,10 @@ class AppController : public QObject
     // Profile bios (MSC4440 / MSC4133), read and written under both the
     // stable and the MSC's unstable field names. Plain text only.
     Q_PROPERTY(ProfileBioManager* bio READ bio CONSTANT)
+    // Global profiles for users the room member snapshot cannot name —
+    // consulted by mention pills and the profile popover. See
+    // UserProfileResolver.h.
+    Q_PROPERTY(UserProfileResolver* userProfiles READ userProfiles CONSTANT)
     /// Decorative thank-you badges beside a name. A fixed local table — no
     /// Matrix state, no permission, no verification claim. See ProfileBadges.
     Q_PROPERTY(ProfileBadges* badges READ badges CONSTANT)
@@ -586,6 +591,7 @@ public:
     ProfileBannerManager *banners() const;
     NameColorManager *nameColors() const;
     ProfileBioManager *bio() const;
+    UserProfileResolver *userProfiles() const { return m_userProfiles.get(); }
     ProfileBadges *badges() const;
     ImageCropper *imageCrop() { return &m_imageCrop; }
     AuthManager *auth() const;
@@ -1354,6 +1360,7 @@ private:
     std::unique_ptr<ProfileBannerManager> m_banners;
     std::unique_ptr<NameColorManager> m_nameColors;
     std::unique_ptr<ProfileBioManager> m_bio;
+    std::unique_ptr<UserProfileResolver> m_userProfiles;
     std::unique_ptr<ProfileBadges> m_badges;
     bool m_shuttingDown = false;
     // Development-only screenshot/demo mode (never true in a release build; the

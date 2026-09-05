@@ -657,6 +657,8 @@ set(APP_SOURCES
     src/profile/NameColorManager.cpp
     src/profile/ProfileBioManager.h
     src/profile/ProfileBioManager.cpp
+    src/profile/UserProfileResolver.h
+    src/profile/UserProfileResolver.cpp
     src/profile/ProfileBadges.h
     src/profile/ProfileBadges.cpp
     src/media/StagedImageStore.h
@@ -2298,6 +2300,8 @@ if(BUILD_TESTING)
         tests/TimelineModelDiffTest.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/profile/UserProfileResolver.h
+        src/profile/UserProfileResolver.cpp
         src/models/MessageHtml.h
         src/models/MessageHtml.cpp
         src/models/UserLookup.h
@@ -2316,6 +2320,8 @@ if(BUILD_TESTING)
         tests/StateActivityGroupingTest.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/profile/UserProfileResolver.h
+        src/profile/UserProfileResolver.cpp
         src/models/MessageHtml.h
         src/models/MessageHtml.cpp
         src/models/UserLookup.h
@@ -2338,6 +2344,8 @@ if(BUILD_TESTING)
         tests/ProfileActivityTest.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/profile/UserProfileResolver.h
+        src/profile/UserProfileResolver.cpp
         src/models/MessageHtml.h
         src/models/MessageHtml.cpp
         src/models/UserLookup.h
@@ -2422,6 +2430,8 @@ if(BUILD_TESTING)
         tests/TimelineStateFloodPerfTest.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/profile/UserProfileResolver.h
+        src/profile/UserProfileResolver.cpp
         src/models/MessageHtml.h
         src/models/MessageHtml.cpp
         src/models/UserLookup.h
@@ -2775,6 +2785,28 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME name-color-manager COMMAND name-color-manager-test)
 
+    # 2026-09-05: the global-profile lookup behind mention pills and the
+    # profile popover for users the member snapshot cannot name — one ask
+    # per user per session, cached answers, remembered refusals.
+    qt_add_executable(user-profile-resolver-test
+        tests/UserProfileResolverTest.cpp
+        src/profile/UserProfileResolver.h
+        src/profile/UserProfileResolver.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(user-profile-resolver-test PRIVATE src)
+    target_link_libraries(user-profile-resolver-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME user-profile-resolver COMMAND user-profile-resolver-test)
+
     # v0.7.x message forwarding: ForwardController policy — refusal of
     # redacted/local-echo/undecryptable sources, plain-body text forwarding
     # with NO relation (a forwarded thread reply must land as an ordinary
@@ -2944,6 +2976,8 @@ if(BUILD_TESTING)
         src/threads/ThreadController.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/profile/UserProfileResolver.h
+        src/profile/UserProfileResolver.cpp
         src/models/MessageHtml.h
         src/models/MessageHtml.cpp
         src/models/UserLookup.h
@@ -3374,6 +3408,8 @@ if(BUILD_TESTING)
         src/models/MentionTokenizer.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/profile/UserProfileResolver.h
+        src/profile/UserProfileResolver.cpp
         src/models/MessageHtml.h
         src/models/MessageHtml.cpp
         src/models/UserLookup.h
@@ -3655,6 +3691,8 @@ if(BUILD_TESTING)
         src/models/PaginationController.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/profile/UserProfileResolver.h
+        src/profile/UserProfileResolver.cpp
         src/models/MessageHtml.h
         src/models/MessageHtml.cpp
         src/models/UserLookup.h
@@ -3687,6 +3725,8 @@ if(BUILD_TESTING)
         src/models/ReadReceiptCoordinator.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/profile/UserProfileResolver.h
+        src/profile/UserProfileResolver.cpp
         src/models/MessageHtml.h
         src/models/MessageHtml.cpp
         src/models/UserLookup.h

@@ -1,5 +1,7 @@
 #include "app/AppController.h"
 
+#include "app/FontManager.h"
+
 #include "app/RichComposerBridge.h"
 #include "crypto/BackupController.h"
 #include "models/ScheduledSendController.h"
@@ -194,6 +196,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_banners = std::make_unique<ProfileBannerManager>(this);
     m_nameColors = std::make_unique<NameColorManager>(this);
     m_bio = std::make_unique<ProfileBioManager>(this);
+    m_userProfiles = std::make_unique<UserProfileResolver>(this);
     // A fixed local table, so it needs no client and no session: it is
     // decoration, not Matrix state (see ProfileBadges).
     m_badges = std::make_unique<ProfileBadges>(this);
@@ -1164,11 +1167,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_quickSwitcher->setClient(m_client.get());
     m_quickSwitcher->setSpaceManager(m_spaces.get());
     m_timeline->setClient(m_client.get());
+    m_timeline->setProfileResolver(m_userProfiles.get());
     m_composer->setClient(m_client.get());
     m_mentionSuggestions->setClient(m_client.get());
     m_banners->setClient(m_client.get());
     m_nameColors->setClient(m_client.get());
     m_bio->setClient(m_client.get());
+    m_userProfiles->setClient(m_client.get());
     m_media->setClient(m_client.get());
     m_conversations->setClient(m_client.get());
     m_discovery->setClient(m_client.get());
@@ -4760,27 +4765,9 @@ void AppController::removeAccount(const QString &userId)
 // silently to the behaviour being fixed.
 QString AppController::emojiFontFamily() const
 {
-    // Resolved once: QFontDatabase::families() is not cheap, and the answer
-    // cannot change while the process runs.
-    static const QString family = [] {
-        // Colour faces first, by platform likelihood. The monochrome Noto Emoji
-        // is last: better than tofu, worse than colour.
-        static const char *const kCandidates[] = {
-            "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji",
-            "Twemoji",          "JoyPixels",         "EmojiOne Color",
-            "Noto Emoji",
-        };
-        const QStringList installed = QFontDatabase::families();
-        for (const char *candidate : kCandidates) {
-            const QString name = QString::fromLatin1(candidate);
-            if (installed.contains(name, Qt::CaseInsensitive))
-                return name;
-        }
-        // Nothing installed: empty, so QML leaves the surface's face alone.
-        // Claiming a font that is not there is worse than the fallback.
-        return QString();
-    }();
-    return family;
+    // One resolver for the whole process: FontManager::emojiFamily() is
+    // also what the application default font carries as its fallback face.
+    return FontManager::emojiFamily();
 }
 
 // The composer's font: the UI face first, the colour emoji face behind it.

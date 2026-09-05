@@ -155,6 +155,7 @@ private Q_SLOTS:
     // ReadMarker-row neutrality.
     void readReceiptsRoleResolvesExcludesSelfAndSortsNewestFirst();
     void readReceiptsUpdateViaSetDiffAndMemberHydration();
+    void memberHydrationRerendersOnlyRowsWhoseMentionsChanged();
     void receiptOnlySetKeepsThreadIndexWithoutRebuild();
     void readMarkerRowsStayReceiptFreeWithoutIndexDrift();
     // The live "receipts disappear / swap between users" report: two remote
@@ -768,6 +769,75 @@ void TimelineModelDiffTest::readReceiptsRoleResolvesExcludesSelfAndSortsNewestFi
              QByteArrayLiteral("readReceiptsTotal"));
 }
 
+// 2026-09-05: member hydration used to drop every rendered body and announce
+// FormattedBodyRole + MessageSegmentsRole for EVERY row — a full relayout of
+// the room a few seconds after it had rendered ("the room loads a few
+// times"). Now each render records the names it resolved and a hydration
+// re-announces only the rows whose answer moved.
+void TimelineModelDiffTest::memberHydrationRerendersOnlyRowsWhoseMentionsChanged()
+{
+    auto pill = makeEvent(QStringLiteral("$pill"), QStringLiteral("hi bob"));
+    pill.formattedBody = QStringLiteral(
+        "<a href=\"https://matrix.to/#/@bob:example.org\">@bob</a> hi");
+    auto plain = makeEvent(QStringLiteral("$plain"), QStringLiteral("plain"));
+    auto carol = makeEvent(QStringLiteral("$carol"), QStringLiteral("x"));
+    carol.formattedBody = QStringLiteral(
+        "<a href=\"https://matrix.to/#/@carol:example.org\">@Carol</a>");
+    m_client->mirror = { pill, plain, carol };
+    Q_EMIT m_client->timelineReset(kRoom);
+    // Render all three so their name dependencies are recorded. Before the
+    // member is known the pill keeps the sender's own label.
+    for (int row = 0; row < 3; ++row)
+        m_model->data(m_model->index(row), TimelineModel::FormattedBodyRole);
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::FormattedBodyRole)
+                 .toString(),
+             QStringLiteral("<a href=\"mention:@bob:example.org\">@bob</a> hi"));
+
+    m_client->displayNames.insert(QStringLiteral("@bob:example.org"),
+                                  QStringLiteral("Bob Builder"));
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    Q_EMIT m_client->membersChanged(kRoom);
+
+    int bodyAnnouncements = 0;
+    QSet<int> bodyRows;
+    bool identitySweep = false;
+    for (const auto &sig : changed) {
+        const QList<int> roles = sig.at(2).value<QList<int>>();
+        const int first = sig.at(0).toModelIndex().row();
+        const int last = sig.at(1).toModelIndex().row();
+        if (roles.contains(TimelineModel::FormattedBodyRole)
+            || roles.contains(TimelineModel::MessageSegmentsRole)) {
+            ++bodyAnnouncements;
+            for (int r = first; r <= last; ++r)
+                bodyRows.insert(r);
+        }
+        if (roles.contains(TimelineModel::SenderDisplayNameRole)
+            && first == 0 && last == 2)
+            identitySweep = true;
+    }
+    QCOMPARE(bodyAnnouncements, 1);
+    QCOMPARE(bodyRows, QSet<int>{ 0 });
+    QVERIFY2(identitySweep, "sender identity is still refreshed on every row");
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::FormattedBodyRole)
+                 .toString(),
+             QStringLiteral(
+                 "<a href=\"mention:@bob:example.org\">@Bob Builder</a> hi"));
+    // Nothing about Carol changed: her row keeps its localpart pill and
+    // its body is untouched.
+    QCOMPARE(m_model->data(m_model->index(2), TimelineModel::FormattedBodyRole)
+                 .toString(),
+             QStringLiteral("<a href=\"mention:@carol:example.org\">@carol</a>"));
+
+    // A hydration that changes nothing announces no body at all.
+    changed.clear();
+    Q_EMIT m_client->membersChanged(kRoom);
+    for (const auto &sig : changed) {
+        const QList<int> roles = sig.at(2).value<QList<int>>();
+        QVERIFY(!roles.contains(TimelineModel::FormattedBodyRole));
+        QVERIFY(!roles.contains(TimelineModel::MessageSegmentsRole));
+    }
+}
+
 void TimelineModelDiffTest::readReceiptsUpdateViaSetDiffAndMemberHydration()
 {
     TimelineEvent read = makeEvent(QStringLiteral("$e1"),
@@ -1245,7 +1315,11 @@ void TimelineModelDiffTest::memberProfileUpdateEmitsIdentityRoles()
     // (ReplyToSenderRole) resolve display names through the same member
     // lookup — a hydration burst must refresh them too, or a row rendered
     // pre-hydration keeps its localpart fallback forever.
-    QVERIFY(roles.contains(TimelineModel::FormattedBodyRole));
+    // FormattedBodyRole is deliberately ABSENT from the all-rows sweep since
+    // 2026-09-05: bodies are re-announced per row, and only where a mention
+    // name moved — see memberHydrationRerendersOnlyRowsWhoseMentionsChanged.
+    QVERIFY(!roles.contains(TimelineModel::FormattedBodyRole));
+    QVERIFY(!roles.contains(TimelineModel::MessageSegmentsRole));
     QVERIFY(roles.contains(TimelineModel::ReplyToSenderRole));
     QVERIFY(roles.contains(TimelineModel::ThreadLatestSenderDisplayNameRole));
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::SenderInitialsRole).toString(),

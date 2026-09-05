@@ -3,6 +3,7 @@
 #include "matrix/MatrixClient.h"
 #include "models/MessageHtml.h"
 #include "models/UserLookup.h"
+#include "profile/UserProfileResolver.h"
 
 #include <QRegularExpression>
 #include <QUrl>
@@ -237,6 +238,39 @@ void TimelineModel::setClient(MatrixClient *client)
     reload();
     refreshTypingText();
     Q_EMIT paginationChanged();
+}
+
+void TimelineModel::setProfileResolver(UserProfileResolver *resolver)
+{
+    if (m_profiles == resolver)
+        return;
+    if (m_profiles)
+        m_profiles->disconnect(this);
+    m_profiles = resolver;
+    if (m_profiles) {
+        connect(m_profiles, &UserProfileResolver::resolved, this,
+                [this](const QString &, const QString &, const QString &) {
+                    refreshStaleMentionRows();
+                });
+    }
+}
+
+QString TimelineModel::mentionNameFor(const QString &userId, bool ask) const
+{
+    QString name = m_client ? m_client->displayNameFor(m_roomId, userId)
+                            : QString();
+    // Backends answer the raw id when the member snapshot has nothing —
+    // that is "unresolved", not a display name.
+    if (name == userId)
+        name.clear();
+    if (name.isEmpty() && m_profiles) {
+        const UserProfileResolver::Profile p = m_profiles->profile(userId);
+        if (p.known && !p.displayName.isEmpty())
+            name = p.displayName;
+        else if (ask && !p.known)
+            m_profiles->request(userId);
+    }
+    return name;
 }
 
 void TimelineModel::setRoomId(const QString &roomId)
@@ -1054,21 +1088,26 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             return MessageHtml::resolveInlineImages(memo.value(),
                                                     m_inlineImageResolver);
         }
-        const QString roomId = m_roomId;
-        MatrixClient *client = m_client;
+        QList<QPair<QString, QString>> deps;
         QString sanitized = MessageHtml::sanitize(
             e.formattedBody,
-            [client, roomId](const QString &userId) {
-                return client ? client->displayNameFor(roomId, userId)
-                              : QString();
+            [this, &deps](const QString &userId) {
+                const QString name = mentionNameFor(userId, /*ask=*/true);
+                deps.append({userId, name});
+                return name;
             },
             m_selfUserId,
             MessageHtml::MentionStyle{m_mentionAccentColor,
                                       m_mentionLinkColor,
                                       m_codeBackgroundColor},
             m_spoilersRevealed.contains(e.eventId));
-        if (!e.eventId.isEmpty())
+        if (!e.eventId.isEmpty()) {
             m_sanitizedHtmlCache.insert(e.eventId, sanitized);
+            if (deps.isEmpty())
+                m_htmlMemberDeps.remove(e.eventId);
+            else
+                m_htmlMemberDeps.insert(e.eventId, deps);
+        }
         if (sanitized.contains(QLatin1String("data-mx-emoticon")))
             m_hasInlineEmoji = true;
         return MessageHtml::resolveInlineImages(sanitized,
@@ -1973,18 +2012,27 @@ void TimelineModel::onTypingChanged(const QString &roomId)
 void TimelineModel::onMembersChanged(const QString &roomId)
 {
     if (roomId != m_roomId) return;
-    clearRenderedHtml(); // mention chips embed resolved names
-    // Refresh SDK/member-derived identity for every row (cheap: one signal).
-    // FormattedBodyRole and ReplyToSenderRole are member-derived too: mention
-    // chips and reply headers resolve display names through the SAME member
-    // lookup, and a row rendered before hydration would otherwise keep its
-    // localpart fallback (a bare username) forever.
+    // PRECISE, since 2026-09-05. This used to clearRenderedHtml() and
+    // announce FormattedBodyRole + MessageSegmentsRole for EVERY row, so the
+    // member fetch that follows each first room open rebuilt every message
+    // body a second time — one full timeline relayout, on the GUI thread,
+    // a few seconds after the room had already rendered. Readers saw it as
+    // the room "loading a few times". Mention pills are the only body
+    // content that depends on member names, and each cached render records
+    // exactly which names it used (m_htmlMemberDeps), so hydration can
+    // re-check those pairs and forget only the rows whose answer moved.
+    refreshStaleMentionRows();
+    // The identity roles are still announced for every row: they are cheap
+    // (a label compares its text; an avatar with the same source does not
+    // reload) and ReplyToSenderRole, receipts, reactions and the typed
+    // profile-change rows resolve names through the same member lookup, so
+    // a row rendered before hydration would otherwise keep its localpart
+    // fallback (a bare username) forever.
     const int exposed = rowCount();
     if (exposed > 0) {
         Q_EMIT dataChanged(index(0), index(exposed - 1),
                            { SenderDisplayNameRole, SenderInitialsRole,
-                             SenderAvatarMxcRole, FormattedBodyRole,
-                             MessageSegmentsRole,
+                             SenderAvatarMxcRole,
                              ReplyToSenderRole,
                              // A typed profile-change row phrases itself
                              // with the ACTOR's resolved name, so hydration
@@ -1998,6 +2046,36 @@ void TimelineModel::onMembersChanged(const QString &roomId)
                              ReadReceiptsRole, ReactionsRole });
     }
     refreshTypingText();
+}
+
+int TimelineModel::refreshStaleMentionRows()
+{
+    QStringList stale;
+    for (auto it = m_htmlMemberDeps.constBegin();
+         it != m_htmlMemberDeps.constEnd(); ++it) {
+        for (const auto &dep : it.value()) {
+            if (mentionNameFor(dep.first, /*ask=*/false) != dep.second) {
+                stale.append(it.key());
+                break;
+            }
+        }
+    }
+    if (stale.isEmpty())
+        return 0;
+    const QHash<QString, int> &rows = rowIndex();
+    int announced = 0;
+    for (const QString &eventId : std::as_const(stale)) {
+        forgetRenderedHtml(eventId);
+        const auto row = rows.constFind(eventId);
+        if (row == rows.constEnd() || row.value() < 0
+            || row.value() >= rowCount())
+            continue;
+        const QModelIndex idx = index(row.value());
+        Q_EMIT dataChanged(idx, idx,
+                           { FormattedBodyRole, MessageSegmentsRole });
+        ++announced;
+    }
+    return announced;
 }
 
 void TimelineModel::onPaginationStateChanged(const QString &roomId)
@@ -2444,6 +2522,7 @@ void TimelineModel::forgetRenderedHtml(const QString &eventId)
         return;
     m_sanitizedHtmlCache.remove(eventId);
     m_messageSegmentsCache.remove(eventId);
+    m_htmlMemberDeps.remove(eventId);
 }
 
 void TimelineModel::toggleSpoilers(const QString &eventId)
@@ -2474,6 +2553,7 @@ void TimelineModel::clearRenderedHtml()
     // plaintext in an encrypted room. Both caches live and die together.
     m_sanitizedHtmlCache.clear();
     m_messageSegmentsCache.clear();
+    m_htmlMemberDeps.clear();
 }
 
 void TimelineModel::reload()

@@ -190,6 +190,37 @@ Popup {
         // same fact is how the two come to disagree.
     }
 
+    // A user the room's member list cannot name — a mention of someone who
+    // is not in the room, or a member this client never loaded — used to open
+    // as a bare localpart with no picture (2026-09-05 tester report). The
+    // global profile answers that; the room's own member name still wins when
+    // there is one, because a per-room nick is what the room shows.
+    function _fillFromServer() {
+        if (userId.length === 0 || typeof app === "undefined" || !app.userProfiles)
+            return
+        if (displayName.length > 0 && avatarMxc.length > 0)
+            return
+        var p = app.userProfiles.lookup(userId)
+        if (!p || !p.known)
+            return
+        if (displayName.length === 0)
+            displayName = p.displayName || ""
+        if (avatarMxc.length === 0)
+            avatarMxc = p.avatarUrl || ""
+    }
+    Connections {
+        target: (typeof app !== "undefined" && app.userProfiles)
+                ? app.userProfiles : null
+        function onResolved(uid, name, avatar) {
+            if (uid !== root.userId || !root.opened)
+                return
+            if (root.displayName.length === 0)
+                root.displayName = name || ""
+            if (root.avatarMxc.length === 0)
+                root.avatarMxc = avatar || ""
+        }
+    }
+
     function openFor(member) {
         userId = member.userId || ""
         displayName = member.displayName || ""
@@ -198,6 +229,7 @@ Popup {
         avatarMxc = member.avatarUrl || ""
         isOwn = member.isOwn === true
         _fillFromRoster()
+        _fillFromServer()
         modAction = ""
         modError = ""
         roleError = ""
@@ -492,7 +524,15 @@ Popup {
             Canvas {
                 id: banner
                 objectName: "profileBanner"
-                width: parent.width
+                // Inset by the popover's own border so the frame draws
+                // AROUND the banner instead of under it: drawn edge to edge,
+                // the banner covered the 1px border along the top and its
+                // rounded corner met the frame's at a visible notch
+                // (2026-09-05 tester screenshot, both top corners).
+                readonly property int frame: popoverBackground.border.width
+                x: frame
+                y: frame
+                width: parent.width - 2 * frame
                 // 3:1 — THE RATIO THE CROPPER ACTUALLY PRODUCES.
                 //
                 // This was a flat 64, which at this card's width is about
@@ -511,7 +551,7 @@ Popup {
                 // Storm 2g banner: stormSelection → stormPanel at 120°.
                 property color c1: AppTheme.stormSelection
                 property color c2: AppTheme.stormPanel
-                property int cornerRadius: AppTheme.radiusLg
+                property int cornerRadius: Math.max(0, AppTheme.radiusLg - frame)
                 onC1Changed: requestPaint()
                 onC2Changed: requestPaint()
                 onCornerRadiusChanged: requestPaint()
@@ -693,6 +733,7 @@ Popup {
                 // is open (the userId gate), so a closed popover holds no
                 // polling reference.
                 PresenceDot {
+                    id: avatarPresenceDot
                     objectName: "profileAvatarPresenceDot"
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
@@ -703,7 +744,55 @@ Popup {
                     // The bubble on the avatar IS the status now — the line
                     // of prose that used to sit under the name is gone, so
                     // this dot has to be able to say what it means.
-                    hoverStatus: true
+                    // … but its own attached tooltip opens ABOVE the dot,
+                    // i.e. on top of the avatar it belongs to, covering the
+                    // initial or picture. This one sits to the RIGHT of the
+                    // avatar instead (2026-09-05 request).
+                    hoverStatus: false
+                    HoverHandler {
+                        id: avatarDotHover
+                        enabled: avatarPresenceDot.visible
+                    }
+                    // A tip of our own rather than a ToolTip element: a
+                    // ToolTip cannot declare a text format, and the status
+                    // is member-written text, so the Label carries the
+                    // PlainText declaration the binding contract requires.
+                    Timer {
+                        id: avatarTipDelay
+                        interval: 300
+                        repeat: false
+                        running: avatarDotHover.hovered
+                    }
+                    Rectangle {
+                        id: avatarPresenceTip
+                        objectName: "profileAvatarPresenceTip"
+                        parent: avatarWrap
+                        x: avatarWrap.width + AppTheme.spacing6
+                        y: Math.round((avatarWrap.height - height) / 2)
+                        z: 20
+                        visible: avatarDotHover.hovered && !avatarTipDelay.running
+                                 && (avatarPresenceDot.statusText.length > 0
+                                     || root.presenceUnavailable)
+                        implicitWidth: avatarPresenceTipLabel.implicitWidth
+                                       + 2 * AppTheme.spacing8
+                        implicitHeight: avatarPresenceTipLabel.implicitHeight
+                                        + 2 * AppTheme.spacing4
+                        radius: AppTheme.radiusSm
+                        color: AppTheme.stormPanel
+                        border.width: 1
+                        border.color: AppTheme.stormBorder
+                        Label {
+                            id: avatarPresenceTipLabel
+                            anchors.centerIn: parent
+                            text: avatarPresenceDot.statusText.length > 0
+                                  ? avatarPresenceDot.statusText
+                                  : qsTr("Presence unavailable")
+                            textFormat: Text.PlainText
+                            color: AppTheme.textPrimary
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                        }
+                    }
                 }
             }
         }
@@ -1061,7 +1150,12 @@ Popup {
                 // ones every other surface uses; unknown presence hides the
                 // dot and leaves the chip reading plain membership.
                 Rectangle {
+                    objectName: "profileMembershipChip"
                     visible: root.membershipLabel.length > 0
+                    // The same height as every other chip in this row; its
+                    // own content-derived height was a few pixels shorter,
+                    // which read as "the member box is small".
+                    height: profileChipRow.uniformHeight
                     implicitWidth: membershipRow.implicitWidth
                                    + 2 * AppTheme.chipPaddingH
                     implicitHeight: Math.max(AppTheme.chipHeight,

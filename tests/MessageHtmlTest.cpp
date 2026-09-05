@@ -332,6 +332,33 @@ private Q_SLOTS:
             "<a href=\"mention:@bob:example.org\">@Bob Builder</a>"));
     }
 
+    // 2026-09-05: considered and REFUSED — the label the sender wrote inside
+    // the anchor is never the pill's name. "@admin" linking to
+    // @attacker:evil must read as @attacker. The tester's "@dim became
+    // @obscurus" is answered by the profile resolver in TimelineModel, not
+    // by trusting the sender's text.
+    void theSendersAnchorLabelNeverNamesThePill()
+    {
+        const QString out = sanitize(QStringLiteral(
+            "<a href=\"https://matrix.to/#/@attacker:evil.org\">@admin</a> hi"));
+        QCOMPARE(out, QStringLiteral(
+            "<a href=\"mention:@attacker:evil.org\">@attacker</a> hi"));
+    }
+
+    void resolvedNameWinsOverTheAnchorText()
+    {
+        const QString out = MessageHtml::sanitize(
+            QStringLiteral(
+                "<a href=\"https://matrix.to/#/@bob:example.org\">@old name</a>"),
+            [](const QString &id) {
+                return id == QStringLiteral("@bob:example.org")
+                    ? QStringLiteral("Bob Builder") : QString();
+            },
+            QString());
+        QCOMPARE(out, QStringLiteral(
+            "<a href=\"mention:@bob:example.org\">@Bob Builder</a>"));
+    }
+
     void selfMentionIsEmphasised()
     {
         const QString out = MessageHtml::sanitize(

@@ -699,6 +699,15 @@ QString MessageHtml::sanitize(
                     disp.clear();
                 if (disp.startsWith(QLatin1Char('@')))
                     disp = disp.mid(1);
+                // The resolver answers the room's member name, or a global
+                // profile name for a user the snapshot cannot place; the
+                // localpart is the last resort. The label the SENDER wrote
+                // inside the anchor is deliberately NOT a source (2026-09-05,
+                // considered and refused): a pill that reads "@admin" while
+                // linking to @attacker:evil is exactly the spoof the localpart
+                // fallback prevents, and Element ignores the anchor text for
+                // the same reason. A sender who is not in the room resolves
+                // through the profile resolver instead.
                 if (disp.isEmpty())
                     disp = localpart(mentionUser);
                 const bool self =
