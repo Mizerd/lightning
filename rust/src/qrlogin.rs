@@ -60,7 +60,16 @@ pub(crate) struct QrLoginState {
     /// generation is from a flow the user has already left, and applying it
     /// would drive the current one with the previous one's input.
     generation: AtomicU64,
-    sender: Mutex<Option<matrix_sdk::authentication::oauth::qrcode::CheckCodeSender>>,
+    /// The one-shot sender, WITH the generation it belongs to.
+    ///
+    /// The generation is stored beside it because `abort()` only REQUESTS
+    /// cancellation (§16). An old pump that has already been handed a
+    /// `QrScanned` step runs its arm to completion — the arm has no `.await`
+    /// — so it can re-populate this slot AFTER `cancel()` cleared it. Without
+    /// the pairing, `submit_check_code` would pass its own generation check
+    /// and then take the DEAD flow's sender: the digits go nowhere and the
+    /// live flow hangs until its device-creation timeout.
+    sender: Mutex<Option<(u64, matrix_sdk::authentication::oauth::qrcode::CheckCodeSender)>>,
     cancel: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
@@ -172,8 +181,12 @@ pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
                     GrantLoginProgress::EstablishingSecureChannel(
                         GeneratedQrProgress::QrScanned(sender),
                     ) => {
+                        // Paired with THIS flow's generation, and refused
+                        // outright if the flow is already superseded.
                         if let Ok(mut guard) = stream_state.sender.lock() {
-                            *guard = Some(sender);
+                            if stream_state.generation.load(Ordering::SeqCst) == gen {
+                                *guard = Some((gen, sender));
+                            }
                         }
                         emit(&stream_events, gen, json!({ "step": "check_code_needed" }));
                     }
@@ -318,11 +331,18 @@ pub(crate) fn submit_check_code(
     if state.generation.load(Ordering::SeqCst) != generation {
         return Err("that sign-in is no longer running".to_owned());
     }
+    // Taken under the SAME lock that checks the generation, so a pump
+    // writing between the check and the take cannot slip an old sender in.
     let sender = state
         .sender
         .lock()
         .ok()
-        .and_then(|mut guard| guard.take())
+        .and_then(|mut guard| match guard.as_ref() {
+            Some((slot_gen, _)) if *slot_gen == generation => {
+                guard.take().map(|(_, sender)| sender)
+            }
+            _ => None,
+        })
         .ok_or_else(|| "no code is being waited for".to_owned())?;
     // `send` is ASYNC and one-shot. It is spawned rather than blocked on
     // because this is called from the GUI thread across the FFI, and the

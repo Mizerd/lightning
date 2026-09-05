@@ -47,6 +47,8 @@ const RULE_ROOM_LEGACY: &str = "org.matrix.mjolnir.rule.room";
 /// entries, and the point of reading them here is to answer questions about
 /// a handful of people — not to mirror a list into a desktop client's memory.
 const MAX_RULES: usize = 2000;
+/// The longest entity glob a rule may carry. See `rule_from_state`.
+const MAX_ENTITY_CHARS: usize = 512;
 /// A hard bound on how many lists one account may subscribe to. Each one is
 /// a whole-room state fetch.
 const MAX_SUBSCRIPTIONS: usize = 32;
@@ -100,7 +102,13 @@ pub(crate) fn rule_from_state(value: &Value) -> Option<Rule> {
     let kind = kind_of(event_type)?;
     let content = value.get("content")?;
     let entity = content.get("entity")?.as_str()?.trim();
-    if entity.is_empty() {
+    // BOUNDED. `glob_matches` is O(pattern x value) and collects both sides
+    // into Vec<char> on every call, and `check_entity` runs it over up to 32
+    // rooms x 2000 rules. An entity is written by whoever controls a policy
+    // room and may be the whole event, so an unbounded one is a way to pin a
+    // runtime worker. A Matrix id is at most 255 bytes; 512 chars is
+    // generous and anything longer is not a rule anybody meant.
+    if entity.is_empty() || entity.chars().count() > MAX_ENTITY_CHARS {
         return None;
     }
     Some(Rule {
@@ -143,13 +151,19 @@ pub(crate) fn glob_matches(pattern: &str, value: &str) -> bool {
     let mut star_vi = 0usize;
 
     while vi < v.len() {
-        if pi < p.len() && (p[pi] == '?' || p[pi] == v[vi]) {
-            pi += 1;
-            vi += 1;
-        } else if pi < p.len() && p[pi] == '*' {
+        // THE `*` BRANCH COMES FIRST. Tested after the literal branch, a
+        // pattern `*` meeting a literal `*` in the VALUE matched as a literal
+        // and recorded no star — so `*x` did not match `*yx`. Room ids are
+        // opaque and the value is attacker-supplied, so the result was a rule
+        // UNDER-matching: a ban list answering "not covered" for an entity it
+        // covers.
+        if pi < p.len() && p[pi] == '*' {
             star = Some(pi);
             star_vi = vi;
             pi += 1;
+        } else if pi < p.len() && (p[pi] == '?' || p[pi] == v[vi]) {
+            pi += 1;
+            vi += 1;
         } else if let Some(s) = star {
             // Backtrack: let the last `*` swallow one more character.
             pi = s + 1;
@@ -244,9 +258,19 @@ pub(crate) async fn read_rules(
             }
         }
     }
-    if !out.is_empty() {
-        return (out, false);
-    }
+    // NO EARLY RETURN ON A NON-EMPTY STORE, and that is the difference
+    // between this and widgets.rs.
+    //
+    // The store is USUALLY empty for these types, but not always: publishing
+    // a rule puts that one event in it, and `PolicyListController::onWritten`
+    // re-reads immediately afterwards. Returning there would answer with the
+    // single rule this client just wrote, flagged `truncated: false` — a
+    // one-rule list presented as the room's complete ban list.
+    //
+    // For a widget that would be a short list. For a BAN LIST "complete"
+    // means "this person is not on it", so the network read always runs and
+    // the two are merged through the dedup set above.
+    let store_rules = out.len();
 
     // 2. The network, which is the path that actually answers. See the
     //    module header: the state store is empty for these types.
@@ -255,7 +279,10 @@ pub(crate) async fn read_rules(
         .timeout(std::time::Duration::from_secs(20));
     let request = get_state_events::v3::Request::new(room.room_id().to_owned());
     let Ok(response) = client.send(request).with_request_config(config).await else {
-        return (out, false);
+        // The network read FAILED. Anything the store gave us is a fragment
+        // of the room's state, not the room's list — reported as truncated
+        // so the surface says so rather than presenting it as everything.
+        return (out, store_rules > 0);
     };
     for raw in response.room_state {
         let Ok(value) = serde_json::from_str::<Value>(raw.json().get()) else {
@@ -289,12 +316,21 @@ pub(crate) fn state_key_for(entity: &str) -> String {
 /// Publish or REMOVE one rule. An empty `recommendation` removes it, by
 /// writing an empty content object — the Mjolnir convention, and the only
 /// removal Matrix state has short of a redaction.
+/// `state_key` empty means "derive it from the entity", which is right for a
+/// NEW rule. For a removal the caller passes the rule's OWN key, read back
+/// from the room: `state_key_for` is a CONVENTION and a rule written by
+/// another tool may sit under a different one. Removing by the derived key
+/// would write an empty event at a fresh key, succeed, and report success
+/// while the rule stayed on the list — which §6 names directly ("never
+/// report a cleanup as successful when it removed nothing").
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn write_rule(
     bridge: &RustClient,
     op_id: u64,
     room_id: String,
     kind: String,
     entity: String,
+    state_key: String,
     recommendation: String,
     reason: String,
 ) -> Result<(), String> {
@@ -340,7 +376,12 @@ pub(crate) fn write_rule(
                     "reason": reason,
                 })
             };
-            room.send_state_event_raw(event_type, &state_key_for(&entity), content)
+            let key = if state_key.is_empty() {
+                state_key_for(&entity)
+            } else {
+                state_key
+            };
+            room.send_state_event_raw(event_type, &key, content)
                 .await
                 .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
             Ok::<(), String>(())
@@ -394,8 +435,13 @@ pub(crate) async fn read_subscriptions(client: &matrix_sdk::Client) -> Vec<Strin
 
 /// Subscribe to, or unsubscribe from, one policy room.
 ///
-/// Read-modify-write against the server's copy, not against a local cache:
-/// this account's other devices edit the same list.
+/// Read-modify-write against the server's copy rather than a local cache, so
+/// a list another device added is not dropped by a stale snapshot here.
+///
+/// It is still LAST-WRITE-WINS: Matrix account data has no conditional write,
+/// so two devices subscribing to different lists at the same moment lose one
+/// of them. Stated plainly because the read-modify-write reads as if it made
+/// the operation atomic, and it does not.
 pub(crate) async fn set_subscribed(
     client: &matrix_sdk::Client,
     room_id: &str,
@@ -652,6 +698,50 @@ mod tests {
         assert!(glob_matches("*abc", "zzabc"));
         assert!(glob_matches("*a*b", "xaybzb"));
         assert!(!glob_matches("*abc", "zzabcd"));
+    }
+
+    // A literal `*` in the VALUE must not consume the pattern's wildcard.
+    //
+    // With the literal branch tested first, `*` met `*` and matched as a
+    // literal with NO star recorded — so `*x` did not match `*yx`. Room ids
+    // are opaque and the value is attacker-supplied, so the consequence was a
+    // rule UNDER-matching: a ban list answering "not covered" for an entity
+    // it covers.
+    #[test]
+    fn a_literal_star_in_the_value_does_not_eat_the_patterns_wildcard() {
+        assert!(glob_matches("*x", "*yx"));
+        assert!(glob_matches("*", "***"));
+        assert!(glob_matches("a*c", "a*b*c"));
+        // ...and a literal star in the PATTERN still has to behave as a
+        // wildcard, not lose its meaning to this fix.
+        assert!(glob_matches("*", "@a:example.org"));
+        assert!(!glob_matches("a*c", "abd"));
+    }
+
+    // An entity is written by whoever controls the policy room, and
+    // `check_entity` runs the matcher over up to 32 rooms x 2000 rules. An
+    // unbounded one is a way to pin a runtime worker.
+    #[test]
+    fn an_absurdly_long_entity_is_not_a_rule() {
+        let long: String = std::iter::repeat('*').take(MAX_ENTITY_CHARS + 1)
+            .collect();
+        let value = json!({
+            "type": "m.policy.rule.user",
+            "state_key": "rule:x",
+            "content": { "entity": long, "recommendation": "m.ban" },
+        });
+        assert!(rule_from_state(&value).is_none());
+
+        // At the bound it is still a rule: the cap must not refuse an
+        // ordinary glob.
+        let ok: String = std::iter::repeat('a').take(MAX_ENTITY_CHARS)
+            .collect();
+        let value = json!({
+            "type": "m.policy.rule.user",
+            "state_key": "rule:x",
+            "content": { "entity": ok, "recommendation": "m.ban" },
+        });
+        assert!(rule_from_state(&value).is_some());
     }
 
     #[test]

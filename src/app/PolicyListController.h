@@ -105,7 +105,13 @@ public:
     Q_INVOKABLE void addRule(const QString &kind, const QString &entity,
                              const QString &reason);
     /// Remove a rule by the entity it names.
-    Q_INVOKABLE void removeRule(const QString &kind, const QString &entity);
+    /// Remove a rule. `stateKey` is the rule's OWN key as the model reports
+    /// it — NOT derived from the entity. `rule:<entity>` is a convention and
+    /// a rule another tool wrote may sit elsewhere; removing by the derived
+    /// key would write an empty event at a fresh key, succeed, and report
+    /// success while the rule stayed on the list.
+    Q_INVOKABLE void removeRule(const QString &kind, const QString &entity,
+                                const QString &stateKey);
     Q_INVOKABLE void setSubscribed(const QString &roomId, bool subscribed);
     Q_INVOKABLE void refreshSubscriptions();
     Q_INVOKABLE bool isSubscribed(const QString &roomId) const;

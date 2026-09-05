@@ -1902,6 +1902,11 @@ Item {
                             // The poll card presents the question; the body
                             // is only the MSC1767 fallback for old clients.
                             if (model.isPoll === true) return ""
+                            // A location's card already renders the body as
+                            // its own line, so leaving it here printed it
+                            // twice whenever the sender gave no separate
+                            // description — which is the common case.
+                            if (model.isLocation === true) return ""
                             // Filename echoes never print twice. MSC2530
                             // senders (Element) put the caption in body and
                             // the real name in filename — compare loosely so

@@ -6541,6 +6541,7 @@ pub unsafe extern "C" fn mx_rust_policy_write_rule(
     room_id: *const c_char,
     kind: *const c_char,
     entity: *const c_char,
+    state_key: *const c_char,
     recommendation: *const c_char,
     reason: *const c_char,
     op_id: u64,
@@ -6550,9 +6551,11 @@ pub unsafe extern "C" fn mx_rust_policy_write_rule(
         let room_id = unsafe { cstr_arg(room_id) }?;
         let kind = unsafe { cstr_arg(kind) }?;
         let entity = unsafe { cstr_arg(entity) }?;
+        let state_key = unsafe { cstr_arg(state_key) }?;
         let recommendation = unsafe { cstr_arg(recommendation) }?;
         let reason = unsafe { cstr_arg(reason) }?;
-        policy::write_rule(bridge, op_id, room_id, kind, entity, recommendation, reason)
+        policy::write_rule(bridge, op_id, room_id, kind, entity, state_key,
+                           recommendation, reason)
             .map(|_| String::new())
     })
 }
@@ -10990,8 +10993,12 @@ mod tests {
         assert_eq!(private.private_read_receipt.as_deref(), Some(&*id));
         assert_eq!(private.fully_read.as_deref(), Some(&*id));
 
-        // 2 — off. Nothing anyone else can read, and nothing this account's
-        // other devices can read either. That is the honest cost of it.
+        // 2 — off. No RECEIPT at all: no other member is told, and this
+        // account's other devices get none either, so their unread badges
+        // stop clearing. The fully-read marker still goes — it is account
+        // data and it is what keeps the user's own place — so "your devices
+        // learn nothing" would be too strong. What they lose is the receipt,
+        // not the read position, and the assertion below says exactly that.
         let off = receipts_for_mode(id.clone(), 2);
         assert!(off.public_read_receipt.is_none());
         assert!(

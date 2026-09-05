@@ -29,6 +29,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QSignalSpy>
+#include <QFile>
 #include <QtTest/QtTest>
 
 #include "app/AppController.h"
@@ -122,6 +123,83 @@ private Q_SLOTS:
                  qPrintable(component + QStringLiteral(
                      ".qml failed to load — the qWarning above names the "
                      "property or type that does not exist")));
+    }
+
+    // A DELEGATE THAT DISABLES ITSELF DISABLES ITS OWN BUTTONS.
+    //
+    // `QQuickItem::enabled` propagates to children. Writing `enabled: false`
+    // on a delegate root to stop the ROW being clickable therefore also
+    // disables every control inside it — and this shipped twice in one
+    // round, making rule removal and the whole per-image half of pack
+    // editing unreachable while every controller-level test passed, because
+    // those call the controller directly (§16's recorded lesson: a policy
+    // test that invokes the policy function proves nothing about whether
+    // production ever reaches it).
+    //
+    // A TEXT SCAN, and deliberately so: the delegates this catches are only
+    // built when a model supplies rows, so an instantiation test would need
+    // a live backend for each one. The `found` guard is what stops it
+    // sweeping nothing when a file is renamed (the mutation-check lesson).
+    void noInteractiveDelegateDisablesItself()
+    {
+        static constexpr const char *kFiles[] = {
+            "PolicyListDialog.qml", "StickerPackEditor.qml",
+            "ForwardSelectionDialog.qml", "MediaBrowserRow.qml",
+            "MediaBrowserTile.qml", "EmojiCompletionPopup.qml",
+        };
+        int scanned = 0;
+        QStringList offenders;
+        for (const char *name : kFiles) {
+            QFile file(QStringLiteral(QML_DIR "/") + QString::fromUtf8(name));
+            if (!file.open(QIODevice::ReadOnly))
+                continue;
+            // COMMENTS ARE STRIPPED FIRST. Every one of these files now
+            // carries a comment saying "NOT `enabled: false`" explaining why
+            // — and a scan that trips on the explanation of the rule it
+            // enforces is a scan nobody can satisfy.
+            QString src;
+            const QStringList lines =
+                QString::fromUtf8(file.readAll()).split(u'\n');
+            for (const QString &line : lines) {
+                const QString trimmed = line.trimmed();
+                if (trimmed.startsWith(QStringLiteral("//")))
+                    continue;
+                src += line;
+                src += u'\n';
+            }
+            ++scanned;
+            // Every delegate block in the file, taken from `delegate:` to the
+            // end of the file — a coarse bound, which is fine: what matters
+            // is whether an `enabled: false` and an interactive control share
+            // one delegate.
+            int at = src.indexOf(QStringLiteral("delegate:"));
+            while (at >= 0) {
+                const int next =
+                    src.indexOf(QStringLiteral("delegate:"), at + 1);
+                const QString block =
+                    src.mid(at, (next < 0 ? src.size() : next) - at);
+                const bool disables =
+                    block.contains(QStringLiteral("enabled: false"));
+                // A CheckBox alone is the legitimate case — an indicator
+                // whose row owns the click, with no interactive descendant.
+                const bool hasControl =
+                    block.contains(QStringLiteral("AppButton"))
+                    || block.contains(QStringLiteral("AppTextField"))
+                    || block.contains(QStringLiteral("IconButton"));
+                if (disables && hasControl) {
+                    offenders << QString::fromUtf8(name);
+                }
+                at = next;
+            }
+        }
+        QVERIFY2(scanned >= 4,
+                 "the scan found almost no files — a rename has made it "
+                 "sweep nothing, which passes for the wrong reason");
+        QVERIFY2(offenders.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "a delegate sets `enabled: false` while containing a "
+                     "control: enabled PROPAGATES, so that control is dead. "
+                     "Offenders: %1").arg(offenders.join(u", "))));
     }
 
     // The exclusions are a list of DECISIONS, and a decision with no reason

@@ -32,14 +32,17 @@ public:
         lastRoom = roomId;
         lastOp = opId;
     }
+    QString lastStateKey;
     void writePolicyRule(const QString &roomId, const QString &kind,
-                         const QString &entity, const QString &recommendation,
-                         const QString &reason, quint64 opId) override
+                         const QString &entity, const QString &stateKey,
+                         const QString &recommendation, const QString &reason,
+                         quint64 opId) override
     {
         ++writeCalls;
         lastRoom = roomId;
         lastKind = kind;
         lastEntity = entity;
+        lastStateKey = stateKey;
         lastRecommendation = recommendation;
         lastReason = reason;
         lastOp = opId;
@@ -212,7 +215,8 @@ private Q_SLOTS:
         QCOMPARE(client.fetchCalls, 2);
 
         policy.removeRule(QStringLiteral("server"),
-                          QStringLiteral("bad.example"));
+                          QStringLiteral("bad.example"),
+                          QStringLiteral("rule:bad.example"));
         QCOMPARE(client.writeCalls, 2);
         QVERIFY2(client.lastRecommendation.isEmpty(),
                  "removal is an EMPTY recommendation — the bridge writes an "
@@ -307,9 +311,14 @@ private Q_SLOTS:
         QCOMPARE(client.writeCalls, 0);
     }
 
-    // The check answers, and a MISS carries no rule detail — a caller must
-    // not be able to read a stale reason off a check that found nothing.
-    void aCheckThatFoundNothingCarriesNoRuleDetail()
+    // The check's answer is forwarded, and a superseded one is not.
+    //
+    // NOTE what this does NOT claim. An earlier version asserted that a MISS
+    // carries no rule detail by emitting an empty map and checking the map
+    // was empty — a tautology, because the controller forwards `detail`
+    // verbatim. The filtering that actually strips a miss's fields lives in
+    // RustSdkMatrixClient's poll dispatch, which this suite cannot reach.
+    void aCheckAnswersOnceAndASupersededOneIsDropped()
     {
         PolicyClient client;
         PolicyListController policy;
@@ -317,12 +326,73 @@ private Q_SLOTS:
 
         QSignalSpy spy(&policy, &PolicyListController::checkFinished);
         policy.check(QStringLiteral("user"), QStringLiteral("@a:b.example"));
-        Q_EMIT client.policyCheckFinished(client.lastOp,
-                                          QStringLiteral("@a:b.example"),
+        const quint64 first = client.lastOp;
+        policy.check(QStringLiteral("user"), QStringLiteral("@c:b.example"));
+        const quint64 second = client.lastOp;
+        QVERIFY(first != second);
+
+        // The first question's answer arrives after the user asked a
+        // second: dropped, or the UI reports the wrong person's status.
+        Q_EMIT client.policyCheckFinished(first, QStringLiteral("@a:b.example"),
+                                          true, {});
+        QCOMPARE(spy.count(), 0);
+
+        Q_EMIT client.policyCheckFinished(second, QStringLiteral("@c:b.example"),
                                           false, {});
         QCOMPARE(spy.count(), 1);
-        QCOMPARE(spy.first().at(1).toBool(), false);
-        QVERIFY(spy.first().at(2).toMap().isEmpty());
+        QCOMPARE(spy.first().at(0).toString(), QStringLiteral("@c:b.example"));
+    }
+
+    // REMOVAL USES THE RULE'S OWN STATE KEY, not one derived from the entity.
+    //
+    // `rule:<entity>` is a CONVENTION, not a requirement — the state key is a
+    // free string. A rule another tool wrote under a different key would
+    // survive a removal keyed on the derived form, and the write would
+    // SUCCEED (it creates an empty event at a fresh key), so the user would
+    // be told the rule was gone while it stayed on the list. §6: "never
+    // report a cleanup as successful when it removed nothing."
+    void removalIsKeyedOnTheRulesOwnStateKey()
+    {
+        PolicyClient client;
+        PolicyListController policy;
+        policy.setClient(&client);
+        policy.openRoom(kRoomA);
+        Q_EMIT client.policyRulesReceived(client.lastOp, true, kRoomA, true,
+                                          false, oneRule());
+
+        // A rule whose key is NOT the derived form — which is exactly the
+        // case the derived key would silently fail on.
+        policy.removeRule(QStringLiteral("user"),
+                          QStringLiteral("@spam:bad.example"),
+                          QStringLiteral("mjolnir_1699"));
+        QCOMPARE(client.writeCalls, 1);
+        QCOMPARE(client.lastStateKey, QStringLiteral("mjolnir_1699"));
+
+        // And with no key at all nothing is sent: the caller has not said
+        // WHICH rule, and guessing is the defect.
+        Q_EMIT client.policyRuleWritten(client.lastOp, true, QString());
+        policy.removeRule(QStringLiteral("user"),
+                          QStringLiteral("@spam:bad.example"), QString());
+        QCOMPARE(client.writeCalls, 1);
+    }
+
+    // A NEW rule is the opposite case: no key, so the bridge derives the
+    // conventional one — which is what lets other tools replace this rule
+    // rather than add a second beside it.
+    void publishingUsesTheConventionalKeyByLeavingItEmpty()
+    {
+        PolicyClient client;
+        PolicyListController policy;
+        policy.setClient(&client);
+        policy.openRoom(kRoomA);
+        Q_EMIT client.policyRulesReceived(client.lastOp, true, kRoomA, true,
+                                          false, {});
+
+        policy.addRule(QStringLiteral("user"), QStringLiteral("@a:b.example"),
+                       QString());
+        QCOMPARE(client.writeCalls, 1);
+        QVERIFY2(client.lastStateKey.isEmpty(),
+                 "a new rule must let the bridge derive the conventional key");
     }
 };
 

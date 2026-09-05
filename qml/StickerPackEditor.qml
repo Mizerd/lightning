@@ -191,12 +191,16 @@ Dialog {
 
                 width: ListView.view.width
                 height: 44
-                hoverEnabled: true
                 // The row itself does nothing: every action here is a
                 // deliberate button, because the two that are not undoable
                 // sit beside each other.
-                enabled: false
-                opacity: 1
+                //
+                // NOT `enabled: false`. QQuickItem::enabled PROPAGATES, so
+                // that disabled the Rename and Remove buttons and the inline
+                // rename field — the entire per-image half of pack editing —
+                // while every controller test still passed.
+                hoverEnabled: false
+                background: null
 
                 contentItem: RowLayout {
                     spacing: AppTheme.spacing8

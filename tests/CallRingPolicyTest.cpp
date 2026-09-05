@@ -61,6 +61,61 @@ private:
     }
 
 private Q_SLOTS:
+    // A NOTIFICATION ACTION MUST NOT ACT UNDER THE WRONG ACCOUNT.
+    //
+    // This is the round's headline safety property and it rests on four
+    // lines. A notification card outlives the account that raised it: the
+    // user can switch accounts, or sign out, while it is on screen, and the
+    // desktop delivers the action minutes later. Acting under whichever
+    // account is current would mark ANOTHER account's room read, or send a
+    // reply from the wrong identity into a room the current account may not
+    // even be in — and it would SUCCEED, so nothing would report it.
+    //
+    // Lives here rather than in NotificationManagerTest because the guard is
+    // AppController's: that suite proves the payload carries the raising
+    // account, which is a different claim from the guard consulting it.
+    void aNotificationActionUnderTheWrongAccountIsRefused()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        NotificationManager *notifications = controller.notificationsForTest();
+        QVERIFY(notifications);
+
+        const int noticesBefore = notifications->genericNoticeCountForTest();
+
+        // A card raised for an account that is NOT the one signed in.
+        Q_EMIT notifications->replyRequested(
+            QStringLiteral("@someone-else:other.example"),
+            QStringLiteral("!general:mock.local"), QString(),
+            QStringLiteral("this must not be sent"));
+
+        // Refused, and SAID SO — a button that does nothing and explains
+        // nothing is worse, because the user believes they have replied.
+        QCOMPARE(notifications->genericNoticeCountForTest(), noticesBefore + 1);
+
+        Q_EMIT notifications->markReadRequested(
+            QStringLiteral("@someone-else:other.example"),
+            QStringLiteral("!general:mock.local"), QString());
+        QCOMPARE(notifications->genericNoticeCountForTest(), noticesBefore + 2);
+
+        // An EMPTY account on the payload is refused too. That is the state
+        // a card raised before the account was known would carry, and
+        // fail-open there would be the same defect with no attacker needed.
+        Q_EMIT notifications->replyRequested(
+            QString(), QStringLiteral("!general:mock.local"), QString(),
+            QStringLiteral("nor this"));
+        QCOMPARE(notifications->genericNoticeCountForTest(), noticesBefore + 3);
+
+        // ...and the MATCHING account is not refused: the guard must not be
+        // vacuously true, which is how it would pass while blocking
+        // everything.
+        const QString own = controller.auth()->currentUserId();
+        QVERIFY(!own.isEmpty());
+        Q_EMIT notifications->markReadRequested(
+            own, QStringLiteral("!general:mock.local"), QString());
+        QCOMPARE(notifications->genericNoticeCountForTest(), noticesBefore + 3);
+    }
+
     void callLanePrefersMatrixRtcAndFallsBackToDmOnlyLegacy()
     {
         // Lane selection is ONE policy question and it lives here, not in

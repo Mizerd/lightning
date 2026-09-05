@@ -655,13 +655,22 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(opId);
     }
     /// `recommendation` empty REMOVES the rule.
+    /// `stateKey` empty derives `rule:<entity>` — right for a NEW rule. A
+    /// REMOVAL must pass the rule's OWN key as read back from the room: the
+    /// derived form is a convention, and a rule another tool wrote may sit
+    /// under a different key. Removing by the derived key would write an
+    /// empty event at a FRESH key, succeed, and report success while the
+    /// rule stayed on the list — §6's "never report a cleanup as successful
+    /// when it removed nothing".
     virtual void writePolicyRule(const QString &roomId, const QString &kind,
                                  const QString &entity,
+                                 const QString &stateKey,
                                  const QString &recommendation,
                                  const QString &reason, quint64 opId)
     {
         Q_UNUSED(roomId); Q_UNUSED(kind); Q_UNUSED(entity);
-        Q_UNUSED(recommendation); Q_UNUSED(reason); Q_UNUSED(opId);
+        Q_UNUSED(stateKey); Q_UNUSED(recommendation); Q_UNUSED(reason);
+        Q_UNUSED(opId);
     }
     virtual void setPolicySubscribed(const QString &roomId, bool subscribed,
                                      quint64 opId)

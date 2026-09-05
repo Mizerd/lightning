@@ -71,6 +71,89 @@ contract, the refutation rule and the probe rule are in the standing warnings.
   independent frame-crypto implementation each refuted a confident wrong
   theory. Full table: `docs/matrixrtc.md`.
 
+#### The v0.9.0 round (Task B), 2026-09-05
+
+Ten features in one round. What is worth keeping is not what they do — that is
+`docs/feature-contracts.md` — but what each one refused to do, and what my own
+mistakes cost.
+
+- **A rule enforced on one of N paths is not enforced.** Read-receipt privacy
+  has THREE Rust send paths (in-room, mark-a-room-read, the thread panel). The
+  mode is stored ONCE on the bridge and all three read it; the two that build
+  `Receipts` share one `receipts_for_mode`. The same shape drove the pack CRUD
+  (one `PackEdit` enum, one writer, two stores) — four near-identical async
+  functions is how three of them end up correct.
+- **A notification card outlives the account that raised it.** The user can
+  switch accounts or sign out while it is on screen. Acting on it under the
+  current account would mark another account's room read, or reply from the
+  wrong identity — and it would SUCCEED, so nothing would report it. Every
+  payload carries the account it was raised for.
+- **`inline-reply` arrives in TWO parts on some daemons** (ActionInvoked, then
+  NotificationReplied), so the payload must SURVIVE the first. Dropping it
+  there fails only on the desktop nobody tested.
+- **One sink per track, last attach wins** decided the picture-in-picture
+  design. PiP and full screen are mutually exclusive IN CallStageState rather
+  than by convention, its surfaces are built only while the window shows, and
+  its tiles are Repeaters over live models — a `get(row)` snapshot taken
+  before a share's track key arrives never attaches a sink (CallStage learned
+  this first).
+- **Both of Discord's call keys were already taken** — Ctrl+Shift+M is
+  `room.markRead`, Ctrl+Shift+D is in the reserved table — and
+  `everySeededDefaultAvoidsTheHardCodedKeys` caught the second. The gate
+  works; use free keys and let people rebind.
+- **matrix-sdk-ui sanitises INCOMING html with a hard-coded const** and strips
+  `data-mx-emoticon`; read the RAW event's `formatted_body` instead, and call
+  that AFTER `fill_message_content` or its guard returns early and the feature
+  silently does nothing. **Allowing that attribute DISABLES ruma's img-src
+  scheme check** — its loop returns on the first attribute with no scheme
+  rules — so mxc-only is enforced by our own strip, and the `<img>` is REBUILT
+  from validated parts rather than passed through.
+- **MSC4108's blocker was our own recorded decision, not the SDK.** The
+  new-device direction needs the OAuth device-code grant, which `oauth.rs`
+  deliberately does not request (with a test saying so). Only the
+  already-signed-in direction shipped. `login_with_qr_code` takes its OWN
+  `ClientRegistrationData`, so the other direction can be added later without
+  touching the ordinary flow's metadata or that test.
+- **MSC4153 is TWO knobs and one setting.** Setting one alone gives an
+  asymmetric client. `CrossSignedOrLegacy`, never `CrossSigned` — the strict
+  variant refuses legacy Megolm sessions and would turn existing history into
+  UTDs the moment someone enabled a privacy setting. Builder-only in 0.18, so
+  restart-to-apply, said plainly.
+- **`Recommendation` must cross as a STRING.** ruma models it with one known
+  variant plus `_Custom`, so Mjolnir's legacy `org.matrix.mjolnir.ban` lands
+  in `_Custom` and an enum comparison reads a real ban list as EMPTY. The
+  legacy `org.matrix.mjolnir.rule.*` type names matter for the same reason.
+- **A removed policy rule is an empty content object**, and must not parse as
+  a rule with an empty entity — which matches nothing under a careful matcher
+  and EVERYTHING under a careless one.
+- **An unreadable coordinate must be ABSENT, not 0,0.** Zero is a real spot in
+  the Atlantic; a UI reading it draws a confident link to the wrong place. And
+  0,0 is itself a real place, so the flag exists rather than a magic-value
+  check. No embedded map, because tiles put every reader's IP at a tile
+  server; the OSM link is built from parsed NUMBERS and `UrlLauncher`'s
+  allowlist is untouched.
+
+**Four defects of my own that the existing gates caught, and one they did
+not.** Caught: `AppTheme.surfaceRaised` (theme-tokens); `place` and `edit`
+absent from the icon-font SUBSET — Icon.qml answers an unknown name with an
+empty string, so a wrong name is a silently BLANK glyph, not tofu; and
+`QAbstractListModel` has NO `count` in QML — a ListView supplies one, the
+model does not — so `model.count` reached `qsTr()` as a plural argument and
+three "no QML warnings" suites failed on it.
+
+NOT caught by anything: `app.copyToClipboard` does not exist, and
+MediaBrowserRow's "Copy link" called it. It would have failed the first time
+anyone used the menu item. Found only by writing the same affordance a second
+time. **A QML call to a non-existent `app.` method is invisible until the code
+path runs** — which is the gap `tests/QmlComponentLoadTest.cpp` was added to
+narrow, and does not close: the load gate proves a component instantiates, not
+that its handlers work.
+
+**Two contract tests were failing on anchors an earlier commit in the same
+session had removed** (`id: mediaList`, "Media & Files"). Both FAILED rather
+than silently covering nothing, which is the guard working — and is why a
+scoped scan needs a bound whose absence breaks it.
+
 #### Voice-call constraints that must not soften
 
 Contract in `docs/voice-calls.md`. Inbound call/party ids are sender-chosen

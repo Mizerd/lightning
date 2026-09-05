@@ -119,25 +119,36 @@ void PolicyListController::addRule(const QString &kind, const QString &entity,
     m_writeOp = m_nextOpId++;
     // `m.ban` is the only recommendation the spec defines, and inventing a
     // second one here would publish advice no other tool reads.
-    m_client->writePolicyRule(m_roomId, kind, entity.trimmed(),
+    // An empty state key: the bridge derives `rule:<entity>`, which is the
+    // convention every other tool writes and therefore the right key for a
+    // NEW rule — it is what lets those tools replace this rule rather than
+    // add a second one beside it.
+    m_client->writePolicyRule(m_roomId, kind, entity.trimmed(), QString(),
                               QStringLiteral("m.ban"), reason, m_writeOp);
     Q_EMIT stateChanged();
 }
 
 void PolicyListController::removeRule(const QString &kind,
-                                      const QString &entity)
+                                      const QString &entity,
+                                      const QString &stateKey)
 {
     if (!available() || m_roomId.isEmpty() || m_writeOp != 0)
         return;
     if (entity.trimmed().isEmpty())
+        return;
+    // The rule's OWN key is required for a removal. Without it the bridge
+    // would derive `rule:<entity>`, and a rule another tool wrote under a
+    // different key would survive a "removal" that reported success — §6's
+    // "never report a cleanup as successful when it removed nothing".
+    if (stateKey.isEmpty())
         return;
     m_lastError.clear();
     m_writeOp = m_nextOpId++;
     // An EMPTY recommendation is the removal: the bridge writes an empty
     // state event, which is the Mjolnir convention and the only removal
     // Matrix state has short of a redaction.
-    m_client->writePolicyRule(m_roomId, kind, entity.trimmed(), QString(),
-                              QString(), m_writeOp);
+    m_client->writePolicyRule(m_roomId, kind, entity.trimmed(), stateKey,
+                              QString(), QString(), m_writeOp);
     Q_EMIT stateChanged();
 }
 

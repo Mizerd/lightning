@@ -140,11 +140,23 @@ Dialog {
                 required property string entity
                 required property bool isBan
                 required property string reason
+                // The rule's OWN state key, which is what removal writes to.
+                required property string stateKey
 
                 width: ListView.view.width
                 height: 52
-                enabled: false
-                opacity: 1
+                // NOT `enabled: false`. QQuickItem::enabled PROPAGATES to
+                // children, so disabling the row disables the Remove button
+                // inside it — which made rule removal unreachable from the
+                // UI while every controller-level test still passed, because
+                // they call removeRule() directly (§16: a policy test that
+                // invokes the policy function proves nothing about whether
+                // production reaches it).
+                //
+                // The row simply has no `onClicked`, and its hover highlight
+                // is suppressed instead.
+                hoverEnabled: false
+                background: null
 
                 contentItem: RowLayout {
                     spacing: AppTheme.spacing8
@@ -191,7 +203,8 @@ Dialog {
                         size: "sm"
                         visible: root.policy && root.policy.canWrite
                         onClicked: root.policy.removeRule(ruleRow.kind,
-                                                          ruleRow.entity)
+                                                          ruleRow.entity,
+                                                          ruleRow.stateKey)
                     }
                 }
             }

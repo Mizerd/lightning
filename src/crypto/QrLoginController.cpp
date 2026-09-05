@@ -61,6 +61,7 @@ void QrLoginController::showCode()
         fail(QStringLiteral("failed"));
         return;
     }
+    m_flowActive = true;
     m_state = QStringLiteral("starting");
     Q_EMIT stateChanged();
 }
@@ -81,6 +82,7 @@ void QrLoginController::enterCode(const QString &payload)
         Q_EMIT stateChanged();
         return;
     }
+    m_flowActive = true;
     m_state = QStringLiteral("starting");
     Q_EMIT stateChanged();
 }
@@ -122,30 +124,47 @@ void QrLoginController::reset()
     // new start. Zeroing it would make a late progress event for the flow
     // just cancelled compare equal to "no flow" in some future caller.
     m_state = QStringLiteral("idle");
+    m_flowActive = false;
     m_qrText.clear();
     m_checkCode = -1;
     m_verificationUri.clear();
     m_errorText.clear();
-    if (!m_qrToken.isEmpty()) {
-        m_qrToken.clear();
-        // The grid goes with it. A code left in the store after its flow has
-        // ended is one a stale URL could still serve, and this store is
-        // shared with verification.
-        if (m_store)
+    releaseStoredCode();
+}
+
+void QrLoginController::releaseStoredCode()
+{
+    if (m_qrToken.isEmpty())
+        return;
+    const QString token = m_qrToken;
+    m_qrToken.clear();
+    // The grid goes with it: a code left in the store after its flow has
+    // ended is one a stale URL could still serve.
+    //
+    // But ONLY if the store STILL HOLDS OURS. The slot is single and shared
+    // with device verification, so clearing unconditionally would blank a
+    // verification QR that had since replaced ours — mid-scan, with no
+    // explanation on screen.
+    //
+    // The store is asked rather than a local flag consulted: a flag records
+    // that we PUT a code there, which stays true after somebody else has
+    // replaced it. `gridFor` answers empty for a token that is not the
+    // stored one, which is exactly the question.
+    if (m_store && m_ownsStoredCode) {
+        int modules = 0;
+        if (!m_store->gridFor(token, &modules).isEmpty())
             m_store->clear();
     }
+    m_ownsStoredCode = false;
 }
 
 void QrLoginController::fail(const QString &category)
 {
     m_state = QStringLiteral("failed");
+    m_flowActive = false;
     m_qrText.clear();
     m_checkCode = -1;
-    if (!m_qrToken.isEmpty()) {
-        m_qrToken.clear();
-        if (m_store)
-            m_store->clear();
-    }
+    releaseStoredCode();
     // The bridge's categories, said in words. An unrecognised one falls
     // through to a generic message rather than showing a category name.
     if (category == QLatin1String("expired")) {
@@ -172,7 +191,11 @@ void QrLoginController::onProgress(quint64 generation, const QString &step,
     // A step from a flow the user has already left. Applying it would drive
     // the current flow with the previous one's input — and for a check code
     // that means asking someone to compare digits from a dead channel.
-    if (generation == 0 || generation != m_generation)
+    // BOTH conditions. The generation says WHICH flow; `m_flowActive` says
+    // whether there is one at all — after a bare cancel the generation still
+    // names the cancelled flow, so inequality alone would let its queued
+    // steps through and put the code back on screen.
+    if (generation == 0 || generation != m_generation || !m_flowActive)
         return;
 
     if (step == QLatin1String("qr_ready")) {
@@ -182,13 +205,14 @@ void QrLoginController::onProgress(quint64 generation, const QString &step,
         // Opaque and per-code, exactly as verification does it: the URL must
         // not carry anything derived from the flow or the payload.
         const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        if (!m_store || !m_store->setCode(token, modules, bits)) {
+        if (m_store && m_store->setCode(token, modules, bits)) {
+            m_qrToken = token;
+            m_ownsStoredCode = true;
+        } else {
             // Geometry the renderer cannot honour. The TEXT still works, and
             // is the honest thing to fall back to rather than showing an
             // unscannable picture.
             qCWarning(lcQrLogin) << "sign-in code could not be rendered";
-        } else {
-            m_qrToken = token;
         }
         m_qrText = detail.value(QStringLiteral("qrText")).toString();
         m_state = QStringLiteral("showing");
@@ -196,11 +220,7 @@ void QrLoginController::onProgress(quint64 generation, const QString &step,
         // The other device scanned and is showing its digits. Our QR is no
         // longer useful and is taken down with it: leaving it up invites a
         // second device to scan a channel that is already claimed.
-        if (!m_qrToken.isEmpty()) {
-            m_qrToken.clear();
-            if (m_store)
-                m_store->clear();
-        }
+        releaseStoredCode();
         m_qrText.clear();
         m_state = QStringLiteral("waiting_for_code");
     } else if (step == QLatin1String("check_code_shown")) {
@@ -215,9 +235,7 @@ void QrLoginController::onProgress(quint64 generation, const QString &step,
     } else if (step == QLatin1String("done")) {
         // Clear the code, keep the state: the surface says it worked, and
         // there is nothing left to show or serve.
-        const QString token = m_qrToken;
         reset();
-        Q_UNUSED(token);
         m_state = QStringLiteral("done");
     } else if (step == QLatin1String("failed")) {
         fail(detail.value(QStringLiteral("category")).toString());

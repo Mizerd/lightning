@@ -100,13 +100,30 @@ private:
     /// on sign-out: a grid left in the store after its flow is over is a code
     /// the next flow's URL could still serve.
     void reset();
+    /// Give up the stored grid, but only if the store still holds OURS.
+    void releaseStoredCode();
     void fail(const QString &category);
 
     MatrixClient *m_client = nullptr;
     QrCodeStore *m_store = nullptr;
     quint64 m_generation = 0;
+    /// Whether a flow is RUNNING, as distinct from which one.
+    ///
+    /// The generation guard alone is not enough after a bare cancel with no
+    /// restart: `m_generation` still names the cancelled flow, so a step for
+    /// it that was already queued compares EQUAL and is applied — re-publishing
+    /// the QR grid into the shared store and putting the dialog back into
+    /// "showing". The contract is that the code does not outlive its flow by
+    /// ANY exit, and inequality cannot express "no flow at all".
+    bool m_flowActive = false;
     QString m_state = QStringLiteral("idle");
     QString m_qrToken;
+    /// Whether the token currently in the shared store is OURS.
+    ///
+    /// The store is single-slot and shared with device verification. Clearing
+    /// it unconditionally means cancelling a sign-in blanks a verification QR
+    /// somebody is mid-scan of, and vice versa.
+    bool m_ownsStoredCode = false;
     QString m_qrText;
     int m_checkCode = -1;
     QString m_verificationUri;

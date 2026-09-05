@@ -2885,6 +2885,7 @@ void RustSdkMatrixClient::fetchPolicyRules(const QString &roomId, quint64 opId)
 void RustSdkMatrixClient::writePolicyRule(const QString &roomId,
                                           const QString &kind,
                                           const QString &entity,
+                                          const QString &stateKey,
                                           const QString &recommendation,
                                           const QString &reason, quint64 opId)
 {
@@ -2893,11 +2894,12 @@ void RustSdkMatrixClient::writePolicyRule(const QString &roomId,
     const QByteArray room = roomId.toUtf8();
     const QByteArray k = kind.toUtf8();
     const QByteArray e = entity.toUtf8();
+    const QByteArray key = stateKey.toUtf8();
     const QByteArray rec = recommendation.toUtf8();
     const QByteArray why = reason.toUtf8();
     const QString result = takeRustString(mx_rust_policy_write_rule(
         m_rustHandle, room.constData(), k.constData(), e.constData(),
-        rec.constData(), why.constData(), opId));
+        key.constData(), rec.constData(), why.constData(), opId));
     // A synchronous refusal still reports: the caller holds an op slot and
     // would otherwise sit disabled forever.
     if (!result.isEmpty())

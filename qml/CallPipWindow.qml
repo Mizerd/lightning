@@ -90,6 +90,16 @@ Window {
     readonly property string pinnedIdentityShown:
         root.stageState ? root.stageState.pinnedIdentity : ""
 
+    // NO TRANSIENT PARENT, and this is load-bearing rather than tidy.
+    //
+    // A Window declared inside another Window gets that one as its
+    // `transientParent`, and several compositors hide or minimise a
+    // transient child WITH its parent. That is precisely the state — the
+    // main window minimised or in the tray — that this window exists to
+    // serve, so inheriting the parent would make the automatic pop-out a
+    // no-op on exactly the desktops it matters on.
+    transientParent: null
+
     title: qsTr("Lightning call")
     // A tool window on the platforms that have one — it belongs beside the
     // application rather than in the task switcher as a second app — and
@@ -115,6 +125,24 @@ Window {
     }
     onWantedChanged: root.sync()
     Component.onCompleted: root.sync()
+
+    // THE FLAG MUST NOT SURVIVE THE CALL.
+    //
+    // `CallStageState::clear()` drops it, but its only callers are on the
+    // GROUP lane — and this window, and the pop-out button that sets the
+    // flag, both serve the legacy 1:1 lane too. Without this, popping out
+    // during a 1:1 call and then hanging up leaves the flag set, and the
+    // NEXT 1:1 call opens an always-on-top window by itself — which the
+    // settings copy explicitly promises will not happen.
+    //
+    // Keyed on the call ending rather than on the window hiding: `wanted`
+    // already goes false on its own, and clearing there would fight the
+    // user's own deliberate pop-out.
+    onCallLiveChanged: {
+        if (!root.callLive && root.stageState
+                && root.stageState.pictureInPicture)
+            root.stageState.setPictureInPicture(false)
+    }
 
     onClosing: (close) => {
         // ACCEPT the close and write the flag back. Refusing it would veto

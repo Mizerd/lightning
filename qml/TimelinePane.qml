@@ -46,8 +46,23 @@ Rectangle {
     /// call UI look broken the moment it appeared: the participant spotlight
     /// was squeezed to a ~45px strip, its avatar and controls piled onto each
     /// other, and message rows kept showing underneath the control dock.
+    /// ...AND picture-in-picture is not holding the call.
+    ///
+    /// THIS CLAUSE IS NOT COSMETIC. `SfuVideoRouter` holds ONE sink per track
+    /// and the LAST attach owns it (CallShareTile's header). With the stage
+    /// still built while the floating window is up, the PiP tile attaches
+    /// second and the in-room stage goes black — and when the PiP closes, its
+    /// destruction detaches ITS OWN sink and nothing re-arms the stage's, so
+    /// that participant stays black for the rest of the call. That is exactly
+    /// the "when i full screen it it stop shwoing video" shape the 2026-08-27
+    /// round fixed, reintroduced by the manual pop-out button.
+    ///
+    /// Standing the whole stage down (rather than hiding it) is what destroys
+    /// its tiles, which is what releases the sinks.
     readonly property bool callStageOwnsColumn:
         app.groupCall.active && app.groupCall.roomId === app.currentRoomId
+        && !(app.groupCall.stageState
+             && app.groupCall.stageState.pictureInPicture)
 
     // ── The call panel's share of the column ─────────────────────────────
     //

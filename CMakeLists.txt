@@ -3265,6 +3265,8 @@ if(BUILD_TESTING)
     )
     lightning_configure_qml_test(qml-component-load-test)
     target_link_libraries(qml-component-load-test PRIVATE Qt6::Test)
+    target_compile_definitions(qml-component-load-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     add_test(NAME qml-component-load COMMAND qml-component-load-test)
     set_tests_properties(qml-component-load PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

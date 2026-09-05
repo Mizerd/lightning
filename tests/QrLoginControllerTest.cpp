@@ -206,6 +206,72 @@ private Q_SLOTS:
         }
     }
 
+    // A BARE CANCEL — with no restart — must drop the flow's queued steps.
+    //
+    // The generation guard alone does not do this: after cancel,
+    // `m_generation` still names the cancelled flow, so a `qr_ready` already
+    // sitting in the event queue compares EQUAL and would be applied,
+    // re-publishing the code into the shared store and putting the dialog
+    // back into "showing". The contract is that the code does not outlive
+    // its flow by ANY exit.
+    void aLateStepAfterABareCancelIsDropped()
+    {
+        QrClient client;
+        QrCodeStore store;
+        QrLoginController qr;
+        qr.setQrStore(&store);
+        qr.setClient(&client);
+
+        qr.showCode();
+        qr.cancel();
+        QCOMPARE(qr.state(), QStringLiteral("idle"));
+
+        // The SAME generation — this is the cancelled flow's own step.
+        Q_EMIT client.qrLoginProgress(7, QStringLiteral("qr_ready"), qrReady());
+        QVERIFY2(qr.qrSource().isEmpty(),
+                 "a cancelled flow's code was put back on screen");
+        QCOMPARE(qr.state(), QStringLiteral("idle"));
+
+        // ...and after a FAILURE, equally: the flow is over either way.
+        qr.showCode();
+        Q_EMIT client.qrLoginProgress(
+            7, QStringLiteral("failed"),
+            QVariantMap{ { QStringLiteral("category"),
+                           QStringLiteral("expired") } });
+        Q_EMIT client.qrLoginProgress(7, QStringLiteral("qr_ready"), qrReady());
+        QVERIFY(qr.qrSource().isEmpty());
+        QCOMPARE(qr.state(), QStringLiteral("failed"));
+    }
+
+    // THE GRID STORE IS SHARED WITH DEVICE VERIFICATION and holds one code.
+    // Clearing it unconditionally means cancelling a sign-in blanks a
+    // verification QR that had since replaced ours — mid-scan, with nothing
+    // on screen to say why.
+    void cancellingDoesNotClearSomebodyElsesCode()
+    {
+        QrClient client;
+        QrCodeStore store;
+        QrLoginController qr;
+        qr.setQrStore(&store);
+        qr.setClient(&client);
+
+        qr.showCode();
+        Q_EMIT client.qrLoginProgress(7, QStringLiteral("qr_ready"), qrReady());
+        QVERIFY(!qr.qrSource().isEmpty());
+
+        // Device verification starts and takes the slot — which is what the
+        // single-slot store is designed to allow.
+        const QString theirs = QStringLiteral("verification-token");
+        QVERIFY(store.setCode(theirs, 1, QByteArray(1, '\x80')));
+
+        qr.cancel();
+
+        int modules = 0;
+        QVERIFY2(!store.gridFor(theirs, &modules).isEmpty(),
+                 "cancelling the sign-in cleared the verification code that "
+                 "had replaced it in the shared store");
+    }
+
     // A failure category becomes WORDS, and an unknown one does not borrow
     // another cause's wording — the user acts on what this says.
     void everyFailureCategoryGetsItsOwnWords()

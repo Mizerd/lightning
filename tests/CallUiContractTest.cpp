@@ -1046,6 +1046,72 @@ ApplicationWindow {
         }
     }
 
+    // THE STAGE AND THE FLOATING WINDOW MUST NEVER BOTH BE BUILT.
+    //
+    // `SfuVideoRouter` holds ONE sink per track and the LAST attach owns it.
+    // Two surfaces on one participant means the first goes black — and when
+    // the second is destroyed it detaches its OWN sink, leaving nothing
+    // attached at all, because there is no periodic re-arm (CallShareTile's
+    // header records why). That is the 2026-08-27 "when i full screen it it
+    // stop shwoing video" defect, and the manual pop-out button reintroduced
+    // it: the in-room stage host was gated only on the call being live in
+    // this room, so popping out while looking at the room built both.
+    //
+    // A TEXT SCAN of the wiring, deliberately: the failure is two live
+    // VideoOutputs attaching to one router, which needs a real call to
+    // observe. What is pinned here is the clause whose absence caused it.
+    void theInRoomStageStandsDownForPictureInPicture()
+    {
+        const QString src = read(QStringLiteral(QML_DIR "/TimelinePane.qml"));
+        QVERIFY2(!src.isEmpty(), "TimelinePane.qml is gone");
+        const int at = src.indexOf(
+            QStringLiteral("readonly property bool callStageOwnsColumn:"));
+        QVERIFY2(at > 0, "callStageOwnsColumn is gone — re-anchor this test "
+                         "rather than deleting it");
+        // The property's own expression, to the next blank-line-separated
+        // declaration. Scoped so a mention of pictureInPicture ANYWHERE else
+        // in this 6000-line file cannot satisfy it.
+        const int end = src.indexOf(QStringLiteral("\n\n"), at);
+        const QString expr = src.mid(at, (end < 0 ? src.size() : end) - at);
+        QVERIFY2(expr.contains(QStringLiteral("pictureInPicture")),
+                 "the in-room call stage is built without consulting "
+                 "picture-in-picture: popping the call out while looking at "
+                 "the room gives two surfaces for one track, and the sink "
+                 "goes to whichever attached last");
+
+        // ...and the host Loader really is driven by that property, so the
+        // clause above is not decoration on something nothing reads. Scoped
+        // to the 40 lines after the host's objectName, which is where its
+        // `active` binding lives.
+        const int hostAt = src.indexOf(
+            QStringLiteral("objectName: \"timelineCallStageHost\""));
+        QVERIFY2(hostAt > 0, "the call stage host is gone");
+        const QString host = src.mid(hostAt, 1200);
+        QVERIFY2(host.contains(QStringLiteral("active: root.callStageOwnsColumn")),
+                 "the stage host no longer keys on callStageOwnsColumn, so "
+                 "the clause above guards nothing");
+    }
+
+    // The picture-in-picture flag must not outlive the call, on EITHER lane.
+    //
+    // `CallStageState::clear()` drops it, but its callers are all on the
+    // group lane — while the pop-out button and the window itself both serve
+    // the legacy 1:1 lane. Left set, the next 1:1 call opens an always-on-top
+    // window by itself, which the settings copy promises it will not.
+    void theFloatingWindowFlagDiesWithTheCall()
+    {
+        const QString src = read(QStringLiteral(QML_DIR "/CallPipWindow.qml"));
+        QVERIFY2(!src.isEmpty(), "CallPipWindow.qml is gone");
+        const int at = src.indexOf(QStringLiteral("onCallLiveChanged"));
+        QVERIFY2(at > 0,
+                 "nothing clears pictureInPicture when the call ends, so the "
+                 "next call on the legacy lane reopens the floating window "
+                 "by itself");
+        const QString handler = src.mid(at, 400);
+        QVERIFY2(handler.contains(QStringLiteral("setPictureInPicture(false)")),
+                 "the call-ended handler does not actually drop the flag");
+    }
+
     // CallStage must LOAD. Every other case in this file reads it as TEXT,
     // and a text scan cannot see a load-time QML error — the failure mode that
     // took four QML suites down at once when `font.families` (which does not

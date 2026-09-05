@@ -3618,15 +3618,21 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
+                                    // "keeps your place only on this device"
+                                    // was too strong: the fully-read marker
+                                    // is account data and still syncs. What
+                                    // stops is the RECEIPT, so unread badges
+                                    // on your other devices stop clearing.
                                     text: qsTr("Private receipts still clear the "
                                                + "unread badge on your own other "
                                                + "devices; nobody else sees them. "
-                                               + "Not sending them at all keeps your "
-                                               + "place only on this device. Either "
-                                               + "way, receipts you have already "
-                                               + "sent cannot be taken back, and "
-                                               + "other people's receipts are still "
-                                               + "shown to you.")
+                                               + "Not sending them at all means your "
+                                               + "other devices stop clearing it too, "
+                                               + "though your place in a conversation "
+                                               + "is still saved. Either way, receipts "
+                                               + "you have already sent cannot be "
+                                               + "taken back, and other people's "
+                                               + "receipts are still shown to you.")
                                 }
 
                                 CheckBox {

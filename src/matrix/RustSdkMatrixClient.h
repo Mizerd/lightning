@@ -361,7 +361,8 @@ public:
     bool supportsPolicyLists() const override { return true; }
     void fetchPolicyRules(const QString &roomId, quint64 opId) override;
     void writePolicyRule(const QString &roomId, const QString &kind,
-                         const QString &entity, const QString &recommendation,
+                         const QString &entity, const QString &stateKey,
+                         const QString &recommendation,
                          const QString &reason, quint64 opId) override;
     void setPolicySubscribed(const QString &roomId, bool subscribed,
                              quint64 opId) override;

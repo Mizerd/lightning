@@ -66,7 +66,15 @@ pub(crate) fn parse_geo_uri(uri: &str) -> Option<GeoPoint> {
     }
     let uncertainty_m = params.and_then(|p| {
         p.split(';')
-            .find_map(|kv| kv.trim().strip_prefix("u="))
+            // Case-insensitive: RFC 5870 parameter names are, and `U=35`
+            // silently losing the accuracy is the kind of thing nobody
+            // reports because the position still works.
+            .find_map(|kv| {
+                let kv = kv.trim();
+                kv.get(..2)
+                    .filter(|p| p.eq_ignore_ascii_case("u="))
+                    .and_then(|_| kv.get(2..))
+            })
             .and_then(|v| v.trim().parse::<f64>().ok())
             .filter(|v| v.is_finite() && *v >= 0.0)
     });
@@ -136,6 +144,9 @@ mod tests {
 
         // Uncertainty, and an altitude that is accepted and discarded.
         let p = parse_geo_uri("geo:51.5008,-0.1247,15;u=35").unwrap();
+        assert_eq!(p.uncertainty_m, Some(35.0));
+        // RFC 5870 parameter names are case-insensitive.
+        let p = parse_geo_uri("geo:1.0,2.0;U=35").unwrap();
         assert_eq!(p.uncertainty_m, Some(35.0));
 
         // An unfamiliar parameter must not lose the position — a future

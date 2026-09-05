@@ -905,8 +905,14 @@ char *mx_rust_send_location(void *client, const char *room_id, double lat,
  * a subscribed list is somebody else's judgement and the user decides. */
 char *mx_rust_policy_fetch_rules(void *client, const char *room_id,
                                  unsigned long long op_id);
+/* `state_key` empty derives `rule:<entity>`, which is right for a NEW rule.
+ * A REMOVAL must pass the rule's OWN key as read back from the room: the
+ * derived form is a convention and a rule written by another tool may sit
+ * elsewhere, in which case removing by the derived key writes an empty event
+ * at a fresh key and reports success while the rule stays on the list. */
 char *mx_rust_policy_write_rule(void *client, const char *room_id,
                                 const char *kind, const char *entity,
+                                const char *state_key,
                                 const char *recommendation, const char *reason,
                                 unsigned long long op_id);
 char *mx_rust_policy_subscribe(void *client, const char *room_id,
