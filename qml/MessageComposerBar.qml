@@ -3072,8 +3072,8 @@ Item {
         // Anchored the way the GIF picker is (AnchoredPopup): parented to the
         // composer CARD and right-aligned to it through the card's own width,
         // which is observable — so the menu follows a window resize. A
-        // mapToItem() call is not observable and evaluated before the button
-        // was laid out, which parked the menu at x = 0 (reported). `height`
+        // mapped-coordinate call is not observable and evaluated before the
+        // button was laid out, which parked the menu at x = 0 (reported). `height`
         // is 0 until the content is first built, so `y` is a binding too.
         parent: composerCard
         x: Math.max(0, composerCard.width - width)
