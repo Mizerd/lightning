@@ -545,6 +545,17 @@ private:
     // several of which sat inside per-row bindings and per-diff handlers —
     // into amortized O(1).
     void invalidateRowIndex() const { m_rowIndexDirty = true; }
+    // Newest row (highest index) carrying each user's read receipt. A user
+    // has read up to ONE position, so a host row shows a reader only when no
+    // newer row carries them — with hosting, a receipt the backend left on
+    // an older row would otherwise show twice (2026-09-05 report: the same
+    // avatar on a call row and on the message after it).
+    const QHash<QString, int> &latestReceiptRows() const;
+    mutable QHash<QString, int> m_latestReceiptRow;
+    mutable bool m_latestReceiptRowDirty = true;
+    void invalidateReceiptIndex() const { m_latestReceiptRowDirty = true; }
+    /// Each reader's current position as an event id, for announceReceiptHost.
+    QHash<QString, QString> receiptPositionsByEvent() const;
     const QHash<QString, int> &rowIndex() const;
     void refreshTypingText();
     QVariantList reactionsVariant(const TimelineEvent &e) const;
@@ -568,7 +579,20 @@ private:
     // The merged view for a hosting row: its own receipts plus those of
     // every following row it hosts, one entry per reader, newest first.
     QList<ReadReceipt> hostedReceipts(int row, int *reportedTotal) const;
-    void announceReceiptHost(int row);
+    /// Announce every host whose receipts the mutation at `row` may have
+    /// changed: the row's own host and its neighbour above (a span may have
+    /// split or merged there), plus the host each reader LEFT and the host
+    /// they ARRIVED at — found by comparing `before`, captured by the caller
+    /// AHEAD of the mutation, with the rebuilt index. `before` is keyed by
+    /// event id because an insert or a removal shifts every row index.
+    /// `hostingChanged`: the mutation added or removed a row that hosts for
+    /// itself (or flipped `row`'s own hosting), so the neighbour above may
+    /// have gained or lost a span and is announced too. `announceRow`: the
+    /// caller does NOT emit for `row` itself (a removal), so this does.
+    /// Everything else is announced only when a reader's position moved —
+    /// a Set that changes one row must announce one row.
+    void announceReceiptHost(int row, const QHash<QString, QString> &before,
+                             bool hostingChanged, bool announceRow);
     // Grouping is transparent through read markers and timeline-start, but a
     // DATE DIVIDER ends the run (one collapsed group must not span calendar
     // days under a single date separator). A visible message/media/call

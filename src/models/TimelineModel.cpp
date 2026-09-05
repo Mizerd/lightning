@@ -765,6 +765,19 @@ int TimelineModel::receiptHostRow(int row) const
     return -1;
 }
 
+const QHash<QString, int> &TimelineModel::latestReceiptRows() const
+{
+    if (m_latestReceiptRowDirty) {
+        m_latestReceiptRow.clear();
+        for (int r = 0; r < m_events.size(); ++r) {
+            for (const auto &receipt : m_events.at(r).readBy)
+                m_latestReceiptRow.insert(receipt.userId, r); // ascending: last wins
+        }
+        m_latestReceiptRowDirty = false;
+    }
+    return m_latestReceiptRow;
+}
+
 QList<ReadReceipt> TimelineModel::hostedReceipts(int row,
                                                  int *reportedTotal) const
 {
@@ -773,6 +786,7 @@ QList<ReadReceipt> TimelineModel::hostedReceipts(int row,
     // reader. Walk forward while the rows are hosted here; the first row
     // that hosts for itself ends the span.
     QHash<QString, ReadReceipt> byUser;
+    int spanEnd = row;
     // Readers beyond a row's delivered window cannot be deduplicated, so the
     // reported total is the unique delivered readers plus each row's
     // undelivered remainder — never a sum of per-row totals, which would
@@ -782,6 +796,7 @@ QList<ReadReceipt> TimelineModel::hostedReceipts(int row,
     for (int r = row; r < m_events.size(); ++r) {
         if (r != row && rowHostsReceipts(r))
             break;
+        spanEnd = r;
         const auto &e = m_events.at(r);
         undelivered += qMax(0, e.readByTotal - static_cast<int>(e.readBy.size()));
         for (const auto &receipt : e.readBy) {
@@ -789,6 +804,16 @@ QList<ReadReceipt> TimelineModel::hostedReceipts(int row,
             if (it == byUser.constEnd() || it->tsMs < receipt.tsMs)
                 byUser.insert(receipt.userId, receipt);
         }
+    }
+    // One position per reader: a user carried by a NEWER row than this
+    // host's span is shown there, not here (the backend can leave a receipt
+    // on an older row for a while; the reader has still moved on).
+    const QHash<QString, int> &latest = latestReceiptRows();
+    for (auto it = byUser.begin(); it != byUser.end();) {
+        if (latest.value(it.key(), -1) > spanEnd)
+            it = byUser.erase(it);
+        else
+            ++it;
     }
     if (reportedTotal)
         *reportedTotal = static_cast<int>(byUser.size()) + undelivered;
@@ -800,13 +825,63 @@ QList<ReadReceipt> TimelineModel::hostedReceipts(int row,
     return out;
 }
 
-void TimelineModel::announceReceiptHost(int row)
+QHash<QString, QString> TimelineModel::receiptPositionsByEvent() const
 {
-    const int host = receiptHostRow(row);
-    if (host < 0 || host == row)
-        return;
-    const auto idx = index(host);
-    Q_EMIT dataChanged(idx, idx, { ReadReceiptsRole, ReadReceiptsTotalRole });
+    QHash<QString, QString> out;
+    const QHash<QString, int> &latest = latestReceiptRows();
+    for (auto it = latest.constBegin(); it != latest.constEnd(); ++it) {
+        if (it.value() >= 0 && it.value() < m_events.size())
+            out.insert(it.key(), m_events.at(it.value()).eventId);
+    }
+    return out;
+}
+
+void TimelineModel::announceReceiptHost(int row, const QHash<QString, QString> &before,
+                                        bool hostingChanged, bool announceRow)
+{
+    // A receipt that moved leaves a host behind and arrives at another, and
+    // BOTH must be told or the old host keeps drawing an avatar the reader
+    // has moved past (2026-09-05: the same reader on a call row and on the
+    // message after it). The first cut of this read the cached index as
+    // "before" — but every caller invalidates that index ahead of the call,
+    // so the snapshot was always empty and no old host was ever announced;
+    // the regression test caught it. The caller captures `before` ahead of
+    // its mutation now, by event id, because the mutation may have shifted
+    // every row index.
+    //
+    // ONLY WHAT CHANGED. A Set that touches one row must announce one row
+    // (changedAtUpdatesRowInPlace pins it), so `row` itself is left to the
+    // caller unless asked for, and the neighbour above is announced only
+    // when a self-hosting row appeared, vanished or flipped there.
+    invalidateReceiptIndex();
+    const QHash<QString, int> &after = latestReceiptRows();
+    QSet<int> hosts;
+    for (auto it = before.constBegin(); it != before.constEnd(); ++it) {
+        const int oldRow = rowForEventId(it.value());
+        const int newRow = after.value(it.key(), -1);
+        if (oldRow >= 0 && oldRow == newRow)
+            continue;
+        if (oldRow >= 0)
+            hosts.insert(receiptHostRow(oldRow));
+        if (newRow >= 0)
+            hosts.insert(receiptHostRow(newRow));
+    }
+    for (auto it = after.constBegin(); it != after.constEnd(); ++it) {
+        if (!before.contains(it.key()))
+            hosts.insert(receiptHostRow(it.value()));
+    }
+    if (hostingChanged && row > 0)
+        hosts.insert(receiptHostRow(row - 1));
+    if (announceRow)
+        hosts.insert(row);
+    else
+        hosts.remove(row);
+    for (int h : std::as_const(hosts)) {
+        if (h < 0 || h >= m_events.size())
+            continue;
+        const auto idx = index(h);
+        Q_EMIT dataChanged(idx, idx, { ReadReceiptsRole, ReadReceiptsTotalRole });
+    }
 }
 
 QString TimelineModel::profileChangeDescription(const TimelineEvent &e,
@@ -1688,19 +1763,23 @@ void TimelineModel::onEventAppended(const QString &roomId, const TimelineEvent &
 {
     if (roomId != m_roomId)
         return;
+    const QHash<QString, QString> receiptsBefore = receiptPositionsByEvent();
     const int publicRow = static_cast<int>(m_events.size());
     beginInsertRows({}, publicRow, publicRow);
     m_events.append(event);
     noteSenderAvatar(event);
     invalidateRowIndex();
+    invalidateReceiptIndex();
     // Incremental: an append can only add one reply to one root — the full
     // O(n) rebuild ran once per live event during sync bursts.
     if (!event.threadRootId.isEmpty())
         ++m_threadReplyCounts[event.threadRootId];
     endInsertRows();
-    // A bodiless row appended here hands its readers to the row above.
-    if (!m_events.isEmpty() && !m_events.last().readBy.isEmpty())
-        announceReceiptHost(static_cast<int>(m_events.size()) - 1);
+    // A bodiless row appended here hands its readers to the row above; a
+    // reader it carries leaves the host that drew them until now. An append
+    // splits no span, so the neighbour is not announced.
+    announceReceiptHost(publicRow, receiptsBefore, /*hostingChanged=*/false,
+                        /*announceRow=*/false);
     Q_EMIT countChanged();
     emitPresentationGroupingChanged(publicRow - 1, publicRow);
 }
@@ -1714,7 +1793,9 @@ void TimelineModel::onEventReplaced(const QString &roomId,
     const int row = rowForEventId(oldEventId);
     if (row < 0)
         return;
+    const QHash<QString, QString> receiptsBefore = receiptPositionsByEvent();
     const bool groupingChanged = groupingInputsDiffer(m_events.at(row), newEvent);
+    const bool hostedBefore = rowHostsReceipts(row);
     m_events[row] = newEvent;
     noteSenderAvatar(newEvent);
     invalidateRowIndex(); // replacement can rename local: -> remote id
@@ -1723,7 +1804,8 @@ void TimelineModel::onEventReplaced(const QString &roomId,
     rebuildThreadReplyIndex();
     const auto idx = index(row);
     Q_EMIT dataChanged(idx, idx);
-    announceReceiptHost(row);
+    announceReceiptHost(row, receiptsBefore, hostedBefore != rowHostsReceipts(row),
+                        /*announceRow=*/false);
     if (groupingChanged)
         emitPresentationGroupingChanged(row - 1, row + 1);
 }
@@ -1768,6 +1850,7 @@ void TimelineModel::onEventEdited(const QString &roomId, const QString &eventId)
         return;
     m_events[row] = *fresh;
     invalidateRowIndex();
+    invalidateReceiptIndex();
     forgetRenderedHtml(eventId);
     rebuildThreadReplyIndex();
     const auto idx = index(row);
@@ -1827,6 +1910,7 @@ void TimelineModel::onEventsPrepended(const QString &roomId,
         noteSenderAvatar(events.at(i));
     }
     invalidateRowIndex();
+    invalidateReceiptIndex();
     rebuildThreadReplyIndex();
     endInsertRows();
     Q_EMIT countChanged();
@@ -1856,17 +1940,20 @@ void TimelineModel::onEventInsertedAt(const QString &roomId, int index,
         reload();
         return;
     }
+    // A bodiless row inserted here hands its readers to the row above, a
+    // reader it carries leaves the host that drew them until now, and a
+    // bodied one splits the span of the host above it.
+    const QHash<QString, QString> receiptsBefore = receiptPositionsByEvent();
     beginInsertRows({}, index, index);
     m_events.insert(index, event);
     noteSenderAvatar(event);
-    // A bodiless row inserted here hands its readers to the row above.
-    const bool hostedElsewhere = !event.readBy.isEmpty();
     invalidateRowIndex();
+    invalidateReceiptIndex();
     if (!event.threadRootId.isEmpty())
         ++m_threadReplyCounts[event.threadRootId];
     endInsertRows();
-    if (hostedElsewhere)
-        announceReceiptHost(index);
+    announceReceiptHost(index, receiptsBefore, rowHostsReceipts(index),
+                        /*announceRow=*/false);
     Q_EMIT countChanged();
     emitPresentationGroupingChanged(index - 1, index + 1);
 }
@@ -1881,18 +1968,20 @@ void TimelineModel::onEventsInsertedAt(
         reload();
         return;
     }
+    const QHash<QString, QString> receiptsBefore = receiptPositionsByEvent();
     beginInsertRows({}, index, index + events.size() - 1);
-    bool anyReaders = false;
     for (int offset = 0; offset < events.size(); ++offset) {
-        anyReaders = anyReaders || !events.at(offset).readBy.isEmpty();
         m_events.insert(index + offset, events.at(offset));
         noteSenderAvatar(events.at(offset));
     }
     invalidateRowIndex();
+    invalidateReceiptIndex();
     rebuildThreadReplyIndex();
     endInsertRows();
-    if (anyReaders)
-        announceReceiptHost(index + events.size() - 1);
+    bool anyHosting = false;
+    for (int r = index; r < index + events.size() && !anyHosting; ++r)
+        anyHosting = rowHostsReceipts(r);
+    announceReceiptHost(index, receiptsBefore, anyHosting, /*announceRow=*/false);
     Q_EMIT countChanged();
     emitPresentationGroupingChanged(index - 1,
                                     index + events.size());
@@ -1912,6 +2001,7 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     // dataChanged forced every delegate to re-bind and re-measure on each
     // profile resolution, decryption, reaction, or send-state update, which
     // multiplied one item update into a whole-timeline relayout.
+    const QHash<QString, QString> receiptsBefore = receiptPositionsByEvent();
     const bool groupingChanged = groupingInputsDiffer(m_events.at(index), event);
     // The thread-reply index depends ONLY on each row's threadRootId, so a
     // Set that keeps it unchanged (receipt moves, profile resolution,
@@ -1922,14 +2012,17 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
         m_events.at(index).threadRootId != event.threadRootId;
     forgetRenderedHtml(m_events.at(index).eventId);
     forgetRenderedHtml(event.eventId);
+    const bool hostedBefore = rowHostsReceipts(index);
     m_events[index] = event;
     noteSenderAvatar(event);
     invalidateRowIndex();
+    invalidateReceiptIndex();
     if (threadIndexChanged)
         rebuildThreadReplyIndex();
     const auto idx = this->index(index);
     Q_EMIT dataChanged(idx, idx);
-    announceReceiptHost(index);
+    announceReceiptHost(index, receiptsBefore, hostedBefore != rowHostsReceipts(index),
+                        /*announceRow=*/false);
     if (groupingChanged)
         emitPresentationGroupingChanged(index - 1, index + 1);
 }
@@ -1942,11 +2035,14 @@ void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
         reload();
         return;
     }
+    const QHash<QString, QString> receiptsBefore = receiptPositionsByEvent();
+    const bool removedHosted = rowHostsReceipts(index);
     beginRemoveRows({}, index, index);
     const QString removedRoot = m_events.at(index).threadRootId;
     forgetRenderedHtml(m_events.at(index).eventId);
     m_events.removeAt(index);
     invalidateRowIndex();
+    invalidateReceiptIndex();
     if (!removedRoot.isEmpty()) {
         const auto it = m_threadReplyCounts.find(removedRoot);
         if (it != m_threadReplyCounts.end() && --it.value() <= 0)
@@ -1955,7 +2051,8 @@ void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
     endRemoveRows();
     Q_EMIT countChanged();
     // The row above may have hosted the removed row's readers.
-    announceReceiptHost(qMin(index, static_cast<int>(m_events.size()) - 1));
+    announceReceiptHost(qMin(index, static_cast<int>(m_events.size()) - 1),
+                        receiptsBefore, removedHosted, /*announceRow=*/true);
     emitPresentationGroupingChanged(index - 1, index);
 }
 
@@ -1976,6 +2073,7 @@ void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
         m_events.removeLast();
     }
     invalidateRowIndex();
+    invalidateReceiptIndex();
     rebuildThreadReplyIndex();
     endRemoveRows();
     Q_EMIT countChanged();
@@ -1987,6 +2085,7 @@ void TimelineModel::onLoggedOut()
     beginResetModel();
     m_events.clear();
     invalidateRowIndex();
+    invalidateReceiptIndex();
     // Rendered message HTML is decrypted plaintext for encrypted rooms —
     // it must not outlive the session (review M4).
     clearRenderedHtml();
@@ -2563,6 +2662,7 @@ void TimelineModel::reload()
                    ? m_client->timeline(m_roomId)
                    : QList<TimelineEvent>{};
     invalidateRowIndex();
+    invalidateReceiptIndex();
     clearRenderedHtml();
     rebuildThreadReplyIndex();
     rebuildSenderAvatarIndex();

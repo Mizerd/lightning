@@ -156,6 +156,8 @@ private Q_SLOTS:
     void readReceiptsRoleResolvesExcludesSelfAndSortsNewestFirst();
     void readReceiptsUpdateViaSetDiffAndMemberHydration();
     void memberHydrationRerendersOnlyRowsWhoseMentionsChanged();
+    void aReaderShowsOnOneHostOnlyAndTheOldHostIsReannounced();
+    void removingTheNewestReceiptRowHandsTheReaderBackToTheOlderHost();
     void receiptOnlySetKeepsThreadIndexWithoutRebuild();
     void readMarkerRowsStayReceiptFreeWithoutIndexDrift();
     // The live "receipts disappear / swap between users" report: two remote
@@ -774,6 +776,89 @@ void TimelineModelDiffTest::readReceiptsRoleResolvesExcludesSelfAndSortsNewestFi
 // the room a few seconds after it had rendered ("the room loads a few
 // times"). Now each render records the names it resolved and a hydration
 // re-announces only the rows whose answer moved.
+// 2026-09-05: with receipt hosting, a receipt the backend left on an older
+// row while the reader had moved to a newer one drew the same avatar twice
+// (on a call row and on the message after it). A reader has ONE position:
+// the newest row carrying them wins, and the host they left is announced so
+// it stops drawing them.
+void TimelineModelDiffTest::aReaderShowsOnOneHostOnlyAndTheOldHostIsReannounced()
+{
+    auto older = makeEvent(QStringLiteral("$older"), QStringLiteral("first"));
+    older.readBy = { { QStringLiteral("@bob:example.org"), Q_INT64_C(1700000001000) } };
+    auto newer = makeEvent(QStringLiteral("$newer"), QStringLiteral("second"));
+    m_client->mirror = { older, newer };
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    auto readers = [this](int row) {
+        QStringList out;
+        const QVariantList list =
+            m_model->data(m_model->index(row), TimelineModel::ReadReceiptsRole).toList();
+        for (const QVariant &v : list)
+            out << v.toMap().value(QStringLiteral("userId")).toString();
+        return out;
+    };
+    QCOMPARE(readers(0), QStringList{ QStringLiteral("@bob:example.org") });
+    QCOMPARE(readers(1), QStringList{});
+
+    // Bob's receipt arrives on the newer row while the backend still carries
+    // it on the older one.
+    newer.readBy = { { QStringLiteral("@bob:example.org"), Q_INT64_C(1700000002000) } };
+    m_client->mirror[1] = newer;
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    Q_EMIT m_client->eventChangedAt(kRoom, 1, newer);
+
+    QCOMPARE(readers(1), QStringList{ QStringLiteral("@bob:example.org") });
+    QCOMPARE(readers(0), QStringList{});
+    bool olderAnnounced = false;
+    for (const auto &sig : changed) {
+        if (sig.at(0).toModelIndex().row() == 0
+            && sig.at(2).value<QList<int>>().contains(TimelineModel::ReadReceiptsRole))
+            olderAnnounced = true;
+    }
+    QVERIFY2(olderAnnounced, "the host Bob left must be told to drop him");
+}
+
+// The other direction: the newest row carrying a reader is REMOVED (a
+// redaction, a withdrawn local echo), so the reader's position falls back to
+// an older row — whose host must be told to draw them again. The first cut
+// of the fix announced only the row that took the removed index, which is
+// the row AFTER that host, so this failed on it.
+void TimelineModelDiffTest::removingTheNewestReceiptRowHandsTheReaderBackToTheOlderHost()
+{
+    auto first = makeEvent(QStringLiteral("$first"), QStringLiteral("one"));
+    first.readBy = { { QStringLiteral("@bob:example.org"), Q_INT64_C(1700000001000) } };
+    auto middle = makeEvent(QStringLiteral("$middle"), QStringLiteral("two"));
+    auto last = makeEvent(QStringLiteral("$last"), QStringLiteral("three"));
+    last.readBy = { { QStringLiteral("@bob:example.org"), Q_INT64_C(1700000003000) } };
+    m_client->mirror = { first, middle, last };
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    auto readers = [this](int row) {
+        QStringList out;
+        const QVariantList list =
+            m_model->data(m_model->index(row), TimelineModel::ReadReceiptsRole).toList();
+        for (const QVariant &v : list)
+            out << v.toMap().value(QStringLiteral("userId")).toString();
+        return out;
+    };
+    QCOMPARE(readers(0), QStringList{});
+    QCOMPARE(readers(2), QStringList{ QStringLiteral("@bob:example.org") });
+
+    m_client->mirror.removeAt(2);
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    Q_EMIT m_client->eventRemovedAt(kRoom, 2);
+
+    QCOMPARE(m_model->rowCount(), 2);
+    QCOMPARE(readers(0), QStringList{ QStringLiteral("@bob:example.org") });
+    bool firstAnnounced = false;
+    for (const auto &sig : changed) {
+        if (sig.at(0).toModelIndex().row() == 0
+            && sig.at(2).value<QList<int>>().contains(TimelineModel::ReadReceiptsRole))
+            firstAnnounced = true;
+    }
+    QVERIFY2(firstAnnounced, "the older host must be told Bob is back on it");
+}
+
 void TimelineModelDiffTest::memberHydrationRerendersOnlyRowsWhoseMentionsChanged()
 {
     auto pill = makeEvent(QStringLiteral("$pill"), QStringLiteral("hi bob"));
