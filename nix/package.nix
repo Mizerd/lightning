@@ -29,6 +29,10 @@ let
     gst-plugins-good
     gst-plugins-bad
     libnice # makeSearchPathOutput falls back to .out
+    # pipewire ships libgstpipewire (pipewiresrc), which the screen share
+    # captures through; without it on the plugin path the packaged client
+    # cannot share a screen at all (contributor finding, 2026-09-05).
+    pipewire
   ];
 in
 stdenv.mkDerivation {
