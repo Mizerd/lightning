@@ -193,8 +193,28 @@ for name in "$UPDATE_SIG_NAME" "$UPDATE_MANIFEST_NAME"; do
     local_file="$ROOT/dist/$name"
     url="${UPDATE_MIRROR_DOWNLOAD_HOST}/${GITHUB_MIRROR_REPO}/releases/download/${UPDATE_LATEST_TAG}/${name}"
     dl="$tmp_dir/verify-$name"
-    status="$(gh_get_anonymous "$url" "$dl")" || die "anonymous read-back request failed for $name"
-    [[ "$status" == 200 ]] || die "anonymous read-back of $name from the update slot returned HTTP $status"
+    # RETRY, because a freshly replaced asset is not instantly readable.
+    #
+    # GitHub stores release assets in blob storage that is eventually
+    # consistent: the API reports state=uploaded with the right size while an
+    # anonymous GET still answers 404 BlobNotFound. This check ran ~0.3 s
+    # after the upload and failed the whole job on it (2026-09-06, pipeline
+    # 180) -- twice, while the bytes were in fact fine and became readable a
+    # few minutes later, the .json before the .sig.
+    #
+    # So poll instead of asking once. This is not weakening the gate: it
+    # still requires an anonymous 200 AND a byte-for-byte digest match at the
+    # exact URL a client compiles in, and it still fails the job if the asset
+    # never appears. It only stops a release failing on someone else's
+    # propagation delay.
+    status=""
+    for attempt in $(seq 1 30); do
+        status="$(gh_get_anonymous "$url" "$dl")" ||             die "anonymous read-back request failed for $name"
+        [[ "$status" == 200 ]] && break
+        [[ "$attempt" == 30 ]] && break
+        sleep 10
+    done
+    [[ "$status" == 200 ]] || die "anonymous read-back of $name from the update slot returned HTTP $status after 30 attempts over 5 minutes"
     [[ "$(sha_of "$dl")" == "$(sha_of "$local_file")" ]] || \
         die "$name read back from the update slot does not match the promoted bytes"
     printf 'Verified anonymously: %s (%s bytes)\n' "$name" "$(size_of "$local_file")"
