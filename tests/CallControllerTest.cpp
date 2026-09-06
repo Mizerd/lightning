@@ -17,8 +17,10 @@
 #include "calls/CallShareModel.h"
 #include "calls/CallStageState.h"
 #include "calls/SdpStore.h"
+#include "calls/RtcController.h"
 #include "calls/SfuCallController.h"
 #include "matrix/CallSignal.h"
+#include "matrix/RtcSession.h"
 #include "matrix/MockMatrixClient.h"
 
 namespace {
@@ -142,6 +144,24 @@ public:
         lastRestartOp = ++opCounter;
         return lastRestartOp;
     }
+    // ── MatrixRTC SESSION READS. The membership is where a participant's
+    // NAME and AVATAR come from, and it arrives on a different transport
+    // from the SFU's participant list — so a test that wants the late order
+    // has to be able to deliver one after the other.
+    bool supportsMatrixRtc() const override { return true; }
+    quint64 rtcSession(const QString &roomId) override
+    {
+        sessionReads.append(roomId);
+        lastSessionOp = ++opCounter;
+        return lastSessionOp;
+    }
+    void answerSession(quint64 opId, const RtcSessionData &session)
+    {
+        Q_EMIT rtcSessionReceived(opId, session);
+    }
+    QStringList sessionReads;
+    quint64 lastSessionOp = 0;
+
     quint64 rtcRetractMembership(const QString &roomId,
                                  const QString &delayId) override
     {
@@ -2088,6 +2108,88 @@ private Q_SLOTS:
         QCOMPARE(client.muteRequests.size(), 1);
         QCOMPARE(client.muteRequests.at(0).first, QStringLiteral("TR_cam"));
         QCOMPARE(client.muteRequests.at(0).second, true);
+    }
+
+    // A MEMBERSHIP THAT LANDS AFTER THE SFU ANNOUNCED ITS OWNER MUST STILL
+    // NAME THEM.
+    //
+    // Reported from a live call: someone who joined a call already in
+    // progress had no display name and no profile picture on the OTHER
+    // participants' screens, permanently — and looked correct to everybody
+    // who joined after them, and correct again to anyone who left and
+    // rejoined.
+    //
+    // Two feeds, no ordering between them. The SFU announces a joiner over
+    // its own websocket the moment they connect; their `m.call.member` state
+    // event has to go to the homeserver and come back down sync, which is
+    // slower. rebuildModels() resolves every row through the membership
+    // (participantForIdentity), so the rows built from the SFU's
+    // announcement carry an empty userId, displayName and avatarMxc — and
+    // the only thing that ran when the membership finally arrived was
+    // noteParticipantIdentities() + distributeKeyIfNeeded(). Nothing rebuilt
+    // the rows, so the empty ones stood for the rest of the call.
+    //
+    // ON THE BROKEN TREE: the displayName is still empty after the session
+    // read, and the avatar with it.
+    void aMembershipArrivingAfterTheSfuStillNamesTheJoiner()
+    {
+        const QString room = QStringLiteral("!room:example.org");
+        const QString identity = QStringLiteral("@bea:example.org:BDEV");
+
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        rtc.setPokeCoalesceMsForTest(0);
+
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        call.setMembershipForTest(room, QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
+
+        // THE SFU GETS THERE FIRST: a row exists, and it is anonymous.
+        call.ingestParticipantsForTest({
+            sfuParticipant(identity, QStringLiteral("PA_BEA"), {}),
+        });
+        CallParticipantModel *model = call.participantModel();
+        const int row = participantRowFor(model, identity);
+        QVERIFY2(row >= 0, "the SFU's announcement did not produce a row");
+        QCOMPARE(participantRole(model, row,
+                                 CallParticipantModel::DisplayNameRole)
+                     .toString(),
+                 QString());
+
+        // ...and now the membership lands.
+        RtcParticipant bea;
+        bea.userId = QStringLiteral("@bea:example.org");
+        bea.deviceId = QStringLiteral("BDEV");
+        bea.rtcIdentity = identity;
+        bea.intent = QStringLiteral("audio");
+        bea.displayName = QStringLiteral("Bea");
+        bea.avatarMxc = QStringLiteral("mxc://example.org/bea");
+        bea.wireFormat = QStringLiteral("session");
+        RtcSessionData session;
+        session.roomId = room;
+        session.participants = { bea };
+
+        rtc.refresh(room);
+        QCOMPARE(client.sessionReads.size(), 1);
+        client.answerSession(client.lastSessionOp, session);
+
+        const int after = participantRowFor(model, identity);
+        QVERIFY(after >= 0);
+        QCOMPARE(participantRole(model, after,
+                                 CallParticipantModel::DisplayNameRole)
+                     .toString(),
+                 QStringLiteral("Bea"));
+        QCOMPARE(participantRole(model, after,
+                                 CallParticipantModel::AvatarMxcRole)
+                     .toString(),
+                 QStringLiteral("mxc://example.org/bea"));
+        QCOMPARE(participantRole(model, after,
+                                 CallParticipantModel::UserIdRole).toString(),
+                 QStringLiteral("@bea:example.org"));
     }
 
     // A RESTART MUST NOT UNMUTE THE TRACK IT JUST STOPPED.

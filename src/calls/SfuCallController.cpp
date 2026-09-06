@@ -318,6 +318,26 @@ void SfuCallController::setRtcController(RtcController *rtc)
                 // that was received, installed, and never findable.
                 noteParticipantIdentities();
                 distributeKeyIfNeeded();
+                // ...AND REDRAW THE ROWS, because the membership is where a
+                // participant's NAME and AVATAR come from.
+                //
+                // Every row is derived from the SFU's participant list and
+                // then resolved through the membership
+                // (rebuildModels/participantForIdentity), and the SFU
+                // announces a joiner over its websocket well before their
+                // `m.call.member` state event has synced down. The rows built
+                // at that moment therefore carry an empty userId, displayName
+                // and avatarMxc — and nothing rebuilt them when the answer
+                // arrived, so a person who joined a call already in progress
+                // stayed nameless and faceless on every OTHER participant's
+                // screen for the rest of the call, while looking correct on
+                // their own. Only a rejoin fixed it, because a rejoin is the
+                // one path that builds the rows with the membership already
+                // read.
+                //
+                // Idempotent: rebuildModels() DIFFS into the model, so a read
+                // that changes nothing produces no signal and no reset.
+                rebuildModels();
             });
 }
 
