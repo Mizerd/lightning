@@ -1160,6 +1160,22 @@ char *mx_rust_room_widgets(void *client,
                            const char *language,
                            unsigned long long op_id);
 
+/* Which network(s) a room is bridged to, as the bridge advertises it in
+   MSC2346 room state (`uk.half-shot.bridge`, and the stable `m.bridge`).
+   This is the only signal that answers for a bridged GROUP: the ghost-mxid
+   inference it supplements needs `m.direct`, so it answers for DMs alone.
+   `allow_network` (0/1) permits the `/state` fallback — the store answer is
+   free and empty today, so this is the caller's budget control and only a
+   surface the user explicitly opened should set it. Every string is
+   sanitised in Rust (controls and bidi controls stripped, whitespace
+   collapsed, character-bounded); `bridgebot` and `creator` are deliberately
+   not carried. Answers on `room_bridges {op_id, room_id, ok,
+   bridges:[{protocol, protocolName, network}]}`. */
+char *mx_rust_room_bridges(void *client,
+                           const char *room_id,
+                           unsigned char allow_network,
+                           unsigned long long op_id);
+
 /* ---------------------------------------------------------------------------
    ROOM MEDIA HISTORY, walked independently of the live timeline.
    See rust/src/mediahistory.rs.

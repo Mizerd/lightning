@@ -1010,6 +1010,25 @@ public:
                                     const QString &contentJson)
     { Q_UNUSED(roomId); Q_UNUSED(widgetId); Q_UNUSED(contentJson); return 0; }
 
+    // ── Bridges (MSC2346) ────────────────────────────────────────────────
+    //
+    // Which network a room is bridged to, as the BRIDGE says rather than as
+    // the room list guesses. The guess (matrix::bridge::networkIdForRoom)
+    // needs a ghost mxid from `m.direct` or a portal alias, so it answers for
+    // DMs and for essentially nothing else — which is exactly how it was
+    // reported ("bridge tags appear only on direct messages").
+    //
+    // `allowNetwork` permits the `/state` fallback the answer needs today:
+    // sliding sync does not carry this type, so the SDK's state store is
+    // empty for every room and the store-only read is free and useless. It is
+    // a budget control, not a preference — the room list must never trigger
+    // one, and a surface the user explicitly opened may.
+    //
+    // Answers on roomBridgesReceived. Backends without it return 0.
+    virtual quint64 roomBridges(const QString &roomId, bool allowNetwork)
+    { Q_UNUSED(roomId); Q_UNUSED(allowNetwork); return 0; }
+    virtual bool supportsRoomBridges() const { return false; }
+
     // ── Room media history ───────────────────────────────────────────────
     //
     // Walked INDEPENDENTLY of the live timeline, so Room Information can
@@ -1879,6 +1898,16 @@ Q_SIGNALS:
     /// room-error class otherwise ("forbidden", "unknown_room", ...).
     void roomWidgetWritten(quint64 opId, const QString &roomId, bool ok,
                            const QString &category);
+    /// A room's advertised bridges (MSC2346). Each entry: protocol,
+    /// protocolName, network — all SANITISED at the bridge (controls and
+    /// bidi controls stripped, whitespace collapsed, character-bounded),
+    /// because this is room state anyone with the power level can write.
+    /// `bridgebot` and `creator` are deliberately absent: they are mxids a
+    /// room admin chose and would read as provenance nothing can vouch for.
+    /// An empty list means "this room advertises none", which is a fact and
+    /// not an error — `ok` is false only when the read itself failed.
+    void roomBridgesReceived(quint64 opId, const QString &roomId, bool ok,
+                             const QVariantList &bridges);
     /// One page of a room's independent media-history walk.
     ///
     /// `scanned` counts events EXAMINED, not matched — the panel needs it to

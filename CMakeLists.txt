@@ -3826,10 +3826,24 @@ if(BUILD_TESTING)
     # to from a ghost user id or a portal alias. The negatives carry the
     # weight — mislabelling an ordinary contact with an underscore in their
     # localpart is worse than showing no badge.
+    #
+    # 2026-09-06: it also covers the MSC2346 answer that supplements that
+    # inference, which is why the room list is linked in. The inference can
+    # only ever answer for a DM (it needs `m.direct` or a portal alias), so
+    # the case that matters — a bridged GROUP getting a badge at all — is not
+    # a string question and cannot be tested on the pure functions alone.
     qt_add_executable(bridge-network-test
         tests/BridgeNetworkTest.cpp
         src/matrix/BridgeNetwork.h
         src/matrix/BridgeNetwork.cpp
+        src/models/RoomListModel.h
+        src/models/RoomListModel.cpp
+        src/models/DirectAvatarResolver.h
+        src/models/DirectAvatarResolver.cpp
+        src/spaces/SpaceManager.h
+        src/spaces/SpaceManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
     )
     target_include_directories(bridge-network-test PRIVATE src)
     target_link_libraries(bridge-network-test PRIVATE Qt6::Core Qt6::Test)

@@ -1,5 +1,7 @@
 #include "app/AppController.h"
 
+#include "matrix/BridgeNetwork.h"
+
 #include "app/FontManager.h"
 
 #include "app/RichComposerBridge.h"
@@ -811,6 +813,46 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this](quint64, const QString &roomId, const QVariantMap &snapshot) {
                 if (!snapshot.value(QStringLiteral("ok")).toBool())
                     m_memberHydratedRooms.remove(roomId);
+            });
+    // MSC2346: what a room's bridge says the room is. The list is turned
+    // into ONE badge here, because a chip has room for one word:
+    //
+    //   * an entry whose protocol id the curated table knows WINS, whatever
+    //     order the room state listed them in — that is the high-confidence
+    //     path, and it is the one that must not lose to attacker-chosen text;
+    //   * otherwise the first entry that could be named at all is used;
+    //   * no entry, or none nameable, records nothing, which leaves the
+    //     existing ghost-mxid/alias inference answering (a room that
+    //     advertises nothing is not a room we have learned is not bridged).
+    connect(m_client.get(), &MatrixClient::roomBridgesReceived, this,
+            [this](quint64, const QString &roomId, bool ok,
+                   const QVariantList &bridges) {
+                if (!ok) {
+                    // A failed read must not fail closed for the session.
+                    m_bridgeReadRooms.remove(roomId);
+                    return;
+                }
+                matrix::bridge::AdvertisedBridgeLabel best;
+                for (const QVariant &entry : bridges) {
+                    const QVariantMap row = entry.toMap();
+                    const auto resolved =
+                        matrix::bridge::labelForAdvertisedBridge(
+                            row.value(QStringLiteral("protocol")).toString(),
+                            row.value(QStringLiteral("protocolName")).toString(),
+                            row.value(QStringLiteral("network")).toString());
+                    if (resolved.label.isEmpty())
+                        continue;
+                    if (!matrix::bridge::labelForNetworkId(resolved.networkId)
+                             .isEmpty()) {
+                        best = resolved;
+                        break;
+                    }
+                    if (best.label.isEmpty())
+                        best = resolved;
+                }
+                if (m_roomList)
+                    m_roomList->setAdvertisedBridge(roomId, best.networkId,
+                                                    best.label);
             });
     // Invites: notify once per newly seen invited room. Invites present
     // before the initial sync completes are seeded silently (see
@@ -2319,6 +2361,25 @@ void AppController::requestRoomNotificationMode(const QString &roomId)
     m_client->requestRoomNotificationMode(roomId);
 }
 
+void AppController::requestRoomBridgeInfo(const QString &roomId,
+                                          bool allowNetwork)
+{
+    if (roomId.isEmpty() || MatrixClient::isThreadTimelineId(roomId)
+        || !m_client || !m_client->supportsRoomBridges())
+        return;
+    const auto seen = m_bridgeReadRooms.constFind(roomId);
+    // Asked with the network already: the answer is as good as it gets.
+    // Asked without it: a caller that may pay for the request upgrades once.
+    if (seen != m_bridgeReadRooms.constEnd() && (*seen || !allowNetwork))
+        return;
+    // Recorded only when the dispatch actually went out. A synchronous
+    // rejection (no SDK handle yet, unknown room) never answers, and marking
+    // the room here would fail closed for the whole session — the same trap
+    // the roster hydration above is written around.
+    if (m_client->roomBridges(roomId, allowNetwork) != 0)
+        m_bridgeReadRooms.insert(roomId, allowNetwork);
+}
+
 bool AppController::roomNotificationModeSyncFailed(const QString &roomId) const
 {
     return m_notificationModeSyncFailures.contains(roomId);
@@ -2918,6 +2979,40 @@ void AppController::setCurrentRoomId(const QString &roomId)
         // fail closed for the whole session.
         if (m_client->requestRoomMembers(roomId) != 0)
             m_memberHydratedRooms.insert(roomId);
+    }
+    // MSC2346 bridge state, once per room per session, on a room the user
+    // actually opened. The room LIST must never trigger this: its badge is
+    // computed synchronously inside data(), for every visible row, and the
+    // answer needs a request (src/matrix/BridgeNetwork.h).
+    //
+    // THE CEILING, and it is a judgement rather than a measurement. A
+    // `/state` response is roughly linear in the room's membership — one
+    // `m.room.member` event each — so an eager read on a very large room is
+    // a large response bought for a one-word badge. At or below 500 loaded
+    // members the eager read may go to the network; above it the eager read
+    // is store-only (free, and empty today), and the room info panel remains
+    // the way to get the real answer, because opening it is an explicit
+    // action on ONE room. Note this counts the LOADED roster, which
+    // under-reports until member hydration lands a moment later, so the
+    // ceiling bounds the common case rather than guaranteeing anything.
+    //
+    // Spaces are skipped outright: a Space is not a conversation, shows no
+    // badge, and cannot be bridged.
+    if (!roomId.isEmpty() && m_client) {
+        constexpr int kEagerBridgeMemberCeiling = 500;
+        bool isSpace = false;
+        int loadedMembers = 0;
+        for (const auto &info : m_client->rooms()) {
+            if (info.id != roomId)
+                continue;
+            isSpace = info.isSpace;
+            loadedMembers = static_cast<int>(info.members.size());
+            break;
+        }
+        if (!isSpace) {
+            requestRoomBridgeInfo(roomId,
+                                  loadedMembers <= kEagerBridgeMemberCeiling);
+        }
     }
     Q_EMIT currentRoomIdChanged();
 }
@@ -4235,6 +4330,8 @@ void AppController::onLoggedOut()
     // The roster cache died with the session (detach or logout); the next
     // account — or a re-login — must hydrate rooms afresh.
     m_memberHydratedRooms.clear();
+    // Same scope, same reason: the next account's rooms are not these rooms.
+    m_bridgeReadRooms.clear();
     m_playback->stopAll(); // no playback (or decrypted-media handle) survives
     // Unsent clipboard images belong to the session that staged them. Both
     // composers clear their queues on the way out, which releases each token

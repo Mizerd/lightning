@@ -881,6 +881,21 @@ public:
     // picker opens so changes made in another client land in the cache.
     // No-op on backends without server support.
     Q_INVOKABLE void requestRoomNotificationMode(const QString &roomId);
+    /// Ask what a room's bridge advertises about itself (MSC2346), ONCE per
+    /// room per session, and feed the answer to the room list's badge.
+    ///
+    /// `allowNetwork` decides whether the `/state` fallback may run. It has
+    /// to exist because the SDK's state store is empty for this event type
+    /// (src/matrix/BridgeNetwork.h and rust/src/bridges.rs explain why), so
+    /// the free read answers nothing and the useful read is a request. The
+    /// policy lives at the call sites: room-open is eager but bounded, and
+    /// the room info panel — one room, opened deliberately by the user —
+    /// always pays.
+    ///
+    /// A room already asked WITH the network is never asked again; a room
+    /// asked without it may be upgraded once.
+    Q_INVOKABLE void requestRoomBridgeInfo(const QString &roomId,
+                                           bool allowNetwork);
     // True while the room's LAST server push-rule write is known to have
     // failed (the device-local mode still applies). Cleared by the next
     // successful user-defined report for the room; session-scoped, never
@@ -1305,6 +1320,10 @@ private:
     // Rooms whose member roster was hydrated this session (one bounded
     // requestRoomMembers per room per account; cleared on logout/switch).
     QSet<QString> m_memberHydratedRooms;
+    // Rooms whose MSC2346 bridge state was read this session -> whether that
+    // read was allowed to go to the network. One bounded read per room per
+    // account; cleared on logout/switch with the roster cache above.
+    QHash<QString, bool> m_bridgeReadRooms;
     QString m_requestedSettingsSection;
     QString m_connectionStatus;
     bool m_localRustResetRequired = false;

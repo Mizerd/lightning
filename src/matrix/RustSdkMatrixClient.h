@@ -504,6 +504,8 @@ public:
     quint64 roomWidgets(const QString &roomId, const QString &theme,
                         const QString &language) override;
     bool supportsWidgets() const override { return m_rustHandle != nullptr; }
+    quint64 roomBridges(const QString &roomId, bool allowNetwork) override;
+    bool supportsRoomBridges() const override { return m_rustHandle != nullptr; }
     quint64 requestMediaHistoryPage(const QString &roomId, int limit,
                                     bool restart) override;
     bool supportsMediaHistory() const override

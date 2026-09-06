@@ -176,6 +176,14 @@ Rectangle {
             app.widgets.roomId = roomId
             app.widgets.refresh()
         }
+        // MSC2346 bridge state, on the same discipline and for the same
+        // reason: the answer needs a /state read (sliding sync does not
+        // carry the type), so the room LIST must never trigger one. Opening
+        // this panel is the explicit action on ONE room, so it always takes
+        // the network read — the room-open path bounds itself by member
+        // count instead (AppController::requestRoomBridgeInfo). Once per
+        // room per session; a room already answered costs nothing.
+        app.requestRoomBridgeInfo(roomId, true)
         section = "overview"
         memberFilter = ""
         memberSearch.text = ""
@@ -694,6 +702,50 @@ Rectangle {
                               .arg(app.roomInfo.invitedCount)
                         color: AppTheme.textMuted
                         font.pixelSize: AppTheme.textBody
+                    }
+
+                    // Which network this conversation is bridged to. The
+                    // room list shows the same answer as a chip; this says
+                    // it in words, because a badge beside a room name is
+                    // easy to miss and this is the panel that explains what
+                    // a room IS.
+                    //
+                    // The label is OUR curated name for a network we
+                    // recognise (MSC2346 protocol id -> table), and only for
+                    // a protocol we do NOT recognise is it the bridge's own
+                    // text — attacker-writable room state, so it arrives
+                    // sanitised and bounded from Rust and renders as plain
+                    // text and nothing else. No user id is ever shown here:
+                    // the MSC's `bridgebot` and `creator` are mxids a room
+                    // admin chose and never cross the bridge.
+                    //
+                    // A plain `visible:` rather than a Loader: §16's
+                    // empty-Label rule is about PER-ROW delegates in the
+                    // timeline's instantiated Column, where thousands of
+                    // them accumulate into a viewport-observer walk. This
+                    // panel holds exactly one, beside a topic Label written
+                    // the same way.
+                    RowLayout {
+                        objectName: "roomInfoBridgeRow"
+                        visible: (root.roomData.bridgeLabel || "").length > 0
+                        spacing: 4
+                        Icon {
+                            name: "link"
+                            size: 14
+                            color: AppTheme.textMuted
+                        }
+                        Label {
+                            objectName: "roomInfoBridgeLabel"
+                            Layout.fillWidth: true
+                            text: qsTr("Bridged via %1")
+                                  .arg(root.roomData.bridgeLabel || "")
+                            // Remote, bridge-chosen text in the fallback
+                            // case; never AutoText (§6).
+                            textFormat: Text.PlainText
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.textBody
+                            elide: Text.ElideRight
+                        }
                     }
 
 

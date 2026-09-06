@@ -75,6 +75,39 @@ QString networkIdForRoom(const QString &directUserId,
 // "Whatsapp" or "Gvoice" is worse than no badge.
 QString labelForNetworkId(const QString &networkId);
 
+// The MSC2346 answer, turned into a badge.
+//
+// This is what closes the DM-only gap described above: a bridged GROUP has no
+// ghost mxid and no portal alias to infer from, but it does carry
+// `uk.half-shot.bridge` room state naming the protocol. The Rust side reads
+// and sanitises that (rust/src/bridges.rs); this decides what it is allowed
+// to say.
+//
+// PRECEDENCE, and it is security-relevant:
+//
+//   1. A protocol id the curated table above knows gets OUR label. That is
+//      the high-confidence path and it must win — "whatsapp" reads as
+//      "WhatsApp" whatever the bridge would have liked it to say.
+//   2. ONLY for an id the table does not know may the bridge's own text be
+//      shown, bounded to a chip's worth. That text is written by anyone with
+//      the power level to send room state, so it is attacker-chosen — which
+//      is acceptable here for one specific reason: it renders in a muted chip
+//      beside the room NAME, which is equally attacker-chosen and far more
+//      prominent, and it goes through `Text.PlainText` (RoomDelegate.qml
+//      already sets it; keep it). It is bounded, stripped of control and
+//      bidi characters in Rust, and it names no user.
+//   3. Neither available: no label, which the UI renders as no badge.
+//
+// `networkId` is the sanitised, lowercased protocol id — the same key the
+// inference produces for a known network, so NetworkRole means one thing.
+struct AdvertisedBridgeLabel {
+    QString networkId;
+    QString label;
+};
+AdvertisedBridgeLabel labelForAdvertisedBridge(const QString &protocolId,
+                                               const QString &protocolName,
+                                               const QString &networkName);
+
 // Presentation repair for a bridged DM's computed name.
 //
 // A ghost localpart is machine identity, never a human name — but it is

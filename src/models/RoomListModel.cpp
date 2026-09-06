@@ -63,6 +63,7 @@ void RoomListModel::setClient(MatrixClient *client)
         m_client->disconnect(this);
     m_client = client;
     m_directAvatars.setClient(m_client);
+    clearAdvertisedBridges();
     if (m_client) {
         connect(m_client, &MatrixClient::roomsChanged,
                 this, &RoomListModel::refresh);
@@ -84,6 +85,9 @@ void RoomListModel::setClient(MatrixClient *client)
 void RoomListModel::clearProfileCaches()
 {
     m_directAvatars.clear();
+    // Bridge answers are account-scoped: they are keyed by room id, and the
+    // next account's room ids are not these room ids.
+    clearAdvertisedBridges();
     refresh();
 }
 
@@ -179,13 +183,11 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case SuccessorRoomIdRole:    return r.successorRoomId;
     case SupersededByAccessibleSuccessorRole:
         return m_supersededRoomIds.contains(r.id);
-    case NetworkRole:
-        return matrix::bridge::networkIdForRoom(r.directUserId,
-                                                r.canonicalAlias);
-    case NetworkLabelRole:
-        return matrix::bridge::labelForNetworkId(
-            matrix::bridge::networkIdForRoom(r.directUserId,
-                                             r.canonicalAlias));
+    // Both roles stay SYNCHRONOUS and fetch nothing: badgeFor() is a hash
+    // lookup plus the existing pure inference. The MSC2346 read that fills
+    // that hash is driven by user action (see setAdvertisedBridge).
+    case NetworkRole:            return badgeFor(r).networkId;
+    case NetworkLabelRole:       return badgeFor(r).label;
     default:                     return {};
     }
 }
@@ -232,6 +234,7 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
         return {};
     for (const auto &r : m_client->rooms()) {
         if (r.id == roomId) {
+            const BridgeBadge badge = badgeFor(r);
             return {
                 { QStringLiteral("id"),        r.id },
                 { QStringLiteral("name"),      r.name },
@@ -256,6 +259,12 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
                 { QStringLiteral("directUserIds"), r.directUserIds },
                 // One fallback-colour policy everywhere (see RoomInfo.h).
                 { QStringLiteral("identityColorKey"), identityColorKey(r) },
+                // The bridge badge, same answer the row shows — the room
+                // info panel renders "Bridged via X" from these, and a
+                // panel disagreeing with the row beside it would be worse
+                // than either being absent.
+                { QStringLiteral("bridgeNetwork"), badge.networkId },
+                { QStringLiteral("bridgeLabel"),   badge.label },
             };
         }
     }
@@ -557,6 +566,68 @@ void RoomListModel::onDirectAvatarResolved(const QString &userId)
 void RoomListModel::resolveMissingDirectAvatars()
 {
     m_directAvatars.resolveMissing(m_rooms);
+}
+
+RoomListModel::BridgeBadge RoomListModel::badgeFor(const RoomInfo &r) const
+{
+    // What the bridge SAYS wins over what we guessed. It is the only signal
+    // that can answer for a bridged group at all: the inference below needs
+    // a ghost mxid from `m.direct` or a portal alias, which is why the badge
+    // was reported as appearing on direct messages only.
+    const auto it = m_advertisedBridges.constFind(r.id);
+    if (it != m_advertisedBridges.constEnd() && !it->label.isEmpty())
+        return *it;
+    // No advertisement (or one we could not name): the existing inference
+    // still answers for every bridged DM, exactly as before.
+    const QString inferred =
+        matrix::bridge::networkIdForRoom(r.directUserId, r.canonicalAlias);
+    return { inferred, matrix::bridge::labelForNetworkId(inferred) };
+}
+
+void RoomListModel::setAdvertisedBridge(const QString &roomId,
+                                        const QString &networkId,
+                                        const QString &label)
+{
+    if (roomId.isEmpty())
+        return;
+    const auto existing = m_advertisedBridges.constFind(roomId);
+    const bool had = existing != m_advertisedBridges.constEnd();
+    if (label.isEmpty()) {
+        // "This room advertises no bridge" is not an answer that should
+        // erase a DM inference which is still correct, so it is recorded as
+        // the absence of an entry rather than as an empty one.
+        //
+        // Deliberately belt-and-braces with badgeFor()'s own
+        // `!it->label.isEmpty()` clause: MEASURED, neither guard alone can be
+        // mutated into a test failure, and both are kept because a cache that
+        // can hold an unnameable entry and a reader that would show one are
+        // two different mistakes.
+        if (!had)
+            return;
+        m_advertisedBridges.remove(roomId);
+    } else {
+        if (had && existing->networkId == networkId && existing->label == label)
+            return;
+        m_advertisedBridges.insert(roomId, { networkId, label });
+    }
+    for (int row = 0; row < m_rooms.size(); ++row) {
+        if (m_rooms.at(row).id != roomId)
+            continue;
+        Q_EMIT dataChanged(index(row), index(row),
+                           { NetworkRole, NetworkLabelRole });
+        break;
+    }
+}
+
+void RoomListModel::clearAdvertisedBridges()
+{
+    if (m_advertisedBridges.isEmpty())
+        return;
+    m_advertisedBridges.clear();
+    if (!m_rooms.isEmpty()) {
+        Q_EMIT dataChanged(index(0), index(m_rooms.size() - 1),
+                           { NetworkRole, NetworkLabelRole });
+    }
 }
 
 void RoomListModel::reconcileRooms()

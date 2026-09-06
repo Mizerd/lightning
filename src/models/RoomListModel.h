@@ -116,6 +116,25 @@ public:
     // fields the UI actually needs (name, topic, encrypted). Returns an
     // empty map if the room is not present.
     Q_INVOKABLE QVariantMap findRoom(const QString &roomId) const;
+
+    /// Record what a room's bridge ADVERTISES about itself (MSC2346), as
+    /// resolved by matrix::bridge::labelForAdvertisedBridge.
+    ///
+    /// This exists because `data()` must stay synchronous and must never
+    /// fetch: NetworkLabelRole is computed on every call, for every visible
+    /// row, and the MSC2346 answer needs a `/state` read
+    /// (src/matrix/BridgeNetwork.h explains why sliding sync cannot carry
+    /// it). So the read is driven by user action elsewhere — AppController on
+    /// room open, and the room info panel — and lands HERE. `data()` reads
+    /// this cache first and falls back to the ghost-mxid/alias inference,
+    /// which still answers for every DM whose bridge advertises nothing.
+    ///
+    /// An empty `label` REMOVES the entry: "this room advertises no bridge"
+    /// must not erase a DM inference that is still correct.
+    void setAdvertisedBridge(const QString &roomId, const QString &networkId,
+                             const QString &label);
+    /// Account-scoped: another account's rooms are not these rooms.
+    void clearAdvertisedBridges();
     // v0.7.1: the most recent joined conversations (Spaces excluded) for the
     // Home surface, as a bounded list of {roomId,name,avatarUrl,isDirect,
     // hasUnread,unreadCount} maps, reusing the model's activity ordering.
@@ -209,6 +228,14 @@ private:
     // unverifiable chain leaves the row alone.
     QSet<QString> computeSupersededRoomIds() const;
     void resolveMissingDirectAvatars();
+    // The badge a row shows: the advertised answer when there is one, the
+    // ghost-mxid/alias inference otherwise. One place, so the room list and
+    // findRoom() (which the room info panel reads) can never disagree.
+    struct BridgeBadge {
+        QString networkId;
+        QString label;
+    };
+    BridgeBadge badgeFor(const RoomInfo &r) const;
     // Recomputed from m_rooms on every structural or data change; see
     // the favouritesBoundaryRoomId property comment.
     void updateFavouritesBoundary();
@@ -234,6 +261,9 @@ private:
     // Coalesces per-event refreshRoom() calls into one reconcile per turn.
     QTimer m_reconcileCoalesce;
     DirectAvatarResolver m_directAvatars;
+    // roomId -> what its bridge advertises (MSC2346). Populated by
+    // setAdvertisedBridge; never fetched from here.
+    QHash<QString, BridgeBadge> m_advertisedBridges;
 
 Q_SIGNALS:
     void searchQueryChanged();

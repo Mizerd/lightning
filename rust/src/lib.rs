@@ -70,6 +70,7 @@ use serde_json::json;
 
 mod banner;
 mod bio;
+mod bridges;
 mod calls;
 mod discover;
 mod gifs;
@@ -7429,6 +7430,53 @@ pub unsafe extern "C" fn mx_rust_room_widgets(
             enqueue(&events, json!({
                 "type": "room_widgets", "op_id": op_id, "room_id": room_id,
                 "ok": true, "can_manage": can_manage, "widgets": payloads,
+            }));
+        });
+        Ok(String::new())
+    })
+}
+
+/// Which network(s) a room is bridged to, as the bridge itself advertises
+/// (MSC2346). See rust/src/bridges.rs for why the ghost-mxid inference this
+/// replaces could only ever answer for DMs, and for what is sanitised.
+///
+/// `allow_network` (0/1) permits the `/state` fallback. It is the caller's
+/// budget control: the store answer is free and empty today, and a full
+/// `/state` on a large room is a large response, so only a surface the user
+/// explicitly opened may pay for one.
+///
+/// Answers with `room_bridges {op_id, room_id, ok, bridges:[{protocol,
+/// protocolName, network}]}`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_room_bridges(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    allow_network: u8,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let client = require_client_for_search(bridge)?;
+        let parsed = RoomId::parse(&room_id).map_err(|_| "invalid room id".to_owned())?;
+        let room = client.get_room(&parsed).ok_or_else(|| "unknown room".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        let timelines = Arc::clone(&bridge.timelines);
+        let lifecycle = timelines.lifecycle();
+        bridge.spawn_room_action(async move {
+            let found =
+                bridges::read_room_bridges(&client, &room, allow_network != 0).await;
+            // The lifecycle guard `widgets.rs` lacks and should have had: a
+            // /state read outlives an account switch easily, and a late
+            // answer must never label the NEXT account's room list.
+            if !timelines.lifecycle_current(lifecycle) {
+                return;
+            }
+            let payloads: Vec<serde_json::Value> =
+                found.iter().map(bridges::bridge_payload).collect();
+            enqueue(&events, json!({
+                "type": "room_bridges", "op_id": op_id, "room_id": room_id,
+                "ok": true, "bridges": payloads,
             }));
         });
         Ok(String::new())

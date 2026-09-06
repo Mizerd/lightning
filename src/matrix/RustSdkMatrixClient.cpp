@@ -6571,6 +6571,20 @@ quint64 RustSdkMatrixClient::roomWidgets(const QString &roomId,
     return opId;
 }
 
+quint64 RustSdkMatrixClient::roomBridges(const QString &roomId,
+                                        bool allowNetwork)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    takeRustString(mx_rust_room_bridges(
+        m_rustHandle, room.constData(),
+        static_cast<unsigned char>(allowNetwork ? 1 : 0),
+        static_cast<unsigned long long>(opId)));
+    return opId;
+}
+
 quint64 RustSdkMatrixClient::searchIndexStats()
 {
     if (!m_rustHandle)
@@ -8984,6 +8998,30 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         Q_EMIT roomWidgetsReceived(opId(), event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("ok")).toBool(),
             event.value(QStringLiteral("can_manage")).toBool(false), widgets);
+        return true;
+    }
+    if (type == QLatin1String("room_bridges")) {
+        // MSC2346. Every string here was sanitised in Rust
+        // (rust/src/bridges.rs) — controls and bidi controls stripped,
+        // whitespace collapsed, character-bounded — because it is room state
+        // any member with the power level can write. Nothing is re-derived
+        // here and no user id is carried.
+        QVariantList bridges;
+        for (const QJsonValue &v :
+             event.value(QStringLiteral("bridges")).toArray()) {
+            const QJsonObject row = v.toObject();
+            bridges.append(QVariantMap{
+                { QStringLiteral("protocol"),
+                  row.value(QStringLiteral("protocol")).toString() },
+                { QStringLiteral("protocolName"),
+                  row.value(QStringLiteral("protocolName")).toString() },
+                { QStringLiteral("network"),
+                  row.value(QStringLiteral("network")).toString() },
+            });
+        }
+        Q_EMIT roomBridgesReceived(
+            opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(false), bridges);
         return true;
     }
     if (type == QLatin1String("local_search_result")) {

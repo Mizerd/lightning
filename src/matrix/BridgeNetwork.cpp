@@ -116,6 +116,60 @@ QString labelForNetworkId(const QString &networkId)
 
 namespace {
 
+// A chip's worth of a bridge's own text. Attacker-chosen, so bounded here
+// too even though Rust already bounded it at 64: this function is also
+// reachable from a backend that is not the Rust one, and the badge is a
+// single line beside a room name.
+constexpr int kChipChars = 24;
+
+QString chipText(const QString &raw)
+{
+    QString text;
+    text.reserve(raw.size());
+    for (const QChar c : raw) {
+        // Defence in depth. Rust strips these already; a second backend or a
+        // future caller must not be able to put a bidi override in a chip.
+        const char32_t u = c.unicode();
+        if (c.isNull() || (c.category() == QChar::Other_Control))
+            continue;
+        if (u == 0x200E || u == 0x200F || (u >= 0x202A && u <= 0x202E)
+            || (u >= 0x2066 && u <= 0x2069))
+            continue;
+        text.append(c);
+    }
+    text = text.simplified();
+    if (text.size() > kChipChars) {
+        text.truncate(kChipChars - 1);
+        // QString::size() counts UTF-16 units, so a blind truncate can cut a
+        // surrogate pair in half and leave an invalid string. Drop the
+        // orphan; an emoji lost from an over-long chip costs nothing.
+        if (!text.isEmpty() && text.back().isHighSurrogate())
+            text.chop(1);
+        text.append(QStringLiteral("\u2026"));
+    }
+    return text;
+}
+
+} // namespace
+
+AdvertisedBridgeLabel labelForAdvertisedBridge(const QString &protocolId,
+                                               const QString &protocolName,
+                                               const QString &networkName)
+{
+    const QString id = protocolId.trimmed().toLower();
+    // 1. A known protocol gets OUR label, always.
+    const QString curated = labelForNetworkId(id);
+    if (!curated.isEmpty())
+        return { id, curated };
+    // 2. Otherwise the bridge may name itself, once, in a chip.
+    QString own = chipText(protocolName);
+    if (own.isEmpty())
+        own = chipText(networkName);
+    return { id, own };
+}
+
+namespace {
+
 // "<network>_<remote id>" -> "<remote id>", empty when the localpart is not
 // a recognised ghost (including the bare "<network>bot" shape, which has no
 // remote id).

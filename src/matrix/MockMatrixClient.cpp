@@ -2827,6 +2827,20 @@ quint64 MockMatrixClient::roomWidgets(const QString &roomId,
     return op;
 }
 
+quint64 MockMatrixClient::roomBridges(const QString &roomId,
+                                     bool allowNetwork)
+{
+    if (roomId.isEmpty())
+        return 0;
+    bridgeReads.append({ roomId, allowNetwork });
+    const quint64 op = ++m_opCounter;
+    const QVariantList rows = mockRoomBridges.value(roomId);
+    QTimer::singleShot(0, this, [this, op, roomId, rows] {
+        Q_EMIT roomBridgesReceived(op, roomId, true, rows);
+    });
+    return op;
+}
+
 quint64 MockMatrixClient::localSearch(const QString &query,
                                       const QString &roomId,
                                       int limit, int offset)

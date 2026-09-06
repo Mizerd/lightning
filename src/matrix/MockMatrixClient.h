@@ -3,6 +3,7 @@
 #include "matrix/MatrixClient.h"
 
 #include <tuple>
+#include <utility>
 #include <QHash>
 #include <QList>
 #include <QSet>
@@ -422,6 +423,19 @@ public:
     quint64 m_mockWidgetWriteOp = 0;
     QString lastWidgetTheme;
     QString lastWidgetLanguage;
+
+    // Bridges (MSC2346). READY PAYLOADS again, for the same reason: the
+    // sanitising and the tombstone rule live once, in Rust, with their own
+    // tests. `bridgeReads` records (roomId, allowNetwork) so a test can prove
+    // the budget rule — that the room LIST never triggers a /state read and
+    // that a room is only asked once per session.
+    bool mockSupportsRoomBridges = true;
+    bool supportsRoomBridges() const override { return mockSupportsRoomBridges; }
+    /// Per room: the list the "bridge" would have answered with. A room with
+    /// no entry answers an empty list, which is a fact, not an error.
+    QHash<QString, QVariantList> mockRoomBridges;
+    QList<std::pair<QString, bool>> bridgeReads;
+    quint64 roomBridges(const QString &roomId, bool allowNetwork) override;
     quint64 localSearch(const QString &query, const QString &roomId,
                         int limit, int offset) override;
     quint64 searchIndexStats() override;
