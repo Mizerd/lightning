@@ -590,17 +590,23 @@ private Q_SLOTS:
             client.completeBatch(kRoomA, 0, false); // empty (filtered) page
             QCoreApplication::processEvents();      // fire the continuation
         }
-        QCOMPARE(dispatched, 4); // kMaxNearTopEmptyStrikes: one approach, 4 pages
+        // Derived from the policy constant, never a literal: the bound moved
+        // from 4 to 12 when call-membership filtering made empty pages the
+        // norm, and a hard-coded copy here just fails without saying why.
+        QCOMPARE(dispatched, PaginationController::kMaxNearTopEmptyStrikes);
         // willContinue reports whether THIS empty completion scheduled the run's
-        // next batch: true for the first three strikes, false for the latching
-        // fourth. No anchor logic listens any more (TimelinePane.qml keeps ONE
+        // next batch: true for every strike but the last, false for the one
+        // that latches. No anchor logic listens any more (TimelinePane.qml keeps ONE
         // position-preserving mechanism and consumes no pagination signal); it
         // remains the controller's own completion contract, and it now means
         // "scheduled", not "will certainly fetch" — the continuation re-checks
         // real row growth before dispatching.
-        QCOMPARE(completions.count(), 4);
-        for (int i = 0; i < 4; ++i)
-            QCOMPARE(completions.at(i).at(2).toBool(), i < 3);
+        const int bound = PaginationController::kMaxNearTopEmptyStrikes;
+        QCOMPARE(completions.count(), bound);
+        // Every strike but the last says it scheduled another; the last one
+        // latches and says it did not.
+        for (int i = 0; i < bound; ++i)
+            QCOMPARE(completions.at(i).at(2).toBool(), i < bound - 1);
 
         // The continuation has latched: no further automatic dispatch spins.
         const int capped = client.loadOlderCalls;
@@ -663,8 +669,10 @@ private Q_SLOTS:
                 break; // settled: no new dispatch pending
         }
         // Strictly bounded — it stopped on its own well under a spin.
-        QVERIFY2(pages <= 4,
-                 qPrintable(QStringLiteral("filtered pages=%1").arg(pages)));
+        QVERIFY2(pages <= PaginationController::kMaxNearTopEmptyStrikes,
+                 qPrintable(QStringLiteral("filtered pages=%1 (bound %2)")
+                                .arg(pages)
+                                .arg(PaginationController::kMaxNearTopEmptyStrikes)));
         QVERIFY(pages >= 1); // it did try at least once
 
         // And it stays stopped with no further input.

@@ -120,6 +120,27 @@ public:
     // Shared with ThreadController so the room timeline and the thread panel
     // pulse and expire identically.
     static constexpr int kDefaultHighlightDurationMs = 1800;
+
+    // 12, matching kMaxNoProgressStrikes and the pane's own
+    // maxInvisibleFillRetries, because all three face the SAME phenomenon: a
+    // long run of history the timeline filters out. Four was chosen before
+    // MatrixRTC membership events were dropped at the SDK, and in a room that
+    // hosts calls those are most of the history -- one participant per minute
+    // per call -- so a twenty-event page routinely inserts NOTHING. The
+    // reader scrolls, a page loads, no message appears, and the chain latches
+    // after four: reported as "it just stops loading, I have to scroll up
+    // like five times and then messages continue to load above it", and
+    // visible in that session's log as eight consecutive near_top completions
+    // with added=0.
+    //
+    // This is not the v0.6.6 storm branch returning. That one continued
+    // REGARDLESS of growth, so a single held gesture could paginate a whole
+    // room. This continues only when the backend advanced its cursor and the
+    // mirror gained nothing, which is precisely the filtered case, and it
+    // still stops at the start of history, on any inserted row, and on the
+    // strike bound. Twelve pages is ~240 filtered events, the scale the fill
+    // budget was measured against.
+    static constexpr int kMaxNearTopEmptyStrikes = 12;
     static constexpr int kNavigationMessageDurationMs = 3000;
 
     void setClient(MatrixClient *client);
@@ -356,26 +377,6 @@ private:
     int m_highlightDurationMs = kDefaultHighlightDurationMs;
 
     static constexpr int kMaxNoProgressStrikes = 12; // see m_maxFillRequests
-    // 12, matching kMaxNoProgressStrikes and the pane's own
-    // maxInvisibleFillRetries, because all three face the SAME phenomenon: a
-    // long run of history the timeline filters out. Four was chosen before
-    // MatrixRTC membership events were dropped at the SDK, and in a room that
-    // hosts calls those are most of the history -- one participant per minute
-    // per call -- so a twenty-event page routinely inserts NOTHING. The
-    // reader scrolls, a page loads, no message appears, and the chain latches
-    // after four: reported as "it just stops loading, I have to scroll up
-    // like five times and then messages continue to load above it", and
-    // visible in that session's log as eight consecutive near_top completions
-    // with added=0.
-    //
-    // This is not the v0.6.6 storm branch returning. That one continued
-    // REGARDLESS of growth, so a single held gesture could paginate a whole
-    // room. This continues only when the backend advanced its cursor and the
-    // mirror gained nothing, which is precisely the filtered case, and it
-    // still stops at the start of history, on any inserted row, and on the
-    // strike bound. Twelve pages is ~240 filtered events, the scale the fill
-    // budget was measured against.
-    static constexpr int kMaxNearTopEmptyStrikes = 12;
     static constexpr int kMaxNavigationBatches = 8;
     static constexpr int kMaxScrollAnchors = 64;
 };
