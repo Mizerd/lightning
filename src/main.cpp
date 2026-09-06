@@ -41,8 +41,13 @@
 #include <QIcon>
 #include <QLibraryInfo>
 #include <QQmlApplicationEngine>
+// Unconditional: the software-renderer fallback below needs all four in
+// every build, not only the screenshot-demo one.
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
+#include <QQuickWindow>
+#include <QSGRendererInterface>
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-#include <QQuickWindow>   // headless --demo-capture (dev builds only)
 #include <QImage>
 #include <QTimer>
 #endif
@@ -1288,6 +1293,53 @@ int main(int argc, char *argv[])
     // threshold with a coarse category. Duration and category literal
     // only — see GuiStallTracer.h.
     stalltrace::install();
+
+    // ── A missing GL stack must degrade, not refuse to start ─────────────
+    //
+    // Qt Quick's default RHI backend is OpenGL, and when no context can be
+    // created Qt prints "Failed to create RHI (backend 2)" and the process
+    // exits before a window ever appears. The 0.9.1 AppImage did exactly
+    // that on a Wayland session (2026-09-06): the bundle carries the Qt
+    // Wayland platform plugin and its EGL hardware integration but, like
+    // every AppImage, no libEGL of its own — that has to come from the host,
+    // and under `appimage-run` on this NixOS box it could not be reached, so
+    // `EGL not available` was followed by a dead process. 0.9.0 had survived
+    // the same machine only by accident: its AppImage was missing the
+    // xdg-shell plugin, so Qt refused the Wayland platform entirely and fell
+    // back to XWayland, where GLX worked. Fixing the plugin removed the
+    // accident and left the client unable to start at all.
+    //
+    // So probe once, here, before any QQuickWindow exists, and fall back to
+    // the software renderer rather than not starting. It is a real
+    // degradation — the scene is rasterised on the CPU, which matters for
+    // video and screen sharing — hence the warning, and hence it is a LAST
+    // resort that never overrides an explicit choice by the user or by a
+    // test harness.
+    if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND")
+        && qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND")
+        && QGuiApplication::platformName() != QLatin1String("offscreen")
+        && QGuiApplication::platformName() != QLatin1String("minimal")) {
+        bool glUsable = false;
+        {
+            QOpenGLContext probe;
+            QOffscreenSurface surface;
+            surface.setFormat(probe.format());
+            surface.create();
+            if (surface.isValid() && probe.create()
+                && probe.makeCurrent(&surface)) {
+                glUsable = true;
+                probe.doneCurrent();
+            }
+        }
+        if (!glUsable) {
+            QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
+            qWarning("lightning: no usable OpenGL context on the \"%s\" "
+                     "platform - falling back to the software renderer. "
+                     "Video and screen sharing will be slower. Set "
+                     "QT_QUICK_BACKEND to override.",
+                     qUtf8Printable(QGuiApplication::platformName()));
+        }
+    }
     // Qt has read the scale factor now; drop it from the environment so it
     // does not leak into child processes (the OAuth system browser,
     // xdg-open) and zoom THEIR UI too (review L2). A user-set env var is
