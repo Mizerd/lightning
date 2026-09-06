@@ -3066,7 +3066,32 @@ Rectangle {
                                       navigationPendingId)
                                 : navigationPendingRow
                     const viewRow = row >= 0 ? viewRowForSourceRow(row) : -1
-                    const item = viewRow >= 0 ? itemAtViewRow(viewRow) : null
+                    let item = viewRow >= 0 ? itemAtViewRow(viewRow) : null
+                    // The target exists and is MEASURED, but the last
+                    // positioning pass covered a different row set, so its y
+                    // cannot be trusted yet. Waiting for a pass that matches
+                    // is the safe rule and it is not a sufficient one: while
+                    // history streams in, `count` moves on every batch and a
+                    // pass matching it may not arrive before the retry budget
+                    // is spent. That is a reply jump into deep history --
+                    // exactly the case this landing exists for -- silently
+                    // doing nothing. Measured in the harness: the target was
+                    // built at height 23 with 900 rows against a pass of 375,
+                    // and the jump never landed.
+                    //
+                    // So ask for the pass instead of waiting for one.
+                    // forceLayout() is Qt's own synchronous flush over
+                    // children that already exist: it materialises nothing,
+                    // requests no media, and the landing branch below already
+                    // trusts it for the same staleness one step later. Once
+                    // per attempt, and only when there is a measured item to
+                    // land on, so a target that is genuinely not built yet
+                    // still waits for the retry.
+                    if (item && !navigationGeometryReady(item)
+                            && (item.height > 0 || !item.visible)) {
+                        rowColumn.forceLayout()
+                        item = itemAtViewRow(viewRow)
+                    }
                     if (!navigationGeometryReady(item)) {
                         // Bound on CONVERGENCE, not on wall clock. A fixed
                         // tick budget is ~200 ms of real time, and on a

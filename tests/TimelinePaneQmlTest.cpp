@@ -8564,7 +8564,16 @@ private Q_SLOTS:
                      .arg(offset).arg(height)
                      .arg(timeline->property("diagNavigationLandings").toInt())
                      .arg(timeline->property("diagNavigationUnresolved")
-                              .toInt())));
+                              .toInt())
+                     + QStringLiteral(" abandoned %1 pendingRow %2 pendingId %3"
+                                      " ticks %4 count %5 laidOut %6 winSkip %7")
+                           .arg(timeline->property("diagNavigationAbandoned").toInt())
+                           .arg(timeline->property("navigationPendingRow").toInt())
+                           .arg(timeline->property("navigationPendingId").toString())
+                           .arg(timeline->property("navigationTotalAttempts").toInt())
+                           .arg(timeline->property("count").toInt())
+                           .arg(timeline->property("layoutRowsAtLastPass").toInt())
+                           .arg(timeline->property("rowWindowSkip").toInt())));
         QVERIFY2(offset > 1.0 && offset < height - 1.0,
                  qPrintable(QStringLiteral(
                      "reply target landed flush against a viewport edge "
