@@ -2616,6 +2616,20 @@ bool SfuCallController::shareAudioSupported() const
 #endif
 }
 
+bool SfuCallController::shareAudioExcludesOwnPlayback() const
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    // Guarded rather than delegated unconditionally: a build without the
+    // media engine does not compile ShareAudioSources.cpp, and an accessor
+    // that called into it anyway would be a link dependency in every target
+    // that includes this header — the shape that lost `build-deb` twice in
+    // one job (§16).
+    return lightning::shareaudio::perApplicationCaptureAvailable();
+#else
+    return false;
+#endif
+}
+
 void SfuCallController::stopScreenShare()
 {
 #ifdef HAVE_LIGHTNING_WEBRTC

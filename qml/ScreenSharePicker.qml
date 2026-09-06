@@ -768,20 +768,35 @@ AppDialog {
                     });
                 }
                 ToolTip.visible: hovered
-                // SAY WHAT IT ACTUALLY CAPTURES. This takes the default
-                // output's monitor — the whole mix, post-mix — so it
-                // necessarily includes Lightning's own playback of everyone
-                // else, and they hear themselves. A sink monitor cannot
-                // exclude one contributor (see docs/voice-calls.md), so the
-                // only thing that helps today is putting this call's audio on
-                // a different output than the one being captured, which the
-                // system's own volume mixer can do.
-                ToolTip.text: qsTr("Send what this computer is playing, "
-                                   + "alongside the picture. This includes "
-                                   + "the call itself, so others hear "
-                                   + "themselves unless Lightning's own "
-                                   + "audio plays on a different output "
-                                   + "device.")
+                // SAY WHAT IT ACTUALLY CAPTURES, and the two answers differ.
+                //
+                // Where the share can capture each playing application on its
+                // own (Linux with PipeWire), Lightning's own playback is left
+                // out and the far end no longer hears itself — that is the
+                // 2026-09-06 fix.
+                //
+                // PHRASED AS AN INTENT, deliberately. This property is a
+                // process-wide probe answered once; the capture is chosen
+                // per share, and a daemon that has restarted since can still
+                // send the share down the monitor fallback. Promising "your
+                // audio is left out" would then be a promise the log
+                // contradicts and the user never reads. Where it can only take the output MONITOR,
+                // which is the post-mix signal, this call's audio is part of
+                // that mix and cannot be subtracted from it (see
+                // docs/voice-calls.md); the only thing that helps there is
+                // putting Lightning's audio on a different output device,
+                // which the system's own volume mixer can do.
+                ToolTip.text: (app.groupCall
+                               && app.groupCall.shareAudioExcludesOwnPlayback)
+                    ? qsTr("Send what this computer is playing, alongside "
+                           + "the picture. Where this system allows it, "
+                           + "Lightning's own audio is left out so the "
+                           + "others do not hear themselves.")
+                    : qsTr("Send what this computer is playing, alongside "
+                           + "the picture. On this system that includes the "
+                           + "call itself, so others hear themselves unless "
+                           + "Lightning's audio plays on a different output "
+                           + "device.")
             }
             Item { Layout.fillWidth: true }
             AppButton {

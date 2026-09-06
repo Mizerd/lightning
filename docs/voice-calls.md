@@ -560,6 +560,13 @@ hear themselves.** Both of those capture the SYSTEM MIX, and Lightning's own
 playback of the other participants is part of that mix, so the share track
 carries everyone's voices back to them.
 
+**IMPLEMENTED ON LINUX/PipeWire, 2026-09-06, AND NOT LIVE-VALIDATED** — see
+"Per-application share audio" below. The echo can only be observed from the
+far end of a real two-party call, so this is "the capture no longer includes
+us by construction", not "a tester confirmed they stopped hearing
+themselves". Windows and macOS are unchanged, and the table above still
+describes them.
+
 **A sink monitor is post-mix, so it cannot exclude one contributor.** That is
 true on PulseAudio and on PipeWire alike: the monitor source is the sink's
 output, after every stream has been summed into it. There is no
@@ -592,18 +599,140 @@ The three mechanisms that could actually fix it, with what each would cost:
    a live two-party call to validate it against.
 3. **Linux: per-application capture.** PipeWire can link a capture stream to
    another application's output ports, which is how OBS's application-audio
-   capture works. It needs a libpipewire graph client of our own; the
-   `pipewiresrc` element alone cannot express it.
+   capture works. *(This entry said it "needs a libpipewire graph client of
+   our own; the `pipewiresrc` element alone cannot express it". MEASURED
+   2026-09-06 and that is WRONG in both halves — see below. Kept as written
+   because the correction is the useful part.)* **This is what was built.**
 
-A prerequisite for 2 and 3, and cheap on its own: give our playback stream
-real properties (`application.name`, `media.role`, a stable `node.name`) so
-it can be found in the graph and so the user can move it by hand in a volume
-mixer — which is, today, the only workaround. Until one of the above lands,
-the UI says what the capture contains, on `ScreenSharePicker`'s "Share audio"
-checkbox — the place the option is first turned on. The in-call menu's label
-stays short ("Share computer sound") because
+The UI says which capture the user is about to get, on
+`ScreenSharePicker`'s "Share audio" checkbox — the place the option is first
+turned on — reading `SfuCallController::shareAudioExcludesOwnPlayback`. The
+in-call menu's label stays short ("Share computer sound") because
 `theShareOptionsMenuShowsItsLabelsWithoutEliding` holds it to a 200px column
 and a menu item carries no tooltip.
+
+### Per-application share audio (Linux/PipeWire, 2026-09-06)
+
+`src/calls/ShareAudioSources.{h,cpp}`. Instead of one capture of the default
+sink's monitor, the share builds an `audiomixer` fed by one `pipewiresrc` per
+playing application — **ours excluded**, which is the entire fix.
+
+**What was measured first, on a live PipeWire 1.6.6 desktop.** Every one of
+these is reproducible in ten minutes and three of them contradict something
+that was previously written down or assumed:
+
+* **The ScreenCast portal has no audio, and this is not pending.** `busctl
+  --user introspect org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop
+  org.freedesktop.portal.ScreenCast` reports version 5 with
+  CreateSession/SelectSources/Start/OpenPipeWireRemote and nothing else, and
+  upstream's own `org.freedesktop.portal.ScreenCast.xml` (version 6)
+  documents no audio option and no audio stream.
+* **`pipewiresrc target-object=<object.serial>` captures exactly one
+  application.** Measured with two `pulsesink` streams into a `pw-loopback`
+  virtual sink (inaudible), a 440 Hz tone in one and silence in the other:
+  targeting the tone gave **-9.03 dBFS**, targeting the silent stream gave
+  **-700 dBFS**, and `pw-link -l` showed the link landing on that node's own
+  output ports.
+* **Targeting by `node.name` DOES NOT WORK, and does not say so.** The same
+  capture given the stream's name instead of its serial ran happily, produced
+  22 level messages and digital silence. Only `object.serial` (or the
+  deprecated `path=<node id>`) resolves a stream node.
+* **`stream.capture.sink=true` is for a SINK's monitor** and is not needed
+  when the target is a stream node — measured identical with and without.
+* **The OBS shape cannot be built here.** A capture stream with
+  `autoconnect=false`, linked by hand afterwards, never negotiates a format:
+  the node sits `state=suspended` and the pipeline never leaves PAUSED,
+  before and after the links exist. So "one capture stream, many hand-made
+  links" is out, and one `pipewiresrc` per application summed by an
+  `audiomixer` is what works. This is the half of the old entry 3 that was
+  right for the wrong reason.
+* **No new dependency is needed** — the other half of entry 3, and it was
+  wrong. `GstDeviceMonitor` reports `Stream/Output/Audio` devices through the
+  PipeWire device provider that ships with the plugin the video share already
+  uses. `gst_device_get_properties()` carries `object.serial`,
+  `application.process.id`, `application.name` and `node.name`, and
+  `gst_device_create_element()` on such a device returns a `pipewiresrc` with
+  `target-object` already set. (`gst-device-monitor-1.0` prints no launch
+  line for a stream device, which is what made this look impossible at first
+  — the tool's output, not the API's.) **The code deliberately does not use
+  `gst_device_create_element()`**: the branch also needs `min-buffers`,
+  `on-disconnect` and `do-timestamp`, and a queue and a converter behind it,
+  so it is built as a parse description with the serial read off the device.
+  Do not "simplify" it to the device API and lose the three pinned
+  properties.
+
+**How it is built.** `mixedSourceDescription()` emits an `audiomixer`, a
+silence floor, one branch per application and the mixer's output LAST (so the
+caller's `! queue ! …` continues the mixer's chain and not a source's). Each
+branch pins `min-buffers=1` — §16's standing lesson, the default moved 8 → 1
+between gst-plugin-pipewire 1.4 and 1.6 — and `on-disconnect=eos`, which is
+what lets a departing application retire its own branch instead of leaving a
+pad the aggregator waits on forever.
+
+**The silence floor is load-bearing.** A share started before anything is
+playing, or one whose last application has quit, must still hand the Opus
+encoder a timeline; a published track that carries no samples is a worse
+failure than the echo it replaces.
+
+**Only ADDITION is dynamic.** A two-second poll adds a branch for an
+application that starts playing mid-share (capped at 24 per share, after
+which the poll stops). No LINKED pad is ever unlinked on a live pipeline —
+that manoeuvre is what caused the unpublish deadlock, and `on-disconnect=eos`
+makes it unnecessary. Two failure paths do release a mixer request pad, and
+both are safe for the same stated reason: the pad has no peer, so no
+streaming thread can be inside it when `gst_pad_set_active(pad, FALSE)` asks
+for its stream lock. Releasing a pad that IS linked and carrying data is the
+deadlock, and the difference is written at the call site.
+
+**Which streams are excluded, and why** (`streamIsForeign()`, the pure
+function the tests drive): our own process by `application.process.id`, our
+own name as a second line of defence, anything whose `media.class` is not
+exactly `Stream/Output/Audio` (the `/Internal` nodes are PipeWire's own split
+and convert plumbing and would double-count), anything carrying
+`node.link-group` (`pw-loopback` and `filter-chain` re-emit audio a real
+application already produced), and anything with no usable `object.serial`,
+because that cannot be targeted and a branch built for it would run and carry
+silence.
+
+**Falls back, loudly.** With no PipeWire device provider, no `audiomixer`, or
+a `pipewiresrc` without `on-disconnect`, the share reverts to
+`pulsesrc device=@DEFAULT_MONITOR@` and says so at INFO — "graceful fallback
+and silent absence are the same observable" is a lesson this project has paid
+for four times.
+
+**MEASURED END TO END ON THIS MACHINE, 2026-09-06**, with the real
+`SourceMonitor` and the real `mixedSourceDescription()` rather than a
+lookalike. Two `pulsesink` streams into a `pw-loopback` virtual sink (so
+nothing is audible): one named `TheSharedApp` playing 440 Hz, one named
+`matrix-client` — Lightning's own application name — playing 1 kHz LOUDER.
+The enumeration returned **one** stream, `TheSharedApp`; the process
+claiming our name was excluded. Running the emitted description gave
+**-9.03 dBFS** with zero errors. So the capture carries the other
+application and not us, which is the fix, on real PipeWire.
+
+That check also caught the defect that made the whole feature inert here:
+`gst_device_monitor_add_filter(monitor, "Stream/Output/Audio", …)` matches a
+PROVIDER by the classes it advertises, and the PipeWire provider advertises
+Audio/Source, Audio/Sink and Video/Source — so the monitor refused to start
+on a machine with every plugin present, and every share silently took the old
+path. `shareAudioIsOfferedOnlyWhenSomethingCanActuallyCaptureIt` now asserts
+that a machine with the provider, `audiomixer` and `on-disconnect` reports
+per-application capture as available, so it cannot go quiet again.
+
+**STILL NOT LIVE-VALIDATED.** The echo itself can only be observed from the
+far end of a real two-party call. What is proven here is the mechanism (the measurements
+above), the exclusion policy (`share-audio-sources` covers it directly) and
+that the pipeline description has the shape it must. To confirm the fix, a
+tester on Linux must: start a call with a second participant, play something
+(a video, music), share a screen with "Share audio" ticked, and ask the far
+end whether they hear the media and NOT themselves. The log line
+`share audio: capturing N application stream(s), this process excluded`
+confirms which capture was used; `share audio published perApplication=false`
+means it fell back and the echo will still be there. `N` of 0 is ambiguous at
+publish time — nothing is playing yet, and enumeration finding nothing here,
+print the same line — so a share that never finds an application says so
+after about thirty seconds with `no application audio stream has been found
+… this share is carrying silence`.
 
 ### NOT TESTED
 

@@ -14,9 +14,11 @@
 
 #include "calls/CallFrameCryptor.h"
 #include "calls/RtpVp8Payloader.h"
+#include "calls/ShareAudioSources.h"
 #include "calls/SfuVideoRouter.h"
 #include "calls/WindowCaptureSrc.h"
 
+#include <QMutex>
 #include <QSet>
 #include <QSignalSpy>
 #include <QRegularExpression>
@@ -3071,7 +3073,60 @@ private slots:
                 anyPresent = true;
             }
         }
-        QCOMPARE(available, anyPresent);
+        // TWO CAPTURES, NOT ONE, since 2026-09-06: per-application capture
+        // does not go through a loopback element at all, and a machine with
+        // PipeWire but no `pulsesrc` can capture perfectly well. Asserting
+        // equality against the loopback list alone was green on every tree
+        // here and red on exactly the configuration the change was written
+        // for — §16's standing shape.
+        const bool perApplication =
+            lightning::shareaudio::perApplicationCaptureAvailable();
+        // AND IT MUST NOT SILENTLY REFUSE ON A MACHINE THAT CAN DO IT.
+        //
+        // The first cut asked GstDeviceMonitor for the class
+        // "Stream/Output/Audio" — but a monitor filter matches a PROVIDER by
+        // the classes it advertises, and the PipeWire provider advertises
+        // Audio/Source, Audio/Sink and Video/Source. So the monitor would not
+        // start, `perApplicationCaptureAvailable()` was false on a live
+        // PipeWire desktop with every plugin present, and every share took
+        // the old echoing path. Nothing failed; the feature was simply inert.
+        //
+        // Conditional on purpose: vacuous on a machine with no PipeWire (CI),
+        // and a real assertion on one that has it.
+        const bool haveProvider =
+            gst_device_provider_factory_find("pipewiredeviceprovider")
+            != nullptr;
+        bool haveMixer = false;
+        if (GstElementFactory *mix = gst_element_factory_find("audiomixer")) {
+            gst_object_unref(mix);
+            haveMixer = true;
+        }
+        bool canRetire = false;
+        if (GstElementFactory *pw = gst_element_factory_find("pipewiresrc")) {
+            if (GstElement *probe = gst_element_factory_create(pw, nullptr)) {
+                canRetire = g_object_class_find_property(
+                                G_OBJECT_GET_CLASS(probe), "on-disconnect")
+                            != nullptr;
+                gst_object_unref(probe);
+            }
+            gst_object_unref(pw);
+        }
+        if (haveProvider && haveMixer && canRetire) {
+            QVERIFY2(perApplication,
+                     "this machine has the PipeWire device provider, "
+                     "audiomixer and pipewiresrc on-disconnect, so "
+                     "per-application share audio must be available — if it "
+                     "is not, every share is silently taking the sink-monitor "
+                     "path and sending the call back to the call");
+        }
+        QVERIFY2(available == (anyPresent || perApplication),
+                 qPrintable(QStringLiteral(
+                     "shareAudioAvailable()=%1 but loopback=%2 perApp=%3")
+                     .arg(available).arg(anyPresent).arg(perApplication)));
+        // Neither arm may be vacuous in the direction that matters: whichever
+        // capture this machine has, the answer must be yes.
+        if (anyPresent || perApplication)
+            QVERIFY(available);
 
         // And the refusal is HONEST when it cannot: publishing share audio
         // with no peer must add no bin and must not pretend it did. A track

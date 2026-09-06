@@ -113,6 +113,15 @@ class SfuCallController : public QObject
     Q_PROPERTY(bool shareAudioEnabled READ shareAudioEnabled
                    WRITE setShareAudioEnabled NOTIFY mediaStateChanged)
     Q_PROPERTY(bool shareAudioSupported READ shareAudioSupported CONSTANT)
+    /// Whether a share's audio will LEAVE OUT this call's own playback.
+    ///
+    /// True where the share captures each playing application on its own
+    /// (Linux with PipeWire); false where it can only take the output mix,
+    /// which necessarily contains what Lightning is playing, so the other
+    /// participants hear themselves. The picker says which one the user is
+    /// about to get rather than letting them discover it from the far end.
+    Q_PROPERTY(bool shareAudioExcludesOwnPlayback
+                   READ shareAudioExcludesOwnPlayback CONSTANT)
     Q_PROPERTY(bool handRaised READ handRaised NOTIFY mediaStateChanged)
     Q_PROPERTY(bool mediaEncrypted READ mediaEncrypted NOTIFY mediaStateChanged)
     /// NOTIFY is the MODEL's own countChanged, forwarded, and not
@@ -273,6 +282,7 @@ public:
     bool shareAudioEnabled() const { return m_shareAudioEnabled; }
     void setShareAudioEnabled(bool on);
     bool shareAudioSupported() const;
+    bool shareAudioExcludesOwnPlayback() const;
     bool handRaised() const { return m_handRaised; }
     /// True only when every frame we publish is encrypted. Never optimistic.
     bool mediaEncrypted() const { return m_mediaEncrypted; }

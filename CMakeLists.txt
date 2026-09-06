@@ -783,7 +783,11 @@ if(HAVE_LIGHTNING_WEBRTC)
         # Received video: the pipeline decoded frames and dropped them into a
         # fakesink until this existed.
         src/calls/SfuVideoRouter.h
-        src/calls/SfuVideoRouter.cpp)
+        src/calls/SfuVideoRouter.cpp
+        # Share audio that does not send the call back to the call: which
+        # application streams the share carries, ours excluded.
+        src/calls/ShareAudioSources.h
+        src/calls/ShareAudioSources.cpp)
 endif()
 
 set(APP_LIB_SOURCES ${APP_SOURCES})
@@ -3376,6 +3380,8 @@ if(BUILD_TESTING)
             src/calls/CallFrameCryptor.cpp
             src/calls/SfuVideoRouter.h
             src/calls/SfuVideoRouter.cpp
+            src/calls/ShareAudioSources.h
+            src/calls/ShareAudioSources.cpp
         )
         target_include_directories(sfu-media-engine-test PRIVATE src)
         target_compile_definitions(sfu-media-engine-test PRIVATE
@@ -3800,6 +3806,21 @@ if(BUILD_TESTING)
     target_include_directories(room-permalink-test PRIVATE src)
     target_link_libraries(room-permalink-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-permalink COMMAND room-permalink-test)
+
+    # WHICH APPLICATIONS A SHARE'S AUDIO CARRIES, and the one that must never
+    # be in it: ourselves. The decision is a pure function over a PipeWire
+    # property map, so it is tested with no PipeWire, no GStreamer and no
+    # call — which is the only reason this fix has any coverage at all, since
+    # the echo it removes can only be observed from the far end of a real
+    # two-party call.
+    qt_add_executable(share-audio-sources-test
+        tests/ShareAudioSourcesTest.cpp
+        src/calls/ShareAudioSources.h
+        src/calls/ShareAudioSources.cpp
+    )
+    target_include_directories(share-audio-sources-test PRIVATE src)
+    target_link_libraries(share-audio-sources-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME share-audio-sources COMMAND share-audio-sources-test)
 
     # Unified inbox: recognising which bridged network a conversation belongs
     # to from a ghost user id or a portal alias. The negatives carry the

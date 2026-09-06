@@ -41,6 +41,8 @@
 #include <QTimer>
 #include <QVariantList>
 
+#include "calls/ShareAudioSources.h"
+
 typedef struct _GstElement GstElement;
 typedef struct _GstPromise GstPromise;
 typedef struct _GstPad GstPad;
@@ -822,6 +824,29 @@ private:
     QTimer m_statsTimer;
     int m_statsIntervalMs = -1;   // -1: environment not read yet
     QHash<quint32, QPair<qint64, quint64>> m_lastRtpBytes; // ssrc -> (ms, bytes)
+
+    // PER-APPLICATION SHARE AUDIO. See calls/ShareAudioSources.h for why the
+    // sink monitor had to go and what was measured before this was written.
+    //
+    // The scan is a plain poll rather than a bus watch: GstDeviceMonitor
+    // delivers add/remove on a GStreamer bus, and a bus watch wants a GLib
+    // main loop, which is a dependency on how Qt's event dispatcher happens
+    // to be built. Diffing a list every couple of seconds during a share
+    // costs nothing and cannot be wrong about which loop it is on.
+    //
+    // Only ADDITION is handled. A departing application retires its own
+    // branch through `pipewiresrc on-disconnect=eos` — the mixer marks that
+    // pad done and stops waiting — so nothing here has to unlink a pad on a
+    // live pipeline, which is the manoeuvre this lane already lost a round
+    // to (the unpublish deadlock, §16).
+    void rescanShareAudioSources();
+    lightning::shareaudio::SourceMonitor m_shareAudioSources;
+    QTimer m_shareAudioScanTimer;
+    QString m_shareAudioCid;
+    QSet<QString> m_shareAudioSerials;   // already given a branch
+    int m_shareAudioBranches = 0;        // bounds a share that outlives many apps
+    int m_shareAudioNextIndex = 0;       // element names; never reused
+    int m_shareAudioScans = 0;           // polls since the share started
 
     QStringList m_iceUris;
     QString m_iceUsername;

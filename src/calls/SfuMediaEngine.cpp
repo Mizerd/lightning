@@ -583,6 +583,13 @@ void SfuMediaEngine::stop()
     m_publishedFds.clear();
     m_statsTimer.stop();
     m_lastRtpBytes.clear();
+    m_shareAudioScanTimer.stop();
+    m_shareAudioCid.clear();
+    m_shareAudioSerials.clear();
+    m_shareAudioBranches = 0;
+    m_shareAudioNextIndex = 0;
+    m_shareAudioScans = 0;
+    m_shareAudioSources.stop();
     destroyPeer(m_publisher);
     destroyPeer(m_subscriber);
     // Engine state is per session; the user's intent lives in the
@@ -959,7 +966,13 @@ static QString shareAudioSourceDescription()
 
 bool SfuMediaEngine::shareAudioAvailable()
 {
-    return !shareAudioSourceDescription().isEmpty();
+    // EITHER capture counts. Per-application capture is the one that does not
+    // send the call back to the call, and it does not go through
+    // `shareAudioSourceDescription()` at all — so a machine with PipeWire but
+    // no `pulsesrc` (the loopback element this probe was written for) would
+    // otherwise be told it cannot capture what it plainly can.
+    return lightning::shareaudio::perApplicationCaptureAvailable()
+        || !shareAudioSourceDescription().isEmpty();
 }
 
 void SfuMediaEngine::setShareQuality(int maxHeight, int fps)
@@ -980,10 +993,56 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
     if (m_publishedBins.contains(cid))
         return;
 
-    const QString source = m_testSources
-        ? QStringLiteral(
-              "audiotestsrc is-live=true wave=sine freq=220 volume=0.05")
-        : shareAudioSourceDescription();
+    // WHICH OF THE TWO CAPTURES, and the choice is stated in the log because
+    // "graceful fallback and silent absence are the same observable" is a
+    // lesson this project has paid for four times (§16).
+    //
+    //   per-application  one pipewiresrc per playing application, summed —
+    //                    OURS EXCLUDED, which is the whole fix: a sink
+    //                    monitor is post-mix and cannot leave a contributor
+    //                    out, so it sent everyone their own voice back.
+    //   sink monitor     the old behaviour, kept for a machine with no
+    //                    PipeWire and for Windows, where `wasapi2src
+    //                    loopback=true` is the endpoint mix and has the same
+    //                    echo for the same reason.
+    bool perApplication = false;
+    QString source;
+    // ENUMERATED ONCE, and the same list does the bookkeeping below.
+    // Enumerating a second time after the bin was linked put any application
+    // that started playing in between into `m_shareAudioSerials` with no
+    // branch built for it — and the rescan skips a serial it has already
+    // seen, so that application was silently absent from the share's audio
+    // for the rest of its life.
+    QList<lightning::shareaudio::Stream> streams;
+    if (m_testSources) {
+        source = QStringLiteral(
+            "audiotestsrc is-live=true wave=sine freq=220 volume=0.05");
+    } else if (m_shareAudioSources.start()) {
+        streams = m_shareAudioSources.streams(
+            QCoreApplication::applicationPid(),
+            QCoreApplication::applicationName());
+        source = lightning::shareaudio::mixedSourceDescription(streams);
+        perApplication = true;
+        // An empty list is NOT a reason to fall back. Nothing is playing yet
+        // is the ordinary case for "share, then press play", the silence
+        // floor keeps the track alive until something does, and falling back
+        // to the monitor here would reintroduce the echo precisely when the
+        // user is least likely to notice why.
+        qCInfo(lcSfuMedia) << "share audio: capturing" << streams.size()
+                           << "application stream(s), this process excluded";
+        for (const lightning::shareaudio::Stream &s : streams) {
+            qCInfo(lcSfuMedia)
+                << "share audio source app="
+                << (s.appName.isEmpty() ? s.nodeName : s.appName)
+                << "serial=" << s.serial;
+        }
+    } else {
+        source = shareAudioSourceDescription();
+        qCInfo(lcSfuMedia) << "share audio: per-application capture is not "
+                              "available here, falling back to the output "
+                              "monitor — remote participants will hear this "
+                              "call's own audio";
+    }
     if (source.isEmpty()) {
         // An honest refusal, not a broken bin. The caller has already told
         // the SFU a track is coming, so it must hear about this.
@@ -1034,11 +1093,19 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
         g_error_free(error);
         if (bin)
             gst_object_unref(bin);
+        // The device monitor was started above and `m_shareAudioCid` is not
+        // set yet, so nothing else would ever release it: unpublish() keys
+        // its cleanup on that cid and the rescan timer was never started.
+        // An idle PipeWire client kept open for a share that never existed
+        // is exactly what stop()'s comment says must not happen.
+        m_shareAudioSources.stop();
         Q_EMIT failed(QStringLiteral("share_audio_failed"));
         return;
     }
     gst_element_set_name(bin, cid.toUtf8().constData());
     if (!gst_bin_add(GST_BIN(m_publisher.pipeline), bin)) {
+        gst_object_unref(bin);
+        m_shareAudioSources.stop();   // see the parse failure above
         Q_EMIT failed(QStringLiteral("share_audio_failed"));
         return;
     }
@@ -1068,11 +1135,191 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
         gst_object_unref(sinkPad);
     if (linked != GST_PAD_LINK_OK) {
         qCWarning(lcSfuMedia) << "share audio link failed code=" << linked;
+        m_shareAudioSources.stop();   // see the parse failure above
         Q_EMIT failed(QStringLiteral("share_audio_failed"));
         return;
     }
     gst_element_sync_state_with_parent(bin);
-    qCInfo(lcSfuMedia) << "share audio published";
+    if (perApplication) {
+        m_shareAudioCid = cid;
+        m_shareAudioSerials.clear();
+        m_shareAudioBranches = 0;
+        m_shareAudioNextIndex = 0;
+        m_shareAudioScans = 0;
+        for (const lightning::shareaudio::Stream &s : streams) {
+            m_shareAudioSerials.insert(s.serial);
+            ++m_shareAudioBranches;
+            ++m_shareAudioNextIndex;
+        }
+        if (!m_shareAudioScanTimer.isActive()) {
+            m_shareAudioScanTimer.setInterval(2000);
+            m_shareAudioScanTimer.setSingleShot(false);
+            connect(&m_shareAudioScanTimer, &QTimer::timeout, this,
+                    &SfuMediaEngine::rescanShareAudioSources,
+                    Qt::UniqueConnection);
+            m_shareAudioScanTimer.start();
+        }
+    }
+    qCInfo(lcSfuMedia) << "share audio published perApplication="
+                       << perApplication;
+}
+
+/// Give an application that started playing DURING a share its own branch.
+///
+/// Addition only. A branch that ends retires itself through
+/// `on-disconnect=eos`, so nothing here unlinks a pad on a live pipeline —
+/// see the note beside m_shareAudioScanTimer for why that matters.
+void SfuMediaEngine::rescanShareAudioSources()
+{
+    if (m_shareAudioCid.isEmpty() || !m_shareAudioSources.running()) {
+        m_shareAudioScanTimer.stop();
+        return;
+    }
+    GstElement *bin = m_publishedBins.value(m_shareAudioCid, nullptr);
+    if (!bin) {
+        // The share audio track is gone; so is the reason to keep scanning.
+        m_shareAudioScanTimer.stop();
+        m_shareAudioCid.clear();
+        m_shareAudioSerials.clear();
+        m_shareAudioScans = 0;
+        m_shareAudioSources.stop();
+        return;
+    }
+    // BOUNDED. Every application that plays during one share leaves a parked
+    // branch behind when it stops, so a long share on a busy desktop must not
+    // grow without limit. Past the cap the share keeps what it has — and the
+    // poll STOPS, rather than enumerating PipeWire every two seconds for the
+    // rest of the share to decide it may do nothing.
+    constexpr int kMaxBranches = 24;
+    if (m_shareAudioBranches >= kMaxBranches) {
+        m_shareAudioScanTimer.stop();
+        return;
+    }
+    // "NOTHING IS PLAYING YET" AND "ENUMERATION FINDS NOTHING HERE" PRINT THE
+    // SAME LINE at publish time, and a tester is told to read that line to
+    // tell which capture they got. If a share has run this long with no
+    // application ever found, say so once: the track is carrying the silence
+    // floor and nothing else, which is a different problem from an echo and
+    // must not look like a success.
+    ++m_shareAudioScans;
+    constexpr int kScansBeforeDoubt = 15;   // ~30 s at the 2 s interval
+    if (m_shareAudioBranches == 0 && m_shareAudioScans == kScansBeforeDoubt) {
+        qCWarning(lcSfuMedia)
+            << "share audio: no application audio stream has been found in"
+            << (kScansBeforeDoubt * 2)
+            << "seconds — this share is carrying silence. Either nothing on "
+               "this machine is playing, or per-application enumeration is "
+               "not working here.";
+    }
+
+    GstElement *mixer = gst_bin_get_by_name(
+        GST_BIN(bin),
+        lightning::shareaudio::mixerElementName().toUtf8().constData());
+    if (!mixer)
+        return;
+
+    const QList<lightning::shareaudio::Stream> streams =
+        m_shareAudioSources.streams(QCoreApplication::applicationPid(),
+                                    QCoreApplication::applicationName());
+    for (const lightning::shareaudio::Stream &s : streams) {
+        if (m_shareAudioSerials.contains(s.serial))
+            continue;
+        if (m_shareAudioBranches >= kMaxBranches)
+            break;
+        // The serial is recorded BEFORE the branch is attempted: a source
+        // that cannot be built must not be retried every two seconds for the
+        // life of the share.
+        m_shareAudioSerials.insert(s.serial);
+        // A SEPARATE MONOTONIC INDEX, not the branch count. The count falls
+        // when nothing is added and would re-use an index the initial
+        // description already emitted, putting two `shareapp0` elements in
+        // one bin.
+        const QString description = lightning::shareaudio::
+            applicationBranchDescription(s, m_shareAudioNextIndex);
+        if (description.isEmpty())
+            continue;
+        GError *error = nullptr;
+        GstElement *branch = gst_parse_bin_from_description(
+            description.toUtf8().constData(), TRUE, &error);
+        if (error) {
+            qCWarning(lcSfuMedia)
+                << "share audio: could not build a branch for a new "
+                   "application:"
+                << (error->message ? error->message : "?");
+            g_error_free(error);
+            if (branch)
+                gst_object_unref(branch);
+            continue;
+        }
+        if (!branch)
+            continue;
+        if (!gst_bin_add(GST_BIN(bin), branch)) {
+            gst_object_unref(branch);
+            continue;
+        }
+        GstPad *srcPad = gst_element_get_static_pad(branch, "src");
+        GstPad *sinkPad = gst_element_request_pad_simple(mixer, "sink_%u");
+        GstPadLinkReturn linked = GST_PAD_LINK_REFUSED;
+        if (srcPad && sinkPad)
+            linked = gst_pad_link(srcPad, sinkPad);
+        if (srcPad)
+            gst_object_unref(srcPad);
+        if (linked != GST_PAD_LINK_OK) {
+            // RELEASE THE REQUEST PAD, do not merely drop the reference.
+            // An `audiomixer` sink pad that exists and is fed by nothing
+            // makes the aggregator wait out its latency deadline on every
+            // buffer, so one failed branch degrades the whole share audio
+            // track rather than costing it that one application.
+            //
+            // SAFE ONLY BECAUSE THE LINK FAILED. `gst_element_release_
+            // request_pad` on a PLAYING element reaches `gst_pad_set_active
+            // (pad, FALSE)`, which wants the pad's stream lock — the exact
+            // shape of this lane's unpublish deadlock (§16). This pad has no
+            // peer and therefore no streaming thread can be inside it.
+            // Releasing a LINKED mixer pad on a running pipeline is not this
+            // and must not be written by copying this.
+            if (sinkPad)
+                gst_element_release_request_pad(mixer, sinkPad);
+            if (sinkPad)
+                gst_object_unref(sinkPad);
+            qCWarning(lcSfuMedia)
+                << "share audio: a new application's branch would not link,"
+                << "code=" << linked;
+            gst_bin_remove(GST_BIN(bin), branch);
+            continue;
+        }
+        if (sinkPad)
+            gst_object_unref(sinkPad);
+        if (!gst_element_sync_state_with_parent(branch)) {
+            // A branch stuck in NULL with a LINKED mixer sink pad neither
+            // produces nor EOSes; the aggregator then waits out its latency
+            // deadline on every buffer. Retire it the same way a failed link
+            // is retired.
+            qCWarning(lcSfuMedia)
+                << "share audio: a new application's branch would not start;"
+                << "retiring it rather than leaving a silent pad";
+            GstPad *stuck = gst_element_get_static_pad(branch, "src");
+            GstPad *peer = stuck ? gst_pad_get_peer(stuck) : nullptr;
+            if (stuck && peer)
+                gst_pad_unlink(stuck, peer);
+            if (peer) {
+                gst_element_release_request_pad(mixer, peer);
+                gst_object_unref(peer);
+            }
+            if (stuck)
+                gst_object_unref(stuck);
+            gst_element_set_state(branch, GST_STATE_NULL);
+            gst_bin_remove(GST_BIN(bin), branch);
+            continue;
+        }
+        ++m_shareAudioBranches;
+        ++m_shareAudioNextIndex;
+        qCInfo(lcSfuMedia) << "share audio: added an application that started "
+                              "playing mid-share app="
+                           << (s.appName.isEmpty() ? s.nodeName : s.appName)
+                           << "serial=" << s.serial;
+    }
+    gst_object_unref(mixer);
 }
 
 void SfuMediaEngine::publishAudio(const QString &cid)
@@ -2809,6 +3056,18 @@ void SfuMediaEngine::unpublish(const QString &cid)
     // handler before it destroys the pipelines.
     GstElement *bin = m_publishedBins.take(cid);
     m_publishWatch.remove(cid);
+    if (cid == m_shareAudioCid) {
+        // The share audio track is what the device scan exists for. Stopping
+        // a share must stop the poll and let go of the device monitor, or an
+        // idle client keeps a PipeWire connection open for nothing.
+        m_shareAudioScanTimer.stop();
+        m_shareAudioCid.clear();
+        m_shareAudioSerials.clear();
+        m_shareAudioBranches = 0;
+        m_shareAudioNextIndex = 0;
+        m_shareAudioScans = 0;
+        m_shareAudioSources.stop();
+    }
     if (!bin || !m_publisher.pipeline) {
         releasePublishedFd(cid);
         return;
