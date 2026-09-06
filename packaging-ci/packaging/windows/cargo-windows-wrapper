@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly REAL_CARGO=/opt/rust/cargo/bin/cargo
+readonly TARGET=x86_64-pc-windows-gnu
+
+if [[ "${1:-}" != build ]]; then
+    exec "$REAL_CARGO" "$@"
+fi
+
+"$REAL_CARGO" "$@" --target "$TARGET"
+
+# Project 6's CMake currently expects the Rust static library in the native
+# Cargo profile path. A targeted Cargo build correctly places it one directory
+# deeper. Mirror that single output into the path CMake imports; no application
+# source or Cargo manifest is modified.
+: "${CARGO_TARGET_DIR:?CARGO_TARGET_DIR must be set by the project CMake build}"
+profile=debug
+for arg in "$@"; do
+    if [[ "$arg" == --release ]]; then
+        profile=release
+        break
+    fi
+done
+
+source_lib="$CARGO_TARGET_DIR/$TARGET/$profile/libmatrix_client_rust.a"
+target_lib="$CARGO_TARGET_DIR/$profile/libmatrix_client_rust.a"
+test -f "$source_lib"
+install -Dm0644 "$source_lib" "$target_lib"

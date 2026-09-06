@@ -1,0 +1,1193 @@
+stages:
+  - test
+  - resolve
+  - build
+  - validate
+  - publish
+  - verify
+  - sign
+  - release
+  - mirror
+  - update
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "api"'
+    - when: never
+
+variables:
+  LIGHTNING_REPOSITORY:
+    value: "https://gitlab.smetonis.net/Mizerd/lightning.git"
+    description: "Canonical Lightning source repository (project 6)."
+  SOURCE_REF:
+    value: "main"
+    description: "Build ref. Publication requires a full 40-char commit SHA (create) or vX.Y.Z / SHA (attach-existing)."
+  RELEASE_VERSION:
+    value: ""
+    description: "Application version without a leading v, e.g. 0.6.1. Required to publish."
+  RELEASE_ACTION:
+    value: "attach-existing"
+    options: ["attach-existing", "create"]
+    description: "attach-existing links packages to an existing release; create makes the tag+release after publication."
+  PUBLISH_PACKAGES:
+    value: "false"
+    options: ["false", "true"]
+    description: "Safe default false. Set true to publish packages to project 6 and finalize the release."
+  BUILD_FORMATS:
+    value: "all"
+    description: "Build-only format selection: 'all' or a comma list from deb,rpm,flatpak,appimage,snap (snap also requires appimage in the list). Publishing pipelines always build every format."
+  BUILD_WINDOWS_PACKAGES:
+    value: "false"
+    options: ["false", "true"]
+    description: "Safe default false. Enables unsigned Windows cross-package test artifacts only with BUILD_FORMATS=none on the protected default branch."
+  BUILD_MACOS_PACKAGES:
+    value: "false"
+    options: ["false", "true"]
+    description: "Safe default false. Enables the unsigned macOS arm64 .app bundle on the protected default branch with a pinned 40-char SOURCE_REF. Runs on the physical Mac mini runner, in parallel with the Linux fleet when BUILD_FORMATS is also set. Since 0.7.5 a publishing pipeline ships it as a download-only asset (Apple Silicon, macOS 26+, unsigned); the job is non-blocking, so the Mac being unavailable publishes the release without it."
+  RELEASE_NOTES_B64:
+    value: ""
+    description: "create only: base64-encoded Markdown notes. Otherwise a tracked docs/releases/vX.Y.Z.md is used."
+  BUILD_TYPE: "Release"
+  # Per-build parallelism. configure-build.sh derives CMAKE_BUILD_PARALLEL_LEVEL
+  # and CARGO_BUILD_JOBS from this; 4 matches the job-container CPU cap on
+  # both runner hosts.
+  BUILD_JOBS: "4"
+  # Publication target is fixed to Lightning project 6 and enforced in-script.
+  TARGET_PROJECT_ID: "6"
+  LIGHTNING_PROJECT_ID: "6"
+  PACKAGE_NAME: "lightning"
+
+.trusted-pipeline:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api"'
+
+# Shared gate for every publish/verify/release job. Publication is enabled
+# only on the packaging project's default branch with PUBLISH_PACKAGES=true.
+# The gate deliberately does NOT depend on RELEASE_ACTION, so both actions
+# always include the publish, verify, and release jobs.
+.publish-rules:
+  # Publish-chain API traffic uses the internal GitLab endpoint, matching the
+  # runner fleet's polling/clone convention. The public URL is Cloudflare-
+  # proxied with a ~100 MB request-body cap, which large package files
+  # (Flatpak/AppImage/snap) would exceed. Durable URLs recorded in the
+  # manifest and release links stay on the canonical public host; only the
+  # in-job requests are routed internally, and credentials stay in headers.
+  variables:
+    PUBLISH_API_BASE: "http://10.195.35.2/api/v4"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $PUBLISH_PACKAGES == "true"'
+      when: on_success
+    - when: never
+
+# Native macOS gate: protected default branch, manually created pipeline, fully
+# pinned project-6 commit, and an explicit opt-in.
+#
+# Deliberately NOT constrained on BUILD_FORMATS, BUILD_WINDOWS_PACKAGES, or
+# PUBLISH_PACKAGES. The Mac is a dedicated host that shares nothing with the
+# Linux/Windows pools, so there is no capacity reason to exclude it from a
+# full-fleet run — and excluding it would mean macOS silently missing from
+# exactly the pipelines that build every other platform. With BUILD_FORMATS=none
+# this still yields a macOS-only pipeline; with BUILD_FORMATS=all it runs
+# alongside the Linux fleet, in parallel, on its own runner.
+#
+# It still never publishes: no publish job consumes its artifact and it has no
+# release action. See docs/macos-packaging.md.
+.macos-test-rules:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_MACOS_PACKAGES == "true" && $SOURCE_REF =~ /^[0-9a-f]{40}$/'
+      when: on_success
+    - when: never
+
+# Dedicated Docker-socket runner security gate. A Windows test job is present
+# only for a manually created pipeline on the protected default branch with a
+# fully pinned project-6 commit and every publication/release input disabled.
+.windows-test-rules:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_WINDOWS_PACKAGES == "true" && $PUBLISH_PACKAGES == "false" && $BUILD_FORMATS == "none" && $SOURCE_REF =~ /^[0-9a-f]{40}$/ && $RELEASE_VERSION == "" && $RELEASE_NOTES_B64 == ""'
+      when: on_success
+    - when: never
+
+# Build concurrency is bounded, not free: the build jobs are split across two
+# resource groups (a: deb/flatpak/snap, b: rpm/appimage), so at most TWO
+# package builds run at once anywhere. Each format's selector tag matches a
+# runner on BOTH hosts (the GitLab VM fleet and the mirrored fleet on
+# 10.195.35.6), so whichever matching runner is free takes the job. Per-host
+# overload is prevented by the hosts themselves: the remote VM runs one job
+# globally (concurrent=1), and the GitLab VM job containers are capped at
+# 4 CPU / 6 GiB so even two co-located builds leave GitLab EE headroom.
+.build-base:
+  extends: .trusted-pipeline
+  stage: build
+  interruptible: true
+  timeout: 2h
+  needs:
+    - job: resolve-source
+      artifacts: true
+  artifacts:
+    name: "lightning-${FORMAT}-${CI_PIPELINE_ID}"
+    when: always
+    expire_in: 7 days
+    paths: [dist/]
+
+config-tests:
+  extends: .trusted-pipeline
+  stage: test
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
+  tags: [apt, deb, package]
+  variables:
+    DEBIAN_FRONTEND: "noninteractive"
+  before_script:
+    - apt-get update
+    # build-essential + cmake are for test-windows-version-resources.sh only: it drives the
+    # per-target version-resource injection against a two-executable stand-in
+    # project, which is the one part of the Windows metadata contract that
+    # cannot be checked by reading a file. It needs a real CMake plus a
+    # COMPLETE C toolchain for project(LANGUAGES C) -- a bare `gcc` under
+    # --no-install-recommends omits libc6-dev and cannot link, and no `make`
+    # leaves CMake without its default generator. Both were found the hard
+    # way (pipelines 99 and 100). It compiles nothing of Lightning's.
+    - >-
+      apt-get install -y --no-install-recommends
+      bash build-essential ca-certificates cmake git jq openssl python3 python3-yaml
+  script:
+    - ./tests/test-version.sh
+    - ./tests/test-publication.sh
+    - ./tests/test-update-manifest.sh
+    - ./tests/test-gif-key-injection.sh
+    - ./tests/test-windows-version-resources.sh
+    - python3 ./tests/test-pipeline-config.py
+    - python3 ./tests/test-windows-metadata.py
+    - python3 ./tests/test-release-notes-policy.py
+
+# Proves the GitHub mirror can be written BEFORE anything is published. The
+# mirror job runs after the GitLab tag and release exist, so a dead or
+# expiring token found there fails a release at its most expensive moment
+# and leaves installed clients without their GitHub fallback. Fine-grained
+# GitHub tokens expire (one year at most); this job refuses to start a
+# publishing pipeline on one with fewer than two days left and warns from
+# thirty. It holds only the mirror token (environment `mirror`) and is a
+# clean no-op when GITHUB_MIRROR_REPO is unset. publish-packages `needs` it,
+# which is what makes it a gate rather than a report.
+github-mirror-preflight:
+  extends: .publish-rules
+  stage: resolve
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
+  needs: []
+  # HARD: a release that cannot reach GitHub is the failure this job exists
+  # to prevent, and it must be found before publication. The one publishing
+  # run that needs nothing from GitHub -- the lull REFRESH of the manifest
+  # (UPDATE_REFRESH_LATEST_ONLY=true) -- is recognised by the script itself,
+  # which exits successfully without touching GitHub, so a dead token can
+  # never block the refresh that keeps GitLab-reachable clients current.
+  retry:
+    max: 2
+    when: [script_failure, runner_system_failure, stuck_or_timeout_failure, api_failure]
+  environment:
+    name: mirror
+    action: prepare
+  before_script: [apk add --no-cache bash coreutils curl jq]
+  script: [./scripts/github-mirror-preflight.sh]
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths: [dist/github-mirror-preflight.json]
+
+resolve-source:
+  extends: .trusted-pipeline
+  stage: resolve
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
+  tags: [apt, deb, package]
+  # THE FIRST JOB HOLDS THE SIGNING KEY, AND ONLY THIS JOB AND THE SIGNING JOB
+  # DO. resolve-source executes no project-6 code -- it clones, resolves a
+  # ref, and reads a version out of a file -- so the private key is safe
+  # here, and here is where the key/package consistency check MUST run: the
+  # build jobs bake the public half into every artifact, and a mismatch found
+  # after them is found after the packages are immutable. With the variable
+  # environment-scoped to `signing` (see sign-update-manifest) the six build
+  # jobs, which run project-6 CMake and every build.rs, never see it.
+  environment:
+    name: signing
+    action: prepare
+  needs:
+    - job: config-tests
+      artifacts: false
+  variables:
+    DEBIAN_FRONTEND: "noninteractive"
+  before_script:
+    - apt-get update
+    # openssl: validate-release-request.sh derives the public half of the update
+    # signing key here, in the FIRST job, so a key/package mismatch fails before
+    # any build job embeds the wrong trust root into an artifact.
+    - >-
+      apt-get install -y --no-install-recommends
+      ca-certificates coreutils git jq openssl
+  script:
+    - ./scripts/validate-release-request.sh
+    - ./scripts/fetch-lightning-source.sh
+    - ./scripts/resolve-version.sh
+    - ./scripts/write-resolved-env.sh
+  artifacts:
+    expire_in: 7 days
+    paths:
+      - dist/source-info.json
+      - dist/version.env
+      - dist/version.json
+      - dist/release-notes.md
+    reports:
+      dotenv: dist/resolved.env
+
+build-deb:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)deb(,|$)/'
+    - when: never
+  extends: .build-base
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
+  tags: [apt, deb, package]
+  resource_group: lightning-package-build-a
+  variables:
+    FORMAT: "deb"
+    BASE_IMAGE: "debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
+    DEBIAN_FRONTEND: "noninteractive"
+    RUST_TOOLCHAIN: "1.93.0"
+    RUSTUP_VERSION: "1.29.1"
+    # sha256 of static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
+    RUSTUP_INIT_SHA256: "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
+  before_script:
+    - apt-get update
+    - >-
+      apt-get install -y --no-install-recommends
+      build-essential ca-certificates ccache cmake curl debhelper dpkg-dev
+      fakeroot file git jq libsecret-1-dev libsqlite3-dev libssl-dev
+      ninja-build patchelf pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev
+      qt6-multimedia-dev qt6-tools-dev zstd
+    # GStreamer development files for the voice/video call media engine. The
+    # source's LIGHTNING_ENABLE_WEBRTC option is gated on a pkg-config probe of
+    # gstreamer-1.0, gstreamer-webrtc-1.0, gstreamer-sdp-1.0, gstreamer-app-1.0,
+    # gstreamer-video-1.0 and gstreamer-rtp-1.0; without these packages the probe
+    # fails, CMake configures the engine OUT in one STATUS line, and the package
+    # ships a client that refuses every call. That is exactly how 0.8.0 shipped
+    # on every Linux format. configure-build.sh now asserts the staged binary
+    # carries the engine, so removing these fails the BUILD rather than a user.
+    - >-
+      apt-get install -y --no-install-recommends
+      libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      libgstreamer-plugins-bad1.0-dev
+    # The rustup INSTALLER is version-addressed and checksum-verified before it
+    # runs. `sh.rustup.rs` was the one unverified executable in this pipeline:
+    # TLS alone proved who served it, not what it was, and it builds the Rust
+    # Matrix SDK -- E2EE, key handling, token storage -- into every signed
+    # package. Every other download here is pinned; this one now is too.
+    - >-
+      curl --fail --show-error --silent --location --max-redirs 3
+      --proto '=https' --tlsv1.2
+      "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init"
+      --output /tmp/rustup-init
+    - printf '%s  /tmp/rustup-init\n' "$RUSTUP_INIT_SHA256" | sha256sum -c -
+    - chmod +x /tmp/rustup-init
+    - /tmp/rustup-init -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+    - export PATH="/root/.cargo/bin:$PATH"
+  script:
+    - ./scripts/prepare-pinned-source.sh
+    - ./scripts/build-deb.sh
+    - ./scripts/write-build-info.sh deb
+
+build-rpm:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
+    - when: never
+  extends: .build-base
+  image: fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80 # fedora:44
+  tags: [dnf, rpm, package]
+  resource_group: lightning-package-build-b
+  variables:
+    FORMAT: "rpm"
+    BASE_IMAGE: "fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80"
+    RUST_TOOLCHAIN: "1.93.0"
+    RUSTUP_VERSION: "1.29.1"
+    # sha256 of static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
+    RUSTUP_INIT_SHA256: "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
+  before_script:
+    - >-
+      dnf install -y
+      appstream ca-certificates ccache cmake curl desktop-file-utils
+      gcc gcc-c++ git jq libsecret-devel
+      ninja-build openssl-devel patchelf pkgconf-pkg-config
+      qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtdeclarative-devel qt6-qtmultimedia-devel
+      qt6-qtsvg-devel qt6-qttools-devel rpm-build sqlite-devel zstd
+    # GStreamer development files for the voice/video call media engine. The
+    # source's LIGHTNING_ENABLE_WEBRTC option is gated on a pkg-config probe of
+    # gstreamer-1.0, gstreamer-webrtc-1.0, gstreamer-sdp-1.0, gstreamer-app-1.0,
+    # gstreamer-video-1.0 and gstreamer-rtp-1.0; without these packages the probe
+    # fails, CMake configures the engine OUT in one STATUS line, and the package
+    # ships a client that refuses every call. That is exactly how 0.8.0 shipped
+    # on every Linux format. configure-build.sh now asserts the staged binary
+    # carries the engine, so removing these fails the BUILD rather than a user.
+    - >-
+      dnf install -y
+      gstreamer1-devel gstreamer1-plugins-base-devel
+      gstreamer1-plugins-bad-free-devel
+    # Fedora's system rust (1.96.1) OOMs compiling matrix-sdk under the 6 GiB
+    # runner cap; pin the same rustup toolchain the deb/appimage builds use so
+    # every Linux format builds the locked SDK identically.
+    # The rustup INSTALLER is version-addressed and checksum-verified before it
+    # runs. `sh.rustup.rs` was the one unverified executable in this pipeline:
+    # TLS alone proved who served it, not what it was, and it builds the Rust
+    # Matrix SDK -- E2EE, key handling, token storage -- into every signed
+    # package. Every other download here is pinned; this one now is too.
+    - >-
+      curl --fail --show-error --silent --location --max-redirs 3
+      --proto '=https' --tlsv1.2
+      "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init"
+      --output /tmp/rustup-init
+    - printf '%s  /tmp/rustup-init\n' "$RUSTUP_INIT_SHA256" | sha256sum -c -
+    - chmod +x /tmp/rustup-init
+    - /tmp/rustup-init -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+    - export PATH="/root/.cargo/bin:$PATH"
+  script:
+    - ./scripts/prepare-pinned-source.sh
+    - ./scripts/build-rpm.sh
+    - ./scripts/write-build-info.sh rpm
+
+build-flatpak:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)flatpak(,|$)/'
+    - when: never
+  extends: .build-base
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
+  tags: [flatpak, package]
+  resource_group: lightning-package-build-a
+  variables:
+    FORMAT: "flatpak"
+    BASE_IMAGE: "debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
+    DEBIAN_FRONTEND: "noninteractive"
+  before_script:
+    - apt-get update
+    # elfutils: flatpak-builder invokes eu-strip/eu-elfcompress for the
+    # post-build debuginfo split.
+    - >-
+      apt-get install -y --no-install-recommends
+      ca-certificates curl elfutils flatpak flatpak-builder git jq
+      python3 zstd
+  script:
+    - ./scripts/prepare-pinned-source.sh
+    - ./scripts/build-flatpak.sh
+
+build-appimage:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
+    - when: never
+  extends: .build-base
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
+  tags: [appimage, package]
+  resource_group: lightning-package-build-b
+  variables:
+    FORMAT: "appimage"
+    BASE_IMAGE: "debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
+    DEBIAN_FRONTEND: "noninteractive"
+    RUST_TOOLCHAIN: "1.93.0"
+    RUSTUP_VERSION: "1.29.1"
+    # sha256 of static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
+    RUSTUP_INIT_SHA256: "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
+  before_script:
+    - apt-get update
+    - >-
+      apt-get install -y --no-install-recommends
+      build-essential ca-certificates ccache cmake curl file git jq
+      libsecret-1-dev libsqlite3-dev libssl-dev ninja-build patchelf
+      pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev qt6-multimedia-dev
+      qt6-tools-dev qt6-wayland qml6-module-qtmultimedia
+      qml6-module-qtquick qml6-module-qtquick-controls
+      qml6-module-qtquick-dialogs qml6-module-qtquick-effects
+      qml6-module-qtquick-layouts qml6-module-qtquick-window zstd
+    # GStreamer development files for the voice/video call media engine. The
+    # source's LIGHTNING_ENABLE_WEBRTC option is gated on a pkg-config probe of
+    # gstreamer-1.0, gstreamer-webrtc-1.0, gstreamer-sdp-1.0, gstreamer-app-1.0,
+    # gstreamer-video-1.0 and gstreamer-rtp-1.0; without these packages the probe
+    # fails, CMake configures the engine OUT in one STATUS line, and the package
+    # ships a client that refuses every call. That is exactly how 0.8.0 shipped
+    # on every Linux format. configure-build.sh now asserts the staged binary
+    # carries the engine, so removing these fails the BUILD rather than a user.
+    - >-
+      apt-get install -y --no-install-recommends
+      libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      libgstreamer-plugins-bad1.0-dev
+    # ...and the RUNTIME plugins, which the AppImage BUNDLES rather than
+    # depends on (build-appimage.sh stages them into the AppDir before
+    # linuxdeploy runs, so their own libraries are resolved too). The deb and
+    # rpm declare these as package dependencies instead; an AppImage has
+    # nobody to declare them to. The snap inherits this AppDir, so it inherits
+    # this list as well.
+    - >-
+      apt-get install -y --no-install-recommends
+      gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+      gstreamer1.0-plugins-bad gstreamer1.0-nice gstreamer1.0-pipewire
+      gstreamer1.0-alsa gstreamer1.0-gl
+      libspa-0.2-modules libpipewire-0.3-modules
+    # THE LAST TWO ABOVE ARE NOT PULLED IN BY gstreamer1.0-pipewire, and their
+    # absence is invisible until a share is attempted: libpipewire dlopens its
+    # SPA plugins and PipeWire modules itself, so the bundle got the library and
+    # none of what the library loads. That is the 0.8.0/142 screen-share
+    # failure. build-appimage.sh stages only the subset it needs.
+    #
+    # client.conf comes from pipewire-bin, which is a 55-package install in this
+    # image (libpulse, libroc, libavahi, X libs) for ONE 4 KB file. Downloading
+    # and unpacking it installs nothing.
+    - >-
+      ( cd /tmp && apt-get download pipewire-bin
+      && dpkg-deb -x pipewire-bin_*.deb /opt/pipewire-conf )
+    - test -f /opt/pipewire-conf/usr/share/pipewire/client.conf
+    # Qt IMAGE-FORMAT plugins, bundled for the same reason as the GStreamer
+    # ones: they are dlopen'd, so linuxdeploy-plugin-qt deployed only the three
+    # qtbase itself carries (gif, ico, jpeg) and every AppImage up to 0.8.0
+    # shipped a client that ACCEPTS image/webp in its own byte sniffers and
+    # cannot draw it.
+    #
+    #   qt6-image-formats-plugins : libqwebp.so (240 kB package)
+    #   libjxl0.11                : the JPEG XL runtime kimg_jxl.so links
+    #
+    # JPEG XL does NOT come from Qt. qt/qtimageformats has never contained a
+    # JXL plugin (v6.11.1 is dds/icns/jp2/macheif/macjp2/mng/tga/tiff/wbmp/webp);
+    # the only Qt JXL decoder is KDE's kimageformats. That package is UNPACKED
+    # rather than installed, exactly as pipewire-bin is above: installing it
+    # pulls libheif, libraw, OpenEXR, x265 and libavif into the image, and drops
+    # kimg_avif.so and kimg_heif.so into the very directory build-appimage.sh
+    # stages from — neither of which is shipped, deliberately (see the script).
+    - >-
+      apt-get install -y --no-install-recommends
+      qt6-image-formats-plugins libjxl0.11
+    - >-
+      ( cd /tmp && apt-get download kimageformat6-plugins
+      && dpkg-deb -x kimageformat6-plugins_*.deb /opt/kimageformats )
+    - >-
+      test -f /opt/kimageformats/usr/lib/x86_64-linux-gnu/qt6/plugins/imageformats/kimg_jxl.so
+    # The rustup INSTALLER is version-addressed and checksum-verified before it
+    # runs. `sh.rustup.rs` was the one unverified executable in this pipeline:
+    # TLS alone proved who served it, not what it was, and it builds the Rust
+    # Matrix SDK -- E2EE, key handling, token storage -- into every signed
+    # package. Every other download here is pinned; this one now is too.
+    - >-
+      curl --fail --show-error --silent --location --max-redirs 3
+      --proto '=https' --tlsv1.2
+      "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init"
+      --output /tmp/rustup-init
+    - printf '%s  /tmp/rustup-init\n' "$RUSTUP_INIT_SHA256" | sha256sum -c -
+    - chmod +x /tmp/rustup-init
+    - /tmp/rustup-init -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+    - export PATH="/root/.cargo/bin:$PATH"
+  script:
+    - ./scripts/prepare-pinned-source.sh
+    - ./scripts/build-appimage.sh
+
+build-snap:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)snap(,|$)/ && $BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
+    - when: never
+  extends: .build-base
+  image: ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 # ubuntu:24.04
+  tags: [snap, package]
+  resource_group: lightning-package-build-a
+  variables:
+    FORMAT: "snap"
+    BASE_IMAGE: "ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517"
+    DEBIAN_FRONTEND: "noninteractive"
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-appimage
+      artifacts: true
+  before_script:
+    - apt-get update
+    - >-
+      apt-get install -y --no-install-recommends
+      ca-certificates file jq python3 python3-yaml squashfs-tools zstd
+  script:
+    - ./scripts/build-snap.sh
+
+windows-package-test:
+  extends: .windows-test-rules
+  stage: build
+  image:
+    name: lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v5
+    pull_policy: if-not-present
+  tags: [windows-cross, windows-package]
+  resource_group: lightning-windows-cross-package
+  interruptible: true
+  timeout: 2h
+  needs:
+    - job: resolve-source
+      artifacts: true
+  variables:
+    CARGO_HOME: "/cache/cargo-windows"
+    BUILD_JOBS: "4"
+  before_script:
+    - test "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH"
+    - test "$BUILD_WINDOWS_PACKAGES" = "true"
+    - test "$PUBLISH_PACKAGES" = "false"
+    - test "$BUILD_FORMATS" = "none"
+    - test -z "$RELEASE_VERSION"
+    - test -z "$RELEASE_NOTES_B64"
+  script:
+    - ./scripts/prepare-pinned-source.sh
+    - ./scripts/build-windows.sh
+  artifacts:
+    name: "lightning-windows-test-${CI_PIPELINE_ID}"
+    when: always
+    access: developer
+    expire_in: 7 days
+    # Only the finished installers + validation reports. The raw Lightning/
+    # staging tree is already inside the portable zip, and archiving it
+    # again pushed the artifact past the instance's 1 GiB cap — the job
+    # then "succeeded" with no archive stored at all (pipeline 84).
+    paths:
+      - dist/windows/*-portable.zip
+      - dist/windows/*.msi
+      - dist/windows/*-setup.exe
+      - dist/windows/reports/
+      # Checksum only, not the payload itself: the unsigned executable is
+      # already inside the portable zip here, and re-archiving it is what
+      # pushed this job past the instance artifact cap once before. A real
+      # SignPath-bound pipeline publishes dist/windows/signing-payload/ as its
+      # own artifact — see docs/signpath-integration.md.
+      - dist/windows/signing-payload/*.sha256
+
+# Windows is a first-class release target since 0.6.3. In a publishing pipeline
+# this builds AND validates the portable/MSI/setup artifacts (build-windows.sh
+# calls validate-windows-artifacts.sh) from the same resolved commit as the
+# Linux formats, with the GIF keys embedded (fail-closed) and the Rust-only
+# backend. Uses the FFmpeg-enabled builder image so inline video decodes with
+# ffmpegmediaplugin instead of freezing on the WMF backend.
+build-windows:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $PUBLISH_PACKAGES == "true"'
+      when: on_success
+    - when: never
+  stage: build
+  image:
+    name: lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v5
+    pull_policy: if-not-present
+  tags: [windows-cross, windows-package]
+  resource_group: lightning-windows-cross-package
+  interruptible: true
+  timeout: 2h
+  needs:
+    - job: resolve-source
+      artifacts: true
+  variables:
+    CARGO_HOME: "/cache/cargo-windows"
+    BUILD_JOBS: "4"
+  before_script:
+    - test "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH"
+    - test "$PUBLISH_PACKAGES" = "true"
+  script:
+    - ./scripts/prepare-pinned-source.sh
+    - ./scripts/build-windows.sh
+  artifacts:
+    name: "lightning-windows-${CI_PIPELINE_ID}"
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/windows/
+
+# Native macOS arm64 test bundle, built on the physical Mac mini runner
+# (10.195.35.7) with the shell executor. There is no macOS container image and
+# no supported way to cross-compile a Qt/QML app to macOS, so this is the only
+# target in the project that builds on bare metal against a host-installed
+# toolchain. The script records the exact toolchain versions it used into
+# build-info.json because they are not pinned by an image.
+#
+# As of 0.7.5 this artifact IS published, on a maintainer decision, as a
+# download-only release asset. It is still ad-hoc signed and un-notarized, so
+# Gatekeeper blocks it until the user explicitly allows it — the download page
+# carries the Open Anyway walkthrough and states the two hard limits (Apple
+# Silicon only; macOS 26 or newer, which is where Homebrew's Qt QML frameworks
+# put the floor). It is deliberately NOT in the signed update manifest: the
+# client has no macOS install strategy, so offering it as an update would
+# advertise something the updater refuses to perform.
+macos-package-test:
+  extends: .macos-test-rules
+  stage: build
+  tags: [macos, arm64]
+  resource_group: lightning-macos-package
+  interruptible: true
+  # NON-BLOCKING, deliberately. As of 0.7.5 publish-packages consumes this
+  # artifact, and one physical Mac being offline, asleep or mid-macOS-update
+  # must not hold back a release of the eight Linux and Windows packages.
+  # allow_failure is what makes `needs` non-blocking on failure; the optional
+  # `needs` entry covers the job not existing at all (BUILD_MACOS_PACKAGES
+  # unset). write-manifest.sh then publishes without a macOS entry and says so.
+  allow_failure: true
+  # 3h is headroom, not an estimate. The same commit built in 10 minutes
+  # (pipeline 88) and 2h34m (pipeline 90) because the Mac was idle-sleeping
+  # mid-build; cargo reported ~6 minutes of real work in both. See the
+  # caffeinate note on `script` below. Pipeline 89 died at the old 2h limit.
+  # Re-measure a real baseline now that builds no longer sleep.
+  timeout: 3h
+  needs:
+    - job: resolve-source
+      artifacts: true
+  variables:
+    # Back to 4 after pipeline 89 hit the old 2h timeout while running 6. Given
+    # how variable this host's wall clock is, treat that as a precaution rather
+    # than a measured result. The step that dominates the run is the
+    # single-threaded fat-LTO link, which no value of BUILD_JOBS affects.
+    BUILD_JOBS: "4"
+  before_script:
+    - test "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH"
+    - test "$BUILD_MACOS_PACKAGES" = "true"
+  script:
+    # caffeinate is not optional. macOS idle sleep is driven by user/HID
+    # activity and power assertions, NOT by CPU load, so a headless Mac with
+    # nobody at the keyboard sleeps mid-build even at 100% CPU. gitlab-runner
+    # takes no power assertion of its own. This host was found with `sleep 1`
+    # (one minute) and slept 867 seconds in the middle of a build, which is why
+    # the same commit took 10 minutes one run and 2.5 hours the next while
+    # cargo consistently reported ~6 minutes of actual work.
+    #
+    # The host setting should also be fixed (`sudo pmset -a sleep 0 disksleep 0
+    # powernap 0`), but that is admin-owned and can be reverted by a macOS
+    # update or a settings change; this keeps the job correct regardless.
+    - caffeinate -dims ./scripts/prepare-pinned-source-macos.sh
+    - caffeinate -dims ./scripts/build-macos.sh
+  artifacts:
+    name: "lightning-macos-test-${CI_PIPELINE_ID}"
+    when: always
+    access: developer
+    expire_in: 7 days
+    paths:
+      - dist/macos/*.zip
+      - dist/macos/*.sha256
+      - dist/macos/build-info.json
+      - dist/macos/reports/
+
+validate-deb:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)deb(,|$)/'
+    - when: never
+  extends: .trusted-pipeline
+  stage: validate
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
+  tags: [apt, deb, package]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-deb
+      artifacts: true
+  before_script:
+    - test ! -e work/lightning
+    - command -v nix >/dev/null 2>&1 && exit 1 || true
+    - apt-get update
+    - >-
+      apt-get install -y --no-install-recommends
+      appstream binutils ca-certificates desktop-file-utils file lintian
+      procps shared-mime-info
+  script: [./scripts/validate-deb.sh]
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/*.deb
+      - dist/*.sha256
+      - dist/*deb*.log
+      - dist/*deb*.txt
+      - dist/source-info.json
+      - dist/version.env
+      - dist/version.json
+
+validate-rpm:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
+    - when: never
+  extends: .trusted-pipeline
+  stage: validate
+  image: fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80 # fedora:44
+  tags: [dnf, rpm, package]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-rpm
+      artifacts: true
+  before_script:
+    - test ! -e work/lightning
+    - command -v nix >/dev/null 2>&1 && exit 1 || true
+    - dnf install -y appstream binutils ca-certificates cpio desktop-file-utils file procps-ng rpmlint
+  script: [./scripts/validate-rpm.sh]
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/*.rpm
+      - dist/*.sha256
+      - dist/*rpm*.log
+      - dist/*rpm*.txt
+      - dist/source-info.json
+      - dist/version.env
+      - dist/version.json
+
+validate-flatpak:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)flatpak(,|$)/'
+    - when: never
+  extends: .trusted-pipeline
+  stage: validate
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
+  # Must run on the flatpak runner: installing/running the bundle needs the
+  # same bwrap capability as building it.
+  tags: [flatpak, package]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-flatpak
+      artifacts: true
+  variables:
+    DEBIAN_FRONTEND: "noninteractive"
+  before_script:
+    - test ! -e work/lightning
+    - command -v nix >/dev/null 2>&1 && exit 1 || true
+    - apt-get update
+    - apt-get install -y --no-install-recommends ca-certificates flatpak
+  script: [./scripts/validate-flatpak.sh]
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/*.flatpak
+      - dist/*.sha256
+      - dist/*flatpak*.log
+      - dist/*flatpak*.txt
+      - dist/source-info.json
+      - dist/version.env
+      - dist/version.json
+
+validate-appimage:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
+    - when: never
+  extends: .trusted-pipeline
+  stage: validate
+  image: debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 # debian:13.6-slim
+  tags: [appimage, package]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-appimage
+      artifacts: true
+  variables:
+    DEBIAN_FRONTEND: "noninteractive"
+  before_script:
+    - test ! -e work/lightning
+    - command -v nix >/dev/null 2>&1 && exit 1 || true
+    - apt-get update
+    # Deliberately NO Qt here: the bundle must be self-contained apart from
+    # the documented AppImage base-system excludelist.
+    # Base-system set the bundle's excludelist legitimately expects from the
+    # host, determined empirically in a clean container (loader-resolved:
+    # GLVND, harfbuzz, com_err, gpg-error).
+    # libxdamage1/libxfixes3/libxtst6 are here for ONE staged plugin:
+    # libgstximagesrc, the X11 screen-share fallback. linuxdeploy's excludelist
+    # leaves the X libraries on the host — correctly, since that fallback only
+    # ever runs on an X11 session, where they are always present — so the
+    # validator has to look like such a host or the payload check below
+    # reports a plugin that cannot load on a machine where it would.
+    - >-
+      apt-get install -y --no-install-recommends
+      binutils ca-certificates file libasound2t64 libcom-err2 libegl1 libfontconfig1
+      libfreetype6 libgl1 libglib2.0-0 libgpg-error0 libharfbuzz0b
+      libopengl0 libx11-6 libxcb1 libxdamage1 libxext6 libxfixes3
+      libxkbcommon0 libxtst6 zstd
+  script: [./scripts/validate-appimage.sh]
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/*.AppImage
+      - dist/*.sha256
+      - dist/*appimage*.log
+      - dist/*appimage*.txt
+      - dist/source-info.json
+      - dist/version.env
+      - dist/version.json
+
+validate-snap:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)snap(,|$)/ && $BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
+    - when: never
+  extends: .trusted-pipeline
+  stage: validate
+  image: ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 # ubuntu:24.04
+  tags: [snap, package]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-snap
+      artifacts: true
+  variables:
+    DEBIAN_FRONTEND: "noninteractive"
+  before_script:
+    - test ! -e work/lightning
+    - command -v nix >/dev/null 2>&1 && exit 1 || true
+    - apt-get update
+    # Base-system libs only (mirrors the AppImage policy); the snap payload
+    # bundles Qt itself. No snapd exists in this fleet — validate-snap.sh
+    # documents the structural-equivalent validation.
+    # libxdamage1/libxfixes3/libxtst6 are here for ONE staged plugin:
+    # libgstximagesrc, the X11 screen-share fallback. linuxdeploy's excludelist
+    # leaves the X libraries on the host — correctly, since that fallback only
+    # ever runs on an X11 session, where they are always present — so the
+    # validator has to look like such a host or the payload check below
+    # reports a plugin that cannot load on a machine where it would.
+    - >-
+      apt-get install -y --no-install-recommends
+      binutils ca-certificates file libasound2t64 libcom-err2 libegl1 libfontconfig1
+      libfreetype6 libgl1 libglib2.0-0 libgpg-error0 libharfbuzz0b
+      libopengl0 libx11-6 libxcb1 libxdamage1 libxext6 libxfixes3
+      libxkbcommon0 libxtst6
+      python3 python3-yaml squashfs-tools zstd
+  script: [./scripts/validate-snap.sh]
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/*.snap
+      - dist/*.sha256
+      - dist/*snap*.log
+      - dist/*snap*.txt
+      - dist/source-info.json
+      - dist/version.env
+      - dist/version.json
+
+publish-packages:
+  extends: .publish-rules
+  stage: publish
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
+  resource_group: lightning-project-6-publication
+  needs:
+    # The mirror token gate: a publishing pipeline never starts writing the
+    # immutable registry with a mirror it will then be unable to fill.
+    - job: github-mirror-preflight
+      artifacts: false
+    - job: resolve-source
+      artifacts: true
+    - job: validate-deb
+      artifacts: true
+    - job: validate-rpm
+      artifacts: true
+    - job: validate-flatpak
+      artifacts: true
+    - job: validate-appimage
+      artifacts: true
+    - job: validate-snap
+      artifacts: true
+    - job: build-windows
+      artifacts: true
+    # macOS, OPTIONAL in both senses: `optional` covers the job not existing
+    # (BUILD_MACOS_PACKAGES unset), and the job's own allow_failure covers it
+    # existing and failing. Either way the release still publishes, minus the
+    # macOS asset. See docs/macos-packaging.md.
+    - job: macos-package-test
+      artifacts: true
+      optional: true
+  before_script: [apk add --no-cache bash coreutils curl jq]
+  script:
+    - ./scripts/write-manifest.sh
+    - ./scripts/publish-packages.sh
+  artifacts:
+    expire_in: 7 days
+    paths:
+      - dist/manifest.json
+      - dist/publication.json
+      # write-manifest.sh generates SHA256SUMS here, and it is a published
+      # release file like any other, so the GitHub mirror job needs its bytes.
+      - dist/SHA256SUMS
+
+verify-published-packages:
+  extends: .publish-rules
+  stage: verify
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
+  resource_group: lightning-project-6-publication
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: publish-packages
+      artifacts: true
+  before_script: [apk add --no-cache bash coreutils curl jq]
+  script: [./scripts/verify-published-packages.sh]
+  artifacts:
+    expire_in: 7 days
+    paths:
+      - dist/manifest.json
+      - dist/verification.json
+
+# The signed update manifest is built and signed BEFORE the release is created,
+# and published AFTER it. That split is deliberate; see docs/update-manifest.md.
+#
+#   sign-update-manifest (stage: sign, before release)
+#     Generating and signing touch nothing outside this job, so doing them
+#     before finalize-release turns a missing/broken signing key into a failure
+#     that costs nothing. Discovering it afterwards would mean an immutable tag
+#     and release already exist for a version whose update manifest cannot be
+#     produced.
+#
+#   publish-update-manifest (stage: update, after release)
+#     The `latest` slot is what every installed Lightning polls, and the
+#     manifest's release_notes_url points at the GitLab release page. Promoting
+#     it before finalize-release would advertise an update whose release page
+#     does not exist yet, and would leave that advertisement standing if the
+#     release job then failed. The reverse failure — a finished release whose
+#     update manifest has not been promoted yet — is inert and retryable: users
+#     simply are not notified until the job is re-run.
+#
+# Alpine's base image ships libcrypto but not the openssl CLI, so these jobs add
+# it explicitly. Nothing else in the publish chain needs it.
+sign-update-manifest:
+  extends: .publish-rules
+  stage: sign
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
+  resource_group: lightning-project-6-publication
+  # THE SIGNING KEY IS SCOPED TO THE `signing` ENVIRONMENT. A project-level
+  # CI variable with no environment scope is injected into EVERY job of the
+  # pipeline -- including the six build jobs, each of which runs project-6
+  # CMake and every build.rs in the ~500-crate matrix-sdk graph. One hostile
+  # build script there could read UPDATE_SIGNING_KEY_B64 and become the
+  # release authority for every installed Lightning; the downstream hash
+  # checks cannot contain that, because the attacker IS the signer.
+  #
+  # OPERATOR SETTING (project 7 → Settings → CI/CD → Variables): give
+  # UPDATE_SIGNING_KEY_B64 -- and ONLY that variable -- the environment scope
+  # `signing`. UPDATE_SIGNING_KEY_ID stays unscoped: it is not secret (it is
+  # written into every signature envelope) and the public-key variable name
+  # is derived from it, so every job needs it. UPDATE_SIGNING_PUBKEY_<id>
+  # stays unscoped too: the build jobs compile it in. Exactly two jobs
+  # declare this environment -- resolve-source (the fail-fast consistency
+  # check, before any build) and this one -- and both run no project-6 code.
+  environment:
+    name: signing
+    action: prepare
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: publish-packages
+      artifacts: true
+    - job: verify-published-packages
+      artifacts: true
+  before_script: [apk add --no-cache bash coreutils curl jq openssl]
+  script:
+    - ./scripts/generate-update-manifest.sh
+    - ./scripts/sign-update-manifest.sh
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - dist/update-manifest-v1.json
+      - dist/update-manifest-v1.json.sig
+
+finalize-release:
+  extends: .publish-rules
+  stage: release
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
+  resource_group: lightning-project-6-publication
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: publish-packages
+      artifacts: true
+    - job: verify-published-packages
+      artifacts: true
+    # Ordering only: the release must not be created until the update manifest
+    # has been proved signable. finalize-release consumes nothing from it.
+    - job: sign-update-manifest
+      artifacts: false
+  before_script: [apk add --no-cache bash coreutils curl jq]
+  script: [./scripts/finalize-release.sh]
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - dist/manifest.json
+      - dist/verification.json
+
+# GitHub bandwidth mirror (MIRROR-SPEC §6). GitLab stays the release authority
+# and the canonical binary source; this job uploads byte-identical copies of the
+# SAME published artifacts to a GitHub Release at the SAME tag, then proves them
+# by re-downloading each one ANONYMOUSLY and comparing SHA-256 against
+# dist/manifest.json.
+#
+# It sits between `release` and `update` for two reasons, both load-bearing:
+#   * AFTER finalize-release, because the GitLab tag must exist and be mirrored
+#     before a GitHub release can be created at it. The script waits for the
+#     mirrored tag and refuses to continue unless it peels to the released
+#     commit, so GitHub can never invent a tag of its own.
+#   * BEFORE publish-update-manifest, so the `latest` manifest — the one every
+#     installed Lightning polls — is promoted only after every mirror_url in it
+#     has been proved to serve the right bytes.
+#
+# With GITHUB_MIRROR_REPO unset the job is a clean no-op and the manifest
+# carries no mirror_url, so a pipeline without the variables is unaffected.
+# It needs the package bytes themselves, hence the same artifact set as
+# publish-packages: it uploads the published files, it does not rebuild them.
+mirror-release-to-github:
+  extends: .publish-rules
+  stage: mirror
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
+  resource_group: lightning-project-6-publication
+  # The script is idempotent (proved by its tests), so a GitHub hiccup is
+  # retried by the runner rather than left for a human to notice.
+  retry:
+    max: 2
+    when: [script_failure, runner_system_failure, stuck_or_timeout_failure, api_failure]
+  # In a lull REFRESH (UPDATE_REFRESH_LATEST_ONLY=true) the script exits
+  # successfully before touching GitHub: the assets were mirrored when the
+  # release was made, and the refresh must never depend on the mirror token.
+  # GITHUB_MIRROR_TOKEN is scoped to the `mirror` environment for the same
+  # reason the signing key is scoped to `signing` (see sign-update-manifest):
+  # a write token for the public mirror has no business in a build job.
+  environment:
+    name: mirror
+    action: prepare
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: validate-deb
+      artifacts: true
+    - job: validate-rpm
+      artifacts: true
+    - job: validate-flatpak
+      artifacts: true
+    - job: validate-appimage
+      artifacts: true
+    - job: validate-snap
+      artifacts: true
+    - job: build-windows
+      artifacts: true
+    - job: publish-packages
+      artifacts: true
+    - job: verify-published-packages
+      artifacts: true
+    # macOS, on the same optional terms publish-packages uses. This job uploads
+    # the PUBLISHED BYTES and refuses to rebuild them, so it needs every file
+    # the publication manifest names — and publish-packages puts the macOS zip
+    # in that manifest. Pipeline 110 shipped without this line: the release
+    # published fine and the mirror died on "mirror input missing", after the
+    # tag and the GitLab release already existed.
+    - job: macos-package-test
+      artifacts: true
+      optional: true
+    # The signed manifest's mirror_url values are cross-checked against the URLs
+    # this job actually creates, before anything is uploaded.
+    - job: sign-update-manifest
+      artifacts: true
+    # Ordering only: GitLab is the release authority, so the mirror is never
+    # created before the real release exists. Nothing is consumed from this job.
+    - job: finalize-release
+      artifacts: false
+  before_script: [apk add --no-cache bash coreutils curl jq]
+  script: [./scripts/mirror-release-to-github.sh]
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - dist/manifest.json
+      - dist/github-mirror.json
+
+publish-update-manifest:
+  extends: .publish-rules
+  stage: update
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
+  resource_group: lightning-project-6-publication
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: verify-published-packages
+      artifacts: true
+    - job: sign-update-manifest
+      artifacts: true
+    # Ordering only: the `latest` pointer must never advertise a release that
+    # has not been finalized. Nothing is consumed from this job.
+    - job: finalize-release
+      artifacts: false
+    # Ordering only: a promoted mirror_url must already have been proved to
+    # serve the right bytes. Nothing is consumed from this job.
+    - job: mirror-release-to-github
+      artifacts: false
+  before_script: [apk add --no-cache bash coreutils curl jq openssl]
+  script: [./scripts/publish-update-manifest.sh]
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - dist/update-manifest-v1.json
+      - dist/update-manifest-v1.json.sig
+      - dist/update-publication.json
+
+# The client's GitHub FALLBACK for update metadata. Every installed Lightning
+# compiles in `…/releases/download/update-latest/…` on the mirror and reads it
+# only when the canonical GitLab host does not answer; until 2026-09-03 no
+# job ever wrote that slot, so the fallback was inert. This job copies the
+# pair GitLab has JUST promoted (publish-update-manifest's record is the
+# proof) into that fixed release, replacing the previous pair, and reads
+# both back anonymously. GitHub decides nothing: the manifest is signed on
+# GitLab and the client verifies it. allow_failure, because a GitHub outage
+# must never fail a release GitLab has completed; retried because a hiccup
+# should not need a human either; idempotent, so both are safe.
+mirror-update-manifest-to-github:
+  extends: .publish-rules
+  stage: update
+  image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
+  resource_group: lightning-project-6-publication
+  allow_failure: true
+  retry:
+    max: 2
+    when: [script_failure, runner_system_failure, stuck_or_timeout_failure, api_failure]
+  environment:
+    name: mirror
+    action: prepare
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: publish-update-manifest
+      artifacts: true
+  before_script: [apk add --no-cache bash coreutils curl jq]
+  script: [./scripts/mirror-update-manifest-to-github.sh]
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths: [dist/github-update-manifest-mirror.json]

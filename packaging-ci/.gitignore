@@ -1,0 +1,12 @@
+/dist/
+/work/
+/result
+/.direnv/
+
+# Update-signing key material. generate-update-signing-key.sh defaults its
+# output directory to $PWD, which may well be this checkout; a signing key must
+# never become a tracked file even by accident. This is a backstop, not a
+# location: keys belong outside the repository.
+*.pem
+*.private.pem
+*.key

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Lightning
+Comment=Native Matrix desktop client
+Exec=lightning-matrix --backend=rust
+Terminal=false
+Categories=Network;Chat;InstantMessaging;
+Keywords=Matrix;Chat;Messaging;
+StartupNotify=true

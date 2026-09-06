@@ -1,0 +1,160 @@
+# Flatpak manifest TEMPLATE for Lightning. build-flatpak.sh substitutes the
+# @PLACEHOLDER@ values into work/flatpak/org.lightning_matrix.Lightning.yaml — the
+# template itself never contains secrets, and the GIF provider keys reach the
+# sandbox only through flatpak-builder's secret-env (never stored in the
+# manifest, repo metadata, or bundle).
+#
+# The app builds from the pinned project-6 source checkout against the KDE
+# runtime (Qt inside the sandbox), because Flatpak binaries must link the
+# runtime's libraries — the Debian-staged build is not reusable here.
+app-id: org.lightning_matrix.Lightning
+runtime: org.kde.Platform
+runtime-version: "6.9"
+sdk: org.kde.Sdk
+command: lightning
+
+finish-args:
+  # Matrix networking.
+  - --share=network
+  - --share=ipc
+  # Native Wayland with X11 fallback, GPU rendering, notification sounds.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --socket=pulseaudio
+  # libsecret token storage (Secret Service) and desktop notifications.
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.freedesktop.Notifications
+  # Voice/video calling.
+  #
+  # The PipeWire socket is what a portal-negotiated stream is actually READ
+  # from: xdg-desktop-portal is reachable from a sandbox by default and the
+  # user picks the window or monitor in ITS dialog, but the resulting
+  # PipeWire node cannot be opened without this. Deliberately the narrow
+  # xdg-run path and NOT --filesystem=host: the portal, not the manifest,
+  # decides what may be captured, and the app never sees anything the user
+  # did not choose.
+  - --filesystem=xdg-run/pipewire-0
+  # SCREEN SHARING is what the socket above is for. THE CAMERA IS NOT, and
+  # this manifest deliberately does not enable it: SfuMediaEngine opens
+  # `v4l2src` on Linux (autovideosrc is not used -- on a PipeWire desktop
+  # pipewiresrc outranks v4l2src and produces no frames), which needs the raw
+  # /dev/video* node. Flatpak has no camera-only device permission, so the
+  # only ways to grant it are --device=all -- which hands the sandbox every
+  # device on the machine, not just the webcam -- or teaching the client to
+  # take a PipeWire node from the xdg-desktop-portal Camera interface, which
+  # is a change in the CLIENT, not in packaging. Until one of those is
+  # decided, the camera is unavailable inside the Flatpak and the engine's
+  # own refusal is the honest outcome; audio calls and screen sharing are
+  # unaffected.
+
+build-options:
+  # The 24.08 rust-stable SDK extension ships rustc 1.89, too old for
+  # matrix-sdk 0.18 (needs 1.93) — the sandbox installs the same pinned
+  # rustup toolchain the deb job uses. Keep the version in step with
+  # RUST_TOOLCHAIN in .gitlab-ci.yml.
+  prepend-path: /run/build/lightning/cargo-home/bin
+  # Cargo needs the network for the locked fetch; this is not a Flathub
+  # build, so sandboxed-network vendoring is not required.
+  build-args:
+    - --share=network
+  env:
+    CARGO_HOME: /run/build/lightning/cargo-home
+    RUSTUP_HOME: /run/build/lightning/rustup
+    CARGO_BUILD_JOBS: "4"
+    CMAKE_BUILD_PARALLEL_LEVEL: "4"
+  # Passed from the build job environment into the sandbox WITHOUT being
+  # recorded in the manifest, ostree metadata, or the resulting bundle.
+  # Keyless (build-only) pipelines simply leave them unset.
+  secret-env:
+    - LIGHTNING_BUILD_GIPHY_API_KEY
+    - LIGHTNING_BUILD_KLIPY_API_KEY
+
+modules:
+  - name: lightning
+    # An explicit command list instead of cmake-ninja: the source-enforced
+    # cargo invocation is --offline --locked, so the locked crate graph must
+    # be fetched into the sandbox CARGO_HOME first (the manifest grants the
+    # build network access for exactly this step). BUILD_TESTING is off —
+    # the bundle ships the application, not the test suite.
+    #
+    # LIGHTNING_ARTIFACT_KIND=release is explicit and load-bearing. This is the
+    # ONE packaging build that does not go through configure-build.sh, and the
+    # source's default is "source" — which would make a released Flatpak report
+    # artifact_kind: source in --build-info (untrue) and would also auto-enable
+    # ccache inside the sandbox for a key-embedding build.
+    buildsystem: simple
+    build-commands:
+      # Version-addressed and checksum-verified, like the deb/rpm/appimage
+      # jobs (.gitlab-ci.yml RUSTUP_VERSION / RUSTUP_INIT_SHA256): the
+      # installer builds the Rust Matrix SDK into the published bundle.
+      - curl --proto '=https' --tlsv1.2 -fsSL --max-redirs 3
+        https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
+        -o rustup-init
+      - printf '%s  rustup-init\n'
+        dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
+        | sha256sum -c -
+      - chmod +x rustup-init
+      - ./rustup-init -y --profile minimal --no-modify-path
+        --default-toolchain 1.93.0
+      - cargo fetch --locked --manifest-path rust/Cargo.toml
+      - cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_INSTALL_PREFIX=/app -DBUILD_TESTING=OFF
+        -DENABLE_RUST_SDK_BACKEND=ON
+        -DLIGHTNING_REQUIRE_GIF_KEYS=@REQUIRE_GIF_KEYS@
+        -DLIGHTNING_INSTALL_TYPE=linux-flatpak
+        -DLIGHTNING_UPDATE_PUBKEY_2026A=@UPDATE_SIGNING_PUBKEY_2026A@
+        -DLIGHTNING_ARTIFACT_KIND=release
+        -DLIGHTNING_ENABLE_WEBRTC=ON
+        -DLIGHTNING_REQUIRE_WEBRTC=ON
+      - cmake --build build
+      - cmake --install build
+      # This is the ONE packaging build that does not run configure-build.sh,
+      # so it needs that script's call-engine guard spelled out here.
+      # LIGHTNING_REQUIRE_WEBRTC above is the half that fails FAST -- at
+      # configure, before a full Rust build -- and the grep below is the half
+      # that holds even against a source too old to know the option. The
+      # option above is only HONOURED when a pkg-config probe finds the
+      # GStreamer WebRTC development files; the org.kde.Sdk 6.9 runtime
+      # supplies all six modules the probe names, but an SDK bump could take
+      # them away and CMake would say so in one STATUS line and configure the
+      # engine out. Every Linux 0.8.0 package shipped exactly that way.
+      #
+      # The command exits non-zero whenever the engine cannot be USED, which
+      # is a runtime question the build sandbox is the wrong place to judge,
+      # so only the compiled-in line is asserted -- validate-flatpak.sh runs
+      # the same command against the installed app on the real runtime.
+      - /app/bin/lightning-matrix --call-media-status
+        > call-media-status.txt 2>&1 || true
+      - cat call-media-status.txt
+      - grep -qx 'call media engine built in: yes' call-media-status.txt
+    sources:
+      - type: dir
+        path: "@SOURCE_DIR@"
+      - type: file
+        path: "@METAINFO_PATH@"
+        dest-filename: lightning.metainfo.xml
+    post-install:
+      # Flatpak exports require app-id-named desktop, icon, and metainfo
+      # files. The source installs them under the plain "lightning" name.
+      - printf '#!/bin/sh\nexec /app/bin/lightning-matrix --backend=rust "$@"\n'
+        > /app/bin/lightning && chmod 0755 /app/bin/lightning
+      - mkdir -p /app/share/applications
+      - sed -e 's/^Icon=lightning$/Icon=org.lightning_matrix.Lightning/'
+        -e 's/^Exec=lightning-matrix --backend=rust$/Exec=lightning/'
+        /app/share/applications/lightning.desktop
+        > /app/share/applications/org.lightning_matrix.Lightning.desktop
+      - rm /app/share/applications/lightning.desktop
+      - for size in 16 32 48 64 128 192; do
+        if [ -f "/app/share/icons/hicolor/${size}x${size}/apps/lightning.png" ]; then
+        mv "/app/share/icons/hicolor/${size}x${size}/apps/lightning.png"
+        "/app/share/icons/hicolor/${size}x${size}/apps/org.lightning_matrix.Lightning.png";
+        fi; done
+      - install -Dm0644 lightning.metainfo.xml
+        /app/share/metainfo/org.lightning_matrix.Lightning.metainfo.xml
+      # The shared metainfo's launchable points at the plain desktop-id used
+      # by deb/rpm; inside the flatpak the desktop file is app-id-named, and
+      # appstream compose drops the component (gui-app-without-icon) if the
+      # launchable cannot be resolved.
+      - sed -i 's|>lightning.desktop<|>org.lightning_matrix.Lightning.desktop<|'
+        /app/share/metainfo/org.lightning_matrix.Lightning.metainfo.xml

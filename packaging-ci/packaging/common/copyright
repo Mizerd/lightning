@@ -1,0 +1,15 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Lightning
+Source: https://gitlab.smetonis.net/Mizerd/lightning
+
+Files: *
+Copyright: Lightning contributors
+License: GPL-3+
+ Lightning is distributed under the GNU General Public License, version 3 or
+ (at your option) any later version. On Debian systems, the complete text of
+ version 3 is available at /usr/share/common-licenses/GPL-3. The complete
+ upstream licence text is also installed as /usr/share/doc/lightning/LICENSE.
+
+Files: usr/share/metainfo/lightning.metainfo.xml
+Copyright: 2026 Mizerd
+License: CC0-1.0
