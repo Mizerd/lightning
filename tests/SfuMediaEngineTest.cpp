@@ -770,6 +770,127 @@ private slots:
         receiver.stop();
     }
 
+    // A TRACK THAT APPEARS MID-CALL MUST REACH THE RECEIVER.
+    //
+    // The reported defect: A is in a call, B joins later, and A never hears
+    // B — while B hears A, and A rejoining fixes it. On the wire that is a
+    // SECOND subscriber offer carrying a section that was not in the first,
+    // which is a renegotiation the receiver has to answer while its peer
+    // connection is already up and carrying media.
+    //
+    // The engine-to-engine loopback above only ever negotiates once, so this
+    // path had no coverage at all.
+    void aSecondTrackPublishedMidCallReachesTheReceiver()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+
+        QString failure;
+        const auto note = [&failure](const QString &why) {
+            if (failure.isEmpty())
+                failure = why;
+        };
+        connect(&sender, &SfuMediaEngine::failed, this, note);
+        connect(&receiver, &SfuMediaEngine::failed, this, note);
+
+        int subscriberOffers = 0;
+        int subscriberAnswers = 0;
+        connect(&sender, &SfuMediaEngine::localDescription, &receiver,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target != int(SfuMediaEngine::Target::Publisher)
+                        || kind != QStringLiteral("offer")) {
+                        return;
+                    }
+                    ++subscriberOffers;
+                    receiver.applyRemoteDescription(
+                        SfuMediaEngine::Target::Subscriber, kind, sdp);
+                });
+        connect(&receiver, &SfuMediaEngine::localDescription, &sender,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target != int(SfuMediaEngine::Target::Subscriber)
+                        || kind != QStringLiteral("answer")) {
+                        return;
+                    }
+                    ++subscriberAnswers;
+                    sender.applyRemoteDescription(
+                        SfuMediaEngine::Target::Publisher, kind, sdp);
+                });
+        connect(&sender, &SfuMediaEngine::localCandidate, &receiver,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)) {
+                        receiver.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Subscriber, init);
+                    }
+                });
+        connect(&receiver, &SfuMediaEngine::localCandidate, &sender,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Subscriber)) {
+                        sender.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Publisher, init);
+                    }
+                });
+
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+
+        sender.start();
+        receiver.start();
+
+        const QByteArray key(32, 'k');
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        sender.setOutboundKey(3, key);
+        // Keyed by the stream id the publisher's msid carries (the cid),
+        // which is what the receive probe looks the ring up by.
+        receiver.setInboundKey(QStringLiteral("first"), 3, key);
+        receiver.setInboundKey(QStringLiteral("second"), 3, key);
+
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            arrived.size() >= 1,
+            qPrintable(QStringLiteral("the first track never arrived; "
+                                      "failure=%1").arg(failure)),
+            45000);
+        const int decryptedBefore = receiver.framesDecrypted();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            receiver.framesDecrypted() > decryptedBefore, 15000);
+
+        // DEAFEN FIRST, so the track that is about to arrive has to obey a
+        // promise made before its bin existed. `setOutputMuted` sweeps the
+        // pipeline by element-name PREFIX and cannot reach a bin that is not
+        // there yet, so the only thing that can honour it is the apply in
+        // onPadAdded — which asked for `outvol_<stream>` while the bin named
+        // its element `outvol_<stream>_<trackKey>`, found nothing, and left
+        // the new track audible.
+        //
+        // ON THE BROKEN TREE: receiveMutedForTest("second") is 0.
+        receiver.setOutputMuted(true);
+
+        // ...and now the "B joins" half: a section that was not in the first
+        // offer, negotiated while the connection is up and carrying media.
+        sender.publishAudio(QStringLiteral("second"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            arrived.size() >= 2,
+            qPrintable(QStringLiteral("a track published mid-call never "
+                                      "reached the receiver: offers=%1 "
+                                      "answers=%2 arrived=%3 failure=%4")
+                           .arg(subscriberOffers).arg(subscriberAnswers)
+                           .arg(arrived.join(QLatin1Char(',')), failure)),
+            45000);
+        QVERIFY2(arrived.contains(QStringLiteral("second")),
+                 qPrintable(QStringLiteral("the mid-call track was "
+                                           "misattributed: %1")
+                                .arg(arrived.join(QLatin1Char(',')))));
+        QCOMPARE(receiver.receiveMutedForTest(QStringLiteral("second")), 1);
+
+        sender.stop();
+        receiver.stop();
+    }
+
     // A received track must be attributed by the pad's OWN msid/mid, never by
     // a media-section index derived from the pad name.
     //
@@ -2260,6 +2381,104 @@ private slots:
         engine.setMicrophoneMuted(false);
         engine.setOutputMuted(false);
         engine.setParticipantVolume(QStringLiteral("PA_x"), 50);
+        engine.stop();
+    }
+
+    // A LIVEKIT-SHAPED SUBSCRIBER OFFER MUST BE ANSWERED EVERY TIME.
+    //
+    // LiveKit's subscriber connection is the PRIMARY one: the server offers
+    // a data channel BEFORE anyone is publishing, and adds a media section
+    // to a LATER offer when someone does. It refuses to renegotiate while an
+    // answer is outstanding, so an offer we fail to answer is a subscriber
+    // connection that never receives another track for the rest of the call.
+    void everyLiveKitSubscriberOfferIsAnswered()
+    {
+        const QString fp = QStringLiteral(
+            "a=fingerprint:sha-256 "
+            "11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:"
+            "11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00");
+        const QString dataOnly = QStringLiteral(
+            "v=0\r\n"
+            "o=- 1 1 IN IP4 127.0.0.1\r\n"
+            "s=-\r\n"
+            "t=0 0\r\n"
+            "a=group:BUNDLE 0\r\n"
+            "a=msid-semantic: WMS *\r\n"
+            "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
+            "c=IN IP4 0.0.0.0\r\n"
+            "a=ice-ufrag:abcd\r\n"
+            "a=ice-pwd:0123456789abcdef0123456789\r\n"
+            "a=ice-options:trickle\r\n"
+            "%1\r\n"
+            "a=setup:actpass\r\n"
+            "a=mid:0\r\n"
+            "a=sctp-port:5000\r\n"
+            "a=max-message-size:262144\r\n").arg(fp);
+        const QString withAudio = QStringLiteral(
+            "v=0\r\n"
+            "o=- 1 2 IN IP4 127.0.0.1\r\n"
+            "s=-\r\n"
+            "t=0 0\r\n"
+            "a=group:BUNDLE 0 1\r\n"
+            "a=msid-semantic: WMS *\r\n"
+            "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
+            "c=IN IP4 0.0.0.0\r\n"
+            "a=ice-ufrag:abcd\r\n"
+            "a=ice-pwd:0123456789abcdef0123456789\r\n"
+            "a=ice-options:trickle\r\n"
+            "%1\r\n"
+            "a=setup:actpass\r\n"
+            "a=mid:0\r\n"
+            "a=sctp-port:5000\r\n"
+            "a=max-message-size:262144\r\n"
+            "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
+            "c=IN IP4 0.0.0.0\r\n"
+            "a=rtcp-mux\r\n"
+            "a=ice-ufrag:abcd\r\n"
+            "a=ice-pwd:0123456789abcdef0123456789\r\n"
+            "a=ice-options:trickle\r\n"
+            "%1\r\n"
+            "a=setup:actpass\r\n"
+            "a=mid:1\r\n"
+            "a=sendonly\r\n"
+            "a=msid:PA_late TR_late\r\n"
+            "a=rtpmap:111 opus/48000/2\r\n"
+            "a=fmtp:111 minptime=10;useinbandfec=1\r\n"
+            "a=ssrc:11111111 cname:lk\r\n"
+            "a=ssrc:11111111 msid:PA_late TR_late\r\n").arg(fp);
+
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy failed(&engine, &SfuMediaEngine::failed);
+        QSignalSpy local(&engine, &SfuMediaEngine::localDescription);
+        engine.start();
+
+        engine.applyRemoteDescription(SfuMediaEngine::Target::Subscriber,
+                                      QStringLiteral("offer"), dataOnly);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            local.count() >= 1,
+            qPrintable(QStringLiteral("the data-channel-only offer was never "
+                                      "answered; failures=%1")
+                           .arg(failed.count())),
+            10000);
+        QCOMPARE(local.at(0).at(0).toInt(),
+                 int(SfuMediaEngine::Target::Subscriber));
+        QCOMPARE(local.at(0).at(1).toString(), QStringLiteral("answer"));
+
+        engine.applyRemoteDescription(SfuMediaEngine::Target::Subscriber,
+                                      QStringLiteral("offer"), withAudio);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            local.count() >= 2,
+            qPrintable(QStringLiteral("no answer to the offer that added a "
+                                      "media section; answers=%1 failures=%2")
+                           .arg(local.count()).arg(failed.count())),
+            10000);
+        const QString second = local.at(1).at(2).toString();
+        QVERIFY2(second.contains(QLatin1String("m=audio")),
+                 "the answer carried no audio section");
+        QVERIFY2(!second.contains(QLatin1String("m=audio 0 ")),
+                 "the answer REJECTED the audio section (port 0)");
+        QCOMPARE(failed.count(), 0);
         engine.stop();
     }
 

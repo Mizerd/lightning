@@ -3469,6 +3469,31 @@ void SfuMediaEngine::applyPendingTrackVolume(const QString &streamId,
     }
 }
 
+int SfuMediaEngine::receiveMutedForTest(const QString &streamId) const
+{
+    if (!m_subscriber.pipeline)
+        return -1;
+    const QString prefix = outputVolumeElementName(streamId);
+    int found = -1;
+    GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_subscriber.pipeline));
+    GValue item = G_VALUE_INIT;
+    while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+        auto *element = GST_ELEMENT(g_value_get_object(&item));
+        gchar *raw = element ? gst_element_get_name(element) : nullptr;
+        const QString name = QString::fromUtf8(raw ? raw : "");
+        g_free(raw);
+        if (found < 0 && name.startsWith(prefix)) {
+            gboolean muted = FALSE;
+            g_object_get(element, "mute", &muted, nullptr);
+            found = muted ? 1 : 0;
+        }
+        g_value_reset(&item);
+    }
+    g_value_unset(&item);
+    gst_iterator_free(it);
+    return found;
+}
+
 double SfuMediaEngine::receiveVolumeForTest(const QString &streamId) const
 {
     if (!m_subscriber.pipeline)
@@ -4510,9 +4535,20 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     });
     // Apply the CURRENT deafen state before the bin plays: a track arriving
     // after the user deafened must not be audible even briefly.
+    //
+    // THE SAME DERIVATION THE BIN USED, which is `volumeKeyFor(streamId,
+    // trackMid)` and not the stream id alone. gst_bin_get_by_name is an
+    // EXACT match, so once a receive bin's volume element gained a per-track
+    // suffix (one participant can publish a microphone AND a desktop) this
+    // lookup asked for a name nothing had, found nothing, and silently
+    // skipped the deafen — a track that arrived while the user was deafened
+    // was audible until some later setOutputMuted() swept the pipeline.
+    // Exactly the drift outputVolumeElementName() exists to prevent, one
+    // caller further out.
     if (GstElement *volume = gst_bin_get_by_name(
             GST_BIN(bin),
-            outputVolumeElementName(streamId).toUtf8().constData())) {
+            outputVolumeElementName(volumeKeyFor(streamId, trackMid))
+                .toUtf8().constData())) {
         g_object_set(volume, "mute",
                      engine->m_outputMuted.load() ? TRUE : FALSE, nullptr);
         // The per-person LEVEL is deliberately NOT applied here. This code

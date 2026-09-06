@@ -401,6 +401,11 @@ public:
     /// The "volume" property of the first receive volume element for
     /// `streamId`, or -1 when that stream has no receive bin yet.
     double receiveVolumeForTest(const QString &streamId) const;
+    /// The "mute" property of the first receive volume element for
+    /// `streamId`: 1 muted, 0 audible, -1 when that stream has no receive
+    /// bin yet. Deafen is a promise the user has already made, so whether it
+    /// reached a bin built AFTER it was asked for has to be observable.
+    int receiveMutedForTest(const QString &streamId) const;
 
     /// Test-only: is a bin registered under this cid? Lets a test assert that
     /// a refusal REFUSED, rather than inferring it from the absence of a
