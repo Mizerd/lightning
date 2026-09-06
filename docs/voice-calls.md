@@ -580,8 +580,11 @@ A prerequisite for 2 and 3, and cheap on its own: give our playback stream
 real properties (`application.name`, `media.role`, a stable `node.name`) so
 it can be found in the graph and so the user can move it by hand in a volume
 mixer — which is, today, the only workaround. Until one of the above lands,
-the UI says what the capture contains: `ScreenSharePicker`'s tooltip and the
-call menu's "Share computer sound (includes this call)".
+the UI says what the capture contains, on `ScreenSharePicker`'s "Share audio"
+checkbox — the place the option is first turned on. The in-call menu's label
+stays short ("Share computer sound") because
+`theShareOptionsMenuShowsItsLabelsWithoutEliding` holds it to a 200px column
+and a menu item carries no tooltip.
 
 ### NOT TESTED
 
