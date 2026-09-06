@@ -26,17 +26,40 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.9.0** (`v0.9.0` -> `9dc6a07`), tagged
-2026-09-05 by project 7 pipeline **173, 22/22 green**; notes in
-`docs/releases/v0.9.0.md`. The synchronized version reads **0.9.0** in
+Latest published release: **Lightning 0.9.2** (`v0.9.2` -> `2545391`), tagged
+2026-09-06 by **project 6** pipeline **180, 22/22 green**; notes in
+`docs/releases/v0.9.2.md`. The synchronized version reads **0.9.2** in
 `CMakeLists.txt` (both `project()` and `APP_VERSION_LABEL`), `rust/Cargo.toml`,
 `rust/Cargo.lock`, and the Rust/HTTP user agent (derived from
 `CARGO_PKG_VERSION`). Any bump after it is a new release checkpoint and only on
-Rokas's explicit request (§14). 0.8.4 (`v0.8.4` -> `49249e8`, pipeline 170,
-2026-09-02) was released before it; this file had still called it IN FLIGHT.
+Rokas's explicit request (§14).
 
-The anonymous verification bar (§14) was run for 0.9.0 on 2026-09-05 and
-PASSED in full: the GitLab release sits at `9dc6a07` with every package link
+**THE PIPELINE NOW LIVES IN THIS REPOSITORY.** 0.9.2 is the first release cut
+from project 6: the packaging project was folded in under `packaging-ci/` on
+2026-09-06 with all 125 of its commits, and `.gitlab-ci.yml` sits at the root
+because GitLab reads it nowhere else. Project 7 still exists and is NOT
+deleted. Trigger with `glab api --method POST projects/6/pipeline` — the id
+in every older note here is 7 and is now wrong. See
+[[packaging-moved-into-the-app-repo]] for the one mistake that layout
+creates: both repos have `scripts/`, `tests/` and `docs/`, so a path that
+reaches the packaging tree from the repository root finds a REAL directory
+with none of those files in it, and that cost three separate fixes and two
+dead pipelines.
+
+0.9.1 (`v0.9.1` -> `d2e343b`, project 7 pipeline 175, 2026-09-06) and 0.8.4
+(`v0.8.4` -> `49249e8`, pipeline 170, 2026-09-02) preceded it.
+
+The anonymous verification bar (§14) was run for **0.9.2** on 2026-09-06 and
+PASSED in full: release at `2545391`, nine package links 200, manifest 0.9.2 /
+`v0.9.2` with six artifacts all carrying `mirror_url` and macOS absent, the
+Ed25519 signature VERIFIED against the key extracted from the shipped `.deb`'s
+own binary with a tampered copy REJECTED, the GitHub tag peeling to the same
+commit, 10 mirror assets, and a `.deb` from GitHub matching the GitLab-signed
+digest. **Two of its lines FAIL for a reason that is not the release**:
+openssl is not on the bare shell's PATH, so the signature check cannot run
+there — verify it with `nix shell nixpkgs#openssl`, and note the signature
+file's field is `sig`, not `signature`. The same bar was run for 0.9.0 on
+2026-09-05 and PASSED in full: the GitLab release sits at `9dc6a07` with every package link
 200 under curl; the `latest` manifest reports 0.9.0 / `v0.9.0`, six artifacts
 all carrying `mirror_url`, macOS absent; its Ed25519 signature
 (`lightning-release-2026a`) VERIFIED against the public key extracted from
@@ -70,6 +93,8 @@ the same round; both were already in the lock file, so the build stays
 
 | Version | Commit | Deploy pipeline | Notes file |
 |---|---|---|---|
+| 0.9.2 | `2545391` | **project 6** 180, 22/22 (177/178/179 lost to runner memory; 176 to the migration's own path bug) | `docs/releases/v0.9.2.md` |
+| 0.9.1 | `d2e343b` | 175, 22/22 (174 failed validate-appimage) | `docs/releases/v0.9.1.md` |
 | 0.9.0 | `9dc6a07` | 173, 22/22 green (171 lost `build-windows` + macOS to the QtDBus guard, 172 `build-windows` to the builder image) | `docs/releases/v0.9.0.md` |
 | 0.8.4 | `49249e8` | 170 | `docs/releases/v0.8.4.md` |
 | 0.8.3 | `24fbe9c` | not recorded here | `docs/releases/v0.8.3.md` |
@@ -109,6 +134,43 @@ the lightning-deploy pipeline only after packages publish and verify
 (§14). Never create a tag or release by hand, and never move one.
 
 ### What release rounds have learned (operational traps)
+
+- **THE LOCAL PACKAGE RUNNERS CANNOT LINK THIS PROJECT, and the failures look
+  random because both hosts carry identical tags.** Measured across pipelines
+  177/178/179 on 2026-09-06: jobs that landed on the LOCAL package runners
+  (ids 3,4,6,7,8) failed 6 times and succeeded 0; jobs on the REMOTE
+  xcp-ng-1 runners (10-14) succeeded 3 of 4, and the single failure was the
+  one time two heavy jobs ran there together. The local host cannot finish
+  even ONE fat-LTO link — two failures in one pipeline did not even overlap
+  (rpm 14:31-14:37 died, appimage started 14:37 and died at 14:45).
+  So "run fewer jobs at once on both hosts" does not help; the local host
+  needs more RAM or must not take these jobs at all.
+  **WHAT CHANGED, since 0.8.4 built green first try:** NOT the dependency
+  graph — the lock file is 471 crates in 0.8.4, 0.9.0, 0.9.1 and today. OUR
+  crate grew: `rust/src` went 20 files / 1400 KB at 0.8.4 to 27 files /
+  1740 KB at 0.9.0, and `lto = true` with `codegen-units = 1` merges
+  everything into ONE compilation whose peak tracks total code. A 24% jump
+  crossed the local host's ceiling.
+  **The 0.9.2 workaround, still in place: runners 3,4,6,7,8 are PAUSED** so
+  every package job goes to the host that can finish it. Un-pause with
+  `glab api --method PUT runners/<id> --raw-field paused=false` once that
+  host has more memory. Do NOT "fix" this by weakening LTO: every release
+  since 0.6.x shipped fat LTO and 0.9.2 would become the odd one out.
+- **The GitHub update slot is a tag that exists ONLY on GitHub, and the
+  mirror was deleting it.** `update-latest` carries the signed manifest that
+  installed clients read when GitLab is unreachable. The push mirror ran with
+  `keep_divergent_refs=false`, which removes refs the source does not have —
+  so the tag vanished after every release, a GitHub release whose tag is gone
+  reverts to a DRAFT, and a draft's assets are NOT publicly downloadable. The
+  fallback answered **404 for every installed client**, and because
+  `/releases/tags/<tag>` cannot see drafts the job created a NEW one each
+  release (two identical drafts by 0.9.1). Fixed 2026-09-06 by setting
+  `keep_divergent_refs=true` on the mirror. If duplicates reappear, check
+  that setting FIRST.
+- **A freshly uploaded GitHub release asset is not instantly readable.**
+  Its API reports `state=uploaded` with the right size while an anonymous GET
+  answers 404 BlobNotFound for minutes. Any read-back check must POLL, not
+  ask once — this failed 0.9.2's manifest mirror twice with correct bytes.
 
 - **Trigger variables must be a JSON body.** `glab api --input` without
   an explicit `-H "Content-Type: application/json"` returns **HTTP 415**.
