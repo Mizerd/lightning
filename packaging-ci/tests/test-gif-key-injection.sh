@@ -6,7 +6,14 @@ set -Eeuo pipefail
 # CI variables into the build-only generation step, asserting the value reaches
 # the build via the environment (never a command line) and is never printed.
 
-ROOT="$(git rev-parse --show-toplevel)"
+# The PACKAGING tree, which is where this suite's scripts, packaging
+# manifests and fixtures live -- not the repository root. Since the
+# packaging project was folded into the application repository those
+# are different directories, and the application has a scripts/ of its
+# own, so `git rev-parse --show-toplevel` resolved to a real directory
+# with none of these files in it. Derived from this file's own
+# location so it holds wherever the tree is checked out.
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
@@ -123,9 +130,12 @@ printf 'project(lightning VERSION 0.6.2)\n' >"$SRC/CMakeLists.txt"
 printf '[package]\nname="x"\n' >"$SRC/rust/Cargo.toml"
 printf '# lock\n' >"$SRC/rust/Cargo.lock"
 printf 'GPL\n' >"$SRC/LICENSE"; printf '# readme\n' >"$SRC/README.md"
-# packaging/common assets are copied from the real repo checkout.
-mkdir -p "$WORK/proj/packaging"
-cp -r "$ROOT/packaging/common" "$WORK/proj/packaging/common"
+# packaging/common assets are copied from the real repo checkout, under the
+# SAME layout the scripts expect in CI: the packaging tree lives at
+# packaging-ci/ inside the application repository, so a fixture that puts it
+# at the root simulates a directory arrangement that no longer exists.
+mkdir -p "$WORK/proj/packaging-ci/packaging"
+cp -r "$ROOT/packaging/common" "$WORK/proj/packaging-ci/packaging/common"
 
 # LIGHTNING_INSTALL_TYPE is mandatory: it decides which install strategy the
 # updater will use, so configure-build.sh refuses to guess it. The per-format

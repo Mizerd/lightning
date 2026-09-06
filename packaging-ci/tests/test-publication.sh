@@ -6,7 +6,14 @@ set -Eeuo pipefail
 # idempotent uploads, immutability conflicts, partial-upload rollback+retry,
 # registry verification, and both release actions (attach-existing and create).
 
-ROOT="$(git rev-parse --show-toplevel)"
+# The PACKAGING tree, which is where this suite's scripts, packaging
+# manifests and fixtures live -- not the repository root. Since the
+# packaging project was folded into the application repository those
+# are different directories, and the application has a scripts/ of its
+# own, so `git rev-parse --show-toplevel` resolved to a real directory
+# with none of these files in it. Derived from this file's own
+# location so it holds wherever the tree is checked out.
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 JQ="$(command -v jq)"
 WORK="$(mktemp -d)"
 cleanup() { rm -rf "$WORK"; }

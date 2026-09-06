@@ -21,7 +21,14 @@ set -Eeuo pipefail
 
 command -v cmake >/dev/null 2>&1 || { printf 'error: cmake is required\n' >&2; exit 1; }
 
-ROOT="$(git rev-parse --show-toplevel)"
+# The PACKAGING tree, which is where this suite's scripts, packaging
+# manifests and fixtures live -- not the repository root. Since the
+# packaging project was folded into the application repository those
+# are different directories, and the application has a scripts/ of its
+# own, so `git rev-parse --show-toplevel` resolved to a real directory
+# with none of these files in it. Derived from this file's own
+# location so it holds wherever the tree is checked out.
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 INCLUDE="$ROOT/packaging/windows/version-resources.cmake"
 WORK="$(mktemp -d)"
 cleanup() { rm -rf "$WORK"; }
