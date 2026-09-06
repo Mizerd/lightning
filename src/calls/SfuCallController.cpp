@@ -145,6 +145,12 @@ SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
     m_refreshTimer.setInterval(kRefreshIntervalMs);
     connect(&m_refreshTimer, &QTimer::timeout, this,
             &SfuCallController::refreshMembership);
+    // AND THE KEY LANE, on the same tick. See reconcileKeyLane(): the only
+    // other path to distributeKeyIfNeeded() is a membership read that comes
+    // back DIFFERENT, so a distribution that failed had its retry armed and
+    // nothing to reach it.
+    connect(&m_refreshTimer, &QTimer::timeout, this,
+            &SfuCallController::reconcileKeyLane);
     m_retractRetryTimer.setSingleShot(true);
     connect(&m_retractRetryTimer, &QTimer::timeout, this,
             &SfuCallController::retryRetraction);
@@ -2005,6 +2011,21 @@ void SfuCallController::noteParticipantIdentities()
             m_engine->noteParticipantIdentity(sid, name);
     }
 #endif
+}
+
+void SfuCallController::reconcileKeyLane()
+{
+    // Only inside a call: outside one there is no key to hold and no peer to
+    // address, and distributeKeyIfNeeded() would return immediately anyway.
+    if (!active())
+        return;
+    ++m_keyLaneReconciles;
+    // Both, and in this order. The sid->device binding is what makes a key
+    // findable for arriving frames, and the distribution is what puts a key
+    // in front of a peer; a tick that did one without the other would leave
+    // half the join done.
+    noteParticipantIdentities();
+    distributeKeyIfNeeded();
 }
 
 void SfuCallController::distributeKeyIfNeeded()

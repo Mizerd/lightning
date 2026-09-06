@@ -2131,6 +2131,58 @@ private Q_SLOTS:
     //
     // ON THE BROKEN TREE: the displayName is still empty after the session
     // read, and the avatar with it.
+    // ── The key lane needs a retry that does not depend on someone joining ──
+    //
+    // distributeKeyIfNeeded() had exactly ONE caller: RtcController's
+    // sessionChanged handler. That signal is SUPPRESSED when a membership
+    // read comes back identical (RtcController: `if (changed)`), which is
+    // right for avoiding poke storms and wrong for the key lane -- a
+    // distribution that failed, or that found nobody addressable, CLEARS
+    // m_lastKeyTargets to arm a retry, and nothing was guaranteed to reach
+    // it. matrix-js-sdk runs its equivalent on every recalculation and says
+    // so in a comment ("This also needs to be done if changed = false").
+    //
+    // The reconciliation itself is inside HAVE_LIGHTNING_WEBRTC and compiles
+    // out of this target, so what is asserted here is the part that was
+    // actually missing: the refresh tick REACHES it. On the unfixed tree the
+    // timer drives refreshMembership alone and this counter never moves.
+    void theRefreshTickReconcilesTheKeyLaneNotJustTheMembership()
+    {
+        const QString room = QStringLiteral("!room:example.org");
+
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        rtc.setPokeCoalesceMsForTest(0);
+
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        call.setMembershipForTest(room, QString());
+        call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
+
+        // Outside a call the tick must do nothing: no key to hold, nobody to
+        // address, so a reconcile would be noise.
+        call.setCallStateForTest(SfuCallController::State::Idle);
+        const int idleBefore = call.keyLaneReconcilesForTest();
+        QMetaObject::invokeMethod(&call, "reconcileKeyLane");
+        QCOMPARE(call.keyLaneReconcilesForTest(), idleBefore);
+
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QMetaObject::invokeMethod(&call, "reconcileKeyLane");
+        QCOMPARE(call.keyLaneReconcilesForTest(), idleBefore + 1);
+
+        // And the REAL REFRESH TIMER must be what drives it: that connection
+        // is the fix, so this drives the actual timer rather than calling the
+        // slot again.
+        const int before = call.keyLaneReconcilesForTest();
+        call.startRefreshTickForTest(1);
+        QTRY_VERIFY2(call.keyLaneReconcilesForTest() > before,
+                     "the refresh tick must reconcile the key lane, or a "
+                     "failed key distribution is only retried when somebody "
+                     "joins or leaves");
+    }
+
     void aMembershipArrivingAfterTheSfuStillNamesTheJoiner()
     {
         const QString room = QStringLiteral("!room:example.org");

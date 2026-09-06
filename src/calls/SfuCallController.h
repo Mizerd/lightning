@@ -537,6 +537,19 @@ public:
     void ingestConnectionQualityForTest(const QVariantList &updates);
     /// Name the local device's SFU identity, as onSfuJoined would.
     void setOwnIdentityForTest(const QString &identity);
+    /// How many times the refresh tick has reconciled the key lane. The
+    /// reconciliation itself is inside HAVE_LIGHTNING_WEBRTC and so compiles
+    /// out of this test target; the COUNTER does not, which is what lets a
+    /// test prove the timer reaches it at all -- the defect was that nothing
+    /// did.
+    int keyLaneReconcilesForTest() const { return m_keyLaneReconciles; }
+    /// Drive the refresh tick without waiting five seconds for it. Starts the
+    /// REAL timer at `ms`, so what a test observes is the real connection.
+    void startRefreshTickForTest(int ms)
+    {
+        m_refreshTimer.setInterval(ms);
+        m_refreshTimer.start();
+    }
     /// Put the controller in a call STATE, so the `active()` gates that guard
     /// every wire-touching path behave as they do in a real call.
     void setCallStateForTest(State state);
@@ -619,6 +632,19 @@ private Q_SLOTS:
     /// delayed-leave restart that 404'd was equally invisible.
     void onMembershipRetracted(quint64 opId, bool ok, const QString &category);
     void refreshMembership();
+    /// Re-run the key lane's own reconciliation on the refresh tick.
+    ///
+    /// distributeKeyIfNeeded() has exactly ONE other caller: RtcController's
+    /// sessionChanged handler. That signal is deliberately SUPPRESSED when a
+    /// membership read comes back identical (RtcController.cpp: `if (changed)`),
+    /// which is right for avoiding poke storms and wrong for the key lane --
+    /// a distribution that failed, or that found nobody addressable, clears
+    /// m_lastKeyTargets to arm a retry that then had nothing to reach it.
+    /// matrix-js-sdk runs its equivalent on EVERY recalculation and says so
+    /// in a comment ("This also needs to be done if changed = false").
+    /// Idempotent: distributeKeyIfNeeded() acts only when the addressable set
+    /// differs from what actually holds the current key.
+    void reconcileKeyLane();
     /// Re-issue a retraction that failed transiently. Separate from the
     /// timer's slot so the retry is a real, bounded, observable path.
     void retryRetraction();
@@ -890,6 +916,7 @@ private:
     /// The addressable-device set the last media key actually reached. See
     /// distributeKeyIfNeeded(); an empty set is never recorded.
     QString m_lastKeyTargets;
+    int m_keyLaneReconciles = 0;
     /// Local ICE candidates produced this session. Diagnostic only — zero on
     /// the publisher means the peer connection never started, which is what
     /// LiveKit's 60 s JOIN_FAILURE timeout is reporting.
