@@ -508,10 +508,29 @@ Decisions worth keeping:
   inserts, where an unguarded QHash rehash is a crash rather than a wrong
   answer.
 * Tiles route on **identity**, never on userId+deviceId. The participant
-  rows derive those two by splitting the identity on `:`, which is right for
-  the legacy `@user:server:DEVICE` form and garbage for the sticky form —
-  so a modern Element participant would have resolved to nothing and simply
-  never shown video.
+  rows used to derive those two by splitting the identity on `:`, which is
+  right for the legacy `@user:server:DEVICE` form and garbage for the sticky
+  form — whose identity is an unpadded base64 sha256 — so a modern Element
+  participant resolved to nothing and simply never showed video. **That was
+  fixed the following day (`0a525f1`, 2026-08-24) and this bullet was left
+  describing the defect in the present tense; it cost a later round a wrong
+  hypothesis.** No string surgery on an identity survives anywhere in
+  `src/calls/`. The user id, display name and avatar are resolved through
+  the MatrixRTC MEMBERSHIP — `SfuCallController::userIdForIdentity` and the
+  participant-row build both go through
+  `RtcController::participantForIdentity`, an exact-string scan of the
+  session's memberships for a matching `rtcIdentity`.
+* **That one lookup is a shared point of failure and it fails SILENTLY.**
+  An empty answer — no session for the room, `slotClosed`, or no membership
+  whose `rtcIdentity` equals the identity the SFU announced — costs the tile
+  its avatar AND its name AND the `sid -> key ring` binding
+  (`noteParticipantIdentities`) AND a slot in `mediaKeyTargets`. So an
+  unresolvable participant is a blank tile whose inbound frames land in a
+  ring nobody keyed. Nothing logs the empty lookup itself; the number that
+  exposes it is `unresolved=` on the `media key distributed` line, which is
+  `sfuPeers - targets`. Note the symmetry, because it is the sharpest test
+  of any report of one-way audio: the same lookup gates who we SEND a key
+  to, so if we could not resolve them they could not have heard us either.
 * Teardown clears every sink. A sink attached for the call that just ended is
   a live destination for the next call's frames, whose stream ids the SFU
   assigns afresh.
