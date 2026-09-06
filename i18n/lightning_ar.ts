@@ -419,7 +419,7 @@
         <translation>تمت دعوتك إلى %1</translation>
     </message>
     <message>
-        <location line="+159"/>
+        <location line="+172"/>
         <source>Incoming voice call</source>
         <translation>مكالمة صوتية واردة</translation>
     </message>
@@ -563,12 +563,12 @@
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2332"/>
+        <location line="+2340"/>
         <source>Not signed in.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-2330"/>
+        <location line="-2338"/>
         <source>Room-key import failed.</source>
         <translation>فشل استيراد مفاتيح الغرف.</translation>
     </message>
@@ -778,7 +778,7 @@
         <translation>مسح البيانات المحلية لهذا الجهاز لن يصلح هذا، وسيدمّر مفاتيح تعمية ما زلت بحاجة إليها.</translation>
     </message>
     <message>
-        <location line="+429"/>
+        <location line="+437"/>
         <source>This backend cannot change your display name.</source>
         <translation>هذه الخلفية لا يمكنها تغيير اسمك الظاهر.</translation>
     </message>
@@ -3654,7 +3654,7 @@ Size: %3</source>
 <context>
     <name>IdentityCard</name>
     <message>
-        <location filename="../qml/IdentityCard.qml" line="+66"/>
+        <location filename="../qml/IdentityCard.qml" line="+78"/>
         <source>Active account, %1, %2</source>
         <translation>الحساب النشط، %1، %2</translation>
     </message>
@@ -3684,7 +3684,7 @@ Size: %3</source>
         <translation>نشط</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+26"/>
         <source>Remove account %1</source>
         <translation>إزالة الحساب %1</translation>
     </message>
@@ -5689,12 +5689,12 @@ Size: %3</source>
     <message>
         <location line="+117"/>
         <location line="+1096"/>
-        <location line="+940"/>
+        <location line="+945"/>
         <source>Reply</source>
         <translation>رد</translation>
     </message>
     <message>
-        <location line="-2016"/>
+        <location line="-2021"/>
         <source>(original message not loaded)</source>
         <translation>(الرسالة الأصلية غير محمّلة)</translation>
     </message>
@@ -5793,12 +5793,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+2245"/>
+        <location line="+2250"/>
         <source>Retry</source>
         <translation>إعادة المحاولة</translation>
     </message>
     <message>
-        <location line="-2208"/>
+        <location line="-2213"/>
         <source>Cancel</source>
         <translation>إلغاء</translation>
     </message>
@@ -5809,12 +5809,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+215"/>
-        <location line="+1236"/>
+        <location line="+1241"/>
         <source>Hide image</source>
         <translation>إخفاء الصورة</translation>
     </message>
     <message>
-        <location line="-1232"/>
+        <location line="-1237"/>
         <source>Hide</source>
         <translation>إخفاء</translation>
     </message>
@@ -5925,7 +5925,7 @@ Size: %3</source>
         <translation>رسالة · %1 · %2</translation>
     </message>
     <message>
-        <location line="+138"/>
+        <location line="+143"/>
         <source>Reply in thread</source>
         <translation>الرد في خيط</translation>
     </message>
@@ -6012,8 +6012,8 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1229"/>
-        <location line="+1236"/>
+        <location line="-1234"/>
+        <location line="+1241"/>
         <source>Edit</source>
         <translation>تحرير</translation>
     </message>
@@ -6125,12 +6125,12 @@ Size: %3</source>
         <translation>هدف الرد</translation>
     </message>
     <message>
-        <location line="-1902"/>
+        <location line="-1907"/>
         <source>Show preview</source>
         <translation>إظهار المعاينة</translation>
     </message>
     <message>
-        <location line="+2056"/>
+        <location line="+2061"/>
         <location line="+118"/>
         <source>Dismiss link preview</source>
         <translation>رفض معاينة الرابط</translation>
@@ -8066,7 +8066,7 @@ Size: %3</source>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+204"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+257"/>
         <source>Choose room avatar</source>
         <translation>اختر صورة الغرفة الرمزية</translation>
     </message>
@@ -8077,7 +8077,7 @@ Size: %3</source>
         <translation>صور (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
     </message>
     <message>
-        <location line="+50"/>
+        <location line="+73"/>
         <source>Room information</source>
         <translation>معلومات الغرفة</translation>
     </message>
@@ -8102,7 +8102,7 @@ Size: %3</source>
         <translation>إغلاق معلومات الغرفة</translation>
     </message>
     <message>
-        <location line="-254"/>
+        <location line="-277"/>
         <source>Overview</source>
         <translation>نظرة عامة</translation>
     </message>
@@ -8122,7 +8122,7 @@ Size: %3</source>
         <translation>الوسائط</translation>
     </message>
     <message>
-        <location line="+380"/>
+        <location line="+408"/>
         <source>Notifications</source>
         <translation>الإشعارات</translation>
     </message>
@@ -8195,12 +8195,12 @@ Size: %3</source>
         <translation>%1 عضوًا (%2 مدعوًا)</translation>
     </message>
     <message>
-        <location line="-566"/>
+        <location line="-594"/>
         <source>Widgets</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2125"/>
+        <location line="+2153"/>
         <source>Open</source>
         <translation type="unfinished">فتح</translation>
     </message>
@@ -8210,12 +8210,12 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-421"/>
+        <location line="-449"/>
         <source>Choose your avatar for this room</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+412"/>
+        <location line="+440"/>
         <source>Moderation rules…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9178,7 +9178,7 @@ Size: %3</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3329"/>
+        <location line="+3343"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -9187,15 +9187,15 @@ Size: %3</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-3709"/>
+        <location line="-3723"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3511"/>
+        <location line="+3525"/>
         <source>Unknown room: %1</source>
         <translation>غرفة غير معروفة: %1</translation>
     </message>
     <message>
-        <location line="-3711"/>
+        <location line="-3725"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9293,7 +9293,7 @@ Size: %3</source>
         <translation>فاض طابور أحداث Rust SDK.</translation>
     </message>
     <message>
-        <location line="+321"/>
+        <location line="+335"/>
         <source>[unable to decrypt yet]</source>
         <translation>[تعذّر فك التعمية بعد]</translation>
     </message>
@@ -15431,12 +15431,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+6022"/>
+        <location line="+6035"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location line="-6021"/>
+        <location line="-6034"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
@@ -15491,12 +15491,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4619"/>
+        <location line="+4632"/>
         <source>Room information</source>
         <translation>معلومات الغرفة</translation>
     </message>
     <message>
-        <location line="-4398"/>
+        <location line="-4411"/>
         <source>This room has been upgraded.</source>
         <translation>تمت ترقية هذه الغرفة.</translation>
     </message>
@@ -15671,7 +15671,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعذّر إتمام البحث.</translation>
     </message>
     <message>
-        <location line="+3671"/>
+        <location line="+3684"/>
         <source>Loading older messages…</source>
         <translation>جارٍ تحميل رسائل أقدم…</translation>
     </message>
@@ -16508,13 +16508,13 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+52"/>
-        <location line="+359"/>
+        <location line="+384"/>
         <location line="+48"/>
         <source>Dismiss</source>
         <translation>تجاهل</translation>
     </message>
     <message>
-        <location line="-394"/>
+        <location line="-419"/>
         <source>Updates haven&apos;t been checked yet.</source>
         <translation>لم يُتحقق من التحديثات بعد.</translation>
     </message>
@@ -16624,17 +16624,22 @@ Note: importing keys does not verify this session.</source>
         <translation>Lightning %1 جاهز للتثبيت.</translation>
     </message>
     <message>
-        <location line="+46"/>
-        <source>The last update could not be installed (%1).</source>
-        <translation>تعذّر تثبيت التحديث الأخير (%1).</translation>
-    </message>
-    <message>
-        <location line="+2"/>
+        <location line="+55"/>
         <source>The last update was installed successfully.</source>
         <translation>ثُبّت التحديث الأخير بنجاح.</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+5"/>
+        <source>The last update could not be installed, and nothing was changed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Code: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+40"/>
         <source>Lightning never installs an update that fails verification. There is no way to bypass this check.</source>
         <translation>لا يثبّت Lightning أبدًا تحديثًا يفشل في التحقق. ولا توجد أي طريقة لتجاوز هذا الفحص.</translation>
     </message>
@@ -17169,9 +17174,62 @@ Note: importing keys does not verify this session.</source>
     </message>
 </context>
 <context>
+    <name>lightning::update::UpdateManager</name>
+    <message>
+        <location filename="../src/update/UpdateManager.cpp" line="+1123"/>
+        <source>The Windows installer refused the update (code %1). Installing the new version over the old one by hand usually works, and the code is worth reporting.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>The downloaded update did not match the signed release, so it was discarded and nothing was changed. This is usually a corrupted download. Checking again is safe.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>The downloaded update could not be read and nothing was changed. Checking for the update again is safe.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Lightning could not write to its own installation folder, so nothing was changed. This usually means another program is holding files open, or the folder needs administrator rights. Closing Lightning fully and installing the new version by hand will work.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Lightning did not finish closing, so the update was cancelled and nothing was changed. If Lightning is set to keep running in the tray, quit it from the tray first, then install the update.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>The new version could not be put in place, so the previous one was restored. Nothing was lost.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>The update failed and the previous version could not be fully restored. Please reinstall Lightning from the downloads page. Your messages and account are on the server and are not affected.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>The Windows installer could not be started, so nothing was changed. Installing the new version by hand will work.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>This installation cannot update itself, so nothing was changed. Install the new version the same way this copy was installed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>The update was stopped by one of Lightning&apos;s own safety checks and nothing was changed. This is a fault in Lightning rather than anything you did. Please report it with the code below.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+1352"/>
+        <location filename="../src/main.cpp" line="+1404"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>عميل Matrix أصلي بـ Qt/QML. الخلفية: --backend={mock,http,rust}. الافتراضي: rust (http في النسخ الخالية من Rust SDK).</translation>
     </message>

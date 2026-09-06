@@ -686,11 +686,36 @@ ColumnLayout {
                            ? AppTheme.stormDanger : AppTheme.stormText
                     // lastUpdateError is a short sanitized token from the
                     // helper's own enum — never a path, never a command, never
-                    // process output.
-                    text: root.um && root.um.lastUpdateResult === UpdateManager.InstallFailed
-                          ? qsTr("The last update could not be installed (%1).")
-                            .arg(root.um.lastUpdateError)
-                          : qsTr("The last update was installed successfully.")
+                    // process output. It is not a MESSAGE, though, and it was
+                    // being shown as one: a blocked update read as "could not
+                    // be installed (refused-unsafe-path)", which is an unknown
+                    // error to anyone who has not read the updater's source,
+                    // and was reported as exactly that. The sentence leads
+                    // now; the token follows on its own line, because it is
+                    // the thing worth quoting in a report.
+                    text: {
+                        if (!root.um)
+                            return ""
+                        if (root.um.lastUpdateResult !== UpdateManager.InstallFailed)
+                            return qsTr("The last update was installed successfully.")
+                        var explained = UpdateManager.explainInstallError(
+                            root.um.lastUpdateError)
+                        return explained.length > 0
+                            ? explained
+                            : qsTr("The last update could not be installed, and "
+                                   + "nothing was changed.")
+                    }
+                }
+                Label {
+                    objectName: "updateLastResultCode"
+                    visible: root.um
+                             && root.um.lastUpdateResult === UpdateManager.InstallFailed
+                             && root.um.lastUpdateError.length > 0
+                    Layout.fillWidth: true
+                    text: qsTr("Code: %1").arg(root.um ? root.um.lastUpdateError : "")
+                    color: AppTheme.stormTextMuted
+                    font.pixelSize: AppTheme.textMeta
+                    wrapMode: Text.WordWrap
                 }
                 AppButton {
                     objectName: "updateLastResultDismissButton"

@@ -1098,6 +1098,137 @@ QString UpdateManager::helperProgramPath() const
     return QCoreApplication::applicationDirPath() + QLatin1Char('/') + name;
 }
 
+QString UpdateManager::explainInstallError(const QString &token)
+{
+    // WHAT THIS IS FOR. The helper reports failures as a short enum token so
+    // that nothing from a path, a command line or process output can reach
+    // the UI. That property is worth keeping, but the token was ALSO the
+    // whole message: a user whose update was blocked saw "The last update
+    // could not be installed (refused-unsafe-path)" and reported an unknown
+    // error, which is exactly what it is to anyone who has not read the
+    // updater's source. So the token stays the machine-readable fact and
+    // this supplies the sentence.
+    //
+    // Grouped by what the person should DO, not by where the token is raised.
+    // A token with no entry returns empty and the caller keeps its generic
+    // wording rather than guessing.
+    const QString key = token.trimmed().toLower();
+    if (key.isEmpty())
+        return QString();
+
+    // The installer ran and refused. Its exit code is the only detail worth
+    // carrying, and it is the thing to quote in a report.
+    if (key.startsWith(QLatin1String("installer-exit-"))) {
+        const QString code = key.mid(QStringLiteral("installer-exit-").size());
+        return tr("The Windows installer refused the update (code %1). "
+                  "Installing the new version over the old one by hand "
+                  "usually works, and the code is worth reporting.")
+            .arg(code);
+    }
+
+    // Integrity. Never soften these: the bytes did not match what was signed.
+    if (key == QLatin1String("artifact-digest-mismatch")
+        || key == QLatin1String("checksum-mismatch")
+        || key == QLatin1String("invalid-digest")) {
+        return tr("The downloaded update did not match the signed release, so "
+                  "it was discarded and nothing was changed. This is usually a "
+                  "corrupted download. Checking again is safe.");
+    }
+
+    // The archive itself could not be trusted or read.
+    if (key == QLatin1String("not-a-zip-archive")
+        || key == QLatin1String("layout-invalid")
+        || key == QLatin1String("inflate-failed")
+        || key == QLatin1String("inflate-unavailable")
+        || key.startsWith(QLatin1String("unsupported-"))
+        || key == QLatin1String("archive-too-large")
+        || key == QLatin1String("too-many-entries")
+        || key == QLatin1String("entry-size-exceeded")
+        || key == QLatin1String("total-size-exceeded")
+        || key == QLatin1String("compression-ratio-exceeded")
+        || key == QLatin1String("symlink-entry-rejected")
+        || key == QLatin1String("unsafe-entry-path")) {
+        return tr("The downloaded update could not be read and nothing was "
+                  "changed. Checking for the update again is safe.");
+    }
+
+    // Somewhere to write, or permission to write there.
+    if (key == QLatin1String("target-not-writable")
+        || key == QLatin1String("write-failed")
+        || key == QLatin1String("copy-failed")
+        || key == QLatin1String("open-failed")
+        || key == QLatin1String("destination-unusable")
+        || key == QLatin1String("backup-failed")
+        || key == QLatin1String("backup-path-unusable")
+        || key == QLatin1String("destination-not-empty")) {
+        return tr("Lightning could not write to its own installation folder, "
+                  "so nothing was changed. This usually means another program "
+                  "is holding files open, or the folder needs administrator "
+                  "rights. Closing Lightning fully and installing the new "
+                  "version by hand will work.");
+    }
+
+    // The application never got out of the way.
+    if (key == QLatin1String("timed-out")) {
+        return tr("Lightning did not finish closing, so the update was "
+                  "cancelled and nothing was changed. If Lightning is set to "
+                  "keep running in the tray, quit it from the tray first, then "
+                  "install the update.");
+    }
+
+    // The old build is back and intact.
+    if (key == QLatin1String("promote-failed")) {
+        return tr("The new version could not be put in place, so the previous "
+                  "one was restored. Nothing was lost.");
+    }
+
+    // The one genuinely dangerous outcome: the rollback ALSO failed.
+    if (key == QLatin1String("rollback-failed")) {
+        return tr("The update failed and the previous version could not be "
+                  "fully restored. Please reinstall Lightning from the "
+                  "downloads page. Your messages and account are on the "
+                  "server and are not affected.");
+    }
+
+    if (key == QLatin1String("installer-did-not-run")) {
+        return tr("The Windows installer could not be started, so nothing was "
+                  "changed. Installing the new version by hand will work.");
+    }
+
+    if (key == QLatin1String("elevation-helper-missing")
+        || key == QLatin1String("no-package-manager-found")
+        || key == QLatin1String("not-self-installable")
+        || key == QLatin1String("mode-not-self-installable")) {
+        return tr("This installation cannot update itself, so nothing was "
+                  "changed. Install the new version the same way this copy "
+                  "was installed.");
+    }
+
+    // Everything left is a safety refusal or an argument fault: the update
+    // was stopped by Lightning's own checks before anything moved. A user
+    // cannot act on those, and they mean a bug here.
+    if (key == QLatin1String("refused-unsafe-path")
+        || key == QLatin1String("target-missing")
+        || key == QLatin1String("source-missing")
+        || key == QLatin1String("unhandled-mode")
+        || key == QLatin1String("unknown-mode")
+        || key.startsWith(QLatin1String("path-"))
+        || key.startsWith(QLatin1String("target-"))
+        || key.startsWith(QLatin1String("source-"))
+        || key.startsWith(QLatin1String("invalid-"))
+        || key.startsWith(QLatin1String("missing-"))
+        || key.startsWith(QLatin1String("unknown-"))
+        || key.startsWith(QLatin1String("unsafe-"))
+        || key.startsWith(QLatin1String("empty-"))
+        || key.startsWith(QLatin1String("duplicate-"))) {
+        return tr("The update was stopped by one of Lightning's own safety "
+                  "checks and nothing was changed. This is a fault in "
+                  "Lightning rather than anything you did. Please report it "
+                  "with the code below.");
+    }
+    return QString();
+}
+
 QStringList UpdateManager::helperRuntimeLibraries()
 {
     // Read off the SHIPPED helper's PE import table, minus the system DLLs

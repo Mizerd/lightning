@@ -322,6 +322,14 @@ public:
     // validation asserts the shipped binary imports nothing outside it.
     static QStringList helperRuntimeLibraries();
 
+    // A sentence a person can act on, for one of the helper's failure tokens.
+    // The tokens are an internal enum ("refused-unsafe-path",
+    // "installer-exit-1603", ...) and were being shown to users verbatim,
+    // which is why a blocked update was reported as an "unknown error".
+    // Returns an empty string for a token with no specific explanation, so
+    // the caller can fall back rather than invent one.
+    Q_INVOKABLE static QString explainInstallError(const QString &token);
+
 private:
     QString installTargetPath() const;
     // What to start after a successful install; differs from the running

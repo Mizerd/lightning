@@ -119,13 +119,22 @@ private Q_SLOTS:
         QVERIFY(!section.isEmpty());
         const int idx = section.indexOf(QStringLiteral("updateLastResultBlock"));
         QVERIFY2(idx >= 0, "the previous update's outcome must be shown");
-        const QString block = section.mid(idx, 1600);
+        // 3200, not 1600: the block gained the explanation lookup and the
+        // separate code line, and the dismiss button moved past the old
+        // window. A scan window is a measurement of the file, not a contract.
+        const QString block = section.mid(idx, 3200);
         QVERIFY(block.contains(QStringLiteral("lastUpdateResult")));
         QVERIFY(block.contains(QStringLiteral("UpdateManager.NoResult")));
         QVERIFY(block.contains(QStringLiteral("UpdateManager.InstallFailed")));
         QVERIFY(block.contains(QStringLiteral("lastUpdateError")));
         QVERIFY2(block.contains(QStringLiteral("clearLastUpdateResult()")),
                  "a stale success/failure must be dismissible for good");
+        // A raw enum token is not a message. The failure line must go through
+        // the explanation, or "refused-unsafe-path" is what the user reads.
+        QVERIFY2(block.contains(QStringLiteral("explainInstallError")),
+                 "the failure must be explained, not shown as its enum token");
+        QVERIFY2(block.contains(QStringLiteral("updateLastResultCode")),
+                 "the token must still be shown separately, for reporting");
     }
 
     void automaticCheckIsActuallyTriggered()
