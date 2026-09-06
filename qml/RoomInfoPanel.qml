@@ -29,7 +29,60 @@ Rectangle {
     // `visible`: a Layout ignores invisible items, its width would drop
     // to 0, `overflowing` would flip back, and the two states would
     // chase each other every frame.
-    readonly property bool tabsWrap: roomInfoTabs.overflowing
+    // DEFERRED, not a direct binding on roomInfoTabs.overflowing.
+    //
+    // 2026-09-06: opening this panel killed the client, twice, with two core
+    // dumps a minute apart. The GUI thread's stack in both is one clean
+    // chain, and it is the whole story:
+    //
+    //     polishItems -> QQuickLayout::updatePolish
+    //       -> QQuickGridLayoutBase::rearrange -> setGeometries
+    //         -> geometryChange -> ensureLayoutItemsUpdated
+    //           -> applySizeHints -> setImplicitSize
+    //             -> [a QML binding runs here]
+    //               -> QQuickRepeater::setModel -> requestItems
+    //                 -> a delegate, and a Repeater inside it, are BUILT
+    //
+    // `overflowing` compares the strip's width against its own implicit
+    // width, and BOTH are settled by the very layout pass that is running —
+    // the panel's width is a Layout.preferredWidth the pane's RowLayout
+    // assigns during its own pass. So the wrapped-rows Repeater's model was
+    // being rewritten, and whole delegate trees created and destroyed, from
+    // inside the layout engine's own iteration, every frame the value sat
+    // near its threshold. The reader's account of it is the proof: the
+    // window "freezes, turns grey", goes Not Responding and has to be
+    // terminated — the GUI thread never gets back to the event loop, and
+    // the SIGABRT in the dumps came from outside the process, killing a
+    // window that had stopped answering. It is a hang, not a crash.
+    //
+    // Taking the decision one event-loop turn later puts the model change
+    // outside the pass, and Qt.callLater coalesces a burst of flips into a
+    // single application, so a value jittering at the threshold can no
+    // longer rebuild the tab strip once per frame.
+    //
+    // NOT reproduced in the offscreen harness: it drives no continuous
+    // frames, so the layout settles after one polish instead of being
+    // re-run every frame, and it has no accessibility bridge (the crashing
+    // allocation is inside QAccessible, which only builds interfaces when
+    // an assistive client is attached — it is on this desktop). The
+    // wrap-behaviour tests below pin the FEATURE; the crash itself is
+    // confirmed by the stack above, not by a test.
+    property bool tabsWrap: false
+    // HYSTERESIS, and it is the second half of the fix. Deferring alone
+    // still allows a width parked exactly at the threshold to wrap and
+    // unwrap on alternate turns forever. So wrap the moment the strip does
+    // not fit, but come BACK only once there is real room for it — a gap no
+    // sub-pixel layout jitter can cross.
+    readonly property real tabsUnwrapSlack: 12
+    function applyTabsWrap() {
+        if (!tabsWrap) {
+            tabsWrap = roomInfoTabs.overflowing
+        } else if (roomInfoTabs.width > 0
+                   && roomInfoTabs.implicitWidth
+                      <= roomInfoTabs.width - root.tabsUnwrapSlack) {
+            tabsWrap = false
+        }
+    }
     readonly property var tabModel: {
         const tabs = [{ label: qsTr("Overview"), value: "overview" }]
         if (root.pinnedAvailable)
@@ -294,6 +347,13 @@ Rectangle {
 
         SegmentedControl {
             id: roomInfoTabs
+            // Every input the decision reads, not just `overflowing`: once
+            // the strip is collapsed `overflowing` stops changing, so a
+            // panel dragged back open would never re-evaluate and the tabs
+            // would stay wrapped for good. Qt.callLater coalesces the burst.
+            onOverflowingChanged: Qt.callLater(root.applyTabsWrap)
+            onWidthChanged: Qt.callLater(root.applyTabsWrap)
+            onImplicitWidthChanged: Qt.callLater(root.applyTabsWrap)
             objectName: "roomInfoTabs"
             storm: true
             // The HORIZONTAL margins never follow tabsWrap: `overflowing`

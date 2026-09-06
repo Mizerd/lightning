@@ -11,6 +11,7 @@
 
 #include <QFile>
 #include <QGuiApplication>
+#include <QStyleHints>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -160,6 +161,10 @@ private slots:
             QStringLiteral("identity-card-account-menu-test"));
         QSettings().clear();
 
+        // Controls derive hoverEnabled from this hint, and the offscreen
+        // platform may leave it off — a harness in which no button is ever
+        // hovered cannot see a hover-revealed control hide under the pointer.
+        QGuiApplication::styleHints()->setUseHoverEffects(true);
         m_controller = new AppController(AppController::MockBackend);
         auto *secrets = new FakeSecretStore(m_controller);
         m_controller->settings()->setSecretStore(secrets);
@@ -347,6 +352,87 @@ private slots:
         QVERIFY(addButton);
         QVERIFY(!addButton->property("enabled").toBool());
         QTRY_VERIFY(!m_controller->accountSwitching());
+    }
+
+    // ── The remove X must survive the pointer reaching it ─────────────────
+    //
+    // Reported 2026-09-06: "the x doesnt work it just kinda starts to
+    // flicker and never signs me out". The X was revealed by the card's
+    // MouseArea `containsMouse`, and a hover-enabled ToolButton ABOVE that
+    // MouseArea takes the hover the moment the pointer reaches it, so the
+    // MouseArea reports a leave, the X hides, the pointer is back over the
+    // MouseArea alone, the X shows, the button takes the hover again — the
+    // flicker — and a click lands on a button that is hidden half the time.
+    // Driven with a REAL pointer: hover the card, move onto the X, and the
+    // X must still be there for the click that opens the confirm dialog.
+    void removeButtonStaysUnderThePointerAndAClickReachesTheDialog()
+    {
+        m_controller->switchToAccount(kAlice);
+        QTRY_VERIFY(!m_controller->accountSwitching());
+        openMenu();
+        auto *bobCard = qobject_cast<QQuickItem *>(findCard(kBob));
+        QVERIFY(bobCard);
+        QVERIFY(!bobCard->property("active").toBool());
+        auto *x = bobCard->findChild<QQuickItem *>(
+            QStringLiteral("identityCardRemoveButton"));
+        QVERIFY(x);
+
+        // Hover the card, away from the X: the affordance reveals.
+        const QPoint onCard = bobCard->mapToScene(
+            QPointF(bobCard->width() * 0.3, bobCard->height() * 0.5)).toPoint();
+        QTest::mouseMove(m_window, onCard);
+        QTRY_VERIFY2(x->isVisible(), "hovering the card must reveal the X");
+
+        // Onto the X itself: it must stay, or nothing can ever click it.
+        // A Layout places a newly visible item in its next polish, so the
+        // X's position is not valid the instant it becomes visible; aim only
+        // once it sits in the card's right half (its slot at the row's end).
+        auto xCentre = [x]() {
+            return x->mapToScene(QPointF(x->width() / 2, x->height() / 2)).toPoint();
+        };
+        const qreal cardMidX = bobCard->mapToScene(
+            QPointF(bobCard->width() / 2, 0)).x();
+        QTRY_VERIFY2(xCentre().x() > cardMidX,
+                     qPrintable(QStringLiteral("X still at scene x %1, card mid %2")
+                                    .arg(xCentre().x()).arg(cardMidX)));
+        const QPoint onX = xCentre();
+        QTest::mouseMove(m_window, onX);
+        QTest::qWait(60);
+        QVERIFY2(x->isVisible(),
+                 "the X hid the moment the pointer reached it");
+        QVERIFY2(x->property("hovered").toBool(),
+                 "the pointer is on the X but the X is not hovered");
+        // "make the x hitbox bigger" — a 22 px target was the report.
+        QVERIFY2(x->width() >= 28 && x->height() >= 28,
+                 qPrintable(QStringLiteral("hit box %1x%2")
+                                .arg(x->width()).arg(x->height())));
+
+        auto *removeDialog = find(QStringLiteral("removeAccountConfirmDialog"));
+        QVERIFY(removeDialog);
+        QSignalSpy requested(bobCard, SIGNAL(removeRequested()));
+        QSignalSpy dialogClosed(removeDialog, SIGNAL(closed()));
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, onX);
+        QTRY_VERIFY2(removeDialog->property("opened").toBool(),
+                     "the click on the X did not open the confirm dialog");
+        QCOMPARE(requested.count(), 1);
+        QCOMPARE(removeDialog->property("targetUserId").toString(), kBob);
+        // And it STAYS: the popover closing must not take the dialog with it.
+        QTest::qWait(600);
+        QVERIFY2(removeDialog->property("opened").toBool(),
+                 "the confirm dialog did not stay open");
+        QCOMPARE(dialogClosed.count(), 0);
+        auto *menu = find(QStringLiteral("menu"));
+        QVERIFY(menu);
+        QTRY_VERIFY(!menu->property("opened").toBool());
+        // The click reached the X and not the card beneath it, which would
+        // have switched accounts instead (the first cut of this very test
+        // aimed before the row had placed the X, and did exactly that).
+        QCOMPARE(m_controller->accounts()->activeUserId(), kAlice);
+        QVERIFY(!m_controller->accountSwitching());
+        QMetaObject::invokeMethod(removeDialog, "close");
+        QTRY_VERIFY(!removeDialog->property("opened").toBool());
+        QVERIFY(m_controller->settings()->hasSavedAccount(kBob));
+        QTest::mouseMove(m_window, QPoint(1, 1));
     }
 
     void noTokenOrPathEverBoundIntoTheUi()

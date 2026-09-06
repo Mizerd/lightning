@@ -709,6 +709,79 @@ private slots:
         m_controller->roomInfo()->setRoomId(QString());
     }
 
+    // ── Opening the panel at a wrap width must not tear the layout mid-pass ─
+    //
+    // Two core dumps on 2026-09-06, both on the (i) click: the tab strip's
+    // `overflowing` was settled by the same layout pass that then rewrote
+    // the wrapped-rows Repeater's model, rebuilding delegate trees from
+    // inside the layout engine's iteration (see RoomInfoPanel.qml's note on
+    // tabsWrap for the stack). The previous case opens WIDE and narrows
+    // later, which never makes the wrap decision on the panel's first pass.
+    // This one does what the reader did: open at a width that already needs
+    // the wrap, several times, then sweep across the threshold both ways.
+    //
+    // HONEST SCOPE: this does NOT reproduce the crash — offscreen drives no
+    // continuous frames, so the layout settles instead of re-running every
+    // frame (it passes on the unfixed tree, under ASan too). It is a
+    // behaviour gate: opening straight into the wrapped state must build
+    // the two rows and survive the threshold in both directions.
+    void roomInfoOpeningAtAWrapWidthDoesNotTearTheLayoutMidPass()
+    {
+        auto *timeline = timelinePane();
+        QVERIFY(timeline);
+        m_controller->showMain();
+        QCoreApplication::processEvents();
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        mock->mockSupportsPinnedMessages = true;
+        Q_EMIT m_controller->pinned()->supportedChanged();
+        m_controller->roomInfo()->setRoomId(QStringLiteral("!general:mock.local"));
+        m_controller->pinned()->setRoomId(QStringLiteral("!general:mock.local"));
+        auto *strip = item("roomInfoTabs");
+        QVERIFY(strip);
+        QTRY_COMPARE(strip->property("model").toList().size(), 5);
+
+        // Stored narrow BEFORE the open, as for a reader whose panel was
+        // last dragged narrow: the wrap decision lands on the panel's very
+        // first layout pass.
+        m_controller->settings()->setSidePanelWidth(260);
+        for (int round = 0; round < 6; ++round) {
+            QVERIFY(timeline->setProperty("infoOpen", true));
+            QTRY_VERIFY2(item("roomInfoTabsRow0") != nullptr,
+                         qPrintable(QStringLiteral("round %1: wrapped rows absent")
+                                        .arg(round)));
+            QTRY_COMPARE(strip->height(), 0.0);
+            QVERIFY(timeline->setProperty("infoOpen", false));
+            QTest::qWait(20);
+        }
+
+        // Across the threshold and back, a frame per step.
+        QVERIFY(timeline->setProperty("infoOpen", true));
+        QTRY_VERIFY(item("roomInfoTabsRow0") != nullptr);
+        for (int w = 260; w <= 700; w += 10) {
+            m_controller->settings()->setSidePanelWidth(w);
+            QTest::qWait(16);
+        }
+        QTRY_VERIFY(!item("roomInfoTabsRow0"));
+        for (int w = 700; w >= 260; w -= 10) {
+            m_controller->settings()->setSidePanelWidth(w);
+            QTest::qWait(16);
+        }
+        QTRY_VERIFY(item("roomInfoTabsRow0") != nullptr);
+        auto *row0 = item("roomInfoTabsRow0");
+        auto *row1 = item("roomInfoTabsRow1");
+        QVERIFY(row0 && row1);
+        const int all = strip->property("model").toList().size();
+        QCOMPARE(row0->property("model").toList().size()
+                     + row1->property("model").toList().size(), all);
+
+        m_controller->settings()->setSidePanelWidth(700);
+        QVERIFY(timeline->setProperty("infoOpen", false));
+        mock->mockSupportsPinnedMessages = false;
+        Q_EMIT m_controller->pinned()->supportedChanged();
+        m_controller->roomInfo()->setRoomId(QString());
+    }
+
     // ── Settings is built once and kept ──────────────────────────────────
     //
     // Reported: "when i open settings it takes like a second to open the

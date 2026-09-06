@@ -47,6 +47,18 @@ Item {
     signal activated()
     signal removeRequested()
 
+    // The pointer is "within" the card while it is over the card OR over a
+    // control on the card. MouseArea.containsMouse alone is not that: a
+    // hover-enabled control above the MouseArea takes the hover the moment
+    // the pointer reaches it, and an affordance revealed by containsMouse
+    // then hides under the pointer that came for it. A HoverHandler does
+    // not compete with children, and the remove button's own `hovered`
+    // covers the button whatever the delivery order.
+    readonly property bool pointerWithin: cardHover.hovered
+                                          || cardMouse.containsMouse
+                                          || removeButton.hovered
+    HoverHandler { id: cardHover }
+
     readonly property string localpart: {
         var uid = root.userId
         if (uid.indexOf("@") === 0) uid = uid.slice(1)
@@ -134,7 +146,7 @@ Item {
         anchors.fill: parent
         radius: AppTheme.radiusCard
         color: AppTheme.stormSelection
-        visible: !root.active && cardMouse.containsMouse
+        visible: !root.active && root.pointerWithin
     }
 
     MouseArea {
@@ -204,7 +216,7 @@ Item {
             }
             // Storm §3.7: unread badges are bolt-on-dark, replacing red.
             StatusChip {
-                visible: !root.active && !cardMouse.containsMouse
+                visible: !root.active && !root.pointerWithin
                          && root.unreadCount > 0
                 storm: true
                 tone: "bolt"
@@ -217,18 +229,22 @@ Item {
                 // the card OR the button itself holds focus, and the button
                 // is a real tab stop while revealed.
                 visible: !root.active
-                         && (cardMouse.containsMouse || root.activeFocus
+                         && (root.pointerWithin || root.activeFocus
                              || removeButton.activeFocus)
                 activeFocusOnTab: !root.active
-                implicitWidth: 22
-                implicitHeight: 22
+                // 30 px, not 22: "make the x hitbox bigger" (2026-09-06).
+                // The row is 34 px tall (the avatar), so this costs no
+                // height; the glyph stays small and the padding is the
+                // target.
+                implicitWidth: 30
+                implicitHeight: 30
                 Accessible.name: qsTr("Remove account %1").arg(root.userId)
                 ToolTip.text: qsTr("Remove from this device")
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
                 contentItem: Icon {
                     name: "close"
-                    size: 13
+                    size: 15
                     color: AppTheme.stormDanger
                 }
                 background: Rectangle {
