@@ -456,8 +456,19 @@ while IFS= read -r dep; do
         ld-linux*|libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|\
         libgcc_s.so.*|libstdc++.so.*|libresolv.so.*)
             gst_dep_skipped=$((gst_dep_skipped+1)); continue ;;
-        # Base system per linuxdeploy's excludelist: X, ALSA, GL, D-Bus.
+        # Base system per linuxdeploy's excludelist: X, ALSA, GL, D-Bus --
+        # and WAYLAND, which cost a release to learn. GitHub issue #9: the
+        # 0.9.1 AppImage bundled its own libwayland-client.so.0, older than
+        # the host's and missing wl_display_dispatch_queue_timeout, so the
+        # HOST's Mesa EGL was handed our copy, EGL initialisation failed and
+        # the client aborted before a window existed on every native Wayland
+        # session. The client library of a display protocol belongs to the
+        # host exactly as libEGL and libgbm beside it do, and any machine
+        # running a Wayland session has it by definition. The packed-plugin
+        # audit below shares this list for that reason: it must not reject a
+        # dependency this loop is right to leave out.
         libX*.so.*|libxcb*.so.*|libasound.so.*|libGL*.so.*|libEGL*.so.*|\
+        libwayland-*.so.*|\
         libdrm.so.*|libgbm.so.*|libdbus-1.so.*|libudev.so.*|libsystemd.so.*)
             gst_dep_skipped=$((gst_dep_skipped+1)); continue ;;
     esac
@@ -510,6 +521,7 @@ while IFS= read -r dep; do
         libgcc_s.so.*|libstdc++.so.*|libresolv.so.*)
             img_dep_skipped=$((img_dep_skipped+1)); continue ;;
         libX*.so.*|libxcb*.so.*|libasound.so.*|libGL*.so.*|libEGL*.so.*|\
+        libwayland-*.so.*|\
         libdrm.so.*|libgbm.so.*|libdbus-1.so.*|libudev.so.*|libsystemd.so.*)
             img_dep_skipped=$((img_dep_skipped+1)); continue ;;
         # QT IS LINUXDEPLOY'S, and this is the ONE way this loop must differ
@@ -746,6 +758,7 @@ for staged_plugin in "$verify_root/usr/lib/gstreamer-1.0"/*.so; do
             ld-linux*|libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|\
             libgcc_s.so.*|libstdc++.so.*|libresolv.so.*|\
             libX*.so.*|libxcb*.so.*|libasound.so.*|libGL*.so.*|libEGL*.so.*|\
+            libwayland-*.so.*|\
             libdrm.so.*|libgbm.so.*|libdbus-1.so.*|libudev.so.*|libsystemd.so.*)
                 continue ;;
         esac
@@ -798,6 +811,7 @@ for staged_plugin in "$verify_root/usr/plugins/imageformats"/*.so; do
             ld-linux*|libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|\
             libgcc_s.so.*|libstdc++.so.*|libresolv.so.*|\
             libX*.so.*|libxcb*.so.*|libasound.so.*|libGL*.so.*|libEGL*.so.*|\
+            libwayland-*.so.*|\
             libdrm.so.*|libgbm.so.*|libdbus-1.so.*|libudev.so.*|libsystemd.so.*)
                 continue ;;
         esac
