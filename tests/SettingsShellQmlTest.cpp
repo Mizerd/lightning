@@ -653,8 +653,8 @@ private slots:
         QTRY_VERIFY2(panel->width() > 500,
                      qPrintable(QString::number(panel->width())));
         QTRY_VERIFY(!strip->property("overflowing").toBool());
-        QTRY_VERIFY2(strip->height() > 0,
-                     "the single strip must keep its height while it fits");
+        QTRY_VERIFY2(strip->isVisible() && strip->height() > 0,
+                     "the single strip must be shown while it fits");
         QVERIFY(!item("roomInfoTabsRow0"));
 
         // Narrow: the strip collapses and two rows carry every tab. The
@@ -681,7 +681,11 @@ private slots:
                      qPrintable(QStringLiteral("natural %1 px in %2 px, %3 tabs")
                                     .arg(strip->implicitWidth()).arg(strip->width())
                                     .arg(strip->property("model").toList().size())));
-        QTRY_COMPARE(strip->height(), 0.0);
+        // It LEAVES the layout rather than collapsing to zero height: a
+        // zero-height row whose maximum was bound to its own implicit height
+        // is what made the panel's ColumnLayout loop.
+        QTRY_VERIFY2(!strip->isVisible(),
+                     "the single strip must leave the layout when wrapped");
         auto *row0 = item("roomInfoTabsRow0");
         auto *row1 = item("roomInfoTabsRow1");
         QVERIFY2(row0 && row1, "the wrapped pair was not built");
@@ -701,7 +705,7 @@ private slots:
 
         // Wide again: the single strip comes back and the pair goes.
         m_controller->settings()->setSidePanelWidth(700);
-        QTRY_VERIFY(strip->height() > 0);
+        QTRY_VERIFY(strip->isVisible());
         QTRY_VERIFY(!item("roomInfoTabsRow0"));
         QVERIFY(timeline->setProperty("infoOpen", false));
         mock->mockSupportsPinnedMessages = false;
@@ -750,7 +754,7 @@ private slots:
             QTRY_VERIFY2(item("roomInfoTabsRow0") != nullptr,
                          qPrintable(QStringLiteral("round %1: wrapped rows absent")
                                         .arg(round)));
-            QTRY_COMPARE(strip->height(), 0.0);
+            QTRY_VERIFY(!strip->isVisible());
             QVERIFY(timeline->setProperty("infoOpen", false));
             QTest::qWait(20);
         }

@@ -76,10 +76,10 @@ Rectangle {
     readonly property real tabsUnwrapSlack: 12
     function applyTabsWrap() {
         if (!tabsWrap) {
-            tabsWrap = roomInfoTabs.overflowing
-        } else if (roomInfoTabs.width > 0
-                   && roomInfoTabs.implicitWidth
-                      <= roomInfoTabs.width - root.tabsUnwrapSlack) {
+            tabsWrap = tabsProbe.overflowing
+        } else if (tabsProbe.width > 0
+                   && tabsProbe.implicitWidth
+                      <= tabsProbe.width - root.tabsUnwrapSlack) {
             tabsWrap = false
         }
     }
@@ -286,6 +286,29 @@ Rectangle {
         onCropped: function (file) { app.roomInfo.setRoomAvatar(file) }
     }
 
+    // ── The measuring probe ──────────────────────────────────────────────
+    // `overflowing` must be read from a control whose width CANNOT depend on
+    // the answer, or the decision feeds its own input and the layout chases
+    // itself. This one is not in the ColumnLayout at all: it is given the
+    // same content, the same compaction and the same width the real strip
+    // gets, explicitly, so it measures the identical question and nothing it
+    // reports can move it. Same trick as AccountMenu's off-layout height
+    // probes. It never draws and never takes focus.
+    SegmentedControl {
+        id: tabsProbe
+        objectName: "roomInfoTabsProbe"
+        visible: false
+        enabled: false
+        storm: true
+        dense: true
+        fitWidth: true
+        model: root.tabModel
+        width: Math.max(0, root.width - AppTheme.spacing6 * 2)
+        onOverflowingChanged: Qt.callLater(root.applyTabsWrap)
+        onWidthChanged: Qt.callLater(root.applyTabsWrap)
+        onImplicitWidthChanged: Qt.callLater(root.applyTabsWrap)
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -347,13 +370,6 @@ Rectangle {
 
         SegmentedControl {
             id: roomInfoTabs
-            // Every input the decision reads, not just `overflowing`: once
-            // the strip is collapsed `overflowing` stops changing, so a
-            // panel dragged back open would never re-evaluate and the tabs
-            // would stay wrapped for good. Qt.callLater coalesces the burst.
-            onOverflowingChanged: Qt.callLater(root.applyTabsWrap)
-            onWidthChanged: Qt.callLater(root.applyTabsWrap)
-            onImplicitWidthChanged: Qt.callLater(root.applyTabsWrap)
             objectName: "roomInfoTabs"
             storm: true
             // The HORIZONTAL margins never follow tabsWrap: `overflowing`
@@ -362,9 +378,18 @@ Rectangle {
             // two states would chase each other through the layout.
             Layout.leftMargin: AppTheme.spacing6
             Layout.rightMargin: AppTheme.spacing6
-            Layout.topMargin: root.tabsWrap ? 0 : AppTheme.spacing6
-            Layout.bottomMargin: root.tabsWrap ? 0 : AppTheme.spacing6
-            Layout.maximumHeight: root.tabsWrap ? 0 : implicitHeight
+            Layout.topMargin: AppTheme.spacing6
+            Layout.bottomMargin: AppTheme.spacing6
+            // Plain `visible`, and NOT a collapsed-but-present row. The
+            // previous shape kept this control in the layout at zero height
+            // with `Layout.maximumHeight: implicitHeight` — a RowLayout child
+            // whose maximum is bound to its own implicit height, which made
+            // the panel's ColumnLayout re-polish without end ("ColumnLayout
+            // called polish() inside updatePolish()", reported 2026-09-06)
+            // until Qt gave up and left every section painted on top of the
+            // others. Leaving the layout is safe now only because the wrap is
+            // decided by `tabsProbe` above, whose width this cannot move.
+            visible: !root.tabsWrap
             // THE LOAD-BEARING LINE. Segments are not fillWidth, so a Layout
             // holds each at its implicit width, and this RowLayout reports
             // their SUM as its minimum. The panel's ColumnLayout inherits
@@ -377,10 +402,6 @@ Rectangle {
             // lets the panel keep its width and hands the overflow to the
             // strip, where the wrap can see it.
             Layout.minimumWidth: 0
-            opacity: root.tabsWrap ? 0 : 1
-            // Out of the Tab order and the accessibility tree while the pair
-            // is showing instead.
-            enabled: !root.tabsWrap
             clip: true
             // fitWidth compacts the row into the width its HOST gives it, so
             // it needs to be given one. Without fillWidth this RowLayout takes
