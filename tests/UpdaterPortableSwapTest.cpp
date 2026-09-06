@@ -94,6 +94,7 @@ private slots:
     void clearsAStaleBackupDirectoryAndProceeds();
     void refusesABackupPathThatIsAFile();
     void refusesABackupPathInsideTheTarget();
+    void theBackupPathTheHelperUsesIsAcceptedBySwapDirectory();
     void copyFallbackStillSwapsAndRollsBack();
 
     // --- file replacement (AppImage) ---
@@ -421,6 +422,57 @@ void UpdaterPortableSwapTest::refusesABackupPathThatIsAFile()
     QVERIFY(!result.ok());
     QCOMPARE(result.error, ReplaceError::BackupPathUnusable);
     QVERIFY(installationHasMarker(m_target, QByteArray("old")));
+}
+
+// ── The rule the HELPER uses, not a rule invented by this test ───────────
+//
+// The case above pins the refusal. It passed for months while the shipped
+// helper hit that very refusal on every Windows portable update: it built its
+// backup at `<target>/data/update-work/previous-version`, swapDirectory
+// refused the overlap before moving a file, and the user got an "unknown
+// error" after the restart with the old build still in place. A test that
+// asserts a policy proves nothing about whether production can satisfy it.
+//
+// So this drives portableBackupPath() — the function the helper now calls —
+// through a real swap. On the old placement it fails at the first QVERIFY.
+void UpdaterPortableSwapTest::theBackupPathTheHelperUsesIsAcceptedBySwapDirectory()
+{
+    QVERIFY(buildInstallation(m_staged, QByteArray("new")));
+    QVERIFY(buildInstallation(m_target, QByteArray("old")));
+    // The portable state directory, which must survive the swap untouched.
+    const QString dataDir = m_target + QStringLiteral("/data");
+    QVERIFY(QDir().mkpath(dataDir + QStringLiteral("/update-work")));
+    QFile keep(dataDir + QStringLiteral("/session.json"));
+    QVERIFY(keep.open(QIODevice::WriteOnly));
+    keep.write(QByteArray("keep-me"));
+    keep.close();
+
+    const QString backup = updater::portableBackupPath(m_target);
+    QVERIFY2(!backup.isEmpty(), "the helper must produce a backup path");
+    // The defect, stated as the assertion that catches it: a backup under the
+    // installation can never be swapped into.
+    const QString cleanTarget = QDir::cleanPath(QDir(m_target).absolutePath());
+    QVERIFY2(!backup.startsWith(cleanTarget + QLatin1Char('/')),
+             qPrintable(QStringLiteral("backup sits inside the target: %1")
+                            .arg(backup)));
+    // Same parent, so promoting stays a rename rather than a copy.
+    QCOMPARE(QFileInfo(backup).absolutePath(),
+             QFileInfo(cleanTarget).absolutePath());
+
+    const updater::ReplaceResult result = updater::swapDirectory(
+        m_staged, m_target, backup, QStringLiteral("Lightning.exe"),
+        QStringList{ QStringLiteral("data") });
+    QVERIFY2(result.ok(), qPrintable(result.message));
+
+    // The new build is in place and the user's state came through it.
+    QFile promoted(m_target + QStringLiteral("/Lightning.exe"));
+    QVERIFY(promoted.open(QIODevice::ReadOnly));
+    QCOMPARE(promoted.readAll(), QByteArray("new"));
+    promoted.close();
+    QFile survived(dataDir + QStringLiteral("/session.json"));
+    QVERIFY2(survived.exists(), "the portable data directory was not preserved");
+    QVERIFY(survived.open(QIODevice::ReadOnly));
+    QCOMPARE(survived.readAll(), QByteArray("keep-me"));
 }
 
 void UpdaterPortableSwapTest::refusesABackupPathInsideTheTarget()

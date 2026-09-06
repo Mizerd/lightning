@@ -114,4 +114,22 @@ QString resolveStagedRoot(const QString &stagedDir,
 // True when a probe file can be created and removed inside `directory`.
 bool directoryIsWritable(const QString &directory);
 
+// Where a portable swap puts the outgoing build.
+//
+// A SIBLING of the installation, never a directory inside it. swapDirectory
+// refuses an overlapping backup as its first check, so a backup under the
+// target cannot merely be untidy: it makes the swap impossible. That is what
+// shipped — the backup was `<target>/data/update-work/previous-version`, the
+// refusal fired every time, and a Windows portable update failed with
+// `refused-unsafe-path` before a single file moved.
+//
+// A sibling keeps the property the inside-the-target placement was reaching
+// for, because it shares the target's PARENT and therefore its filesystem, so
+// promoting is still a rename and never a copy. It costs one directory beside
+// the installation for the lifetime of one update.
+//
+// Shared with the helper rather than spelled out there, so a test can assert
+// the rule the helper actually uses instead of a copy of it.
+QString portableBackupPath(const QString &targetDir);
+
 } // namespace updater

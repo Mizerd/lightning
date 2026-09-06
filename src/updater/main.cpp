@@ -181,8 +181,15 @@ updater::ReplaceResult runPortableSwap(const updater::UpdaterArguments &args,
         return failure;
     }
 
-    const QString backup = QDir(workRoot).absoluteFilePath(
-        QStringLiteral("previous-version"));
+    // A SIBLING of the installation. It cannot live under `workRoot`, which
+    // is inside the target: swapDirectory refuses an overlapping backup
+    // before it moves anything, so that placement did not merely risk the
+    // swap, it guaranteed the refusal. Reported as an "unknown error" on
+    // restart when updating Windows portable 0.9.0 to 0.9.1, and reproduced
+    // against the shipped helper: exit 7, `refused-unsafe-path`, the
+    // executable untouched and no relaunch. The rule lives in AtomicReplace
+    // so a test can assert the one the helper really uses.
+    const QString backup = updater::portableBackupPath(args.targetPath);
     // The portable data directory NEVER takes part in the swap. It holds the
     // user's settings, their sealed Matrix session, the Rust SDK store and the
     // E2EE crypto store, all of which live inside the installation precisely

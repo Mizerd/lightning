@@ -228,6 +228,12 @@ bool directoryIsWritable(const QString &directory)
     return true;
 }
 
+QString portableBackupPath(const QString &targetDir)
+{
+    const QString clean = QDir::cleanPath(QDir(targetDir).absolutePath());
+    return clean + QStringLiteral(".lightning-previous");
+}
+
 // ---------------------------------------------------------------------------
 // File replacement (AppImage)
 // ---------------------------------------------------------------------------
