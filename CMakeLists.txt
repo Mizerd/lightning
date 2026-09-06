@@ -4583,6 +4583,9 @@ if(BUILD_TESTING)
         src/update/UpdateDownloader.cpp
         src/update/UpdateManager.cpp
         src/updater/ArtifactDigest.cpp
+        # The helper's OWN argument parser, so the suite can feed it exactly
+        # what UpdateManager builds. The two used to meet only in the field.
+        src/updater/UpdaterArgs.cpp
         # UpdateManager stages downloads under the Lightning-owned cache root,
         # which is portable-aware — a portable copy must stage inside its own
         # folder rather than %LOCALAPPDATA%.

@@ -1,4 +1,5 @@
 #include "update/InstallType.h"
+#include "storage/PortableMode.h"
 
 #include <QCoreApplication>
 #include <QFile>
@@ -152,6 +153,11 @@ InstallEnvironment defaultInstallEnvironment()
         return fileLooksLikeAppImage(path);
     };
     environment.compileTimeId = QString::fromLatin1(LIGHTNING_INSTALL_TYPE);
+    environment.portableMarkerPresent = []() {
+        return QFileInfo::exists(QCoreApplication::applicationDirPath()
+                                 + QLatin1Char('/')
+                                 + QLatin1String(lightning::portable::kMarkerFileName));
+    };
     environment.readInstallMarker = []() -> QString {
         // Beside the running executable, never a search path: the marker
         // describes THIS installation or it is not consulted at all.
@@ -244,6 +250,29 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
             // unknown rather than assumed to be a development build.
             detection.type = InstallType::Unknown;
         }
+    }
+
+    // PORTABLE MUST BE PROVEN, NEVER REACHED BY FALLBACK.
+    //
+    // windows-portable is the compiled-in value for all three Windows
+    // packages, so it is what an installed copy lands on whenever its
+    // `.lightning-install-type` marker is missing -- and the NSIS script
+    // writes that marker without checking whether the write succeeded. The
+    // portable strategy would then swap the directory an installer owns,
+    // moving `.lightning-install-root` into the backup (so the uninstaller
+    // refuses forever) and relocating the user's data root (so they appear
+    // signed out). The other two strategies hand the work to an installer
+    // and cannot do that.
+    //
+    // A portable copy always carries `portable.marker`; the installed
+    // packages never do. Require it, and when it is absent report Unknown,
+    // which offers the update and declines to APPLY it rather than applying
+    // the wrong one.
+    if (detection.type == InstallType::WindowsPortable
+        && environment.windowsPlatform
+        && environment.portableMarkerPresent
+        && !environment.portableMarkerPresent()) {
+        detection.type = InstallType::Unknown;
     }
 
     detection.automaticInstallAllowed =

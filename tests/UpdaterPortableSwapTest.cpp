@@ -95,6 +95,7 @@ private slots:
     void refusesABackupPathThatIsAFile();
     void refusesABackupPathInsideTheTarget();
     void theBackupPathTheHelperUsesIsAcceptedBySwapDirectory();
+    void aFailedPromoteRollsBackWithoutTouchingPreservedState();
     void copyFallbackStillSwapsAndRollsBack();
 
     // --- file replacement (AppImage) ---
@@ -435,6 +436,66 @@ void UpdaterPortableSwapTest::refusesABackupPathThatIsAFile()
 //
 // So this drives portableBackupPath() — the function the helper now calls —
 // through a real swap. On the old placement it fails at the first QVERIFY.
+// ── A rollback must not take the user's state with it ───────────────────
+//
+// `preserveNames` keeps the portable installation's settings, sealed session,
+// SDK store and crypto store out of the swap. The ROLLBACK ignored it: it
+// swept every entry then in the target into the scratch tree and deleted it,
+// `data` included. A failed promote therefore wiped exactly what the preserve
+// rule exists to protect, and the user came back to a fresh login and a new
+// device, losing access to everything encrypted to the old one.
+//
+// It went unseen because the old success check counted entries and the bug
+// made the count come out right: with `data` gone the target held exactly the
+// backed-up entries. Had it been preserved, that same line would have called
+// a correct rollback a failure. So this asserts the DATA, not the count.
+void UpdaterPortableSwapTest::aFailedPromoteRollsBackWithoutTouchingPreservedState()
+{
+    QVERIFY(buildInstallation(m_staged, QByteArray("new")));
+    QVERIFY(buildInstallation(m_target, QByteArray("old")));
+    const QString dataDir = m_target + QStringLiteral("/data");
+    QVERIFY(QDir().mkpath(dataDir));
+    QFile session(dataDir + QStringLiteral("/session.json"));
+    QVERIFY(session.open(QIODevice::WriteOnly));
+    session.write(QByteArray("sealed-session"));
+    session.close();
+    QVERIFY(QDir().mkpath(dataDir + QStringLiteral("/crypto")));
+    QFile keys(dataDir + QStringLiteral("/crypto/megolm.db"));
+    QVERIFY(keys.open(QIODevice::WriteOnly));
+    keys.write(QByteArray("device-keys"));
+    keys.close();
+
+    // Fail the promote, which is the step that triggers a rollback.
+    updater::ReplaceHooks hooks;
+    hooks.beforePromoteRename = [] { return false; };
+    const updater::ReplaceResult result = updater::swapDirectory(
+        m_staged, m_target, updater::portableBackupPath(m_target),
+        QStringLiteral("Lightning.exe"),
+        QStringList{ QStringLiteral("data") }, hooks);
+    QVERIFY2(!result.ok(), "the promote was supposed to fail");
+    QVERIFY2(result.error != updater::ReplaceError::RollbackFailed,
+             qPrintable(QStringLiteral("rollback reported failure: %1")
+                            .arg(result.message)));
+
+    // The old build is back...
+    QFile restored(m_target + QStringLiteral("/Lightning.exe"));
+    QVERIFY(restored.open(QIODevice::ReadOnly));
+    QCOMPARE(restored.readAll(), QByteArray("old"));
+    restored.close();
+
+    // ...and the user's state was never in the swap to begin with.
+    QFile survivedSession(dataDir + QStringLiteral("/session.json"));
+    QVERIFY2(survivedSession.exists(),
+             "the rollback deleted the portable session");
+    QVERIFY(survivedSession.open(QIODevice::ReadOnly));
+    QCOMPARE(survivedSession.readAll(), QByteArray("sealed-session"));
+    QFile survivedKeys(dataDir + QStringLiteral("/crypto/megolm.db"));
+    QVERIFY2(survivedKeys.exists(),
+             "the rollback deleted the portable crypto store");
+    QVERIFY(survivedKeys.open(QIODevice::ReadOnly));
+    QCOMPARE(survivedKeys.readAll(), QByteArray("device-keys"));
+}
+
 void UpdaterPortableSwapTest::theBackupPathTheHelperUsesIsAcceptedBySwapDirectory()
 {
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));

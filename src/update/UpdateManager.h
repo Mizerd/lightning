@@ -321,6 +321,9 @@ public:
     // because the helper links almost nothing, and the Windows artifact
     // validation asserts the shipped binary imports nothing outside it.
     static QStringList helperRuntimeLibraries();
+    // Versioned name stems: every DLL beside the helper matching one travels
+    // with it, so an ICU major bump cannot silently drop a dependency.
+    static QStringList helperRuntimeLibraryStems();
 
     // A sentence a person can act on, for one of the helper's failure tokens.
     // The tokens are an internal enum ("refused-unsafe-path",

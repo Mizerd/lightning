@@ -1,6 +1,7 @@
 #include "updater/AtomicReplace.h"
 
 #include <QDir>
+#include <QRegularExpression>
 #include <QFile>
 #include <QFileInfo>
 #include <QRandomGenerator>
@@ -176,8 +177,30 @@ bool removeTreeGuarded(const QString &path, const QString &mustNotContain)
         return QFile::remove(path);
 
     const QString clean = QDir::cleanPath(info.absoluteFilePath());
-    if (clean.count(QLatin1Char('/')) < 2)
-        return false; // far too close to the filesystem root
+    // NOT a separator count. "E:/Lightning.lightning-previous" carries one
+    // slash where "/home/x/..." carries three, so counting refused the
+    // backup of a portable install one level below a Windows drive root --
+    // exactly the USB-stick case this feature advertises. The first update
+    // there succeeded and every later one failed, because clearing the
+    // previous backup is what the next run has to do.
+    //
+    // What the guard is actually for is refusing a path AT or one step from
+    // a root, so ask that instead: strip the root and require something left.
+    const QString root = QDir::rootPath();
+    QString relative = clean;
+    if (!root.isEmpty() && clean.startsWith(root, Qt::CaseInsensitive))
+        relative = clean.mid(root.size());
+    // A Windows absolute path ("E:/x") is not under QDir::rootPath() at all.
+    static const QRegularExpression driveRoot(
+        QStringLiteral("^[A-Za-z]:/"));
+    const QRegularExpressionMatch drive = driveRoot.match(clean);
+    if (drive.hasMatch())
+        relative = clean.mid(drive.capturedLength());
+    relative = relative.trimmed();
+    while (relative.startsWith(QLatin1Char('/')))
+        relative.remove(0, 1);
+    if (relative.isEmpty())
+        return false; // the root itself
     if (!mustNotContain.isEmpty()) {
         const QString guard = QDir::cleanPath(mustNotContain);
         if (guard == clean
@@ -523,12 +546,38 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
     // promoted into the target is taken back out before the previous version
     // returns, so the two sets can never interleave.
     const auto rollback = [&]() -> bool {
-        moveEntriesBack(cleanTarget, scratch, directoryEntryNames(cleanTarget));
+        // PRESERVED NAMES ARE NOT PART OF THE SWAP, AND SO NOT PART OF THE
+        // ROLLBACK EITHER. This used to sweep every entry currently in the
+        // target into the scratch tree and delete it recursively -- including
+        // `data`, which step 2 had deliberately left in place. For a portable
+        // installation that is the user's settings, their sealed Matrix
+        // session, the Rust SDK store and the E2EE crypto store: a failed
+        // promote wiped them, and the user came back to a fresh login and a
+        // NEW device, losing access to everything encrypted to the old one.
+        // The preserve rule exists precisely to prevent that, and the
+        // rollback was the one path that ignored it.
+        //
+        // The old success predicate PASSED BECAUSE OF THE BUG: with `data`
+        // deleted the target held exactly backedUp.size() entries, and had
+        // the preserved entries survived, the count would have been higher
+        // and this same line would have called a correct rollback a failure.
+        // The two halves were only consistent while the data was being lost.
+        QStringList undo;
+        for (const QString &name : directoryEntryNames(cleanTarget)) {
+            if (!preserveNames.contains(name, Qt::CaseInsensitive))
+                undo << name;
+        }
+        moveEntriesBack(cleanTarget, scratch, undo);
         removeTreeGuarded(scratch, cleanTarget);
         moveEntriesBack(cleanBackup, cleanTarget, backedUp);
+        QStringList remaining;
+        for (const QString &name : directoryEntryNames(cleanTarget)) {
+            if (!preserveNames.contains(name, Qt::CaseInsensitive))
+                remaining << name;
+        }
         const bool restored =
             directoryEntryNames(cleanBackup).isEmpty()
-            && directoryEntryNames(cleanTarget).size() == backedUp.size();
+            && remaining.size() == backedUp.size();
         if (restored)
             removeTreeGuarded(cleanBackup, cleanTarget);
         return restored;

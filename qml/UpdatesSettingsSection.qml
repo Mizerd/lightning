@@ -698,7 +698,12 @@ ColumnLayout {
                             return ""
                         if (root.um.lastUpdateResult !== UpdateManager.InstallFailed)
                             return qsTr("The last update was installed successfully.")
-                        var explained = UpdateManager.explainInstallError(
+                        // On the INSTANCE. A Q_INVOKABLE static on a
+                        // QML_UNCREATABLE non-singleton is not reliably
+                        // reachable through the type name, and a TypeError
+                        // here would leave the user with the bare code again,
+                        // which is the whole defect this replaced.
+                        var explained = root.um.explainInstallError(
                             root.um.lastUpdateError)
                         return explained.length > 0
                             ? explained

@@ -15,6 +15,7 @@
 #include "update/UpdateDownloader.h"
 #include "update/UpdateEndpoints.h"
 #include "update/UpdateManager.h"
+#include "updater/UpdaterArgs.h"
 #include "update/UpdateManifest.h"
 #include "update/UpdateTrustStore.h"
 #include "updater/ArtifactDigest.h"
@@ -392,6 +393,7 @@ private:
 
 private slots:
     void theStagedHelperLandsOutsideTheInstallationWithItsLibraries();
+    void everyInstallTypeBuildsArgumentsTheHelperAccepts();
     void initTestCase();
     void init();
 
@@ -1984,6 +1986,62 @@ void UpdateManagerStateTest::theFallbackFetcherHopsOnlyWithinTheMirror()
 // Path logic only, which is the part that was wrong and the part that can be
 // checked anywhere. Whether the installer then succeeds is a Windows
 // question and is NOT covered here.
+// ── The arguments the app builds must be ones the helper accepts ────────
+//
+// THE HIGHEST-VALUE TEST IN THIS FILE, because it closes the seam that let
+// both shipped update bugs through. UpdateManager builds an argument vector;
+// the helper parses one. Until now those two met ONLY in the field: the
+// parser suite built its own vectors by hand and this suite never fed a real
+// one to the parser. A vector production could not get accepted, or a mode
+// the helper does not handle, would ship and fail silently on a user's
+// machine, which is exactly what happened twice.
+//
+// So: for every install type, drive the REAL startInstall path, take the
+// vector it actually launched with, and put it through the helper's own
+// parser. No hand-built arguments anywhere.
+void UpdateManagerStateTest::everyInstallTypeBuildsArgumentsTheHelperAccepts()
+{
+    struct Case { InstallType type; const char *name; };
+    const QVector<Case> cases{
+        { InstallType::WindowsMsi, "windows-msi" },
+        { InstallType::WindowsSetup, "windows-setup" },
+        { InstallType::WindowsPortable, "windows-portable" },
+        { InstallType::LinuxAppImage, "linux-appimage" },
+        { InstallType::LinuxDeb, "linux-deb" },
+    };
+    for (const Case &c : cases) {
+        const auto manager = makeManager(c.type, QStringLiteral("0.7.0"));
+        manager->setProcessLauncherForTest(
+            [](const QString &, const QStringList &) { return true; });
+        manager->setStagedArtifactForTest(m_artifactPath);
+        manager->installAndRestart();
+
+        const QStringList arguments = manager->lastLaunchArgumentsForTest();
+        QVERIFY2(!arguments.isEmpty(),
+                 qPrintable(QStringLiteral("%1 launched nothing").arg(c.name)));
+
+        // parseUpdaterArgs takes the vector WITHOUT the program name, which
+        // is exactly what UpdateManager builds.
+        const updater::ArgsParseResult parsed =
+            updater::parseUpdaterArgs(arguments);
+        QVERIFY2(parsed.ok(),
+                 qPrintable(QStringLiteral("%1: the helper REFUSED the "
+                                           "arguments the application built: "
+                                           "%2 (%3)")
+                                .arg(QLatin1String(c.name),
+                                     updater::parseErrorName(parsed.error),
+                                     parsed.message)));
+        // And it understood them as the mode that was meant.
+        QCOMPARE(updater::modeToString(parsed.args.mode),
+                 QString::fromLatin1(c.name));
+        // The paths it will act on are the ones production intended.
+        QCOMPARE(parsed.args.targetPath,
+                 QFileInfo(parsed.args.targetPath).canonicalFilePath());
+        QVERIFY(!parsed.args.artifactPath.isEmpty());
+        QVERIFY(parsed.args.pid > 1);
+    }
+}
+
 void UpdateManagerStateTest::theStagedHelperLandsOutsideTheInstallationWithItsLibraries()
 {
     QTemporaryDir installRoot;

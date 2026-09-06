@@ -337,11 +337,22 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         m_updateManager->maybeCheckAutomatically();
     });
     connect(m_updateManager.get(), &lightning::update::UpdateManager::quitRequested,
-            this, [] {
+            this, [this] {
                 // installAndRestart() has staged a verified artifact and handed
                 // it to the helper, which waits for this process to exit before
                 // touching anything. Quit through the event loop so normal
                 // shutdown still runs; the helper relaunches us afterwards.
+                //
+                // ANNOUNCE THE INTENT FIRST. Qt asks every top-level window to
+                // close as part of quitting, and close-to-tray REFUSES that
+                // close, which aborts the quit. The window then went to the
+                // tray, this process never exited, and the helper sat waiting
+                // until its two-minute timeout and wrote "timed-out" -- with
+                // the UI still saying Lightning would close to apply the
+                // update, and no way back to the button. Ctrl+Q has always
+                // announced itself for exactly this reason; the update path
+                // did not, and could not satisfy a rule it never knew about.
+                Q_EMIT applicationQuitIntended();
                 QCoreApplication::quit();
             });
     m_pinned       = std::make_unique<PinnedMessagesController>(this);

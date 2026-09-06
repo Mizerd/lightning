@@ -99,6 +99,18 @@ struct InstallEnvironment {
     // defaultInstallEnvironment() reads the bytes; a hand-built environment
     // that leaves this unset accepts none.
     std::function<bool(const QString &)> looksLikeAppImage;
+    // Is the portable marker (`portable.marker`) beside the executable?
+    //
+    // The portable strategy RELOCATES the installation directory and is the
+    // most destructive of the three Windows paths, yet it is also the
+    // compiled-in default, because all three Windows packages are built from
+    // one tree. So an INSTALLED copy whose `.lightning-install-type` marker
+    // is missing -- the NSIS script writes it with no error check -- would
+    // fall through to portable and have its directory swapped out from under
+    // the installer that owns it, taking `.lightning-install-root` with it
+    // and leaving an entry that can never be uninstalled. This is the
+    // positive evidence that a portable copy really is portable.
+    std::function<bool()> portableMarkerPresent;
 
     // True when the running platform is Windows. Injectable so both the
     // marker-accepted and the marker-ignored branch are testable on one host.

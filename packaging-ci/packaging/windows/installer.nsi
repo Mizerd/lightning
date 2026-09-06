@@ -76,8 +76,26 @@ FunctionEnd
 Section "Lightning application (required)" SEC_APP
   SectionIn RO
   SetOutPath "$INSTDIR"
+  ; THE PAYLOAD MUST BE ABLE TO FAIL OUT LOUD.
+  ;
+  ; `File /r` opens every target CREATE_ALWAYS, which fails with a sharing
+  ; violation on any file Windows has mapped -- Lightning.exe if the user
+  ; double-clicks setup with Lightning open, or a DLL still held by the
+  ; update helper. With no ClearErrors/IfErrors and no SetErrorLevel there
+  ; was no path at all from a per-file failure to a non-zero exit, so a
+  ; silent /S upgrade could install nothing and report success. The client
+  ; trusts that exit code completely and tells the user the update was
+  ; installed, with the old version still running.
+  ClearErrors
   File /r "${STAGE_DIR}/*"
+  IfErrors payloadFailed
   FileOpen $0 "$INSTDIR\.lightning-install-root" w
+  ; The two marker files decide what the UNINSTALLER and the UPDATER may do:
+  ; without the install-root marker the uninstaller refuses forever, and
+  ; without the install-type marker an installed copy reads as portable and
+  ; the updater swaps a directory the installer owns. Both writes were
+  ; unchecked, so a failure left a broken installation reported as good.
+  IfErrors markerFailed
   FileWrite $0 "Lightning ${PRODUCT_VERSION}$\r$\n"
   FileClose $0
   ; Tell the updater which of the three Windows packages this installation is.
@@ -85,7 +103,9 @@ Section "Lightning application (required)" SEC_APP
   ; windows-portable and only the installer that actually placed these files can
   ; correct it. Without this, an EXE installation would be offered an MSI
   ; upgrade for a directory the Windows Installer does not own.
+  ClearErrors
   FileOpen $0 "$INSTDIR\.lightning-install-type" w
+  IfErrors markerFailed
   FileWrite $0 "windows-setup$\r$\n"
   FileClose $0
   WriteUninstaller "$INSTDIR\Uninstall.exe"
@@ -102,6 +122,22 @@ Section "Lightning application (required)" SEC_APP
   CreateDirectory "$SMPROGRAMS\Lightning"
   CreateShortcut "$SMPROGRAMS\Lightning\Lightning.lnk" "$INSTDIR\Lightning.exe"
   CreateShortcut "$SMPROGRAMS\Lightning\Uninstall Lightning.lnk" "$INSTDIR\Uninstall.exe"
+  Return
+
+  payloadFailed:
+    ; The usual cause is Lightning still running, so say so rather than
+    ; leaving a silent partial install behind.
+    SetErrorLevel 2
+    DetailPrint "Lightning could not write all of its files."
+    DetailPrint "Close Lightning, including any copy in the tray, and run this installer again."
+    MessageBox MB_ICONSTOP|MB_OK "Lightning could not write all of its files.$\r$\n$\r$\nClose Lightning, including any copy still running in the notification area, then run this installer again." /SD IDOK
+    Abort "installation failed: files in use"
+
+  markerFailed:
+    SetErrorLevel 3
+    DetailPrint "Lightning could not write its installation markers."
+    MessageBox MB_ICONSTOP|MB_OK "Lightning could not finish writing to $INSTDIR.$\r$\n$\r$\nThe installation may be incomplete. Please run this installer again." /SD IDOK
+    Abort "installation failed: could not write installation markers"
 SectionEnd
 
 Section /o "Desktop shortcut" SEC_DESKTOP

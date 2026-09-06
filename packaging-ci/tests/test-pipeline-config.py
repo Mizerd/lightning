@@ -365,6 +365,17 @@ check("openssl" in yaml.dump(config_tests.get("before_script", [])),
       "config-tests installs openssl for the update-manifest suite")
 check("./packaging-ci/tests/test-windows-version-resources.sh" in config_script,
       "config-tests runs the Windows version-resource suite")
+# Every test file in packaging-ci/tests must be RUN by the job, or it is
+# decoration: test-msi-payload-completeness.py sat committed and uninvoked
+# from the day it was written until 2026-09-06.
+_tests_dir = os.path.join(HERE)
+for _entry in sorted(os.listdir(_tests_dir)):
+    if not _entry.startswith("test-"):
+        continue
+    if not _entry.endswith((".py", ".sh")):
+        continue
+    check(_entry in config_script,
+          f"config-tests actually runs {_entry}")
 config_before = yaml.dump(config_tests.get("before_script", []))
 # A COMPLETE toolchain, not just a compiler driver. Pipelines 99 and 100 both
 # died here: `gcc` alone under --no-install-recommends omits libc6-dev so the
@@ -1359,6 +1370,17 @@ check(re.search(r"^\s*Function \.onInit", _nsi, re.M) is not None
       and 'IfFileExists "$INSTDIR\\Lightning.exe"' in _nsi
       and 'ReadRegStr $0 HKCU "Software\\Mizerd\\Lightning" "InstallDir"' in _nsi,
       "installer.nsi validates the registry install directory in .onInit")
+# The silent install must be ABLE to fail. `File /r` fails with a sharing
+# violation on any mapped file (Lightning running, or a DLL the update helper
+# holds), and without these three the failure could not reach an exit code:
+# the client trusts that code absolutely and reports a successful update with
+# the old version still installed.
+check("ClearErrors" in _nsi and "IfErrors" in _nsi,
+      "installer.nsi checks whether writing its payload succeeded")
+check("SetErrorLevel" in _nsi,
+      "installer.nsi reports a failure through its exit code")
+check(_nsi.count("IfErrors") >= 3,
+      "installer.nsi checks the payload AND both marker writes")
 
 # 15. Dockerfile digests are ENV, so --build-arg cannot disable a checksum.
 _dockerfile = _read("packaging", "windows", "Dockerfile")

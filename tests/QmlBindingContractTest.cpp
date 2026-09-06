@@ -254,6 +254,21 @@ private Q_SLOTS:
         QVERIFY(!closing.isEmpty());
         QVERIFY(closing.contains(QStringLiteral("!window.quitRequested")));
         QVERIFY(closing.contains(QStringLiteral("closeToTray")));
+
+        // AND EVERY OTHER DELIBERATE QUIT MUST ANNOUNCE ITSELF THE SAME WAY.
+        // Ctrl+Q was the only caller that satisfied this rule. Applying an
+        // update quits from C++, close-to-tray refused that close, the quit
+        // was aborted and the update helper sat waiting until it timed out --
+        // a rule understood in one place that the other caller could not
+        // satisfy. AppController announces the intent now, and the window
+        // answers it here.
+        QVERIFY2(main.contains(QStringLiteral("onApplicationQuitIntended")),
+                 "the window must honour a deliberate quit from C++, or "
+                 "close-to-tray silently vetoes an update");
+        const QString intended = bracedBody(
+            main, main.indexOf(QStringLiteral("onApplicationQuitIntended")));
+        QVERIFY2(intended.contains(QStringLiteral("quitRequested = true")),
+                 "the announced quit must set the same flag Ctrl+Q sets");
     }
 
     // 2026-09-03 tester report: "clicking a notification in the bell menu

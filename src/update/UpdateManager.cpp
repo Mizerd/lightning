@@ -101,7 +101,14 @@ UpdateManager::UpdateManager(QObject *parent)
     m_launcher = [](const QString &program, const QStringList &args) {
         // Argument VECTOR only. No shell, no command string, no
         // interpolation of anything that came off the network.
-        return QProcess::startDetached(program, args);
+        //
+        // And the WORKING DIRECTORY is the helper's own, never inherited.
+        // On Windows the loader searches the working directory, so a staged
+        // helper that inherited Lightning's -- which is the installation --
+        // would map a missing library out of the very directory the
+        // installer is about to rewrite, silently undoing the staging.
+        return QProcess::startDetached(program, args,
+                                       QFileInfo(program).absolutePath());
     };
 
     // updateAvailableWarning is derived from three separate pieces of state;
@@ -1231,17 +1238,60 @@ QString UpdateManager::explainInstallError(const QString &token)
 
 QStringList UpdateManager::helperRuntimeLibraries()
 {
-    // Read off the SHIPPED helper's PE import table, minus the system DLLs
-    // (KERNEL32, msvcrt). Kept deliberately short: the helper links Qt Core
-    // and nothing else of ours. packaging-ci/scripts/validate-windows-
-    // artifacts.sh asserts the built binary imports nothing outside this
-    // list, so a new dependency fails the BUILD rather than a user's update.
+    // THE CLOSURE, not the helper's direct imports.
+    //
+    // The first version of this list held the four DLLs the helper itself
+    // imports and was wrong by four more, because Qt6Core has imports of its
+    // own and the Windows loader resolves the whole graph BEFORE main().
+    // Missing one has two outcomes and both are silent: either the loader
+    // kills the staged copy before it runs, and startDetached has already
+    // reported success so the application quits, installs nothing and writes
+    // no status file at all; or the child inherits the installation as its
+    // working directory, finds the DLL there, maps it, and the installer is
+    // once again unable to overwrite a mapped image -- the very defect the
+    // staging exists to remove, moved to a different file.
+    //
+    // Read out of the shipped payload's own runtime-dependencies.json:
+    //   lightning-updater.exe -> Qt6Core, libgcc_s_seh-1, libstdc++-6, zlib1
+    //   Qt6Core.dll           -> icui18n77, icuuc77, libpcre2-16-0,
+    //                            libwinpthread-1, libgcc_s_seh-1,
+    //                            libstdc++-6, zlib1
+    //   icuuc77.dll           -> icudata77
+    //   icui18n77.dll         -> icuuc77
+    //
+    // ICU is the bulk of it (icudata77 alone is ~32 MB), which is the honest
+    // price of the helper linking Qt Core at all.
+    //
+    // The ICU soname carries Qt's ICU MAJOR version and will move. The list
+    // is therefore a floor, not a spec: stageHelperOutsideInstallation ALSO
+    // copies every DLL sitting beside the helper whose name matches one of
+    // these stems, and the Windows artifact validation walks the real import
+    // graph and fails the build if anything in it is not covered here.
     return {
         QStringLiteral("Qt6Core.dll"),
         QStringLiteral("libgcc_s_seh-1.dll"),
         QStringLiteral("libstdc++-6.dll"),
         QStringLiteral("libwinpthread-1.dll"),
         QStringLiteral("zlib1.dll"),
+        QStringLiteral("libpcre2-16-0.dll"),
+        // Versioned; matched by stem below as well, so an ICU bump does not
+        // silently drop them.
+        QStringLiteral("icuuc77.dll"),
+        QStringLiteral("icui18n77.dll"),
+        QStringLiteral("icudata77.dll"),
+    };
+}
+
+QStringList UpdateManager::helperRuntimeLibraryStems()
+{
+    // Name stems whose every match beside the helper travels with it. This is
+    // what keeps a version bump (icuuc77 -> icuuc78) from quietly breaking an
+    // update between the day Qt changes and the day someone notices.
+    return {
+        QStringLiteral("icuuc"),
+        QStringLiteral("icui18n"),
+        QStringLiteral("icudata"),
+        QStringLiteral("libpcre2-16"),
     };
 }
 
@@ -1312,15 +1362,38 @@ QString UpdateManager::stageHelperOutsideInstallation(const QString &helperPath,
                           QFile::permissions(stagedHelper) | QFile::ExeOwner
                               | QFile::ReadOwner | QFile::WriteOwner);
 
-    // Its libraries travel with it. A missing one is fatal on Windows and
-    // silent everywhere else, so an absent source is not an error here: the
-    // list is asserted against the real binary at build time.
+    // Its libraries travel with it, and a copy that FAILS is fatal: a staged
+    // helper missing one of them either dies in the loader before main() or
+    // maps the installation's copy instead, and both look like success from
+    // here. An absent source file is tolerated only because the same list
+    // serves every platform and a Linux tree has none of them; the Windows
+    // artifact validation is what proves the shipped payload carries them.
     const QDir source(helperInfo.absolutePath());
-    for (const QString &library : helperRuntimeLibraries()) {
+    QStringList wanted = helperRuntimeLibraries();
+    // Everything beside the helper matching a versioned stem, so an ICU
+    // major bump cannot drop a library out of the set unnoticed.
+    const QStringList stems = helperRuntimeLibraryStems();
+    const QStringList beside =
+        source.entryList(QStringList{ QStringLiteral("*.dll") }, QDir::Files);
+    for (const QString &candidate : beside) {
+        for (const QString &stem : stems) {
+            if (candidate.startsWith(stem, Qt::CaseInsensitive)
+                && !wanted.contains(candidate, Qt::CaseInsensitive)) {
+                wanted << candidate;
+                break;
+            }
+        }
+    }
+    for (const QString &library : wanted) {
         const QString from = source.absoluteFilePath(library);
         if (!QFile::exists(from))
             continue;
-        QFile::copy(from, QDir(base).absoluteFilePath(library));
+        const QString to = QDir(base).absoluteFilePath(library);
+        if (!QFile::copy(from, to)) {
+            if (error)
+                *error = QStringLiteral("could not stage the updater's libraries");
+            return QString();
+        }
     }
     return stagedHelper;
 }

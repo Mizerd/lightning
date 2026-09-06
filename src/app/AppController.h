@@ -1198,6 +1198,12 @@ Q_SIGNALS:
     // accountsChanged at all (SettingsManager::updateAccountProfile writes
     // only on a real change), so waiting for the registry would hang the
     // editor on exactly the case that succeeded.
+    // The application is quitting ON PURPOSE and every window must let it.
+    // Close-to-tray REFUSES an ordinary close, and a refusing window aborts
+    // the quit -- which stranded the update helper until it timed out. Ctrl+Q
+    // already announced its intent to the window; this is the same
+    // announcement for every other deliberate quit, so the two cannot drift.
+    void applicationQuitIntended();
     void ownDisplayNameSaved();
     void currentRoomIdChanged();
     void loggedInChanged();

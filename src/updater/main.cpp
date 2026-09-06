@@ -144,7 +144,10 @@ updater::ReplaceResult runPortableSwap(const updater::UpdaterArguments &args,
         QString::fromLatin1(lightning::portable::kDataDirName)
         + QStringLiteral("/update-work"));
     if (!QDir().mkpath(workRoot)) {
-        *archiveError = QStringLiteral("cannot create the update work directory");
+        // A TOKEN, not a sentence. This field is written verbatim into the
+        // status file's `error`, which the UI renders as "Code: …" — a
+        // sentence there reads as a code and has no explanation attached.
+        *archiveError = QStringLiteral("work-dir-unusable");
         updater::ReplaceResult failure;
         failure.error = updater::ReplaceError::TargetNotWritable;
         failure.message = *archiveError;
@@ -155,8 +158,16 @@ updater::ReplaceResult runPortableSwap(const updater::UpdaterArguments &args,
     // deliberately left behind — which means clearing it is this run's job.
     // swapDirectory refuses to start when its backup path already exists, so
     // without this the SECOND update always fails.
-    QDir stale(QDir(workRoot).absoluteFilePath(
-        QStringLiteral("previous-version")));
+    //
+    // It has to be the path the swap ACTUALLY uses. This cleared
+    // `<target>/data/update-work/previous-version` for a while after the
+    // backup had moved to a sibling of the installation, so it swept a
+    // location nothing writes any more and left the real backup in place —
+    // the second update then failed on a directory this code believed it had
+    // already removed. swapDirectory clears a stale backup itself, so this is
+    // belt and braces; it is kept because a leftover under the user's own
+    // folder is worth removing early, and it now names one source of truth.
+    QDir stale(updater::portableBackupPath(args.targetPath));
     if (stale.exists())
         stale.removeRecursively();
 
@@ -164,7 +175,7 @@ updater::ReplaceResult runPortableSwap(const updater::UpdaterArguments &args,
         QStringLiteral("staging-")));
     staging.setAutoRemove(true);
     if (!staging.isValid()) {
-        *archiveError = QStringLiteral("cannot create a staging directory");
+        *archiveError = QStringLiteral("staging-dir-unusable");
         updater::ReplaceResult failure;
         failure.error = updater::ReplaceError::TargetNotWritable;
         failure.message = *archiveError;
@@ -287,7 +298,13 @@ int main(int argc, char *argv[])
 
     if (strategy.plan.requiresExternalProcess) {
         const int installerExit = runExternalInstaller(strategy.plan);
-        if (installerExit != 0) {
+        // 3010 and 1641 are SUCCESSES that ask for a restart, and 1602 is the
+    // user cancelling. Treating every non-zero code as a refusal told people
+    // the installer had rejected an update it had in fact applied, then
+    // skipped the relaunch and offered the same update again.
+    const bool installerRebootPending =
+        installerExit == 3010 || installerExit == 1641;
+    if (installerExit != 0 && !installerRebootPending) {
             failureExit = ExitInstallerFailed;
             failureCode = installerExit < 0
                               ? QStringLiteral("installer-did-not-run")

@@ -349,6 +349,11 @@ ApplicationWindow {
     }
     Connections {
         target: app
+        // A deliberate quit from C++ (applying an update) must not be vetoed
+        // by close-to-tray. Same flag Ctrl+Q sets, set for the same reason.
+        function onApplicationQuitIntended() {
+            window.quitRequested = true
+        }
         function onTrayShowRequested() {
             // See raiseIntoView(): `visible = true`, never show(). This is the
             // path that first learned it, and the notification path now shares

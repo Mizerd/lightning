@@ -65,11 +65,15 @@ InstallEnvironment makeEnvironment(const QHash<QString, QString> &variables,
 // one host exercise both the Windows branch and the non-Windows branch.
 InstallEnvironment makeMarkerEnvironment(const QString &markerContents,
                                          const QString &compileTimeId,
-                                         bool windowsPlatform)
+                                         bool windowsPlatform,
+                                         bool portableMarkerPresent = true)
 {
     InstallEnvironment environment = makeEnvironment({}, {}, compileTimeId);
     environment.readInstallMarker = [markerContents]() { return markerContents; };
     environment.windowsPlatform = windowsPlatform;
+    environment.portableMarkerPresent = [portableMarkerPresent] {
+        return portableMarkerPresent;
+    };
     return environment;
 }
 
@@ -80,6 +84,7 @@ class UpdateInstallTypeTest : public QObject
     Q_OBJECT
 
 private slots:
+    void portableIsRefusedWithoutItsOwnMarker();
     void idsRoundTripForEveryType();
     void unknownIdIsReportedNotGuessed();
     void labelsAreDistinctAndNonEmpty();
@@ -106,6 +111,52 @@ private slots:
     void appImageClaimNeedsTheAppImageMagic();
     void appImageMagicIsReadFromTheFile();
 };
+
+// ── The portable strategy must be PROVEN, never reached by fallback ─────
+//
+// windows-portable is the compiled-in value for all three Windows packages,
+// because they are built from one tree; only the installer that placed the
+// files corrects it, by writing `.lightning-install-type`. The NSIS script
+// writes that file without checking the write succeeded, so an INSTALLED copy
+// whose marker is missing used to fall through to portable — the one strategy
+// that swaps the whole directory. It would move `.lightning-install-root` into
+// the backup, leaving an ARP entry that can never uninstall, and relocate the
+// user's data root so they appear signed out.
+//
+// A portable copy always ships `portable.marker`; the installed packages never
+// do. So the fallback now needs that positive evidence, and without it reports
+// Unknown: the update is still offered, it is simply not APPLIED with a
+// strategy that was never confirmed.
+void UpdateInstallTypeTest::portableIsRefusedWithoutItsOwnMarker()
+{
+    // A real portable copy: no install-type marker, but portable.marker is
+    // there. Unchanged behaviour.
+    const InstallDetection genuine = detectInstall(makeMarkerEnvironment(
+        QString(), QStringLiteral("windows-portable"), true, true));
+    QCOMPARE(genuine.type, InstallType::WindowsPortable);
+    QVERIFY(genuine.automaticInstallAllowed);
+
+    // An installed copy whose marker write failed: same compiled-in value,
+    // but no portable.marker. It must NOT be treated as portable.
+    const InstallDetection installed = detectInstall(makeMarkerEnvironment(
+        QString(), QStringLiteral("windows-portable"), true, false));
+    QVERIFY2(installed.type != InstallType::WindowsPortable,
+             "an installation with no portable marker was treated as portable");
+    QCOMPARE(installed.type, InstallType::Unknown);
+    QVERIFY2(!installed.automaticInstallAllowed,
+             "an unproven install type must not apply an update");
+
+    // An explicit marker still wins outright: that is the installer speaking.
+    const InstallDetection declared = detectInstall(makeMarkerEnvironment(
+        QStringLiteral("windows-setup"), QStringLiteral("windows-portable"),
+        true, false));
+    QCOMPARE(declared.type, InstallType::WindowsSetup);
+
+    // And nothing here touches other platforms.
+    const InstallDetection linux = detectInstall(makeMarkerEnvironment(
+        QString(), QStringLiteral("linux-appimage"), false, false));
+    QCOMPARE(linux.type, InstallType::LinuxAppImage);
+}
 
 void UpdateInstallTypeTest::idsRoundTripForEveryType()
 {

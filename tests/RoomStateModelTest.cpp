@@ -142,7 +142,7 @@ private Q_SLOTS:
     void invitesStayOnTopAndEverythingElseIsOneActivityFeed();
     void aNewerRoomOutranksAnOlderDirectMessage();
     void aNewerDirectMessageOutranksAnOlderRoom();
-    void aStaleFavouriteDoesNotDefeatRecency();
+    void aFavouriteOutranksRecencyButNotEachOther();
     void peopleAndRoomsFiltersAreRecentFirst();
     void unreadsFilterMixesDirectMessagesAndRoomsByRecency();
     void incomingActivityMovesOneRowAndKeepsTheSelection();
@@ -822,7 +822,18 @@ void RoomStateModelTest::aNewerDirectMessageOutranksAnOlderRoom()
     QCOMPARE(orderOf(model), (QStringList{ dm1306.id, room1305.id }));
 }
 
-void RoomStateModelTest::aStaleFavouriteDoesNotDefeatRecency()
+// A FAVOURITE OUTRANKS RECENCY, and this case used to assert the opposite.
+//
+// The 2026-08 decision was that a star should not buy rank, on the reasoning
+// that a starred room would sit frozen above live traffic. The maintainer
+// reversed it on 2026-09-05 ("favoriting a room should raise it to the top in
+// channels mode", and no Favourites section in Classic), because a section
+// frozen above live traffic is precisely what a Favourites section IS. The
+// model changed in 87a6a41 and this case did not, so it shipped red in 0.9.1.
+//
+// What survives the reversal is the part that was never about rank: the star
+// means the same thing, and recency still decides the order WITHIN a group.
+void RoomStateModelTest::aFavouriteOutranksRecencyButNotEachOther()
 {
     FakeClient client;
     RoomListModel model;
@@ -832,12 +843,23 @@ void RoomStateModelTest::aStaleFavouriteDoesNotDefeatRecency()
     client.mirror = { staleFavourite, fresh };
     model.setClient(&client);
 
-    QCOMPARE(orderOf(model), (QStringList{ fresh.id, staleFavourite.id }));
-    // The star is untouched — it lost rank, not meaning.
-    QVERIFY(model.data(model.index(1), RoomListModel::IsFavouriteRole).toBool());
-    // And the divider that used to close the favourites group is retired,
-    // because the rows it separated are no longer adjacent.
-    QVERIFY(model.favouritesBoundaryRoomId().isEmpty());
+    // The star wins the rank even though the other room is a day fresher.
+    QCOMPARE(orderOf(model), (QStringList{ staleFavourite.id, fresh.id }));
+    QVERIFY(model.data(model.index(0), RoomListModel::IsFavouriteRole).toBool());
+    QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
+             QStringLiteral("favourite"));
+    QCOMPARE(model.data(model.index(1), RoomListModel::CategoryRole).toString(),
+             QStringLiteral("conversation"));
+
+    // But rank is the ONLY thing the star buys: among favourites the more
+    // recent one still comes first, so the list never freezes into the order
+    // rooms happened to be starred in.
+    auto secondFavourite = at(QStringLiteral("!fav2:example.org"), false, 60);
+    secondFavourite.isFavourite = true;
+    client.mirror = { staleFavourite, fresh, secondFavourite };
+    Q_EMIT client.roomsChanged();
+    QCOMPARE(orderOf(model),
+             (QStringList{ secondFavourite.id, staleFavourite.id, fresh.id }));
 }
 
 void RoomStateModelTest::peopleAndRoomsFiltersAreRecentFirst()
@@ -959,13 +981,16 @@ void RoomStateModelTest::favouriteToggleIsNeverAppliedLocally()
              QStringLiteral("conversation"));
     QVERIFY(!model.data(model.index(0), RoomListModel::IsFavouriteRole).toBool());
 
-    // Only the backend reflecting the tag back changes the row.
+    // Only the backend reflecting the tag back changes the row — and when it
+    // does, the row moves into the favourites section. The old expectation
+    // here was "still a conversation", from the period when a star bought no
+    // rank; see aFavouriteOutranksRecencyButNotEachOther for the reversal.
+    // The invariant this case is actually named for is the one above: nothing
+    // moved until the server confirmed.
     client.mirror[0].isFavourite = true;
     Q_EMIT client.roomsChanged();
-    // Still one conversation section; what proves the write landed is the
-    // favourite FLAG, not a section of its own.
     QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
-             QStringLiteral("conversation"));
+             QStringLiteral("favourite"));
     QVERIFY(model.isRoomFavourite(QStringLiteral("!room:example.org")));
 
     client.favouritesSupported = false;
@@ -987,16 +1012,20 @@ void RoomStateModelTest::everyCategoryTheModelEmitsHasASectionLabel()
              qPrintable(file.fileName()));
     const QString source = QString::fromUtf8(file.readAll());
 
-    // 2026-08-31: the model emits TWO categories now, not four. DMs, rooms
-    // and favourites share one activity feed, so a finer split would repeat
-    // its header every time the kinds alternate — which, in a list ordered by
-    // when people spoke, is constantly.
+    // THREE categories since 2026-09-05, not two. The 2026-08-31 note here
+    // said DMs, rooms and favourites share one activity feed and a finer
+    // split would repeat its header every time the kinds alternate. That
+    // still holds for DMs against rooms, which is why they remain one
+    // section — but favourites were given their own again at the
+    // maintainer's request, and a favourites section does not alternate
+    // because every favourite sorts above everything else.
     RoomInfo probe;
     probe.membership = RoomInfo::Invited;
     QStringList emitted{ RoomListModel::categoryOf(probe) };
     probe.membership = RoomInfo::Joined;
-    // Every joined shape must land in the SAME section: a favourite, a DM, a
-    // favourited DM and a plain room.
+    // A favourite and a favourited DM are both "favourite"; a plain DM and a
+    // plain room are both "conversation". The star is what splits the list,
+    // not the kind of room.
     probe.isFavourite = true;
     emitted << RoomListModel::categoryOf(probe);
     probe.isDirect = true;
@@ -1007,8 +1036,8 @@ void RoomStateModelTest::everyCategoryTheModelEmitsHasASectionLabel()
     emitted << RoomListModel::categoryOf(probe);
     QCOMPARE(emitted,
              (QStringList{ QStringLiteral("invite"),
-                           QStringLiteral("conversation"),
-                           QStringLiteral("conversation"),
+                           QStringLiteral("favourite"),
+                           QStringLiteral("favourite"),
                            QStringLiteral("conversation"),
                            QStringLiteral("conversation") }));
 
@@ -1021,6 +1050,11 @@ void RoomStateModelTest::everyCategoryTheModelEmitsHasASectionLabel()
     QVERIFY2(source.contains(QStringLiteral("conversationSectionLabel")),
              "the Classic presenter has no label for the conversation "
              "section");
+    // Every category the model emits needs a label, which is this case's
+    // whole point: a third category with no branch would render an unnamed
+    // section header.
+    QVERIFY2(source.contains(QStringLiteral("section === \"favourite\"")),
+             "the Classic presenter has no section label for favourites");
     // One label per filter mode, so no mode falls through to a wrong name.
     for (const char *label : { "Conversations", "People", "Rooms", "Unread" }) {
         QVERIFY2(source.contains(
@@ -1113,29 +1147,35 @@ void RoomStateModelTest::theFavouritesBoundaryIsRetiredWithTheGroup()
     model.setClient(&client);
 
     QCOMPARE(model.rowCount(), 3);
-    // The plain room is the newest, so it leads — the favourites do not.
-    QCOMPARE(orderOf(model), (QStringList{ plain.id, favB.id, favA.id }));
-    // Both favourites keep their star.
+    // The favourites lead, newest first among themselves, and the plain room
+    // follows however fresh it is.
+    QCOMPARE(orderOf(model), (QStringList{ favB.id, favA.id, plain.id }));
+    QVERIFY(model.data(model.index(0), RoomListModel::IsFavouriteRole).toBool());
     QVERIFY(model.data(model.index(1), RoomListModel::IsFavouriteRole).toBool());
-    QVERIFY(model.data(model.index(2), RoomListModel::IsFavouriteRole).toBool());
-    // And every row is in the one conversation section.
-    for (int i = 0; i < model.rowCount(); ++i) {
-        QCOMPARE(model.data(model.index(i), RoomListModel::CategoryRole)
-                     .toString(),
-                 QStringLiteral("conversation"));
-    }
+    QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
+             QStringLiteral("favourite"));
+    QCOMPARE(model.data(model.index(1), RoomListModel::CategoryRole).toString(),
+             QStringLiteral("favourite"));
+    QCOMPARE(model.data(model.index(2), RoomListModel::CategoryRole).toString(),
+             QStringLiteral("conversation"));
+    // The separate rule stays retired even though the group is back: the
+    // section HEADER divides the list now, so a second line under the last
+    // favourite would draw a rule immediately above a header. The property is
+    // still bound in QML, so a future non-empty value would silently start
+    // ruling a random row, which is what this keeps watch on.
     QVERIFY2(model.favouritesBoundaryRoomId().isEmpty(),
-             "there is no favourites group left to close off");
+             "the section header divides the groups, not a boundary rule");
 
-    // Un-favouriting changes nothing about the order, which is the point:
-    // the star no longer buys rank.
+    // Un-starring drops the room out of the group, and it lands by recency.
     for (auto &r : client.mirror) {
         if (r.id == favB.id)
             r.isFavourite = false;
     }
     Q_EMIT client.roomUpdated(favB.id);
     QCoreApplication::processEvents();
-    QCOMPARE(orderOf(model), (QStringList{ plain.id, favB.id, favA.id }));
+    QCOMPARE(orderOf(model), (QStringList{ favA.id, plain.id, favB.id }));
+    QCOMPARE(model.data(model.index(2), RoomListModel::CategoryRole).toString(),
+             QStringLiteral("conversation"));
     QVERIFY(model.favouritesBoundaryRoomId().isEmpty());
 }
 
