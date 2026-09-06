@@ -98,6 +98,29 @@ case "$status" in
         release_id="$(jq -er '.id' "$release_json")" || die "the update-latest release has no id"
         printf 'Update slot release %s exists (id %s)\n' "$UPDATE_LATEST_TAG" "$release_id" ;;
     404)
+        # A 404 here means EITHER the first promotion ever, or the slot has
+        # been orphaned into a draft -- and the second case created a
+        # duplicate every release until 2026-09-06.
+        #
+        # THE MECHANISM, because it is not obvious and it broke the fallback
+        # this whole job exists to provide. `update-latest` is a tag that
+        # exists ONLY on GitHub; GitLab never has it. The GitLab push mirror
+        # ran with keep_divergent_refs=false, which DELETES refs on the
+        # remote that the source does not have -- so within minutes of each
+        # release the pointer tag was removed, and a GitHub release whose tag
+        # is gone reverts to a DRAFT. A draft's assets are not publicly
+        # downloadable, so
+        #   releases/download/update-latest/update-manifest-v1.json
+        # answered 404 for every installed client, and the offline-fallback
+        # path silently did nothing. Worse, /releases/tags/<tag> does not
+        # find drafts, so the next release landed here and made ANOTHER one:
+        # two identical drafts sat at the top of the releases page, neither
+        # of them working.
+        #
+        # Fixed on the mirror (keep_divergent_refs=true), which is where the
+        # cause was. If duplicates ever reappear, check that setting FIRST --
+        # creating the release again is the symptom, not the bug.
+        #
         # First promotion ever: the slot is created at the RELEASED commit,
         # which the tag mirror has already delivered (mirror-release-to-github
         # proved it), so target_commitish names an existing commit and GitHub

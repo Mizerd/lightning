@@ -823,6 +823,15 @@ validate-appimage:
     # Base-system set the bundle's excludelist legitimately expects from the
     # host, determined empirically in a clean container (loader-resolved:
     # GLVND, harfbuzz, com_err, gpg-error).
+    # The libwayland-* trio joined this list with GitHub issue #9: the
+    # bundle deliberately stops shipping its own, because ours was older
+    # than the host's and the HOST's Mesa EGL was handed it, aborting the
+    # client on every native Wayland session. They are host-provided base
+    # system now, exactly like libegl1 and libgl1 above, and libgstopengl
+    # links them -- so a container without them cannot load that plugin
+    # and the launch check reports missing components. Every desktop that
+    # can run a Wayland session has them; this bare image is the
+    # artificial case.
     # libxdamage1/libxfixes3/libxtst6 are here for ONE staged plugin:
     # libgstximagesrc, the X11 screen-share fallback. linuxdeploy's excludelist
     # leaves the X libraries on the host — correctly, since that fallback only
@@ -833,7 +842,8 @@ validate-appimage:
       apt-get install -y --no-install-recommends
       binutils ca-certificates file libasound2t64 libcom-err2 libegl1 libfontconfig1
       libfreetype6 libgl1 libglib2.0-0 libgpg-error0 libharfbuzz0b
-      libopengl0 libx11-6 libxcb1 libxdamage1 libxext6 libxfixes3
+      libopengl0 libwayland-client0 libwayland-cursor0 libwayland-egl1
+      libx11-6 libxcb1 libxdamage1 libxext6 libxfixes3
       libxkbcommon0 libxtst6 zstd
   script: [./packaging-ci/scripts/validate-appimage.sh]
   artifacts:
@@ -874,6 +884,15 @@ validate-snap:
     # Base-system libs only (mirrors the AppImage policy); the snap payload
     # bundles Qt itself. No snapd exists in this fleet — validate-snap.sh
     # documents the structural-equivalent validation.
+    # The libwayland-* trio joined this list with GitHub issue #9: the
+    # bundle deliberately stops shipping its own, because ours was older
+    # than the host's and the HOST's Mesa EGL was handed it, aborting the
+    # client on every native Wayland session. They are host-provided base
+    # system now, exactly like libegl1 and libgl1 above, and libgstopengl
+    # links them -- so a container without them cannot load that plugin
+    # and the launch check reports missing components. Every desktop that
+    # can run a Wayland session has them; this bare image is the
+    # artificial case.
     # libxdamage1/libxfixes3/libxtst6 are here for ONE staged plugin:
     # libgstximagesrc, the X11 screen-share fallback. linuxdeploy's excludelist
     # leaves the X libraries on the host — correctly, since that fallback only
@@ -884,7 +903,8 @@ validate-snap:
       apt-get install -y --no-install-recommends
       binutils ca-certificates file libasound2t64 libcom-err2 libegl1 libfontconfig1
       libfreetype6 libgl1 libglib2.0-0 libgpg-error0 libharfbuzz0b
-      libopengl0 libx11-6 libxcb1 libxdamage1 libxext6 libxfixes3
+      libopengl0 libwayland-client0 libwayland-cursor0 libwayland-egl1
+      libx11-6 libxcb1 libxdamage1 libxext6 libxfixes3
       libxkbcommon0 libxtst6
       python3 python3-yaml squashfs-tools zstd
   script: [./packaging-ci/scripts/validate-snap.sh]
