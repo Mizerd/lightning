@@ -30,6 +30,13 @@ LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/1-
 LINUXDEPLOY_SHA256=c86d6540f1df31061f02f539a2d3445f8d7f85cc3994eee1e74cd1ac97b76df0
 PLUGIN_QT_URL="https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/1-alpha-20240109-1/linuxdeploy-plugin-qt-x86_64.AppImage"
 PLUGIN_QT_SHA256=f53349093d333a6558c560844c1a0f64a3b6bd077bf02740af3ad3dbb8827433
+# The pack step is appimagetool's, not linuxdeploy's -- see PRUNE below for
+# why it has to be. `continuous` is a moving tag, and the sha256 is the point:
+# if upstream republishes it, fetch_tool fails the build rather than silently
+# packing with something nobody reviewed. A mismatch here is not a bug, it is
+# the pin doing its job; refresh it deliberately.
+APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+APPIMAGETOOL_SHA256=a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0
 
 fetch_tool() {
     local url=$1 sha=$2 out=$3
@@ -42,6 +49,7 @@ fetch_tool() {
 mkdir -p "$TOOLS" dist
 fetch_tool "$LINUXDEPLOY_URL" "$LINUXDEPLOY_SHA256" "$TOOLS/linuxdeploy"
 fetch_tool "$PLUGIN_QT_URL" "$PLUGIN_QT_SHA256" "$TOOLS/linuxdeploy-plugin-qt"
+fetch_tool "$APPIMAGETOOL_URL" "$APPIMAGETOOL_SHA256" "$TOOLS/appimagetool"
 
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR"
@@ -625,6 +633,11 @@ export GST_REGISTRY_1_0="${XDG_CACHE_HOME:-$HOME/.cache}/lightning/gst-registry.
 mkdir -p "$(dirname "$GST_REGISTRY_1_0")" 2>/dev/null || true
 HOOK
 
+# DEPLOY ONLY. The pack step is appimagetool's, below, because a library has
+# to be REMOVED between the two and linuxdeploy will not let that stand: its
+# `--output appimage` re-runs "Deploying dependencies for existing files",
+# which walks what is already in the AppDir and copies their NEEDED back in.
+# Delete a library and pack with linuxdeploy and you get it right back.
 "$TOOLS/linuxdeploy" --appdir "$APPDIR" \
     --desktop-file "$APPDIR/usr/share/applications/lightning.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/192x192/apps/lightning.png" \
@@ -632,8 +645,50 @@ HOOK
     --executable "$APPDIR/usr/bin/lightning-updater" \
     --library /lib/x86_64-linux-gnu/libgpg-error.so.0 \
     "${LINUXDEPLOY_PLUGIN_ARGS[@]}" \
-    --plugin qt \
-    --output appimage
+    --plugin qt
+
+# ── PRUNE THE HOST'S GRAPHICS AND DISPLAY STACK ──────────────────────────
+#
+# THE CLIENT LIBRARY OF A DISPLAY PROTOCOL BELONGS TO THE HOST, ALWAYS.
+#
+# GitHub issue #9, against 0.9.1, from the Arch AUR packager, and it is the
+# other half of the same regression this script's Wayland staging created.
+# 0.9.0 shipped without the xdg-shell plugin, so Qt refused Wayland and fell
+# back to XWayland; nothing ever asked the bundled libwayland-client to do
+# anything. Staging the plugin made Qt take the Wayland path for real, and
+# then Mesa's EGL -- which is the HOST's, loaded through the host driver --
+# was handed OUR libwayland-client.so.0, which is older than the host's and
+# does not export `wl_display_dispatch_queue_timeout`. EGL initialisation
+# fails, "EGL not available", QRhiGles2 cannot make a context, and the
+# process aborts before a window exists. The reporter proved it precisely:
+# LD_PRELOADing the host's copy makes it start. Confirmed here against the
+# shipped 0.9.1 payload -- the bundled copy exports the symbol zero times.
+#
+# So these come out and the host's are used, which is what the AppImage
+# excludelist has always said about the display and driver stack. Qt's own
+# libQt6WaylandClient STAYS: that is ours to ship. On a host with no Wayland
+# at all the platform plugin simply fails to load and Qt falls back to xcb,
+# which is the correct outcome and the one 0.9.0 got by accident.
+#
+# validate-appimage.sh asserts their ABSENCE, because "graceful fallback and
+# silent absence are the same observable" cuts both ways: a library that
+# should not be there is just as invisible as one that should.
+PRUNE_HOST_LIBS=(
+    libwayland-client.so.0
+    libwayland-cursor.so.0
+    libwayland-egl.so.1
+)
+for lib in "${PRUNE_HOST_LIBS[@]}"; do
+    found=0
+    while IFS= read -r hit; do
+        rm -f "$hit"
+        found=1
+        echo "pruned from the payload (host owns it): ${hit#$APPDIR/}"
+    done < <(find "$APPDIR/usr/lib" -maxdepth 1 -name "$lib*" 2>/dev/null)
+    [ "$found" = 1 ] || echo "note: $lib was not bundled, nothing to prune"
+done
+
+ARCH=x86_64 "$TOOLS/appimagetool" --no-appstream "$APPDIR" "$OUT"
 
 test -s "$OUT" || die "AppImage not produced at $OUT"
 

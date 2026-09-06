@@ -150,6 +150,19 @@ for qt_plugin in tls/libqopensslbackend.so wayland-shell-integration/libxdg-shel
     test -f "$tree/usr/plugins/$qt_plugin" \
         || die "Qt plugin missing from the AppImage payload: usr/plugins/$qt_plugin"
 done
+# ...and the mirror image of that rule: a library that must NOT be there is
+# just as invisible as one that must. GitHub issue #9 — the 0.9.1 AppImage
+# bundled its own libwayland-client.so.0, older than the host's and missing
+# `wl_display_dispatch_queue_timeout`, so the HOST's Mesa EGL was handed our
+# copy, EGL initialisation failed and the client aborted before a window
+# existed on every native Wayland session. The client library of a display
+# protocol, and the driver stack around it, belong to the host. Assert they
+# are gone, or the next linuxdeploy run quietly bundles them again.
+for host_lib in libwayland-client.so libwayland-cursor.so libwayland-egl.so; do
+    if find "$tree/usr/lib" -maxdepth 1 -name "$host_lib*" | grep -q .; then
+        die "the payload bundles $host_lib, which belongs to the host (issue #9)"
+    fi
+done
 test -f "$tree/apprun-hooks/gstreamer.sh" \
     || die "the AppRun hook that points GStreamer at the bundled plugins is missing"
 
