@@ -39,6 +39,18 @@ QVariantMap entry(const QString &eventId, const QString &kind,
     };
 }
 
+/// `entry()` plus the media registry key, which the Rust scanner sets to the
+/// event id (rust/src/mediahistory.rs) exactly as the timeline keys its own
+/// rows. `entry()` deliberately omits it — theRegistryKeyRidesTheRow needs a
+/// row without one — so the media-viewer cases add it here.
+QVariantMap keyedEntry(const QString &eventId, const QString &kind,
+                       const QString &sender = QStringLiteral("@a:example.org"))
+{
+    QVariantMap out = entry(eventId, kind, sender);
+    out.insert(QStringLiteral("mediaKey"), eventId);
+    return out;
+}
+
 bool login(MockMatrixClient &client)
 {
     QSignalSpy spy(&client, &MatrixClient::loginSucceeded);
@@ -275,6 +287,96 @@ private Q_SLOTS:
         QCOMPARE(model.rowCount(), 0);
         QCOMPARE(model.scannedTotal(), 0);
         QVERIFY(model.roomId().isEmpty());
+    }
+
+    // CLICKING A PICTURE IN THE MEDIA TAB MUST OPEN THAT PICTURE.
+    //
+    // It did not. ImageViewerOverlay.openFor() took a media key alone and
+    // searched `app.timeline.imageEntries()` — the images the open TIMELINE
+    // has paginated — then, on a miss, opened `entries.length - 1`. This
+    // model exists precisely to reach media the timeline has never loaded, so
+    // the miss was the NORMAL case and the viewer reliably opened the newest
+    // loaded image instead of the one clicked. (The browser also sent
+    // `entry.mxc` rather than the media key, which the bridge cannot fetch in
+    // an encrypted room at all.)
+    //
+    // The viewer now takes the list AND the index; these are that list and
+    // that index, and the model owns both so QML cannot re-derive an order
+    // that drifts from the one on screen.
+    void imageEntriesCarryTheViewerShapeInViewOrder()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!r:example.org"));
+        Q_EMIT client.mediaHistoryPage(
+            0, QStringLiteral("!r:example.org"),
+            { keyedEntry(QStringLiteral("$img1"), QStringLiteral("image")),
+              keyedEntry(QStringLiteral("$vid"), QStringLiteral("video")),
+              keyedEntry(QStringLiteral("$img2"), QStringLiteral("image")),
+              keyedEntry(QStringLiteral("$file"), QStringLiteral("file")) },
+            4, 4, 0, true, false);
+        QCOMPARE(model.rowCount(), 4);
+
+        const QVariantList images = model.imageEntries();
+        QCOMPARE(images.size(), 2);
+        const QVariantMap first = images.at(0).toMap();
+        // The keys ImageViewerOverlay actually binds to. A shape mismatch
+        // here is a blank viewer, not a compile error.
+        for (const char *key : { "row", "mediaKey", "filename", "sender",
+                                 "timestamp", "mime", "httpUrl", "isImage" })
+            QVERIFY2(first.contains(QLatin1String(key)), key);
+        QCOMPARE(first.value(QStringLiteral("mediaKey")).toString(),
+                 QStringLiteral("$img1"));
+        QCOMPARE(images.at(1).toMap().value(QStringLiteral("mediaKey")).toString(),
+                 QStringLiteral("$img2"));
+        // The key is the media registry key, never the mxc: an encrypted
+        // room's mxc is not fetchable through the bridge at all.
+        QVERIFY(!first.value(QStringLiteral("mediaKey")).toString()
+                     .startsWith(QStringLiteral("mxc://")));
+        QVERIFY(first.value(QStringLiteral("timestamp")).toDateTime().isValid());
+
+        // The index is by SHOWN row, and the rows between the images do not
+        // shift it. Row 2 is $img2 — the second image, index 1.
+        QCOMPARE(model.imageIndexForRow(0), 0);
+        QCOMPARE(model.imageIndexForRow(2), 1);
+        // A non-image row has no index into the image list, and must not be
+        // silently rounded to a neighbouring picture.
+        QCOMPARE(model.imageIndexForRow(1), -1);
+        QCOMPARE(model.imageIndexForRow(3), -1);
+        QCOMPARE(model.imageIndexForRow(99), -1);
+        QCOMPARE(model.imageIndexForRow(-1), -1);
+    }
+
+    // The index follows the FILTERED view, because that is what the user is
+    // looking at. A filter that hides the first picture must not leave every
+    // click one place off.
+    void theImageIndexFollowsTheFilteredView()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!r:example.org"));
+        Q_EMIT client.mediaHistoryPage(
+            0, QStringLiteral("!r:example.org"),
+            { keyedEntry(QStringLiteral("$a"), QStringLiteral("image"),
+                          QStringLiteral("@alice:example.org")),
+              keyedEntry(QStringLiteral("$b"), QStringLiteral("image"),
+                          QStringLiteral("@bob:example.org")),
+              keyedEntry(QStringLiteral("$c"), QStringLiteral("image"),
+                          QStringLiteral("@bob:example.org")) },
+            3, 3, 0, true, false);
+        QCOMPARE(model.imageEntries().size(), 3);
+
+        model.setSenderFilter(QStringLiteral("@bob:example.org"));
+        const QVariantList images = model.imageEntries();
+        QCOMPARE(images.size(), 2);
+        QCOMPARE(images.at(0).toMap().value(QStringLiteral("mediaKey")).toString(),
+                 QStringLiteral("$b"));
+        QCOMPARE(model.imageIndexForRow(0), 0);
+        QCOMPARE(model.imageIndexForRow(1), 1);
     }
 };
 

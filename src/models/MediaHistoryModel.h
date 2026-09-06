@@ -136,6 +136,22 @@ public:
     /// The row's entry as a map, for handing to the media/jump paths.
     Q_INVOKABLE QVariantMap entryAt(int row) const;
 
+    /// Every SHOWN image row, in view order, shaped exactly like
+    /// `TimelineModel::imageEntries()`.
+    ///
+    /// WHY THE SHAPE MATTERS. ImageViewerOverlay used to take a media key
+    /// alone and look it up in `app.timeline.imageEntries()` — the images the
+    /// open TIMELINE has paginated. This model exists precisely to reach media
+    /// the timeline has never loaded, so that lookup missed by construction
+    /// and the viewer fell back to the last entry of the timeline's list: the
+    /// user clicked a picture from March and got the newest loaded one. The
+    /// viewer now takes the list AND the index, and this is that list.
+    Q_INVOKABLE QVariantList imageEntries() const;
+    /// Index into `imageEntries()` of the shown row `row`, or -1 when that row
+    /// is not an image. Computed here rather than searched for in QML so the
+    /// two can never disagree about ordering.
+    Q_INVOKABLE int imageIndexForRow(int row) const;
+
 Q_SIGNALS:
     void roomIdChanged();
     void filtersChanged();

@@ -2106,6 +2106,23 @@ if(BUILD_TESTING)
     set_tests_properties(media-placeholder-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # 2026-09-06 tester report §2: which picture the image viewer opens. The
+    # Media tab walks history the timeline never loaded, and the viewer used
+    # to look the clicked key up in the LOADED TIMELINE and fall back to that
+    # list's last entry on a miss — so a click on a picture from March opened
+    # the newest loaded one. Pins the list-and-index contract and the refusal
+    # to substitute a neighbour.
+    qt_add_executable(media-viewer-navigation-qml-test
+        tests/MediaViewerNavigationQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(media-viewer-navigation-qml-test)
+    target_link_libraries(media-viewer-navigation-qml-test PRIVATE Qt6::Test)
+    add_test(NAME media-viewer-navigation-qml
+             COMMAND media-viewer-navigation-qml-test)
+    set_tests_properties(media-viewer-navigation-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # 2026-08-26: the link-preview CONSENT gate. It used to stack a host
     # row, a wrapped two-line privacy sentence and a full-width button —
     # about four message lines of timeline for one unloaded link. This

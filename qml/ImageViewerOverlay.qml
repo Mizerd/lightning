@@ -84,25 +84,61 @@ Popup {
     // of the legacy boolean.
     readonly property bool animateGifs: app.settings.gifAutoplay !== 2
 
-    function openFor(mediaKey, httpUrl) {
-        entries = app.timeline.imageEntries()
-        currentIndex = -1
-        for (var i = 0; i < entries.length; ++i) {
-            if ((mediaKey.length > 0 && entries[i].mediaKey === mediaKey)
-                    || (mediaKey.length === 0 && httpUrl
-                        && entries[i].httpUrl.toString() === httpUrl.toString())) {
-                currentIndex = i
-                break
-            }
-        }
-        if (currentIndex === -1 && entries.length > 0)
-            currentIndex = entries.length - 1
-        if (currentIndex === -1)
+    /// Open on an EXPLICIT list and index — for a caller that already knows
+    /// both, which is what the room's Media tab is.
+    ///
+    /// The viewer pages through the list it is GIVEN. It used to build the
+    /// list itself, always from `app.timeline.imageEntries()`, which is only
+    /// the right list for a click in the timeline.
+    function openAt(list, index) {
+        if (!list || index < 0 || index >= list.length)
             return
+        entries = list
+        currentIndex = index
         resetView()
         open()
         loadCurrent()
         chrome.wake()
+    }
+
+    /// Open on the images the TIMELINE has loaded, located by media key (or
+    /// by URL on the HTTP backend). This is the timeline's own entry point.
+    function openFor(mediaKey, httpUrl) {
+        var list = app.timeline.imageEntries()
+        var found = -1
+        for (var i = 0; i < list.length; ++i) {
+            if ((mediaKey.length > 0 && list[i].mediaKey === mediaKey)
+                    || (mediaKey.length === 0 && httpUrl
+                        && list[i].httpUrl.toString() === httpUrl.toString())) {
+                found = i
+                break
+            }
+        }
+        if (found === -1) {
+            // A MISS OPENS WHAT WAS ASKED FOR, ALONE. This used to be
+            // `currentIndex = entries.length - 1`, which turned "I could not
+            // find that" into "here is something else" — the user clicked one
+            // picture and got another. There is nothing to page through when
+            // the row is not in the loaded list, and that is a truthful state.
+            if (mediaKey.length === 0 && !httpUrl)
+                return
+            list = [{
+                "row": -1,
+                "mediaKey": mediaKey,
+                "filename": "",
+                "sender": "",
+                "timestamp": undefined,
+                "mime": "",
+                "httpUrl": httpUrl ? httpUrl : "",
+                "isImage": true,
+                "isVideo": false,
+                "isVisual": true,
+                "thumbAvailable": false,
+                "size": 0
+            }]
+            found = 0
+        }
+        openAt(list, found)
     }
 
     function resetView() {
@@ -578,7 +614,12 @@ Popup {
                     // Remote or externally chosen text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
+                    // Guarded on the sender rather than on `current`: a
+                    // viewer opened on a row the timeline does not hold
+                    // (openFor's miss branch) knows the media key and
+                    // nothing else, and "· 1 Jan 1970" is worse than blank.
                     text: viewer.current !== null
+                          && (viewer.current.sender || "").length > 0
                           ? qsTr("%1 · %2")
                                 .arg(viewer.current.sender)
                                 .arg(Qt.formatDateTime(viewer.current.timestamp,

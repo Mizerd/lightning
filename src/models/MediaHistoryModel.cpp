@@ -4,6 +4,7 @@
 
 #include <QLocale>
 #include <QSet>
+#include <QUrl>
 
 namespace {
 /// One page. Big enough that a grid fills in a couple of round trips, small
@@ -235,6 +236,58 @@ QVariantMap MediaHistoryModel::entryAt(int row) const
         { QStringLiteral("url"), e.url },
         { QStringLiteral("host"), e.host },
     };
+}
+
+QVariantList MediaHistoryModel::imageEntries() const
+{
+    QVariantList out;
+    for (int row = 0; row < m_shown.size(); ++row) {
+        const Entry &e = m_all.at(m_shown.at(row));
+        if (e.kind != QLatin1String("image") || e.mediaKey.isEmpty())
+            continue;
+        QVariantMap entry;
+        // `row` is the SHOWN row this entry came from, so a consumer can map
+        // back to the browser's own list. TimelineModel puts its raw event
+        // row here; both are "the row in the list that produced me".
+        entry.insert(QStringLiteral("row"), row);
+        entry.insert(QStringLiteral("mediaKey"), e.mediaKey);
+        entry.insert(QStringLiteral("filename"),
+                     e.filename.isEmpty() ? e.body : e.filename);
+        entry.insert(QStringLiteral("sender"), e.sender);
+        entry.insert(QStringLiteral("timestamp"),
+                     QDateTime::fromMSecsSinceEpoch(e.timestampMs));
+        entry.insert(QStringLiteral("mime"), e.mimetype);
+        // No HTTP fallback: this walk exists only on the Rust backend, where
+        // every byte is fetched through the authenticated media bridge. An
+        // unauthenticated download URL must never be synthesised here.
+        entry.insert(QStringLiteral("httpUrl"), QUrl{});
+        entry.insert(QStringLiteral("isImage"), true);
+        entry.insert(QStringLiteral("isVideo"), false);
+        entry.insert(QStringLiteral("isVisual"), true);
+        entry.insert(QStringLiteral("thumbAvailable"), !e.thumbnailMxc.isEmpty());
+        entry.insert(QStringLiteral("size"), e.size);
+        out.append(entry);
+    }
+    return out;
+}
+
+int MediaHistoryModel::imageIndexForRow(int row) const
+{
+    if (row < 0 || row >= m_shown.size())
+        return -1;
+    int index = 0;
+    for (int r = 0; r < m_shown.size(); ++r) {
+        const Entry &e = m_all.at(m_shown.at(r));
+        if (e.kind != QLatin1String("image") || e.mediaKey.isEmpty()) {
+            if (r == row)
+                return -1; // the row exists but is not one of the images
+            continue;
+        }
+        if (r == row)
+            return index;
+        ++index;
+    }
+    return -1;
 }
 
 QStringList MediaHistoryModel::knownSenders() const

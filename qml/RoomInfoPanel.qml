@@ -105,7 +105,12 @@ Rectangle {
     signal closeRequested()
     // v0.5.9: Media & Files entries delegate viewing/saving to the pane
     // that owns the viewer and the save dialog (TimelinePane).
-    signal openImageRequested(string mediaKey, var httpUrl)
+    //
+    // 2026-09-06: the list AND the index, never a key alone — MediaBrowser's own
+    // signal carries the reasoning. A key alone made the viewer search the
+    // loaded timeline for a picture the media history had reached and the
+    // timeline never had, and open something else when it missed.
+    signal openImagesRequested(var entries, int index)
     signal saveMediaRequested(string mediaKey, string filename)
 
     // "overview" | "pinned" | "people" | "media" | "widgets"
@@ -2269,8 +2274,8 @@ Rectangle {
             Layout.fillHeight: true
             model: app.mediaHistory
             roomId: app.roomInfo.roomId
-            onOpenImageRequested: (mediaKey, httpUrl) =>
-                root.openImageRequested(mediaKey, httpUrl)
+            onOpenImagesRequested: (entries, index) =>
+                root.openImagesRequested(entries, index)
             // Navigation belongs to the host, exactly as it does for pins and
             // search results — this panel is signal-only.
             onJumpToEventRequested: (eventId) =>

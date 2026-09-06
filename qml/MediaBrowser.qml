@@ -27,8 +27,18 @@ Item {
     property var model: null
     /// The room whose history is browsed.
     property string roomId: ""
-    /// Ask the host to open an image viewer; the host owns navigation.
-    signal openImageRequested(string mediaKey, string httpUrl)
+    /// Ask the host to open the image viewer on `index` of `entries` — the
+    /// browser's OWN image list, in view order, so the viewer pages through
+    /// the room's media history.
+    ///
+    /// Both halves are handed over deliberately. The signal used to carry a
+    /// media key alone, and the viewer looked that key up in
+    /// `app.timeline.imageEntries()` — the images the open TIMELINE has
+    /// paginated, which is a different list and by construction does not hold
+    /// the history this browser exists to reach. The lookup missed, the
+    /// viewer fell back to the last entry of that other list, and clicking a
+    /// picture from March opened the newest loaded one instead.
+    signal openImagesRequested(var entries, int index)
     /// Ask the host to jump the timeline to this event. Resolving and
     /// paginating around it is the host's existing search/permalink path —
     /// this component never navigates.
@@ -341,9 +351,18 @@ Item {
         var entry = model.entryAt(row)
         if (!entry || !entry.eventId)
             return
-        if (entry.kind === "image")
-            root.openImageRequested(entry.mxc || "", "")
-        else
+        if (entry.kind === "image") {
+            // The INDEX comes from the model, not from a search: the model
+            // owns the ordering and a second implementation of it here could
+            // only ever drift. (`entry.mxc` used to be sent as the media key,
+            // which is also wrong — the bridge is keyed by event id, and an
+            // encrypted room's mxc is not fetchable at all.)
+            var index = model.imageIndexForRow(row)
+            if (index < 0)
+                return
+            root.openImagesRequested(model.imageEntries(), index)
+        } else {
             root.jumpToEventRequested(entry.eventId)
+        }
     }
 }
