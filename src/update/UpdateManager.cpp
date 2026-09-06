@@ -1098,6 +1098,102 @@ QString UpdateManager::helperProgramPath() const
     return QCoreApplication::applicationDirPath() + QLatin1Char('/') + name;
 }
 
+QStringList UpdateManager::helperRuntimeLibraries()
+{
+    // Read off the SHIPPED helper's PE import table, minus the system DLLs
+    // (KERNEL32, msvcrt). Kept deliberately short: the helper links Qt Core
+    // and nothing else of ours. packaging-ci/scripts/validate-windows-
+    // artifacts.sh asserts the built binary imports nothing outside this
+    // list, so a new dependency fails the BUILD rather than a user's update.
+    return {
+        QStringLiteral("Qt6Core.dll"),
+        QStringLiteral("libgcc_s_seh-1.dll"),
+        QStringLiteral("libstdc++-6.dll"),
+        QStringLiteral("libwinpthread-1.dll"),
+        QStringLiteral("zlib1.dll"),
+    };
+}
+
+QString UpdateManager::stageHelperOutsideInstallation(const QString &helperPath,
+                                                      const QString &installDir,
+                                                      QString *error)
+{
+    // WHY THIS EXISTS.
+    //
+    // The MSI and the NSIS setup do not swap files themselves, they REWRITE
+    // the installation: `File /r "${STAGE_DIR}/*"` over $INSTDIR, and
+    // RemoveExistingProducts for the MSI. The helper that starts them lives
+    // in that same directory (applicationDirPath()/lightning-updater.exe) and
+    // is running, with Qt6Core.dll and its mingw runtime mapped beside it.
+    // Windows will not let anything overwrite or delete a mapped image, so
+    // the installer fails on the helper's own files and the update never
+    // happens. Reported against 0.9.1 as an unknown error after the restart,
+    // with the old build still installed.
+    //
+    // The portable path does NOT need this and does not use it: it moves
+    // entries one at a time, and RENAMING a mapped file is allowed where
+    // writing it is not.
+    //
+    // So copy the helper and the few libraries it loads somewhere the
+    // installer will not touch, and run THAT. The copy is deleted by the
+    // next run's mkpath of a fresh directory rather than by the helper
+    // itself, which cannot delete the image it is executing.
+    if (error)
+        error->clear();
+    const QFileInfo helperInfo(helperPath);
+    if (!helperInfo.exists() || !helperInfo.isFile()) {
+        if (error)
+            *error = QStringLiteral("the updater helper is missing");
+        return QString();
+    }
+
+    const QString base = QDir(QDir::tempPath())
+                             .absoluteFilePath(QStringLiteral("lightning-updater-staged"));
+    QDir staged(base);
+    if (staged.exists())
+        staged.removeRecursively();
+    if (!QDir().mkpath(base)) {
+        if (error)
+            *error = QStringLiteral("could not create a staging directory for the updater");
+        return QString();
+    }
+
+    // It must NOT land inside the installation, or it defeats its own point.
+    const QString cleanInstall =
+        QDir::cleanPath(QDir(installDir).absolutePath());
+    const QString cleanStaged = QDir::cleanPath(QDir(base).absolutePath());
+    if (!cleanInstall.isEmpty()
+        && (cleanStaged == cleanInstall
+            || cleanStaged.startsWith(cleanInstall + QLatin1Char('/')))) {
+        if (error)
+            *error = QStringLiteral("the updater staging directory is inside the installation");
+        return QString();
+    }
+
+    const QString stagedHelper =
+        QDir(base).absoluteFilePath(helperInfo.fileName());
+    if (!QFile::copy(helperPath, stagedHelper)) {
+        if (error)
+            *error = QStringLiteral("could not copy the updater helper out of the installation");
+        return QString();
+    }
+    QFile::setPermissions(stagedHelper,
+                          QFile::permissions(stagedHelper) | QFile::ExeOwner
+                              | QFile::ReadOwner | QFile::WriteOwner);
+
+    // Its libraries travel with it. A missing one is fatal on Windows and
+    // silent everywhere else, so an absent source is not an error here: the
+    // list is asserted against the real binary at build time.
+    const QDir source(helperInfo.absolutePath());
+    for (const QString &library : helperRuntimeLibraries()) {
+        const QString from = source.absoluteFilePath(library);
+        if (!QFile::exists(from))
+            continue;
+        QFile::copy(from, QDir(base).absoluteFilePath(library));
+    }
+    return stagedHelper;
+}
+
 QString UpdateManager::installTargetPath() const
 {
     switch (m_detection.type) {
@@ -1177,11 +1273,32 @@ void UpdateManager::startInstall(bool restartAfterwards)
         return;
     }
 
-    const QString program = helperProgramPath();
+    QString program = helperProgramPath();
     const QFileInfo helper(program);
     if (!helper.exists() || !helper.isFile()) {
         failWith(QStringLiteral("The updater helper is missing from this installation."));
         return;
+    }
+
+    // The MSI and the setup EXE REWRITE the installation directory, and the
+    // helper is a running program inside it with its libraries mapped.
+    // Windows refuses to overwrite a mapped image, so the installer fails on
+    // the helper's own files and nothing is updated. Run a copy from outside
+    // instead. The portable and AppImage paths do their own file work and
+    // must keep running from where they are.
+    if (m_detection.type == InstallType::WindowsMsi
+        || m_detection.type == InstallType::WindowsSetup) {
+        QString stageError;
+        const QString staged = stageHelperOutsideInstallation(
+            program, QCoreApplication::applicationDirPath(), &stageError);
+        if (staged.isEmpty()) {
+            failWith(QStringLiteral("The update could not be prepared (%1).")
+                         .arg(stageError.isEmpty()
+                                  ? QStringLiteral("the updater helper could not be staged")
+                                  : stageError));
+            return;
+        }
+        program = staged;
     }
 
     // Paths are RESOLVED before they cross: the helper refuses a symbolic

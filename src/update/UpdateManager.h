@@ -309,6 +309,20 @@ private:
     // Starts the helper for the "apply when I quit" path, from aboutToQuit.
     void launchDeferredInstall();
     QString helperProgramPath() const;
+    // Windows, MSI and Setup only: a copy of the helper OUTSIDE the
+    // installation, because the installer about to run rewrites every file in
+    // it. Returns an empty string and sets `error` when the copy cannot be
+    // made. Public for tests, which drive it on any platform.
+public:
+    static QString stageHelperOutsideInstallation(const QString &helperPath,
+                                                  const QString &installDir,
+                                                  QString *error);
+    // The non-system libraries the helper itself loads. It is a short list
+    // because the helper links almost nothing, and the Windows artifact
+    // validation asserts the shipped binary imports nothing outside it.
+    static QStringList helperRuntimeLibraries();
+
+private:
     QString installTargetPath() const;
     // What to start after a successful install; differs from the running
     // executable for an AppImage. See the definition.

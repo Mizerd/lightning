@@ -53,6 +53,41 @@ x86_64-w64-mingw32-objdump -p "$STAGE/Lightning.exe" | \
 x86_64-w64-mingw32-objdump -p "$STAGE/lightning-updater.exe" | \
     grep -F '(Windows CUI)' >/dev/null || die "update helper subsystem is not the expected console"
 
+# THE HELPER'S OWN IMPORTS MUST STAY INSIDE THE LIST THE CLIENT COPIES.
+#
+# Before an MSI or setup install, Lightning copies lightning-updater.exe and a
+# short list of libraries OUT of the installation, because the installer
+# rewrites every file in it and Windows will not overwrite a mapped image.
+# That list lives in UpdateManager::helperRuntimeLibraries(). If the helper
+# ever gains an import that is not in it, the staged copy fails to start at a
+# user's machine, silently, during an update. So the two are tied together
+# here: the shipped binary's non-system imports must all appear in that
+# function.
+helper_imports="$(x86_64-w64-mingw32-objdump -p "$STAGE/lightning-updater.exe" \
+    | awk '/DLL Name:/ {print $3}' | sort -u)"
+helper_list_source=""
+for candidate in \
+    "$(project_dir)/work/lightning/src/update/UpdateManager.cpp" \
+    "$(project_dir)/src/update/UpdateManager.cpp"; do
+    if [ -f "$candidate" ]; then
+        helper_list_source="$candidate"
+        break
+    fi
+done
+if [ -n "$helper_list_source" ]; then
+    while IFS= read -r dll; do
+        case "$(printf '%s' "$dll" | tr 'A-Z' 'a-z')" in
+            kernel32.dll|msvcrt.dll|user32.dll|advapi32.dll|shell32.dll|ole32.dll|ws2_32.dll|api-ms-*|ucrtbase.dll)
+                continue ;;
+        esac
+        grep -qF "\"$dll\"" "$helper_list_source" \
+            || die "the update helper imports $dll, which UpdateManager::helperRuntimeLibraries() does not stage"
+    done <<< "$helper_imports"
+    echo "update helper imports are all staged by helperRuntimeLibraries()"
+else
+    echo "note: application source not present, skipping the helper import cross-check"
+fi
+
 for required in \
     "$STAGE/Qt6Core.dll" \
     "$STAGE/Qt6Gui.dll" \

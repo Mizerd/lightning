@@ -391,6 +391,7 @@ private:
     }
 
 private slots:
+    void theStagedHelperLandsOutsideTheInstallationWithItsLibraries();
     void initTestCase();
     void init();
 
@@ -1972,5 +1973,75 @@ void UpdateManagerStateTest::theFallbackFetcherHopsOnlyWithinTheMirror()
     // A third-party start is neither role and is refused everywhere.
     QVERIFY(!fetcher.permitsForTest(third, third));
 }
+// ── The helper must not run from the directory the installer rewrites ────
+//
+// The MSI and the NSIS setup replace every file in the installation. The
+// helper that starts them lived in there and was running, with its libraries
+// mapped, and Windows will not overwrite a mapped image: the installer failed
+// on the helper's own files and the update silently did not happen. Reported
+// against 0.9.1 on windows-setup as an unknown error after the restart.
+//
+// Path logic only, which is the part that was wrong and the part that can be
+// checked anywhere. Whether the installer then succeeds is a Windows
+// question and is NOT covered here.
+void UpdateManagerStateTest::theStagedHelperLandsOutsideTheInstallationWithItsLibraries()
+{
+    QTemporaryDir installRoot;
+    QVERIFY(installRoot.isValid());
+    const QString installDir = installRoot.path();
+
+    // A stand-in installation: the helper plus the libraries it loads.
+    const QString helper =
+        QDir(installDir).absoluteFilePath(QStringLiteral("lightning-updater.exe"));
+    QFile exe(helper);
+    QVERIFY(exe.open(QIODevice::WriteOnly));
+    exe.write(QByteArray("helper"));
+    exe.close();
+    const QStringList libraries = UpdateManager::helperRuntimeLibraries();
+    QVERIFY2(!libraries.isEmpty(), "the helper's library list must not be empty");
+    for (const QString &library : libraries) {
+        QFile lib(QDir(installDir).absoluteFilePath(library));
+        QVERIFY(lib.open(QIODevice::WriteOnly));
+        lib.write(library.toUtf8());
+        lib.close();
+    }
+
+    QString error;
+    const QString staged = UpdateManager::stageHelperOutsideInstallation(
+        helper, installDir, &error);
+    QVERIFY2(!staged.isEmpty(), qPrintable(error));
+    QVERIFY(error.isEmpty());
+
+    // THE POINT: not in the directory about to be rewritten.
+    const QString cleanInstall = QDir::cleanPath(QDir(installDir).absolutePath());
+    const QString cleanStaged = QDir::cleanPath(QFileInfo(staged).absolutePath());
+    QVERIFY2(cleanStaged != cleanInstall
+                 && !cleanStaged.startsWith(cleanInstall + QLatin1Char('/')),
+             qPrintable(QStringLiteral("staged inside the installation: %1").arg(staged)));
+
+    // And it is a usable copy: the helper, and every library beside it.
+    QVERIFY(QFileInfo::exists(staged));
+    QFile copied(staged);
+    QVERIFY(copied.open(QIODevice::ReadOnly));
+    QCOMPARE(copied.readAll(), QByteArray("helper"));
+    copied.close();
+    for (const QString &library : libraries) {
+        QVERIFY2(QFileInfo::exists(QDir(cleanStaged).absoluteFilePath(library)),
+                 qPrintable(QStringLiteral("library not staged: %1").arg(library)));
+    }
+
+    // Running it twice must not fail on its own leftovers.
+    const QString again = UpdateManager::stageHelperOutsideInstallation(
+        helper, installDir, &error);
+    QVERIFY2(!again.isEmpty(), qPrintable(error));
+
+    // A missing helper is reported, not papered over.
+    const QString absent =
+        QDir(installDir).absoluteFilePath(QStringLiteral("not-here.exe"));
+    QVERIFY(UpdateManager::stageHelperOutsideInstallation(absent, installDir, &error)
+                .isEmpty());
+    QVERIFY(!error.isEmpty());
+}
+
 QTEST_GUILESS_MAIN(UpdateManagerStateTest)
 #include "UpdateManagerStateTest.moc"
