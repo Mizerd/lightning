@@ -396,7 +396,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+831"/>
+        <location filename="../src/app/AppController.cpp" line="+873"/>
         <source>Room invitation</source>
         <translation>रूम का आमंत्रण</translation>
     </message>
@@ -543,24 +543,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1759"/>
+        <location line="+1812"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning चुनी गई फ़ाइल पढ़ नहीं सका।</translation>
     </message>
     <message>
-        <location line="-1765"/>
+        <location line="-1818"/>
         <source>A room-key import is already in progress.</source>
         <translation>रूम-कुंजी आयात पहले से चल रहा है।</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2340"/>
+        <location line="+2395"/>
         <source>Not signed in.</source>
         <translation>साइन इन नहीं है।</translation>
     </message>
     <message>
-        <location line="-2338"/>
+        <location line="-2393"/>
         <source>Room-key import failed.</source>
         <translation>रूम-कुंजी आयात विफल रहा।</translation>
     </message>
@@ -575,7 +575,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+451"/>
+        <location line="+470"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>वीडियो कॉल के लिए MatrixRTC सेवा की आवश्यकता होती है, जो अभी तक यहां उपलब्ध नहीं है।</translation>
     </message>
@@ -631,7 +631,7 @@
     </message>
     <message>
         <location line="+11"/>
-        <location line="+1050"/>
+        <location line="+1084"/>
         <location line="+46"/>
         <location line="+68"/>
         <source>This build has no Rust SDK backend.</source>
@@ -770,7 +770,7 @@
         <translation>इस डिवाइस का स्थानीय डेटा मिटाने से यह ठीक नहीं होगा, और वे एन्क्रिप्शन कुंजियाँ नष्ट हो जाएँगी जिनकी आपको अब भी ज़रूरत है।</translation>
     </message>
     <message>
-        <location line="+437"/>
+        <location line="+439"/>
         <source>This backend cannot change your display name.</source>
         <translation>यह बैकएंड आपका प्रदर्शित नाम नहीं बदल सकता।</translation>
     </message>
@@ -7986,7 +7986,7 @@ Size: %3</source>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+262"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+270"/>
         <source>Choose room avatar</source>
         <translation>रूम अवतार चुनें</translation>
     </message>
@@ -8022,7 +8022,7 @@ Size: %3</source>
         <translation>रूम की जानकारी बंद करें</translation>
     </message>
     <message>
-        <location line="-282"/>
+        <location line="-290"/>
         <source>Overview</source>
         <translation>अवलोकन</translation>
     </message>
@@ -8042,7 +8042,7 @@ Size: %3</source>
         <translation>मीडिया</translation>
     </message>
     <message>
-        <location line="+413"/>
+        <location line="+421"/>
         <source>Notifications</source>
         <translation>सूचनाएँ</translation>
     </message>
@@ -8115,12 +8115,12 @@ Size: %3</source>
         <translation>%1 सदस्य (%2 आमंत्रित)</translation>
     </message>
     <message>
-        <location line="-599"/>
+        <location line="-607"/>
         <source>Widgets</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2158"/>
+        <location line="+2210"/>
         <source>Open</source>
         <translation type="unfinished">खोलें</translation>
     </message>
@@ -8130,12 +8130,17 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-449"/>
+        <location line="-493"/>
         <source>Choose your avatar for this room</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+440"/>
+        <location line="+459"/>
+        <source>Bridged via %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+25"/>
         <source>Moderation rules…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8704,7 +8709,7 @@ Size: %3</source>
 <context>
     <name>RoomListModel</name>
     <message>
-        <location filename="../src/models/RoomListModel.cpp" line="+146"/>
+        <location filename="../src/models/RoomListModel.cpp" line="+150"/>
         <source>%1 contact</source>
         <extracomment>A bridged chat partner with no usable name yet; %1 is the network, e.g. &quot;WhatsApp contact&quot;.</extracomment>
         <translation>%1 संपर्क</translation>
@@ -9440,12 +9445,17 @@ Size: %3</source>
         <translation>ऑडियो साझा करें</translation>
     </message>
     <message>
-        <location line="+26"/>
-        <source>Send what this computer is playing, alongside the picture. This includes the call itself, so others hear themselves unless Lightning&apos;s own audio plays on a different output device.</source>
+        <location line="+38"/>
+        <source>Send what this computer is playing, alongside the picture. Where this system allows it, Lightning&apos;s own audio is left out so the others do not hear themselves.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+4"/>
+        <source>Send what this computer is playing, alongside the picture. On this system that includes the call itself, so others hear themselves unless Lightning&apos;s audio plays on a different output device.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Cancel</source>
         <translation>रद्द करें</translation>
     </message>
@@ -12769,7 +12779,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+410"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+436"/>
         <location line="+79"/>
         <location line="+134"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -12824,23 +12834,23 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+261"/>
+        <location line="+267"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>इस होमसर्वर पर कॉलिंग उपलब्ध नहीं है.</translation>
     </message>
     <message>
-        <location line="-259"/>
+        <location line="-265"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>बहुत अधिक प्रयास. थोड़ी देर में पुनः प्रयास करें.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+263"/>
+        <location line="+269"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>कॉल से कनेक्ट नहीं हो सका.</translation>
     </message>
     <message>
-        <location line="-261"/>
+        <location line="-267"/>
         <source>The calling service is having trouble.</source>
         <translation>कॉलिंग सेवा में दिक्कत आ रही है.</translation>
     </message>
@@ -12891,7 +12901,7 @@ Note: importing keys does not verify this session.</source>
         <translation>यह कमरा एन्क्रिप्टेड है, और इस बिल्ड पर एन्क्रिप्टेड कॉल अभी तक उपलब्ध नहीं हैं।</translation>
     </message>
     <message>
-        <location line="+107"/>
+        <location line="+113"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>कॉल में आपकी घोषणा नहीं की जा सकी.</translation>
     </message>
