@@ -72,11 +72,14 @@ mkdir -p "$FLATPAK_WORK" dist
 # location (work/flatpak/): flatpak-builder exports the manifest into the
 # bundle as /app/manifest.json, and an absolute path would leak the
 # ephemeral CI workspace path into the payload (the clean-bundle audit
-# rejects /builds/).
+# rejects /builds/). They stay relative for that reason -- the packaging-ci/
+# segment is there because the packaging tree now sits inside the application
+# repository rather than being its own project, and a path that walked up to
+# the old location resolved to a directory that does not exist.
 sed -e "s|@REQUIRE_GIF_KEYS@|$REQUIRE_GIF_KEYS|" \
     -e "s|@UPDATE_SIGNING_PUBKEY_2026A@|${UPDATE_SIGNING_PUBKEY_2026A:-}|" \
     -e "s|@SOURCE_DIR@|../lightning|" \
-    -e "s|@METAINFO_PATH@|../../packaging/common/lightning.metainfo.xml|" \
+    -e "s|@METAINFO_PATH@|../../packaging-ci/packaging/common/lightning.metainfo.xml|" \
     "$MANIFEST_TEMPLATE" > "$MANIFEST"
 grep -Eq '@(REQUIRE_GIF_KEYS|SOURCE_DIR|METAINFO_PATH|UPDATE_SIGNING_PUBKEY_2026A)@' "$MANIFEST" \
     && die "unsubstituted placeholder in manifest"
