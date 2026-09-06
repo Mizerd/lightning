@@ -5984,6 +5984,183 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
+    // ONE APPROACH TO THE TOP LOADS A BOUNDED AMOUNT, NOT THE WHOLE ROOM.
+    //
+    // Reported live on 0.9.2: entering one room loads media slowly and the
+    // view jumps as each picture lands. A reader who reaches the top edge is
+    // held on the SAME ROW by maintainViewAnchor, so contentY tracks the
+    // growth and distanceFromTop() stays at ~0 while history piles up
+    // underneath them. The `fromTop <= 1` clause in checkNearTopEdge()
+    // deliberately bypasses the distance ratchet for exactly that reader, and
+    // onPaginationCompleted re-arms the latch after every productive page.
+    // Those three together are a chain whose only exit is the start of the
+    // room, and a live capture of one room open walked ~28 pages that way.
+    //
+    // FAIL-ON-OLD: without nearTopApproachRowBudget every one of the 40
+    // iterations below dispatches, because each simulated page re-arms the
+    // latch and the reader never leaves the band. With the budget the chain
+    // stops after 240 rows, i.e. twelve pages of twenty.
+    //
+    // The real request is suppressed by holding the pane's OWN re-entrancy
+    // guard (nearTopCheckScheduled), so the loop measures the dispatch
+    // DECISION alone and the mock backend's timing cannot move the count.
+    void oneApproachToTheTopDoesNotPaginateToTheStartOfTheRoom()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+
+        // Tall, wrapping rows: the fixture must be able to express a reader
+        // genuinely LEAVING the exit band, which is 3.25 viewports.
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 60; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral(
+                "history message %1 - deliberately long enough to wrap over "
+                "several lines so the loaded room is much taller than the "
+                "near-top exit band").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(600 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/6);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 60,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        const auto wheelMaxY = [timeline] {
+            QVariant v;
+            QMetaObject::invokeMethod(timeline, "wheelMaxY",
+                                      Q_RETURN_ARG(QVariant, v));
+            return v.toDouble();
+        };
+        const auto wheelMinY = [timeline] {
+            QVariant v;
+            QMetaObject::invokeMethod(timeline, "wheelMinY",
+                                      Q_RETURN_ARG(QVariant, v));
+            return v.toDouble();
+        };
+
+        const double exitBand =
+            timeline->property("nearTopExitDistance").toDouble();
+        QVERIFY2(wheelMaxY() - wheelMinY() > exitBand + 100.0,
+                 qPrintable(QStringLiteral(
+                     "fixture too short: scroll range %1 cannot express a "
+                     "departure past the %2px exit band, so the re-arm half "
+                     "of this test would assert nothing")
+                     .arg(wheelMaxY() - wheelMinY()).arg(exitBand)));
+
+        const int budget =
+            timeline->property("nearTopApproachRowBudget").toInt();
+        QVERIFY2(budget > 0, "the approach row budget must be a real bound");
+
+        // Hold production's own re-entrancy guard so maybeRequestNearTop()
+        // schedules nothing. Everything upstream of it - the latch, the
+        // ratchet and the budget - runs exactly as it does in the app.
+        QVERIFY(timeline->setProperty("nearTopCheckScheduled", true));
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+
+        int dispatches = 0;
+        const int kPages = 40;
+        const int kRowsPerPage = 20;
+        for (int page = 0; page < kPages; ++page) {
+            // The reader is pinned against the top and stays there: this is
+            // what maintainViewAnchor does to a reader whose row does not
+            // move while older history is prepended below it.
+            QVERIFY(positionAtTopEdge(timeline));
+            QCoreApplication::processEvents();
+            QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
+                                              Q_ARG(QVariant, QVariant(true))));
+            if (!timeline->property("nearTopArmed").toBool())
+                ++dispatches;
+            // The page lands. Production's own handler re-arms the latch here
+            // and, with the fix, spends the approach's budget.
+            emit controller.pagination()->paginationCompleted(
+                kRowsPerPage, /*reachedStart=*/false, /*willContinue=*/false);
+            QCoreApplication::processEvents();
+        }
+
+        QVERIFY2(dispatches > 0,
+                 "the fixture never dispatched at all - it is not exercising "
+                 "the near-top path and cannot fail on the old code either");
+        const int allowedPages = budget / kRowsPerPage + 1;
+        QVERIFY2(dispatches <= allowedPages,
+                 qPrintable(QStringLiteral(
+                     "one uninterrupted approach to the top dispatched %1 "
+                     "pages (~%2 rows) against a budget of %3 rows - the "
+                     "chain runs to the start of the room, which is the "
+                     "reported 'it loads media slow and jumps' behaviour")
+                     .arg(dispatches)
+                     .arg(dispatches * kRowsPerPage)
+                     .arg(budget)));
+        QVERIFY2(timeline->property("nearTopRowsThisApproach").toInt() >= budget,
+                 "the approach did not actually spend its budget, so the "
+                 "bound above was not what stopped the chain");
+
+        // The budget bounds ONE approach. A reader who genuinely leaves the
+        // band and comes back is owed a fresh one, or this would stop people
+        // reading history - which is the failure the fix must not introduce.
+        timeline->setProperty("contentY", wheelMaxY() - (exitBand + 60.0));
+        QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
+                                          Q_ARG(QVariant, QVariant(true))));
+        QCOMPARE(timeline->property("nearTopRowsThisApproach").toInt(), 0);
+        QVERIFY2(timeline->property("nearTopArmed").toBool(),
+                 "leaving the exit band must re-arm the latch as before");
+
+        QVERIFY(positionAtTopEdge(timeline));
+        QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
+                                          Q_ARG(QVariant, QVariant(true))));
+        QVERIFY2(!timeline->property("nearTopArmed").toBool(),
+                 "a NEW approach after a real departure must dispatch again - "
+                 "the budget bounds the automatic chain, it does not stop a "
+                 "reader who keeps scrolling into history");
+
+        // And returning to the live edge is the other end of the same rule.
+        QVERIFY(timeline->setProperty("stickToBottom", true));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
+                                          Q_ARG(QVariant, QVariant(false))));
+        QCOMPARE(timeline->property("nearTopRowsThisApproach").toInt(), 0);
+
+        QCOMPARE(realWarnings(warnings), QStringList{});
+    }
+
     // The multi-batch guarantee the deleted stale-token bookkeeping existed
     // for: back-to-back prepends must each be compensated exactly once — no
     // lost batch (the "teleports toward the top" cascade) and no double

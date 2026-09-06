@@ -4231,6 +4231,35 @@ Rectangle {
                 readonly property real nearTopEnterDistance: height * 2.5
                 readonly property real nearTopExitDistance: height * 3.25
                 property bool nearTopArmed: true
+                // ONE APPROACH TO THE TOP LOADS A BOUNDED AMOUNT, NOT THE
+                // WHOLE ROOM.
+                //
+                // The reader reaches the top edge, a page lands, and
+                // maintainViewAnchor holds them on the SAME ROW -- so contentY
+                // tracks the growth and distanceFromTop() stays near zero. The
+                // `fromTop <= 1` clause below deliberately bypasses the
+                // distance ratchet for a reader pinned against the top, and
+                // onPaginationCompleted re-arms the latch after every
+                // productive page. Those three together are a loop whose only
+                // exit is the start of the room, and that is what it did: one
+                // room open walked ~28 near-top pages and ~136 rows, pulling
+                // tens of megabytes of media and ending in reached_start, the
+                // view jumping as each picture landed. Reported as "it loads
+                // media slow, and when it loads it shows me app quickly".
+                //
+                // It got worse when the controller's empty-page tolerance went
+                // 4 -> 12 (a call room filters out most of its history, so
+                // empty pages are normal there): the chain could then cross
+                // the filtered stretches that used to stop it.
+                //
+                // So an approach carries a ROW BUDGET, the same shape and size
+                // the viewport fill already uses. It does not block reading:
+                // moving away past nearTopExitDistance and coming back is a
+                // NEW approach with a fresh budget, which is exactly what
+                // someone reading history does. It bounds only the automatic
+                // chain that a stationary reader never asked for.
+                readonly property int nearTopApproachRowBudget: 240
+                property int nearTopRowsThisApproach: 0
                 // How far the viewport top sits BELOW the earliest loaded row.
                 // The proximity bands MUST be measured against this and never
                 // against raw contentY, because contentY is not a distance from
@@ -4283,6 +4312,7 @@ Rectangle {
                     if (stickToBottom) {
                         nearTopArmed = true
                         nearTopRequestDistance = Infinity
+                        nearTopRowsThisApproach = 0
                         return
                     }
                     var fromTop = distanceFromTop()
@@ -4320,8 +4350,17 @@ Rectangle {
                             // the reader.
                             if (extendRowWindowAtOldEnd())
                                 return
-                            nearTopArmed = false
-                            maybeRequestNearTop(userInitiated)
+                            // The budget bounds the automatic chain, and
+                            // deliberately sits BELOW the local re-exposure
+                            // above: running out must never strand a reader
+                            // at a boundary the row window itself created.
+                            // The ratchet below still runs, so the approach
+                            // stays correctly accounted for.
+                            if (nearTopRowsThisApproach
+                                    < nearTopApproachRowBudget) {
+                                nearTopArmed = false
+                                maybeRequestNearTop(userInitiated)
+                            }
                         }
                         // Ratchet AFTER the gate has read the old value, and on
                         // every in-band sample — including the ones that did not
@@ -4333,6 +4372,9 @@ Rectangle {
                     } else if (fromTop >= nearTopExitDistance) {
                         nearTopArmed = true
                         nearTopRequestDistance = Infinity
+                        // A real departure ends the approach, so returning to
+                        // the top later gets a fresh budget.
+                        nearTopRowsThisApproach = 0
                     }
                 }
 
@@ -5164,6 +5206,17 @@ Rectangle {
                     target: app.pagination
                     function onPaginationCompleted(insertedCount, reachedStart,
                                                    willContinue) {
+                        // Spend the approach's budget on every row that lands
+                        // while the reader is actually in the near-top band.
+                        // Measured BEFORE the early return, so a batch that
+                        // continues is still paid for; and skipped entirely
+                        // for a reader at the live edge, so the room-open
+                        // viewport fill (which has its own row cap) does not
+                        // spend a budget the reader has not begun to use.
+                        if (insertedCount > 0 && !timeline.stickToBottom
+                                && timeline.distanceFromTop()
+                                   <= timeline.nearTopEnterDistance)
+                            timeline.nearTopRowsThisApproach += insertedCount
                         if (insertedCount <= 0 || reachedStart || willContinue)
                             return
                         // A productive page relocated the history edge. Start a
@@ -5347,6 +5400,7 @@ Rectangle {
                         // new room triggers backfill.
                         timeline.nearTopArmed = true
                         timeline.nearTopRequestDistance = Infinity
+                        timeline.nearTopRowsThisApproach = 0
                         timeline.expandedStateGroups = ({})
                         // A fresh room gets a fresh fill-retry budget; the
                         // previous room's spent attempts must not deny this
