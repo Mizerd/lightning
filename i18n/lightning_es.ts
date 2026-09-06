@@ -396,7 +396,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+820"/>
+        <location filename="../src/app/AppController.cpp" line="+831"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -1439,7 +1439,7 @@
         <translation>compartir pantalla</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+18"/>
         <source>Share computer sound</source>
         <translation>Compartir sonido de computadora</translation>
     </message>
@@ -3724,24 +3724,24 @@ Tamaño: %3</translation>
 <context>
     <name>ImageViewerOverlay</name>
     <message>
-        <location filename="../qml/ImageViewerOverlay.qml" line="+212"/>
+        <location filename="../qml/ImageViewerOverlay.qml" line="+264"/>
         <source>Copy image</source>
         <translation>Copiar imagen</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+19"/>
-        <location line="+450"/>
+        <location line="+463"/>
         <source>Save image as…</source>
         <translation>Guardar imagen como…</translation>
     </message>
     <message>
-        <location line="-457"/>
+        <location line="-470"/>
         <source>Close</source>
         <translation>Cerrar</translation>
     </message>
     <message>
-        <location line="+241"/>
+        <location line="+249"/>
         <source>The image could not be loaded.</source>
         <translation>No se ha podido cargar la imagen.</translation>
     </message>
@@ -3761,7 +3761,7 @@ Tamaño: %3</translation>
         <translation>Imagen siguiente</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+42"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
@@ -4459,7 +4459,7 @@ Tamaño: %3</translation>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+581"/>
+        <location line="+586"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -4606,18 +4606,18 @@ Tamaño: %3</translation>
 <context>
     <name>MediaBridge</name>
     <message>
-        <location filename="../src/media/MediaBridge.cpp" line="+1191"/>
-        <location line="+567"/>
+        <location filename="../src/media/MediaBridge.cpp" line="+1200"/>
+        <location line="+594"/>
         <source>The file could not be downloaded.</source>
         <translation>No se ha podido descargar el archivo.</translation>
     </message>
     <message>
-        <location line="-481"/>
+        <location line="-508"/>
         <source>The download timed out.</source>
         <translation>Se ha agotado el tiempo de espera de la descarga.</translation>
     </message>
     <message>
-        <location line="+578"/>
+        <location line="+605"/>
         <source>No destination selected.</source>
         <translation>No se ha seleccionado ningún destino.</translation>
     </message>
@@ -4641,7 +4641,7 @@ Tamaño: %3</translation>
 <context>
     <name>MediaBrowser</name>
     <message>
-        <location filename="../qml/MediaBrowser.qml" line="+43"/>
+        <location filename="../qml/MediaBrowser.qml" line="+53"/>
         <source>Media</source>
         <translation type="unfinished">Multimedia</translation>
     </message>
@@ -4841,7 +4841,7 @@ Tamaño: %3</translation>
 <context>
     <name>MediaHistoryModel</name>
     <message>
-        <location filename="../src/models/MediaHistoryModel.cpp" line="+122"/>
+        <location filename="../src/models/MediaHistoryModel.cpp" line="+123"/>
         <source>Today</source>
         <translation type="unfinished">Hoy</translation>
     </message>
@@ -5911,12 +5911,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2166"/>
+        <location line="+2256"/>
         <source>Save as…</source>
         <translation>Guardar como…</translation>
     </message>
     <message>
-        <location line="-2136"/>
+        <location line="-2226"/>
         <source>Show image</source>
         <translation>Mostrar imagen</translation>
     </message>
@@ -6127,7 +6127,7 @@ Tamaño: %3</translation>
         <translation>(imagen no disponible)</translation>
     </message>
     <message>
-        <location line="+130"/>
+        <location line="+220"/>
         <source>Sticker failed to load — click to retry</source>
         <translation>No se pudo cargar la pegatina — haz clic para reintentar</translation>
     </message>
@@ -7986,7 +7986,7 @@ Tamaño: %3</translation>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+257"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+262"/>
         <source>Choose room avatar</source>
         <translation>Elegir el avatar de la sala</translation>
     </message>
@@ -8022,7 +8022,7 @@ Tamaño: %3</translation>
         <translation>Cerrar la información de la sala</translation>
     </message>
     <message>
-        <location line="-277"/>
+        <location line="-282"/>
         <source>Overview</source>
         <translation>Resumen</translation>
     </message>
@@ -8042,7 +8042,7 @@ Tamaño: %3</translation>
         <translation>Multimedia</translation>
     </message>
     <message>
-        <location line="+408"/>
+        <location line="+413"/>
         <source>Notifications</source>
         <translation>Notificaciones</translation>
     </message>
@@ -8115,12 +8115,12 @@ Tamaño: %3</translation>
         <translation>%1 miembros (%2 invitados)</translation>
     </message>
     <message>
-        <location line="-594"/>
+        <location line="-599"/>
         <source>Widgets</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2153"/>
+        <location line="+2158"/>
         <source>Open</source>
         <translation type="unfinished">Abrir</translation>
     </message>
@@ -9440,12 +9440,12 @@ Tamaño: %3</translation>
         <translation>compartir audio</translation>
     </message>
     <message>
-        <location line="+18"/>
-        <source>Send what this computer is playing, alongside the picture</source>
-        <translation>Envía lo que está reproduciendo esta computadora, junto con la imagen.</translation>
+        <location line="+26"/>
+        <source>Send what this computer is playing, alongside the picture. This includes the call itself, so others hear themselves unless Lightning&apos;s own audio plays on a different output device.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+10"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
     </message>
@@ -15303,12 +15303,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+6035"/>
+        <location line="+6060"/>
         <source>Space</source>
         <translation>Espacio</translation>
     </message>
     <message>
-        <location line="-6034"/>
+        <location line="-6059"/>
         <source>Home</source>
         <translation>Inicio</translation>
     </message>
@@ -15363,12 +15363,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4632"/>
+        <location line="+4657"/>
         <source>Room information</source>
         <translation>Información de la sala</translation>
     </message>
     <message>
-        <location line="-4411"/>
+        <location line="-4436"/>
         <source>This room has been upgraded.</source>
         <translation>Esta sala se ha actualizado.</translation>
     </message>
@@ -15543,7 +15543,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>No se pudo completar la búsqueda.</translation>
     </message>
     <message>
-        <location line="+3684"/>
+        <location line="+3709"/>
         <source>Loading older messages…</source>
         <translation>Cargando mensajes anteriores…</translation>
     </message>
@@ -16348,13 +16348,13 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+52"/>
-        <location line="+384"/>
+        <location line="+389"/>
         <location line="+48"/>
         <source>Dismiss</source>
         <translation>Descartar</translation>
     </message>
     <message>
-        <location line="-419"/>
+        <location line="-424"/>
         <source>Updates haven&apos;t been checked yet.</source>
         <translation>Todavía no se han buscado actualizaciones.</translation>
     </message>
@@ -16469,7 +16469,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>La última actualización se instaló correctamente.</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+10"/>
         <source>The last update could not be installed, and nothing was changed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17016,7 +17016,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>lightning::update::UpdateManager</name>
     <message>
-        <location filename="../src/update/UpdateManager.cpp" line="+1123"/>
+        <location filename="../src/update/UpdateManager.cpp" line="+1130"/>
         <source>The Windows installer refused the update (code %1). Installing the new version over the old one by hand usually works, and the code is worth reporting.</source>
         <translation type="unfinished"></translation>
     </message>

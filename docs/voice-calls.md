@@ -518,13 +518,70 @@ Decisions worth keeping:
 
 ### Screen-share audio
 
-Not captured on any platform, and this is parity rather than a gap:
-xdg-desktop-portal's ScreenCast interface does not offer audio, which is the
-same position Element Call is in on Wayland, and neither `gdiscreencapsrc`
-nor Lightning's own Windows window capture produces audio either. Capturing
-the default sink's monitor instead would share everything the computer plays
-— including the other participants' voices back to them — so it is
-deliberately not done.
+**This section described the pre-0.8.3 position and was left stale when the
+feature shipped.** It said share audio was not captured on any platform, and
+gave as the reason the exact defect the shipped implementation has. The
+accurate record follows.
+
+Share audio IS captured, from 0.8.3, on Linux and Windows. It is a SECOND
+capture, not part of the video stream: xdg-desktop-portal's ScreenCast
+interface has no audio at all (`src/calls/ScreenCastPortal.cpp` asks for none),
+so `SfuMediaEngine::publishShareAudio` builds its own bin and publishes it as
+a separate LiveKit track. The source is chosen by a runtime probe in
+`shareAudioSourceDescription()` (`src/calls/SfuMediaEngine.cpp`):
+
+| Platform | Element | What it captures |
+|---|---|---|
+| Linux | `pulsesrc device=@DEFAULT_MONITOR@` | the default sink's monitor |
+| Windows | `wasapi2src loopback=true` (else `wasapisrc loopback=true`) | loopback of the default render endpoint |
+| macOS | none — the toggle is hidden and no track is published | — |
+
+**Reported 2026-09-06, and it is a design gap rather than a slip: participants
+hear themselves.** Both of those capture the SYSTEM MIX, and Lightning's own
+playback of the other participants is part of that mix, so the share track
+carries everyone's voices back to them.
+
+**A sink monitor is post-mix, so it cannot exclude one contributor.** That is
+true on PulseAudio and on PipeWire alike: the monitor source is the sink's
+output, after every stream has been summed into it. There is no
+"monitor minus this stream" on either. Lightning's own playback is a bare
+`autoaudiosink` with no stream properties set at all
+(`SfuMediaEngine.cpp`, the receive chain), so today it is not even
+IDENTIFIABLE in the graph, let alone excludable.
+
+The three mechanisms that could actually fix it, with what each would cost:
+
+1. **Windows: native process exclusion.** `wasapi2src` supports process
+   loopback — `loopback-mode` (`default` / `include-process-tree` /
+   `exclude-process-tree`) plus `loopback-target-pid`. Setting
+   `loopback-mode=exclude-process-tree` with our own pid is exactly the
+   required semantics and is two properties on the element already in use.
+   It needs Windows 10 20H1 or newer and must be probed for
+   (`g_object_class_find_property`) with a fallback, because on a host where
+   process loopback cannot start the failure mode is SILENCE rather than an
+   echo. NOT implemented: this file's own standing lesson is that three
+   GStreamer properties have been shipped against a call defect without
+   measurement and all three made it worse, and there is no Windows tester
+   in the loop.
+2. **Linux: a virtual-sink swap.** Create a null sink, make it the default
+   while sharing, loop it back to the real device so the user still hears
+   everything, and pin Lightning's own playback to the REAL device rather
+   than the default. The captured monitor is then everything except us. It is
+   correct and it is also invasive — it rearranges the user's audio
+   configuration, has to move already-running streams, and has to restore all
+   of it on every exit path including a crash. Not something to ship without
+   a live two-party call to validate it against.
+3. **Linux: per-application capture.** PipeWire can link a capture stream to
+   another application's output ports, which is how OBS's application-audio
+   capture works. It needs a libpipewire graph client of our own; the
+   `pipewiresrc` element alone cannot express it.
+
+A prerequisite for 2 and 3, and cheap on its own: give our playback stream
+real properties (`application.name`, `media.role`, a stable `node.name`) so
+it can be found in the graph and so the user can move it by hand in a volume
+mixer — which is, today, the only workaround. Until one of the above lands,
+the UI says what the capture contains: `ScreenSharePicker`'s tooltip and the
+call menu's "Share computer sound (includes this call)".
 
 ### NOT TESTED
 

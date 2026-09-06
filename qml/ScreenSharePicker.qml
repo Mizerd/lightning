@@ -768,8 +768,20 @@ AppDialog {
                     });
                 }
                 ToolTip.visible: hovered
+                // SAY WHAT IT ACTUALLY CAPTURES. This takes the default
+                // output's monitor — the whole mix, post-mix — so it
+                // necessarily includes Lightning's own playback of everyone
+                // else, and they hear themselves. A sink monitor cannot
+                // exclude one contributor (see docs/voice-calls.md), so the
+                // only thing that helps today is putting this call's audio on
+                // a different output than the one being captured, which the
+                // system's own volume mixer can do.
                 ToolTip.text: qsTr("Send what this computer is playing, "
-                                   + "alongside the picture")
+                                   + "alongside the picture. This includes "
+                                   + "the call itself, so others hear "
+                                   + "themselves unless Lightning's own "
+                                   + "audio plays on a different output "
+                                   + "device.")
             }
             Item { Layout.fillWidth: true }
             AppButton {

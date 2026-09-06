@@ -55,6 +55,13 @@ AppMenu {
         height: visible ? implicitHeight : 0
         radio: true
         radioSelected: app.groupCall && app.groupCall.shareAudioEnabled
+        // The label stays short because the menu's label column is 200px and
+        // `theShareOptionsMenuShowsItsLabelsWithoutEliding` holds it to that.
+        // What this capture actually contains — the whole output mix, this
+        // call included, because a sink monitor is post-mix and cannot
+        // exclude our own playback — is explained on ScreenSharePicker's
+        // "Share audio" checkbox, which is where the option is first turned
+        // on, and in docs/voice-calls.md.
         text: qsTr("Share computer sound")
         onTriggered: root.actAndStayOpen(function () {
             if (app.groupCall) {

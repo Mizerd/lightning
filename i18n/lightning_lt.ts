@@ -398,7 +398,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+820"/>
+        <location filename="../src/app/AppController.cpp" line="+831"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -1442,7 +1442,7 @@
         <translation>Ekrano bendrinimas</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+18"/>
         <source>Share computer sound</source>
         <translation>Bendrinkite kompiuterio garsą</translation>
     </message>
@@ -3733,24 +3733,24 @@ Dydis: %3</translation>
 <context>
     <name>ImageViewerOverlay</name>
     <message>
-        <location filename="../qml/ImageViewerOverlay.qml" line="+212"/>
+        <location filename="../qml/ImageViewerOverlay.qml" line="+264"/>
         <source>Copy image</source>
         <translation>Kopijuoti vaizdą</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+19"/>
-        <location line="+450"/>
+        <location line="+463"/>
         <source>Save image as…</source>
         <translation>Išsaugoti vaizdą kaip…</translation>
     </message>
     <message>
-        <location line="-457"/>
+        <location line="-470"/>
         <source>Close</source>
         <translation>Uždaryti</translation>
     </message>
     <message>
-        <location line="+241"/>
+        <location line="+249"/>
         <source>The image could not be loaded.</source>
         <translation>Nepavyko įkelti vaizdo.</translation>
     </message>
@@ -3770,7 +3770,7 @@ Dydis: %3</translation>
         <translation>Kitas vaizdas</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+42"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
@@ -4469,7 +4469,7 @@ Dydis: %3</translation>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+581"/>
+        <location line="+586"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -4616,18 +4616,18 @@ Dydis: %3</translation>
 <context>
     <name>MediaBridge</name>
     <message>
-        <location filename="../src/media/MediaBridge.cpp" line="+1191"/>
-        <location line="+567"/>
+        <location filename="../src/media/MediaBridge.cpp" line="+1200"/>
+        <location line="+594"/>
         <source>The file could not be downloaded.</source>
         <translation>Failo atsisiųsti nepavyko.</translation>
     </message>
     <message>
-        <location line="-481"/>
+        <location line="-508"/>
         <source>The download timed out.</source>
         <translation>Baigėsi atsisiuntimo laikas.</translation>
     </message>
     <message>
-        <location line="+578"/>
+        <location line="+605"/>
         <source>No destination selected.</source>
         <translation>Nepasirinktas joks tikslas.</translation>
     </message>
@@ -4651,7 +4651,7 @@ Dydis: %3</translation>
 <context>
     <name>MediaBrowser</name>
     <message>
-        <location filename="../qml/MediaBrowser.qml" line="+43"/>
+        <location filename="../qml/MediaBrowser.qml" line="+53"/>
         <source>Media</source>
         <translation type="unfinished">Medija</translation>
     </message>
@@ -4855,7 +4855,7 @@ Dydis: %3</translation>
 <context>
     <name>MediaHistoryModel</name>
     <message>
-        <location filename="../src/models/MediaHistoryModel.cpp" line="+122"/>
+        <location filename="../src/models/MediaHistoryModel.cpp" line="+123"/>
         <source>Today</source>
         <translation type="unfinished">Šiandien</translation>
     </message>
@@ -5931,12 +5931,12 @@ Dydis: %3</translation>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2166"/>
+        <location line="+2256"/>
         <source>Save as…</source>
         <translation>Išsaugoti kaip…</translation>
     </message>
     <message>
-        <location line="-2136"/>
+        <location line="-2226"/>
         <source>Show image</source>
         <translation>Rodyti vaizdą</translation>
     </message>
@@ -6142,7 +6142,7 @@ Dydis: %3</translation>
         <translation>(vaizdas nepasiekiamas)</translation>
     </message>
     <message>
-        <location line="+130"/>
+        <location line="+220"/>
         <source>Sticker failed to load — click to retry</source>
         <translation>Lipduko įkelti nepavyko – spustelėkite, kad bandytumėte dar kartą</translation>
     </message>
@@ -8006,7 +8006,7 @@ Dydis: %3</translation>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+257"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+262"/>
         <source>Choose room avatar</source>
         <translation>Pasirinkite kambario avatarą</translation>
     </message>
@@ -8042,7 +8042,7 @@ Dydis: %3</translation>
         <translation>Uždaryti kambario informaciją</translation>
     </message>
     <message>
-        <location line="-277"/>
+        <location line="-282"/>
         <source>Overview</source>
         <translation>Apžvalga</translation>
     </message>
@@ -8062,7 +8062,7 @@ Dydis: %3</translation>
         <translation>Medija</translation>
     </message>
     <message>
-        <location line="+408"/>
+        <location line="+413"/>
         <source>Notifications</source>
         <translation>Pranešimai</translation>
     </message>
@@ -8135,12 +8135,12 @@ Dydis: %3</translation>
         <translation>%1 nariai (%2 pakviesti)</translation>
     </message>
     <message>
-        <location line="-594"/>
+        <location line="-599"/>
         <source>Widgets</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2153"/>
+        <location line="+2158"/>
         <source>Open</source>
         <translation type="unfinished">Atidaryti</translation>
     </message>
@@ -9462,12 +9462,12 @@ Dydis: %3</translation>
         <translation>Bendrinkite garsą</translation>
     </message>
     <message>
-        <location line="+18"/>
-        <source>Send what this computer is playing, alongside the picture</source>
-        <translation>Siųskite, ką šis kompiuteris groja, kartu su nuotrauka</translation>
+        <location line="+26"/>
+        <source>Send what this computer is playing, alongside the picture. This includes the call itself, so others hear themselves unless Lightning&apos;s own audio plays on a different output device.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+10"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
@@ -15335,12 +15335,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+6035"/>
+        <location line="+6060"/>
         <source>Space</source>
         <translation>Erdvė</translation>
     </message>
     <message>
-        <location line="-6034"/>
+        <location line="-6059"/>
         <source>Home</source>
         <translation>Pradžia</translation>
     </message>
@@ -15395,12 +15395,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4632"/>
+        <location line="+4657"/>
         <source>Room information</source>
         <translation>Informacija apie kambarį</translation>
     </message>
     <message>
-        <location line="-4411"/>
+        <location line="-4436"/>
         <source>This room has been upgraded.</source>
         <translation>Šis kambarys buvo atnaujintas.</translation>
     </message>
@@ -15575,7 +15575,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Paieškos užbaigti nepavyko.</translation>
     </message>
     <message>
-        <location line="+3684"/>
+        <location line="+3709"/>
         <source>Loading older messages…</source>
         <translation>Įkeliami senesni pranešimai…</translation>
     </message>
@@ -16388,13 +16388,13 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+52"/>
-        <location line="+384"/>
+        <location line="+389"/>
         <location line="+48"/>
         <source>Dismiss</source>
         <translation>Atsisakyti</translation>
     </message>
     <message>
-        <location line="-419"/>
+        <location line="-424"/>
         <source>Updates haven&apos;t been checked yet.</source>
         <translation>Atnaujinimai dar nebuvo patikrinti.</translation>
     </message>
@@ -16509,7 +16509,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Paskutinis naujinimas buvo sėkmingai įdiegtas.</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+10"/>
         <source>The last update could not be installed, and nothing was changed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17056,7 +17056,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>lightning::update::UpdateManager</name>
     <message>
-        <location filename="../src/update/UpdateManager.cpp" line="+1123"/>
+        <location filename="../src/update/UpdateManager.cpp" line="+1130"/>
         <source>The Windows installer refused the update (code %1). Installing the new version over the old one by hand usually works, and the code is worth reporting.</source>
         <translation type="unfinished"></translation>
     </message>
