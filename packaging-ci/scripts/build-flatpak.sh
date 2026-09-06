@@ -18,7 +18,7 @@ load_versions
 
 SOURCE_DIR="$ROOT/work/lightning"
 FLATPAK_WORK="$ROOT/work/flatpak"
-MANIFEST_TEMPLATE="$ROOT/packaging/flatpak/org.lightning_matrix.Lightning.yaml.in"
+MANIFEST_TEMPLATE="$ROOT/packaging-ci/packaging/flatpak/org.lightning_matrix.Lightning.yaml.in"
 MANIFEST="$FLATPAK_WORK/org.lightning_matrix.Lightning.yaml"
 REPO_DIR="$FLATPAK_WORK/repo"
 BUILD_DIR="$FLATPAK_WORK/build"

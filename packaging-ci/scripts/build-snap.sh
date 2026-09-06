@@ -20,7 +20,7 @@ APPDIR_TAR="dist/lightning-appdir-${LOGICAL_VERSION}.tar.zst"
 SNAP_WORK="$ROOT/work/snap"
 TREE="$SNAP_WORK/prime"
 OUT="dist/lightning_${LOGICAL_VERSION}_amd64.snap"
-TEMPLATE="$ROOT/packaging/snap/snap.yaml.in"
+TEMPLATE="$ROOT/packaging-ci/packaging/snap/snap.yaml.in"
 
 test -f "$APPDIR_TAR" || die "missing $APPDIR_TAR (build-appimage artifact)"
 test -f "$TEMPLATE" || die "snap.yaml template missing"

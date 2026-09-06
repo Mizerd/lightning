@@ -171,12 +171,12 @@ patchelf --remove-rpath "$STAGE_DIR/usr/bin/lightning-updater"
 # icons via cmake --install; the copy here is only a fallback so older
 # pinned source SHAs (pre-icon) can still be rebuilt.
 if [ ! -f "$STAGE_DIR/usr/share/applications/lightning.desktop" ]; then
-    install -Dm0644 "$ROOT/packaging/common/lightning.desktop" \
+    install -Dm0644 "$ROOT/packaging-ci/packaging/common/lightning.desktop" \
         "$STAGE_DIR/usr/share/applications/lightning.desktop"
 fi
-install -Dm0644 "$ROOT/packaging/common/lightning.metainfo.xml" \
+install -Dm0644 "$ROOT/packaging-ci/packaging/common/lightning.metainfo.xml" \
     "$STAGE_DIR/usr/share/metainfo/lightning.metainfo.xml"
-install -Dm0644 "$ROOT/packaging/common/copyright" \
+install -Dm0644 "$ROOT/packaging-ci/packaging/common/copyright" \
     "$STAGE_DIR/usr/share/licenses/lightning/copyright"
 install -Dm0644 "$SOURCE_DIR/LICENSE" \
     "$STAGE_DIR/usr/share/doc/lightning/LICENSE"

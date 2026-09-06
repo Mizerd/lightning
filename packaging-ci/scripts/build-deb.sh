@@ -21,13 +21,13 @@ cp -a "$STAGE/." "$PKGROOT/"
 strip "$PKGROOT/usr/bin/lightning-matrix"
 strip "$PKGROOT/usr/bin/lightning-updater"
 
-install -Dm0644 "$ROOT/packaging/common/copyright" \
+install -Dm0644 "$ROOT/packaging-ci/packaging/common/copyright" \
     "$PKGROOT/usr/share/doc/lightning/copyright"
 
 # Debian requires a changelog (lintian error: no-changelog). This is a native
 # package (no Debian revision), so it must be shipped as changelog.gz compressed
 # at maximum level. Reproducible content beyond the wall-clock build date.
-MAINTAINER="$(sed -n 's/^Maintainer:[[:space:]]*//p' "$ROOT/packaging/deb/control")"
+MAINTAINER="$(sed -n 's/^Maintainer:[[:space:]]*//p' "$ROOT/packaging-ci/packaging/deb/control")"
 {
     printf 'lightning (%s) unstable; urgency=medium\n\n' "$DEB_VERSION"
     printf '  * Automated package build from Lightning source %s.\n\n' "$SOURCE_SHA"
@@ -120,7 +120,7 @@ IMAGE_DEPENDS="qt6-image-formats-plugins"
 IMAGE_RECOMMENDS="kimageformat6-plugins"
 
 {
-    cat "$ROOT/packaging/deb/control"
+    cat "$ROOT/packaging-ci/packaging/deb/control"
     printf 'Version: %s\n' "$DEB_VERSION"
     printf 'Depends: %s, %s, %s, %s\n' \
         "$SHLIBS" "$QML_DEPENDS" "$CALL_DEPENDS" "$IMAGE_DEPENDS"
@@ -130,8 +130,8 @@ IMAGE_RECOMMENDS="kimageformat6-plugins"
     # stay the user's own hunspell-* packages.
     printf 'Recommends: %s, libenchant-2-2\n' "$IMAGE_RECOMMENDS"
 } >"$CONTROL/control"
-install -m0755 "$ROOT/packaging/deb/postinst" "$CONTROL/postinst"
-install -m0755 "$ROOT/packaging/deb/postrm" "$CONTROL/postrm"
+install -m0755 "$ROOT/packaging-ci/packaging/deb/postinst" "$CONTROL/postinst"
+install -m0755 "$ROOT/packaging-ci/packaging/deb/postrm" "$CONTROL/postrm"
 
 PACKAGE="$ROOT/dist/lightning_${DEB_VERSION}_amd64.deb"
 dpkg-deb --build --root-owner-group "$PKGROOT" "$PACKAGE"

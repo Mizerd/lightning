@@ -13,7 +13,11 @@ import sys
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CI = os.path.join(HERE, "..", ".gitlab-ci.yml")
+# The pipeline entry point lives at the REPOSITORY root, one level above this
+# packaging tree: GitLab only reads .gitlab-ci.yml from the root, and since
+# the packaging project was folded into the application repository this
+# directory is no longer that root.
+CI = os.path.join(HERE, "..", "..", ".gitlab-ci.yml")
 
 errors = []
 
@@ -355,11 +359,11 @@ check("openssl" in resolve_before,
 
 config_tests = doc["config-tests"]
 config_script = yaml.dump(config_tests.get("script", []))
-check("./tests/test-update-manifest.sh" in config_script,
+check("./packaging-ci/tests/test-update-manifest.sh" in config_script,
       "config-tests runs the update-manifest suite")
 check("openssl" in yaml.dump(config_tests.get("before_script", [])),
       "config-tests installs openssl for the update-manifest suite")
-check("./tests/test-windows-version-resources.sh" in config_script,
+check("./packaging-ci/tests/test-windows-version-resources.sh" in config_script,
       "config-tests runs the Windows version-resource suite")
 config_before = yaml.dump(config_tests.get("before_script", []))
 # A COMPLETE toolchain, not just a compiler driver. Pipelines 99 and 100 both
@@ -844,7 +848,11 @@ def _strip_shell_comments(text):
 
 
 def _read(*parts):
-    with open(os.path.join(HERE, "..", *parts), encoding="utf-8") as handle:
+    # The pipeline entry point sits at the repository root; everything else
+    # this reads (scripts, packaging, tests) lives inside the packaging tree.
+    base = (HERE, "..", "..") if parts and parts[0] == ".gitlab-ci.yml" \
+        else (HERE, "..")
+    with open(os.path.join(*base, *parts), encoding="utf-8") as handle:
         return handle.read()
 
 

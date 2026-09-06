@@ -195,10 +195,10 @@ else
 fi
 
 cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
-    -DCMAKE_TOOLCHAIN_FILE="$ROOT/packaging/windows/toolchain-mingw64.cmake" \
+    -DCMAKE_TOOLCHAIN_FILE="$ROOT/packaging-ci/packaging/windows/toolchain-mingw64.cmake" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG -ffile-prefix-map=$SOURCE_DIR=/usr/src/lightning -ffile-prefix-map=$ROOT=/usr/src/lightning-deploy" \
-    -DCMAKE_PROJECT_INCLUDE="$ROOT/packaging/windows/version-resources.cmake" \
+    -DCMAKE_PROJECT_INCLUDE="$ROOT/packaging-ci/packaging/windows/version-resources.cmake" \
     -DLIGHTNING_APP_VERSION_OBJECT="$BUILD_DIR/lightning-version.o" \
     -DLIGHTNING_UPDATER_VERSION_OBJECT="$BUILD_DIR/lightning-updater-version.o" \
     -DBUILD_TESTING=OFF \
@@ -253,7 +253,7 @@ cp /usr/local/share/lightning-windows-rpms.txt "$REPORT_DIR/builder-rpms.txt"
 # that says which PE files are ours and which are upstream.
 python3 "$SCRIPT_DIR/verify-windows-metadata.py" \
     --stage "$STAGE_DIR" \
-    --inventory "$ROOT/packaging/windows/signing-inventory.json" \
+    --inventory "$ROOT/packaging-ci/packaging/windows/signing-inventory.json" \
     --version "$BASE_VERSION" \
     --publisher "$WIN_PUBLISHER" \
     --report "$REPORT_DIR/windows-signing-inventory.json"
@@ -376,7 +376,7 @@ makensis '-XTarget amd64-unicode' \
     "-DCOPYRIGHT=$WIN_COPYRIGHT" \
     "-DSTAGE_DIR=$STAGE_DIR" \
     "-DOUTPUT_FILE=$setup" \
-    "$ROOT/packaging/windows/installer.nsi" \
+    "$ROOT/packaging-ci/packaging/windows/installer.nsi" \
     2>&1 | tee "$REPORT_DIR/nsis.log"
 sign_windows_file "$setup"
 

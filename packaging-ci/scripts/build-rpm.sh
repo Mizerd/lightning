@@ -11,7 +11,7 @@ LIGHTNING_INSTALL_TYPE=linux-rpm "$SCRIPT_DIR/configure-build.sh"
 
 TOPDIR="$ROOT/work/rpmbuild"
 mkdir -p "$TOPDIR"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-rpmbuild -bb "$ROOT/packaging/rpm/lightning.spec" \
+rpmbuild -bb "$ROOT/packaging-ci/packaging/rpm/lightning.spec" \
     --define "_topdir $TOPDIR" \
     --define "pkg_version $RPM_VERSION" \
     --define "pkg_release $RPM_RELEASE" \
