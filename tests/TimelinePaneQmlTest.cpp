@@ -5246,8 +5246,19 @@ private Q_SLOTS:
         // while a gesture is held. The spare also keeps the last sampled
         // batch away from the reached-start transition.
         constexpr int kBatches = 3;
+        // GENEROUS ON PURPOSE, and it must stay that way. This case measures
+        // ANCHOR COMPENSATION across controller-driven batches; it is not a
+        // test of the near-top continuation bound. Sizing the fixture to
+        // exactly the batches it drives made it depend on that bound by
+        // accident: once kMaxNearTopEmptyStrikes went 4 -> 12 (call rooms
+        // filter out most of their history, so empty pages are normal), the
+        // controller's own continuation drained the remaining pages and the
+        // offsets below were sampled while the chain was still running.
+        // Headroom beyond any plausible bound keeps the two independent.
         mock->resetTimelineForTest(roomId, events,
-                                   /*paginationPages=*/2 + kBatches);
+                                   /*paginationPages=*/2 + kBatches
+                                       + PaginationController::
+                                             kMaxNearTopEmptyStrikes);
         QList<TimelineEvent> chunk;
         for (int i = 0; i < 20; ++i) {
             TimelineEvent e;
