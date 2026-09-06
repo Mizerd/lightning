@@ -22,6 +22,36 @@
 // This is presentation metadata only. It never affects routing, sending,
 // encryption, or any protocol decision, and a wrong answer costs a wrong
 // label and nothing else.
+//
+// WHY THE BADGE IS EFFECTIVELY DM-ONLY (established 2026-09-06 from a tester
+// report: "it only shows on DMs for me"). It is not written as a DM test —
+// it is written as "ghost mxid first, canonical alias second" — but only one
+// of those two inputs is ever populated in practice:
+//
+//   * `directUserId` comes from `Room::direct_targets()`, which matrix-sdk
+//     fills ONLY from the `m.direct` global account data. So the ghost mxid
+//     — the reliable signal — reaches this function for a room the account
+//     has marked as a direct chat, and for nothing else. A bridged GROUP has
+//     ghosts all through its member list and this never looks there.
+//   * `canonicalAlias` is populated for every room, and the alias branch
+//     works (it is unit-tested), but mautrix-family bridges do not publish a
+//     canonical alias for portal rooms by default, so it is empty.
+//
+// A bridged room that is not a DM therefore has nothing to match on. It is
+// NOT that the bridge fails to advertise itself: it advertises through
+// MSC2346 `uk.half-shot.bridge` room state, which carries the protocol id and
+// display name explicitly and is what Element reads for its Bridge Info
+// panel. Lightning has never read that event.
+//
+// Reading it is a real change rather than a line: `Room::get_state_events` is
+// STORE-ONLY in matrix-sdk 0.18 and `uk.half-shot.bridge` is not in sliding
+// sync's `required_state` (which `RoomListService::subscribe_to_rooms` gives
+// no way to extend), so the store answer is empty for every room and it would
+// need a raw `/state` read — exactly the shape `widgets.rs` and `banner.rs`
+// already have. One request per room is fine on demand in the room info
+// panel; it is not fine for a room-list badge, which is where the badge
+// currently lives (`qml/RoomDelegate.qml`, and nowhere else — the Channels
+// navigation layout's `ChannelDelegate.qml` has no network tag either).
 namespace matrix::bridge {
 
 // Canonical network id ("whatsapp", "signal", …) or an empty string when the
