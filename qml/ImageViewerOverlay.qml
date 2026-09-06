@@ -67,9 +67,19 @@ Popup {
     property string bridgeSource: ""
     property string animatedSource: ""
     property bool bridgeFailed: false
-    readonly property bool isGif:
-        current !== null && current.mime === "image/gif"
-    // The viewer is explicit user intent: GIFs animate unless autoplay is
+    readonly property string currentMime:
+        current !== null ? (current.mime || "").toLowerCase() : ""
+    // NOT a mimetype test any more, and the difference is the whole point.
+    // An `m.sticker`'s `info.mimetype` is optional under MSC2545, so a GIF
+    // sticker routinely arrives with no declared type at all and used to
+    // open here as a frozen frame. The BYTES decide: this only says "worth
+    // asking about", and MediaBridge.animatedExtensionFor answers from the
+    // container magic. A payload that says it is a PNG or a JPEG is taken at
+    // its word for the sole purpose of not asking.
+    readonly property bool maybeAnimated:
+        current !== null && (currentMime === "" || currentMime === "image/gif"
+                             || currentMime === "image/webp")
+    // The viewer is explicit user intent: animations play unless autoplay is
     // globally Never (2). Matches the timeline's tri-state policy instead
     // of the legacy boolean.
     readonly property bool animateGifs: app.settings.gifAutoplay !== 2
@@ -110,10 +120,15 @@ Popup {
         if (!usesBridge || current === null)
             return
         bridgeFailed = false
-        if (isGif && animateGifs)
-            animatedSource = app.mediaBridge.animatedSource(current.mediaKey)
-        else
-            bridgeSource = app.mediaBridge.mediaSource(current.mediaKey, "full")
+        // BOTH, always. They share one cache key ("full:"), so this is one
+        // fetch; the still frame is what is drawn until — and unless — the
+        // animation is validated and decodable. Asking for the animation is
+        // SPECULATIVE (see MediaBridge::animatedSource): a payload that is
+        // not one answers with silence rather than marking the key failed,
+        // which would put an error card over a perfectly good picture.
+        if (maybeAnimated && animateGifs)
+            animatedSource = app.mediaBridge.animatedSource(current.mediaKey, true)
+        bridgeSource = app.mediaBridge.mediaSource(current.mediaKey, "full")
     }
 
     function showAt(index) {
@@ -185,8 +200,9 @@ Popup {
                 viewer.bridgeSource = app.mediaBridge.cachedSource(cacheKey)
         }
         function onAnimatedMediaReady(cacheKey) {
-            if (cacheKey === viewer.bridgeCacheKey)
-                viewer.animatedSource = app.mediaBridge.animatedSource(viewer.current.mediaKey)
+            if (cacheKey === viewer.bridgeCacheKey && viewer.current !== null)
+                viewer.animatedSource =
+                    app.mediaBridge.animatedSource(viewer.current.mediaKey, true)
         }
         function onMediaFetchFailed(cacheKey, category) {
             if (cacheKey === viewer.bridgeCacheKey)
@@ -367,7 +383,11 @@ Popup {
                     // Static image path.
                     Image {
                         id: staticImage
-                        visible: !viewer.isGif || !viewer.animateGifs
+                        // The still frame is the default AND the fallback: it
+                        // yields only once the AnimatedImage actually reports
+                        // Ready, so a build whose plugins cannot decode the
+                        // animation shows the picture instead of nothing.
+                        visible: !animatedImage.visible
                         anchors.centerIn: parent
                         width: viewer.baseWidth * viewer.zoom
                         height: viewer.baseHeight * viewer.zoom
@@ -391,8 +411,9 @@ Popup {
                     // Animated GIF path.
                     AnimatedImage {
                         id: animatedImage
-                        visible: viewer.isGif && viewer.animateGifs
+                        visible: viewer.animateGifs
                                  && viewer.animatedSource.length > 0
+                                 && status === AnimatedImage.Ready
                         anchors.centerIn: parent
                         width: viewer.baseWidth * viewer.zoom
                         height: viewer.baseHeight * viewer.zoom
@@ -400,7 +421,10 @@ Popup {
                         smooth: true
                         cache: false
                         playing: visible && viewer.opened
-                        source: visible ? viewer.animatedSource : ""
+                        // NOT gated on `visible`: `visible` waits for Ready,
+                        // and a source that only appears once the image is
+                        // ready can never become ready.
+                        source: viewer.animateGifs ? viewer.animatedSource : ""
                         onStatusChanged: {
                             if (status === Image.Ready && viewer.baseWidth === 0)
                                 viewer.fitImage(implicitWidth, implicitHeight)

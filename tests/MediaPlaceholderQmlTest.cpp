@@ -421,6 +421,82 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
+    // A STICKER HAS AN ANIMATED PATH AT ALL, AND ITS GATE IS NOT THE LABEL.
+    //
+    // The reported defect: an animated GIF sent as a sticker never animated
+    // in Lightning while the same event animated in Element. stickerComponent
+    // drew a single `Image` and had no `AnimatedImage` anywhere in it, so no
+    // sticker could animate whatever its type — and the type is frequently
+    // unknown anyway, because `info.mimetype` is OPTIONAL for an `m.sticker`
+    // under MSC2545 and rust/src/timeline.rs forwards it only when present.
+    //
+    // Both halves are asserted here: the animated item EXISTS, and the
+    // "worth asking the bridge about this payload" policy treats an ABSENT
+    // mimetype as unknown-so-ask rather than as not-a-GIF. On the unfixed
+    // tree the findChild returns nullptr and `maybeAnimated` does not exist.
+    void anUnlabelledStickerStillReachesTheAnimatedPath()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isSticker"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 256);
+        fixture.insert(QStringLiteral("mediaHeight"), 256);
+        fixture.insert(QStringLiteral("body"), QStringLiteral("wave"));
+        fixture.insert(QStringLiteral("mediaFilename"), QStringLiteral("wave"));
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaKey"), QStringLiteral("$sticker"));
+        // Exactly what an MSC2545 sticker without info.mimetype delivers.
+        fixture.insert(QStringLiteral("mediaMimetype"), QString{});
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *sticker = d.root->findChild<QQuickItem *>(
+            QStringLiteral("stickerMedia"));
+        QVERIFY(sticker != nullptr);
+        auto *animated = d.root->findChild<QQuickItem *>(
+            QStringLiteral("stickerAnimatedMedia"));
+        QVERIFY2(animated != nullptr,
+                 "a sticker with no AnimatedImage can never animate");
+        QVERIFY(sticker->property("maybeAnimated").isValid());
+        QCOMPARE(sticker->property("maybeAnimated").toBool(), true);
+        // No bytes have arrived, so the still frame is what is drawn — the
+        // animated item must NOT have taken over on an empty source.
+        QCOMPARE(animated->property("animating").toBool(), false);
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
+    // The declared type is still USED, in the one direction that costs
+    // nothing to get wrong: a sticker that says it is a PNG is taken at its
+    // word for the sole purpose of not asking for a second full payload.
+    void aStickerThatDeclaresAStillFormatDoesNotAskForAnAnimation()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isSticker"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 256);
+        fixture.insert(QStringLiteral("mediaHeight"), 256);
+        fixture.insert(QStringLiteral("body"), QStringLiteral("still"));
+        fixture.insert(QStringLiteral("mediaFilename"), QStringLiteral("still"));
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaKey"), QStringLiteral("$still"));
+        fixture.insert(QStringLiteral("mediaMimetype"),
+                       QStringLiteral("image/png"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *sticker = d.root->findChild<QQuickItem *>(
+            QStringLiteral("stickerMedia"));
+        QVERIFY(sticker != nullptr);
+        // Existence FIRST. An absent property answers `false` to toBool()
+        // just as loudly as a real `false` does, so without this the case
+        // would pass on a tree that has no such policy at all — the vacuous
+        // assertion recorded in CLAUDE.md §16, in its usual costume.
+        QVERIFY2(sticker->property("maybeAnimated").isValid(),
+                 "the sticker delegate has no animation policy to test");
+        QCOMPARE(sticker->property("maybeAnimated").toBool(), false);
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
     // A plain file (body defaults to the filename) must render the filename
     // once — inside the file card — never a second time as a duplicate body
     // line beneath it. A genuine distinct caption is still shown.

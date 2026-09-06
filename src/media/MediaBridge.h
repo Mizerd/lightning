@@ -79,9 +79,21 @@ public:
     Q_INVOKABLE QString mxcImageSource(const QString &mxcUri, int edge);
     // Provider URL for an already-cached key ("" when evicted meanwhile).
     Q_INVOKABLE QString cachedSource(const QString &cacheKey) const;
-    // Confirmed GIFs use original SDK-fetched/decrypted bytes written
+    // Animatable media uses original SDK-fetched/decrypted bytes written
     // atomically beneath a short-lived account/session cache directory.
-    Q_INVOKABLE QString animatedSource(const QString &mediaKey);
+    // `animatedExtensionFor` decides from the MAGIC whether the payload is
+    // one; nothing here trusts a declared mimetype.
+    //
+    // `speculative` is the sticker case. A caller that KNOWS the payload is
+    // an animation (the timeline's image path, gated on an `image/gif`
+    // mimetype) renders nothing when the materialization fails, so it is
+    // owed mediaFetchFailed("invalid_gif"). A caller that is ASKING — a
+    // sticker, whose `info.mimetype` is optional under MSC2545 and often
+    // absent — already draws the same bytes as a still Image, so a "not an
+    // animation" answer must be silent: marking the key failed there would
+    // replace a perfectly good picture with a retry card.
+    Q_INVOKABLE QString animatedSource(const QString &mediaKey,
+                                       bool speculative = false);
     // v0.7: inline video/audio playback. Same secure materialization
     // contract as animatedSource — SDK-fetched/decrypted bytes, validated
     // by container magic, written 0600 inside the session's 0700 temp dir
@@ -400,11 +412,27 @@ private:
     // thumbnail results with the parent's mimetype anyway — so the bytes,
     // not the label, decide whether the payload may enter the image path.
     static bool looksLikeAvContainer(const QByteArray &bytes);
+public:
+    // The file suffix an ANIMATABLE payload must be written under ("gif",
+    // "webp"), or "" when the bytes are not an animation this client can
+    // play. Static + public so the validation tests can drive it directly.
+    //
+    // BYTES ONLY, and that is the point. The declared mimetype used to be
+    // required to be exactly "image/gif" here, and the declared mimetype
+    // for a STICKER is optional under MSC2545 — `MsgLikeKind::Sticker` in
+    // rust/src/timeline.rs forwards `info.mimetype` only when the sender
+    // supplied one, so a GIF sticker arrived with an empty label and could
+    // never be materialized as an animation. A label is also the weaker
+    // authority in the direction that matters for safety: this file already
+    // refuses SVG and A/V payloads by magic precisely because the label is
+    // attacker-chosen (CLAUDE.md §6). Deciding here on the magic alone is
+    // strictly narrower than "the label AND the magic agreed", never wider.
+    static QString animatedExtensionFor(const QByteArray &bytes);
+private:
     static QString sanitizedFileName(const QString &name);
     void writeSaveFile(const QUrl &destination, const QByteArray &bytes,
                        const QString &mediaKey);
-    QString writeAnimatedFile(const QString &cacheKey, const QByteArray &bytes,
-                              const QString &mimetype);
+    QString writeAnimatedFile(const QString &cacheKey, const QByteArray &bytes);
     // 2026-08-20: playable payloads are written on PlayableFileWriter's
     // worker thread (see that header for the measurement that motivated
     // it). Everything that must fail CLOSED still runs here, before a
@@ -554,6 +582,10 @@ private:
     QHash<QString, qint64> m_animatedSizes;
     QList<QString> m_animatedLru;
     QSet<QString> m_animatedWanted;
+    // The subset of m_animatedWanted whose askers included at least one
+    // non-speculative caller — see animatedSource(). Only those keys report
+    // mediaFetchFailed("invalid_gif") when the payload is not an animation.
+    QSet<QString> m_animatedDemanded;
     // v0.7: playable (video/audio) materialization registry. Shares the
     // session temp dir with the animated path but has its own, larger LRU
     // budget so one video cannot evict every GIF (or vice versa). The

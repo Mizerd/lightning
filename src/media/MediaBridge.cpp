@@ -24,6 +24,8 @@
 #include <QSaveFile>
 #include <QUuid>
 
+#include <cstring>
+
 // v0.7: media/avatar pipeline diagnostics. Enabled with
 //   QT_LOGGING_RULES="lightning.media.debug=true"
 // (offscreen/smoke runs force these to stderr — see main.cpp). The category
@@ -564,7 +566,7 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
     return {};
 }
 
-QString MediaBridge::animatedSource(const QString &mediaKey)
+QString MediaBridge::animatedSource(const QString &mediaKey, bool speculative)
 {
     if (mediaKey.isEmpty() || mediaKey.contains(QLatin1String("send-queue.localhost"))
         || !supported())
@@ -577,12 +579,19 @@ QString MediaBridge::animatedSource(const QString &mediaKey)
         return QUrl::fromLocalFile(path).toString();
     }
     m_animatedWanted.insert(cacheKey);
+    // A DEMANDING caller (the timeline's confirmed-GIF image path) is owed a
+    // terminal answer when the bytes turn out not to be an animation, because
+    // it renders nothing else. A SPECULATIVE caller — a sticker, whose type
+    // the sender may never have declared — is asking a question, and "no"
+    // is a valid answer that must not mark the key failed: its still Image
+    // is drawing the same bytes and would be replaced by an error card.
+    if (!speculative)
+        m_animatedDemanded.insert(cacheKey);
     if (failureBlocks(cacheKey))
         return {};
     const QByteArray cached = cachedBytes(cacheKey);
     if (!cached.isEmpty()) {
-        const QString written = writeAnimatedFile(cacheKey, cached,
-                                                   QStringLiteral("image/gif"));
+        const QString written = writeAnimatedFile(cacheKey, cached);
         return written.isEmpty() ? QString{} : QUrl::fromLocalFile(written).toString();
     }
     if (!alreadyPending(cacheKey)) {
@@ -942,7 +951,7 @@ QString MediaBridge::previewAnimatedSource(const QString &dataSource,
         m_animatedLru.prepend(cacheKey);
         return QUrl::fromLocalFile(existing).toString();
     }
-    const QString path = writeAnimatedFile(cacheKey, bytes, mimetype);
+    const QString path = writeAnimatedFile(cacheKey, bytes);
     return path.isEmpty() ? QString{} : QUrl::fromLocalFile(path).toString();
 }
 
@@ -1441,10 +1450,13 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     m_burstBytes += static_cast<qint64>(bytes.size());
     noteMediaActivity();
     if (m_animatedWanted.remove(request.cacheKey)) {
-        if (!writeAnimatedFile(request.cacheKey, bytes, mimetype).isEmpty())
+        const bool demanded = m_animatedDemanded.remove(request.cacheKey);
+        if (!writeAnimatedFile(request.cacheKey, bytes).isEmpty())
             Q_EMIT animatedMediaReady(request.cacheKey);
-        else
+        else if (demanded)
             Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("invalid_gif"));
+        // A speculative asker gets silence: the bytes are cached and its
+        // still Image is about to draw them from mediaCached() below.
     }
     if (playableWanted || prefetchWanted) {
         // The write runs on the worker thread; playableMediaReady, the
@@ -1639,6 +1651,7 @@ void MediaBridge::dropQueuedSpeculative()
         if (p.priority == 3 && !p.saveRequest && !p.starRequest
             && !m_playableWanted.contains(p.cacheKey)) {
             m_animatedWanted.remove(p.cacheKey);
+            m_animatedDemanded.remove(p.cacheKey);
             // Speculative playable prefetches (and their poster hooks) are
             // exactly as irrelevant after a room switch as GIF prefetches.
             m_prefetchWanted.remove(p.cacheKey);
@@ -1675,20 +1688,42 @@ void MediaBridge::promoteQueuedRequest(const QString &cacheKey, int priority,
     }
 }
 
-QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
-                                       const QByteArray &bytes,
-                                       const QString &mimetype)
+QString MediaBridge::animatedExtensionFor(const QByteArray &bytes)
 {
-    constexpr qsizetype maxGifBytes = 20 * 1024 * 1024;
-    if (mimetype.section(QLatin1Char(';'), 0, 0).trimmed().toLower()
-            != QLatin1String("image/gif")
-        || bytes.size() < 10 || bytes.size() > maxGifBytes
-        || !(bytes.startsWith("GIF87a") || bytes.startsWith("GIF89a"))
+    if (bytes.size() < 12)
+        return {};
+    if (bytes.startsWith("GIF87a") || bytes.startsWith("GIF89a"))
+        return QStringLiteral("gif");
+    // Animated WebP, and ONLY animated: a still WebP must keep taking the
+    // ordinary Image path, or every WebP sticker would be handed to an
+    // AnimatedImage for nothing. The container is RIFF....WEBP, and an
+    // animation is required by the spec to carry an extended header chunk
+    // ("VP8X") whose flags byte has the ANIMATION bit (0x02) set — a still
+    // WebP is "VP8 " or "VP8L", or a "VP8X" without that bit.
+    if (bytes.size() >= 21 && bytes.startsWith("RIFF")
+        && std::memcmp(bytes.constData() + 8, "WEBP", 4) == 0
+        && std::memcmp(bytes.constData() + 12, "VP8X", 4) == 0
+        && (static_cast<unsigned char>(bytes.at(20)) & 0x02u) != 0)
+        return QStringLiteral("webp");
+    // APNG is deliberately absent: Qt's PNG handler reports no animation
+    // support, so writing one here would hand an AnimatedImage a file it
+    // renders as a single frame while suppressing the still Image that
+    // already renders exactly that. Nothing would be gained and the
+    // fallback path would be exercised for every APNG.
+    return {};
+}
+
+QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
+                                       const QByteArray &bytes)
+{
+    constexpr qsizetype maxAnimatedBytes = 20 * 1024 * 1024;
+    const QString extension = animatedExtensionFor(bytes);
+    if (extension.isEmpty() || bytes.size() > maxAnimatedBytes
         || !m_animatedDir || !m_animatedDir->isValid())
         return {};
     const QString name = QString::fromLatin1(
         QCryptographicHash::hash(cacheKey.toUtf8(), QCryptographicHash::Sha256).toHex())
-        + QStringLiteral(".gif");
+        + QLatin1Char('.') + extension;
     const QString path = m_animatedDir->filePath(name);
     QSaveFile file(path);
     // 0600 BEFORE the bytes are written, like PlayableFileWriter and the
@@ -1725,6 +1760,7 @@ void MediaBridge::dropInterestSets(const QString &cacheKey)
     // retry re-expresses interest from scratch.
     m_playableWanted.remove(cacheKey);
     m_animatedWanted.remove(cacheKey);
+    m_animatedDemanded.remove(cacheKey);
     m_prefetchWanted.remove(cacheKey);
     m_posterWanted.remove(cacheKey);
 }
@@ -2028,6 +2064,7 @@ void MediaBridge::clear()
     m_animatedSizes.clear();
     m_animatedLru.clear();
     m_animatedWanted.clear();
+    m_animatedDemanded.clear();
     m_playableFiles.clear();
     m_playableSizes.clear();
     m_playableLru.clear();

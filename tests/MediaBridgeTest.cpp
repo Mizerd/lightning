@@ -744,6 +744,146 @@ private Q_SLOTS:
         QCOMPARE(failed.count(), 2);
     }
 
+    // A GIF STICKER CARRIES NO MIMETYPE, AND THE OLD GATE REQUIRED ONE.
+    //
+    // `writeAnimatedFile` used to demand that the DECLARED mimetype be
+    // exactly "image/gif" before it would materialize anything, and that
+    // label comes straight from the event: `MsgLikeKind::Sticker`
+    // (rust/src/timeline.rs) forwards `info.mimetype` only when the sender
+    // supplied one, and MSC2545 makes it optional. So a perfectly ordinary
+    // animated GIF sticker was delivered unlabelled, refused here, and drawn
+    // as a frozen first frame while every other client animated it.
+    //
+    // On the unfixed tree this case fails on the FIRST QCOMPARE: ready is 0
+    // and failed is 1.
+    void animationIsDecidedByTheBytesNotTheDeclaredMimetype()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+        QCOMPARE(bridge.animatedSource(QStringLiteral("$sticker")), QString());
+        QByteArray gif("GIF89a");
+        gif.append(QByteArray(64, '\0'));
+        // Delivered with NO mimetype at all, which is what an unlabelled
+        // sticker looks like by the time it reaches this layer.
+        client.succeed(client.fetches.first().opId, gif, QString());
+        QCOMPARE(ready.count(), 1);
+        QCOMPARE(failed.count(), 0);
+        QVERIFY(bridge.animatedSource(QStringLiteral("$sticker"))
+                    .startsWith(QStringLiteral("file://")));
+    }
+
+    // The magic is the AUTHORITY, not merely an additional check: a payload
+    // LABELLED image/gif whose bytes are something else is still refused, so
+    // dropping the label requirement cannot have widened what is accepted.
+    void aLabelSayingGifCannotMakeNonGifBytesAnimatable()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        bridge.animatedSource(QStringLiteral("$png"));
+        QByteArray png("\x89PNG\r\n\x1a\n", 8);
+        png.append(QByteArray(64, '\0'));
+        client.succeed(client.fetches.last().opId, png,
+                       QStringLiteral("image/gif"));
+        QCOMPARE(ready.count(), 0);
+    }
+
+    // ASKING MUST BE FREE OF CONSEQUENCE FOR A CALLER THAT DOES NOT KNOW.
+    //
+    // A sticker cannot know whether its payload is an animation, so it asks
+    // speculatively. A "no" must be SILENT: the still Image is already
+    // drawing those exact bytes, and mediaFetchFailed would replace a
+    // perfectly good picture with a retry card on every non-animated
+    // sticker. A caller that DOES know (the timeline's confirmed-GIF image
+    // path) still gets its terminal answer — that half is
+    // fakeAndOversizedGifsNeverReachAnimatedImage above.
+    void aSpeculativeAnimationAskIsAnsweredWithSilenceNotAFailure()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+        bridge.animatedSource(QStringLiteral("$still"), /*speculative=*/true);
+        QByteArray png("\x89PNG\r\n\x1a\n", 8);
+        png.append(QByteArray(64, '\0'));
+        client.succeed(client.fetches.last().opId, png, QString());
+        QCOMPARE(ready.count(), 0);
+        QCOMPARE(failed.count(), 0);
+        // And the bytes still reached the ordinary image path, which is what
+        // makes the silence safe rather than merely quiet.
+        QCOMPARE(cached.count(), 1);
+        QCOMPARE(bridge.failureCategory(QStringLiteral("full:$still")), QString());
+    }
+
+    // One demanding asker among speculative ones still gets its answer: the
+    // obligation is the OR of the claimants', exactly as it is for playable
+    // writes.
+    void oneDemandingAskerRestoresTheFailureObligation()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+        bridge.animatedSource(QStringLiteral("$mixed"), /*speculative=*/true);
+        bridge.animatedSource(QStringLiteral("$mixed"), /*speculative=*/false);
+        QByteArray png("\x89PNG\r\n\x1a\n", 8);
+        png.append(QByteArray(64, '\0'));
+        client.succeed(client.fetches.last().opId, png, QString());
+        QCOMPARE(failed.count(), 1);
+    }
+
+    // The format table, on bytes alone. Animated WebP joins GIF because
+    // Qt's webp handler animates; a STILL WebP deliberately does not, or
+    // every static WebP sticker would be handed to an AnimatedImage for
+    // nothing. APNG is absent because Qt's PNG handler reports no animation
+    // support, so materializing one would suppress the still Image that is
+    // already drawing exactly the frame an AnimatedImage would show.
+    void animatedExtensionIsMagicOnlyAndNarrow()
+    {
+        const auto ext = [](const QByteArray &b) {
+            return MediaBridge::animatedExtensionFor(b);
+        };
+        QByteArray gif("GIF89a");
+        gif.append(QByteArray(64, '\0'));
+        QCOMPARE(ext(gif), QStringLiteral("gif"));
+        QByteArray gif87("GIF87a");
+        gif87.append(QByteArray(64, '\0'));
+        QCOMPARE(ext(gif87), QStringLiteral("gif"));
+
+        // RIFF....WEBPVP8X<size>, then the flags byte at offset 20.
+        const auto webp = [](char flags, const char *fourcc) {
+            QByteArray b("RIFF", 4);
+            b.append(QByteArray(4, '\0'));
+            b.append("WEBP", 4);
+            b.append(fourcc, 4);
+            b.append(QByteArray(4, '\0'));
+            b.append(flags);
+            b.append(QByteArray(32, '\0'));
+            return b;
+        };
+        QCOMPARE(ext(webp('\x02', "VP8X")), QStringLiteral("webp"));
+        // Alpha, no animation bit.
+        QVERIFY(ext(webp('\x10', "VP8X")).isEmpty());
+        // A plain lossy still has no VP8X chunk at all.
+        QVERIFY(ext(webp('\x00', "VP8 ")).isEmpty());
+
+        QByteArray png("\x89PNG\r\n\x1a\n", 8);
+        png.append(QByteArray(64, '\0'));
+        QVERIFY(ext(png).isEmpty());
+        // CLAUDE.md §6: SVG must never reach a media rendering path, and it
+        // cannot enter through this door either.
+        QVERIFY(ext(QByteArrayLiteral("<svg xmlns=\"http://www.w3.org/2000/svg\"/>"))
+                    .isEmpty());
+        QVERIFY(ext(QByteArrayLiteral("GIF")).isEmpty());
+        QVERIFY(ext(QByteArray()).isEmpty());
+    }
+
     void clientPreviewGifUsesTheSameControlledFilePath()
     {
         MediaBridge bridge;

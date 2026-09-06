@@ -5574,8 +5574,52 @@ Item {
             readonly property string bridgeCacheKey:
                 (model.mediaThumbAvailable ? "thumb:" : "full:")
                 + (model.mediaKey || "")
+            // The bridge keys its animated materialization by kind 0, so this
+            // is the SAME key as bridgeCacheKey for a sticker with no server
+            // thumbnail — which is the ordinary MSC2545 shape. One fetch
+            // serves both the still frame and the animation.
+            readonly property string animatedCacheKey:
+                "full:" + (model.mediaKey || "")
             property string bridgeSource: ""
             property bool bridgeFailed: false
+
+            // ── Animated stickers ────────────────────────────────────────
+            //
+            // A sticker used to be an Image and nothing else, so an animated
+            // GIF sticker rendered as its first frame forever while the same
+            // event animated in every other client. Two things had to change.
+            //
+            // 1. THE DECLARED MIMETYPE CANNOT BE THE GATE. `info.mimetype` is
+            //    OPTIONAL for an `m.sticker` under MSC2545 and
+            //    `MsgLikeKind::Sticker` (rust/src/timeline.rs) forwards it
+            //    only when the sender supplied one, so `mediaMimetype` is
+            //    routinely "" on a perfectly good GIF. That is the same
+            //    absent-label hazard recorded in CLAUDE.md §6 for SVG, and it
+            //    gets the same answer: ask the BYTES. MediaBridge decides
+            //    from the container magic (animatedExtensionFor) and answers
+            //    animatedMediaReady only for a real animation.
+            // 2. ASKING MUST BE FREE OF CONSEQUENCE. The request is
+            //    SPECULATIVE (`animatedSource(key, true)`): a payload that
+            //    turns out to be a still PNG answers with silence instead of
+            //    marking the key failed, because the still Image below is
+            //    already drawing those very bytes and an error card there
+            //    would be a regression for every non-animated sticker.
+            //
+            // The declared mimetype is still used, but only to AVOID a
+            // pointless extra full-payload fetch: a sticker that says it is a
+            // PNG or a JPEG is taken at its word for the purpose of not
+            // asking. An empty label always asks.
+            readonly property string declaredMimetype:
+                (model.mediaMimetype || "").toLowerCase()
+            readonly property bool maybeAnimated:
+                declaredMimetype === "" || declaredMimetype === "image/gif"
+                || declaredMimetype === "image/webp"
+            readonly property int gifMode: app.settings.gifAutoplay
+            property bool gifHovered: false
+            readonly property bool playAnimation:
+                gifMode === 0 || (gifMode === 1 && gifHovered)
+            property string animatedSource: ""
+
             function refreshBridgeSource() {
                 if (!usesBridge || !model.mediaKey) return
                 // Hiding never starts a fetch; see the note in
@@ -5587,6 +5631,13 @@ Item {
                 bridgeSource = app.mediaBridge.mediaSource(
                     model.mediaKey,
                     model.mediaThumbAvailable ? "thumb" : "full")
+                refreshAnimatedSource()
+            }
+            function refreshAnimatedSource() {
+                if (!usesBridge || !model.mediaKey) return
+                if (root.mediaHidden || !maybeAnimated || gifMode === 2) return
+                animatedSource =
+                    app.mediaBridge.animatedSource(model.mediaKey, true)
             }
             Component.onCompleted: refreshBridgeSource()
             Connections {
@@ -5616,6 +5667,15 @@ Item {
                     if (cacheKey === stickerBox.bridgeCacheKey)
                         stickerBox.refreshBridgeSource()
                 }
+                function onAnimatedMediaReady(cacheKey) {
+                    // The bridge validated the bytes as an animation. Only
+                    // now does an AnimatedImage get a source; a sticker that
+                    // is not one never reaches here and keeps its still
+                    // frame, which is why asking is safe.
+                    if (cacheKey === stickerBox.animatedCacheKey)
+                        stickerBox.animatedSource =
+                            app.mediaBridge.animatedSource(model.mediaKey, true)
+                }
             }
             readonly property string resolvedSource:
                 usesBridge ? bridgeSource
@@ -5628,16 +5688,42 @@ Item {
                 anchors.fill: parent
                 visible: !root.mediaHidden
                          && stickerImg.status !== Image.Ready
+                         && !stickerAnim.animating
                 active: root.rowOnScreen && !stickerBox.bridgeFailed
                         && stickerImg.status !== Image.Error
             }
             Image {
                 id: stickerImg
                 anchors.fill: parent
-                visible: !root.mediaHidden
+                // The still frame is the DEFAULT and the FALLBACK, never
+                // merely the not-animated case: it keeps drawing until the
+                // AnimatedImage below actually reports Ready, so a build
+                // whose image plugins cannot decode the animation degrades
+                // to exactly today's picture instead of to a blank box.
+                visible: !root.mediaHidden && !stickerAnim.animating
                 fillMode: Image.PreserveAspectFit
                 source: root.mediaHidden ? "" : stickerBox.resolvedSource
                 sourceSize.width: 360
+                asynchronous: true
+                cache: true
+            }
+            AnimatedImage {
+                id: stickerAnim
+                objectName: "stickerAnimatedMedia"
+                anchors.fill: parent
+                fillMode: Image.PreserveAspectFit
+                // Loaded whenever animated bytes exist and animation is not
+                // globally off, so On-hover playback starts on the hover
+                // rather than on a decode. `animating` — not `source` — is
+                // what the still frame yields to.
+                source: (!root.mediaHidden && stickerBox.gifMode !== 2)
+                        ? stickerBox.animatedSource : ""
+                readonly property bool animating:
+                    status === AnimatedImage.Ready
+                    && stickerBox.animatedSource.length > 0
+                    && stickerBox.playAnimation && !root.mediaHidden
+                visible: animating
+                playing: animating && root.rowOnScreen
                 asynchronous: true
                 cache: true
             }
@@ -5646,7 +5732,11 @@ Item {
                 hidden: root.mediaHidden
                 onRevealRequested: root.setMediaHidden(false)
             }
-            HoverHandler { id: stickerHover; enabled: !root.mediaHidden }
+            HoverHandler {
+                id: stickerHover
+                enabled: !root.mediaHidden
+                onHoveredChanged: stickerBox.gifHovered = hovered
+            }
             ToolTip.text: model.body || ""
             ToolTip.visible: stickerHover.hovered && (model.body || "").length > 0
             ToolTip.delay: 400
