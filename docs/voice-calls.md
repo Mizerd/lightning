@@ -526,14 +526,62 @@ Decisions worth keeping:
   its avatar AND its name AND the `sid -> key ring` binding
   (`noteParticipantIdentities`) AND a slot in `mediaKeyTargets`. So an
   unresolvable participant is a blank tile whose inbound frames land in a
-  ring nobody keyed. Nothing logs the empty lookup itself; the number that
-  exposes it is `unresolved=` on the `media key distributed` line, which is
+  ring nobody keyed. **It logs now, from 2026-09-06** — once per identity
+  per session, as `call diagnosis: the SFU participant <id> could NOT be
+  resolved to a Matrix user and device`. Previously nothing logged the empty
+  lookup itself and the only number that exposed it was `unresolved=` on the
+  `media key distributed` line, which is
   `sfuPeers - targets`. Note the symmetry, because it is the sharpest test
   of any report of one-way audio: the same lookup gates who we SEND a key
   to, so if we could not resolve them they could not have heard us either.
 * Teardown clears every sink. A sink attached for the call that just ended is
   a live destination for the next call's frames, whose stream ids the SFU
   assigns afresh.
+
+### Diagnosing "I cannot hear the person who joined"
+
+Added 2026-09-06, after a report from a Windows tester who could not capture
+anything. The receive path had four states that could each silence a
+participant WITHOUT saying so, and they are now four sentences, each said once
+per track or per ring, all carrying the prefix `call diagnosis:`. Ask a
+reporter for a log and grep that string; the four facts are:
+
+| Fact | Line |
+|---|---|
+| the joiner's media key arrived | `a media key ARRIVED and was installed for ring=<user>/<device> index=N` |
+| their track was attributed and has a chain | `a receive chain is RUNNING for stream=<sid> mid=<n> kind=audio` |
+| frames arrive and drop for want of a key | `frames are arriving from stream=<sid> and being DROPPED because no media key has been installed for it` |
+| frames arrive with a key and will not decrypt | `frames from stream=<sid> will not DECRYPT although a key is installed` |
+
+Read them together. Fact 3 with no fact 1 is a key that never arrived — look
+for `could NOT be resolved to a Matrix user and device` (the sender was never
+addressed) or `could NOT be bound to a sending stream` (the key landed in a
+ring the frames do not consult). Fact 4 is the two ends holding different
+keys. Facts 1 and 2 with neither 3 nor 4 means nothing is arriving at all:
+the SFU is not forwarding, and `subscriber transceivers n=` and
+`subscriber answer sections=` are the lines to read next.
+
+**The third and fourth used to be indistinguishable.** The "have we a key"
+question was answered by an engine-wide flag that ANY participant's key set,
+so once one person was keyed every track claimed to have one and a joiner
+whose key never arrived was reported as a decryption failure. It is now asked
+of the ring the frame will actually be decrypted with
+(`CallFrameCryptor::hasAnyKey`).
+
+In an ENCRYPTED room the frame drops either way and only the log changes. In
+an UNENCRYPTED one it does not, and that is worth stating rather than
+glossing: with encryption not required and some other participant keyed, the
+old code declared a key present, tried to decrypt a cleartext frame with an
+empty ring, and DROPPED it; the new code sees no key for that ring, sees that
+encryption is not required, and passes the frame through. That participant
+goes from silent to audible. It is the correct outcome — an unencrypted room
+carries cleartext media and there was never anything to decrypt — but it IS a
+media behaviour change and not only a logging one.
+
+Also no longer silent: a receive bin that fails to build (the GError's own
+message was being freed unread), one that fails to link, a track whose caps
+name no media type, a decrypt probe that could not be installed, a media key
+the cryptor refuses, and the receive-ring cap.
 
 ### Screen-share audio
 

@@ -168,7 +168,33 @@ struct CryptoProbeCtx {
     /// locking: a pad probe runs on one streaming thread.
     quint64 passed = 0;
     quint64 dropped = 0;
+    /// THE FOUR DECISIVE FACTS, each said once per track.
+    ///
+    /// A tester on Windows reported "I cannot hear the person who joined"
+    /// and could not capture anything, because the two failures that produce
+    /// that symptom — their key never arrived, or it arrived and does not
+    /// match — were reported only through a rate-limited counter line that
+    /// names neither the participant nor which of the two it is. These flags
+    /// make each one a single, greppable sentence. The probe runs on one
+    /// streaming thread and owns them, so no locking (same reasoning as the
+    /// counters above).
+    bool saidNoKey = false;
+    bool saidFailed = false;
+    bool saidWorking = false;
 };
+
+/// A key ring's name, fit to print.
+///
+/// `SfuCallController::mediaKeyRingName` joins the user id and the device id
+/// with U+001F, which is right for a map key and wrong for a log line: it
+/// puts a raw control character in a file a tester is asked to send, and it
+/// makes the documented `ring=<user>/<device>` grep pattern not match.
+QString printableRing(const QString &ring)
+{
+    QString out = ring;
+    out.replace(QChar(0x1f), QLatin1Char('/'));
+    return out;
+}
 
 /// Log the first frame, then rarely. A per-frame log at 50 fps is not a log.
 bool shouldReport(quint64 count)
@@ -340,7 +366,17 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
     if (!cryptor)
         return GST_PAD_PROBE_OK;
 
-    const bool haveKey = ctx->keyReady && ctx->keyReady->load();
+    // PER RING on the receive side, engine-wide only when sending.
+    //
+    // `m_recvKeyReady` is set by ANY sender's key, so once one participant
+    // was keyed every incoming track claimed to have one. A joiner whose key
+    // never arrived then took the "decrypt failed" branch — the frame drops
+    // either way, but the log named the wrong cause for the one report that
+    // needed it named. Asking the ring the frame will actually be decrypted
+    // with is both cheaper to reason about and true.
+    const bool haveKey = ctx->encrypting
+        ? (ctx->keyReady && ctx->keyReady->load())
+        : cryptor->hasAnyKey();
     if (!haveKey) {
         // No key yet. In an encrypted room that means DROP: sending in the
         // clear would silently un-encrypt a call the user was told is
@@ -351,9 +387,19 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             ++ctx->dropped;
             if (ctx->totalDropped)
                 ctx->totalDropped->fetch_add(1);
+            if (!ctx->encrypting && !ctx->saidNoKey) {
+                ctx->saidNoKey = true;
+                qCWarning(lcSfuMedia)
+                    << "call diagnosis: frames are arriving from stream="
+                    << ctx->streamId
+                    << "and being DROPPED because no media key has been "
+                       "installed for it — the sender's key never reached "
+                       "this device (video=" << ctx->video << ")";
+            }
             if (shouldReport(ctx->dropped)) {
                 qCWarning(lcSfuMedia)
                     << "frames dropped: no key" << (ctx->encrypting ? "out" : "in")
+                    << "stream=" << ctx->streamId
                     << "video=" << ctx->video << "count=" << ctx->dropped;
             }
             return GST_PAD_PROBE_DROP;
@@ -415,9 +461,19 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         ++ctx->dropped;
         if (ctx->totalDropped)
             ctx->totalDropped->fetch_add(1);
+        if (!ctx->encrypting && !ctx->saidFailed) {
+            ctx->saidFailed = true;
+            qCWarning(lcSfuMedia)
+                << "call diagnosis: frames from stream=" << ctx->streamId
+                << "will not DECRYPT although a key is installed for it — "
+                   "the two ends hold different keys, or the frames are not "
+                   "the ones this key was issued for (video=" << ctx->video
+                << ")";
+        }
         if (shouldReport(ctx->dropped)) {
             qCWarning(lcSfuMedia)
                 << (ctx->encrypting ? "encrypt failed" : "decrypt failed")
+                << "stream=" << ctx->streamId
                 << "video=" << ctx->video << "count=" << ctx->dropped
                 << "passed=" << ctx->passed;
         }
@@ -426,9 +482,16 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
     ++ctx->passed;
     if (ctx->total)
         ctx->total->fetch_add(1);
+    if (!ctx->encrypting && !ctx->saidWorking) {
+        ctx->saidWorking = true;
+        qCInfo(lcSfuMedia)
+            << "call diagnosis: frames from stream=" << ctx->streamId
+            << "DECRYPT correctly (video=" << ctx->video << ")";
+    }
     if (shouldReport(ctx->passed)) {
         qCInfo(lcSfuMedia) << (ctx->encrypting ? "frames encrypted"
                                                : "frames decrypted")
+                           << "stream=" << ctx->streamId
                            << "video=" << ctx->video
                            << "count=" << ctx->passed
                            << "dropped=" << ctx->dropped;
@@ -599,6 +662,13 @@ void SfuMediaEngine::stop()
     m_publishedMedia.store(0);
     // Media keys must not outlive the call that used them.
     clearKeys();
+    {
+        // Nor do the call's diagnoses. A second call must be able to report
+        // the same conclusion; carrying the first one's "said that already"
+        // set forward would silence exactly the run somebody is watching.
+        QMutexLocker lock(&m_diagnosedMutex);
+        m_diagnosedOnce.clear();
+    }
     Q_EMIT connectionStateChanged(QStringLiteral("closed"));
 }
 
@@ -3994,13 +4064,54 @@ void SfuMediaEngine::setOutboundKey(int index, const QByteArray &rawKey)
 void SfuMediaEngine::setInboundKey(const QString &senderName, int index,
                                    const QByteArray &rawKey)
 {
-    if (senderName.isEmpty())
+    // NOTHING HERE USED TO SAY ANYTHING, in either direction. "Their key
+    // never arrived" and "their key arrived and this engine threw it away"
+    // are different faults with one symptom — you cannot hear them — and the
+    // controller's own arrival line stops one layer above this, so a key
+    // refused here was invisible. The key itself is never logged, only that
+    // one was accepted or refused and for which ring (§6).
+    if (senderName.isEmpty()) {
+        qCWarning(lcSfuMedia) << "call diagnosis: a media key was DISCARDED "
+                                 "because it named no ring — index=" << index;
         return;
+    }
     // Created on first sight, so a key can arrive before that sender's
     // track does. The reverse order is handled in pad-added.
-    if (!recvCryptorFor(senderName)->setKey(index, rawKey))
+    if (!recvCryptorFor(senderName)->setKey(index, rawKey)) {
+        qCWarning(lcSfuMedia)
+            << "call diagnosis: the media key for ring="
+            << printableRing(senderName)
+            << "index=" << index
+            << "was REFUSED by the cryptor (unusable index or key length="
+            << rawKey.size() << ")";
         return;
+    }
     m_recvKeyReady.store(true);
+    if (noteDiagnosisOnce(QStringLiteral("key:%1:%2").arg(senderName,
+                                                          QString::number(index)))) {
+        qCInfo(lcSfuMedia) << "call diagnosis: a media key ARRIVED and was "
+                              "installed for ring="
+                           << printableRing(senderName)
+                           << "index=" << index;
+    }
+}
+
+/// One diagnosis per subject, per call.
+///
+/// The receive path can reach the same conclusion tens of times a second, and
+/// a diagnostic that repeats is one a reader skips. Cleared with the session
+/// so a second call reports its own state rather than inheriting the first's.
+bool SfuMediaEngine::noteDiagnosisOnce(const QString &subject)
+{
+    QMutexLocker lock(&m_diagnosedMutex);
+    // Bounded like every other remote-fed set here: subjects are built from
+    // sids and device names, which arrive from the SFU.
+    if (m_diagnosedOnce.size() >= 512)
+        return false;
+    if (m_diagnosedOnce.contains(subject))
+        return false;
+    m_diagnosedOnce.insert(subject);
+    return true;
 }
 
 std::shared_ptr<CallFrameCryptor>
@@ -4022,8 +4133,23 @@ SfuMediaEngine::recvCryptorFor(const QString &name)
     // that is never stored, which decrypts nothing and remembers nothing.
     constexpr int kMaxReceiveRings = 1024;
     auto cryptor = std::make_shared<CallFrameCryptor>();
-    if (m_recvCryptors.size() >= kMaxReceiveRings)
+    if (m_recvCryptors.size() >= kMaxReceiveRings) {
+        // A detached ring decrypts nothing and remembers nothing, which is
+        // the correct refusal — but it used to happen without a word, so a
+        // participant who could not be heard for this reason looked exactly
+        // like one whose key had not arrived. Warned once for the call: the
+        // caller is a per-frame path.
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            qCWarning(lcSfuMedia)
+                << "call diagnosis: the receive key ring cap of"
+                << kMaxReceiveRings
+                << "is full — further senders get a ring that cannot hold a "
+                   "key and their media will never decrypt";
+        }
         return cryptor;
+    }
     m_recvCryptors.insert(name, cryptor);
     return cryptor;
 }
@@ -4034,6 +4160,30 @@ void SfuMediaEngine::noteParticipantIdentity(const QString &streamId,
     if (streamId.isEmpty() || senderName.isEmpty()
         || streamId.size() > 256 || senderName.size() > 512
         || streamId == senderName) {
+        // THE JOIN THAT MAKES A KEY USABLE. A key arrives addressed to a
+        // Matrix device; frames arrive addressed to a LiveKit sid; this is
+        // the only thing that makes them one ring. When it refuses, the key
+        // is installed, the track is attributed, and nothing decrypts — the
+        // shape of "I can see them and not hear them" — and it used to
+        // refuse in total silence.
+        // ONCE, and NAMED. `noteParticipantIdentities()` runs on every
+        // participant update, so an unbound pair would otherwise warn on
+        // every tick; and two of the four refusals leave both "have"
+        // booleans true, so a pair of booleans cannot say which fired.
+        const char *why =
+            streamId.isEmpty()      ? "no stream id"
+            : senderName.isEmpty()  ? "no sender name"
+            : streamId == senderName ? "the stream id and the sender are the "
+                                       "same string"
+                                     : "an identifier is over its size cap";
+        if (noteDiagnosisOnce(QStringLiteral("bind:%1:%2")
+                                  .arg(streamId, senderName))) {
+            qCWarning(lcSfuMedia)
+                << "call diagnosis: a media key ring could NOT be bound to a "
+                   "sending stream, so that participant's frames will not "
+                   "decrypt —"
+                << why;
+        }
         return;
     }
     QMutexLocker lock(&m_recvMutex);
@@ -4165,6 +4315,13 @@ void SfuMediaEngine::installDecryptProbe(GstPad *pad, bool video,
     ctx->encrypting = false;
     ctx->video = video;
     ctx->required = &m_encryptionRequired;
+    // DELIBERATELY STILL WIRED, and deliberately no longer consulted on the
+    // receive side: cryptoProbe() asks the RING (see the note there), because
+    // this flag is set by ANY sender's key and therefore said "yes" for every
+    // incoming track once one participant was keyed. It is left assigned so
+    // the send and receive contexts stay one shape, and because a probe
+    // context with a null `keyReady` would be a second thing to reason about
+    // for no gain. Nothing reads it on this path.
     ctx->keyReady = &m_recvKeyReady;
     ctx->total = &m_framesDecrypted;
     ctx->totalDropped = &m_framesDropped;
@@ -4697,8 +4854,16 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         mediaKind = QString::fromUtf8(media ? media : "");
         gst_caps_unref(caps);
     }
-    if (mediaKind.isEmpty())
+    if (mediaKind.isEmpty()) {
+        // A GUESS, and it used to be an unrecorded one. If the caps never
+        // named a media type and this guessed wrong, the bin depayloads the
+        // wrong codec and the track is silent with nothing anywhere saying
+        // why.
+        qCWarning(lcSfuMedia)
+            << "call diagnosis: an incoming track's caps named no media type;"
+            << "assuming audio for stream=" << streamId << "mid=" << trackMid;
         mediaKind = QStringLiteral("audio");
+    }
 
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
     const quint64 generation = engine->m_generation.load();
@@ -4747,6 +4912,14 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     GstElement *bin = gst_parse_bin_from_description(
         description.toUtf8().constData(), TRUE, &error);
     if (error) {
+        // The GError's own message used to be freed unread, so the ONE
+        // sentence saying which element could not be made was discarded at
+        // the exact moment it was worth having.
+        qCWarning(lcSfuMedia)
+            << "call diagnosis: the receive bin for stream=" << streamId
+            << "kind=" << mediaKind << "could not be BUILT:"
+            << (error->message ? error->message : "?")
+            << "— this participant will never be heard or seen";
         g_error_free(error);
         if (bin)
             gst_object_unref(bin);
@@ -4758,6 +4931,10 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         return;
     }
     if (!gst_bin_add(GST_BIN(pipeline), bin)) {
+        qCWarning(lcSfuMedia)
+            << "call diagnosis: the receive bin for stream=" << streamId
+            << "kind=" << mediaKind
+            << "could not be ADDED to the subscriber pipeline";
         gst_object_unref(pipeline);
         marshal(engine, [engine, token, generation] {
             engine->handleFailure(token, generation,
@@ -4768,14 +4945,26 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     // Decrypt on the DEPAYLOADER's src pad: the encoded frame is whole again
     // there, which is the unit LiveKit encrypted. Installed before the bin
     // plays, so no frame can reach the decoder unexamined.
+    bool decryptProbeInstalled = false;
     if (GstElement *depay = gst_bin_get_by_name(GST_BIN(bin), "recvdepay")) {
         if (GstPad *framePad = gst_element_get_static_pad(depay, "src")) {
             engine->installDecryptProbe(framePad,
                                         mediaKind == QLatin1String("video"),
                                         streamId);
+            decryptProbeInstalled = true;
             gst_object_unref(framePad);
         }
         gst_object_unref(depay);
+    }
+    if (!decryptProbeInstalled) {
+        // Without the probe nothing decrypts and nothing counts frames: the
+        // encrypted payload goes straight into the decoder, which produces
+        // noise or nothing, and every counter this subsystem reports stays
+        // at zero. Silent until now.
+        qCWarning(lcSfuMedia)
+            << "call diagnosis: no decrypt probe could be installed for "
+               "stream=" << streamId << "kind=" << mediaKind
+            << "— its frames will not be decrypted or counted";
     }
     // Route decoded video to whoever is showing this participant. Installed
     // before the bin plays so no frame is produced without a destination
@@ -4826,12 +5015,22 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         gst_object_unref(sinkPad);
     gst_object_unref(pipeline);
     if (linked != GST_PAD_LINK_OK) {
+        qCWarning(lcSfuMedia)
+            << "call diagnosis: the receive bin for stream=" << streamId
+            << "kind=" << mediaKind << "would not LINK to its pad, code="
+            << linked;
         marshal(engine, [engine, token, generation] {
             engine->handleFailure(token, generation,
                                   QStringLiteral("media_receive"));
         });
         return;
     }
+    // FACT TWO OF FOUR: this track was attributed to a participant and has a
+    // chain to run in. `attributed=false` above plus this line naming a
+    // synthetic stream id is the signature of a track nobody can key.
+    qCInfo(lcSfuMedia)
+        << "call diagnosis: a receive chain is RUNNING for stream=" << streamId
+        << "mid=" << trackMid << "kind=" << mediaKind;
     marshal(engine, [engine, mediaKind, streamId, trackMid] {
         // The stream id is the sending participant's LiveKit sid, from the
         // subscriber offer's msid; the mid names the individual track. The UI

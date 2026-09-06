@@ -2146,6 +2146,93 @@ private Q_SLOTS:
     // out of this target, so what is asserted here is the part that was
     // actually missing: the refresh tick REACHES it. On the unfixed tree the
     // timer drives refreshMembership alone and this counter never moves.
+    // THE EMPTY LOOKUP THAT NOTHING LOGGED.
+    //
+    // docs/voice-calls.md said so in as many words: the only trace of an SFU
+    // identity that resolves to no Matrix device was `unresolved=` on the
+    // media key line, an arithmetic difference rather than a name. That
+    // lookup is what addresses a media key, so when it comes back empty the
+    // joiner is never keyed and cannot be heard — which is exactly the
+    // report this round exists for, from a tester who could not capture
+    // anything. Now it says so, once per identity.
+    //
+    // WHICH BRANCH THIS ACTUALLY DRIVES, said plainly: the no-session one.
+    // Building a live session with participants that deliberately do not
+    // match takes a client and an event feed; both branches funnel through
+    // the same reporter, so what is pinned here is that an unresolvable
+    // identity is reported AND that it is reported once. Mutating away
+    // either the reporting call or the once-guard fails this test; mutating
+    // away the OTHER branch's call does not, and that is stated rather than
+    // implied.
+    void anSfuIdentityThatResolvesToNobodySaysSoExactlyOnce()
+    {
+        // RAII, because QVERIFY RETURNS FROM THE SLOT. A handler restored on
+        // the next line after an assertion is a handler that stays installed
+        // when the assertion fails — pointing at a destroyed stack local, so
+        // every later test's log line is a use-after-free and a clean failure
+        // becomes an unrelated crash.
+        struct Capture {
+            static QStringList *&sink()
+            {
+                static QStringList *s = nullptr;
+                return s;
+            }
+            explicit Capture(QStringList *lines)
+            {
+                sink() = lines;
+                m_previous = qInstallMessageHandler(
+                    [](QtMsgType, const QMessageLogContext &,
+                       const QString &m) {
+                        if (QStringList *s = sink())
+                            s->append(m);
+                    });
+            }
+            ~Capture()
+            {
+                qInstallMessageHandler(m_previous);
+                sink() = nullptr;
+            }
+            QtMessageHandler m_previous = nullptr;
+        };
+
+        QStringList lines;
+        RtcController rtc;
+        const QString room = QStringLiteral("!room:example.org");
+        const QString identity = QStringLiteral("PA_nobody");
+        {
+            Capture capture(&lines);
+            QVERIFY(rtc.participantForIdentity(room, identity).isEmpty());
+            QVERIFY(rtc.participantForIdentity(room, identity).isEmpty());
+        }
+
+        int said = 0;
+        for (const QString &line : lines) {
+            if (line.contains(QLatin1String("could NOT be resolved"))
+                && line.contains(identity)) {
+                ++said;
+            }
+        }
+        QCOMPARE(said, 1);
+
+        // AND A NEW CALL DIAGNOSES ITSELF. SFU identities are stable for a
+        // user and device, so a set that lived for the whole login meant the
+        // second call of the day reported nothing at all.
+        lines.clear();
+        rtc.forgetUnresolvedIdentityDiagnostics();
+        {
+            Capture capture(&lines);
+            QVERIFY(rtc.participantForIdentity(room, identity).isEmpty());
+        }
+        int again = 0;
+        for (const QString &line : lines) {
+            if (line.contains(QLatin1String("could NOT be resolved"))
+                && line.contains(identity)) {
+                ++again;
+            }
+        }
+        QCOMPARE(again, 1);
+    }
+
     void theRefreshTickReconcilesTheKeyLaneNotJustTheMembership()
     {
         const QString room = QStringLiteral("!room:example.org");

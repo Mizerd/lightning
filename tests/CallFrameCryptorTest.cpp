@@ -284,6 +284,29 @@ private Q_SLOTS:
                  "the cleartext header is authenticated and must be covered");
     }
 
+    // THE PREDICATE THE RECEIVE PATH NOW ASKS.
+    //
+    // It used to ask an engine-wide "some key has arrived" flag, which is
+    // true for every incoming track the moment ONE participant is keyed — so
+    // a joiner whose key never came took the "decryption failed" branch and
+    // the log named the wrong cause for the exact report this was written
+    // for. A ring has to be able to say whether it holds anything.
+    void aRingSaysWhetherItHoldsAnyKeyAtAll()
+    {
+        CallFrameCryptor ring;
+        QVERIFY(!ring.hasAnyKey());
+        QVERIFY(ring.setKey(3, QByteArray(32, 'k')));
+        QVERIFY(ring.hasAnyKey());
+        // A refused key must not make an empty ring claim to be keyed.
+        CallFrameCryptor refused;
+        QVERIFY(!refused.setKey(0, QByteArray(7, 'k')));
+        QVERIFY(!refused.hasAnyKey());
+        // And forgetting the keys forgets the claim: media keys must not
+        // outlive the call, and neither may the belief that we have one.
+        ring.clearKeys();
+        QVERIFY(!ring.hasAnyKey());
+    }
+
     void aWrongKeyDecryptsToNothing()
     {
         CallFrameCryptor sender;

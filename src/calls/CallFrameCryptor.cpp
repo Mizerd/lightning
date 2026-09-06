@@ -127,6 +127,16 @@ bool CallFrameCryptor::setKey(int index, const QByteArray &rawKey)
     return true;
 }
 
+bool CallFrameCryptor::hasAnyKey() const
+{
+    QMutexLocker lock(&m_mutex);
+    for (const QByteArray &key : m_keys) {
+        if (!key.isEmpty())
+            return true;
+    }
+    return false;
+}
+
 void CallFrameCryptor::setCurrentKeyIndex(int index)
 {
     QMutexLocker lock(&m_mutex);

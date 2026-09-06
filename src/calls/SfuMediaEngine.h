@@ -720,6 +720,13 @@ private:
     /// inside pad-added while the Qt thread may be installing a key.
     QHash<QString, std::shared_ptr<CallFrameCryptor>> m_recvCryptors;
     mutable QMutex m_recvMutex;
+    /// Subjects already diagnosed this session — see noteDiagnosisOnce().
+    /// Its own mutex, NOT m_recvMutex: the callers of that one already hold
+    /// it in places, and a plain QMutex taken twice is a deadlock rather
+    /// than a mistake you find later.
+    QSet<QString> m_diagnosedOnce;
+    mutable QMutex m_diagnosedMutex;
+    bool noteDiagnosisOnce(const QString &subject);
     /// Media-section index -> LiveKit stream id, from the subscriber offer's
     /// `msid`. webrtcbin names a received pad `src_<index>`, so the index is
     /// how a pad is attributed to the sender that produced it.

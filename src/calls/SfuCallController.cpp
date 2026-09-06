@@ -1077,6 +1077,12 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     if (active())
         teardown(State::Ended);
 
+    // A new call diagnoses itself. SFU identities are stable for a user and
+    // device, so a "said that already" set carried across calls means the
+    // second call of the day reports nothing — the same reason the media
+    // engine clears its own once-set in stop().
+    m_rtc->forgetUnresolvedIdentityDiagnostics();
+
     qCInfo(lcSfuCall) << "join begin encrypted="
                       << m_rtc->roomEncrypted(roomId)
                       << "focus=" << (m_rtc->focusUrlFor(roomId).isEmpty()

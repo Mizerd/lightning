@@ -85,6 +85,15 @@ public:
     void setCurrentKeyIndex(int index);
     int currentKeyIndex() const { return m_currentIndex; }
     bool hasKey(int index) const;
+    /// Does this ring hold ANY key?
+    ///
+    /// Exists because the receive path used to ask an engine-wide flag —
+    /// "some sender's key has arrived" — which is true for every track the
+    /// moment one participant is keyed. A joiner whose key never arrived was
+    /// then routed down the "decryption failed" branch instead of the "no
+    /// key" one, and the log said the wrong thing about the one failure it
+    /// most needed to name. Same drop either way; a truthful reason.
+    bool hasAnyKey() const;
     /// Forget every key. Called on leave: media keys must not outlive the
     /// call that used them.
     void clearKeys();

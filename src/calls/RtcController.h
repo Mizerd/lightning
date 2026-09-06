@@ -282,6 +282,17 @@ private:
 
     QPointer<MatrixClient> m_client;
     QHash<QString, RtcSessionData> m_sessions;
+    /// SFU identities already reported as unresolvable — see
+    /// noteUnresolvedIdentity(). Mutable because the lookup that discovers
+    /// one is const and must stay const: it is read from the media key path.
+    void noteUnresolvedIdentity(const QString &identity,
+                                const QString &reason) const;
+public:
+    /// Let a new call diagnose itself: see the implementation.
+    void forgetUnresolvedIdentityDiagnostics();
+
+private:
+    mutable QSet<QString> m_unresolvedIdentitiesLogged;
 
     // Reads in flight. Each carries the epoch it was dispatched under, so a
     // reply that outlives an account switch is dropped instead of writing

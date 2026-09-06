@@ -139,6 +139,76 @@ QByteArray engineSource()
 #define SOURCE_UNDER_TEST engineSource()
 } // namespace
 
+/// Collects Qt log output for the duration of one test.
+///
+/// The diagnostics this fixture is about ARE log lines — that is the whole
+/// deliverable for a defect nobody here can reproduce — so asserting on them
+/// is asserting on the feature, not on incidental output.
+class LogCapture
+{
+public:
+    LogCapture()
+    {
+        m_outer = instance();
+        instance() = this;
+        m_previous = qInstallMessageHandler(&LogCapture::handler);
+    }
+    ~LogCapture()
+    {
+        qInstallMessageHandler(m_previous);
+        instance() = m_outer;
+    }
+    void clear()
+    {
+        QMutexLocker lock(&m_mutex);
+        m_lines.clear();
+    }
+    bool contains(const char *needle) const
+    {
+        return text().contains(QLatin1String(needle));
+    }
+    int count(const char *needle) const
+    {
+        QMutexLocker lock(&m_mutex);
+        int n = 0;
+        for (const QString &line : m_lines) {
+            if (line.contains(QLatin1String(needle)))
+                ++n;
+        }
+        return n;
+    }
+    QString text() const
+    {
+        QMutexLocker lock(&m_mutex);
+        return m_lines.join(QLatin1Char('\n'));
+    }
+
+private:
+    static LogCapture *&instance()
+    {
+        static LogCapture *self = nullptr;
+        return self;
+    }
+    static void handler(QtMsgType type, const QMessageLogContext &context,
+                        const QString &message)
+    {
+        // LOCKED, because a pad probe logs from a GStreamer streaming
+        // thread. The two tests that use this today never publish, so it has
+        // never raced — which is exactly the state in which a lock is cheap
+        // and its absence is a trap for whoever writes the third one.
+        if (LogCapture *self = instance()) {
+            QMutexLocker lock(&self->m_mutex);
+            self->m_lines.append(message);
+        }
+        Q_UNUSED(type);
+        Q_UNUSED(context);
+    }
+    mutable QMutex m_mutex;
+    QStringList m_lines;
+    QtMessageHandler m_previous = nullptr;
+    LogCapture *m_outer = nullptr;
+};
+
 class SfuMediaEngineTest : public QObject
 {
     Q_OBJECT
@@ -312,6 +382,67 @@ private slots:
         engine.stop();
         // Keys must not outlive the call.
         QVERIFY(!engine.encryptionActive());
+    }
+
+    // THE FOUR DECISIVE FACTS MUST BE SAYABLE.
+    //
+    // A tester on Windows reported "someone joined and I cannot hear them"
+    // and could not capture a thing, because the failures that produce that
+    // symptom happened in silence: setInboundKey discarded a key without a
+    // word, and the sid-to-device binding refused without a word. These
+    // assert the sentences, because the next occurrence has to diagnose
+    // itself from one log.
+    void theKeyLaneSaysWhetherAKeyArrivedOrWasRefused()
+    {
+        LogCapture log;
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+
+        engine.setInboundKey(QStringLiteral("@a:example.org:DEV"), 0,
+                             QByteArray(32, 'k'));
+        QVERIFY2(log.contains("media key ARRIVED"),
+                 qPrintable(log.text()));
+        QVERIFY2(log.contains("@a:example.org:DEV"), qPrintable(log.text()));
+
+        // Said ONCE. The controller re-reconciles the key lane on a refresh
+        // tick, and a diagnostic that repeats is one a reader skips.
+        const int first = log.count("media key ARRIVED");
+        engine.setInboundKey(QStringLiteral("@a:example.org:DEV"), 0,
+                             QByteArray(32, 'k'));
+        QCOMPARE(log.count("media key ARRIVED"), first);
+
+        // A key the cryptor will not take, and a key addressed to nothing.
+        log.clear();
+        engine.setInboundKey(QStringLiteral("@b:example.org:DEV"), 0,
+                             QByteArray(7, 'k'));
+        QVERIFY2(log.contains("was REFUSED by the cryptor"),
+                 qPrintable(log.text()));
+        log.clear();
+        engine.setInboundKey(QString(), 0, QByteArray(32, 'k'));
+        QVERIFY2(log.contains("DISCARDED"), qPrintable(log.text()));
+        engine.stop();
+    }
+
+    void anUnbindableKeyRingSaysSoRatherThanFailingQuietly()
+    {
+        LogCapture log;
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        // This join is what makes a key usable: without it the key sits in
+        // one ring and the frames consult another, and everything else looks
+        // healthy.
+        engine.noteParticipantIdentity(QString(),
+                                       QStringLiteral("@a:example.org:DEV"));
+        QVERIFY2(log.contains("could NOT be bound to a sending stream"),
+                 qPrintable(log.text()));
+        log.clear();
+        // The working case must stay quiet, or the diagnostic is noise.
+        engine.noteParticipantIdentity(QStringLiteral("PA_sid"),
+                                       QStringLiteral("@a:example.org:DEV"));
+        QVERIFY2(!log.contains("could NOT be bound"), qPrintable(log.text()));
+        engine.stop();
     }
 
     void aShortKeyIsRefusedRatherThanUsed()
@@ -767,6 +898,117 @@ private slots:
                            .arg(receiver.framesDropped())
                            .arg(failure)),
             30000);
+
+        sender.stop();
+        receiver.stop();
+    }
+
+    // AN UNKEYED SENDER IS REPORTED AS UNKEYED, NOT AS A DECRYPTION FAILURE.
+    //
+    // THE DEFECT: the receive probe asked an ENGINE-WIDE flag whether a key
+    // existed, and that flag is set by ANY sender's key. So the moment one
+    // participant was keyed, every incoming track claimed to have one — and
+    // a joiner whose key never arrived took the "decryption failed" branch.
+    // Both branches drop the frame, so the media was the same; the LOG named
+    // the wrong cause, on the one report ("someone joined and I cannot hear
+    // them") this whole round exists to make diagnosable.
+    //
+    // Driven end to end rather than through the predicate, because a policy
+    // test that calls the policy function proves nothing about whether
+    // production reaches it (§16, and it has already shipped a no-op here).
+    // This runs a real encrypted call and reads what the log actually said.
+    void anUnkeyedSenderIsReportedAsUnkeyedRatherThanUndecryptable()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+
+        QString failure;
+        const auto note = [&failure](const QString &why) {
+            if (failure.isEmpty())
+                failure = why;
+        };
+        connect(&sender, &SfuMediaEngine::failed, this, note);
+        connect(&receiver, &SfuMediaEngine::failed, this, note);
+        connect(&sender, &SfuMediaEngine::localDescription, &receiver,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)
+                        && kind == QStringLiteral("offer")) {
+                        receiver.applyRemoteDescription(
+                            SfuMediaEngine::Target::Subscriber, kind, sdp);
+                    }
+                });
+        connect(&receiver, &SfuMediaEngine::localDescription, &sender,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target == int(SfuMediaEngine::Target::Subscriber)
+                        && kind == QStringLiteral("answer")) {
+                        sender.applyRemoteDescription(
+                            SfuMediaEngine::Target::Publisher, kind, sdp);
+                    }
+                });
+        connect(&sender, &SfuMediaEngine::localCandidate, &receiver,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)) {
+                        receiver.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Subscriber, init);
+                    }
+                });
+        connect(&receiver, &SfuMediaEngine::localCandidate, &sender,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Subscriber)) {
+                        sender.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Publisher, init);
+                    }
+                });
+
+        bool trackArrived = false;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &, const QString &, const QString &) {
+                    trackArrived = true;
+                });
+
+        LogCapture log;
+        sender.start();
+        receiver.start();
+
+        const QByteArray key(32, 'k');
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        sender.setOutboundKey(3, key);
+        // A KEY FOR SOMEBODY ELSE. This is the whole fixture: the engine now
+        // holds a key, so the old engine-wide flag reads true, but the ring
+        // the arriving frames will consult is empty and is never bound —
+        // which is exactly the state of a joiner whose key did not arrive.
+        receiver.setInboundKey(QStringLiteral("a-different-participant"), 3,
+                               key);
+
+        sender.publishAudio(QStringLiteral("cid-unkeyed"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            trackArrived,
+            qPrintable(QStringLiteral("no media pad; failure=%1").arg(failure)),
+            45000);
+        // Frames must actually reach the probe, or the assertion below is
+        // vacuous in the direction that matters.
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.framesDropped() > 0,
+            qPrintable(QStringLiteral("nothing was dropped, so the probe "
+                                      "never ran; sent=%1 failure=%2")
+                           .arg(sender.framesEncrypted())
+                           .arg(failure)),
+            30000);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            log.contains("DROPPED because no media key"),
+            qPrintable(QStringLiteral(
+                "the receive path did not report a MISSING KEY. log:\n%1")
+                           .arg(log.text())),
+            15000);
+        QVERIFY2(!log.contains("will not DECRYPT"),
+                 qPrintable(QStringLiteral(
+                     "an unkeyed sender was reported as a decryption "
+                     "failure, which is the defect. log:\n%1")
+                                .arg(log.text())));
+        QCOMPARE(receiver.framesDecrypted(), quint64(0));
 
         sender.stop();
         receiver.stop();

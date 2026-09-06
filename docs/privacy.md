@@ -275,6 +275,20 @@ stay on the user's machine and are never transmitted. Tokens, recovery keys,
 room/session keys, secret-storage material, passwords, provider API keys, and
 decrypted private message bodies are never logged.
 
+**Call diagnostics, added 2026-09-06, widen this deliberately.** When a call
+cannot carry a participant's audio, the log now names WHICH participant: the
+`call diagnosis:` lines carry the other party's Matrix user id and device id,
+and the SFU's participant identity, which in this deployment is built from
+those same two values. That is a category the call subsystem did not log
+before, and it is here because the four facts those lines exist to establish
+— did the key arrive, was the track attributed, were frames dropped for want
+of a key, did decryption fail with one present — cannot be correlated without
+knowing whose they are, and because a hash could not be matched against the
+user ids elsewhere in the same log. Still never logged: key material of any
+kind (a key's LENGTH is logged when one is refused; its bytes are not),
+tokens, and message content. This applies to the local log only; the support
+diagnostics export below is a separate surface and is unchanged.
+
 The optional **support diagnostics export** writes a file the user may choose to
 share. It carries hashed account identifiers and no filesystem paths, and it is
 written locally — Lightning never uploads it.

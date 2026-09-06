@@ -53,6 +53,10 @@ void RtcController::setClient(MatrixClient *client)
 void RtcController::clearForNewSession()
 {
     m_sessions.clear();
+    // A new session diagnoses itself: carrying the last one's "already said
+    // that" set forward would silence the second attempt, which is usually
+    // the one someone is watching.
+    m_unresolvedIdentitiesLogged.clear();
     // Every outstanding read belonged to the account that is going away.
     // This IS the isolation (see the header): an account switch reuses the
     // same client and emits loggedOut, which lands here.
@@ -473,8 +477,12 @@ QVariantMap RtcController::participantForIdentity(
     if (identity.isEmpty())
         return out;
     const auto it = m_sessions.constFind(roomId);
-    if (it == m_sessions.cend() || it->slotClosed)
+    if (it == m_sessions.cend() || it->slotClosed) {
+        // See the note on the loop below: an empty answer here is what makes
+        // a participant unkeyable, and it used to leave no trace at all.
+        noteUnresolvedIdentity(identity, QStringLiteral("no live session"));
         return out;
+    }
     for (const RtcParticipant &participant : it->participants) {
         if (participant.rtcIdentity != identity)
             continue;
@@ -493,7 +501,67 @@ QVariantMap RtcController::participantForIdentity(
         out.insert(QStringLiteral("ownDevice"), participant.ownDevice);
         return out;
     }
+    // NOTHING LOGGED THE EMPTY LOOKUP — docs/voice-calls.md says so in as
+    // many words, and its only visible trace was `unresolved=` on the media
+    // key line, which is an arithmetic difference rather than a name.
+    //
+    // This lookup is what turns a LiveKit identity into the Matrix user and
+    // device a media key is addressed to. When it comes back empty, that
+    // participant is not sent a key and their ring is never bound — so they
+    // hear us and we cannot hear them, which is the exact shape of the
+    // report this exists for. Once per identity per session: the caller runs
+    // on a refresh tick.
+    noteUnresolvedIdentity(identity,
+                           QStringLiteral("no membership matched it"));
     return out;
+}
+
+/// Say once that an SFU identity could not be resolved to a Matrix device.
+///
+/// WHAT THIS PUTS IN A LOG, stated accurately rather than waved away. The
+/// identity is NOT opaque: `SfuCallController`'s default is literally
+/// `<user id>:<device id>`, so this line carries a third-party Matrix id,
+/// and no line in `src/calls/` did that before — the existing ones log
+/// counts and categories, and the received-track line deliberately logs
+/// whether a stream id is empty rather than what it is.
+///
+/// It is here anyway because the four facts this round exists to make
+/// visible cannot be correlated without knowing WHICH participant each one
+/// is about, and because the alternative — a hash — cannot be matched
+/// against the user ids in the rest of the log. It carries no key material,
+/// no token and no room content, and it is a local log; see docs/privacy.md,
+/// which records this as a deliberate widening, and note that the
+/// support-diagnostics EXPORT is a different surface held to a stricter bar.
+void RtcController::noteUnresolvedIdentity(const QString &identity,
+                                           const QString &reason) const
+{
+    // KEYED ON BOTH, not on the identity alone. "There is no session yet" is
+    // a transient state at the start of a call and "no membership matched
+    // it" is a real fault; an identity that hit the first must still be able
+    // to report the second, or the diagnostic silences the one that matters.
+    const QString subject = identity + QChar(0x1f) + reason;
+    // Bounded: identities arrive from the SFU, so the set they can create
+    // must not be.
+    if (m_unresolvedIdentitiesLogged.size() >= 256
+        || m_unresolvedIdentitiesLogged.contains(subject)) {
+        return;
+    }
+    m_unresolvedIdentitiesLogged.insert(subject);
+    qCWarning(lcRtc) << "call diagnosis: the SFU participant" << identity
+                     << "could NOT be resolved to a Matrix user and device ("
+                     << reason
+                     << ") — no media key can be addressed to them and their "
+                        "media cannot be decrypted";
+}
+
+void RtcController::forgetUnresolvedIdentityDiagnostics()
+{
+    // PER CALL, not per account. SFU identities are stable for a user and
+    // device, so a set that lived for the whole login meant the second call
+    // of the day reported nothing at all — the same reasoning the media
+    // engine's stop() already applies to its own once-set, and it belongs
+    // here for the same reason.
+    m_unresolvedIdentitiesLogged.clear();
 }
 
 QString RtcController::mediaKeyTargetsJson(const QString &roomId) const
