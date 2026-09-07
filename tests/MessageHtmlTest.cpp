@@ -857,6 +857,55 @@ private Q_SLOTS:
                  0);
     }
 
+    // A NUMBERED LIST THAT CONTINUES MUST KEEP ITS NUMBERS.
+    //
+    // Reported 2026-09-07: "Your message changed to 1. on everything after
+    // reloading". A numbered list whose items carry nested bullets is not one
+    // list in HTML but several, and every markdown generator continues them
+    // with `start`. Attributes were stripped from every allowed tag, so each
+    // continuation restarted and a four point list rendered "1. 1. 1. 1.".
+    //
+    // FAIL-ON-OLD: with the `ol` branch removed, `start` is dropped and the
+    // first assertion fails.
+    void anOrderedListKeepsTheNumberItContinuesFrom()
+    {
+        const QString out = sanitize(QStringLiteral(
+            "<ol><li>one</li></ol><ul><li>sub</li></ul>"
+            "<ol start=\"2\"><li>two</li></ol>"));
+        QVERIFY2(out.contains(QStringLiteral("<ol start=\"2\">")),
+                 qPrintable(QStringLiteral(
+                     "the continuation lost its start, so it renders as 1 "
+                     "again: %1").arg(out)));
+        // The list that genuinely starts at one carries no attribute.
+        QVERIFY(out.startsWith(QStringLiteral("<ol>")));
+
+        // Not a plain bounded number: the attribute is dropped, never
+        // echoed. Zero and negatives included, because they are not a
+        // position in a list.
+        for (const QString &bad : { QStringLiteral("-4"),
+                                    QStringLiteral("0"),
+                                    QStringLiteral("99999999999"),
+                                    QStringLiteral("1e3"),
+                                    QStringLiteral(""),
+                                    QStringLiteral("abc") }) {
+            const QString got = sanitize(
+                QStringLiteral("<ol start=\"%1\"><li>x</li></ol>").arg(bad));
+            QVERIFY2(got.startsWith(QStringLiteral("<ol>"))
+                         && !got.contains(QStringLiteral("start=")),
+                     qPrintable(QStringLiteral("accepted start=%1 -> %2")
+                                    .arg(bad, got)));
+        }
+
+        // AND THE VALUE IS NEVER PASSED THROUGH AS TEXT. This one parses to
+        // a legitimate 2, so keeping the attribute is right; what must not
+        // survive is everything the sender attached to it. Re-emitting from
+        // the parsed integer is what guarantees that, and it is the reason
+        // the value is not simply copied.
+        const QString hostile = sanitize(QStringLiteral(
+            "<ol start=\"2\" onclick=\"evil()\" style=\"x\"><li>x</li></ol>"));
+        QCOMPARE(hostile, QStringLiteral("<ol start=\"2\"><li>x</li></ol>"));
+    }
+
     // ── @room ────────────────────────────────────────────────────────────
     // A whole-room mention has no matrix.to link to become an anchor, so it
     // is plain body text in both render paths and was rendering as plain body

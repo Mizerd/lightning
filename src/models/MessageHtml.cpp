@@ -823,6 +823,41 @@ QString MessageHtml::sanitize(
         if (allowedTags().contains(name)) {
             if (t.closing) {
                 out += QStringLiteral("</") + name + QStringLiteral(">");
+            } else if (name == QLatin1String("ol")) {
+                // `start` SURVIVES ON `<ol>`, AND IT IS THE ONE ATTRIBUTE
+                // THAT HAS TO.
+                //
+                // Reported 2026-09-07: "Your message changed to 1. on
+                // everything after reloading". A numbered list whose items
+                // are separated by nested bullets is not one list in HTML,
+                // it is SEVERAL — every markdown generator emits
+                // `<ol><li>1</li></ol> … <ol start="2"><li>2</li></ol> …` —
+                // so with attributes stripped every one of those restarted
+                // at 1 and a four point list rendered as "1. 1. 1. 1.". It
+                // looked right until the message was re-rendered from its
+                // formatted body, which is why it appeared on reload.
+                //
+                // MEASURED before relying on it, because Qt's documented
+                // HTML subset does not advertise this: on Qt 6.11
+                // `QTextListFormat::start()` reads 3 from
+                // `<ol start="3">`, and a second list with `start="2"`
+                // after an intervening `<ul>` numbers its item 2. So the
+                // attribute is honoured and this is worth carrying.
+                //
+                // Digits only, and bounded. The value reaches a rich text
+                // engine, so it is re-emitted from a parsed integer rather
+                // than passed through: nothing a sender writes survives as
+                // text.
+                const QString rawStart =
+                    extractAttr(t.raw, QStringLiteral("start"));
+                bool ok = false;
+                const int startAt = rawStart.toInt(&ok);
+                if (ok && startAt >= 1 && startAt <= 1000000) {
+                    out += QStringLiteral("<ol start=\"")
+                        + QString::number(startAt) + QStringLiteral("\">");
+                } else {
+                    out += QStringLiteral("<ol>");
+                }
             } else if (!mentionStyle.codeBackground.isEmpty()
                        && (name == QLatin1String("code")
                            || name == QLatin1String("pre"))) {
