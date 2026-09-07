@@ -896,8 +896,74 @@ fn restrict_store_permissions(path: &std::path::Path) {
 #[cfg(not(unix))]
 fn restrict_store_permissions(_path: &std::path::Path) {}
 
+/// Forward matrix-sdk's own `tracing` diagnostics to stderr, ONCE, and only
+/// when asked.
+///
+/// WHY THIS EXISTS. The SDK reports everything it knows about to-device
+/// decryption, Olm sessions and key gossip through `tracing`, and this
+/// application installed no subscriber at all, so every one of those lines
+/// was discarded before it could be read. That is not a small gap: a live
+/// encrypted call on 2026-09-07 had one participant distribute its media key
+/// with `targets= 1 unresolved= 0 delivered= 1` while the other logged NO key
+/// receive and NO discard, dropping a thousand frames for want of it. Our own
+/// handler proved the key never reached it; nothing could say why, because
+/// the layer that knows was mute.
+///
+/// OFF BY DEFAULT AND OPT-IN BY ITS OWN VARIABLE, not `RUST_LOG`, so it
+/// cannot be switched on by an unrelated environment. `LIGHTNING_RUST_LOG=1`
+/// selects a conservative default aimed at exactly this fault; any other
+/// value is taken as a full `EnvFilter` directive for a developer who knows
+/// what they want.
+///
+/// PRIVACY. The default filter asks for matrix-sdk's crypto at `debug`, which
+/// is its state-transition and failure reporting, not key material: §6's rule
+/// against logging session keys, recovery material and raw crypto state binds
+/// what WE write, and this forwards the SDK's own sanitized output rather
+/// than adding anything. It is still opt-in and still a local log, and a
+/// developer who raises the filter to `trace` is choosing a verbosity this
+/// code does not select for them.
+fn install_sdk_tracing() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let requested = match std::env::var("LIGHTNING_RUST_LOG") {
+            Ok(value) if !value.trim().is_empty() => value,
+            _ => return,
+        };
+        let directives = if requested.trim() == "1" {
+            // The lanes that answer "why did this key never arrive".
+            "matrix_sdk_crypto=debug,matrix_sdk_base=info,matrix_sdk=info"
+                .to_owned()
+        } else {
+            requested
+        };
+        let filter = match tracing_subscriber::EnvFilter::try_new(&directives) {
+            Ok(filter) => filter,
+            Err(err) => {
+                eprintln!(
+                    "LIGHTNING_RUST_LOG is not a valid filter ({err}); \
+                     SDK tracing stays off"
+                );
+                return;
+            }
+        };
+        // `try_init` rather than `init`: a test binary in this crate may have
+        // installed one already, and failing to install must never be fatal.
+        if tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_writer(std::io::stderr)
+            .try_init()
+            .is_ok()
+        {
+            eprintln!("matrix-sdk tracing enabled: {directives}");
+        }
+    });
+}
+
 #[no_mangle]
 pub extern "C" fn mx_rust_create(store_path: *const c_char) -> *mut c_void {
+    // Before anything the SDK might want to report on.
+    install_sdk_tracing();
     match catch_unwind(AssertUnwindSafe(|| {
         let store_path = unsafe { cstr_arg(store_path) }?;
         let path = PathBuf::from(store_path);

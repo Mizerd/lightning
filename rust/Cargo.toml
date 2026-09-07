@@ -100,11 +100,12 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 # crate is already pinned transitively by matrix-sdk-ui 0.18.0; the application
 # never sends catalogue data through FFI and performs no runtime download.
 emojis = "=0.8.2"
-
-[dev-dependencies]
-# Live E2EE interop harness only: captures matrix-sdk's own sanitized
-# crypto tracing (gossip/backup state transitions) during the ignored
-# live test. Same version the lock file already pins transitively.
+# matrix-sdk's own diagnostics, OPT-IN. The SDK logs through `tracing` and the
+# application installed no subscriber, so everything it says about to-device
+# decryption, Olm sessions and key gossip went nowhere. That is the difference
+# between a bug that names itself and one that costs a session; see
+# `install_sdk_tracing` in lib.rs. Same version the lock file already pinned
+# transitively, so this moves a dev-dependency rather than adding a crate.
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [lints.rust]
