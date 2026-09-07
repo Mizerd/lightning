@@ -7,9 +7,9 @@ import MatrixClient
 // Shared adaptive video control bar — one implementation for the inline
 // card and the expanded overlay. Sits over the video on a bottom gradient
 // scrim, so its ink is scrim-constant (accentText on dark), not themed
-// surface ink. Width-adaptive: in tight cards mute and speed collapse into
-// an overflow menu; the seek slider, time, and expand/exit action remain
-// visible. Expanding the player exposes the complete direct-control set.
+// surface ink. Width-adaptive: a tight card drops the SPEED button; play,
+// seek, time, volume and expand/exit stay visible at every width. Expanding
+// the player exposes the complete direct-control set, speed included.
 FocusScope {
     id: bar
 
@@ -137,8 +137,27 @@ FocusScope {
             Layout.rightMargin: 2
         }
 
-        // Wide layout exposes the volume slider directly in a compact
-        // hover/focus popup. Tight cards retain mute in the overflow menu.
+        // THE VOLUME CONTROL IS NEVER THE THING THAT DISAPPEARS, AND IT
+        // TAKES THE OVERFLOW BUTTON'S SLOT RATHER THAN A NEW ONE.
+        //
+        // Reported 2026-09-07: "i cant change volume on videos unless i
+        // fullscreen them". Tight cards hid this control and offered the
+        // overflow menu instead — but that menu carried only Mute and
+        // Speed, so the LEVEL was silently dropped rather than moved. On an
+        // inline card the only volume choice was on or off, and the slider
+        // appeared solely once the player was expanded.
+        //
+        // Volume is the most-reached control after play and seek, so it now
+        // stays at every width and SPEED is what a tight card gives up.
+        //
+        // MEASURED, not assumed: keeping the overflow button as well pushed
+        // the close button outside a 260px card and
+        // portraitVideoControlsRemainReachable failed on it. So this is a
+        // straight swap of one 30px button for another. The overflow menu
+        // held nothing else once volume left it, so it is gone rather than
+        // kept for a single entry, and speed is reached by expanding the
+        // player, which is where a 260px card sends anyone who wants finer
+        // control anyway.
         MediaVolumeControl {
             id: volumeControl
             objectName: "videoMuteButton"
@@ -147,7 +166,6 @@ FocusScope {
             sliderObjectName: "videoVolumeSlider"
             iconSize: 18
             implicitWidth: 30; implicitHeight: 30
-            visible: !bar.tight
         }
         AbstractButton {
             id: speedButton
@@ -174,18 +192,6 @@ FocusScope {
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
             }
-        }
-
-        // Tight layout: mute and speed move into one overflow menu.
-        IconButton {
-            objectName: "videoOverflowButton"
-            visible: bar.tight
-            iconName: "more_vert"
-            iconSize: 18
-            implicitWidth: 30; implicitHeight: 30
-            iconColorOverride: AppTheme.scrimInk
-            Accessible.name: qsTr("More playback controls")
-            onClicked: overflowMenu.popup(this, 0, -overflowMenu.height - 4)
         }
 
         IconButton {
@@ -234,24 +240,6 @@ FocusScope {
                 text: modelData + "×"
                 iconName: index === bar._rateIndex ? "check" : ""
                 onTriggered: bar._applyRate(index)
-            }
-        }
-    }
-    AppMenu {
-        id: overflowMenu
-        AppMenuItem {
-            iconName: !bar.audio || bar.audio.muted || bar.audio.volume <= 0
-                      ? "volume_off" : "volume_up"
-            text: bar.audio && (bar.audio.muted || bar.audio.volume <= 0)
-                  ? qsTr("Unmute") : qsTr("Mute")
-            onTriggered: bar.toggleMute()
-        }
-        AppMenuItem {
-            iconName: "speed"
-            text: qsTr("Speed: %1×").arg(bar._rateLabel)
-            onTriggered: {
-                var next = (bar._rateIndex + 1) % bar._rates.length
-                bar._applyRate(next)
             }
         }
     }

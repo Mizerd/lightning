@@ -334,7 +334,18 @@ private Q_SLOTS:
             QStringLiteral("videoTimeLabel"),
             QStringLiteral("videoExpandButton"),
             QStringLiteral("videoCloseButton"),
-            QStringLiteral("videoOverflowButton"),
+            // THE VOLUME CONTROL BELONGS IN THIS SET, at the narrowest card
+            // the layout allows. Reported 2026-09-07: "i cant change volume
+            // on videos unless i fullscreen them" — a tight card hid this
+            // control and offered an overflow menu that carried Mute and
+            // Speed only, so the LEVEL was dropped rather than moved and the
+            // slider existed solely in the expanded player. Listing it here
+            // asserts both halves at once: that it is visible, and that
+            // adding it back did not push the row outside a 260px card. It
+            // takes the old overflow button's slot: keeping both was tried
+            // and this very assertion caught the close button leaving the
+            // card, which is why speed is what collapses now.
+            QStringLiteral("videoMuteButton"),
         };
         for (const QString &name : required) {
             auto *control = bar->findChild<QQuickItem *>(name);
@@ -350,11 +361,26 @@ private Q_SLOTS:
             QVERIFY2(bottomRight.y() <= video->height() + 0.5,
                      qPrintable(name));
         }
-        // Tight mode: the dedicated mute/speed buttons yield to overflow.
-        auto *mute = bar->findChild<QQuickItem *>(
+        // Tight mode collapses SPEED, and only speed. Volume is the
+        // most-reached control after play and seek, so it is never the one
+        // that disappears; the swap is one 30px button for another, which is
+        // what keeps the row inside the card floor asserted above.
+        auto *speed = bar->findChild<QQuickItem *>(
+            QStringLiteral("videoSpeedButton"));
+        QVERIFY(speed);
+        QVERIFY2(!speed->isVisible(),
+                 "speed is what yields to the overflow menu in a tight card");
+
+        // And the volume control must actually reach its slider, not just
+        // exist: a control that can only mute is the defect being fixed.
+        auto *volume = bar->findChild<QQuickItem *>(
             QStringLiteral("videoMuteButton"));
-        QVERIFY(mute);
-        QVERIFY(!mute->isVisible());
+        QVERIFY(volume != nullptr);
+        auto *slider = volume->findChild<QQuickItem *>(
+            QStringLiteral("videoVolumeSlider"));
+        QVERIFY2(slider != nullptr,
+                 "the tight card's volume control carries no level slider, "
+                 "so volume can still only be toggled on or off");
     }
 
     // Audio and voice rows are compact and fixed — never image-sized — and
