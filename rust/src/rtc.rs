@@ -2528,6 +2528,40 @@ pub(crate) fn register_rtc_handlers(
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 async move {
+                    // EVERY DISCARD SAYS SO. This handler had SIX silent
+                    // `return`s, and each of them produces the identical
+                    // user-visible symptom -- every remote frame dropped for
+                    // want of a key -- with NOTHING in the log. The C++ side
+                    // already logs before its own early returns for exactly
+                    // this reason ("the key never arrived" and "the key
+                    // arrived and we discarded it" are different faults with
+                    // the same symptom); the Rust side has more discard paths
+                    // than the C++ side and had none of that discipline, so a
+                    // key rejected here was indistinguishable from a key that
+                    // was never sent.
+                    //
+                    // OBSERVED LIVE, 2026-09-07: a two-party encrypted call
+                    // in which A's key reached B and was installed, B sent its
+                    // key three times reporting `delivered= 1` each time, and
+                    // A logged NO key receive of any kind while dropping every
+                    // frame. With this line the next such call names its own
+                    // cause instead of costing a session.
+                    //
+                    // Carries the sender and a fixed reason string, never key
+                    // material. The sender's user id is the same class of
+                    // datum RtcController's own unresolved-identity
+                    // diagnostic already records deliberately.
+                    macro_rules! discard {
+                        ($reason:expr) => {{
+                            enqueue(&events, json!({
+                                "type": "rtc_key_discarded",
+                                "lifecycle": timelines.lifecycle(),
+                                "reason": $reason,
+                                "sender": ev.sender.to_string(),
+                            }));
+                            return;
+                        }};
+                    }
                     // OLM OR NOTHING. The SDK hands a to-device event to this
                     // handler whether or not it was encrypted, and `None`
                     // here means it arrived in the CLEAR: any Matrix user on
@@ -2538,26 +2572,30 @@ pub(crate) fn register_rtc_handlers(
                     // below is keyed on. The reference sends these keys
                     // encrypted; a plaintext one is refused, not degraded.
                     let Some(encryption) = encryption else {
-                        return;
+                        discard!("not encrypted");
                     };
+                    // `None` here means Olm decrypted the message but the SDK
+                    // could not attribute it to a known device of the sender.
+                    // That is the leading suspect for the observed one-way
+                    // failure above, and it was previously invisible.
                     let Some(sender_device) = encryption.sender_device.as_ref()
                     else {
-                        return;
+                        discard!("sending device not resolved");
                     };
                     if encryption.sender != ev.sender {
-                        return;
+                        discard!("olm sender does not match the envelope");
                     }
                     // Bound and validate every field: this arrives from
                     // another device and is used to key a cipher.
                     if ev.content.keys.index > MAX_KEY_INDEX {
-                        return;
+                        discard!("key index out of range");
                     }
                     let Some(key) = sane(&ev.content.keys.key, 512) else {
-                        return;
+                        discard!("key field is not usable");
                     };
                     let Some(room_id) = sane(&ev.content.room_id, MAX_WIRE_LEN)
                     else {
-                        return;
+                        discard!("room id is not usable");
                     };
                     // The device the key is filed under is the one whose
                     // Olm session decrypted it -- never the content's
@@ -2570,15 +2608,15 @@ pub(crate) fn register_rtc_handlers(
                         sane(&ev.content.member.claimed_device_id,
                              MAX_WIRE_LEN)
                     else {
-                        return;
+                        discard!("claimed device id is not usable");
                     };
                     let Some(device_id) =
                         sane(sender_device.as_str(), MAX_WIRE_LEN)
                     else {
-                        return;
+                        discard!("olm device id is not usable");
                     };
                     if claimed_device_id != device_id {
-                        return;
+                        discard!("claimed device does not match the olm device");
                     }
                     enqueue(&events, json!({
                         "type": "rtc_key_received",

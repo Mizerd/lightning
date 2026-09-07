@@ -18,6 +18,7 @@
 #include "storage/AppDataPaths.h"
 
 #include <QDateTime>
+#include <QHash>
 #include "app/UrlLauncher.h"
 
 #include <QDesktopServices>
@@ -7929,6 +7930,39 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("claimed_device_id")).toString(),
             event.value(QStringLiteral("key_index")).toInt(),
             event.value(QStringLiteral("key")).toString());
+        return true;
+    }
+    if (type == QLatin1String("rtc_key_discarded")) {
+        // WHY a media key was thrown away, which used to be six silent
+        // returns in rust/src/rtc.rs. Every one of them shows up to the user
+        // as "I cannot hear anyone", and the sender sees a successful send —
+        // so without this line the fault has no name on either side.
+        //
+        // A COOLDOWN, NOT A ONCE-SET. A wedged Olm session re-sends every
+        // few seconds, so this must not spam; but RtcController's own
+        // once-per-session diagnostic already had to be taught that "a set
+        // that lived for the whole login meant the second call of the day
+        // reported nothing at all", and repeating that here would hide the
+        // second call's fault for the same reason. Bounded either way.
+        static QHash<QString, qint64> lastSaid;
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        constexpr qint64 kCooldownMs = 60000;
+        const QString sender =
+            event.value(QStringLiteral("sender")).toString();
+        const QString reason =
+            event.value(QStringLiteral("reason")).toString();
+        const QString subject = sender + QChar(0x1f) + reason;
+        const auto said = lastSaid.constFind(subject);
+        const bool due = said == lastSaid.cend()
+            || now - *said >= kCooldownMs;
+        if (due && (lastSaid.size() < 256 || said != lastSaid.cend())) {
+            lastSaid.insert(subject, now);
+            qCWarning(lcRust)
+                << "call diagnosis: a media key from" << sender
+                << "was DISCARDED before it could be installed —" << reason
+                << ". Their audio and video will be dropped for want of a "
+                   "key until this is resolved.";
+        }
         return true;
     }
     if (type == QLatin1String("sfu_state")) {
