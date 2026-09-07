@@ -127,7 +127,20 @@ QString applicationBranchDescription(const Stream &stream, int index)
                "pipewiresrc name=shareapp%1 target-object=%2 min-buffers=1 "
                "do-timestamp=true on-disconnect=eos "
                "! queue max-size-time=200000000 leaky=downstream "
-               "! audioconvert ! audioresample ! %3")
+               // AN EXPLICIT `capsfilter`, NOT A BARE CAPS STRING, and that
+               // is not a matter of taste. A description ENDING in
+               // `! audio/x-raw,...` parses only when something follows it —
+               // mixedSourceDescription() always appends `! sharemixer.`, so
+               // it worked there and hid this. The dynamic path in
+               // SfuMediaEngine::rescanShareAudioSources() hands this same
+               // string to gst_parse_bin_from_description() with nothing
+               // after it, and GStreamer then reads the caps as an ELEMENT
+               // NAME: observed live on 2026-09-07 as
+               // `could not build a branch for a new application: no element
+               // "audio"`, once for every application that began playing
+               // during a share. The initial set worked, so a share only ever
+               // carried what happened to be playing when it started.
+               "! audioconvert ! audioresample ! capsfilter caps=\"%3\"")
         .arg(QString::number(index), stream.serial,
              QString::fromLatin1(kMixCaps));
 }

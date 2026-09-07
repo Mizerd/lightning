@@ -3458,6 +3458,70 @@ private slots:
         // stage, the rate stage, the encoder — expects that.
         QVERIFY(entry.contains(QStringLiteral("video/x-raw")));
     }
+
+    // A SHARE-AUDIO BRANCH MUST PARSE ON ITS OWN, and this is the only test
+    // that can tell. ShareAudioSourcesTest links Qt6::Core alone by design,
+    // so every assertion it makes about these descriptions is a string
+    // comparison — and a string comparison cannot see that GStreamer refuses
+    // the string.
+    //
+    // FOUND LIVE 2026-09-07, during a real two-party call with a screen
+    // share: `share audio: could not build a branch for a new application:
+    // no element "audio"`, once for every application that started playing
+    // during the share. The branch ended in a bare `! audio/x-raw,...`, which
+    // parses only when something follows it — mixedSourceDescription() always
+    // appends `! sharemixer.`, so the initial set built fine and hid it,
+    // while the dynamic path in rescanShareAudioSources() passes the branch
+    // to gst_parse_bin_from_description() with nothing after it and GStreamer
+    // reads the caps as an element name.
+    //
+    // FAIL-ON-OLD: with the trailing `capsfilter` replaced by the bare caps,
+    // the first QVERIFY2 below fails with that exact message.
+    void aShareAudioBranchParsesStandaloneTheWayTheDynamicPathBuildsIt()
+    {
+        lightning::shareaudio::Stream s;
+        s.serial = QStringLiteral("9551");
+        const QString branch =
+            lightning::shareaudio::applicationBranchDescription(s, 0);
+        QVERIFY(!branch.isEmpty());
+
+        // Exactly what SfuMediaEngine::rescanShareAudioSources() does when an
+        // application starts playing while a share is already running.
+        GError *error = nullptr;
+        GstElement *bin = gst_parse_bin_from_description(
+            branch.toUtf8().constData(), TRUE, &error);
+        const QString message =
+            error && error->message ? QString::fromUtf8(error->message)
+                                    : QString();
+        if (error)
+            g_error_free(error);
+        if (bin)
+            gst_object_unref(bin);
+        QVERIFY2(message.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "GStreamer refused a branch that the dynamic path builds "
+                     "verbatim: %1 — every application that begins playing "
+                     "during a share is silently left out of it")
+                     .arg(message)));
+
+        // And the whole description still parses, which is the path that was
+        // already working; asserted here so a fix to one cannot break the
+        // other.
+        const QString whole = lightning::shareaudio::mixedSourceDescription(
+            { s }) + QStringLiteral(" ! fakesink");
+        GError *wholeError = nullptr;
+        GstElement *wholeBin = gst_parse_bin_from_description(
+            whole.toUtf8().constData(), TRUE, &wholeError);
+        const QString wholeMessage =
+            wholeError && wholeError->message
+                ? QString::fromUtf8(wholeError->message)
+                : QString();
+        if (wholeError)
+            g_error_free(wholeError);
+        if (wholeBin)
+            gst_object_unref(wholeBin);
+        QVERIFY2(wholeMessage.isEmpty(), qPrintable(wholeMessage));
+    }
 };
 
 QTEST_MAIN(SfuMediaEngineTest)
