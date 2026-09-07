@@ -4260,6 +4260,24 @@ Rectangle {
                 // chain that a stationary reader never asked for.
                 readonly property int nearTopApproachRowBudget: 240
                 property int nearTopRowsThisApproach: 0
+                // AND A REQUEST BUDGET, because the row budget cannot bound a
+                // page that adds nothing.
+                //
+                // A live log on 2026-09-07 showed roughly thirty consecutive
+                // `reason= near_top` requests in one approach, many of them
+                // `added= 0`, alongside `duplicates suppressed count= 30`. A
+                // room whose history is heavily filtered (a call room drops
+                // every membership event at the SDK) answers page after page
+                // with no rows, so each costs a round trip and the row budget
+                // above is never spent. Bounding rows alone leaves the
+                // request storm the budget was written to stop.
+                //
+                // Deliberately larger than the row budget divided by a page:
+                // empty pages are legitimate and the controller already walks
+                // a filtered run, so this is the outer bound on ONE approach,
+                // not a tight cap.
+                readonly property int nearTopApproachRequestBudget: 24
+                property int nearTopRequestsThisApproach: 0
                 // How far the viewport top sits BELOW the earliest loaded row.
                 // The proximity bands MUST be measured against this and never
                 // against raw contentY, because contentY is not a distance from
@@ -4313,6 +4331,7 @@ Rectangle {
                         nearTopArmed = true
                         nearTopRequestDistance = Infinity
                         nearTopRowsThisApproach = 0
+                        nearTopRequestsThisApproach = 0
                         return
                     }
                     var fromTop = distanceFromTop()
@@ -4357,8 +4376,11 @@ Rectangle {
                             // The ratchet below still runs, so the approach
                             // stays correctly accounted for.
                             if (nearTopRowsThisApproach
-                                    < nearTopApproachRowBudget) {
+                                    < nearTopApproachRowBudget
+                                && nearTopRequestsThisApproach
+                                    < nearTopApproachRequestBudget) {
                                 nearTopArmed = false
+                                ++nearTopRequestsThisApproach
                                 maybeRequestNearTop(userInitiated)
                             }
                         }
@@ -4375,6 +4397,7 @@ Rectangle {
                         // A real departure ends the approach, so returning to
                         // the top later gets a fresh budget.
                         nearTopRowsThisApproach = 0
+                        nearTopRequestsThisApproach = 0
                     }
                 }
 
@@ -5401,6 +5424,7 @@ Rectangle {
                         timeline.nearTopArmed = true
                         timeline.nearTopRequestDistance = Infinity
                         timeline.nearTopRowsThisApproach = 0
+                        timeline.nearTopRequestsThisApproach = 0
                         timeline.expandedStateGroups = ({})
                         // A fresh room gets a fresh fill-retry budget; the
                         // previous room's spent attempts must not deny this

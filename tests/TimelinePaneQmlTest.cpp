@@ -6161,6 +6161,111 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
+    // A PAGE THAT ADDS NOTHING STILL COSTS A REQUEST, AND THE ROW BUDGET
+    // CANNOT SEE IT.
+    //
+    // A live log on 2026-09-07 showed about thirty consecutive
+    // `reason= near_top` requests in one approach, many of them `added= 0`,
+    // with `duplicates suppressed count= 30` beside them. A room whose
+    // history is heavily filtered answers page after page with no rows: the
+    // approach's ROW budget is never spent, so it bounds nothing, and the
+    // request storm it was written to stop carries on.
+    //
+    // FAIL-ON-OLD: with only the row budget, all 40 empty pages below
+    // dispatch. With the request budget the approach stops at 24.
+    void anApproachThatKeepsGettingEmptyPagesStillStops()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/6);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        const int requestBudget =
+            timeline->property("nearTopApproachRequestBudget").toInt();
+        QVERIFY2(requestBudget > 0, "the request budget must be a real bound");
+
+        // Production's own re-entrancy guard held, so the dispatch DECISION is
+        // what is measured and the mock's timing cannot move the count.
+        QVERIFY(timeline->setProperty("nearTopCheckScheduled", true));
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+
+        int dispatches = 0;
+        for (int page = 0; page < 40; ++page) {
+            QVERIFY(positionAtTopEdge(timeline));
+            QCoreApplication::processEvents();
+            QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
+                                              Q_ARG(QVariant, QVariant(true))));
+            if (!timeline->property("nearTopArmed").toBool())
+                ++dispatches;
+            // AN EMPTY PAGE. This is the case the row budget cannot charge
+            // for: the controller re-arms the latch after a productive page,
+            // and a filtered run re-arms it just the same while adding no
+            // rows at all.
+            QVERIFY(timeline->setProperty("nearTopArmed", true));
+            QCoreApplication::processEvents();
+        }
+
+        QVERIFY2(dispatches > 0, "the fixture never dispatched");
+        QVERIFY2(dispatches <= requestBudget,
+                 qPrintable(QStringLiteral(
+                     "one approach issued %1 near-top requests against a "
+                     "budget of %2, every one of them returning no rows — the "
+                     "row budget cannot bound an empty page")
+                     .arg(dispatches).arg(requestBudget)));
+
+        // A genuine departure still starts a new approach.
+        QVERIFY(timeline->setProperty("stickToBottom", true));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
+                                          Q_ARG(QVariant, QVariant(false))));
+        QCOMPARE(timeline->property("nearTopRequestsThisApproach").toInt(), 0);
+        QCOMPARE(realWarnings(warnings), QStringList{});
+    }
+
     // The multi-batch guarantee the deleted stale-token bookkeeping existed
     // for: back-to-back prepends must each be compensated exactly once — no
     // lost batch (the "teleports toward the top" cascade) and no double
