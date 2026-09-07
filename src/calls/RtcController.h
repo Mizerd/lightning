@@ -290,9 +290,22 @@ private:
 public:
     /// Let a new call diagnose itself: see the implementation.
     void forgetUnresolvedIdentityDiagnostics();
+    /// How long an identity must stay unresolvable before it is reported.
+    /// Exists so a test can assert BOTH halves of that rule without
+    /// sleeping through the real grace period; production never calls it.
+    void setUnresolvedIdentityGraceMsForTest(qint64 ms)
+    {
+        m_unresolvedIdentityGraceMs = ms;
+    }
 
 private:
     mutable QSet<QString> m_unresolvedIdentitiesLogged;
+    /// When each unresolved subject was FIRST seen, so a transient miss is
+    /// not reported as a permanent one — see noteUnresolvedIdentity().
+    mutable QHash<QString, qint64> m_unresolvedIdentityFirstSeenMs;
+    /// Comfortably longer than a join's own settling and far shorter than a
+    /// user's patience with silence.
+    qint64 m_unresolvedIdentityGraceMs = 5000;
 
     // Reads in flight. Each carries the epoch it was dispatched under, so a
     // reply that outlives an account switch is dropped instead of writing

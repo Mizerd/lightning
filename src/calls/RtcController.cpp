@@ -1,5 +1,6 @@
 #include "calls/RtcController.h"
 
+#include <QDateTime>
 #include <QLoggingCategory>
 
 #include <QJsonArray>
@@ -546,6 +547,31 @@ void RtcController::noteUnresolvedIdentity(const QString &identity,
         || m_unresolvedIdentitiesLogged.contains(subject)) {
         return;
     }
+    // A MISS AT JOIN IS NORMAL AND IS NOT WHAT THIS LINE IS FOR.
+    //
+    // The client reaches the SFU before its OWN membership state event has
+    // come back through sync, so the first lookups of a call resolve
+    // nothing — including, every single time, the local device. Observed on
+    // both ends of a live call on 2026-09-07: each client reported its own
+    // identity as unresolvable at `sfu joined` and resolved it moments
+    // later, and the other client's identity resolved first time. That made
+    // the loudest line in the call log a false alarm, and it is precisely
+    // the line a user would quote when reporting that they cannot hear
+    // anyone.
+    //
+    // What the diagnostic is for is a participant who stays unresolvable, so
+    // it now requires the fault to PERSIST. The set is re-tested by
+    // reconcileKeyLane() on its own tick, and a subject that resolves in the
+    // meantime never reaches this branch again.
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const auto firstSeen = m_unresolvedIdentityFirstSeenMs.constFind(subject);
+    if (firstSeen == m_unresolvedIdentityFirstSeenMs.cend()) {
+        if (m_unresolvedIdentityFirstSeenMs.size() < 256)
+            m_unresolvedIdentityFirstSeenMs.insert(subject, now);
+        return;
+    }
+    if (now - *firstSeen < m_unresolvedIdentityGraceMs)
+        return;
     m_unresolvedIdentitiesLogged.insert(subject);
     qCWarning(lcRtc) << "call diagnosis: the SFU participant" << identity
                      << "could NOT be resolved to a Matrix user and device ("
@@ -562,6 +588,7 @@ void RtcController::forgetUnresolvedIdentityDiagnostics()
     // engine's stop() already applies to its own once-set, and it belongs
     // here for the same reason.
     m_unresolvedIdentitiesLogged.clear();
+    m_unresolvedIdentityFirstSeenMs.clear();
 }
 
 QString RtcController::mediaKeyTargetsJson(const QString &roomId) const

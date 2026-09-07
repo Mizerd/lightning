@@ -2199,20 +2199,48 @@ private Q_SLOTS:
         RtcController rtc;
         const QString room = QStringLiteral("!room:example.org");
         const QString identity = QStringLiteral("PA_nobody");
+
+        const auto countSaid = [&lines, &identity] {
+            int n = 0;
+            for (const QString &line : lines) {
+                if (line.contains(QLatin1String("could NOT be resolved"))
+                    && line.contains(identity)) {
+                    ++n;
+                }
+            }
+            return n;
+        };
+
+        // A MISS AT JOIN IS NOT A FAULT, and reporting it as one was a live
+        // defect. A client reaches the SFU before its OWN membership has come
+        // back through sync, so the first lookups of every call resolve
+        // nothing — including, every time, the local device. Measured on both
+        // ends of a real call on 2026-09-07: each side reported its own
+        // identity as unresolvable at `sfu joined` and resolved it moments
+        // later. That made the loudest line in the call log a false alarm,
+        // and it is exactly the line a user quotes when they cannot hear
+        // anyone.
         {
             Capture capture(&lines);
             QVERIFY(rtc.participantForIdentity(room, identity).isEmpty());
             QVERIFY(rtc.participantForIdentity(room, identity).isEmpty());
         }
+        QVERIFY2(countSaid() == 0,
+                 "a transient lookup miss must not be reported as a "
+                 "permanent one");
 
-        int said = 0;
-        for (const QString &line : lines) {
-            if (line.contains(QLatin1String("could NOT be resolved"))
-                && line.contains(identity)) {
-                ++said;
-            }
+        // ...AND A FAULT THAT PERSISTS STILL SAYS SO, EXACTLY ONCE. The grace
+        // is collapsed rather than slept through; production keeps its own.
+        lines.clear();
+        rtc.setUnresolvedIdentityGraceMsForTest(0);
+        {
+            Capture capture(&lines);
+            QVERIFY(rtc.participantForIdentity(room, identity).isEmpty());
+            QVERIFY(rtc.participantForIdentity(room, identity).isEmpty());
         }
-        QCOMPARE(said, 1);
+        QVERIFY2(countSaid() == 1,
+                 "an identity that stays unresolvable must be reported, and "
+                 "reported once");
 
         // AND A NEW CALL DIAGNOSES ITSELF. SFU identities are stable for a
         // user and device, so a set that lived for the whole login meant the
@@ -2221,6 +2249,9 @@ private Q_SLOTS:
         rtc.forgetUnresolvedIdentityDiagnostics();
         {
             Capture capture(&lines);
+            // Twice: forgetting clears the first-seen record too, so the
+            // grace starts again even at zero.
+            QVERIFY(rtc.participantForIdentity(room, identity).isEmpty());
             QVERIFY(rtc.participantForIdentity(room, identity).isEmpty());
         }
         int again = 0;
