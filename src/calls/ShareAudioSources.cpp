@@ -64,7 +64,7 @@ Stream streamFromProperties(const QVariantMap &props)
 }
 
 bool streamIsForeign(const QVariantMap &props, qint64 ourPid,
-                     const QString &ourClientName)
+                     const QStringList &ourNames)
 {
     // EXACTLY `Stream/Output/Audio`. The `/Internal` suffix is PipeWire's own
     // plumbing — a split or converted node the session manager created — and
@@ -86,20 +86,25 @@ bool streamIsForeign(const QVariantMap &props, qint64 ourPid,
     // come back.
     if (ourPid > 0 && s.pid == ourPid)
         return false;
-    if (!ourClientName.isEmpty()) {
-        // The pid is the reliable half and the name is the belt: a node
-        // created through a path that does not fill `application.process.id`
-        // still carries a name, and shipping the echo again because one
-        // property was absent is not a trade worth making.
-        //
-        // HOW MUCH TO TRUST IT: not much, and the fix does not rest on it.
-        // What PipeWire records OUR playback under has not been captured
-        // from a running Lightning — the application name is `matrix-client`
-        // (src/main.cpp), and whether the node carries that, the binary
-        // name, or something the audio sink chose is unverified. The pid
-        // check is the guard; this is a second chance, not a second proof.
-        if (s.appName.compare(ourClientName, Qt::CaseInsensitive) == 0
-            || s.nodeName.compare(ourClientName, Qt::CaseInsensitive) == 0)
+    // The pid is the reliable half and the name is the belt: a node created
+    // through a path that does not fill `application.process.id` still
+    // carries a name, and shipping the echo again because one property was
+    // absent is not a trade worth making.
+    //
+    // IT TAKES EVERY SPELLING BECAUSE ONE WAS THE WRONG ONE. This used to
+    // compare against QCoreApplication::applicationName() alone, and the
+    // comment beside it admitted the value had never been captured from a
+    // running client. It has now: a live share on 2026-09-07 logged its own
+    // sources as `app= "lightning-matrix"`, the BINARY name, while
+    // applicationName() is "matrix-client" (src/main.cpp). So the belt could
+    // not match the one process it existed to exclude, and had the pid ever
+    // been missing the echo would have come straight back with a check in
+    // place that looked like it was working.
+    for (const QString &name : ourNames) {
+        if (name.isEmpty())
+            continue;
+        if (s.appName.compare(name, Qt::CaseInsensitive) == 0
+            || s.nodeName.compare(name, Qt::CaseInsensitive) == 0)
             return false;
     }
 
@@ -337,7 +342,7 @@ void SourceMonitor::stop()
 }
 
 QList<Stream> SourceMonitor::streams(qint64 ourPid,
-                                     const QString &ourClientName) const
+                                     const QStringList &ourNames) const
 {
     QList<Stream> out;
     if (!m_monitor)
@@ -347,7 +352,7 @@ QList<Stream> SourceMonitor::streams(qint64 ourPid,
     for (GList *l = devices; l; l = l->next) {
         GstDevice *device = GST_DEVICE(l->data);
         const QVariantMap props = propertiesOf(device);
-        if (!streamIsForeign(props, ourPid, ourClientName))
+        if (!streamIsForeign(props, ourPid, ourNames))
             continue;
         out.append(streamFromProperties(props));
     }
@@ -364,7 +369,7 @@ bool SourceMonitor::start()
 
 void SourceMonitor::stop() {}
 
-QList<Stream> SourceMonitor::streams(qint64, const QString &) const
+QList<Stream> SourceMonitor::streams(qint64, const QStringList &) const
 {
     return {};
 }

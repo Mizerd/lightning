@@ -2,6 +2,7 @@
 
 #include <QList>
 #include <QString>
+#include <QStringList>
 #include <QVariantMap>
 
 // Capturing what the computer is playing WITHOUT capturing ourselves.
@@ -53,9 +54,13 @@
 // and answering yes or no. It needs no PipeWire, no GStreamer and no call, so
 // it is unit-tested directly; everything around it is plumbing.
 //
-// SCOPE, HONESTLY. This is the Linux/PipeWire path only. Windows captures
-// through `wasapi2src loopback=true`, which is the endpoint mix and has the
-// same echo for the same reason; nothing here changes that, and the picker
+// SCOPE, HONESTLY. This is the Linux/PipeWire path only. Windows no longer
+// needs it: `wasapi2src` can exclude our own process tree at the OS level
+// (see shareAudioSourceDescription in SfuMediaEngine.cpp), which is a better
+// answer than enumerating applications. What is left uncovered is Linux
+// WITHOUT PipeWire, where `pulsesrc device=@DEFAULT_MONITOR@` is the endpoint
+// mix and has the same echo for the same reason; nothing here changes that,
+// and the picker
 // says so. macOS has no loopback capture at all.
 namespace lightning::shareaudio {
 
@@ -81,8 +86,13 @@ struct Stream {
 ///
 /// False for our own playback — that exclusion IS the echo fix — and false
 /// for anything that cannot be targeted or is not an application.
+/// `ourNames` is every spelling this process might be recorded under, not
+/// one: MEASURED on a running Lightning, PipeWire files our playback under
+/// `application.name` = "lightning-matrix", the BINARY name, while
+/// QCoreApplication::applicationName() is "matrix-client". Passing only the
+/// latter left the name check unable to match anything it was written for.
 bool streamIsForeign(const QVariantMap &props, qint64 ourPid,
-                     const QString &ourClientName);
+                     const QStringList &ourNames);
 
 /// Read one stream out of a property map. `serial` is empty when the map
 /// does not describe a targetable stream.
@@ -143,7 +153,7 @@ public:
     bool running() const { return m_monitor != nullptr; }
 
     /// The application streams playing right now, ours excluded.
-    QList<Stream> streams(qint64 ourPid, const QString &ourClientName) const;
+    QList<Stream> streams(qint64 ourPid, const QStringList &ourNames) const;
 
 private:
     void *m_monitor = nullptr; // GstDeviceMonitor *, opaque so this header

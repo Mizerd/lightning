@@ -3459,6 +3459,61 @@ private slots:
         QVERIFY(entry.contains(QStringLiteral("video/x-raw")));
     }
 
+    // WINDOWS MUST PREFER THE CAPTURE THAT LEAVES US OUT.
+    //
+    // Reported repeatedly: sharing a screen with sound sends the other
+    // participants their own voices back. On Linux that was fixed by
+    // capturing each playing application and excluding this process; Windows
+    // kept `wasapi2src loopback=true`, which is the endpoint mix and cannot
+    // leave a contributor out, so the echo simply stayed there.
+    //
+    // WASAPI can do it at the OS level: `loopback-mode=exclude-process-tree`
+    // with `loopback-target-pid` set captures everything except the named
+    // process tree. Read out of the shipped element's own source rather than
+    // assumed, including the part that makes it easy to get wrong: the mode
+    // is only consulted when the PID is non-zero, so naming the enum without
+    // the pid silently does nothing at all.
+    //
+    // This is a source contract rather than a behaviour test because
+    // `wasapi2src` does not exist on the machine that runs CI here, so the
+    // selection cannot be exercised. What it pins is the part a later edit
+    // could quietly undo: that the excluding entry comes FIRST, and that it
+    // carries both halves.
+    void windowsShareAudioPrefersExcludingOurOwnProcess()
+    {
+        const QByteArray src = SOURCE_UNDER_TEST;
+        QVERIFY2(!src.isEmpty(), "engine source unreadable");
+
+        // KEYED ON THE CANDIDATE ENTRIES, NOT ON PROSE. The first cut of
+        // this test searched for "loopback-mode=exclude-process-tree" and
+        // matched the COMMENT above the table, so reordering the entries left
+        // it passing. A source scan that can match its own explanation is not
+        // a test; these two strings appear only in the table itself.
+        const int excluding = src.indexOf("{ \"wasapi2src\", \"loopback-target-pid\"");
+        const int plain = src.indexOf("{ \"wasapi2src\", \"loopback\",");
+        QVERIFY2(excluding >= 0,
+                 "Windows share audio no longer asks WASAPI to exclude this "
+                 "process, so a shared screen sends the call back to itself");
+        QVERIFY2(plain >= 0,
+                 "the older-Windows fallback is gone; a machine below build "
+                 "20348 has no share audio at all now");
+        QVERIFY2(excluding < plain,
+                 "the plain endpoint-mix capture is offered before the one "
+                 "that excludes us, so every Windows share takes the echoing "
+                 "path");
+
+        // The enum without the pid is a no-op in the element, so both must
+        // be present and the pid must be interpolated, not a literal.
+        const int pidProp = src.indexOf("loopback-target-pid=%1", excluding);
+        QVERIFY2(pidProp > excluding && pidProp < plain,
+                 "exclude-process-tree is set without a target pid, which the "
+                 "element ignores outright");
+        QVERIFY2(src.indexOf("loopback-mode=exclude-process-tree", excluding)
+                     < plain,
+                 "the excluding candidate does not actually ask for the "
+                 "exclude mode");
+    }
+
     // A SHARE-AUDIO BRANCH MUST PARSE ON ITS OWN, and this is the only test
     // that can tell. ShareAudioSourcesTest links Qt6::Core alone by design,
     // so every assertion it makes about these descriptions is a string

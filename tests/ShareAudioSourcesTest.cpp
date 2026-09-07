@@ -47,22 +47,57 @@ private slots:
     {
         const qint64 ours = 4242;
         QVERIFY(!streamIsForeign(streamProps(ours, QStringLiteral("Firefox")),
-                                 ours, QStringLiteral("Lightning")));
+                                 ours, QStringList{QStringLiteral("Lightning")}));
         // No pid on the node — the name still has to save us.
         QVERIFY(!streamIsForeign(streamProps(-1, QStringLiteral("Lightning")),
-                                 ours, QStringLiteral("Lightning")));
+                                 ours, QStringList{QStringLiteral("Lightning")}));
         QVERIFY(!streamIsForeign(streamProps(-1, QStringLiteral("lightning")),
-                                 ours, QStringLiteral("Lightning")));
+                                 ours, QStringList{QStringLiteral("Lightning")}));
+    }
+
+    // THE BELT HAD THE WRONG NAME ON IT, AND SO COULD NEVER FASTEN.
+    //
+    // The name check exists for one case: a node of ours that carries no
+    // `application.process.id`, where the pid guard cannot fire. It used to
+    // be handed QCoreApplication::applicationName() alone, which is
+    // "matrix-client" (src/main.cpp), while a live share on 2026-09-07
+    // logged its own sources as `app= "lightning-matrix"` — the BINARY name.
+    // So the one process the belt existed to exclude was the one name it did
+    // not have, and had the pid ever gone missing the echo would have come
+    // straight back with a check in place that looked like it was working.
+    //
+    // FAIL-ON-OLD: with the parameter narrowed back to a single name, the
+    // binary-name case below captures our own playback.
+    void everySpellingOfOurOwnNameIsExcluded()
+    {
+        const QStringList ours{ QStringLiteral("matrix-client"),
+                                QStringLiteral("lightning-matrix") };
+        // No pid on the node, so only the name can save us. Both spellings
+        // must, because which one an audio server records is not ours to
+        // choose.
+        QVERIFY2(!streamIsForeign(
+                     streamProps(-1, QStringLiteral("lightning-matrix")),
+                     4242, ours),
+                 "the binary name is what PipeWire actually records, and it "
+                 "was not being matched");
+        QVERIFY(!streamIsForeign(
+            streamProps(-1, QStringLiteral("matrix-client")), 4242, ours));
+        // Case still does not matter, and a genuinely different application
+        // is still captured.
+        QVERIFY(!streamIsForeign(
+            streamProps(-1, QStringLiteral("Lightning-Matrix")), 4242, ours));
+        QVERIFY(streamIsForeign(
+            streamProps(-1, QStringLiteral("Firefox")), 4242, ours));
     }
 
     void anotherApplicationIsCaptured()
     {
         const qint64 ours = 4242;
         QVERIFY(streamIsForeign(streamProps(99, QStringLiteral("Firefox")),
-                                ours, QStringLiteral("Lightning")));
+                                ours, QStringList{QStringLiteral("Lightning")}));
         // A node with no pid and a name that is not ours is still theirs.
         QVERIFY(streamIsForeign(streamProps(-1, QStringLiteral("mpv")), ours,
-                                QStringLiteral("Lightning")));
+                                QStringList{QStringLiteral("Lightning")}));
     }
 
     // A stream we cannot TARGET is not a stream we can capture. `pipewiresrc`
@@ -73,7 +108,7 @@ private slots:
     {
         QVariantMap noSerial = streamProps(99, QStringLiteral("Firefox"));
         noSerial.remove(QStringLiteral("object.serial"));
-        QVERIFY(!streamIsForeign(noSerial, 1, QStringLiteral("Lightning")));
+        QVERIFY(!streamIsForeign(noSerial, 1, QStringList{QStringLiteral("Lightning")}));
 
         // And a serial that is not a plain number never reaches a parse
         // string: it is interpolated into gst_parse_bin_from_description,
@@ -86,7 +121,7 @@ private slots:
                                     QStringLiteral("") }) {
             QVERIFY2(!streamIsForeign(
                          streamProps(99, QStringLiteral("Firefox"), bad), 1,
-                         QStringLiteral("Lightning")),
+                         QStringList{QStringLiteral("Lightning")}),
                      qPrintable(QStringLiteral("accepted serial %1").arg(bad)));
         }
     }
@@ -98,12 +133,12 @@ private slots:
         // application already produced; taking them as well sends it twice.
         p.insert(QStringLiteral("media.class"),
                  QStringLiteral("Stream/Output/Audio/Internal"));
-        QVERIFY(!streamIsForeign(p, 1, QStringLiteral("Lightning")));
+        QVERIFY(!streamIsForeign(p, 1, QStringList{QStringLiteral("Lightning")}));
         p.insert(QStringLiteral("media.class"), QStringLiteral("Audio/Sink"));
-        QVERIFY(!streamIsForeign(p, 1, QStringLiteral("Lightning")));
+        QVERIFY(!streamIsForeign(p, 1, QStringList{QStringLiteral("Lightning")}));
         p.insert(QStringLiteral("media.class"),
                  QStringLiteral("Stream/Input/Audio"));
-        QVERIFY(!streamIsForeign(p, 1, QStringLiteral("Lightning")));
+        QVERIFY(!streamIsForeign(p, 1, QStringList{QStringLiteral("Lightning")}));
     }
 
     void loopbackPlumbingIsNotAnApplication()
@@ -111,7 +146,7 @@ private slots:
         QVariantMap p = streamProps(99, QStringLiteral("pw-loopback"));
         p.insert(QStringLiteral("node.link-group"),
                  QStringLiteral("loopback-1234"));
-        QVERIFY(!streamIsForeign(p, 1, QStringLiteral("Lightning")));
+        QVERIFY(!streamIsForeign(p, 1, QStringList{QStringLiteral("Lightning")}));
     }
 
     // THE FLOOR. A share started before anything is playing — "share, then

@@ -948,6 +948,30 @@ void SfuMediaEngine::setIceServers(const QVariantList &servers)
     applyIceTo(m_subscriber);
 }
 
+/// Every name this process may be recorded under by an audio server, because
+/// they disagree. QCoreApplication::applicationName() is "matrix-client"
+/// (src/main.cpp) and PipeWire files our playback under the BINARY name,
+/// measured live as "lightning-matrix". Excluding ourselves must not depend
+/// on picking the right one.
+static QStringList ourAudioClientNames()
+{
+    QStringList names{ QCoreApplication::applicationName() };
+    const QString binary =
+        QFileInfo(QCoreApplication::applicationFilePath()).completeBaseName();
+    if (!binary.isEmpty() && !names.contains(binary, Qt::CaseInsensitive))
+        names << binary;
+    return names;
+}
+
+/// A loopback capture, and whether it leaves THIS process out of what it
+/// captures. The second half is not decoration: it decides what the log
+/// tells the user, and "graceful fallback and silent absence are the same
+/// observable" is a lesson this project has paid for repeatedly.
+struct ShareAudioSource {
+    QString description;
+    bool excludesUs = false;
+};
+
 /// The element that captures what the COMPUTER is playing, or empty.
 ///
 /// A screen share has two halves and the desktop portal only carries one:
@@ -963,12 +987,13 @@ void SfuMediaEngine::setIceServers(const QVariantList &servers)
 /// shell here is GStreamer 1.26; Windows packages carry 1.28 and macOS 1.28.6,
 /// and this lane has already been bitten twice by a property that moved
 /// between the version developed against and the version shipped.
-static QString shareAudioSourceDescription()
+static ShareAudioSource shareAudioSourceDescription()
 {
     struct Candidate {
         const char *element;
         const char *property;   // must exist, or the parse would fail
-        const char *description;
+        const char *description; // %1 is this process's pid, when used
+        bool excludesUs;
     };
     // Order is preference. wasapi2 is the maintained Windows implementation;
     // wasapi is the older one and is still staged, so it stays as a fallback.
@@ -986,17 +1011,47 @@ static QString shareAudioSourceDescription()
         // What that does NOT establish is that the capture produces audio on
         // real Windows hardware — Wine answers questions about metadata, not
         // about WASAPI.
+        // WINDOWS EXCLUDES US AT THE OS LEVEL, and this is the entry that
+        // stops a shared screen sending everyone their own voice back.
+        //
+        // WASAPI has process loopback: `loopback-mode=exclude-process-tree`
+        // with `loopback-target-pid` set captures the endpoint mix MINUS the
+        // named process and its children, which is exactly our own playback
+        // of the other participants. Read out of the shipped element's own
+        // source (gst-plugins-bad 1.28, sys/wasapi2/gstwasapi2src.cpp)
+        // rather than assumed:
+        //
+        //  * the mode is only consulted when the pid is NON-ZERO
+        //    (`if (priv->loopback_pid)`), so the pid is load-bearing and the
+        //    enum alone does nothing;
+        //  * both properties are GST_PARAM_CONDITIONALLY_AVAILABLE behind
+        //    `gst_wasapi2_can_process_loopback()`, which needs Windows 10
+        //    build 20348 or newer. On an older Windows they DO NOT EXIST and
+        //    naming them would fail the parse, which is precisely what the
+        //    property probe below is for;
+        //  * `loopback-target-pid` is a uint, so the pid interpolates
+        //    directly.
+        //
+        // `loopback=true` is deliberately absent here: with a pid set the
+        // element takes the exclude path and never reads that Boolean.
+        { "wasapi2src", "loopback-target-pid",
+          "wasapi2src loopback-mode=exclude-process-tree "
+          "loopback-target-pid=%1 low-latency=true", true },
+        // Older Windows, where process loopback does not exist. The endpoint
+        // mix, echo and all, and the caller says so out loud.
         { "wasapi2src", "loopback",
-          "wasapi2src loopback=true low-latency=true" },
-        { "wasapisrc", "loopback", "wasapisrc loopback=true" },
+          "wasapi2src loopback=true low-latency=true", false },
+        { "wasapisrc", "loopback", "wasapisrc loopback=true", false },
 #elif defined(Q_OS_LINUX)
         // `@DEFAULT_MONITOR@` is resolved by the SERVER, so this follows the
         // user's default sink when they change it mid-call and needs no
         // device enumeration of our own. PipeWire answers it through its
         // PulseAudio compatibility, which every modern desktop runs.
-        { "pulsesrc", "device", "pulsesrc device=@DEFAULT_MONITOR@" },
+        // No PipeWire here, so no per-application capture and no exclusion:
+        // a sink monitor is post-mix and cannot leave a contributor out.
+        { "pulsesrc", "device", "pulsesrc device=@DEFAULT_MONITOR@", false },
 #endif
-        { nullptr, nullptr, nullptr },
+        { nullptr, nullptr, nullptr, false },
     };
 
     // INITIALISE FIRST. gst_element_factory_find() answers "no such element"
@@ -1029,9 +1084,16 @@ static QString shareAudioSourceDescription()
                                << "— skipping it rather than failing the bin";
             continue;
         }
-        return QString::fromLatin1(c->description);
+        // ONLY WHERE IT IS ASKED FOR. QString::arg on a description with no
+        // placeholder warns ("Argument missing") and returns it unchanged,
+        // so a blanket .arg() would put a Qt warning in every Linux log for
+        // no reason.
+        QString description = QString::fromLatin1(c->description);
+        if (description.contains(QLatin1String("%1")))
+            description = description.arg(QCoreApplication::applicationPid());
+        return ShareAudioSource{ description, c->excludesUs };
     }
-    return QString();
+    return ShareAudioSource{};
 }
 
 bool SfuMediaEngine::shareAudioAvailable()
@@ -1042,7 +1104,7 @@ bool SfuMediaEngine::shareAudioAvailable()
     // no `pulsesrc` (the loopback element this probe was written for) would
     // otherwise be told it cannot capture what it plainly can.
     return lightning::shareaudio::perApplicationCaptureAvailable()
-        || !shareAudioSourceDescription().isEmpty();
+        || !shareAudioSourceDescription().description.isEmpty();
 }
 
 void SfuMediaEngine::setShareQuality(int maxHeight, int fps)
@@ -1089,8 +1151,7 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
             "audiotestsrc is-live=true wave=sine freq=220 volume=0.05");
     } else if (m_shareAudioSources.start()) {
         streams = m_shareAudioSources.streams(
-            QCoreApplication::applicationPid(),
-            QCoreApplication::applicationName());
+            QCoreApplication::applicationPid(), ourAudioClientNames());
         source = lightning::shareaudio::mixedSourceDescription(streams);
         perApplication = true;
         // An empty list is NOT a reason to fall back. Nothing is playing yet
@@ -1107,11 +1168,24 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
                 << "serial=" << s.serial;
         }
     } else {
-        source = shareAudioSourceDescription();
-        qCInfo(lcSfuMedia) << "share audio: per-application capture is not "
-                              "available here, falling back to the output "
-                              "monitor — remote participants will hear this "
-                              "call's own audio";
+        const ShareAudioSource loopback = shareAudioSourceDescription();
+        source = loopback.description;
+        // TWO DIFFERENT OUTCOMES, AND THEY MUST NOT READ THE SAME. One of
+        // these sends everyone their own voice back and the other does not;
+        // saying "falling back" for both is how a fixed platform and a
+        // broken one look identical in a log.
+        if (loopback.excludesUs) {
+            qCInfo(lcSfuMedia)
+                << "share audio: capturing this machine's output with our own "
+                   "process tree excluded at the OS level, so the call's own "
+                   "audio is not sent back";
+        } else {
+            qCWarning(lcSfuMedia)
+                << "share audio: no way to exclude ourselves from the capture "
+                   "here, falling back to the output monitor. Remote "
+                   "participants WILL hear this call's own audio, including "
+                   "their own voices.";
+        }
     }
     if (source.isEmpty()) {
         // An honest refusal, not a broken bin. The caller has already told
@@ -1290,7 +1364,7 @@ void SfuMediaEngine::rescanShareAudioSources()
 
     const QList<lightning::shareaudio::Stream> streams =
         m_shareAudioSources.streams(QCoreApplication::applicationPid(),
-                                    QCoreApplication::applicationName());
+                                    ourAudioClientNames());
     for (const lightning::shareaudio::Stream &s : streams) {
         if (m_shareAudioSerials.contains(s.serial))
             continue;
