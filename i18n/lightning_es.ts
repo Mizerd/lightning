@@ -8984,7 +8984,7 @@ Tamaño: %3</translation>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+336"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+337"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>Lightning no pudo crear su carpeta de almacenamiento local para esta cuenta. Comprueba los permisos del sistema de archivos y el espacio libre.</translation>
     </message>
@@ -15313,12 +15313,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+6060"/>
+        <location line="+6114"/>
         <source>Space</source>
         <translation>Espacio</translation>
     </message>
     <message>
-        <location line="-6059"/>
+        <location line="-6113"/>
         <source>Home</source>
         <translation>Inicio</translation>
     </message>
@@ -15373,12 +15373,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4657"/>
+        <location line="+4711"/>
         <source>Room information</source>
         <translation>Información de la sala</translation>
     </message>
     <message>
-        <location line="-4436"/>
+        <location line="-4490"/>
         <source>This room has been upgraded.</source>
         <translation>Esta sala se ha actualizado.</translation>
     </message>
@@ -15553,7 +15553,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>No se pudo completar la búsqueda.</translation>
     </message>
     <message>
-        <location line="+3709"/>
+        <location line="+3763"/>
         <source>Loading older messages…</source>
         <translation>Cargando mensajes anteriores…</translation>
     </message>
@@ -16740,17 +16740,12 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Posición de reproducción</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+78"/>
         <source>Playback speed %1x</source>
         <translation>Velocidad de reproducción %1x</translation>
     </message>
     <message>
         <location line="+28"/>
-        <source>More playback controls</source>
-        <translation>Más controles de reproducción</translation>
-    </message>
-    <message>
-        <location line="+12"/>
         <source>Expand video</source>
         <translation>Ampliar el vídeo</translation>
     </message>
@@ -16763,21 +16758,6 @@ Nota: importar claves no verifica esta sesión.</translation>
         <location line="+13"/>
         <source>Close player</source>
         <translation>Cerrar el reproductor</translation>
-    </message>
-    <message>
-        <location line="+34"/>
-        <source>Unmute</source>
-        <translation>Activar el sonido</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source>Mute</source>
-        <translation>Silenciar</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>Speed: %1×</source>
-        <translation>Velocidad: %1×</translation>
     </message>
 </context>
 <context>

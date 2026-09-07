@@ -8984,7 +8984,7 @@ Size: %3</source>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+336"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+337"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>Lightning इस खाते के लिए अपनी स्थानीय स्टोरेज डायरेक्टरी नहीं बना सका। फ़ाइल सिस्टम की अनुमतियाँ और खाली जगह जाँचें।</translation>
     </message>
@@ -15313,12 +15313,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+6060"/>
+        <location line="+6114"/>
         <source>Space</source>
         <translation>स्पेस</translation>
     </message>
     <message>
-        <location line="-6059"/>
+        <location line="-6113"/>
         <source>Home</source>
         <translation>होम</translation>
     </message>
@@ -15373,12 +15373,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4657"/>
+        <location line="+4711"/>
         <source>Room information</source>
         <translation>कक्ष जानकारी</translation>
     </message>
     <message>
-        <location line="-4436"/>
+        <location line="-4490"/>
         <source>This room has been upgraded.</source>
         <translation>यह कक्ष अपग्रेड कर दिया गया है।</translation>
     </message>
@@ -15553,7 +15553,7 @@ Note: importing keys does not verify this session.</source>
         <translation>खोज पूरी नहीं हो सकी।</translation>
     </message>
     <message>
-        <location line="+3709"/>
+        <location line="+3763"/>
         <source>Loading older messages…</source>
         <translation>पुराने संदेश लोड हो रहे हैं…</translation>
     </message>
@@ -16740,17 +16740,12 @@ Note: importing keys does not verify this session.</source>
         <translation>प्लेबैक स्थिति</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+78"/>
         <source>Playback speed %1x</source>
         <translation>प्लेबैक गति %1x</translation>
     </message>
     <message>
         <location line="+28"/>
-        <source>More playback controls</source>
-        <translation>और प्लेबैक नियंत्रण</translation>
-    </message>
-    <message>
-        <location line="+12"/>
         <source>Expand video</source>
         <translation>वीडियो बड़ा करें</translation>
     </message>
@@ -16763,21 +16758,6 @@ Note: importing keys does not verify this session.</source>
         <location line="+13"/>
         <source>Close player</source>
         <translation>प्लेयर बंद करें</translation>
-    </message>
-    <message>
-        <location line="+34"/>
-        <source>Unmute</source>
-        <translation>ध्वनि चालू करें</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source>Mute</source>
-        <translation>ध्वनि बंद करें</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>Speed: %1×</source>
-        <translation>गति: %1×</translation>
     </message>
 </context>
 <context>

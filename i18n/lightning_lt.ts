@@ -9006,7 +9006,7 @@ Dydis: %3</translation>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+336"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+337"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>„Lightning“ negalėjo sukurti šios paskyros vietinės saugyklos katalogo. Patikrinkite failų sistemos leidimus ir laisvą vietą.</translation>
     </message>
@@ -15345,12 +15345,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+6060"/>
+        <location line="+6114"/>
         <source>Space</source>
         <translation>Erdvė</translation>
     </message>
     <message>
-        <location line="-6059"/>
+        <location line="-6113"/>
         <source>Home</source>
         <translation>Pradžia</translation>
     </message>
@@ -15405,12 +15405,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4657"/>
+        <location line="+4711"/>
         <source>Room information</source>
         <translation>Informacija apie kambarį</translation>
     </message>
     <message>
-        <location line="-4436"/>
+        <location line="-4490"/>
         <source>This room has been upgraded.</source>
         <translation>Šis kambarys buvo atnaujintas.</translation>
     </message>
@@ -15585,7 +15585,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Paieškos užbaigti nepavyko.</translation>
     </message>
     <message>
-        <location line="+3709"/>
+        <location line="+3763"/>
         <source>Loading older messages…</source>
         <translation>Įkeliami senesni pranešimai…</translation>
     </message>
@@ -16780,17 +16780,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Siekite pozicijos</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+78"/>
         <source>Playback speed %1x</source>
         <translation>Atkūrimo greitis %1x</translation>
     </message>
     <message>
         <location line="+28"/>
-        <source>More playback controls</source>
-        <translation>Daugiau atkūrimo valdiklių</translation>
-    </message>
-    <message>
-        <location line="+12"/>
         <source>Expand video</source>
         <translation>Išskleisti vaizdo įrašą</translation>
     </message>
@@ -16803,21 +16798,6 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <location line="+13"/>
         <source>Close player</source>
         <translation>Uždaryti grotuvą</translation>
-    </message>
-    <message>
-        <location line="+34"/>
-        <source>Unmute</source>
-        <translation>Įjungti garsą</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source>Mute</source>
-        <translation>Nutildyti</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>Speed: %1×</source>
-        <translation>Greitis: %1×</translation>
     </message>
 </context>
 <context>

@@ -8984,7 +8984,7 @@ Size: %3</source>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+336"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+337"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>Lightning এই অ্যাকাউন্টের জন্য তার স্থানীয় সংরক্ষণ ডিরেক্টরি তৈরি করতে পারেনি। ফাইল সিস্টেমের অনুমতি ও খালি জায়গা দেখুন।</translation>
     </message>
@@ -15313,12 +15313,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+6060"/>
+        <location line="+6114"/>
         <source>Space</source>
         <translation>স্পেস</translation>
     </message>
     <message>
-        <location line="-6059"/>
+        <location line="-6113"/>
         <source>Home</source>
         <translation>হোম</translation>
     </message>
@@ -15373,12 +15373,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4657"/>
+        <location line="+4711"/>
         <source>Room information</source>
         <translation>রুমের তথ্য</translation>
     </message>
     <message>
-        <location line="-4436"/>
+        <location line="-4490"/>
         <source>This room has been upgraded.</source>
         <translation>এই রুমটি আপগ্রেড করা হয়েছে।</translation>
     </message>
@@ -15553,7 +15553,7 @@ Note: importing keys does not verify this session.</source>
         <translation>অনুসন্ধান সম্পূর্ণ করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+3709"/>
+        <location line="+3763"/>
         <source>Loading older messages…</source>
         <translation>পুরনো বার্তা লোড হচ্ছে…</translation>
     </message>
@@ -16740,17 +16740,12 @@ Note: importing keys does not verify this session.</source>
         <translation>প্লেব্যাক অবস্থান</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+78"/>
         <source>Playback speed %1x</source>
         <translation>প্লেব্যাক গতি %1x</translation>
     </message>
     <message>
         <location line="+28"/>
-        <source>More playback controls</source>
-        <translation>আরও প্লেব্যাক নিয়ন্ত্রণ</translation>
-    </message>
-    <message>
-        <location line="+12"/>
         <source>Expand video</source>
         <translation>ভিডিও বড় করুন</translation>
     </message>
@@ -16763,21 +16758,6 @@ Note: importing keys does not verify this session.</source>
         <location line="+13"/>
         <source>Close player</source>
         <translation>প্লেয়ার বন্ধ করুন</translation>
-    </message>
-    <message>
-        <location line="+34"/>
-        <source>Unmute</source>
-        <translation>শব্দ চালু করুন</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source>Mute</source>
-        <translation>নিঃশব্দ করুন</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>Speed: %1×</source>
-        <translation>গতি: %1×</translation>
     </message>
 </context>
 <context>

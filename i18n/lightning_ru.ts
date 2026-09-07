@@ -9006,7 +9006,7 @@ Size: %3</source>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+336"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+337"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>Lightning не смог создать локальный каталог хранения для этой учётной записи. Проверьте права доступа к файловой системе и свободное место.</translation>
     </message>
@@ -15345,12 +15345,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+6060"/>
+        <location line="+6114"/>
         <source>Space</source>
         <translation>Пространство</translation>
     </message>
     <message>
-        <location line="-6059"/>
+        <location line="-6113"/>
         <source>Home</source>
         <translation>Главная</translation>
     </message>
@@ -15405,12 +15405,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4657"/>
+        <location line="+4711"/>
         <source>Room information</source>
         <translation>Сведения о комнате</translation>
     </message>
     <message>
-        <location line="-4436"/>
+        <location line="-4490"/>
         <source>This room has been upgraded.</source>
         <translation>Эта комната была обновлена.</translation>
     </message>
@@ -15585,7 +15585,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Не удалось выполнить поиск.</translation>
     </message>
     <message>
-        <location line="+3709"/>
+        <location line="+3763"/>
         <source>Loading older messages…</source>
         <translation>Загрузка более старых сообщений…</translation>
     </message>
@@ -16780,17 +16780,12 @@ Note: importing keys does not verify this session.</source>
         <translation>Позиция воспроизведения</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+78"/>
         <source>Playback speed %1x</source>
         <translation>Скорость воспроизведения %1x</translation>
     </message>
     <message>
         <location line="+28"/>
-        <source>More playback controls</source>
-        <translation>Другие элементы управления воспроизведением</translation>
-    </message>
-    <message>
-        <location line="+12"/>
         <source>Expand video</source>
         <translation>Развернуть видео</translation>
     </message>
@@ -16803,21 +16798,6 @@ Note: importing keys does not verify this session.</source>
         <location line="+13"/>
         <source>Close player</source>
         <translation>Закрыть проигрыватель</translation>
-    </message>
-    <message>
-        <location line="+34"/>
-        <source>Unmute</source>
-        <translation>Включить звук</translation>
-    </message>
-    <message>
-        <location line="+0"/>
-        <source>Mute</source>
-        <translation>Выключить звук</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>Speed: %1×</source>
-        <translation>Скорость: %1×</translation>
     </message>
 </context>
 <context>
