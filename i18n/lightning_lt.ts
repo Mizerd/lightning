@@ -9099,12 +9099,12 @@ Dydis: %3</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2104"/>
+        <location line="+2148"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>„Lightning“ nepavyko visiškai iš naujo nustatyti šios paskyros vietinės sesijos. Patikrinkite programų žurnalus ir failų sistemos leidimus, tada bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="-2120"/>
+        <location line="-2164"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Atkurta vietinė Lightning sesija. Ankstesnė šifravimo saugykla buvo perkelta, neištrinta ir vis dar yra šios paskyros duomenų kataloge. Galite prisijungti dar kartą.</translation>
     </message>
@@ -9117,7 +9117,7 @@ Dydis: %3</translation>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3343"/>
+        <location line="+3387"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -9126,29 +9126,34 @@ Dydis: %3</translation>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-3723"/>
+        <location line="-3767"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3525"/>
+        <location line="+3569"/>
         <source>Unknown room: %1</source>
         <translation>Nežinomas kambarys: %1</translation>
     </message>
     <message>
-        <location line="-3725"/>
+        <location line="-3769"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Dar negalima siųsti į užšifruotus kambarius: Rust SDK šifruotas siuntimas nepatvirtintas.</translation>
     </message>
     <message>
-        <location line="+524"/>
+        <location line="+542"/>
         <source>The sticker could not be sent.</source>
         <translation>Nepavyko išsiųsti lipduko.</translation>
     </message>
     <message>
-        <location line="+953"/>
-        <source>Rust SDK backend does not implement %1 yet.</source>
-        <translation>Rust SDK posistemėje funkcija %1 dar neįdiegta.</translation>
+        <location line="+956"/>
+        <source>Lightning cannot send that yet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>This room is still loading. Try that again in a moment.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+196"/>

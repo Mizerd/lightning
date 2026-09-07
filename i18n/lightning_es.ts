@@ -9077,12 +9077,12 @@ Tamaño: %3</translation>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2104"/>
+        <location line="+2148"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning no pudo restablecer por completo la sesión local de esta cuenta. Revisa los registros de la aplicación y los permisos del sistema de archivos, y vuelve a intentarlo.</translation>
     </message>
     <message>
-        <location line="-2120"/>
+        <location line="-2164"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Se ha reconstruido la sesión local de Lightning. El almacén de cifrado anterior se ha apartado, no se ha eliminado, y sigue en la carpeta de datos de esta cuenta. Ya puedes iniciar sesión de nuevo.</translation>
     </message>
@@ -9095,7 +9095,7 @@ Tamaño: %3</translation>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3343"/>
+        <location line="+3387"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+37"/>
@@ -9104,29 +9104,34 @@ Tamaño: %3</translation>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-3723"/>
+        <location line="-3767"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3525"/>
+        <location line="+3569"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconocida: %1</translation>
     </message>
     <message>
-        <location line="-3725"/>
+        <location line="-3769"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Todavía no se puede enviar a salas cifradas: el envío cifrado del SDK de Rust no está verificado.</translation>
     </message>
     <message>
-        <location line="+524"/>
+        <location line="+542"/>
         <source>The sticker could not be sent.</source>
         <translation>No se pudo enviar la pegatina.</translation>
     </message>
     <message>
-        <location line="+953"/>
-        <source>Rust SDK backend does not implement %1 yet.</source>
-        <translation>El backend del SDK de Rust todavía no implementa %1.</translation>
+        <location line="+956"/>
+        <source>Lightning cannot send that yet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>This room is still loading. Try that again in a moment.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+196"/>
