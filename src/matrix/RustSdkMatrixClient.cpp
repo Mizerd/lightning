@@ -2151,7 +2151,7 @@ void RustSdkMatrixClient::sendReply(const QString &roomId,
                                     const QString &body)
 {
     if (!timelineActiveFor(roomId)) {
-        refuseSend("sendReply");
+        refuseUntilTimelineReady("sendReply");
         return;
     }
     const QByteArray roomBytes = roomId.toUtf8();
@@ -2196,7 +2196,7 @@ void RustSdkMatrixClient::editMessage(const QString &roomId,
                                       const QString &newBody)
 {
     if (!timelineActiveFor(roomId)) {
-        refuseSend("editMessage");
+        refuseUntilTimelineReady("editMessage");
         return;
     }
     const QByteArray roomBytes = roomId.toUtf8();
@@ -2265,7 +2265,25 @@ void RustSdkMatrixClient::sendTextMessage(const QString &roomId,
         return;
     }
     if (!timelineActiveFor(roomId)) {
-        refuseSend("sendTextMessage(formatted)");
+        // SEND IT ANYWAY, PLAIN. This is an ordinary message with no target
+        // event, so the room-level send can carry it, and the three-argument
+        // overload below already has that fallback.
+        //
+        // Reported 2026-09-07: after a reply was refused, the tester "couldnt
+        // send stuff outside of a reply" either. This is why. The composer
+        // attaches a body spec to ordinary messages (markdown, or inline
+        // emoji), which routes them through THIS overload, and it refused for
+        // the same reason the reply did. So a room without a live timeline
+        // could not be typed in at all, while the same text with no spec went
+        // out fine.
+        //
+        // The spec is dropped, which costs markdown formatting on that one
+        // message. Losing the formatting is a far smaller harm than losing
+        // the message, and the alternative here is a composer that silently
+        // refuses everything.
+        qCWarning(lcRust) << "no live timeline for" << roomId
+                          << "— sending as plain text without the body spec";
+        sendTextMessage(roomId, body);
         return;
     }
     const QByteArray roomBytes = roomId.toUtf8();
@@ -2295,7 +2313,7 @@ void RustSdkMatrixClient::sendReply(const QString &roomId,
         return;
     }
     if (!timelineActiveFor(roomId)) {
-        refuseSend("sendReply(formatted)");
+        refuseUntilTimelineReady("sendReply(formatted)");
         return;
     }
     const QByteArray roomBytes = roomId.toUtf8();
@@ -2327,7 +2345,7 @@ void RustSdkMatrixClient::editMessage(const QString &roomId,
         return;
     }
     if (!timelineActiveFor(roomId)) {
-        refuseSend("editMessage(formatted)");
+        refuseUntilTimelineReady("editMessage(formatted)");
         return;
     }
     const QByteArray roomBytes = roomId.toUtf8();
@@ -2353,7 +2371,7 @@ void RustSdkMatrixClient::redactEvent(const QString &roomId,
                                       const QString &reason)
 {
     if (!timelineActiveFor(roomId)) {
-        refuseSend("redactEvent");
+        refuseUntilTimelineReady("redactEvent");
         return;
     }
     // A composite thread-timeline id never crosses the FFI (§8). The
@@ -2381,7 +2399,7 @@ void RustSdkMatrixClient::toggleReaction(const QString &roomId,
                                          const QString &key)
 {
     if (!timelineActiveFor(roomId)) {
-        refuseSend("toggleReaction");
+        refuseUntilTimelineReady("toggleReaction");
         return;
     }
     // The composite is decomposed HERE and never crosses the FFI (§8). The
@@ -2435,7 +2453,7 @@ void RustSdkMatrixClient::sendPollResponse(const QString &roomId,
                                            const QStringList &answerIds)
 {
     if (!timelineActiveFor(roomId)) {
-        refuseSend("sendPollResponse");
+        refuseUntilTimelineReady("sendPollResponse");
         return;
     }
     const QByteArray roomBytes = roomId.toUtf8();
@@ -2465,7 +2483,7 @@ void RustSdkMatrixClient::endPoll(const QString &roomId,
                                   const QString &pollStartEventId)
 {
     if (!timelineActiveFor(roomId)) {
-        refuseSend("endPoll");
+        refuseUntilTimelineReady("endPoll");
         return;
     }
     const QByteArray roomBytes = roomId.toUtf8();
@@ -2489,7 +2507,7 @@ void RustSdkMatrixClient::createPoll(const QString &roomId,
                                      int maxSelections)
 {
     if (!timelineActiveFor(roomId)) {
-        refuseSend("createPoll");
+        refuseUntilTimelineReady("createPoll");
         return;
     }
     const QByteArray roomBytes = roomId.toUtf8();
@@ -3351,7 +3369,7 @@ void RustSdkMatrixClient::sendThreadReplyTo(const QString &roomId,
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
         || threadRootEventId.isEmpty() || body.trimmed().isEmpty()) {
-        refuseSend("sendThreadReply");
+        refuseUntilTimelineReady("sendThreadReply");
         return;
     }
     const QByteArray roomBytes = roomId.toUtf8();
@@ -3737,7 +3755,33 @@ void RustSdkMatrixClient::closeRoomTimeline()
 
 void RustSdkMatrixClient::refuseSend(const char *op)
 {
-    Q_EMIT errorOccurred(tr("Rust SDK backend does not implement %1 yet.").arg(QLatin1String(op)));
+    // GENUINELY NOT IMPLEMENTED. Only sendImage and sendFile reach this.
+    qCWarning(lcRust) << "send refused: not implemented" << op;
+    Q_EMIT errorOccurred(
+        tr("Lightning cannot send that yet."));
+}
+
+void RustSdkMatrixClient::refuseUntilTimelineReady(const char *op)
+{
+    // THIS MESSAGE USED TO SAY THE FEATURE WAS NOT IMPLEMENTED, AND IT IS.
+    //
+    // Reported 2026-09-07 with a screenshot: "Rust SDK backend does not
+    // implement sendReply yet", followed by "got this when replying, then
+    // couldnt send stuff outside of a reply". Replying IS implemented, three
+    // lines below the refusal that said otherwise. What is actually true is
+    // that these operations need a LIVE SDK TIMELINE for the room, and there
+    // was none at that moment: eleven of the thirteen refusals in this file
+    // are this condition, and only two are a missing feature.
+    //
+    // The old wording cost a false bug report and would have kept costing
+    // them, because it names a cause that cannot be acted on and is not the
+    // cause. It is transient by nature, so the sentence says the one useful
+    // thing: try again.
+    qCWarning(lcRust) << "send refused: no live timeline for the room" << op
+                      << "active=" << m_timelineTracker.activeRoom()
+                      << "requested=" << m_timelineTracker.requestedRoom();
+    Q_EMIT errorOccurred(
+        tr("This room is still loading. Try that again in a moment."));
 }
 
 void RustSdkMatrixClient::pollRustEvents()

@@ -826,7 +826,12 @@ private:
         QString marker;
     };
 
+    /// A feature this backend genuinely does not have (sendImage, sendFile).
     void refuseSend(const char *op);
+    /// The room has no live SDK timeline yet, which is transient. Eleven of
+    /// this file's thirteen refusals are this and used to claim the feature
+    /// was unimplemented; see the implementation.
+    void refuseUntilTimelineReady(const char *op);
     void setState(ConnectionState state);
     void setInitialSyncDone(bool done);
     void clearLocalState();
