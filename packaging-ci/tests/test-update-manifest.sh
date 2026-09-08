@@ -967,6 +967,26 @@ cmp -s "$SLOT/$MANIFEST_NAME" "$UPD" && note "the slot now carries the refreshed
 sig_line="$(grep -n "POST .*assets?name=${SIG_NAME}\$" "$MLOG" | head -1 | cut -d: -f1)"
 man_line="$(grep -n "POST .*assets?name=${MANIFEST_NAME}\$" "$MLOG" | head -1 | cut -d: -f1)"
 [[ -n "$sig_line" && -n "$man_line" && "$sig_line" -lt "$man_line" ]] && note "signature is replaced before the manifest" || bad "replacement order"
+# A CDN THAT SERVES THE PREVIOUS OBJECT AT A 200 IS RETRIED, NOT FAILED.
+# This is what happened to 0.9.3 (pipeline 183, job 1462): the bytes were
+# uploaded correctly and read back 1.5 s later from an edge that had not
+# expired, and a loop that broke on the status code and then compared the
+# digest ONCE turned someone else's propagation delay into a hard failure.
+: >"$MLOG"
+run env MOCK_GITHUB_STALE_READBACKS=2 UPDATE_SLOT_READBACK_POLL_SECONDS=1 \
+    "$ROOT/scripts/mirror-update-manifest-to-github.sh" || bad "a stale-but-200 read-back failed the slot job"
+grep -q 'bytes do not match yet' "$TR/out.log" \
+    && note "a stale-but-200 read-back is retried until the bytes match" || bad "the stale read-back was not retried"
+cmp -s "$SLOT/$MANIFEST_NAME" "$UPD" && note "the slot still carries the promoted bytes" || bad "slot bytes after the stale-read case"
+# AND THE GATE IS NOT WEAKENED: bytes that never match still fail the job.
+if run env MOCK_GITHUB_STALE_READBACKS=999 UPDATE_SLOT_READBACK_WAIT_SECONDS=0 \
+    UPDATE_SLOT_READBACK_POLL_SECONDS=1 "$ROOT/scripts/mirror-update-manifest-to-github.sh"; then
+    bad "a read-back that never matched the promoted bytes passed"
+else
+    grep -q 'does not match the promoted bytes' "$TR/out.log" \
+        && note "bytes that never match are still a hard failure" || bad "wrong refusal for a permanent mismatch"
+fi
+
 # Tampered local bytes never reach the slot.
 cp "$UPD" "$WORK/slot-good.json"
 $JQ -S '.version = "9.9.9"' "$UPD" >"$WORK/slot-bad.json" && cp "$WORK/slot-bad.json" "$UPD"

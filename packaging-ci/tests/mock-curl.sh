@@ -193,10 +193,24 @@ if [[ "$url" == https://api.github.com/* || "$url" == https://uploads.github.com
         tag="${rest%%/*}"
         name="${url##*/}"
         dir="$(gh_assets_dir_for_tag "$tag")"
-        if [[ -f "$dir/$name" ]]; then
-            cp "$dir/$name" "$output"; emit_body=0; status=200
-        else
+        # An eventually-consistent CDN has TWO failure shapes, and only one of
+        # them is a 404. MOCK_GITHUB_STALE_READBACKS makes the first N reads of
+        # each asset serve the PREVIOUS object at a 200, which is what GitHub
+        # did to 0.9.3's manifest mirror: correct bytes stored, stale bytes
+        # served, and a read-back that compared the digest once called it a
+        # corrupt upload.
+        stale_reads="${MOCK_GITHUB_STALE_READBACKS:-0}"
+        stale_counter="$STATE/stale-readbacks-${tag}-${name}"
+        stale_seen=0
+        [[ -f "$stale_counter" ]] && stale_seen="$(cat "$stale_counter")"
+        if [[ ! -f "$dir/$name" ]]; then
             respond 404 '{"message":"Not Found"}'
+        elif [[ "$stale_reads" != 0 && "$stale_seen" -lt "$stale_reads" ]]; then
+            printf '%s' "$(( stale_seen + 1 ))" >"$stale_counter"
+            printf 'stale-cdn-object-from-a-previous-release' >"$output"
+            emit_body=0; status=200
+        else
+            cp "$dir/$name" "$output"; emit_body=0; status=200
         fi
     else
         respond 404 '{"message":"unhandled GitHub mock URL"}'

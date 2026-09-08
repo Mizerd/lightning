@@ -37,6 +37,15 @@ CURL_BIN="${CURL_BIN:-curl}"
 # client's address is compiled in, so a different value here would write a
 # slot nothing reads while every check below still passed.
 [[ "$UPDATE_LATEST_TAG" == update-latest ]] || die "UPDATE_LATEST_TAG must be update-latest"
+# How long the anonymous read-back below is allowed to wait for GitHub's CDN.
+# Same shape as the tag wait in mirror-release-to-github.sh, and the same
+# reason: the propagation delay is someone else's and it is not a defect.
+: "${UPDATE_SLOT_READBACK_WAIT_SECONDS:=300}"
+: "${UPDATE_SLOT_READBACK_POLL_SECONDS:=10}"
+[[ "$UPDATE_SLOT_READBACK_WAIT_SECONDS" =~ ^[0-9]+$ ]] || die "UPDATE_SLOT_READBACK_WAIT_SECONDS must be an integer"
+# POSITIVE, like its sibling: a zero interval would never advance `waited`,
+# so the loop below could never reach its own deadline.
+[[ "$UPDATE_SLOT_READBACK_POLL_SECONDS" =~ ^[1-9][0-9]*$ ]] || die "UPDATE_SLOT_READBACK_POLL_SECONDS must be a positive integer"
 
 if ! update_mirror_enabled; then
     printf 'GitHub mirroring is disabled (GITHUB_MIRROR_REPO unset); the update manifest stays on GitLab only\n'
@@ -193,30 +202,56 @@ for name in "$UPDATE_SIG_NAME" "$UPDATE_MANIFEST_NAME"; do
     local_file="$ROOT/dist/$name"
     url="${UPDATE_MIRROR_DOWNLOAD_HOST}/${GITHUB_MIRROR_REPO}/releases/download/${UPDATE_LATEST_TAG}/${name}"
     dl="$tmp_dir/verify-$name"
-    # RETRY, because a freshly replaced asset is not instantly readable.
+    # RETRY UNTIL THE BYTES MATCH, not merely until something answers 200.
     #
     # GitHub stores release assets in blob storage that is eventually
-    # consistent: the API reports state=uploaded with the right size while an
-    # anonymous GET still answers 404 BlobNotFound. This check ran ~0.3 s
-    # after the upload and failed the whole job on it (2026-09-06, pipeline
-    # 180) -- twice, while the bytes were in fact fine and became readable a
-    # few minutes later, the .json before the .sig.
+    # consistent, and it is inconsistent in TWO distinguishable ways. The
+    # first is absence: the API reports state=uploaded with the right size
+    # while an anonymous GET still answers 404 BlobNotFound. That failed this
+    # job twice on 2026-09-06 (pipeline 180) about 0.3 s after the upload,
+    # with bytes that were in fact fine and readable a few minutes later.
     #
-    # So poll instead of asking once. This is not weakening the gate: it
-    # still requires an anonymous 200 AND a byte-for-byte digest match at the
-    # exact URL a client compiles in, and it still fails the job if the asset
-    # never appears. It only stops a release failing on someone else's
-    # propagation delay.
+    # The second is STALENESS, and polling on the status code alone cannot
+    # see it: the CDN serves the PREVIOUS release's object, at a 200, from an
+    # edge that has not yet been invalidated. That is what failed 0.9.3
+    # (2026-09-07, pipeline 183, job 1462) 1.5 s after the upload -- the
+    # stored bytes were correct the whole time, the API served 0.9.3
+    # immediately, and the public URL caught up within about two minutes. A
+    # loop that breaks on 200 and then compares the digest ONCE turns that
+    # into a hard failure on the one artifact installed clients read.
+    #
+    # So the digest comparison belongs INSIDE the loop. This is not weakening
+    # the gate, it is tightening it: the success condition is still an
+    # anonymous 200 AND a byte-for-byte match at the exact URL a client
+    # compiles in, and the job still fails if that never happens. It only
+    # stops a release failing on someone else's propagation delay.
     status=""
-    for attempt in $(seq 1 30); do
-        status="$(gh_get_anonymous "$url" "$dl")" ||             die "anonymous read-back request failed for $name"
-        [[ "$status" == 200 ]] && break
-        [[ "$attempt" == 30 ]] && break
-        sleep 10
+    verified=0
+    waited=0
+    while :; do
+        status="$(gh_get_anonymous "$url" "$dl")" \
+            || die "anonymous read-back request failed for $name"
+        # The digest is compared HERE, on every attempt, and it is half of the
+        # loop's exit condition. Comparing it after the loop is the defect
+        # described above.
+        if [[ "$status" == 200 ]] && [[ "$(sha_of "$dl")" == "$(sha_of "$local_file")" ]]; then
+            verified=1
+            break
+        fi
+        if (( waited >= UPDATE_SLOT_READBACK_WAIT_SECONDS )); then
+            break
+        fi
+        printf 'Waiting for %s at the update slot: HTTP %s, %s (%ss of %ss)\n' \
+            "$name" "$status" \
+            "$([[ "$status" == 200 ]] && printf 'bytes do not match yet' || printf 'not readable yet')" \
+            "$waited" "$UPDATE_SLOT_READBACK_WAIT_SECONDS"
+        sleep "$UPDATE_SLOT_READBACK_POLL_SECONDS"
+        waited=$(( waited + UPDATE_SLOT_READBACK_POLL_SECONDS ))
     done
-    [[ "$status" == 200 ]] || die "anonymous read-back of $name from the update slot returned HTTP $status after 30 attempts over 5 minutes"
-    [[ "$(sha_of "$dl")" == "$(sha_of "$local_file")" ]] || \
-        die "$name read back from the update slot does not match the promoted bytes"
+    if [[ "$verified" != 1 ]]; then
+        [[ "$status" == 200 ]] || die "anonymous read-back of $name from the update slot returned HTTP $status after ${UPDATE_SLOT_READBACK_WAIT_SECONDS}s"
+        die "$name read back from the update slot does not match the promoted bytes after ${UPDATE_SLOT_READBACK_WAIT_SECONDS}s: the stored asset is wrong, or a stale CDN object never expired"
+    fi
     printf 'Verified anonymously: %s (%s bytes)\n' "$name" "$(size_of "$local_file")"
 done
 
