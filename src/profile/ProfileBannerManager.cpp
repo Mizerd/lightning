@@ -201,7 +201,12 @@ void ProfileBannerManager::refreshRoom(const QString &roomId)
 {
     if (!roomBannersAvailable() || roomId.isEmpty())
         return;
-    if (m_roomCache.size() >= kMaxCached)
+    // The cap bounds GROWTH. A room already in the cache is not growth, and
+    // refusing to re-read one would freeze that Space's banner for the rest
+    // of the session — which is the whole point of refreshRoom(), since
+    // sliding sync never delivers this state type and a refresh is the only
+    // way a remote change can ever arrive.
+    if (!m_roomCache.contains(roomId) && m_roomCache.size() >= kMaxCached)
         return;
     m_roomAsked.insert(roomId);
     const quint64 opId = m_nextOpId++;

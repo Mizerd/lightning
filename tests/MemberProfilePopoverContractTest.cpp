@@ -627,6 +627,33 @@ private slots:
                  "the bolt is painted over a user's own banner");
     }
 
+    // A BANNER THAT FAILED TO FETCH ONCE MUST NOT BE GONE FOR THE SESSION.
+    //
+    // MediaBridge::wideImageSource() answers "" for as long as a transient
+    // failure mark stands, and nothing else the `source` binding reads ever
+    // changes again — so a dropped connection left the card on its gradient
+    // even after the media repository came back. Both the cache completion
+    // and the mark's EXPIRY have to poke the re-resolve counter, which is
+    // exactly what Avatar.qml has done since v0.7.
+    void aBannerRecoversFromATransientMediaFailure()
+    {
+        QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(file.readAll());
+        const int at = src.indexOf(QStringLiteral("id: bannerImage"));
+        QVERIFY2(at > 0, "the banner Image is gone");
+        const QString block = src.mid(at);
+        QVERIFY2(block.contains(QStringLiteral("function onMediaCached(")),
+                 "the banner no longer re-resolves when its bytes land");
+        QVERIFY2(block.contains(QStringLiteral("function onMediaRetryable(")),
+                 "a banner whose fetch failed once stays absent all session");
+        // ...and it is still a COUNTER, never an assignment to `source`:
+        // assigning a bound property imperatively destroys the binding, which
+        // is what made banners sticky in 0.7.6.
+        QVERIFY2(!block.contains(QStringLiteral("bannerImage.source =")),
+                 "the banner binding is destroyed by an imperative assignment");
+    }
+
     // Rooms in common, as Sable lists them — and ABSENT rather than shown
     // empty when none are known.
     //

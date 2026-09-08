@@ -697,6 +697,20 @@ Popup {
                                 && bannerImage.source.toString().length === 0)
                                 bannerImage.resolveTick++
                         }
+                        // An EXPIRED transient failure mark. wideImageSource()
+                        // answers "" for as long as the mark stands and
+                        // nothing else this binding reads ever changes again,
+                        // so one dropped connection left the card showing the
+                        // gradient for the rest of the session even after the
+                        // media repository came back. Avatar.qml has carried
+                        // this handler for the same reason since v0.7; the
+                        // bridge re-arms the mark on a failed attempt, so it
+                        // cannot hammer the backend.
+                        function onMediaRetryable(key) {
+                            if (key.endsWith(":" + bannerImage.mxc)
+                                && bannerImage.source.toString().length === 0)
+                                bannerImage.resolveTick++
+                        }
                     }
                 }
             }

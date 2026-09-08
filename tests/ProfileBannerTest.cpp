@@ -38,11 +38,28 @@ public:
     }
     QString currentUserId() const override { return self; }
 
+    // --- Room / Space banners -------------------------------------------
+    bool supportsRoomBanners() const override { return supportsRooms; }
+    void fetchRoomBanner(const QString &roomId, quint64 opId) override
+    {
+        roomFetches.append({ roomId, opId });
+    }
+    void setRoomBanner(const QString &roomId, const QString &localPath,
+                       quint64 opId) override
+    {
+        roomWrites.append({ roomId, localPath });
+        lastRoomWriteOp = opId;
+    }
+
     bool supports = true;
+    bool supportsRooms = true;
     QString self = QStringLiteral("@me:example.org");
     QList<RecordedFetch> fetches;
     QStringList writes;
     quint64 lastWriteOp = 0;
+    QList<RecordedFetch> roomFetches;   // userId field carries the room id
+    QList<QPair<QString, QString>> roomWrites;
+    quint64 lastRoomWriteOp = 0;
 };
 
 } // namespace
@@ -236,6 +253,170 @@ private Q_SLOTS:
         banners.clearOwnBanner();
         QCOMPARE(client.fetches.size(), 0);
         QCOMPARE(client.writes.size(), 0);
+    }
+
+    // ── Room / Space banners ────────────────────────────────────────────
+    //
+    // The room half had NO coverage at all before 2026-09-08. It is the half
+    // the Space settings dialog and Space Home render, it is a custom state
+    // event with its OWN required power level, and "nobody has asked yet" and
+    // "this account may not change it" are the two facts a control must not
+    // guess at.
+
+    void aRoomIsAskedAboutOnceAndItsPermissionIsNeverGuessed()
+    {
+        FakeBannerClient client;
+        ProfileBannerManager banners;
+        banners.setClient(&client);
+        const QString room = QStringLiteral("!space:example.org");
+        QVERIFY(banners.roomBannersAvailable());
+
+        // Before an answer: no banner, and the control is NOT offered.
+        QCOMPARE(banners.roomBannerFor(room), QString());
+        QVERIFY(!banners.canSetRoomBanner(room));
+
+        banners.requestRoom(room);
+        QCOMPARE(client.roomFetches.size(), 1);
+        // A settings dialog that opens, closes and opens again must not cost
+        // a second request through requestRoom().
+        banners.requestRoom(room);
+        QCOMPARE(client.roomFetches.size(), 1);
+
+        QSignalSpy revisions(&banners, &ProfileBannerManager::revisionChanged);
+        Q_EMIT client.roomBannerReceived(client.roomFetches.first().opId, room,
+                                         QStringLiteral("mxc://example.org/b"),
+                                         /*canSet=*/true);
+        QCOMPARE(banners.roomBannerFor(room),
+                 QStringLiteral("mxc://example.org/b"));
+        QVERIFY(banners.canSetRoomBanner(room));
+        QCOMPARE(revisions.count(), 1);
+    }
+
+    // A REFRESH IS THE ONLY WAY A REMOTE CHANGE CAN EVER ARRIVE. Sliding sync
+    // delivers only the state types Lightning names in required_state, and
+    // page.codeberg.everypizza.room.banner is not one of them (see
+    // rust/src/banner.rs), so nothing tells this client the banner moved. The
+    // Space settings dialog re-reads on every open for exactly that reason —
+    // and refreshRoom() has to actually ask, including for a room already in
+    // the cache and including once the cache is full.
+    void refreshingARoomAsksAgainAndTheCacheCapDoesNotBlockIt()
+    {
+        FakeBannerClient client;
+        ProfileBannerManager banners;
+        banners.setClient(&client);
+        const QString room = QStringLiteral("!space:example.org");
+
+        banners.requestRoom(room);
+        QCOMPARE(client.roomFetches.size(), 1);
+        Q_EMIT client.roomBannerReceived(client.roomFetches.first().opId, room,
+                                         QStringLiteral("mxc://example.org/b"),
+                                         true);
+        banners.refreshRoom(room);
+        QCOMPARE(client.roomFetches.size(), 2);
+        // The remote change lands, permission included.
+        Q_EMIT client.roomBannerReceived(client.roomFetches.at(1).opId, room,
+                                         QStringLiteral("mxc://example.org/c"),
+                                         /*canSet=*/false);
+        QCOMPARE(banners.roomBannerFor(room),
+                 QStringLiteral("mxc://example.org/c"));
+        QVERIFY(!banners.canSetRoomBanner(room));
+
+        // Fill the bound with OTHER rooms. The cap exists to stop the cache
+        // growing without limit; a room already in it is not growth, and
+        // refusing to re-read one would silently freeze that Space's banner
+        // for the rest of the session.
+        for (int i = 0; i < 512; ++i) {
+            const QString other =
+                QStringLiteral("!filler%1:example.org").arg(i);
+            banners.requestRoom(other);
+            if (!client.roomFetches.isEmpty()
+                && client.roomFetches.last().userId == other) {
+                Q_EMIT client.roomBannerReceived(
+                    client.roomFetches.last().opId, other, QString(), false);
+            }
+        }
+        const int before = client.roomFetches.size();
+        banners.refreshRoom(room);
+        QCOMPARE(client.roomFetches.size(), before + 1);
+    }
+
+    void aStaleRoomAnswerFromAPreviousSessionIsDropped()
+    {
+        FakeBannerClient client;
+        ProfileBannerManager banners;
+        banners.setClient(&client);
+        const QString room = QStringLiteral("!space:example.org");
+        banners.requestRoom(room);
+        const quint64 opId = client.roomFetches.first().opId;
+
+        // A Space banner belongs to the account that read it, and so does the
+        // permission that came with it.
+        Q_EMIT client.loggedOut();
+        Q_EMIT client.roomBannerReceived(opId, room,
+                                         QStringLiteral("mxc://example.org/x"),
+                                         true);
+        QCOMPARE(banners.roomBannerFor(room), QString());
+        QVERIFY(!banners.canSetRoomBanner(room));
+        // ...and the room may be asked about again under the new session.
+        banners.requestRoom(room);
+        QCOMPARE(client.roomFetches.size(), 2);
+    }
+
+    void aRoomWriteIsAppliedOnlyWhenTheServerAcknowledgesIt()
+    {
+        FakeBannerClient client;
+        ProfileBannerManager banners;
+        banners.setClient(&client);
+        const QString room = QStringLiteral("!space:example.org");
+
+        banners.setRoomBanner(room, QStringLiteral("/tmp/banner.png"));
+        QCOMPARE(client.roomWrites.size(), 1);
+        QVERIFY(banners.busy());
+        // Nothing is applied optimistically.
+        QCOMPARE(banners.roomBannerFor(room), QString());
+        // A second write while one is in flight is refused rather than queued.
+        banners.setRoomBanner(room, QStringLiteral("/tmp/other.png"));
+        QCOMPARE(client.roomWrites.size(), 1);
+
+        Q_EMIT client.roomBannerSet(client.lastRoomWriteOp, room, false,
+                                    QString(), QStringLiteral("forbidden"));
+        QVERIFY(!banners.busy());
+        QCOMPARE(banners.lastError(), QStringLiteral("forbidden"));
+        QCOMPARE(banners.roomBannerFor(room), QString());
+
+        // The acknowledged write IS authoritative — no round trip needed.
+        banners.setRoomBanner(room, QStringLiteral("/tmp/banner.png"));
+        Q_EMIT client.roomBannerSet(client.lastRoomWriteOp, room, true,
+                                    QStringLiteral("mxc://example.org/new"),
+                                    QString());
+        QCOMPARE(banners.roomBannerFor(room),
+                 QStringLiteral("mxc://example.org/new"));
+        QVERIFY(banners.lastError().isEmpty());
+
+        // An empty path IS the clear, and it is dispatched as one.
+        banners.clearRoomBanner(room);
+        QCOMPARE(client.roomWrites.size(), 3);
+        QCOMPARE(client.roomWrites.last().second, QString());
+        Q_EMIT client.roomBannerSet(client.lastRoomWriteOp, room, true,
+                                    QString(), QString());
+        QCOMPARE(banners.roomBannerFor(room), QString());
+    }
+
+    void abackendWithoutRoomBannersOffersNothing()
+    {
+        FakeBannerClient client;
+        client.supportsRooms = false;
+        ProfileBannerManager banners;
+        banners.setClient(&client);
+        QVERIFY(!banners.roomBannersAvailable());
+        const QString room = QStringLiteral("!space:example.org");
+        banners.requestRoom(room);
+        banners.refreshRoom(room);
+        banners.setRoomBanner(room, QStringLiteral("/tmp/banner.png"));
+        banners.clearRoomBanner(room);
+        QCOMPARE(client.roomFetches.size(), 0);
+        QCOMPARE(client.roomWrites.size(), 0);
+        QVERIFY(!banners.canSetRoomBanner(room));
     }
 };
 
