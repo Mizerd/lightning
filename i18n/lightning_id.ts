@@ -444,7 +444,7 @@
         <translation>Anda melewatkan panggilan suara di %1</translation>
     </message>
     <message>
-        <location line="+306"/>
+        <location line="+319"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Ruang berhasil dibuat, tetapi gagal ditambahkan ke Space.</translation>
     </message>
@@ -505,7 +505,7 @@
         <translation>Luring — mencoba lagi</translation>
     </message>
     <message>
-        <location line="+148"/>
+        <location line="+154"/>
         <source>The server refused to rename this session.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -525,7 +525,7 @@
         <translation>%1 ingin memverifikasi sebuah sesi. Buka Lightning untuk meninjaunya.</translation>
     </message>
     <message>
-        <location line="+302"/>
+        <location line="+331"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>Kunci ruang yang diimpor diterapkan pada linimasa yang terbuka.</translation>
     </message>
@@ -541,24 +541,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1812"/>
+        <location line="+1851"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning tidak dapat membaca berkas yang dipilih.</translation>
     </message>
     <message>
-        <location line="-1818"/>
+        <location line="-1857"/>
         <source>A room-key import is already in progress.</source>
         <translation>Impor kunci ruang sedang berlangsung.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2440"/>
+        <location line="+2488"/>
         <source>Not signed in.</source>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-2438"/>
+        <location line="-2486"/>
         <source>Room-key import failed.</source>
         <translation>Impor kunci ruang gagal.</translation>
     </message>
@@ -629,14 +629,14 @@
     </message>
     <message>
         <location line="+11"/>
-        <location line="+1084"/>
+        <location line="+1123"/>
         <location line="+46"/>
         <location line="+68"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Build ini tidak memiliki backend Rust SDK.</translation>
     </message>
     <message>
-        <location line="-976"/>
+        <location line="-1015"/>
         <source>Choose a local image file.</source>
         <translation>Pilih berkas gambar lokal.</translation>
     </message>
@@ -730,7 +730,7 @@
         <translation>Verifikasi sedang berlangsung.</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+70"/>
         <location line="+11"/>
         <source>Key requests are only available on the Rust backend.</source>
         <translation>Permintaan kunci hanya tersedia pada backend Rust.</translation>
@@ -768,7 +768,7 @@
         <translation>Menghapus data lokal perangkat ini tidak akan memperbaiki masalah ini, dan akan menghancurkan kunci enkripsi yang masih Anda perlukan.</translation>
     </message>
     <message>
-        <location line="+484"/>
+        <location line="+493"/>
         <source>This backend cannot change your display name.</source>
         <translation>Backend ini tidak dapat mengubah nama tampilan Anda.</translation>
     </message>
@@ -2929,6 +2929,65 @@ Ukuran: %3</translation>
     </message>
 </context>
 <context>
+    <name>EncryptionBrokenPrompt</name>
+    <message>
+        <location filename="../qml/EncryptionBrokenPrompt.qml" line="+67"/>
+        <source>This session cannot read encrypted messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Encrypted messages can&apos;t be opened</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>The encryption keys this session published no longer match the ones it holds, so nothing sent to it can be unlocked. Encrypted messages stay on &quot;Waiting for keys&quot;, and in a call others hear you while you hear nothing. Sending is unaffected, so everything looks normal from your side.
+
+Signing out and signing in again is the only fix.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Sign out and back in</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Not now</source>
+        <translation type="unfinished">Jangan sekarang</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Sign out and sign in again?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>Signing in again creates a NEW session with new keys, which is what repairs this. Be aware of the cost:
+
+• Encrypted messages you have already received will only come back if they are in your key backup. Anything that is not backed up is not recoverable on this computer.
+• The new session starts unverified, so you will need to verify it from another device or with your recovery key.
+• Lightning&apos;s local data for this account on this computer is removed. Your messages stay on the server.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>Cancel</source>
+        <translation type="unfinished">Batal</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Sign out</source>
+        <translation type="unfinished">Keluar</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Confirm sign out</source>
+        <translation type="unfinished">Konfirmasi keluar</translation>
+    </message>
+</context>
+<context>
     <name>EventSourceDialog</name>
     <message>
         <location filename="../qml/EventSourceDialog.qml" line="+100"/>
@@ -4484,7 +4543,7 @@ Ukuran: %3</translation>
         <translation>%1 suntingan dihapus. Masih ada sisanya — jalankan lagi.</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+54"/>
         <source>Added to this room&apos;s stickers as :%1:</source>
         <translation>Ditambahkan ke stiker ruangan ini sebagai :%1:</translation>
     </message>
@@ -4534,7 +4593,7 @@ Ukuran: %3</translation>
         <translation>Stiker tidak dapat disimpan.</translation>
     </message>
     <message>
-        <location line="+182"/>
+        <location line="+190"/>
         <location line="+18"/>
         <source>Connected</source>
         <translation>Terhubung</translation>
@@ -5613,13 +5672,13 @@ Ukuran: %3</translation>
     </message>
     <message>
         <location line="+117"/>
-        <location line="+1096"/>
+        <location line="+1114"/>
         <location line="+945"/>
         <source>Reply</source>
         <translation>Balas</translation>
     </message>
     <message>
-        <location line="-2021"/>
+        <location line="-2039"/>
         <source>(original message not loaded)</source>
         <translation>(pesan asli belum dimuat)</translation>
     </message>
@@ -5642,7 +5701,12 @@ Ukuran: %3</translation>
         <translation>Kunci ruang tidak ada. Pulihkan kunci pemulihan Anda di Pengaturan, atau tunggu perangkat terverifikasi lain membagikan kuncinya.</translation>
     </message>
     <message>
-        <location line="+281"/>
+        <location line="+295"/>
+        <source>This session can&apos;t unlock encrypted messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Sent before you joined</source>
         <translation>Dikirim sebelum Anda bergabung</translation>
     </message>
@@ -9068,24 +9132,24 @@ Ukuran: %3</translation>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3398"/>
+        <location line="+3459"/>
         <location line="+93"/>
         <location line="+13"/>
-        <location line="+64"/>
+        <location line="+51"/>
         <location line="+37"/>
         <source>Not signed in.</source>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-3805"/>
+        <location line="-3853"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3607"/>
+        <location line="+3655"/>
         <source>Unknown room: %1</source>
         <translation>Ruang tidak dikenal: %1</translation>
     </message>
     <message>
-        <location line="-3807"/>
+        <location line="-3855"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9132,7 +9196,7 @@ Ukuran: %3</translation>
         <translation>Tindakan undangan gagal. Coba lagi.</translation>
     </message>
     <message>
-        <location line="+207"/>
+        <location line="+268"/>
         <location line="+16"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
@@ -9208,7 +9272,7 @@ Ukuran: %3</translation>
         <translation>Muat ulang linimasa: belum masuk.</translation>
     </message>
     <message>
-        <location line="+150"/>
+        <location line="+137"/>
         <source>No file selected.</source>
         <translation>Tidak ada berkas yang dipilih.</translation>
     </message>

@@ -446,7 +446,7 @@
         <translation>আপনি %1-এ একটি ভয়েস কল মিস করেছেন</translation>
     </message>
     <message>
-        <location line="+306"/>
+        <location line="+319"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>রুম তৈরি হয়েছে, তবে স্পেসে যোগ করা যায়নি।</translation>
     </message>
@@ -507,7 +507,7 @@
         <translation>অফলাইন — আবার চেষ্টা করা হচ্ছে</translation>
     </message>
     <message>
-        <location line="+148"/>
+        <location line="+154"/>
         <source>The server refused to rename this session.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -527,7 +527,7 @@
         <translation>%1 একটি সেশন যাচাই করতে চান। পর্যালোচনার জন্য Lightning খুলুন।</translation>
     </message>
     <message>
-        <location line="+302"/>
+        <location line="+331"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>আমদানি করা রুম কী খোলা টাইমলাইনে প্রয়োগ করা হয়েছে।</translation>
     </message>
@@ -543,24 +543,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1812"/>
+        <location line="+1851"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning নির্বাচিত ফাইলটি পড়তে পারেনি।</translation>
     </message>
     <message>
-        <location line="-1818"/>
+        <location line="-1857"/>
         <source>A room-key import is already in progress.</source>
         <translation>একটি রুম-কী আমদানি ইতিমধ্যেই চলছে।</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2440"/>
+        <location line="+2488"/>
         <source>Not signed in.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-2438"/>
+        <location line="-2486"/>
         <source>Room-key import failed.</source>
         <translation>রুম-কী আমদানি ব্যর্থ হয়েছে।</translation>
     </message>
@@ -631,14 +631,14 @@
     </message>
     <message>
         <location line="+11"/>
-        <location line="+1084"/>
+        <location line="+1123"/>
         <location line="+46"/>
         <location line="+68"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>এই বিল্ডে কোনো Rust SDK ব্যাকএন্ড নেই।</translation>
     </message>
     <message>
-        <location line="-976"/>
+        <location line="-1015"/>
         <source>Choose a local image file.</source>
         <translation>একটি স্থানীয় ছবির ফাইল বেছে নিন।</translation>
     </message>
@@ -732,7 +732,7 @@
         <translation>একটি যাচাই ইতিমধ্যেই চলছে।</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+70"/>
         <location line="+11"/>
         <source>Key requests are only available on the Rust backend.</source>
         <translation>কী-অনুরোধ কেবল Rust ব্যাকএন্ডে উপলব্ধ।</translation>
@@ -770,7 +770,7 @@
         <translation>এই ডিভাইসের স্থানীয় ডেটা মুছলে এটি ঠিক হবে না, বরং আপনার এখনও প্রয়োজনীয় এনক্রিপশন কী নষ্ট হবে।</translation>
     </message>
     <message>
-        <location line="+484"/>
+        <location line="+493"/>
         <source>This backend cannot change your display name.</source>
         <translation>এই ব্যাকএন্ড আপনার প্রদর্শিত নাম বদলাতে পারে না।</translation>
     </message>
@@ -2935,6 +2935,65 @@ Size: %3</source>
     </message>
 </context>
 <context>
+    <name>EncryptionBrokenPrompt</name>
+    <message>
+        <location filename="../qml/EncryptionBrokenPrompt.qml" line="+67"/>
+        <source>This session cannot read encrypted messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Encrypted messages can&apos;t be opened</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>The encryption keys this session published no longer match the ones it holds, so nothing sent to it can be unlocked. Encrypted messages stay on &quot;Waiting for keys&quot;, and in a call others hear you while you hear nothing. Sending is unaffected, so everything looks normal from your side.
+
+Signing out and signing in again is the only fix.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Sign out and back in</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Not now</source>
+        <translation type="unfinished">এখন নয়</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Sign out and sign in again?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>Signing in again creates a NEW session with new keys, which is what repairs this. Be aware of the cost:
+
+• Encrypted messages you have already received will only come back if they are in your key backup. Anything that is not backed up is not recoverable on this computer.
+• The new session starts unverified, so you will need to verify it from another device or with your recovery key.
+• Lightning&apos;s local data for this account on this computer is removed. Your messages stay on the server.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>Cancel</source>
+        <translation type="unfinished">বাতিল</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Sign out</source>
+        <translation type="unfinished">সাইন আউট</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Confirm sign out</source>
+        <translation type="unfinished">সাইন আউট নিশ্চিত করুন</translation>
+    </message>
+</context>
+<context>
     <name>EventSourceDialog</name>
     <message>
         <location filename="../qml/EventSourceDialog.qml" line="+100"/>
@@ -4494,7 +4553,7 @@ Size: %3</source>
         <translation>%1টি সম্পাদনা সরানো হয়েছে। আরও বাকি আছে — আবার চালান।</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+54"/>
         <source>Added to this room&apos;s stickers as :%1:</source>
         <translation>এই রুমের স্টিকারগুলিতে যোগ করা হয়েছে :%1:</translation>
     </message>
@@ -4544,7 +4603,7 @@ Size: %3</source>
         <translation>স্টিকার সংরক্ষণ করা যায়নি.</translation>
     </message>
     <message>
-        <location line="+182"/>
+        <location line="+190"/>
         <location line="+18"/>
         <source>Connected</source>
         <translation>সংযুক্ত</translation>
@@ -5627,13 +5686,13 @@ Size: %3</source>
     </message>
     <message>
         <location line="+117"/>
-        <location line="+1096"/>
+        <location line="+1114"/>
         <location line="+945"/>
         <source>Reply</source>
         <translation>উত্তর</translation>
     </message>
     <message>
-        <location line="-2021"/>
+        <location line="-2039"/>
         <source>(original message not loaded)</source>
         <translation>(মূল বার্তা লোড হয়নি)</translation>
     </message>
@@ -5657,7 +5716,12 @@ Size: %3</source>
         <translation>রুম কী নেই। সেটিংসে আপনার পুনরুদ্ধার কী ফিরিয়ে আনুন, বা অন্য কোনো যাচাইকৃত ডিভাইস কী ভাগ করার অপেক্ষা করুন।</translation>
     </message>
     <message>
-        <location line="+281"/>
+        <location line="+295"/>
+        <source>This session can&apos;t unlock encrypted messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Sent before you joined</source>
         <translation>আপনি যোগ দেওয়ার আগে পাঠানো</translation>
     </message>
@@ -9090,24 +9154,24 @@ Size: %3</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3398"/>
+        <location line="+3459"/>
         <location line="+93"/>
         <location line="+13"/>
-        <location line="+64"/>
+        <location line="+51"/>
         <location line="+37"/>
         <source>Not signed in.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-3805"/>
+        <location line="-3853"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3607"/>
+        <location line="+3655"/>
         <source>Unknown room: %1</source>
         <translation>অজানা রুম: %1</translation>
     </message>
     <message>
-        <location line="-3807"/>
+        <location line="-3855"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9154,7 +9218,7 @@ Size: %3</source>
         <translation>আমন্ত্রণ ক্রিয়া ব্যর্থ হয়েছে। আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+207"/>
+        <location line="+268"/>
         <location line="+16"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
@@ -9230,7 +9294,7 @@ Size: %3</source>
         <translation>টাইমলাইন আবার লোড: সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="+150"/>
+        <location line="+137"/>
         <source>No file selected.</source>
         <translation>কোনো ফাইল নির্বাচিত হয়নি।</translation>
     </message>

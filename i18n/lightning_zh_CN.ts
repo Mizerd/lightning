@@ -444,7 +444,7 @@
         <translation>你错过了 %1 中的一通语音通话</translation>
     </message>
     <message>
-        <location line="+306"/>
+        <location line="+319"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>房间已创建，但未能将其添加到空间。</translation>
     </message>
@@ -505,7 +505,7 @@
         <translation>离线，正在重试</translation>
     </message>
     <message>
-        <location line="+148"/>
+        <location line="+154"/>
         <source>The server refused to rename this session.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -525,7 +525,7 @@
         <translation>%1 想要验证一个会话。打开 Lightning 进行处理。</translation>
     </message>
     <message>
-        <location line="+302"/>
+        <location line="+331"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>导入的房间密钥已应用到当前打开的时间线。</translation>
     </message>
@@ -541,24 +541,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1812"/>
+        <location line="+1851"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning 无法读取所选文件。</translation>
     </message>
     <message>
-        <location line="-1818"/>
+        <location line="-1857"/>
         <source>A room-key import is already in progress.</source>
         <translation>已有房间密钥导入正在进行中。</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2440"/>
+        <location line="+2488"/>
         <source>Not signed in.</source>
         <translation>尚未登录。</translation>
     </message>
     <message>
-        <location line="-2438"/>
+        <location line="-2486"/>
         <source>Room-key import failed.</source>
         <translation>房间密钥导入失败。</translation>
     </message>
@@ -629,14 +629,14 @@
     </message>
     <message>
         <location line="+11"/>
-        <location line="+1084"/>
+        <location line="+1123"/>
         <location line="+46"/>
         <location line="+68"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>此版本不包含 Rust SDK 后端。</translation>
     </message>
     <message>
-        <location line="-976"/>
+        <location line="-1015"/>
         <source>Choose a local image file.</source>
         <translation>请选择一个本地图片文件。</translation>
     </message>
@@ -730,7 +730,7 @@
         <translation>已有验证正在进行中。</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+70"/>
         <location line="+11"/>
         <source>Key requests are only available on the Rust backend.</source>
         <translation>仅 Rust 后端支持密钥请求。</translation>
@@ -768,7 +768,7 @@
         <translation>清除此设备的本地数据无法解决该问题，反而会销毁你仍然需要的加密密钥。</translation>
     </message>
     <message>
-        <location line="+484"/>
+        <location line="+493"/>
         <source>This backend cannot change your display name.</source>
         <translation>此后端无法更改你的显示名称。</translation>
     </message>
@@ -2929,6 +2929,65 @@ Size: %3</source>
     </message>
 </context>
 <context>
+    <name>EncryptionBrokenPrompt</name>
+    <message>
+        <location filename="../qml/EncryptionBrokenPrompt.qml" line="+67"/>
+        <source>This session cannot read encrypted messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Encrypted messages can&apos;t be opened</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>The encryption keys this session published no longer match the ones it holds, so nothing sent to it can be unlocked. Encrypted messages stay on &quot;Waiting for keys&quot;, and in a call others hear you while you hear nothing. Sending is unaffected, so everything looks normal from your side.
+
+Signing out and signing in again is the only fix.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Sign out and back in</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Not now</source>
+        <translation type="unfinished">暂不</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Sign out and sign in again?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>Signing in again creates a NEW session with new keys, which is what repairs this. Be aware of the cost:
+
+• Encrypted messages you have already received will only come back if they are in your key backup. Anything that is not backed up is not recoverable on this computer.
+• The new session starts unverified, so you will need to verify it from another device or with your recovery key.
+• Lightning&apos;s local data for this account on this computer is removed. Your messages stay on the server.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>Cancel</source>
+        <translation type="unfinished">取消</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Sign out</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Confirm sign out</source>
+        <translation type="unfinished">确认退出登录</translation>
+    </message>
+</context>
+<context>
     <name>EventSourceDialog</name>
     <message>
         <location filename="../qml/EventSourceDialog.qml" line="+100"/>
@@ -4484,7 +4543,7 @@ Size: %3</source>
         <translation>已删除 %1 条编辑，仍有剩余，请再运行一次。</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+54"/>
         <source>Added to this room&apos;s stickers as :%1:</source>
         <translation>添加到此房间的贴纸中为：%1：</translation>
     </message>
@@ -4534,7 +4593,7 @@ Size: %3</source>
         <translation>无法保存贴纸。</translation>
     </message>
     <message>
-        <location line="+182"/>
+        <location line="+190"/>
         <location line="+18"/>
         <source>Connected</source>
         <translation>已连接</translation>
@@ -5613,13 +5672,13 @@ Size: %3</source>
     </message>
     <message>
         <location line="+117"/>
-        <location line="+1096"/>
+        <location line="+1114"/>
         <location line="+945"/>
         <source>Reply</source>
         <translation>回复</translation>
     </message>
     <message>
-        <location line="-2021"/>
+        <location line="-2039"/>
         <source>(original message not loaded)</source>
         <translation>（原消息未加载）</translation>
     </message>
@@ -5642,7 +5701,12 @@ Size: %3</source>
         <translation>缺少房间密钥。请在设置中用恢复密钥恢复，或等待另一台已验证的设备共享密钥。</translation>
     </message>
     <message>
-        <location line="+281"/>
+        <location line="+295"/>
+        <source>This session can&apos;t unlock encrypted messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Sent before you joined</source>
         <translation>在你加入之前发送</translation>
     </message>
@@ -9068,24 +9132,24 @@ Size: %3</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3398"/>
+        <location line="+3459"/>
         <location line="+93"/>
         <location line="+13"/>
-        <location line="+64"/>
+        <location line="+51"/>
         <location line="+37"/>
         <source>Not signed in.</source>
         <translation>未登录。</translation>
     </message>
     <message>
-        <location line="-3805"/>
+        <location line="-3853"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3607"/>
+        <location line="+3655"/>
         <source>Unknown room: %1</source>
         <translation>未知房间：%1</translation>
     </message>
     <message>
-        <location line="-3807"/>
+        <location line="-3855"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9132,7 +9196,7 @@ Size: %3</source>
         <translation>邀请操作失败。请重试。</translation>
     </message>
     <message>
-        <location line="+207"/>
+        <location line="+268"/>
         <location line="+16"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
@@ -9208,7 +9272,7 @@ Size: %3</source>
         <translation>重新加载时间线：未登录。</translation>
     </message>
     <message>
-        <location line="+150"/>
+        <location line="+137"/>
         <source>No file selected.</source>
         <translation>未选择文件。</translation>
     </message>
