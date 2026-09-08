@@ -997,9 +997,56 @@ void SfuCallController::setState(State state, const QString &error)
 {
     if (m_state == state && m_lastError == error)
         return;
+    const bool hadOutstandingFailure = m_failureAnnounced;
     m_state = state;
     m_lastError = error;
+    // A state that carries a reason is a state the user was told about:
+    // every `teardown(State::Failed, …)` in this class is followed by
+    // `Q_EMIT callFailed(m_lastError)`, and that is the message the shell
+    // puts in the status strip.
+    if (!error.isEmpty())
+        m_failureAnnounced = true;
     Q_EMIT stateChanged();
+
+    // A REFUSAL IS WITHDRAWN ONCE A LATER ATTEMPT GETS PAST THE GATE THAT
+    // REFUSED IT. `callFailed` is a one-shot notice — the shell copies it
+    // into the status strip and nothing ever takes it back — so a refused
+    // join left "You don't have permission…" on screen through the
+    // successful join that followed it. Observed live: refused at 22:55,
+    // joined successfully at 22:57, still displayed at 23:05.
+    //
+    // Announced on the SAME signal, with an empty message, because that is
+    // this codebase's own idiom for clearing a reported error (AppController
+    // emits `errorReported(QString{})` in four places for exactly that).
+    //
+    // Authorizing is the earliest honest moment, and Preparing is
+    // deliberately NOT enough: pressing Join again is not evidence of
+    // anything, and clearing there would blink the message off and straight
+    // back on when the same gate refuses the retry. By Authorizing the
+    // membership state event has been accepted, so the room-permission
+    // refusal is provably stale; if the call service then refuses, that
+    // failure re-announces itself a moment later with its own wording.
+    //
+    // Deliberately not covered: `onEnginePublishFailed`, which reports a
+    // camera or share that could not be published WITHOUT changing state.
+    // That notice is about one track, not about the call being joinable,
+    // and nothing here can know when it stops applying.
+    const bool pastTheJoinGate = state == State::Authorizing
+        || state == State::Connecting || state == State::Connected
+        || state == State::Reconnecting;
+    if (hadOutstandingFailure && error.isEmpty() && pastTheJoinGate) {
+        m_failureAnnounced = false;
+        qCInfo(lcSfuCall) << "the previous call failure no longer applies; "
+                             "withdrawing it";
+        Q_EMIT callFailed(QString());
+        return;
+    }
+    // Idle is the account/session reset (setClient, logout), and the shell
+    // clears its own error there anyway. FORGETTING the outstanding failure
+    // rather than withdrawing it keeps one account's call error from wiping
+    // an unrelated message on the next account's first successful join.
+    if (state == State::Idle)
+        m_failureAnnounced = false;
 }
 
 QString SfuCallController::userFacingError(const QString &category) const
@@ -1007,8 +1054,28 @@ QString SfuCallController::userFacingError(const QString &category) const
     // A closed set in, plain wording out. A raw category or a server string
     // must never reach the user (§47 of the calling brief, and the repo's
     // standing rule about rendering remote text).
+    //
+    // TWO GATES ANSWER `forbidden` AND THEY HAVE OPPOSITE REMEDIES, which is
+    // why the membership one arrives here under its own category (see
+    // membershipRefusalCategory() above onMembershipPublished):
+    //
+    //   * the HOMESERVER refuses our `m.call.member` STATE event. Writing
+    //     state needs power in the room, so an ordinary member is refused in
+    //     a room with ordinary defaults. The remedy is a room permission —
+    //     nothing about the call service, and nothing the user can retry.
+    //   * the CALL SERVICE (the SFU's JWT/authorisation) refuses the
+    //     connection. Nothing in the room can change that.
+    //
+    // Both said "You don't have permission to join this call.", which names
+    // neither gate. That is GitHub issue #10: a user hit the membership case
+    // "in any room (even owned by me)" and nobody — user or maintainer —
+    // could tell which of the two had refused. Reproduced here: a plain
+    // member of a room was refused, and promoting them to Moderator fixed it.
+    if (category == QLatin1String("membership_forbidden"))
+        return tr("You don't have permission to join calls in this room. "
+                  "A room admin can change that in the room's permissions.");
     if (category == QLatin1String("forbidden"))
-        return tr("You don't have permission to join this call.");
+        return tr("The calling service refused to connect you to this call.");
     if (category == QLatin1String("unsupported"))
         return tr("Calling isn't available on this homeserver.");
     if (category == QLatin1String("rate_limited"))
@@ -1187,6 +1254,28 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
 #endif
 }
 
+namespace {
+/// The category a REFUSED membership publish should be reported under.
+///
+/// The homeserver refusing our `m.call.member` state event and the SFU
+/// refusing the connection both arrive as the bare category `forbidden`, and
+/// they are not the same problem: the first is a room power level (writing
+/// state needs power, so a default-power member is refused in a room with
+/// ordinary defaults), the second is the call service's own authorisation.
+/// Renaming it HERE, at the one point where a publish result is classified,
+/// is what lets userFacingError() answer with the right remedy — and what
+/// makes the log line say which gate refused.
+///
+/// Everything else passes through untouched: `network`, `rate_limited` and
+/// the rest mean the same thing on both lanes.
+QString membershipRefusalCategory(const QString &category)
+{
+    if (category == QLatin1String("forbidden"))
+        return QStringLiteral("membership_forbidden");
+    return category;
+}
+} // namespace
+
 void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
                                               const QString &category,
                                               const QString &eventId,
@@ -1224,7 +1313,16 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
     if (m_state != State::Preparing)
         return; // a reply for a call we already left
     if (!ok) {
-        teardown(State::Failed, userFacingError(category));
+        // Named in the log as well as to the user. `membership published
+        // ok= false category= "forbidden"` and `sfu state= "failed"
+        // category= "forbidden"` were the only two lines that told these
+        // apart, and neither the reporter of issue #10 nor anyone reading
+        // their screenshot ever had a log.
+        const QString reported = membershipRefusalCategory(category);
+        qCWarning(lcSfuCall)
+            << "membership REFUSED by the homeserver category=" << category
+            << "reportedAs=" << reported;
+        teardown(State::Failed, userFacingError(reported));
         Q_EMIT callFailed(m_lastError);
         return;
     }
@@ -1306,6 +1404,11 @@ void SfuCallController::onSfuState(const QString &state,
         return;
     }
     if (state == QLatin1String("failed")) {
+        // The OTHER `forbidden`. This one is the call service refusing the
+        // connection, not the room refusing our membership state event —
+        // see membershipRefusalCategory().
+        qCWarning(lcSfuCall)
+            << "the call SERVICE refused this call category=" << category;
         teardown(State::Failed, userFacingError(category));
         Q_EMIT callFailed(m_lastError);
         return;
@@ -3362,6 +3465,25 @@ void SfuCallController::setMembershipForTest(const QString &roomId,
     m_roomId = roomId;
     m_delayId = delayId;
     m_lastPublishMs = 0;
+}
+
+quint64 SfuCallController::beginMembershipPublishForTest(
+    const QString &roomId, const QString &focusUrl)
+{
+    // The tail of join(), and nothing else: record the room and the focus,
+    // go to Preparing, publish. Kept in the same order and through the same
+    // calls so the answer lands in production's own onMembershipPublished.
+    if (!m_client)
+        return 0;
+    m_roomId = roomId;
+    m_focusUrl = focusUrl;
+    // A test is never the first arrival announcing a call to the room; that
+    // send has its own coverage and would only add noise here.
+    m_announceOnPublish = false;
+    setState(State::Preparing);
+    m_publishOp = m_client->rtcPublishMembership(roomId, focusUrl,
+                                                 QStringLiteral("audio"));
+    return m_publishOp;
 }
 
 void SfuCallController::setCallStateForTest(State state)

@@ -188,6 +188,29 @@ public:
         Q_EMIT rtcMembershipPublished(opId, ok, QString(),
                                       QStringLiteral("$event"), delayId);
     }
+    /// A publish the HOMESERVER refused, carrying the category the bridge
+    /// really sends. `answerPublish` above cannot express one — it hard-codes
+    /// an empty category — which is a large part of why nothing had ever seen
+    /// how a refusal is classified.
+    void refusePublish(quint64 opId, const QString &category)
+    {
+        Q_EMIT rtcMembershipPublished(opId, false, category, QString(),
+                                      QString());
+    }
+    /// The SFU's own lifecycle, on the signal SfuCallController connects.
+    void emitSfuState(const QString &state, const QString &category)
+    {
+        Q_EMIT sfuStateChanged(state, category);
+    }
+    /// Answered with a real op id so a successful membership publish reaches
+    /// Authorizing instead of failing on "couldn't connect".
+    quint64 sfuConnect(const QString &serviceUrl,
+                       const QString &roomId) override
+    {
+        sfuConnects.append(qMakePair(serviceUrl, roomId));
+        return ++opCounter;
+    }
+    QList<QPair<QString, QString>> sfuConnects;
     void emitCandidates(const QString &roomId, const QString &callId,
                         bool own, const QVariantList &candidates)
     {
@@ -3084,6 +3107,156 @@ private Q_SLOTS:
         QCOMPARE(static_cast<int>(call.state()),
                  static_cast<int>(SfuCallController::State::Connected));
         QCOMPARE(call.roomId(), QStringLiteral("!room:example.org"));
+    }
+
+    // TWO GATES SAY `forbidden` AND THEY NEED OPPOSITE ANSWERS.
+    //
+    // The homeserver refusing our `m.call.member` STATE event is a room
+    // power-level problem — an ordinary member cannot write state in a room
+    // with ordinary defaults, and the remedy is a room permission. The SFU
+    // refusing the connection is the call service's own authorisation and
+    // nothing in the room can change it. Both arrive as the bare category
+    // `forbidden`.
+    //
+    // ON THE BROKEN TREE both produced the identical sentence, "You don't
+    // have permission to join this call.", which names neither gate. That is
+    // GitHub issue #10: a user hit the membership case "in any room (even
+    // owned by me)" and nobody could tell which had refused. Reproduced by
+    // hand as well — a plain member of a room was refused and promoting them
+    // to Moderator fixed it.
+    void aHomeserverRefusingOurMembershipIsNotTheCallServiceRefusingTheCall()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+
+        // (a) THE HOMESERVER refuses the membership state event.
+        const quint64 publish = call.beginMembershipPublishForTest(
+            QStringLiteral("!room:example.org"),
+            QStringLiteral("https://sfu.example.org"));
+        QVERIFY(publish != 0);
+        client.refusePublish(publish, QStringLiteral("forbidden"));
+        QCOMPARE(static_cast<int>(call.state()),
+                 static_cast<int>(SfuCallController::State::Failed));
+        const QString roomRefusal = call.lastError();
+        QVERIFY(!roomRefusal.isEmpty());
+
+        // (b) THE CALL SERVICE refuses the connection, on a join whose
+        // membership the same homeserver accepted.
+        const quint64 second = call.beginMembershipPublishForTest(
+            QStringLiteral("!room:example.org"),
+            QStringLiteral("https://sfu.example.org"));
+        client.answerPublish(second, true, QStringLiteral("delay-1"));
+        QCOMPARE(static_cast<int>(call.state()),
+                 static_cast<int>(SfuCallController::State::Authorizing));
+        client.emitSfuState(QStringLiteral("failed"),
+                            QStringLiteral("forbidden"));
+        QCOMPARE(static_cast<int>(call.state()),
+                 static_cast<int>(SfuCallController::State::Failed));
+        const QString serviceRefusal = call.lastError();
+        QVERIFY(!serviceRefusal.isEmpty());
+
+        QVERIFY2(roomRefusal != serviceRefusal,
+                 "both refusals still say the same sentence, so nobody can "
+                 "tell a room permission problem from the call service "
+                 "refusing the connection");
+        // And the membership one has to point at the ROOM, because a room
+        // permission is the actual remedy. Asserted on the words that carry
+        // the remedy rather than on the whole sentence, so re-wording it
+        // stays free while dropping the remedy does not.
+        QVERIFY2(roomRefusal.contains(QStringLiteral("permission"))
+                     && roomRefusal.contains(QStringLiteral("room")),
+                 qPrintable(QStringLiteral(
+                                "the membership refusal must point at the "
+                                "room's permissions; it said: %1")
+                                .arg(roomRefusal)));
+        // The service one must NOT, or it sends the user to a room admin who
+        // can do nothing about it.
+        QVERIFY2(!serviceRefusal.contains(QStringLiteral("permission")),
+                 qPrintable(QStringLiteral(
+                                "the call service's refusal must not read as "
+                                "a room permission problem; it said: %1")
+                                .arg(serviceRefusal)));
+    }
+
+    // A REFUSAL IS WITHDRAWN WHEN A LATER ATTEMPT GETS PAST THE GATE THAT
+    // REFUSED IT.
+    //
+    // `callFailed` is a one-shot notice: the shell copies it into the status
+    // strip and nothing ever takes it back. So a refused join left "You don't
+    // have permission…" on screen through the successful join that followed
+    // it — observed live, refused at 22:55, joined at 22:57, still displayed
+    // at 23:05.
+    //
+    // ON THE BROKEN TREE only ONE callFailed is ever emitted here: the
+    // refusal. The successful join that replaces it says nothing at all.
+    void aLaterSuccessfulJoinWithdrawsTheRefusalItReplaced()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        QSignalSpy failures(&call, &SfuCallController::callFailed);
+
+        const quint64 refused = call.beginMembershipPublishForTest(
+            QStringLiteral("!room:example.org"),
+            QStringLiteral("https://sfu.example.org"));
+        client.refusePublish(refused, QStringLiteral("forbidden"));
+        QCOMPARE(failures.size(), 1);
+        QVERIFY(!failures.at(0).at(0).toString().isEmpty());
+
+        // The same room, a moment later, and this time the homeserver accepts
+        // the membership — the exact gate that refused.
+        const quint64 accepted = call.beginMembershipPublishForTest(
+            QStringLiteral("!room:example.org"),
+            QStringLiteral("https://sfu.example.org"));
+        client.answerPublish(accepted, true, QStringLiteral("delay-1"));
+        QCOMPARE(static_cast<int>(call.state()),
+                 static_cast<int>(SfuCallController::State::Authorizing));
+
+        QVERIFY2(failures.size() == 2,
+                 "the join that succeeded never withdrew the refusal it "
+                 "replaced, so the status strip goes on showing it");
+        QVERIFY2(failures.at(1).at(0).toString().isEmpty(),
+                 "the withdrawal must be an EMPTY message — that is what "
+                 "clears a reported error; anything else is a second error");
+        // And it is withdrawn once, not on every subsequent state change.
+        client.emitSfuState(QStringLiteral("signalling"), QString());
+        QCOMPARE(failures.size(), 2);
+    }
+
+    // PRESSING JOIN AGAIN IS NOT EVIDENCE OF ANYTHING.
+    //
+    // The withdrawal deliberately does not fire at Preparing: clearing there
+    // would blink the message off and straight back on when the same gate
+    // refuses the retry, which reads as a flicker rather than as an answer.
+    void aRetryThatIsRefusedAgainNeverBlanksTheReasonInBetween()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        QSignalSpy failures(&call, &SfuCallController::callFailed);
+
+        const quint64 first = call.beginMembershipPublishForTest(
+            QStringLiteral("!room:example.org"),
+            QStringLiteral("https://sfu.example.org"));
+        client.refusePublish(first, QStringLiteral("forbidden"));
+        QCOMPARE(failures.size(), 1);
+
+        // The retry reaches Preparing and is refused there too.
+        const quint64 second = call.beginMembershipPublishForTest(
+            QStringLiteral("!room:example.org"),
+            QStringLiteral("https://sfu.example.org"));
+        QCOMPARE(static_cast<int>(call.state()),
+                 static_cast<int>(SfuCallController::State::Preparing));
+        QVERIFY2(failures.size() == 1,
+                 "reaching Preparing withdrew the refusal, so the reason "
+                 "blanks the moment Join is pressed and comes straight back "
+                 "when the same gate refuses again");
+        client.refusePublish(second, QStringLiteral("forbidden"));
+        QCOMPARE(failures.size(), 2);
+        QVERIFY2(!failures.at(1).at(0).toString().isEmpty(),
+                 "a retry that was refused again must report the refusal, "
+                 "never withdraw it");
     }
 
     // PER-PERSON VOLUME GOES TO 200, NOT 100.

@@ -572,6 +572,19 @@ public:
     /// the leave path nor the refresh heartbeat could be reached at all,
     /// which is exactly why neither had ever been tested.
     void setMembershipForTest(const QString &roomId, const QString &delayId);
+    /// Put the controller exactly where a real `join()` leaves it while the
+    /// homeserver decides: state Preparing, the room and focus recorded, and
+    /// a REAL `rtcPublishMembership` in flight, whose op id is returned so
+    /// the answer can be delivered on the real signal.
+    ///
+    /// A CONSCIOUS extension of the seam. Everything join() does before this
+    /// step — the media engine, the encryption gate, focus discovery — needs
+    /// a live SfuMediaEngine and therefore a GStreamer pipeline, so the
+    /// publish ANSWER had no reachable test at any layer: neither the
+    /// refusal's classification nor the state it leaves behind had ever been
+    /// exercised. This runs the same last three statements join() does.
+    quint64 beginMembershipPublishForTest(const QString &roomId,
+                                          const QString &focusUrl);
     /// Drive the local device's camera / screen-share INTENT the way the
     /// buttons do, minus the media engine.
     ///
@@ -596,6 +609,14 @@ Q_SIGNALS:
     void screenShareSourcesChanged();
     void screenShareSourcesAvailable();
     /// A user-facing failure, already reduced to plain wording.
+    ///
+    /// AN EMPTY MESSAGE WITHDRAWS THE LAST ONE. It is emitted when a later
+    /// attempt gets past the gate that refused, and it means "the failure I
+    /// reported no longer applies" — the same idiom AppController already
+    /// uses when it emits `errorReported(QString{})` to clear the status
+    /// strip. A receiver that shows the message must therefore also clear on
+    /// an empty one; dropping empties leaves a stale refusal on screen,
+    /// which is the defect this exists to close.
     void callFailed(const QString &message);
 
 private Q_SLOTS:
@@ -805,6 +826,15 @@ private:
     State m_state = State::Idle;
     QString m_roomId;
     QString m_lastError;
+    /// A user-facing call failure has been announced and not yet withdrawn.
+    ///
+    /// `callFailed` is a one-shot notice the shell copies into the status
+    /// strip, so without this the refusal from a failed join stayed on
+    /// screen through the successful join that replaced it. Set wherever a
+    /// state carries a reason; cleared — with an empty `callFailed` — the
+    /// moment a later attempt gets past the gate that refused. See
+    /// setState().
+    bool m_failureAnnounced = false;
     QString m_focusUrl;
     QString m_membershipEventId;
     /// Per-share level, 0..200, for the slider to read back its own
