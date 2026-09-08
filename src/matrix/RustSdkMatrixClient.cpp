@@ -4518,6 +4518,67 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             event.value(QStringLiteral("ok")).toBool(false), devices);
         return;
     }
+    if (type == QLatin1String("to_device_undecryptable")) {
+        // B006: THE ONE LINE THAT SEPARATES "IT NEVER ARRIVED" FROM "IT
+        // ARRIVED AND THIS DEVICE CANNOT OPEN IT".
+        //
+        // matrix-sdk hands an undecryptable to-device event to handlers as
+        // the original `m.room.encrypted` envelope, so it matches none of
+        // the types we listen for and used to vanish silently — which is
+        // why the 2026-09-07 capture of a one-way-silent encrypted call
+        // showed zero key receives AND zero discards and could not say
+        // which. Sanitized: a public Matrix id and a count, nothing else.
+        // See the handler in rust/src/lib.rs for what this cannot say —
+        // WHICH of the three SDK causes it was.
+        qCWarning(lcRust)
+            << "a to-device message could not be decrypted sender="
+            << event.value(QStringLiteral("sender")).toString()
+            << "count="
+            << static_cast<qint64>(
+                   event.value(QStringLiteral("count")).toDouble(0))
+            << "(if these are call media keys the call is silent one way "
+               "while messages keep working)";
+        return;
+    }
+    if (type == QLatin1String("own_identity_key")) {
+        // B006/B011: A DEVICE WHOSE PUBLISHED KEY IS NOT ITS OWN CANNOT
+        // DECRYPT ANYTHING, AND USED TO SAY NOTHING AT ALL.
+        //
+        // Peers encrypt to the key the server publishes for us. If that is
+        // not the key our local Olm account holds, every room key and every
+        // call media key addressed to this device is unreadable, forever:
+        // encrypted messages sit on "Waiting for keys" and an encrypted
+        // call is silent one way while the other side hears us perfectly,
+        // because SENDING is unaffected. Diagnosed on a real account
+        // 2026-09-07; only matrix-sdk's internal tracing could see it, and a
+        // fresh sign-in repaired it at once.
+        //
+        // ABSENT MEANS "COULD NOT BE ESTABLISHED" (offline, or no keys yet)
+        // and is not a fault. Only an explicit false is. Turning "unknown"
+        // into "broken" here would tell healthy users their encryption is
+        // destroyed.
+        const QJsonValue matches =
+            event.value(QStringLiteral("matches_server"));
+        const bool established = matches.isBool();
+        const bool agrees = established && matches.toBool();
+        if (established && !agrees) {
+            // Once per transition, not once per check: a 15-minute backstop
+            // must not fill the log with the same line.
+            if (!m_ownIdentityKeyMismatchLogged) {
+                m_ownIdentityKeyMismatchLogged = true;
+                qCCritical(lcRust)
+                    << "this device's published identity key does not match "
+                       "its local account. Nothing encrypted to this device "
+                       "can be decrypted, so encrypted messages will not open "
+                       "and encrypted calls will be silent in one direction. "
+                       "Signing out and signing in again is the repair.";
+            }
+        } else if (agrees) {
+            m_ownIdentityKeyMismatchLogged = false;
+        }
+        Q_EMIT ownDeviceIdentityKeyChecked(established, agrees);
+        return;
+    }
     if (type == QLatin1String("crypto_health")) {
         // Forward verbatim (already sanitized in Rust); AppController stamps
         // the generation before the model adopts it.
@@ -5780,33 +5841,6 @@ void RustSdkMatrixClient::refreshOwnDeviceStatus()
     const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
     if (!doc.isObject()) return;
     const QJsonObject obj = doc.object();
-    // A DEVICE WHOSE PUBLISHED KEY IS NOT ITS OWN CANNOT DECRYPT ANYTHING,
-    // AND USED TO SAY NOTHING AT ALL.
-    //
-    // Peers encrypt to the key the server publishes for us. If that is not
-    // the key our local Olm account holds, every room key and every call
-    // media key addressed to this device is unreadable, forever: encrypted
-    // messages sit on "Waiting for keys" and an encrypted call is silent one
-    // way while the other side hears us perfectly, because SENDING is
-    // unaffected. Diagnosed on a real account 2026-09-07; only matrix-sdk's
-    // internal tracing could see it, and a fresh sign-in repaired it at once.
-    //
-    // Absent means "could not be established" (offline, or no keys yet) and
-    // is not a fault. Only an explicit false is.
-    const QJsonValue keyAgreement =
-        obj.value(QStringLiteral("identity_key_matches_server"));
-    if (keyAgreement.isBool() && !keyAgreement.toBool()) {
-        static bool saidOnce = false;
-        if (!saidOnce) {
-            saidOnce = true;
-            qCCritical(lcRust)
-                << "this device's published identity key does not match its "
-                   "local account. Nothing encrypted to this device can be "
-                   "decrypted, so encrypted messages will not open and "
-                   "encrypted calls will be silent in one direction. Signing "
-                   "out and signing in again is the repair.";
-        }
-    }
     Q_EMIT ownDeviceStatusUpdated(
         obj.value(QStringLiteral("device_id")).toString(),
         obj.value(QStringLiteral("own_identity_available")).toBool(false),
@@ -5815,6 +5849,20 @@ void RustSdkMatrixClient::refreshOwnDeviceStatus()
         obj.value(QStringLiteral("has_master")).toBool(false),
         obj.value(QStringLiteral("has_self_signing")).toBool(false),
         obj.value(QStringLiteral("has_user_signing")).toBool(false));
+}
+
+// B006/B011. See the header, and OwnDeviceKeyWatch for the policy around it.
+void RustSdkMatrixClient::checkOwnIdentityKey()
+{
+    if (!m_loggedIn || !m_rustHandle)
+        return;
+    // Fire-and-forget: the answer arrives as an `own_identity_key` poll
+    // event. A dispatch error is not a fault answer and must not be reported
+    // as one — the tri-state simply stays unknown.
+    const QString r =
+        takeRustString(mx_rust_check_own_identity_key(m_rustHandle));
+    if (!r.isEmpty())
+        qCDebug(lcRust) << "own identity key check not dispatched";
 }
 
 void RustSdkMatrixClient::importRoomKeys(const QString &filePath,

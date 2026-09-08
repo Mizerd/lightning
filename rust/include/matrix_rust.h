@@ -360,6 +360,24 @@ char *mx_rust_start_own_verification(void *client);
 char *mx_rust_query_own_device_status(void *client);
 
 /*
+ * B006/B011: does the curve25519 identity key this device PUBLISHES on the
+ * server match the one its local Olm account holds? When it does not, every
+ * peer encrypts to a key we cannot read, so nothing arrives decryptable —
+ * ever — while sending keeps working. Diagnosed on a real account
+ * 2026-09-07; a fresh sign-in is the repair.
+ *
+ * Asynchronous on purpose: it needs a /keys/query, which must not block the
+ * GUI thread. The answer arrives as an `own_identity_key` poll event:
+ *   { "type": "own_identity_key", "matches_server": true|false|null }
+ * null means the question could not be answered (offline, keys not uploaded
+ * yet) and is NOT a fault. Only an explicit false is. No key material is
+ * ever carried — whether the two agree is the whole fact.
+ *
+ * Performs exactly one check per call; rate limiting belongs to the caller.
+ */
+char *mx_rust_check_own_identity_key(void *client);
+
+/*
  * v0.6.0 checkpoint 7: async E2EE health snapshot from official SDK state
  * APIs (device trust, cross-signing keys, key backup, recovery, secret
  * storage). Result arrives as a `crypto_health` poll event carrying only

@@ -185,6 +185,19 @@ public:
     // wrapper skips the call when not logged in.
     void refreshOwnDeviceStatus();
 
+    // B006/B011. Ask whether the curve25519 identity key this device
+    // PUBLISHES on the server is the one its local Olm account holds. When
+    // it is not, every peer encrypts to a key we cannot read: nothing
+    // arrives decryptable, ever, while sending keeps working — encrypted
+    // messages sit on "Waiting for keys…" and an encrypted call is silent
+    // one way. Answers through ownDeviceIdentityKeyChecked(...).
+    //
+    // Asynchronous because it needs a /keys/query; it must never block the
+    // GUI thread the way refreshOwnDeviceStatus() does. Performs exactly one
+    // check per call — the rate limit is the caller's (see
+    // matrix::crypto::OwnDeviceKeyWatch).
+    void checkOwnIdentityKey();
+
     // v0.5.6. Encrypted Megolm room-key import. The path is passed to
     // Rust unchanged; the passphrase is forwarded once and never
     // logged. Results flow through roomKeyImportStarted /
@@ -777,6 +790,15 @@ Q_SIGNALS:
                                 bool hasMasterKey,
                                 bool hasSelfSigningKey,
                                 bool hasUserSigningKey);
+    // B006/B011 tri-state, deliberately NOT folded into the signal above:
+    // that one reports verification trust, this one reports a device that
+    // can never decrypt anything.
+    //   established == false          -> could not be answered (offline,
+    //                                    keys not uploaded yet). NOT a fault.
+    //   established && !matchesServer -> the fault.
+    // Two booleans rather than one because "unknown" must be impossible to
+    // misread as "broken".
+    void ownDeviceIdentityKeyChecked(bool established, bool matchesServer);
 
     // v0.5.6. Encrypted room-key import lifecycle. Aggregate counts and
     // affected room IDs only; the decrypted export never leaves Rust.
@@ -1021,6 +1043,10 @@ private:
     QString m_userId;
     QString m_deviceId;
     bool m_loggedIn = false;
+    // B006/B011. Latched so the 15-minute backstop logs the fault once
+    // per transition rather than once per check; cleared when a later
+    // check reports agreement.
+    bool m_ownIdentityKeyMismatchLogged = false;
     ConnectionState m_state = Disconnected;
     bool m_initialSyncDone = false;
     SessionLifecycleGuard m_lifecycle;

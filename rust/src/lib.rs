@@ -38,7 +38,9 @@ use matrix_sdk::{
                 request::ToDeviceKeyVerificationRequestEvent, VerificationMethod,
             },
             room::{
-                encrypted::OriginalSyncRoomEncryptedEvent,
+                encrypted::{
+                    OriginalSyncRoomEncryptedEvent, ToDeviceRoomEncryptedEvent,
+                },
                 member::SyncRoomMemberEvent,
                 message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
                 pinned_events::SyncRoomPinnedEventsEvent,
@@ -4844,75 +4846,12 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
             if let Ok(Some(device)) = client.encryption().get_own_device().await {
                 device_cross_signed = device.is_cross_signed_by_owner();
             }
-            // THE ONE CHECK THAT NAMES A PERMANENTLY UNDECRYPTABLE DEVICE.
-            //
-            // If the curve25519 identity key this device publishes on the
-            // server is not the one its local Olm account holds, every peer
-            // encrypts to a key we cannot read. Nothing arrives decryptable,
-            // ever: no room keys, so every encrypted message reads "Waiting
-            // for keys", and no call media keys, so an encrypted call is
-            // silent one way while the other side hears us perfectly.
-            // SENDING still works, which is what makes it so confusing to
-            // report.
-            //
-            // Observed on a real account during the 2026-09-07 audit, and it
-            // took the SDK's own tracing to see at all: the peer's message
-            // failed inside matrix-sdk with "Olm event doesn't contain a
-            // ciphertext for our key", where Lightning could not reach it. A
-            // fresh sign-in fixed it immediately, which is both the proof of
-            // what was wrong and the remedy.
-            //
-            // Cheap, decisive, and no cryptography of our own:
-            // `curve25519_key()` is the LOCAL account's key, which a
-            // `/keys/query` cannot overwrite, and the request below asks the
-            // server what it publishes for this very device.
-            let mut identity_key_matches_server: Option<bool> = None;
-            if let (Some(user), Some(this_device)) =
-                (client.user_id().map(|u| u.to_owned()),
-                 client.device_id().map(|d| d.to_owned()))
-            {
-                if let Some(local) = client.encryption().curve25519_key().await {
-                    use matrix_sdk::ruma::api::client::keys::get_keys;
-                    let mut request = get_keys::v3::Request::new();
-                    request
-                        .device_keys
-                        .insert(user.clone(), vec![this_device.clone()]);
-                    if let Ok(response) = client.send(request).await {
-                        let published = response
-                            .device_keys
-                            .get(&user)
-                            .and_then(|devices| devices.get(&this_device))
-                            .and_then(|raw| raw.deserialize().ok())
-                            .and_then(|keys| {
-                                keys.keys
-                                    .iter()
-                                    .find(|(id, _)| {
-                                        id.as_str().starts_with("curve25519:")
-                                    })
-                                    .map(|(_, value)| value.to_owned())
-                            });
-                        if let Some(published) = published {
-                            let agrees = published == local.to_base64();
-                            identity_key_matches_server = Some(agrees);
-                            if !agrees {
-                                // No key material in the line: whether they
-                                // agree is the whole fact, and the remedy is
-                                // the same either way.
-                                // eprintln rather than the SDK's tracing:
-                                // this must be visible in an ordinary log,
-                                // not only when LIGHTNING_RUST_LOG is set.
-                                eprintln!(
-                                    "matrix.crypto: this device's published \
-                                     identity key does not match its local \
-                                     account, so nothing encrypted to it can \
-                                     be decrypted; signing out and in again \
-                                     is the only repair"
-                                );
-                            }
-                        }
-                    }
-                }
-            }
+            // The identity-key check that names a permanently undecryptable
+            // device does NOT live here any more: it needs a /keys/query,
+            // and this function block_on()s a current-thread runtime on the
+            // GUI thread. It moved to mx_rust_check_own_identity_key below,
+            // which spawns on the managed pool and answers through the poll
+            // queue like every other async result.
             if let Some(status) = client.encryption().cross_signing_status().await {
                 has_master = status.has_master;
                 has_self_signing = status.has_self_signing;
@@ -4923,15 +4862,118 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
                 "own_identity_available": own_identity_available,
                 "own_identity_verified": own_identity_verified,
                 "device_cross_signed": device_cross_signed,
-                // null when it could not be established (offline, no keys
-                // yet); false is a real, actionable fault.
-                "identity_key_matches_server": identity_key_matches_server,
                 "has_master": has_master,
                 "has_self_signing": has_self_signing,
                 "has_user_signing": has_user_signing,
             })
         });
         Ok(serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_owned()))
+    })
+}
+
+/// B006/B011 — THE ONE CHECK THAT NAMES A PERMANENTLY UNDECRYPTABLE DEVICE.
+///
+/// If the curve25519 identity key this device PUBLISHES on the server is not
+/// the one its local Olm account holds, every peer encrypts to a key we
+/// cannot read. Nothing arrives decryptable, ever: no room keys, so every
+/// encrypted message reads "Waiting for keys", and no call media keys, so an
+/// encrypted call is silent one way while the other side hears us perfectly.
+/// SENDING still works, which is what makes it so confusing to report.
+///
+/// Observed on a real account during the 2026-09-07 audit, and it took the
+/// SDK's own tracing to see at all: the peer's message failed inside
+/// matrix-sdk with "Olm event doesn't contain a ciphertext for our key",
+/// where Lightning could not reach it. A fresh sign-in fixed it immediately,
+/// which is both the proof of what was wrong and the remedy.
+///
+/// Cheap, decisive, and no cryptography of our own: `curve25519_key()` is the
+/// LOCAL account's key, which a `/keys/query` cannot overwrite, and the
+/// request asks the server what it publishes for this very device.
+///
+/// TRI-STATE. `matches_server` is null when the question could not be
+/// answered (offline, keys not uploaded yet, no local account) — that is NOT
+/// a fault and must never be presented as one. Only an explicit `false` is.
+pub(crate) fn identity_key_agreement(
+    local_base64: Option<&str>,
+    published: Option<&str>,
+) -> Option<bool> {
+    match (local_base64, published) {
+        (Some(local), Some(published))
+            if !local.is_empty() && !published.is_empty() =>
+        {
+            Some(local == published)
+        }
+        _ => None,
+    }
+}
+
+/// Ask the server what it publishes for THIS device and compare it with the
+/// local Olm account's key. Returns the tri-state above; every failure to
+/// establish an answer (no user/device id, no local key, a network or parse
+/// failure) is `None`, never `Some(false)`.
+async fn own_identity_key_agreement(client: &Client) -> Option<bool> {
+    use matrix_sdk::ruma::api::client::keys::get_keys;
+
+    let user = client.user_id().map(|u| u.to_owned())?;
+    let this_device = client.device_id().map(|d| d.to_owned())?;
+    let local = client.encryption().curve25519_key().await?.to_base64();
+
+    let mut request = get_keys::v3::Request::new();
+    request.device_keys.insert(user.clone(), vec![this_device.clone()]);
+    let response = client.send(request).await.ok()?;
+    let published = response
+        .device_keys
+        .get(&user)
+        .and_then(|devices| devices.get(&this_device))
+        .and_then(|raw| raw.deserialize().ok())
+        .and_then(|keys| {
+            keys.keys
+                .iter()
+                .find(|(id, _)| id.as_str().starts_with("curve25519:"))
+                .map(|(_, value)| value.to_owned())
+        });
+
+    identity_key_agreement(Some(local.as_str()), published.as_deref())
+}
+
+/// Async form of the check above. Spawns on the managed pool and answers
+/// through the poll queue as
+///   { "type": "own_identity_key", "matches_server": true|false|null }
+/// so the caller never blocks the GUI thread on a `/keys/query`. Rate
+/// limiting is the caller's job (see OwnDeviceKeyWatch on the C++ side);
+/// this entry point performs exactly one check per call.
+///
+/// No key material crosses the FFI: whether the two agree is the whole fact,
+/// and the remedy is the same either way.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_check_own_identity_key(
+    ptr: *mut c_void,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Ok("error: Rust SDK session is not logged in.".to_owned());
+        };
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            let matches = own_identity_key_agreement(&client).await;
+            if matches == Some(false) {
+                // eprintln rather than the SDK's tracing: this must be
+                // visible in an ordinary log, not only when
+                // LIGHTNING_RUST_LOG is set. No key material in the line.
+                eprintln!(
+                    "matrix.crypto: this device's published identity key does \
+                     not match its local account, so nothing encrypted to it \
+                     can be decrypted; signing out and in again is the only \
+                     repair"
+                );
+            }
+            enqueue(&events, json!({
+                "type": "own_identity_key",
+                "matches_server": matches,
+            }));
+        });
+        Ok(String::new())
     })
 }
 
@@ -9341,6 +9383,27 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     //             clients collected trust information — which would turn a
     //             user's existing history into undecryptable events the
     //             moment they enabled a privacy setting.
+    //
+    // B006 FINDING, 2026-09-08 — AND IT IS NOT SOFTENED HERE. matrix-sdk's
+    // exemption list for "exclude insecure devices"
+    // (matrix-sdk-crypto-0.18.0 `olm/account.rs`,
+    // `is_from_verified_device_or_allowed_type`) covers `m.room_key`,
+    // `m.room_key.withheld`, `m.room_key_request`, `m.secret.request` and
+    // the `m.key.verification.*` family. It does NOT cover
+    // `io.element.call.encryption_keys`. So with this ON, a call media key
+    // from a peer whose device is not cross-signed is refused while their
+    // ROOM keys are still accepted — an encrypted call goes silent one way
+    // and messages keep working, which is B006's exact reported symptom from
+    // an entirely different cause.
+    //
+    // The refusal is CORRECT and must not be weakened: §6 forbids promoting
+    // a device to trusted on our side, and the exemption list is the SDK's,
+    // not ours to edit. What is recorded here is that the asymmetry exists
+    // and is invisible — an undecryptable call key produces no log of its
+    // own; the `m.room.encrypted` to-device counter in
+    // install_event_handlers is what makes it observable at all. If this
+    // setting is ever presented to users, its copy must say that turning it
+    // on can make calls with un-cross-signed devices one-way silent.
     if STRICT_DEVICE_TRUST.load(Ordering::SeqCst) {
         builder = builder
             .with_room_key_recipient_strategy(
@@ -9503,6 +9566,75 @@ fn install_event_handlers(
     active_sas: KeyedFlowSlot<SasVerification>,
     active_qr: KeyedFlowSlot<QrVerification>,
 ) {
+    // B006: "THE EVENT NEVER ARRIVED" AND "IT ARRIVED AND WE COULD NOT OPEN
+    // IT" LOOKED IDENTICAL, AND THAT COST A ROUND.
+    //
+    // The 2026-09-07 capture of a one-way-silent encrypted call showed ZERO
+    // media-key receives AND ZERO discards, which excluded every one of our
+    // own discard arms and still could not say whether the key had reached
+    // this client at all. It had: matrix-sdk hands an UNDECRYPTABLE to-device
+    // event to event handlers as the ORIGINAL `m.room.encrypted` ENVELOPE
+    // (`EventHandlerStore::handle_sync_to_device_events` calls `to_raw()` for
+    // every non-Decrypted variant), so its type never matches
+    // `io.element.call.encryption_keys`, `m.room_key`, or anything else we
+    // listen for, and it vanishes without a trace.
+    //
+    // A to-device handler on `m.room.encrypted` therefore fires for EXACTLY
+    // the events the SDK could not decrypt: a decrypted one is dispatched
+    // under its INNER type instead, so this never double-counts a healthy
+    // message. That is the missing line, and it is the difference between "a
+    // peer never sent it" and "a peer sent it and this device cannot read
+    // anything they send".
+    //
+    // WHAT IT DELIBERATELY DOES NOT CLAIM: WHICH of the three causes it was.
+    //   * MissingCiphertext     — the sender encrypted to an identity key we
+    //                             no longer hold. `mx_rust_check_own_identity
+    //                             _key` answers that one directly and the app
+    //                             surfaces it (B011).
+    //   * MissingSigningKey     — the sender's device keys are unknown to us.
+    //   * UnverifiedSenderDevice— only under STRICT_DEVICE_TRUST; see the
+    //                             note at that flag, since call media keys
+    //                             are NOT in matrix-sdk's exemption list
+    //                             while `m.room_key` is.
+    // `ToDeviceUnableToDecryptInfo` carries the reason, but it travels on
+    // `SyncResponse.to_device`, which matrix-sdk 0.18 exposes only through
+    // `Client::sync_with_callback` — our CLASSIC fallback, not the
+    // SyncService sliding-sync path the app actually runs on (SlidingSync
+    // builds the `SyncResponse` internally and returns only an
+    // `UpdateSummary`), and `Client` has no `subscribe_to_to_device`.
+    // Separating the three still needs the opt-in SDK tracing bridge.
+    //
+    // Sanitized and rate limited: the sender's public Matrix id and a running
+    // count, never ciphertext, a session id, a device key or key material. A
+    // wedged Olm session produces these in bulk, so only the first, the tenth
+    // and every hundredth are reported.
+    let utd_events = Arc::clone(&events);
+    let utd_counts: Arc<Mutex<HashMap<OwnedUserId, u64>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    client.add_event_handler(move |ev: ToDeviceRoomEncryptedEvent| {
+        let events = Arc::clone(&utd_events);
+        let counts = Arc::clone(&utd_counts);
+        async move {
+            let count = {
+                let Ok(mut guard) = counts.lock() else { return };
+                // Bounded: this is a diagnostic, not a ledger.
+                if guard.len() > 256 {
+                    guard.clear();
+                }
+                let entry = guard.entry(ev.sender.clone()).or_insert(0);
+                *entry += 1;
+                *entry
+            };
+            if count == 1 || count == 10 || count % 100 == 0 {
+                enqueue(&events, json!({
+                    "type": "to_device_undecryptable",
+                    "sender": ev.sender.to_string(),
+                    "count": count,
+                }));
+            }
+        }
+    });
+
     // v0.5.0: interactive verification, receive-first. matrix-sdk 0.18 does
     // NOT expose a public `recv_verification_requests` stream, so we
     // observe incoming requests via a to-device event handler and then
@@ -11219,6 +11351,37 @@ mod tests {
         // they never asked for. It falls back to the previous behaviour.
         let bogus = receipts_for_mode(id.clone(), 77);
         assert_eq!(bogus.public_read_receipt.as_deref(), Some(&*id));
+    }
+
+    // B011: THE TRI-STATE IS THE WHOLE POINT OF THIS CHECK.
+    //
+    // Telling a healthy user that their encryption is destroyed is worse
+    // than saying nothing, and "could not be established" is the common
+    // case: offline, keys not uploaded yet, a 5xx on /keys/query. Only two
+    // real keys that DISAGREE may ever answer `Some(false)`.
+    #[test]
+    fn identity_key_agreement_is_tri_state() {
+        // Agreement: the healthy device.
+        assert_eq!(
+            super::identity_key_agreement(Some("AAAA"), Some("AAAA")),
+            Some(true)
+        );
+        // Disagreement: the fault B006 was traced to. Peers encrypt to the
+        // published key, we hold the other one, and nothing decrypts.
+        assert_eq!(
+            super::identity_key_agreement(Some("AAAA"), Some("BBBB")),
+            Some(false)
+        );
+        // Every way of not knowing is None, never Some(false).
+        assert_eq!(super::identity_key_agreement(None, Some("AAAA")), None,
+                   "no local Olm key is 'unknown', not 'broken'");
+        assert_eq!(super::identity_key_agreement(Some("AAAA"), None), None,
+                   "the server publishing nothing for us is 'unknown'");
+        assert_eq!(super::identity_key_agreement(None, None), None);
+        // An empty string is not an answer either. A response that
+        // deserialized to a blank value must not read as a mismatch.
+        assert_eq!(super::identity_key_agreement(Some(""), Some("AAAA")), None);
+        assert_eq!(super::identity_key_agreement(Some("AAAA"), Some("")), None);
     }
 
     // A CANCELLED THREAD THAT WILL NOT STOP MUST NOT HOLD THE UI.
