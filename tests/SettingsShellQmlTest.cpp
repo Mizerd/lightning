@@ -21,6 +21,7 @@
 #include <QSignalSpy>
 
 #include "app/AppController.h"
+#include "app/ModerationController.h"
 #include "profile/ProfileBioManager.h"
 #include "app/PinnedMessagesController.h"
 #include "app/RoomInfoController.h"
@@ -1195,6 +1196,89 @@ private slots:
         // Restore the shell for the cases that follow.
         m_controller->showSettingsSection(QStringLiteral("appearance"));
         QCoreApplication::processEvents();
+    }
+
+    // A REFUSED "Stop ignoring" USED TO SAY NOTHING AT ALL.
+    //
+    // ModerationController reports every ignore/unignore outcome on
+    // ignoreActionFinished, and until this round its ONLY consumer in the
+    // whole tree was MemberProfilePopover — which filters on its own userId
+    // and is not open when this button is pressed. So a server refusal, a
+    // rate limit or a dead connection left the row exactly where it was with
+    // no explanation, which reads as a dead button. The list is bound to
+    // `ignoredUsers` and only changes on success, so it was never dishonest;
+    // it was silent, and silence about a write the user asked for is its own
+    // defect (§6: never report a cleanup as successful when it removed
+    // nothing — and never report nothing at all).
+    //
+    // Driven through the real signal rather than a source scan, so this fails
+    // if the Connections block is removed, mis-named, or wired to a property
+    // the label does not read.
+    void aRefusedStopIgnoringIsShownInTheIgnoredUsersCard()
+    {
+        m_controller->showSettings();
+        m_controller->showSettingsSection(QStringLiteral("privacy"));
+        QCoreApplication::processEvents();
+
+        auto *card = item("ignoredUsersCard");
+        QVERIFY2(card, "the ignored-users card is not in the tree");
+        auto *notice = item("ignoredUsersWriteError");
+        QVERIFY2(notice,
+                 "the ignored-users card has no place to report a refused "
+                 "write, so a failed 'Stop ignoring' is silent");
+        QVERIFY(!notice->isVisible());
+
+        // The card records who it asked about when the button is pressed;
+        // stand in for that press, then deliver the refusal the controller
+        // would have emitted.
+        const QString target = QStringLiteral("@spam:example.org");
+        card->setProperty("unignoreUserId", target);
+        auto *moderation = m_controller->moderation();
+        QVERIFY(moderation);
+        const QString refusal =
+            QStringLiteral("The server refused this action.");
+        QVERIFY(QMetaObject::invokeMethod(
+            moderation, "ignoreActionFinished", Qt::DirectConnection,
+            Q_ARG(QString, target), Q_ARG(bool, false), Q_ARG(bool, false),
+            Q_ARG(QString, refusal)));
+        QCoreApplication::processEvents();
+
+        QVERIFY2(card->property("unignoreError").toString() == refusal,
+                 "the ignored-users card did not take the refusal from "
+                 "ignoreActionFinished, so a refused 'Stop ignoring' is "
+                 "still silent");
+        QVERIFY2(QTest::qWaitFor([notice] { return notice->isVisible(); },
+                                 3000),
+                 "the ignored-users card holds the refusal but never shows "
+                 "it");
+        QCOMPARE(notice->property("text").toString(), refusal);
+
+        // A different user's outcome — the profile popover's own ignore
+        // button, say — must not paint an error into this card.
+        card->setProperty("unignoreError", QString());
+        card->setProperty("unignoreUserId", target);
+        QVERIFY(QMetaObject::invokeMethod(
+            moderation, "ignoreActionFinished", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("@someone-else:example.org")),
+            Q_ARG(bool, true), Q_ARG(bool, false), Q_ARG(QString, refusal)));
+        QCoreApplication::processEvents();
+        QCOMPARE(card->property("unignoreError").toString(), QString());
+
+        // And a success clears the notice rather than leaving a stale one.
+        card->setProperty("unignoreError", refusal);
+        QVERIFY(QMetaObject::invokeMethod(
+            moderation, "ignoreActionFinished", Qt::DirectConnection,
+            Q_ARG(QString, target), Q_ARG(bool, false), Q_ARG(bool, true),
+            Q_ARG(QString, QStringLiteral("no longer ignored"))));
+        QCoreApplication::processEvents();
+        QCOMPARE(card->property("unignoreError").toString(), QString());
+
+        // Restore the shell for the cases that follow.
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        m_controller->showMain();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            item("spacesRail") && item("spacesRail")->isVisible(), 3000);
     }
 
     void noQmlWarnings()

@@ -3751,10 +3751,40 @@ Item {
                             Layout.topMargin: AppTheme.spacing8
                         }
                         SettingsCard {
+                            id: ignoredUsersCard
+                            objectName: "ignoredUsersCard"
                             visible: app.moderation.supported
+                            // A REFUSED "Stop ignoring" SAID NOTHING AT ALL.
+                            // ModerationController reports every outcome on
+                            // ignoreActionFinished, and its ONLY consumer is
+                            // MemberProfilePopover — which filters on its own
+                            // userId and is not even open when this button is
+                            // pressed. So a server refusal, a rate limit or a
+                            // dead connection left the row sitting there with
+                            // no explanation, which reads as a dead button.
+                            // The list only changes on success, so it was
+                            // never dishonest; it was silent, and silence for
+                            // a write the user asked for is its own defect.
+                            property string unignoreError: ""
+                            // The user this card asked about, so a failure
+                            // raised by the profile popover's own ignore
+                            // button does not surface here as well.
+                            property string unignoreUserId: ""
                             ColumnLayout {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
+
+                                Connections {
+                                    target: app.moderation
+                                    function onIgnoreActionFinished(
+                                        userId, ignored, ok, message) {
+                                        if (userId !== ignoredUsersCard.unignoreUserId)
+                                            return
+                                        ignoredUsersCard.unignoreUserId = ""
+                                        ignoredUsersCard.unignoreError =
+                                            ok ? "" : message
+                                    }
+                                }
 
                                 Label {
                                     visible: app.moderation.ignoredUsers.length === 0
@@ -3794,10 +3824,26 @@ Item {
                                             Accessible.name:
                                                 qsTr("Stop ignoring %1")
                                                     .arg(modelData)
-                                            onClicked: app.moderation
-                                                .unignoreUser(modelData)
+                                            onClicked: {
+                                                ignoredUsersCard.unignoreError = ""
+                                                ignoredUsersCard.unignoreUserId =
+                                                    modelData
+                                                app.moderation
+                                                    .unignoreUser(modelData)
+                                            }
                                         }
                                     }
+                                }
+                                Label {
+                                    objectName: "ignoredUsersWriteError"
+                                    visible: ignoredUsersCard.unignoreError.length > 0
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormDanger
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: ignoredUsersCard.unignoreError
                                 }
                                 Label {
                                     visible: app.moderation.ignoredUsers.length > 0
