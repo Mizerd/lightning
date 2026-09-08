@@ -59,7 +59,23 @@ namespace {
 // happened is that eight test binaries shared twenty cores. Do NOT treat this
 // as licence to raise a timeout that is hiding a real stall — the rule is
 // that the budget covers starvation, never slowness worth reporting.
-constexpr int kSignalTimeoutMs = 10000;
+//
+// AND THERE IS A CEILING ON IT, found by measuring rather than by taste.
+// `topEdgePrependKeepsReaderOnTheSameRowMidGesture` takes 3.5 s when it
+// passes and stacks its waits when it does not: at a 10000 ms budget a
+// failing run took 34 s, which is PAST PaginationController's 30 s stall
+// watchdog, so the watchdog fires inside the test and the run is then
+// failing for a second, unrelated reason. Twice the measured 2050 ms
+// overshoot is enough starvation tolerance and keeps the watchdog out of
+// reach.
+//
+// That case's own flakiness is load, not this budget, and it is NOT fixed
+// here: run one-per-process on a busy machine it failed 6 of 10 times, and
+// on a quiet one 1 of 12, with the pre-round tree failing 4 of 10 in the
+// same busy window. CLAUDE.md §16 already records it as the usual offender
+// of a load-sensitive suite. Do not read a failure of it as a scroll
+// regression without a LIGHTNING_SCROLL_TRACE capture naming one.
+constexpr int kSignalTimeoutMs = 4000;
 }
 
 namespace {
