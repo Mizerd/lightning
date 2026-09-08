@@ -401,11 +401,37 @@ void NotificationManager::clearPending()
     m_payloadOrder.clear();
     m_avatarWaits.clear();
     m_avatarWaitTimer.stop();
+    // THE TRAY BALLOON'S PAYLOAD IS A PENDING CLICK TOO, and it was the one
+    // this sweep forgot. On Windows and macOS the balloon IS the delivery,
+    // so after a sign-out or an account switch a balloon left on screen kept
+    // routing its click into the previous account's room — the DBus path is
+    // safe only because clearing m_pendingPayloads leaves its click with
+    // nothing to resolve to. Same rule, same reason as the account id every
+    // action carries: a card outlives the account that raised it.
+    m_lastFallbackPayload.clear();
 }
 
 void NotificationManager::closeRoomNotifications(const QString &roomId)
 {
-    if (roomId.isEmpty() || m_pendingPayloads.isEmpty())
+    if (roomId.isEmpty())
+        return;
+    // A DELIVERY STILL WAITING FOR ITS AVATAR HAS NOT BEEN SHOWN YET, so
+    // there is no id to close — but it is about to become the very ghost
+    // this function exists to prevent. deliver() parks a notification for up
+    // to kAvatarWaitMs while the room avatar is fetched (the cold case: a
+    // room whose picture is not in the cache yet), and if the room is read
+    // inside that window the popup still appears afterwards, for a room the
+    // user has already read. Drop it instead: the decision to notify was
+    // made before the read, and the read supersedes it.
+    if (!m_avatarWaits.isEmpty()) {
+        const auto sameRoom = [&roomId](const WaitingDelivery &waiting) {
+            return waiting.payload.value(QStringLiteral("roomId")).toString()
+                == roomId;
+        };
+        if (m_avatarWaits.removeIf(sameRoom) > 0 && m_avatarWaits.isEmpty())
+            m_avatarWaitTimer.stop();
+    }
+    if (m_pendingPayloads.isEmpty())
         return;
     QList<quint32> stale;
     for (auto it = m_pendingPayloads.cbegin(); it != m_pendingPayloads.cend();
@@ -654,8 +680,21 @@ void NotificationManager::deliverNow(const QString &title,
     QDBusReply<quint32> reply = notifications.call(
         QStringLiteral("Notify"), QStringLiteral("Lightning"), quint32(0),
         identity.appIcon, title, safeBody, actions, hints, int(-1));
-    if (reply.isValid())
+    if (reply.isValid()) {
         recordPayload(reply.value(), payload);
+        return;
+    }
+    // A DAEMON THAT REFUSES IS NOT A DAEMON THAT IS ABSENT, and this branch
+    // used to do nothing at all: no card, no fallback, and not one line of
+    // diagnostics. Absence is already handled above; a refusal (the service
+    // failed to activate, the daemon is wedged, a hint it dislikes) dropped
+    // the notification in complete silence, which is indistinguishable from
+    // a message that never arrived. Report the error NAME only — never the
+    // body, never the title — and try the balloon, exactly as the absent
+    // case does.
+    qCWarning(lcNotify) << "notification server refused the notification:"
+                        << reply.error().name();
+    deliverThroughTray(title, body, payload, avatar);
 #else
     // No QtDBus in this build (Windows, macOS). Until 2026-09-05 this
     // logged a line and showed NOTHING — "no notifications on windows at

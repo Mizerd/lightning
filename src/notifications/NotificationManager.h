@@ -182,6 +182,11 @@ public:
     void setFallbackTray(TrayIcon *tray);
     void deliverThroughTrayForTest(const QVariantMap &payload)
     { m_lastFallbackPayload = payload; }
+    // Deliveries parked waiting for an avatar fetch (see deliver()). They
+    // have no notification id yet, so closeRoomNotifications cannot observe
+    // them through the payload map — this is how a test sees that a read
+    // room's pending popup was dropped rather than shown a second later.
+    int avatarWaitCountForTest() const { return m_avatarWaits.size(); }
 
 Q_SIGNALS:
     // The user activated a notification. Identity only — no tokens.

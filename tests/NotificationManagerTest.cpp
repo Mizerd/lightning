@@ -46,6 +46,8 @@ private Q_SLOTS:
     void withdrawingSparesTheIncomingCallRing();
     void anExpiredNotificationStaysWithdrawableUntilTheRoomIsRead();
     void aTrayBalloonClickOpensTheRoomItWasRaisedFor();
+    void signingOutForgetsTheTrayBalloonsClick();
+    void readingARoomDropsAPopupStillWaitingForItsAvatar();
     void directMessageNotifiesWithSenderOnlyDefault()
     {
         const auto decision =
@@ -763,6 +765,76 @@ void NotificationManagerTest::aTrayBalloonClickOpensTheRoomItWasRaisedFor()
     // The balloon is consumed: a second click opens nothing.
     QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
     QCOMPARE(opened.count(), 1);
+}
+
+// ── A balloon outlives the account that raised it ────────────────────────
+//
+// clearPending() is the sign-out / account-switch sweep, and its own comment
+// says "forget queued click payloads". It forgot ONE of them. On Windows and
+// macOS the tray balloon IS the delivery, and its payload lives in its own
+// member rather than in the id-keyed map the sweep cleared — so a balloon
+// still on screen after a switch kept routing its click into the PREVIOUS
+// account's room. The DBus path was never exposed to this: clearing the map
+// leaves its click with nothing to resolve to. Same hazard the account id on
+// every notification action exists for, one delivery path short.
+void NotificationManagerTest::signingOutForgetsTheTrayBalloonsClick()
+{
+    NotificationManager manager;
+    QSignalSpy opened(&manager, &NotificationManager::openRequested);
+    QVariantMap p;
+    p.insert(QStringLiteral("roomId"), QStringLiteral("!previous:x"));
+    p.insert(QStringLiteral("eventId"), QStringLiteral("$old:example.org"));
+    p.insert(QStringLiteral("threadRootId"), QString{});
+    manager.deliverThroughTrayForTest(p);
+
+    // Sign out, or switch accounts, while the balloon is still on screen.
+    manager.clearPending();
+
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    QVERIFY2(opened.isEmpty(),
+             "a tray balloon raised for the previous account still opened its "
+             "room after clearPending(): the sign-out sweep does not forget "
+             "the balloon's click payload");
+}
+
+// ── A popup that has not been shown yet is still a ghost ─────────────────
+//
+// deliver() parks a notification for up to kAvatarWaitMs while the room's
+// avatar is fetched — the cold case, a room whose picture is not cached yet.
+// closeRoomNotifications only ever scanned the DELIVERED payloads, so a room
+// read inside that window (here, on a phone, or through Mark as read) still
+// got its popup a moment later, for a conversation the user had just read.
+// That is exactly the ghost the withdrawal exists to prevent, arriving from
+// the one direction it could not see.
+void NotificationManagerTest::readingARoomDropsAPopupStillWaitingForItsAvatar()
+{
+    NotificationManager manager;
+    // An avatar that never arrives and never reports failure: the delivery
+    // parks in the wait queue exactly as it does behind a slow media fetch.
+    manager.setAvatarProvider([](const QString &, bool) { return QImage(); },
+                              [](const QString &) { return false; });
+
+    auto context = baseContext();
+    context.avatarMxc = QStringLiteral("mxc://example.org/roomavatar");
+    manager.processEvent(incomingText(), context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+
+    // A second room's notification is waiting too, and must survive.
+    TimelineEvent other = incomingText();
+    other.roomId = QStringLiteral("!other:example.org");
+    other.eventId = QStringLiteral("$ev2:example.org");
+    manager.processEvent(other, context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 2);
+
+    manager.closeRoomNotifications(QStringLiteral("!room:example.org"));
+    QVERIFY2(manager.avatarWaitCountForTest() == 1,
+             "reading a room left its not-yet-shown notification queued, so it "
+             "pops up after the room has already been read");
+
+    // And the other room is untouched: reading one conversation must not
+    // silence another, in this queue as in the delivered map.
+    manager.closeRoomNotifications(QStringLiteral("!other:example.org"));
+    QCOMPARE(manager.avatarWaitCountForTest(), 0);
 }
 
 QTEST_MAIN(NotificationManagerTest)
