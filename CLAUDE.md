@@ -55,6 +55,29 @@ it (`6149337`), with a mock that serves stale-but-200 reads so both halves are
 covered. Its sibling failure shape, a 404 while the API says `state=uploaded`,
 is the one recorded below.
 
+**ON `main` ABOVE 0.9.3 (2026-09-08/09, 15 commits, `5d9fa37..820d368`): a
+four-audit hardening round, NOT a release.** Nothing was tagged and no
+version was bumped. Fixed: the room-list index-base clobber and its silent
+wrong-room deletion; classic sync dying permanently on one network error;
+`full_state` on every incremental sync; no first-response watchdog on the
+sliding lane; a promise context read after its own free (seven handlers);
+two undrained SFU buses; a deferred teardown outliving the engine; a stale
+teardown renegotiating the next call; receive bins never retired; the
+credential migration writing under a mangled key and deleting the refresh
+token; "remove account" on the ACTIVE account degrading to a sign-out; the
+Spaces rail leaking between accounts; store files created at the umask;
+eight SFU error categories collapsed into one sentence; a 404 well-known
+reported as "couldn't check"; a ghost membership from leaving during
+`Preparing`; the device picker being decoration on the MatrixRTC lane; and
+audio attachments going out with no duration. Added: transient call
+reactions in element-call's own verified format, and a pre-click join gate
+for a user whose power level forbids the call membership. Full detail and
+the lessons that generalise are in `docs/round-history.md` under
+2026-09-08. Validation: build-rust 203/203, build 201/201, Rust 370 passed,
+the `-DLIGHTNING_ENABLE_WEBRTC=OFF` build over every target, and project 6
+pipeline **184 green (22 jobs)** on the round's midpoint. NOTHING in it is
+live-validated — every claim is code plus the headless suites.
+
 **THE PIPELINE NOW LIVES IN THIS REPOSITORY.** 0.9.2 is the first release cut
 from project 6: the packaging project was folded in under `packaging-ci/` on
 2026-09-06 with all 125 of its commits, and `.gitlab-ci.yml` sits at the root
@@ -70,20 +93,14 @@ dead pipelines.
 0.9.1 (`v0.9.1` -> `d2e343b`, project 7 pipeline 175, 2026-09-06) and 0.8.4
 (`v0.8.4` -> `49249e8`, pipeline 170, 2026-09-02) preceded it.
 
-The anonymous verification bar (§14) was run for **0.9.2** on 2026-09-06 and
-PASSED in full: release at `2545391`, nine package links 200, manifest 0.9.2 /
-`v0.9.2` with six artifacts all carrying `mirror_url` and macOS absent, the
-Ed25519 signature VERIFIED against the key extracted from the shipped `.deb`'s
-own binary with a tampered copy REJECTED, the GitHub tag peeling to the same
-commit, 10 mirror assets, and a `.deb` from GitHub matching the GitLab-signed
-digest. **Two of its lines FAIL for a reason that is not the release**:
-openssl is not on the bare shell's PATH, so the signature check cannot run
-there — verify it with `nix shell nixpkgs#openssl`, and note the signature
-file's field is `sig`, not `signature`. The same bar passed in
-full for 0.9.0 (`9dc6a07`; pipelines 171 and 172 were CANCELLED on the way,
-§16: the QtDBus guard and the Windows builder image) and for 0.8.0
-(`6f203be`). The script is `verify-release.sh` in the session scratchpad; the
-recipe is in §14. Run the same bar against every release.
+The same bar passed in full for **0.9.2** (`2545391`), **0.9.0** (`9dc6a07`;
+pipelines 171 and 172 were CANCELLED on the way, §16: the QtDBus guard and
+the Windows builder image) and **0.8.0** (`6f203be`). **Two of its lines FAIL
+for a reason that is not the release**: openssl is not on the bare shell's
+PATH, so the signature check cannot run there — use
+`nix shell nixpkgs#openssl`, and note the signature file's field is `sig`,
+not `signature`. The script is `verify-release.sh` in the session
+scratchpad; the recipe is in §14. Run the same bar against every release.
 
 `matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to
 **0.18.0** in `rust/Cargo.lock`; UI and base are exact-pinned in
@@ -2023,19 +2040,26 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   `\u{1F590}\u{FE0F}`, lowered by redacting it. Three lanes (our send, two
   sync handlers, one bounded join-time sweep for hands raised before we
   arrived).
-- **The `room_list malformed diff rejected` storm is BACK on one account
-  (2026-09-05, reported from a live log).** `4185a92` fixed it by keeping
-  Space ids out of `m_roomOrder`; a session on `test_matrix.smetonis.net`
-  logged the rejection twelve times in a minute — `room_list_set` and one
-  `room_list_insert` — each requesting a fresh snapshot, which is the
-  documented shape of the loop (every re-emit refetches the room list's
-  avatars). NOT reproduced on `lightningtest` (13 rooms, no Spaces) in two
-  sessions the same day, and nothing in the v0.9.0 round touches the room
-  list. So it is account-shape dependent — the leading suspicion is an
-  invite, a knock or a left room in that account's list drifting the SDK's
-  index the way appended Spaces once did — and it needs a capture of the
-  REJECTED DIFF (op, index, the id it collided with) before a fix, not a
-  theory. Do not re-apply the Space exclusion; that one is still in place.
+- **The `room_list malformed diff rejected` storm — CAUSE FOUND AND FIXED
+  2026-09-08 (`b0c27ee`), live confirmation still outstanding.** The capture
+  this entry asked for was never needed: the cause was readable. TWO
+  PRODUCERS wrote one index base. The SDK's diffs address the vector from
+  `entries_with_dynamic_adapters` (20 rooms, growing in batches); the
+  snapshot came from `client.rooms()` — the whole state store, different
+  order, Spaces included — and both were handed to `handleRoomsEvent`, which
+  rebuilt `m_roomOrder`. So mark-as-read, favourite, accept-an-invite,
+  create/leave a room and a dozen other ordinary actions replaced the index
+  base, the next `set{index}` addressed a different room, was rejected, and
+  the rejection called resync, which re-emitted the same snapshot. That is
+  why it was account-shape dependent: on a small account the two orders
+  coincide. `4185a92` could not have fixed it — it touched only the C++ side.
+  The snapshot now has its own event and never writes the index space, and
+  resync re-emits from the stream that owns it. Also fixed alongside: an
+  index-addressed `remove`/`pop_*` deleted whatever it found with NO id
+  check, so a drifted index silently removed a room the SDK never named.
+  Do not re-apply the Space exclusion; that one is still in place. WHAT WOULD
+  CONFIRM IT: a session on `test_matrix.smetonis.net` with no rejection line
+  after a Mark-as-read on a large account.
 - **Rooms "lag when they load" on 0.9.0 (Rokas, 2026-09-05; users report
   the same).** MEASURED the same evening with a timestamped log: the history
   fill's page count (see the standing warning above) — 9 pages / 4.2 s on
