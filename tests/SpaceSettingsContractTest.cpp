@@ -387,6 +387,74 @@ private Q_SLOTS:
         QVERIFY(dialog.contains(QStringLiteral("app.banners.clearRoomBanner(")));
         QVERIFY2(dialog.contains(QStringLiteral("app.banners.canSetRoomBanner(")),
                  "the banner controls are gated on some other event's level");
+        // ...and the dialog RE-READS it on every open. Sliding sync only
+        // delivers the state types required_state names and this custom one is
+        // not among them (rust/src/banner.rs), so a refresh on an explicit
+        // open is the ONLY way a banner changed elsewhere can ever appear.
+        // `requestRoom` asks once per room per SESSION, which renders whatever
+        // the first open happened to see until the app is restarted.
+        QVERIFY2(dialog.contains(QStringLiteral("app.banners.refreshRoom(")),
+                 "the Space settings dialog no longer re-reads the banner");
+        QVERIFY2(!dialog.contains(QStringLiteral("app.banners.requestRoom(")),
+                 "a once-per-session read is back beside the refresh");
+    }
+
+    // The Space's own identity — name, topic, avatar — must be able to CHANGE
+    // under the open dialog. `info` calls app.spaces.spaceInfo(), and a method
+    // call creates no property dependency, so the binding needs an explicit
+    // change counter or it freezes on the value the dialog opened with. The
+    // rendered behaviour is proved in tests/SpaceIdentityQmlTest.cpp; this
+    // pins the mechanism so it cannot be removed silently.
+    void theSpaceInfoBindingCarriesAChangeDependency()
+    {
+        const QString dialog =
+            readQml(QStringLiteral("SpaceSettingsDialog.qml"));
+        QVERIFY(!dialog.isEmpty());
+        QVERIFY2(dialog.contains(QStringLiteral("property int spacesTick")),
+                 "spaceInfo() is called from a binding with no dependency");
+        QVERIFY2(dialog.contains(QStringLiteral("root.spacesTick++")),
+                 "nothing bumps the counter the info binding reads");
+    }
+
+    // "No banner" is a CLAIM about the Space, not a description of the Image.
+    // An Image is invisible while it loads and after it fails too, so binding
+    // the empty state to its visibility made a Space whose banner the media
+    // repository could not serve read as a Space with no banner — beside a
+    // button already offering to CHANGE the picture that was supposedly not
+    // there.
+    void theEmptyBannerStateIsClaimedOnlyWhenThereIsNoBanner()
+    {
+        const QString dialog =
+            readQml(QStringLiteral("SpaceSettingsDialog.qml"));
+        QVERIFY(!dialog.isEmpty());
+        const qsizetype label =
+            dialog.indexOf(QStringLiteral("objectName: \"spaceSettingsNoBanner\""));
+        QVERIFY2(label >= 0, "the empty-banner label lost its objectName");
+        const QString block = dialog.mid(label, 240);
+        QVERIFY2(block.contains(
+                     QStringLiteral("visible: bannerCard.bannerMxc.length === 0")),
+                 "the empty state is claimed from the Image's readiness again");
+    }
+
+    // The same recovery rule the profile card carries: wideImageSource()
+    // answers "" for as long as a transient failure mark stands, so both the
+    // cache completion AND the mark's expiry have to poke the re-resolve
+    // counter or one dropped connection hides a Space's banner for the rest
+    // of the session. And it stays a COUNTER — assigning `source` imperatively
+    // destroys the binding, which is what made Space banners sticky in 0.7.6.
+    void theSpaceBannerRecoversFromATransientMediaFailure()
+    {
+        const QString dialog =
+            readQml(QStringLiteral("SpaceSettingsDialog.qml"));
+        const qsizetype at = dialog.indexOf(QStringLiteral("id: bannerPreview"));
+        QVERIFY2(at > 0, "the Space banner preview is gone");
+        const QString block = dialog.mid(at);
+        QVERIFY2(block.contains(QStringLiteral("function onMediaCached(")),
+                 "the banner no longer re-resolves when its bytes land");
+        QVERIFY2(block.contains(QStringLiteral("function onMediaRetryable(")),
+                 "a banner whose fetch failed once stays absent all session");
+        QVERIFY2(!block.contains(QStringLiteral("bannerPreview.source =")),
+                 "the banner binding is destroyed by an imperative assignment");
     }
 
     // Developer tools: every row copyable, through the established hidden

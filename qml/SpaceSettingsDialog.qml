@@ -71,8 +71,24 @@ AppDialog {
     width: Math.min(940, Overlay.overlay ? Overlay.overlay.width - 80 : 940)
     height: Math.min(660, Overlay.overlay ? Overlay.overlay.height - 80 : 660)
 
-    readonly property var info: app.spaces && spaceId.length > 0
-                                ? app.spaces.spaceInfo(spaceId) : ({})
+    /// Bumped on every SpaceManager change. READ IT IN `info` BELOW.
+    ///
+    /// `info` CALLS `app.spaces.spaceInfo()`, and a method call creates no
+    /// property dependency — `app.spaces` is a CONSTANT property, so the
+    /// binding's only dependency was `spaceId`. A Space renamed, re-avatared
+    /// or re-topiced under the open dialog therefore never reached the header,
+    /// the General card's avatar, or the name and topic fields: the
+    /// `refreshName()` / `refreshTopic()` pair that `app.spaces.spacesChanged`
+    /// calls for exactly that case reads the SAME map, so the refresh this
+    /// file promises ("a remote change … lands without destroying an edit in
+    /// progress") was structurally a no-op. Same trap and same cure as
+    /// `rosterTick` below and as SpacesRail's `spacesRevision`.
+    property int spacesTick: 0
+    readonly property var info: {
+        var _dep = root.spacesTick
+        return app.spaces && spaceId.length > 0
+               ? app.spaces.spaceInfo(spaceId) : ({})
+    }
     // Only ever true when the roster on screen is THIS Space's. app.roomInfo
     // is shared, and reading canEditName off another room's snapshot is how a
     // permission gate ends up lying.
@@ -90,8 +106,25 @@ AppDialog {
         memberFilter.text = ""
         membershipCombo.currentIndex = 0
         sortCombo.currentIndex = 0
+        // RE-SNAP EVERY MIRRORED FIELD, not only on a Space CHANGE.
+        // `onSpaceIdChanged` does not fire when the dialog is reopened on the
+        // Space it last showed, so a value typed and abandoned in a previous
+        // open came back looking like the Space's own — over a name that may
+        // have been changed by somebody else in between.
+        nameField.resetForSpace()
+        topicField.resetForSpace()
+        aliasField.resetForSpace()
+        joinRuleCombo.refreshRule()
+        // REFRESH, not request. The banner is a custom state event and
+        // sliding sync only delivers the types `required_state` names, so
+        // nothing tells this client that a Space's banner moved
+        // (rust/src/banner.rs says so explicitly). Opening this dialog is a
+        // deliberate action on ONE Space — the same discipline
+        // RoomInfoPanel's widget and bridge reads follow — so it takes the
+        // read every time rather than rendering whatever the first open of
+        // the session happened to see.
         if (app.banners)
-            app.banners.requestRoom(targetSpaceId)
+            app.banners.refreshRoom(targetSpaceId)
         open()
     }
 
@@ -194,6 +227,7 @@ AppDialog {
             spacing: AppTheme.spacing12
 
             Avatar {
+                objectName: "spaceSettingsHeaderAvatar"
                 size: 32
                 circle: false
                 squareRadius: AppTheme.radiusMd
@@ -202,6 +236,7 @@ AppDialog {
                 colorKey: root.spaceId
             }
             Label {
+                objectName: "spaceSettingsHeaderName"
                 text: root.info.name || qsTr("Space")
                 textFormat: Text.PlainText
                 elide: Label.ElideRight
@@ -626,11 +661,46 @@ AppDialog {
                                                     && bannerPreview.source.toString().length === 0)
                                                     bannerPreview.resolveTick++
                                             }
+                                            // An EXPIRED transient failure
+                                            // mark. wideImageSource() answers
+                                            // "" for as long as the mark
+                                            // stands, and nothing else this
+                                            // binding reads ever changes
+                                            // again — so one dropped
+                                            // connection left the Space's
+                                            // banner absent for the rest of
+                                            // the session. Avatar.qml has
+                                            // carried this handler for the
+                                            // same reason since v0.7; the
+                                            // bridge re-arms the mark on a
+                                            // failed attempt, so it cannot
+                                            // hammer the backend.
+                                            function onMediaRetryable(key) {
+                                                if (key.endsWith(":" + bannerPreview.mxc)
+                                                    && bannerPreview.source.toString().length === 0)
+                                                    bannerPreview.resolveTick++
+                                            }
                                         }
                                     }
+                                    // "NO BANNER" IS A CLAIM, so it is made
+                                    // only when it is true. This was bound to
+                                    // `!bannerPreview.visible`, and that
+                                    // Image is invisible for three different
+                                    // reasons: the Space has no banner, the
+                                    // bytes have not arrived yet, and the
+                                    // fetch or decode failed. A Space WITH a
+                                    // banner the media repository could not
+                                    // serve therefore read as a Space without
+                                    // one, beside a button already saying
+                                    // "Change banner…" about the picture that
+                                    // was supposedly not there. The other two
+                                    // states render as the empty panel, which
+                                    // is what MemberProfilePopover's gradient
+                                    // does for exactly the same reasons.
                                     Label {
+                                        objectName: "spaceSettingsNoBanner"
                                         anchors.centerIn: parent
-                                        visible: !bannerPreview.visible
+                                        visible: bannerCard.bannerMxc.length === 0
                                         text: qsTr("No banner")
                                         color: AppTheme.stormTextMuted
                                         font.family: AppTheme.uiFont
@@ -1694,8 +1764,9 @@ AppDialog {
         topicField.resetForSpace()
         aliasField.resetForSpace()
         joinRuleCombo.refreshRule()
-        if (app.banners && spaceId.length > 0)
-            app.banners.requestRoom(spaceId)
+        // The banner read lives in openFor() alone: `spaceId` is written
+        // nowhere else, and asking here as well would cost two reads of the
+        // same state event on every open.
     }
     Connections {
         target: app.roomInfo
@@ -1712,6 +1783,10 @@ AppDialog {
     Connections {
         target: app.spaces
         function onSpacesChanged() {
+            // The TICK FIRST: `info` is what both refreshes read, and until
+            // its binding has re-evaluated it still holds the value from
+            // before this change.
+            root.spacesTick++
             nameField.refreshName()
             topicField.refreshTopic()
         }

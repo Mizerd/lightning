@@ -2077,6 +2077,20 @@ if(BUILD_TESTING)
     set_tests_properties(rail-drag-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # A Space's identity — name, topic, avatar — as the real Space settings
+    # dialog renders it. SpaceSettingsContractTest reads that file as TEXT and
+    # drives RoomInfoController directly; neither half can see a binding that
+    # never re-evaluates, which is what `root.info` (a spaceInfo() CALL) was.
+    qt_add_executable(space-identity-qml-test
+        tests/SpaceIdentityQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(space-identity-qml-test)
+    target_link_libraries(space-identity-qml-test PRIVATE Qt6::Test)
+    add_test(NAME space-identity-qml COMMAND space-identity-qml-test)
+    set_tests_properties(space-identity-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.7 timeline-stability suite: the initial-hydration presentation gate,
     # bottom-pinned stability under asynchronous row growth, scrolled-up
     # anchor preservation, and row-scoped Set-diff model updates — the live
