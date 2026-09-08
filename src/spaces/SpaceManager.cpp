@@ -847,8 +847,29 @@ void SpaceManager::rebuild()
     //
     // A Matrix room id always starts with '!', so that is the whole test; an
     // empty id is Home and was already exempt.
+    //
+    // AND MEMBERSHIP IS THE WRONG THING TO ASK. `m_membership[<space>]` is
+    // created inside the descendant walk above, at the moment a joined child
+    // ROOM is found -- so a Space the user is genuinely in, but whose rooms
+    // they have not joined, has no key at all and this guard threw them back
+    // to Home on the next rebuild. Two ordinary cases hit it: a Space just
+    // created, and a public Space joined from Explore before joining any of
+    // its rooms. RoomsPanel binds the column's scopeSpaceId to this, so the
+    // Space view closes under the reader at precisely the moment they want
+    // it open to reach Lobby.
+    //
+    // The question this guard is actually asking is "is the selected Space
+    // still one of the Spaces I am in", and `m_spaces` is the answer: every
+    // joined Space gets an entry above, rooms or no rooms.
+    const auto selectionIsStillAJoinedSpace = [this] {
+        for (const SpaceEntry &entry : m_spaces) {
+            if (entry.info.id == m_activeSpaceId)
+                return true;
+        }
+        return false;
+    };
     if (m_activeSpaceId.startsWith(QLatin1Char('!'))
-        && !m_membership.contains(m_activeSpaceId)) {
+        && !selectionIsStillAJoinedSpace()) {
         m_activeSpaceId.clear();
         Q_EMIT activeSpaceIdChanged();
     }

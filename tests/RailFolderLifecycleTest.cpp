@@ -345,6 +345,57 @@ private Q_SLOTS:
                  "though it were empty");
     }
 
+    // A SPACE YOU ARE IN, WHOSE ROOMS YOU ARE NOT IN, IS STILL SELECTED.
+    //
+    // SpaceManager::rebuild ends by dropping the rail selection when the
+    // selected id is not "known". It used to ask `m_membership`, which is
+    // populated inside the transitive descendant walk at the moment a joined
+    // child ROOM is found — so a Space with no joined rooms had no key, and
+    // every rebuild cleared the selection. RoomsPanel binds the column's
+    // scopeSpaceId to it, so the reader was thrown back to Home.
+    //
+    // Two ordinary cases land exactly here, and both are the moment you most
+    // want the Space view open: a Space you just created, and a public Space
+    // joined from Explore before joining any of its rooms — the view you need
+    // in order to reach Lobby and join them.
+    void aSpaceWithNoJoinedRoomsKeepsTheRailSelection()
+    {
+        FakeClient client;
+        client.roomList = { spaceRoom(QStringLiteral("!empty:x"),
+                                      QStringLiteral("Empty")) };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        spaces.setActiveSpaceId(QStringLiteral("!empty:x"));
+        QCOMPARE(spaces.activeSpaceId(), QStringLiteral("!empty:x"));
+
+        // Any sync rebuilds the space list. Nothing about the Space changed.
+        Q_EMIT client.roomsChanged();
+        QVERIFY2(spaces.activeSpaceId() == QStringLiteral("!empty:x"),
+                 "a joined Space with no joined child rooms lost the rail "
+                 "selection on the next rebuild, so the Space view closes and "
+                 "the reader is thrown back to Home");
+    }
+
+    // ...AND THE GUARD STILL DOES ITS JOB. Fixing the case above by deleting
+    // the guard would leave a selection pointing at a Space the account has
+    // left, which is what it was written to prevent.
+    void aSpaceTheAccountHasLeftStillLosesTheRailSelection()
+    {
+        FakeClient client;
+        client.roomList = { spaceRoom(QStringLiteral("!gone:x"),
+                                      QStringLiteral("Gone")) };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        spaces.setActiveSpaceId(QStringLiteral("!gone:x"));
+        QCOMPARE(spaces.activeSpaceId(), QStringLiteral("!gone:x"));
+
+        client.roomList = {};
+        Q_EMIT client.roomsChanged();
+        QVERIFY2(spaces.activeSpaceId().isEmpty(),
+                 "the selection survived the Space leaving the account, so "
+                 "the column stays scoped to a Space that is no longer there");
+    }
+
 private:
     QTemporaryDir m_configHome;
 };
