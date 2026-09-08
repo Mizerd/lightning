@@ -2296,7 +2296,13 @@ Rectangle {
                             size: "sm"
                             text: qsTr("Remove")
                             Layout.alignment: Qt.AlignTop
-                            onClicked: app.widgets.removeWidget(widgetRow.index)
+                            // REMOVING A WIDGET IS A STATE WRITE EVERYONE IN
+                            // THE ROOM SEES, and it writes a tombstone rather
+                            // than deleting anything, so it cannot be taken
+                            // back by undo. One question first. B022.
+                            onClicked: removeWidgetConfirm.openFor(
+                                           widgetRow.index,
+                                           widgetRow.name || "")
                         }
                         AppButton {
                             objectName: "roomInfoOpenWidget"
@@ -2336,6 +2342,61 @@ Rectangle {
     }
 
     // Leave confirmation — Cancel is the default safe action.
+    // Widget removal writes a tombstone every member of the room sees
+    // and cannot be undone, so it asks first. B022.
+    Dialog {
+        id: removeWidgetConfirm
+        objectName: "roomInfoRemoveWidgetConfirmDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.max(240, Math.min(400, parent ? parent.width - 32 : 400))
+        modal: true
+        standardButtons: Dialog.NoButton
+        closePolicy: Popup.CloseOnEscape
+        title: qsTr("Remove widget?")
+        property int pendingIndex: -1
+        property string pendingName: ""
+        function openFor(index, name) {
+            pendingIndex = index
+            pendingName = name
+            open()
+        }
+        background: Rectangle {
+            color: AppTheme.surface
+            border.color: AppTheme.border
+            radius: AppTheme.radiusLg
+        }
+        contentItem: ColumnLayout {
+            spacing: AppTheme.spacing12
+            Label {
+                Layout.fillWidth: true
+                // Written by whoever added it: never markup.
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                text: removeWidgetConfirm.pendingName.length > 0
+                      ? qsTr("Remove \"%1\" from this room? Everyone here loses it, and it cannot be undone.").arg(removeWidgetConfirm.pendingName)
+                      : qsTr("Remove this widget from the room? Everyone here loses it, and it cannot be undone.")
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing8
+                Item { Layout.fillWidth: true }
+                Button {
+                    objectName: "roomInfoRemoveWidgetConfirmCancel"
+                    text: qsTr("Cancel")
+                    onClicked: removeWidgetConfirm.close()
+                }
+                Button {
+                    objectName: "roomInfoRemoveWidgetConfirmAccept"
+                    text: qsTr("Remove")
+                    onClicked: {
+                        removeWidgetConfirm.close()
+                        app.widgets.removeWidget(removeWidgetConfirm.pendingIndex)
+                    }
+                }
+            }
+        }
+    }
     Dialog {
         id: leaveConfirm
         parent: Overlay.overlay

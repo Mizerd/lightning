@@ -1416,12 +1416,19 @@ Popup {
                                 : qsTr("Ignore %1 in every room")
                                   .arg(root.visibleName)
                             iconName: "block"
+                            // IGNORING IS ACCOUNT-WIDE AND HIDES HISTORY.
+                            // It is not this room and it is not just from
+                            // here on: m.ignored_user_list applies on every
+                            // device and their existing messages disappear
+                            // too. Worth one question. Un-ignoring is
+                            // harmless and asks nothing. B022.
                             onTriggered: {
                                 root.ignoreNotice = ""
-                                if (root.userIgnored)
+                                if (root.userIgnored) {
                                     app.moderation.unignoreUser(root.userId)
-                                else
-                                    app.moderation.ignoreUser(root.userId)
+                                    return
+                                }
+                                ignoreConfirm.open()
                             }
                         }
                     }
@@ -1507,10 +1514,144 @@ Popup {
                                 border.width: 1
                                 border.color: AppTheme.stormBorderStrong
                             }
+                            // ASKED FOR, NOT DONE ON THE CLICK. A role change
+                            // is the only action in this card that had no
+                            // confirmation, and it is the one that can be a
+                            // ONE-WAY DOOR: promote somebody to your own
+                            // level and you can no longer demote them, since
+                            // Matrix refuses a change at or above your own.
+                            // Every reversible action here already confirms.
+                            // B022.
                             onClicked: {
                                 root.roleError = ""
-                                app.roomInfo.setMemberPowerLevel(
-                                    root.userId, modelData.level)
+                                roleConfirm.openFor(modelData.level,
+                                                    modelData.label)
+                            }
+                        }
+                    }
+                }
+
+                Dialog {
+                    id: ignoreConfirm
+                    objectName: "profileIgnoreConfirmDialog"
+                    parent: Overlay.overlay
+                    anchors.centerIn: parent
+                    width: Math.max(240,
+                                    Math.min(400,
+                                             parent ? parent.width - 32 : 400))
+                    modal: true
+                    standardButtons: Dialog.NoButton
+                    closePolicy: Popup.CloseOnEscape
+                    title: qsTr("Ignore this person?")
+                    background: Rectangle {
+                        color: AppTheme.surface
+                        border.color: AppTheme.border
+                        radius: AppTheme.radiusLg
+                    }
+                    contentItem: ColumnLayout {
+                        spacing: AppTheme.spacing12
+                        Label {
+                            Layout.fillWidth: true
+                            textFormat: Text.PlainText
+                            wrapMode: Text.WordWrap
+                            text: qsTr("Ignore %1 in every room, on every "
+                                       + "device? Their existing messages "
+                                       + "are hidden too. You can undo this "
+                                       + "from their profile.")
+                                    .arg(root.visibleName)
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing8
+                            Item { Layout.fillWidth: true }
+                            Button {
+                                objectName: "profileIgnoreConfirmCancel"
+                                text: qsTr("Cancel")
+                                onClicked: ignoreConfirm.close()
+                            }
+                            Button {
+                                objectName: "profileIgnoreConfirmAccept"
+                                text: qsTr("Ignore")
+                                onClicked: {
+                                    ignoreConfirm.close()
+                                    app.moderation.ignoreUser(root.userId)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Dialog {
+                    id: roleConfirm
+                    objectName: "profileRoleConfirmDialog"
+                    parent: Overlay.overlay
+                    anchors.centerIn: parent
+                    width: Math.max(240,
+                                    Math.min(400,
+                                             parent ? parent.width - 32 : 400))
+                    modal: true
+                    standardButtons: Dialog.NoButton
+                    closePolicy: Popup.CloseOnEscape
+                    title: qsTr("Change role?")
+
+                    property int pendingLevel: 0
+                    property string pendingLabel: ""
+                    // Matrix refuses a power-level change at or above your
+                    // own, so granting one is not something you can take
+                    // back. That is worth saying, not just confirming.
+                    readonly property bool irreversible:
+                        app.roomInfo
+                        && roleConfirm.pendingLevel >= app.roomInfo.ownPowerLevel
+
+                    function openFor(level, label) {
+                        pendingLevel = level
+                        pendingLabel = label
+                        open()
+                    }
+
+                    background: Rectangle {
+                        color: AppTheme.surface
+                        border.color: AppTheme.border
+                        radius: AppTheme.radiusLg
+                    }
+                    contentItem: ColumnLayout {
+                        spacing: AppTheme.spacing12
+                        Label {
+                            Layout.fillWidth: true
+                            // The name is chosen by its owner: never markup.
+                            textFormat: Text.PlainText
+                            wrapMode: Text.WordWrap
+                            text: qsTr("Set %1 to %2 in this room?")
+                                    .arg(root.visibleName)
+                                    .arg(roleConfirm.pendingLabel)
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: roleConfirm.irreversible
+                            wrapMode: Text.WordWrap
+                            color: AppTheme.danger
+                            font.pixelSize: AppTheme.textMeta
+                            text: qsTr("This gives them your own level or "
+                                       + "higher. You will not be able to "
+                                       + "change it back.")
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing8
+                            Item { Layout.fillWidth: true }
+                            Button {
+                                objectName: "profileRoleConfirmCancel"
+                                text: qsTr("Cancel")
+                                onClicked: roleConfirm.close()
+                            }
+                            Button {
+                                objectName: "profileRoleConfirmAccept"
+                                text: qsTr("Change role")
+                                onClicked: {
+                                    roleConfirm.close()
+                                    app.roomInfo.setMemberPowerLevel(
+                                        root.userId, roleConfirm.pendingLevel)
+                                }
                             }
                         }
                     }

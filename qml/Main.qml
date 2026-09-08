@@ -480,11 +480,29 @@ ApplicationWindow {
                 return
             app.showMain()
             app.currentRoomId = roomId
-            if (threadRootId && threadRootId.length > 0)
+            var inThread = threadRootId && threadRootId.length > 0
+            if (inThread)
                 app.thread.openThread(roomId, threadRootId)
-            if (eventId && eventId.length > 0)
+            // A THREAD REPLY IS NOT IN THE ROOM TIMELINE, so asking it to
+            // jump there could only fail.
+            //
+            // The live room timeline is TimelineFocus::Live with
+            // hide_threaded_events, which is the whole point of it, so a
+            // threaded event id is not a row there: the jump found nothing,
+            // paginated looking for something that can never appear, and
+            // ended on the unavailable notice. Clicking a notification for a
+            // thread reply therefore landed nowhere. B023.
+            //
+            // The thread panel opened just above IS the destination, and the
+            // one thing the room timeline can still contribute is context:
+            // a thread ROOT does remain in the main timeline (CLAUDE.md §8),
+            // so that is what it locates. There is no thread-scoped jump to
+            // call; if one is ever added, the reply itself is the better
+            // target and this is the line to change.
+            var target = inThread ? threadRootId : eventId
+            if (target && target.length > 0)
                 Qt.callLater(function() {
-                    app.pagination.jumpToEvent(eventId)
+                    app.pagination.jumpToEvent(target)
                 })
         }
     }

@@ -3689,6 +3689,73 @@ Item {
         return moreMenuItem
     }
 
+    // DESTRUCTIVE MENU ITEMS ASK FIRST. Delete, Remove edits and End poll
+    // acted on the click; every one of them is irreversible on Matrix (a
+    // redaction cannot be undone, edits are taken back by redacting them,
+    // and a poll cannot be reopened) and every reversible action around them
+    // already confirms. B022.
+    //
+    // Lazily created like the details dialog, and for the same reason: this
+    // is the hottest delegate in the app and anything instantiated eagerly
+    // is paid once per row, on every row, forever.
+    property var confirmDialogItem: null
+    function confirmDestructive(title, body, acceptText, action) {
+        if (!confirmDialogItem)
+            confirmDialogItem = confirmDialogComponent.createObject(root)
+        confirmDialogItem.heading = title
+        confirmDialogItem.body = body
+        confirmDialogItem.acceptText = acceptText
+        confirmDialogItem.action = action
+        confirmDialogItem.open()
+    }
+    Component {
+        id: confirmDialogComponent
+        AppDialog {
+            id: destructiveConfirm
+            objectName: "messageDestructiveConfirmDialog"
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+            modal: true
+            storm: false
+            standardButtons: Dialog.NoButton
+            closePolicy: Popup.CloseOnEscape
+            width: Math.min(420, parent ? parent.width - 32 : 420)
+            property string heading: ""
+            property string body: ""
+            property string acceptText: ""
+            property var action: null
+            title: destructiveConfirm.heading
+            contentItem: ColumnLayout {
+                spacing: AppTheme.spacing12
+                Label {
+                    Layout.fillWidth: true
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WordWrap
+                    text: destructiveConfirm.body
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacing8
+                    Item { Layout.fillWidth: true }
+                    Button {
+                        objectName: "messageDestructiveConfirmCancel"
+                        text: qsTr("Cancel")
+                        onClicked: destructiveConfirm.close()
+                    }
+                    Button {
+                        objectName: "messageDestructiveConfirmAccept"
+                        text: destructiveConfirm.acceptText
+                        onClicked: {
+                            destructiveConfirm.close()
+                            if (destructiveConfirm.action)
+                                destructiveConfirm.action()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     function openMessageDetails(details) {
         if (!details || !details.eventId)
             return
@@ -4188,7 +4255,16 @@ Item {
                          && root.timelineModel.canEditEvent(root.menuEventId)
                          && app.composer.canRemoveEdits()
                 visible: enabled
-                onTriggered: app.composer.removeEdits(root.menuEventId)
+                onTriggered: {
+                    var id = root.menuEventId
+                    root.confirmDestructive(
+                        qsTr("Remove edits?"),
+                        qsTr("Matrix has no unedit: this redacts the edits, "
+                             + "so the message returns to its original text. "
+                             + "It cannot be undone."),
+                        qsTr("Remove edits"),
+                        function() { app.composer.removeEdits(id) })
+                }
             }
             // v0.7 polls: conservative rule — own running
             // polls only. The server and receiving clients
@@ -4200,10 +4276,17 @@ Item {
                 visible: model.isPoll === true
                          && model.canEndPoll === true
                 enabled: visible && root.menuEventId !== ""
-                onTriggered: app.composer.endPoll(
-                    root.menuEventId,
-                    root.inThreadPanel
-                    ? (app.thread.rootEventId || "") : "")
+                onTriggered: {
+                    var id = root.menuEventId
+                    var rootId = root.inThreadPanel
+                                 ? (app.thread.rootEventId || "") : ""
+                    root.confirmDestructive(
+                        qsTr("End poll?"),
+                        qsTr("This closes voting and publishes the result. "
+                             + "A poll cannot be reopened."),
+                        qsTr("End poll"),
+                        function() { app.composer.endPoll(id, rootId) })
+                }
             }
             AppMenuSeparator {
                 visible: root.timelineModel.canRedactEvent(
@@ -4294,7 +4377,15 @@ Item {
                 danger: true
                 enabled: root.timelineModel.canRedactEvent(root.menuEventId)
                 visible: enabled
-                onTriggered: root.timelineModel.redactEvent(root.menuEventId)
+                onTriggered: {
+                    var id = root.menuEventId
+                    root.confirmDestructive(
+                        qsTr("Delete message?"),
+                        qsTr("This removes the message for everyone in the "
+                             + "room. It cannot be undone."),
+                        qsTr("Delete"),
+                        function() { root.timelineModel.redactEvent(id) })
+                }
             }
         }
     }

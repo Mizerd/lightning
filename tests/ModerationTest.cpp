@@ -292,6 +292,96 @@ private Q_SLOTS:
         QVERIFY(ctl.revision() > revBefore);
     }
 
+    // EVERY DESTRUCTIVE ACTION ASKS FIRST.
+    //
+    // Six of them acted on the click while every reversible action beside
+    // them confirmed: Delete, Remove edits, End poll, Set role, Remove
+    // widget and Ignore user. The sharpest is the role change, which can be
+    // a ONE-WAY DOOR -- Matrix refuses a power-level change at or above your
+    // own, so promoting somebody to your level cannot be taken back. B022,
+    // and two of them were seen live on the 2026-09-08 GUI sweep.
+    //
+    // Asserted as "the trigger routes through a confirmation", bounded to
+    // each action's own handler, because that is the property: an action
+    // that calls its controller straight from onTriggered has no question in
+    // front of it however many dialogs exist elsewhere in the file.
+    void everyDestructiveActionAsksBeforeItActs()
+    {
+        struct Case {
+            const char *file;
+            const char *anchor;   // the action's own objectName or text
+            const char *mustNotCallDirectly;
+            const char *confirmation;
+        };
+        const QVector<Case> cases{
+            { "/MessageDelegate.qml", "text: qsTr(\"Delete\")",
+              "redactEvent(root.menuEventId)", "confirmDestructive" },
+            { "/MessageDelegate.qml", "removeEditsMenuItem",
+              "app.composer.removeEdits(root.menuEventId)", "confirmDestructive" },
+            { "/MessageDelegate.qml", "endPollMenuItem",
+              "onTriggered: app.composer.endPoll(", "confirmDestructive" },
+            { "/MemberProfilePopover.qml", "profileRoleButton_",
+              "onClicked: app.roomInfo.setMemberPowerLevel", "roleConfirm.openFor" },
+            { "/RoomInfoPanel.qml", "roomInfoRemoveWidgetButton",
+              "onClicked: app.widgets.removeWidget(widgetRow.index)",
+              "removeWidgetConfirm.openFor" },
+        };
+        for (const Case &c : cases) {
+            QFile file(QStringLiteral(QML_DIR) + QLatin1String(c.file));
+            QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+            const QString source = QString::fromUtf8(file.readAll());
+            const int at = source.indexOf(QString::fromLatin1(c.anchor));
+            QVERIFY2(at > 0,
+                     qPrintable(QStringLiteral("%1: anchor %2 is gone, so this "
+                                               "contract guards nothing")
+                                    .arg(QLatin1String(c.file),
+                                         QLatin1String(c.anchor))));
+            // 3000 chars: the role button's objectName and its onClicked sit
+            // about forty lines apart, with the contentItem and background
+            // between them. Still bounded to one action's own block.
+            const QString body = source.mid(at, 3000);
+            QVERIFY2(!body.contains(QString::fromLatin1(c.mustNotCallDirectly)),
+                     qPrintable(QStringLiteral("%1: %2 still acts straight "
+                                               "from its trigger, with no "
+                                               "confirmation in front of it")
+                                    .arg(QLatin1String(c.file),
+                                         QLatin1String(c.anchor))));
+            QVERIFY2(body.contains(QString::fromLatin1(c.confirmation)),
+                     qPrintable(QStringLiteral("%1: %2 does not route through "
+                                               "a confirmation")
+                                    .arg(QLatin1String(c.file),
+                                         QLatin1String(c.anchor))));
+        }
+    }
+
+    // A NOTIFICATION FOR A THREAD REPLY MUST NOT JUMP ON THE ROOM TIMELINE.
+    //
+    // The live room timeline is TimelineFocus::Live with
+    // hide_threaded_events, so a threaded event id is not a row there. The
+    // click opened the thread and then asked the ROOM timeline to locate the
+    // reply, which could only fail: it paginated looking for something that
+    // can never appear and ended on the unavailable notice. B023.
+    //
+    // A thread ROOT does remain in the main timeline (CLAUDE.md §8), so that
+    // is the one target the room timeline can still contribute.
+    void aThreadNotificationDoesNotJumpToAnEventTheTimelineHides()
+    {
+        QFile file(QStringLiteral(QML_DIR "/Main.qml"));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+        const QString source = QString::fromUtf8(file.readAll());
+
+        const int at = source.indexOf(QStringLiteral("onNotificationOpenRequested"));
+        QVERIFY2(at > 0, "the notification click handler is gone");
+        const QString body = source.mid(at, 1600);
+        QVERIFY2(body.contains(QStringLiteral("inThread ? threadRootId : eventId")),
+                 "a notification for a thread reply still asks the room "
+                 "timeline to locate an event it hides, so the click lands "
+                 "on the unavailable notice instead of the thread");
+        QVERIFY2(!body.contains(QStringLiteral("jumpToEvent(eventId)")),
+                 "the raw event id is still handed to the room timeline's "
+                 "jump, which cannot find a threaded event");
+    }
+
     // A SUBMITTED REPORT MUST TELL THE USER WHAT HAPPENED.
     //
     // reportFinished carried a translated sentence for both outcomes from the
