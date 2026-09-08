@@ -1089,21 +1089,34 @@ private slots:
         QVERIFY2(!body.contains(QStringLiteral("m_roomOrder.insert")),
                  "handleSpacesEvent inserts into the ordered room list");
 
-        // The other half: a snapshot of the SDK's list must not delete the
-        // spaces, which are not in it.
+        // The other half USED to be scanned here: that a snapshot does not
+        // delete the Spaces, which are not in the SDK's list. That rule now
+        // lives in `src/matrix/RustRoomRegistry.cpp` as a pure function, and
+        // `RustRoomRegistryTest::spacesSurviveBothAResetAndASnapshot` proves
+        // it by APPLYING a snapshot and reading the registry back — which a
+        // scan for the word "isSpace" never could.
+        //
+        // What is worth pinning here is the delegation itself: the moment a
+        // handler rebuilds the registry inline again, it owns a copy of a
+        // rule that is tested somewhere else, and the two drift. The index
+        // space is exactly what drifted before (see this case's first half).
         const int snapshot =
             source.indexOf(QStringLiteral("void RustSdkMatrixClient::handleRoomsEvent"));
         QVERIFY(snapshot > 0);
         const int afterSnapshot =
-            source.indexOf(QStringLiteral("\nRoomInfo RustSdkMatrixClient::"),
-                           snapshot);
+            source.indexOf(QStringLiteral("\nvoid RustSdkMatrixClient::"),
+                           snapshot + 10);
         const QString snapBody = source.mid(
             snapshot,
             (afterSnapshot > snapshot ? afterSnapshot : source.size()) - snapshot);
-        QVERIFY2(snapBody.contains(QStringLiteral("isSpace")),
-                 "a room-list snapshot replaces the whole room map without "
-                 "carrying the Spaces over, so the hierarchy disappears until "
-                 "the next spaces event");
+        QVERIFY2(snapBody.contains(QStringLiteral("rust_rooms::")),
+                 "the room-list snapshot handler no longer delegates to the "
+                 "registry: it is rebuilding the room map itself, so the "
+                 "Spaces-survive rule and the index-space rule are now in two "
+                 "places and only one of them is tested");
+        QVERIFY2(!snapBody.contains(QStringLiteral("m_rooms.clear()")),
+                 "the snapshot handler clears the room map directly, which is "
+                 "what deleted the Spaces from the hierarchy");
     }
 
     void theChannelsPresenterDrawsNoSecondGrouping()

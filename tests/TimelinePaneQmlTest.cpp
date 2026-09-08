@@ -40,7 +40,26 @@
 #include "matrix/MockMatrixClient.h"
 
 namespace {
-constexpr int kSignalTimeoutMs = 2000;
+// LOAD-TOLERANT, NOT LOOSER.
+//
+// Every QTRY in this file waits for a state that must EVENTUALLY hold, and
+// returns the moment it does — so this number is not a latency assertion, it
+// is only how long the suite is willing to be starved before it gives up. At
+// 2000 ms it was too short to survive a parallel run: a full `ctest -j8`
+// baseline on 2026-09-08 failed
+// `nearTopProximityIsMeasuredFromLoadedHistoryNotAbsoluteContentY` with
+// QTestLib's own diagnosis, "the requested timeout (2000 ms) was too short,
+// 2050 ms would have been sufficient this time" — 50 ms over, on a suite
+// CLAUDE.md §16 already records as load-sensitive alongside
+// timeline-hydration-qml and media-bridge.
+//
+// Raising it weakens no gate: a condition that never becomes true still
+// fails, and a condition that becomes true in 20 ms still costs 20 ms. What
+// it removes is a failure that says "your scroll code is broken" when what
+// happened is that eight test binaries shared twenty cores. Do NOT treat this
+// as licence to raise a timeout that is hiding a real stall — the rule is
+// that the budget covers starvation, never slowness worth reporting.
+constexpr int kSignalTimeoutMs = 10000;
 }
 
 namespace {

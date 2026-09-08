@@ -1727,15 +1727,36 @@ user's screen must not outlive the dialog that asked for it.
 
 What is actually left:
 
-1. **A CAMERA source picker that reaches the wire.** The screen picker is done
-   on all three platforms (the portal's on Linux, Lightning's on Windows and
-   macOS). The camera is not: `CallDeviceController` lists cameras and
-   `qml/CallDeviceSettings.qml` offers them, but the SFU publish path
-   instantiates `SfuMediaEngine::cameraSource()` — a bare `v4l2src` /
-   `ksvideosrc` / `avfvideosrc` with no `device=` — and only the AUDIO
-   selection is pushed into the engine (`setAudioDevices`). So on a machine
-   with two cameras the choice is displayed and ignored. A node id resolved
-   from a `GstDeviceMonitor` on `Video/Source` is the shape that answers it.
+1. ~~**A CAMERA source picker that reaches the wire.**~~ **DONE 2026-09-08**,
+   and it was worse than this item said: the SFU lane ignored the MICROPHONE
+   and SPEAKER too. Only the legacy 1:1 engine ever received a device, through
+   `setAudioDevices`; the camera reached neither engine, because the publish
+   path instantiated `SfuMediaEngine::cameraSource()` — a bare `v4l2src` /
+   `ksvideosrc` / `avfvideosrc` with no `device=`.
+
+   The shape this item proposed is the one that shipped, with the reason it
+   cannot be a one-liner written down beside it: Qt and GStreamer enumerate
+   devices through different subsystems, so a Qt device id is not a GStreamer
+   handle. Measured on the maintainer's machine,
+   `gst-device-monitor-1.0 Audio/Source` answers `pipewiresrc target-object=68`
+   for the device Qt reports under a PulseAudio name — no identifier in common.
+   `src/calls/CaptureDeviceSelection.{h,cpp}` therefore resolves a choice
+   against the monitor by identity property first, display name second, and
+   the id's own shape ONLY when the monitor cannot answer at all; two devices
+   sharing a name resolve to nothing, because opening the wrong camera is
+   worse than opening the default one. The engine sets the resolved property
+   on the already-parsed element, so no device string is ever interpolated
+   into a `gst_parse` description. `autoaudiosrc` is a bin with no device
+   property, so a microphone choice picks a concrete element instead — and
+   only one this build can instantiate AND that can bind the device.
+
+   **NOT TESTED on real hardware**: this machine has no camera
+   (`gst-device-monitor-1.0 Video/Source` lists none), so the resolver is
+   covered by unit cases and the Windows/macOS profiles are pinned by test
+   rather than exercised. A two-camera machine is what would confirm it.
+   Applied when a capture is BUILT, so a change lands on the next publish
+   rather than relinking a live pipeline; hot-swapping a device mid-call is
+   still not implemented.
 2. **Emoji reactions on the wire.** The RAISED HAND now interoperates (see
    "Raised hands" below); the transient emoji reactions element-call sends
    beside it — `io.element.call.reaction` with a `m.reference` to the
