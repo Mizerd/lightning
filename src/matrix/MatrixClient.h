@@ -1380,15 +1380,22 @@ public:
 
     // Attachment sending (Rust: SDK send queue with local echo). `mime` is
     // detected by the caller from file content, not just the extension.
+    // `durationMs` is the clip length for a timed medium, 0 when there is
+    // none or the caller could not determine one. It is what fixes an
+    // attached AUDIO file arriving with no duration at all, so every player
+    // drew "0:00" beside a perfectly good song; video already carried one
+    // through sendVideo. Zero is sent as "absent", never as a literal zero —
+    // "unknown" and "no seconds long" are different claims.
     virtual quint64 sendAttachment(const QString &roomId,
                                    const QString &localPath,
                                    const QString &mime,
                                    const QString &caption,
-                                   int width, int height, bool animated)
+                                   int width, int height, bool animated,
+                                   qint64 durationMs = 0)
     {
         Q_UNUSED(roomId); Q_UNUSED(localPath); Q_UNUSED(mime);
         Q_UNUSED(caption); Q_UNUSED(width); Q_UNUSED(height);
-        Q_UNUSED(animated);
+        Q_UNUSED(animated); Q_UNUSED(durationMs);
         return 0;
     }
     // v0.7: video send WITH a poster thumbnail Lightning extracted from the
@@ -1480,11 +1487,12 @@ public:
                                          const QString &localPath,
                                          const QString &mime,
                                          const QString &caption,
-                                         int width, int height, bool animated)
+                                         int width, int height, bool animated,
+                                         qint64 durationMs = 0)
     {
         Q_UNUSED(roomId); Q_UNUSED(rootEventId); Q_UNUSED(localPath);
         Q_UNUSED(mime); Q_UNUSED(caption); Q_UNUSED(width);
-        Q_UNUSED(height); Q_UNUSED(animated);
+        Q_UNUSED(height); Q_UNUSED(animated); Q_UNUSED(durationMs);
         return 0;
     }
     // v0.7: the thread twin of sendVideo. Same degradation rule — a backend

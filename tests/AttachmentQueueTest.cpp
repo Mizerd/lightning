@@ -60,14 +60,19 @@ public:
 
     bool supportsAttachmentSend() const override { return true; }
     qint64 maxUploadSize() const override { return serverLimit; }
+    // Shares `lastDurationMs` with the video path below: what matters is
+    // what the SEND declared, whichever call carried it. The audio defect
+    // was that this parameter did not exist, so an attached song went out
+    // with no duration and every player drew "0:00".
     quint64 sendAttachment(const QString &, const QString &,
                            const QString &mime, const QString &,
-                           int, int, bool) override
+                           int, int, bool, qint64 durationMs) override
     {
         if (rejectSends)
             return 0;
         ++fileSends;
         lastMime = mime;
+        lastDurationMs = durationMs;
         lastOpId = nextOp++;
         return lastOpId;
     }
@@ -442,6 +447,67 @@ private Q_SLOTS:
     // ── v0.7 video round: send-side posters ──────────────────────────────
     // A video is postered from the file the user picked before it is
     // dispatched, and the poster plus the geometry and duration the decoder
+    // THE AUDIO DEFECT, end to end on the C++ side: an attached song is
+    // decoded for its LENGTH (there is no frame to grab), and that length
+    // reaches the send. It used to reach nothing — sendAttachment had no
+    // parameter for it — so the event went out with no duration and every
+    // player drew "0:00" beside a correct size.
+    void audioSendCarriesItsDecodedDuration()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+
+        QString capturedTag;
+        composer.attachments()->setPosterRequestHook(
+            [&capturedTag](const QString &tag, const QString &path) {
+                QVERIFY(!path.isEmpty());
+                capturedTag = tag;
+            });
+
+        QTemporaryDir dir;
+        const QString path = writeFile(dir, QStringLiteral("song.mp3"),
+                                       QByteArray("ID3\x03\x00\x00\x00", 7)
+                                           + QByteArray(64, '\x00'));
+        composer.addAttachment(QUrl::fromLocalFile(path));
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+        QVERIFY2(!capturedTag.isEmpty(),
+                 "an audio attachment was never decoded, so nothing could "
+                 "have learned its duration");
+
+        // What the decoder reports for a file with no video track: no
+        // poster, no frame geometry, and a real length.
+        composer.attachments()->applyPoster(capturedTag, {}, {}, {}, 185000);
+        composer.send();
+        QCOMPARE(client.fileSends, 1);
+        QCOMPARE(client.lastDurationMs, 185000);
+    }
+
+    // AND AN UNDECODABLE ONE STILL SENDS. A corrupt or unsupported file
+    // reports nothing; the attachment must go out anyway, with the duration
+    // absent rather than the send refused.
+    void audioThatCannotBeDecodedStillSends()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QString capturedTag;
+        composer.attachments()->setPosterRequestHook(
+            [&capturedTag](const QString &tag, const QString &) {
+                capturedTag = tag;
+            });
+        QTemporaryDir dir;
+        const QString path = writeFile(dir, QStringLiteral("broken.ogg"),
+                                       QByteArray("not really ogg"));
+        composer.addAttachment(QUrl::fromLocalFile(path));
+        composer.attachments()->applyPoster(capturedTag, {}, {}, {}, 0);
+        composer.send();
+        QCOMPARE(client.fileSends, 1);
+        QCOMPARE(client.lastDurationMs, 0);
+    }
+
     // reported are what the send path declares on the Matrix event.
     void videoSendCarriesExtractedPoster()
     {

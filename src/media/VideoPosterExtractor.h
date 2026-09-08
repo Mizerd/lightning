@@ -93,7 +93,13 @@ Q_SIGNALS:
     // never reported one. The three trailing values exist for the SEND
     // path, which must declare honest thumbnail and video metadata on the
     // outgoing Matrix event; the receive path connects a two-argument slot
-    // and ignores them. All are 0/invalid when `jpeg` is empty.
+    // and ignores them.
+    //
+    // `posterSize` and `sourceSize` are invalid when `jpeg` is empty, but
+    // `durationMs` IS NOT: an audio file has no frame to grab and still has
+    // a length, and that length is why the send path decodes one at all.
+    // (It used to be zeroed with the rest, which is why an attached song
+    // went out with no duration and every player drew "0:00".)
     void posterReady(const QString &tag, const QByteArray &jpeg,
                      const QSize &posterSize, const QSize &sourceSize,
                      qint64 durationMs);

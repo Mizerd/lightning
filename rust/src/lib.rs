@@ -8963,6 +8963,7 @@ pub unsafe extern "C" fn mx_rust_timeline_send_attachment(
     width: u64,
     height: u64,
     animated: c_int,
+    duration_ms: u64,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
@@ -8980,6 +8981,7 @@ pub unsafe extern "C" fn mx_rust_timeline_send_attachment(
             width,
             height,
             animated != 0,
+            duration_ms,
             op_id,
         )
         .map(|_| String::new())
@@ -9180,6 +9182,7 @@ pub unsafe extern "C" fn mx_rust_thread_send_attachment(
     width: u64,
     height: u64,
     animated: c_int,
+    duration_ms: u64,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
@@ -9191,7 +9194,7 @@ pub unsafe extern "C" fn mx_rust_thread_send_attachment(
         let caption = unsafe { cstr_arg(caption) }?;
         rooms::send_thread_attachment_path(
             bridge, room_id, root, local_path, mime, caption, width, height,
-            animated != 0, op_id,
+            animated != 0, duration_ms, op_id,
         )
         .map(|_| String::new())
     })

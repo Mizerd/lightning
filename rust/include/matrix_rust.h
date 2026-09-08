@@ -1606,6 +1606,12 @@ char *mx_rust_timeline_send_attachment(void *client,
                                        unsigned long long width,
                                        unsigned long long height,
                                        int animated,
+                                       /* Clip length for a timed medium; 0
+                                        * when there is none or the caller
+                                        * could not decode one, and then
+                                        * OMITTED from the event rather than
+                                        * sent as a literal zero. */
+                                       unsigned long long duration_ms,
                                        unsigned long long op_id);
 /* v0.7: send a video WITH a poster thumbnail Lightning extracted from the
  * outgoing file itself. thumb_data/thumb_len may be NULL/0 — the video then
@@ -1676,6 +1682,7 @@ char *mx_rust_thread_send_attachment(void *client,
                                      unsigned long long width,
                                      unsigned long long height,
                                      int animated,
+                                     unsigned long long duration_ms,
                                      unsigned long long op_id);
 /* v0.7: the thread twin of mx_rust_timeline_send_video — same poster
  * handling, routed through the SDK's thread-focused timeline. */

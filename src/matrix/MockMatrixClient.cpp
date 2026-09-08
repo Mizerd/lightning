@@ -610,9 +610,11 @@ quint64 MockMatrixClient::sendThreadAttachment(const QString &roomId,
                                                const QString &mime,
                                                const QString &caption,
                                                int width, int height,
-                                               bool animated)
+                                               bool animated,
+                                               qint64 durationMs)
 {
     Q_UNUSED(caption); Q_UNUSED(width); Q_UNUSED(height); Q_UNUSED(animated);
+    Q_UNUSED(durationMs);
     return appendThreadAttachment(roomId, rootEventId,
                                   QFileInfo(localPath).fileName(), mime);
 }

@@ -74,6 +74,8 @@ public:
         // it resolves either way. Extraction failure is not send failure:
         // the poster stays empty and the video sends without one.
         bool isVideo = false;
+        // Decoded for its DURATION only; there is no poster to grab.
+        bool isAudio = false;
         bool posterPending = false;
         bool sendRequested = false;
         QString posterTag;

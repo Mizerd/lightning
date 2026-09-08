@@ -291,7 +291,14 @@ void VideoPosterWorker::finishWithBestAvailable()
     // gets a black poster), then nothing.
     const QImage &frame = !m_bestFrame.isNull() ? m_bestFrame : m_fallbackFrame;
     if (frame.isNull()) {
-        finishActive({}, {}, {}, 0);
+        // NO FRAME IS NOT NO INFORMATION. An AUDIO file has no video track
+        // to grab, so it always lands here — and the decoder has still told
+        // us how long it is, which is the whole reason the send path decodes
+        // one. Reporting the duration with an empty poster is what stops an
+        // attached song going out with no length, drawn by every player as
+        // "0:00". A video that genuinely produced no frame reports its
+        // duration here too, which is strictly more than it used to.
+        finishActive({}, {}, {}, m_durationMs);
         return;
     }
     QSize posterSize;

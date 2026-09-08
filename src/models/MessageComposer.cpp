@@ -339,9 +339,13 @@ void MessageComposer::dispatchAttachment(int row)
                                    entry.durationMs, entry.poster,
                                    entry.posterWidth, entry.posterHeight);
     } else {
+        // The duration is 0 for everything that is not a timed medium, and
+        // 0 for a timed one whose length could not be decoded — the send
+        // path treats both as "absent" rather than writing a literal zero.
         opId = m_client->sendAttachment(m_roomId, entry.localPath,
                                         entry.mime, caption, entry.width,
-                                        entry.height, entry.animated);
+                                        entry.height, entry.animated,
+                                        entry.durationMs);
     }
     if (opId == 0) {
         entry.state = QStringLiteral("failed");

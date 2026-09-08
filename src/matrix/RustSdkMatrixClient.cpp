@@ -7454,7 +7454,8 @@ quint64 RustSdkMatrixClient::sendAttachment(const QString &roomId,
                                             const QString &localPath,
                                             const QString &mime,
                                             const QString &caption,
-                                            int width, int height, bool animated)
+                                            int width, int height,
+                                            bool animated, qint64 durationMs)
 {
     if (!m_rustHandle || roomId.isEmpty() || localPath.isEmpty() || mime.isEmpty())
         return 0;
@@ -7472,7 +7473,10 @@ quint64 RustSdkMatrixClient::sendAttachment(const QString &roomId,
         captionBytes.constData(),
         static_cast<unsigned long long>(qMax(0, width)),
         static_cast<unsigned long long>(qMax(0, height)),
-        animated ? 1 : 0, opId));
+        animated ? 1 : 0,
+        // Negative is not a duration. Clamped rather than refused: a bad
+        // clock reading must not stop the file being sent.
+        static_cast<unsigned long long>(qMax<qint64>(0, durationMs)), opId));
     if (!result.isEmpty()) {
         qCWarning(lcRust) << "attachment send rejected";
         return 0;
@@ -7704,7 +7708,8 @@ quint64 RustSdkMatrixClient::sendThreadAttachment(const QString &roomId,
                                                   const QString &mime,
                                                   const QString &caption,
                                                   int width, int height,
-                                                  bool animated)
+                                                  bool animated,
+                                                  qint64 durationMs)
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
         || rootEventId.isEmpty() || localPath.isEmpty() || mime.isEmpty())
@@ -7720,7 +7725,8 @@ quint64 RustSdkMatrixClient::sendThreadAttachment(const QString &roomId,
         mimeBytes.constData(), captionBytes.constData(),
         static_cast<unsigned long long>(qMax(0, width)),
         static_cast<unsigned long long>(qMax(0, height)),
-        animated ? 1 : 0, opId));
+        animated ? 1 : 0,
+        static_cast<unsigned long long>(qMax<qint64>(0, durationMs)), opId));
     if (!result.isEmpty()) {
         qCWarning(lcRust) << "thread attachment send rejected";
         return 0;

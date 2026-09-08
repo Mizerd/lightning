@@ -3307,18 +3307,34 @@ fn image_info(width: u64, height: u64, size: u64, animated: bool) -> Option<Atta
 /// is authoritative here (filesystem / byte count); dimensions and
 /// duration are best-effort from the caller and omitted when unknown
 /// rather than fabricated.
+/// `duration_ms` is 0 when the caller could not determine one, which is a
+/// real and ordinary outcome: an unsupported codec, a corrupt file, or a
+/// decoder that never reported a length. It is then OMITTED rather than sent
+/// as zero — "unknown" and "zero seconds" are different claims, and a
+/// receiver that reads a literal 0 renders "0:00" beside a perfectly good
+/// file. That is exactly the defect this parameter exists to fix: an
+/// attached audio file arrived with no duration at all, so every player drew
+/// an empty track.
+///
+/// NOT a voice message. `AttachmentInfo::Audio` carries the duration and
+/// nothing else; `voice_info` above is the MSC3245 shape, and using it here
+/// would mark every attached music file as a voice recording — a semantic
+/// lie, and the reason this was not fixed by simply reusing that path.
 pub(crate) fn attachment_info(
     mime: &str,
     width: u64,
     height: u64,
     size: u64,
+    duration_ms: u64,
 ) -> Option<AttachmentInfo> {
+    let duration = (duration_ms > 0)
+        .then(|| std::time::Duration::from_millis(duration_ms));
     if mime.starts_with("image/") {
         return image_info(width, height, size, mime == "image/gif");
     }
     if mime.starts_with("video/") {
         return Some(AttachmentInfo::Video(attachment::BaseVideoInfo {
-            duration: None,
+            duration,
             height: UInt::new(height).filter(|v| u64::from(*v) > 0),
             width: UInt::new(width).filter(|v| u64::from(*v) > 0),
             size: UInt::new(size),
@@ -3327,7 +3343,7 @@ pub(crate) fn attachment_info(
     }
     if mime.starts_with("audio/") {
         return Some(AttachmentInfo::Audio(attachment::BaseAudioInfo {
-            duration: None,
+            duration,
             size: UInt::new(size),
             waveform: None,
         }));
@@ -3646,6 +3662,7 @@ pub(crate) fn send_attachment_path(
     width: u64,
     height: u64,
     animated: bool,
+    duration_ms: u64,
     op_id: u64,
 ) -> Result<(), String> {
     let metadata =
@@ -3659,7 +3676,7 @@ pub(crate) fn send_attachment_path(
     // `animated` marks GIF images; attachment_info re-derives it from the
     // mime, so the flag stays purely a caller-side hint.
     let _ = animated;
-    let info = attachment_info(&mime, width, height, metadata.len());
+    let info = attachment_info(&mime, width, height, metadata.len(), duration_ms);
     let caption = if caption.trim().is_empty() { None } else { Some(caption) };
     bridge.timelines.send_attachment(
         &bridge.runtime,
@@ -3694,7 +3711,8 @@ pub(crate) fn send_attachment_bytes(
         return Err("clipboard data is not a supported image".to_owned());
     }
     let size = bytes.len() as u64;
-    let info = attachment_info(&mime, width, height, size);
+    // Clipboard bytes: an image, never a timed medium.
+    let info = attachment_info(&mime, width, height, size, 0);
     bridge.timelines.send_attachment(
         &bridge.runtime,
         room_id,
@@ -3739,7 +3757,8 @@ pub(crate) fn send_attachment_bytes_to_room(
         .parse()
         .map_err(|_| "attachment mime is not valid".to_owned())?;
     let size = bytes.len() as u64;
-    let info = attachment_info(&mime, width, height, size);
+    // Clipboard bytes: an image, never a timed medium.
+    let info = attachment_info(&mime, width, height, size, 0);
     let room = joined_room(
         &require_client(bridge)?,
         &room_id,
@@ -3783,6 +3802,7 @@ pub(crate) fn send_thread_attachment_path(
     width: u64,
     height: u64,
     animated: bool,
+    duration_ms: u64,
     op_id: u64,
 ) -> Result<(), String> {
     let metadata =
@@ -3796,7 +3816,7 @@ pub(crate) fn send_thread_attachment_path(
     // `animated` marks GIF images; attachment_info re-derives it from the
     // mime, so the flag stays purely a caller-side hint.
     let _ = animated;
-    let info = attachment_info(&mime, width, height, metadata.len());
+    let info = attachment_info(&mime, width, height, metadata.len(), duration_ms);
     let caption = if caption.trim().is_empty() { None } else { Some(caption) };
     let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
         return Err("Rust SDK session is not logged in.".to_owned());
@@ -3836,7 +3856,8 @@ pub(crate) fn send_thread_attachment_bytes(
         return Err("clipboard data is not a supported image".to_owned());
     }
     let size = bytes.len() as u64;
-    let info = attachment_info(&mime, width, height, size);
+    // Clipboard bytes: an image, never a timed medium.
+    let info = attachment_info(&mime, width, height, size, 0);
     let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
         return Err("Rust SDK session is not logged in.".to_owned());
     };
@@ -4210,13 +4231,65 @@ mod tests {
         assert_eq!(media_size_cap(2), 2 * 1024 * 1024 * 1024);
     }
 
+    // THE DEFECT: an attached audio file went out with no duration at all,
+    // so a receiver drew "0:00" beside a correct size. The field existed and
+    // was hard-coded `None` on both the audio and the video branch.
+    #[test]
+    fn a_timed_attachment_carries_its_duration() {
+        match attachment_info("audio/mpeg", 0, 0, 4096, 185_000) {
+            Some(AttachmentInfo::Audio(info)) => {
+                assert_eq!(
+                    info.duration,
+                    Some(std::time::Duration::from_millis(185_000)),
+                    "an audio attachment lost the duration the sender decoded"
+                );
+                // NOT a voice message: that shape adds the MSC3245 marker
+                // and would label every attached song a voice recording.
+                assert!(info.waveform.is_none());
+            }
+            other => panic!("expected audio info, got {other:?}"),
+        }
+        match attachment_info("video/mp4", 640, 480, 4096, 12_000) {
+            Some(AttachmentInfo::Video(info)) => {
+                assert_eq!(
+                    info.duration,
+                    Some(std::time::Duration::from_millis(12_000))
+                );
+            }
+            other => panic!("expected video info, got {other:?}"),
+        }
+    }
+
+    // UNKNOWN IS NOT ZERO. A decoder that could not read a length, an
+    // unsupported codec and a corrupt file all arrive here as 0, and a
+    // literal `duration: 0` is a claim ("no seconds long") rather than an
+    // absence — receivers render it as 0:00, which is the very thing this
+    // fixes.
+    #[test]
+    fn an_unknown_duration_is_omitted_rather_than_sent_as_zero() {
+        match attachment_info("audio/ogg", 0, 0, 10, 0) {
+            Some(AttachmentInfo::Audio(info)) => assert!(info.duration.is_none()),
+            other => panic!("expected audio info, got {other:?}"),
+        }
+        match attachment_info("video/webm", 0, 0, 10, 0) {
+            Some(AttachmentInfo::Video(info)) => assert!(info.duration.is_none()),
+            other => panic!("expected video info, got {other:?}"),
+        }
+        // A duration on an untimed medium is ignored, not smuggled into a
+        // shape that has no field for it.
+        match attachment_info("image/png", 2, 2, 10, 999) {
+            Some(AttachmentInfo::Image(_)) => {}
+            other => panic!("expected image info, got {other:?}"),
+        }
+    }
+
     // Every send carries typed metadata with at least the authoritative
     // size — `info: None` on non-image sends is what shipped every
     // Lightning-sent video with no declared size, which the receiver-side
     // prefetch/poster path (deliberately) refuses to work without.
     #[test]
     fn attachment_info_declares_size_for_every_type() {
-        match attachment_info("video/mp4", 1280, 720, 1000) {
+        match attachment_info("video/mp4", 1280, 720, 1000, 0) {
             Some(AttachmentInfo::Video(info)) => {
                 assert_eq!(info.size, UInt::new(1000));
                 assert_eq!(info.width, UInt::new(1280));
@@ -4225,7 +4298,7 @@ mod tests {
             other => panic!("expected video info, got {other:?}"),
         }
         // Unknown dimensions are omitted, never sent as zero.
-        match attachment_info("video/webm", 0, 0, 42) {
+        match attachment_info("video/webm", 0, 0, 42, 0) {
             Some(AttachmentInfo::Video(info)) => {
                 assert_eq!(info.size, UInt::new(42));
                 assert!(info.width.is_none());
@@ -4233,21 +4306,21 @@ mod tests {
             }
             other => panic!("expected video info, got {other:?}"),
         }
-        match attachment_info("audio/flac", 0, 0, 7) {
+        match attachment_info("audio/flac", 0, 0, 7, 0) {
             Some(AttachmentInfo::Audio(info)) => {
                 assert_eq!(info.size, UInt::new(7));
             }
             other => panic!("expected audio info, got {other:?}"),
         }
-        match attachment_info("application/pdf", 0, 0, 9) {
+        match attachment_info("application/pdf", 0, 0, 9, 0) {
             Some(AttachmentInfo::File(info)) => {
                 assert_eq!(info.size, UInt::new(9));
             }
             other => panic!("expected file info, got {other:?}"),
         }
         // Images keep the existing contract: no dimensions, no info.
-        assert!(attachment_info("image/png", 0, 0, 5).is_none());
-        match attachment_info("image/gif", 100, 100, 5) {
+        assert!(attachment_info("image/png", 0, 0, 5, 0).is_none());
+        match attachment_info("image/gif", 100, 100, 5, 0) {
             Some(AttachmentInfo::Image(info)) => {
                 assert_eq!(info.is_animated, Some(true));
             }

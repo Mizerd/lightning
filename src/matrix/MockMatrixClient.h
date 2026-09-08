@@ -161,7 +161,7 @@ public:
                                  const QString &rootEventId,
                                  const QString &localPath, const QString &mime,
                                  const QString &caption, int width, int height,
-                                 bool animated) override;
+                                 bool animated, qint64 durationMs = 0) override;
     quint64 sendThreadAttachmentBytes(const QString &roomId,
                                       const QString &rootEventId,
                                       const QByteArray &bytes,

@@ -690,7 +690,7 @@ void ThreadController::dispatchAttachment(int row)
     } else {
         opId = m_client->sendThreadAttachment(
             m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
-            entry.width, entry.height, entry.animated);
+            entry.width, entry.height, entry.animated, entry.durationMs);
     }
     if (opId == 0) {
         entry.state = QStringLiteral("failed");

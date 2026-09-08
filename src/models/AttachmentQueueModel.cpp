@@ -163,7 +163,17 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
             entry.height = size.height();
         }
     }
-    if (entry.isVideo) {
+    // AUDIO IS DECODED TOO, and not for a picture.
+    //
+    // An audio file has no frame to grab, so this job returns an empty
+    // poster — but the decoder still reports the CLIP LENGTH, which is the
+    // one piece of metadata an audio attachment was going out without. That
+    // is why a card for a perfectly good song read "0:00": nothing on the
+    // send side ever asked how long it was. The extractor emits the duration
+    // even when it has no frame (see VideoPosterExtractor's contract), and
+    // applyPoster() already stores a duration independently of the poster.
+    entry.isAudio = entry.mime.startsWith(QLatin1String("audio/"));
+    if (entry.isVideo || entry.isAudio) {
         entry.posterPending = true;
         entry.posterTag = QStringLiteral("send:%1").arg(m_nextPosterTag++);
     }
