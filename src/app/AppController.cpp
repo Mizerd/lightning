@@ -853,6 +853,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 if (m_roomList)
                     m_roomList->setAdvertisedBridge(roomId, best.networkId,
                                                     best.label);
+                // B017: write the answer down, so the next launch paints this
+                // badge before any request exists. An EMPTY label is recorded
+                // too, and deliberately: "this room advertises no bridge" is
+                // a result, and it is the one that makes re-asking every room
+                // on every launch unnecessary. `ok` was already required
+                // above, so a FAILED read never reaches here and can never be
+                // remembered as a negative answer.
+                m_bridgeLabels.remember(roomId, best.networkId, best.label);
             });
     // Invites: notify once per newly seen invited room. Invites present
     // before the initial sync completes are seeded silently (see
@@ -4226,6 +4234,26 @@ void AppController::onLoginSucceeded()
     // paths must never derive this independently (silent divergence here
     // is how cleanup reports "absent" while decrypted bytes survive).
     m_gif->openStarredStoreFor(matrix::app_data::starredGifsDir(uid));
+    // B017: the MSC2346 network badge, restored from disk. The read that
+    // produces it costs a raw /state (BridgeNetwork.h explains why the SDK
+    // store cannot answer), so it was only ever done for a room the user
+    // opened, once per SESSION — which is why a tester saw the tags "missing
+    // on some chats" and not persisting across a restart. Seeding here, from
+    // the same shared path helper the cleanup paths use, paints every badge
+    // this account has ever learned before the first request exists. The
+    // model keys these by room id in a hash that is independent of its rows,
+    // so seeding before the room list is populated is correct.
+    m_bridgeLabels.openFor(matrix::app_data::bridgeLabelsFile(uid));
+    if (m_roomList) {
+        const auto remembered = m_bridgeLabels.positiveLabels();
+        for (auto it = remembered.constBegin(); it != remembered.constEnd();
+             ++it) {
+            m_roomList->setAdvertisedBridge(it.key(), it.value().networkId,
+                                            it.value().label);
+        }
+        qCInfo(lcApp) << "bridge badges restored from disk count="
+                      << remembered.size();
+    }
     m_accounts->setActiveUser(uid);
     setLocalRustResetRequired(false);
     clearLocalSessionFailure();
@@ -4332,6 +4360,10 @@ void AppController::onLoggedOut()
     m_memberHydratedRooms.clear();
     // Same scope, same reason: the next account's rooms are not these rooms.
     m_bridgeReadRooms.clear();
+    // Closed on BOTH paths, switch included: a late answer must never write
+    // the outgoing account's room into the incoming account's file, and a
+    // closed store simply drops the write.
+    m_bridgeLabels.close();
     m_playback->stopAll(); // no playback (or decrypted-media handle) survives
     // Unsent clipboard images belong to the session that staged them. Both
     // composers clear their queues on the way out, which releases each token
@@ -4367,6 +4399,27 @@ void AppController::onLoggedOut()
     // later in the same dispatch — see that lambda's own comment), so the
     // close happens explicitly here rather than being assumed already done.
     if (!m_lastSessionUserId.isEmpty()) {
+        // B017: the remembered bridge badges go with the account. They hold
+        // no message content and no user ids (rust/src/bridges.rs never
+        // forwards `bridgebot` or `creator`), but they are a per-account
+        // record of which rooms this user is in, and sign-out means the
+        // account's local data is gone. Closed above, so nothing can rewrite
+        // the file between the delete and the next login.
+        const QString bridgeFile =
+            matrix::app_data::bridgeLabelsFile(m_lastSessionUserId);
+        const bool bridgeExisted = !bridgeFile.isEmpty()
+                                   && QFile::exists(bridgeFile);
+        if (!BridgeLabelStore::removeStore(bridgeFile)) {
+            qCWarning(lcApp)
+                << "bridge badge store sign-out cleanup FAILED slug="
+                << matrix::app_data::safeUserSlug(m_lastSessionUserId);
+        } else {
+            qCInfo(lcApp) << "bridge badge store sign-out cleanup"
+                          << "slug="
+                          << matrix::app_data::safeUserSlug(m_lastSessionUserId)
+                          << "outcome="
+                          << (bridgeExisted ? "deleted" : "absent");
+        }
         m_gif->closeStarredStore(); // never delete a directory still "open"
         const QString starredDir =
             matrix::app_data::starredGifsDir(m_lastSessionUserId);
@@ -4859,6 +4912,15 @@ void AppController::removeAccount(const QString &userId)
             matrix::app_data::starredGifsDir(identity.userId);
         if (m_gif->starredStore()->currentDirectory() == starredDir)
             m_gif->closeStarredStore();
+        // B017: the bridge badge file lives directly under the canonical
+        // account root and so is swept by the removeRecursively() below.
+        // What that sweep cannot do is stop a still-open store from writing
+        // the file back afterwards, which is what remember() does on every
+        // answer — so close it first when it is this account's.
+        const QString bridgeFile =
+            matrix::app_data::bridgeLabelsFile(identity.userId);
+        if (!bridgeFile.isEmpty() && m_bridgeLabels.filePath() == bridgeFile)
+            m_bridgeLabels.close();
         const auto starredOutcome = matrix::app_data::removeAppDataDir(starredDir);
         // FAILED leaves decrypted material behind — warn (normal filters).
         if (starredOutcome == matrix::app_data::DirRemoval::Failed) {

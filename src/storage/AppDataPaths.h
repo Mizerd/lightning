@@ -147,6 +147,14 @@ QString rustSdkStorePath(const QString &userId);
 // slug — GifStarredStore never opens or deletes anywhere else.
 QString starredGifsDir(const QString &userId);
 
+// <accountRoot(userId)>/bridge-labels.json — the remembered MSC2346 network
+// badge per room (see BridgeLabelStore). Centralized here for the same reason
+// starredGifsDir is: the opener (AppController, on login) and the sign-out /
+// account-removal cleanup paths must all name ONE path, or removal reports
+// success while the file survives. Always derived from the CANONICAL
+// accountRoot(userId), never from a recorded/divergent store slug.
+QString bridgeLabelsFile(const QString &userId);
+
 // <primaryRoot()>/branding/custom-app-icon.png — the normalized copy of the
 // user-selected custom application icon (Settings -> Appearance). Device-
 // global, deliberately NOT account-scoped: the window icon is process-wide

@@ -25,6 +25,7 @@
 #include "crypto/QrImageProvider.h"
 #include "app/PolicyListController.h"
 #include "crypto/QrLoginController.h"
+#include "storage/BridgeLabelStore.h"
 #include "app/TrayIcon.h"
 #include "text/SpellChecker.h"
 
@@ -1324,6 +1325,12 @@ private:
     // read was allowed to go to the network. One bounded read per room per
     // account; cleared on logout/switch with the roster cache above.
     QHash<QString, bool> m_bridgeReadRooms;
+    // B017: what the reads above ANSWERED, kept across restarts so the badge
+    // is painted before any request exists. The session cache above is
+    // "have I asked"; this is "what came back", and only this one survives a
+    // relaunch. Opened per account on login, closed on logout, deleted with
+    // the account (see matrix::app_data::bridgeLabelsFile).
+    BridgeLabelStore m_bridgeLabels;
     QString m_requestedSettingsSection;
     QString m_connectionStatus;
     bool m_localRustResetRequired = false;

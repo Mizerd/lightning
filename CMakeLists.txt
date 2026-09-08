@@ -517,6 +517,8 @@ set(APP_SOURCES
 
     src/storage/AppDataPaths.h
     src/storage/AppDataPaths.cpp
+    src/storage/BridgeLabelStore.h
+    src/storage/BridgeLabelStore.cpp
     src/storage/PortableMode.h
     src/storage/PortableMode.cpp
     src/storage/CacheStore.h
@@ -1394,6 +1396,16 @@ if(BUILD_TESTING)
     target_include_directories(app-data-paths-test PRIVATE src)
     target_link_libraries(app-data-paths-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME app-data-paths COMMAND app-data-paths-test)
+
+    # B017: the remembered MSC2346 network badge per room. Pure storage, so
+    # it links Core alone and needs neither the app nor a Matrix backend.
+    qt_add_executable(bridge-label-store-test
+        tests/BridgeLabelStoreTest.cpp
+        src/storage/BridgeLabelStore.cpp
+    )
+    target_include_directories(bridge-label-store-test PRIVATE src)
+    target_link_libraries(bridge-label-store-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME bridge-label-store COMMAND bridge-label-store-test)
 
     # 2026-08-21: Windows true portability. Portable mode has to be decided
     # BEFORE the first QSettings exists — after that the registry has already
