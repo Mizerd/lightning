@@ -35,8 +35,16 @@ class ContextMenuContractTest : public QObject
         // panel the deletion was addressed to the live room timeline, which
         // hides threaded events and could not find the item — deleting your
         // own thread reply reported a send failure and never sent.
+        //
+        // 2026-09-08: the marker moved again, for the same reason it moved
+        // before. Delete now asks first (B022), so its call lives inside the
+        // confirmation's closure and reads `redactEvent(id)`. The end of this
+        // block is still "the Delete item's action"; only its spelling
+        // changed. Worth noting that when the marker vanished this test did
+        // not say so usefully -- every case failed on an empty block with no
+        // message -- which is why each QVERIFY below now names it.
         const int end = delegate.indexOf(
-            QStringLiteral("root.timelineModel.redactEvent(root.menuEventId)"),
+            QStringLiteral("root.timelineModel.redactEvent(id)"),
             start);
         if (end < start) return {};
         return delegate.mid(start, end - start);
@@ -68,7 +76,11 @@ private Q_SLOTS:
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY(!delegate.isEmpty());
         const QString block = moreMenuBlock(delegate);
-        QVERIFY(!block.isEmpty());
+        QVERIFY2(!block.isEmpty(),
+                 "the more-menu block could not be extracted: one of its "
+                 "markers (id: moreMenu, or the Delete item's redactEvent "
+                 "call) has moved, so every assertion below is testing an "
+                 "empty string");
         QVERIFY(block.contains(QStringLiteral(
             "menuWidth: AppTheme.menuWidthMessage")));
     }
@@ -77,7 +89,11 @@ private Q_SLOTS:
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         const QString block = moreMenuBlock(delegate);
-        QVERIFY(!block.isEmpty());
+        QVERIFY2(!block.isEmpty(),
+                 "the more-menu block could not be extracted: one of its "
+                 "markers (id: moreMenu, or the Delete item's redactEvent "
+                 "call) has moved, so every assertion below is testing an "
+                 "empty string");
 
         // The strip is wired with the picked/morePressed handlers.
         QVERIFY(block.contains(QStringLiteral("QuickReactionStrip {")));
@@ -115,7 +131,11 @@ private Q_SLOTS:
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         const QString block = moreMenuBlock(delegate);
-        QVERIFY(!block.isEmpty());
+        QVERIFY2(!block.isEmpty(),
+                 "the more-menu block could not be extracted: one of its "
+                 "markers (id: moreMenu, or the Delete item's redactEvent "
+                 "call) has moved, so every assertion below is testing an "
+                 "empty string");
         QVERIFY(block.contains(QStringLiteral("accel: \"R\"")));
         QVERIFY(block.contains(QStringLiteral("accel: \"T\"")));
         QVERIFY(block.contains(QStringLiteral("accel: \"Ctrl+C\"")));
@@ -130,7 +150,11 @@ private Q_SLOTS:
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         const QString block = moreMenuBlock(delegate);
-        QVERIFY(!block.isEmpty());
+        QVERIFY2(!block.isEmpty(),
+                 "the more-menu block could not be extracted: one of its "
+                 "markers (id: moreMenu, or the Delete item's redactEvent "
+                 "call) has moved, so every assertion below is testing an "
+                 "empty string");
         // Keys cannot attach to a Menu (a Popup, not an Item) — the
         // accelerators are Shortcuts scoped to the open menu, one per key,
         // and never a Key_Up binding (menu navigation owns that).
@@ -160,7 +184,11 @@ private Q_SLOTS:
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         const QString block = moreMenuBlock(delegate);
-        QVERIFY(!block.isEmpty());
+        QVERIFY2(!block.isEmpty(),
+                 "the more-menu block could not be extracted: one of its "
+                 "markers (id: moreMenu, or the Delete item's redactEvent "
+                 "call) has moved, so every assertion below is testing an "
+                 "empty string");
         QVERIFY(!block.contains(QStringLiteral("starGifMenuItem")));
         QVERIFY(!block.contains(QStringLiteral("qsTr(\"Star GIF\")")));
         QVERIFY(!block.contains(QStringLiteral("qsTr(\"Unstar GIF\")")));
@@ -206,7 +234,11 @@ private Q_SLOTS:
         const QString delegate = read(QStringLiteral("RoomDelegate.qml"));
         QVERIFY(!delegate.isEmpty());
         const QString block = roomMenuBlock(delegate);
-        QVERIFY(!block.isEmpty());
+        QVERIFY2(!block.isEmpty(),
+                 "the more-menu block could not be extracted: one of its "
+                 "markers (id: moreMenu, or the Delete item's redactEvent "
+                 "call) has moved, so every assertion below is testing an "
+                 "empty string");
         QVERIFY(block.contains(QStringLiteral(
             "menuWidth: AppTheme.menuWidthRoom")));
     }
@@ -218,7 +250,11 @@ private Q_SLOTS:
     {
         const QString delegate = read(QStringLiteral("RoomDelegate.qml"));
         const QString block = roomMenuBlock(delegate);
-        QVERIFY(!block.isEmpty());
+        QVERIFY2(!block.isEmpty(),
+                 "the more-menu block could not be extracted: one of its "
+                 "markers (id: moreMenu, or the Delete item's redactEvent "
+                 "call) has moved, so every assertion below is testing an "
+                 "empty string");
         QVERIFY(block.contains(QStringLiteral("objectName: \"roomFavouriteItem\"")));
         QVERIFY(block.contains(QStringLiteral(
             "visible: app.roomList.roomFavouritesSupported")));
@@ -239,7 +275,11 @@ private Q_SLOTS:
     {
         const QString delegate = read(QStringLiteral("RoomDelegate.qml"));
         const QString block = roomMenuBlock(delegate);
-        QVERIFY(!block.isEmpty());
+        QVERIFY2(!block.isEmpty(),
+                 "the more-menu block could not be extracted: one of its "
+                 "markers (id: moreMenu, or the Delete item's redactEvent "
+                 "call) has moved, so every assertion below is testing an "
+                 "empty string");
         QVERIFY(block.contains(QStringLiteral(
             "menuWidth: AppTheme.menuWidthFlyout")));
         QVERIFY(block.contains(QStringLiteral(
@@ -312,7 +352,11 @@ private Q_SLOTS:
         QVERIFY(!roomInfo.isEmpty());
         QVERIFY(!settings.isEmpty());
         const QString block = roomMenuBlock(delegate);
-        QVERIFY(!block.isEmpty());
+        QVERIFY2(!block.isEmpty(),
+                 "the more-menu block could not be extracted: one of its "
+                 "markers (id: moreMenu, or the Delete item's redactEvent "
+                 "call) has moved, so every assertion below is testing an "
+                 "empty string");
         const QString savedFragment1 =
             QStringLiteral("Saved to your account's notification");
         const QString savedFragment2 =
@@ -382,7 +426,11 @@ private Q_SLOTS:
     {
         const QString delegate = read(QStringLiteral("RoomDelegate.qml"));
         const QString block = roomMenuBlock(delegate);
-        QVERIFY(!block.isEmpty());
+        QVERIFY2(!block.isEmpty(),
+                 "the more-menu block could not be extracted: one of its "
+                 "markers (id: moreMenu, or the Delete item's redactEvent "
+                 "call) has moved, so every assertion below is testing an "
+                 "empty string");
         QVERIFY(!block.contains(QStringLiteral("push_pin")));
         QVERIFY(!block.contains(QStringLiteral("Pin to favourites")));
     }
@@ -437,7 +485,11 @@ private Q_SLOTS:
     {
         const QString delegate = read(QStringLiteral("RoomDelegate.qml"));
         const QString block = roomMenuBlock(delegate);
-        QVERIFY(!block.isEmpty());
+        QVERIFY2(!block.isEmpty(),
+                 "the more-menu block could not be extracted: one of its "
+                 "markers (id: moreMenu, or the Delete item's redactEvent "
+                 "call) has moved, so every assertion below is testing an "
+                 "empty string");
         QVERIFY(block.contains(QStringLiteral("iconName: \"link\"")));
         QVERIFY(block.contains(QStringLiteral(
             "text: qsTr(\"Copy room link\")")));
