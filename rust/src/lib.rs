@@ -4844,6 +4844,75 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
             if let Ok(Some(device)) = client.encryption().get_own_device().await {
                 device_cross_signed = device.is_cross_signed_by_owner();
             }
+            // THE ONE CHECK THAT NAMES A PERMANENTLY UNDECRYPTABLE DEVICE.
+            //
+            // If the curve25519 identity key this device publishes on the
+            // server is not the one its local Olm account holds, every peer
+            // encrypts to a key we cannot read. Nothing arrives decryptable,
+            // ever: no room keys, so every encrypted message reads "Waiting
+            // for keys", and no call media keys, so an encrypted call is
+            // silent one way while the other side hears us perfectly.
+            // SENDING still works, which is what makes it so confusing to
+            // report.
+            //
+            // Observed on a real account during the 2026-09-07 audit, and it
+            // took the SDK's own tracing to see at all: the peer's message
+            // failed inside matrix-sdk with "Olm event doesn't contain a
+            // ciphertext for our key", where Lightning could not reach it. A
+            // fresh sign-in fixed it immediately, which is both the proof of
+            // what was wrong and the remedy.
+            //
+            // Cheap, decisive, and no cryptography of our own:
+            // `curve25519_key()` is the LOCAL account's key, which a
+            // `/keys/query` cannot overwrite, and the request below asks the
+            // server what it publishes for this very device.
+            let mut identity_key_matches_server: Option<bool> = None;
+            if let (Some(user), Some(this_device)) =
+                (client.user_id().map(|u| u.to_owned()),
+                 client.device_id().map(|d| d.to_owned()))
+            {
+                if let Some(local) = client.encryption().curve25519_key().await {
+                    use matrix_sdk::ruma::api::client::keys::get_keys;
+                    let mut request = get_keys::v3::Request::new();
+                    request
+                        .device_keys
+                        .insert(user.clone(), vec![this_device.clone()]);
+                    if let Ok(response) = client.send(request).await {
+                        let published = response
+                            .device_keys
+                            .get(&user)
+                            .and_then(|devices| devices.get(&this_device))
+                            .and_then(|raw| raw.deserialize().ok())
+                            .and_then(|keys| {
+                                keys.keys
+                                    .iter()
+                                    .find(|(id, _)| {
+                                        id.as_str().starts_with("curve25519:")
+                                    })
+                                    .map(|(_, value)| value.to_owned())
+                            });
+                        if let Some(published) = published {
+                            let agrees = published == local.to_base64();
+                            identity_key_matches_server = Some(agrees);
+                            if !agrees {
+                                // No key material in the line: whether they
+                                // agree is the whole fact, and the remedy is
+                                // the same either way.
+                                // eprintln rather than the SDK's tracing:
+                                // this must be visible in an ordinary log,
+                                // not only when LIGHTNING_RUST_LOG is set.
+                                eprintln!(
+                                    "matrix.crypto: this device's published \
+                                     identity key does not match its local \
+                                     account, so nothing encrypted to it can \
+                                     be decrypted; signing out and in again \
+                                     is the only repair"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             if let Some(status) = client.encryption().cross_signing_status().await {
                 has_master = status.has_master;
                 has_self_signing = status.has_self_signing;
@@ -4854,6 +4923,9 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
                 "own_identity_available": own_identity_available,
                 "own_identity_verified": own_identity_verified,
                 "device_cross_signed": device_cross_signed,
+                // null when it could not be established (offline, no keys
+                // yet); false is a real, actionable fault.
+                "identity_key_matches_server": identity_key_matches_server,
                 "has_master": has_master,
                 "has_self_signing": has_self_signing,
                 "has_user_signing": has_user_signing,

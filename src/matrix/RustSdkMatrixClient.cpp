@@ -5767,6 +5767,33 @@ void RustSdkMatrixClient::refreshOwnDeviceStatus()
     const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
     if (!doc.isObject()) return;
     const QJsonObject obj = doc.object();
+    // A DEVICE WHOSE PUBLISHED KEY IS NOT ITS OWN CANNOT DECRYPT ANYTHING,
+    // AND USED TO SAY NOTHING AT ALL.
+    //
+    // Peers encrypt to the key the server publishes for us. If that is not
+    // the key our local Olm account holds, every room key and every call
+    // media key addressed to this device is unreadable, forever: encrypted
+    // messages sit on "Waiting for keys" and an encrypted call is silent one
+    // way while the other side hears us perfectly, because SENDING is
+    // unaffected. Diagnosed on a real account 2026-09-07; only matrix-sdk's
+    // internal tracing could see it, and a fresh sign-in repaired it at once.
+    //
+    // Absent means "could not be established" (offline, or no keys yet) and
+    // is not a fault. Only an explicit false is.
+    const QJsonValue keyAgreement =
+        obj.value(QStringLiteral("identity_key_matches_server"));
+    if (keyAgreement.isBool() && !keyAgreement.toBool()) {
+        static bool saidOnce = false;
+        if (!saidOnce) {
+            saidOnce = true;
+            qCCritical(lcRust)
+                << "this device's published identity key does not match its "
+                   "local account. Nothing encrypted to this device can be "
+                   "decrypted, so encrypted messages will not open and "
+                   "encrypted calls will be silent in one direction. Signing "
+                   "out and signing in again is the repair.";
+        }
+    }
     Q_EMIT ownDeviceStatusUpdated(
         obj.value(QStringLiteral("device_id")).toString(),
         obj.value(QStringLiteral("own_identity_available")).toBool(false),
