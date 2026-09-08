@@ -76,6 +76,9 @@ VoiceRecorder::VoiceRecorder(QObject *parent)
             return;
         qCWarning(lcVoice, "finalization timed out; discarding");
         m_cancelRequested = true;
+        // Abandons any decode in flight: a queued finishLater() hop from the
+        // old decoder must not land after this.
+        ++m_decodeTag;
         m_decoder.reset();
         discardActiveFile();
         m_state = State::Idle;
@@ -292,6 +295,9 @@ void VoiceRecorder::cancel()
     m_processingGuard.stop();
     m_cancelRequested = true;
     if (m_decoder) {
+        // Same reason as the finalization guard: bump first, so a hop
+        // already queued from this decoder is stale when it arrives.
+        ++m_decodeTag;
         m_decoder->stop();
         m_decoder.reset();
     }
@@ -326,6 +332,11 @@ void VoiceRecorder::stop()
 
 void VoiceRecorder::beginWaveformExtraction()
 {
+    // Identifies THIS decode across the queued hop finishLater() makes; see
+    // the note there. Bumped by anything that abandons a decode, so a hop
+    // already posted from the old decoder's signals cannot land on the new
+    // one.
+    const quint64 tag = ++m_decodeTag;
     m_decoder = std::make_unique<QAudioDecoder>();
     // A fixed mono float output keeps the peak math format-independent;
     // the FFmpeg decoder resamples internally.
@@ -367,25 +378,54 @@ void VoiceRecorder::beginWaveformExtraction()
             }
         }
     });
-    connect(m_decoder.get(), &QAudioDecoder::finished, this, [this] {
+    connect(m_decoder.get(), &QAudioDecoder::finished, this, [this, tag] {
         if (m_decodeFormatMismatch) {
-            finishWithWaveform({});
+            finishLater(tag, {});
             return;
         }
         if (m_chunkSamples > 0)
             m_chunkPeaks.append(m_chunkPeak);
-        finishWithWaveform(
-            bucketsFromPeaks(m_chunkPeaks, kMaxWaveformBuckets));
+        finishLater(tag,
+                    bucketsFromPeaks(m_chunkPeaks, kMaxWaveformBuckets));
     });
     connect(m_decoder.get(),
             qOverload<QAudioDecoder::Error>(&QAudioDecoder::error), this,
-            [this] {
+            [this, tag] {
         // The recording itself is fine; only the derived waveform is
         // unavailable. Send honestly without one.
         qCInfo(lcVoice, "waveform decode failed; sending without waveform");
-        finishWithWaveform({});
+        finishLater(tag, {});
     });
     m_decoder->start();
+}
+
+void VoiceRecorder::finishLater(quint64 tag, const QList<int> &waveform)
+{
+    // NEVER DESTROY THE DECODER FROM INSIDE ITS OWN SIGNAL EMISSION.
+    //
+    // finishWithWaveform() begins with m_decoder.reset(), and all three of
+    // its callers are lambdas invoked from QAudioDecoder's own emission — so
+    // the object was deleted while its emitting frame was still on the
+    // stack, and QObject's activation machinery touches the sender after the
+    // slot returns. The sibling class states the rule outright and obeys it
+    // ("Queued: never tear the player down from inside its own frame
+    // callback", VideoPosterWorker::startNext in VideoPosterExtractor.cpp),
+    // and this is the same hop: back to the event loop, then re-check that
+    // this decode is still the current one.
+    //
+    // The tag also keeps the ONCE-ONLY property the synchronous version got
+    // for free. `error` and `finished` can both be emitted for one decode;
+    // previously the first call's m_decoder.reset() disconnected the second,
+    // and with two hops queued instead they would both deliver a ready().
+    QMetaObject::invokeMethod(
+        this,
+        [this, tag, waveform] {
+            if (m_decodeTag != tag)
+                return;
+            ++m_decodeTag; // this decode is over; a sibling hop is stale
+            finishWithWaveform(waveform);
+        },
+        Qt::QueuedConnection);
 }
 
 void VoiceRecorder::finishWithWaveform(const QList<int> &waveform)

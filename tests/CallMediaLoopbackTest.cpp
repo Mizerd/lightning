@@ -34,6 +34,45 @@ private Q_SLOTS:
         QVERIFY(GstCallMediaBackend::runtimeAvailable());
     }
 
+    /// A PROMISE CHANGE FUNCTION OUTLIVES ITS OWN CONTEXT.
+    ///
+    /// Every create-offer / create-answer / set-remote-description promise
+    /// this backend makes carries a heap context (the backend, a reference
+    /// on the webrtcbin, and the call id as a QString) with `promiseCtxFree`
+    /// as the promise's DESTROY NOTIFY. A destroy notify runs when the
+    /// promise is finalized — and the `gst_promise_unref()` inside the
+    /// change function itself can be the reference that finalizes it, which
+    /// is what happens when webrtcbin replies with an error instead of a
+    /// description. All four change functions read `ctx->backend`,
+    /// `ctx->webrtc` and (in onRemoteOfferSet) the QString `ctx->callId`
+    /// BELOW that unref, i.e. after the context had been deleted and the
+    /// QString destroyed.
+    ///
+    /// WHAT THIS CASE PROVES, AND WHAT IT CANNOT. It pins the precondition
+    /// exactly: after the reply the only reference left on the element the
+    /// context pinned is this test's own, so the context really was
+    /// destroyed synchronously inside the change function. The reads
+    /// themselves are UNDEFINED BEHAVIOUR, and undefined behaviour of this
+    /// shape "passes" without a sanitizer — freed memory usually still holds
+    /// the bytes that were there. So this case does NOT go red on the
+    /// unfixed tree; only ASan does. It exists so that the ordering the fix
+    /// relies on cannot be quietly undone by someone who believes the unref
+    /// is harmless here.
+    void aPromiseChangeFunctionOutlivesItsOwnContext()
+    {
+        const int refs =
+            GstCallMediaBackend::offerPromiseErrorReplyContextRefsForTest();
+        if (refs < 0)
+            QSKIP("webrtcbin could not be instantiated here");
+        QVERIFY2(refs == 1,
+                 qPrintable(QStringLiteral(
+                     "the promise context survived its change function "
+                     "(%1 references left, expected 1): if that ever becomes "
+                     "true the reads below the unref would be safe, and this "
+                     "case is the record of why they are hoisted")
+                                .arg(refs)));
+    }
+
     void loopbackCallReachesConnectedBothWays()
     {
         const QString callId = QStringLiteral("loopback-1");

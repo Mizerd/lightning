@@ -24,6 +24,7 @@
 #include <QMutexLocker>
 #include <QRandomGenerator>
 #include <QSet>
+#include <QThread>
 #include <QUrl>
 #include <QVariantMap>
 #include <QVideoFrame>
@@ -173,9 +174,26 @@ struct CryptoProbeCtx {
     /// only; a receiver reads the IV out of the frame.
     quint32 ivStream = 0;
     /// Engine-wide totals this probe contributes to. Raw pointers into the
-    /// engine, which outlives every probe (probes are removed with the
-    /// pipelines in destroyPeer, on the Qt thread) — the same lifetime the
-    /// `required` / `keyReady` pointers below already assume.
+    /// engine — the same lifetime assumption `engine`, `required` and
+    /// `keyReady` above already make, so it is worth saying exactly what
+    /// keeps it true, because it is not "probes are removed in destroyPeer"
+    /// alone.
+    ///
+    /// TWO things end a probe, and only one of them is destroyPeer():
+    ///
+    ///   * the ordinary case — the pipeline is set to NULL and unreffed on
+    ///     the Qt thread, taking every bin, pad and probe with it;
+    ///   * a DEFERRED publish teardown (see publishTeardownAsync), which
+    ///     UNPARENTS its bin before it stops it. Between those two lines the
+    ///     bin is running and no longer reachable from the pipeline, so
+    ///     destroyPeer() cannot touch it and the probe below could still be
+    ///     handed a buffer.
+    ///
+    /// The second is why unpublish() counts its teardowns and why stop() and
+    /// ~SfuMediaEngine wait for that count to reach zero before anything is
+    /// destroyed. That wait is BOUNDED: if it ever expires the guarantee
+    /// degrades to best-effort, and it says so in the log rather than
+    /// pretending otherwise.
     std::atomic<quint64> *total = nullptr;
     std::atomic<quint64> *totalDropped = nullptr;
     /// Frames this probe let through, and frames it dropped.
@@ -644,6 +662,12 @@ SfuMediaEngine::~SfuMediaEngine()
         QMutexLocker lock(&g_aliveMutex);
         g_aliveEngines.remove(this);
     }
+    // stop() waits — bounded — for any deferred publish teardown before it
+    // destroys anything, and it does that BEFORE its own "nothing to do"
+    // early return, so this path inherits the wait even when the session was
+    // already stopped. Without it a bin unparented but not yet quiesced goes
+    // on pushing buffers through crypto probes that point into these members
+    // while they are being destroyed.
     stop();
 }
 
@@ -660,6 +684,7 @@ void SfuMediaEngine::start()
     m_microphoneMuted = false;
     m_outputMuted.store(false);
     m_publishedMedia.store(0);
+    m_publisherEverPublished = false;
     Q_EMIT connectionStateChanged(QStringLiteral("connecting"));
 }
 
@@ -670,6 +695,13 @@ void SfuMediaEngine::stop()
     // A join that is abandoned before then must still drop them, so the
     // clear sits before the never-started early return.
     clearKeys();
+    // BEFORE the early return, and before anything is destroyed. A deferred
+    // publish teardown unparents its bin and only then stops it, so while
+    // one is outstanding there is a running bin that destroyPeer() cannot
+    // reach and whose crypto probes point straight at this object. Bounded;
+    // a no-op (one atomic load) when nothing is in flight, which is every
+    // ordinary stop.
+    awaitPublishTeardowns();
     if (!m_active && !m_publisher.pipeline && !m_subscriber.pipeline)
         return;
     m_generation.fetch_add(1);
@@ -702,6 +734,7 @@ void SfuMediaEngine::stop()
     m_microphoneMuted = false;
     m_outputMuted.store(false);
     m_publishedMedia.store(0);
+    m_publisherEverPublished = false;
     // Media keys must not outlive the call that used them.
     clearKeys();
     {
@@ -723,16 +756,28 @@ namespace {
 /// looked exactly like a capture that produced no interesting frames. There
 /// was nothing in a log to read.
 ///
-/// Runs on a STREAMING THREAD: it logs and hands the pipeline back, and never
+/// Runs on a STREAMING THREAD: it logs and DROPS the message, and never
 /// touches a Qt object. What is logged is the element's own name and the
 /// plugin's static error string; the `debug` field is deliberately NOT logged
 /// because it carries file paths and source locations.
+///
+/// DROP AFTER INSPECTION, never PASS. Nothing pops either of these buses —
+/// there is no bus watch and no GLib main loop behind them — so a passed
+/// message sits in the bus's async queue for the whole call. Every
+/// STATE_CHANGED holds a reference on the element that posted it, which
+/// keeps a bin that is being torn down alive past its teardown, and a long
+/// call accumulates thousands. The same defect was found and fixed twice
+/// already in this subsystem (GstCallMediaBackend's busSyncHandler, and
+/// ShareAudioSources' device monitor, which flushes its bus for the same
+/// reason).
 GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
 {
     auto *engine = static_cast<SfuMediaEngine *>(userData);
     const GstMessageType type = GST_MESSAGE_TYPE(message);
-    if (type != GST_MESSAGE_ERROR && type != GST_MESSAGE_WARNING)
-        return GST_BUS_PASS;
+    if (type != GST_MESSAGE_ERROR && type != GST_MESSAGE_WARNING) {
+        gst_message_unref(message);
+        return GST_BUS_DROP;
+    }
 
     GError *error = nullptr;
     gchar *debug = nullptr;
@@ -828,7 +873,9 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
         }
     }
     Q_UNUSED(engine);
-    return GST_BUS_PASS;
+    // DROP after inspection — see the note above this function.
+    gst_message_unref(message);
+    return GST_BUS_DROP;
 }
 } // namespace
 
@@ -1482,19 +1529,36 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
                                                      "sink_%u");
     applyPublisherMsid(sinkPad, cid);
     GstPadLinkReturn linked = GST_PAD_LINK_REFUSED;
-    if (srcPad && sinkPad)
+    if (srcPad && sinkPad && !consumePublishLinkFailure())
         linked = gst_pad_link(srcPad, sinkPad);
     if (srcPad)
         gst_object_unref(srcPad);
-    if (sinkPad)
-        gst_object_unref(sinkPad);
     if (linked != GST_PAD_LINK_OK) {
         qCWarning(lcSfuMedia) << "share audio link failed code=" << linked;
+        // THE SAME CLEAN-UP THE OTHER TWO PUBLISH PATHS DO, and it was
+        // missing here entirely: the bin stayed registered in
+        // m_publishedBins and parented in the publisher pipeline, so a
+        // caller told "this failed" could never publish that cid again and
+        // the dead bin was torn down only with the whole call. The request
+        // pad was leaked too, which puts an m=audio section in the next
+        // offer with nothing behind it.
+        releaseFailedPublishPad(sinkPad);
+        m_publishedBins.remove(cid);
+        gst_element_set_state(bin, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
         m_shareAudioSources.stop();   // see the parse failure above
         Q_EMIT failed(QStringLiteral("share_audio_failed"));
         return;
     }
+    if (sinkPad)
+        gst_object_unref(sinkPad);
     gst_element_sync_state_with_parent(bin);
+    // Counted like every other published track. It was not, and unpublish()
+    // decrements for every cid — so publishing and stopping share audio
+    // walked m_publishedMedia downwards, and once it reached zero
+    // onNegotiationNeeded deferred every offer a live call still needed.
+    ++m_publishedMedia;
+    m_publisherEverPublished = true;
     if (perApplication) {
         m_shareAudioCid = cid;
         m_shareAudioSerials.clear();
@@ -1880,25 +1944,58 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                                                      "sink_%u");
     applyPublisherMsid(sinkPad, cid);
     GstPadLinkReturn linked = GST_PAD_LINK_REFUSED;
-    if (srcPad && sinkPad)
+    if (srcPad && sinkPad && !consumePublishLinkFailure())
         linked = gst_pad_link(srcPad, sinkPad);
     if (srcPad)
         gst_object_unref(srcPad);
-    if (sinkPad)
-        gst_object_unref(sinkPad);
     if (linked != GST_PAD_LINK_OK) {
         qCWarning(lcSfuMedia) << "publisher link failed code=" << linked;
+        releaseFailedPublishPad(sinkPad);
         m_publishedBins.remove(cid);
         gst_element_set_state(bin, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
         Q_EMIT failed(QStringLiteral("publish_link_failed"));
         return;
     }
+    if (sinkPad)
+        gst_object_unref(sinkPad);
     gst_element_sync_state_with_parent(bin);
     // Now there IS something to offer, so ask for the offer explicitly. The
     // on-negotiation-needed that fired at PLAYING was deliberately ignored.
     ++m_publishedMedia;
+    m_publisherEverPublished = true;
     renegotiatePublisher();
+}
+
+bool SfuMediaEngine::consumePublishLinkFailure()
+{
+    if (!m_failNextPublishLink)
+        return false;
+    m_failNextPublishLink = false;
+    qCWarning(lcSfuMedia) << "publisher link failure injected for a test";
+    return true;
+}
+
+void SfuMediaEngine::releaseFailedPublishPad(GstPad *sinkPad)
+{
+    if (!sinkPad)
+        return;
+    // RELEASE THE REQUEST PAD, do not merely drop the reference.
+    //
+    // A webrtcbin sink pad IS a transceiver, so one left behind puts an m=
+    // section in the next offer with nothing behind it — the far end is told
+    // we are sending on a section that carries no RTP, which is the
+    // never-clearing empty tile unpublish() exists to prevent.
+    //
+    // SAFE ONLY BECAUSE THE LINK FAILED. gst_element_release_request_pad on
+    // a PLAYING element reaches gst_pad_set_active(pad, FALSE), which wants
+    // the pad's stream lock — the exact shape of this lane's unpublish
+    // deadlock (§16). This pad has no peer, so no streaming thread can be
+    // inside it. Releasing a LINKED pad on a running pipeline is not this
+    // and must not be written by copying it.
+    if (m_publisher.webrtc)
+        gst_element_release_request_pad(m_publisher.webrtc, sinkPad);
+    gst_object_unref(sinkPad);
 }
 
 quint32 SfuMediaEngine::nextPublishSsrc()
@@ -2815,18 +2912,27 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     // whether pipewiresrc dups the descriptor it is handed is a detail of the
     // plugin version, and closing a descriptor it did not dup stops the
     // capture dead. Holding it costs one fd; guessing costs the share.
-    const auto closeFd = [pipewireFd] {
-        if (pipewireFd >= 0)
-            ::close(pipewireFd);
-    };
-    if (!ensurePeer(Target::Publisher) || cid.isEmpty()) {
-        closeFd();
+    //
+    // RAII, so that every one of this function's returns is correct BY
+    // CONSTRUCTION rather than by remembering. Three of them closed it and
+    // two did not — a pipeline description that failed to parse and a
+    // refused gst_bin_add each leaked the portal descriptor for the life of
+    // the process, one per attempt, and the next return added would have
+    // inherited the same mistake. Ownership passes to m_publishedFds on the
+    // success path and the guard is released there.
+    struct PortalFd {
+        int fd;
+        ~PortalFd()
+        {
+            if (fd >= 0)
+                ::close(fd);
+        }
+        void release() { fd = -1; }
+    } portalFd{pipewireFd};
+    if (!ensurePeer(Target::Publisher) || cid.isEmpty())
         return;
-    }
-    if (m_publishedBins.contains(cid)) {
-        closeFd();
+    if (m_publishedBins.contains(cid))
         return;
-    }
 
     QString source;
     if (m_testSources) {
@@ -2850,7 +2956,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         // does nothing"). Three ways of saying "capture this" now, and a
         // refusal is correct only when NONE of them was given.
         if (nodeId < 0 && windowHandle == 0 && !captureRect.isValid()) {
-            closeFd();
             Q_EMIT failed(QStringLiteral("screen_share_no_source"));
             return;
         }
@@ -3149,6 +3254,9 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     m_publishedBins.insert(cid, bin);
     if (pipewireFd >= 0)
         m_publishedFds.insert(cid, pipewireFd);
+    // Ownership has moved: releasePublishedFd() closes it from here on, on
+    // the link-failure branch below as well as from unpublish() and stop().
+    portalFd.release();
     // The shared record the two probes below write and handlePublishError()
     // reads. Created BEFORE the bin can play, so nothing can be missed.
     auto probeState = std::make_shared<PublishProbeState>();
@@ -3315,14 +3423,13 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                                                      "sink_%u");
     applyPublisherMsid(sinkPad, cid);
     GstPadLinkReturn linked = GST_PAD_LINK_REFUSED;
-    if (srcPad && sinkPad)
+    if (srcPad && sinkPad && !consumePublishLinkFailure())
         linked = gst_pad_link(srcPad, sinkPad);
     if (srcPad)
         gst_object_unref(srcPad);
-    if (sinkPad)
-        gst_object_unref(sinkPad);
     if (linked != GST_PAD_LINK_OK) {
         qCWarning(lcSfuMedia) << "publisher link failed code=" << linked;
+        releaseFailedPublishPad(sinkPad);
         m_publishedBins.remove(cid);
         m_publishWatch.remove(cid);
         releasePublishedFd(cid);
@@ -3331,10 +3438,13 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         Q_EMIT failed(QStringLiteral("publish_link_failed"));
         return;
     }
+    if (sinkPad)
+        gst_object_unref(sinkPad);
     gst_element_sync_state_with_parent(bin);
     // Now there IS something to offer, so ask for the offer explicitly. The
     // on-negotiation-needed that fired at PLAYING was deliberately ignored.
     ++m_publishedMedia;
+    m_publisherEverPublished = true;
     renegotiatePublisher();
 }
 
@@ -3360,6 +3470,17 @@ struct PublishTeardown {
     GstElement *webrtc = nullptr;
     GstPad *peer = nullptr;
     QString cid;
+    /// m_generation as it stood when this teardown was ARMED. Every other
+    /// marshalled callback in this file carries one and is filtered by
+    /// tokenIsLive(); this one used to carry the cid alone, so a completion
+    /// that landed after unpublish -> stop -> start renegotiated the NEW
+    /// session's publisher.
+    quint64 generation = 0;
+    /// SHARED with the engine, not owned by it: the engine waits on this
+    /// (bounded) before it tears its pipelines down, and if that wait ever
+    /// expires the counter must still be decrementable from a GStreamer
+    /// thread after the engine is gone.
+    std::shared_ptr<std::atomic<int>> outstanding;
 };
 
 void publishTeardownFree(gpointer data)
@@ -3371,6 +3492,11 @@ void publishTeardownFree(gpointer data)
         gst_object_unref(ctx->webrtc);
     if (ctx->pipeline)
         gst_object_unref(ctx->pipeline);
+    // LAST, and after every reference this teardown held is released: the
+    // engine's wait ends the moment this reaches zero, and it must not end
+    // while the pipeline this context pinned is still being handed back.
+    if (ctx->outstanding)
+        ctx->outstanding->fetch_sub(1);
     delete ctx;
 }
 
@@ -3411,10 +3537,12 @@ void publishTeardownAsync(GstElement *bin, gpointer data)
     // QObject either way.
     SfuMediaEngine *engine = ctx->engine;
     const QString cid = ctx->cid;
-    marshal(engine, [engine, cid] {
+    const quint64 generation = ctx->generation;
+    marshal(engine, [engine, cid, generation] {
         // Only once the element is at NULL: the descriptor is what its
-        // PipeWire connection rides on.
-        engine->noteTeardownComplete(cid);
+        // PipeWire connection rides on. The generation is what stops a
+        // completion from a closed call renegotiating the next one.
+        engine->noteTeardownComplete(cid, generation);
     });
 }
 
@@ -3519,9 +3647,15 @@ void SfuMediaEngine::unpublish(const QString &cid)
         return;
     }
 
+    // ARMED HERE, and counted from here: publishTeardownFree() is the one
+    // decrement and it owns every reference this context holds, so from this
+    // line until it runs the engine must not tear its pipelines down or be
+    // destroyed. stop() and ~SfuMediaEngine wait on this, bounded.
+    m_pendingTeardowns->fetch_add(1);
     auto *ctx = new PublishTeardown{
         this, GST_ELEMENT(gst_object_ref(m_publisher.pipeline)),
-        /*webrtc=*/nullptr, /*peer=*/nullptr, cid};
+        /*webrtc=*/nullptr, /*peer=*/nullptr, cid,
+        m_generation.load(), m_pendingTeardowns};
     // RETIRE THE TRANSCEIVER NOW, ON THIS THREAD. Two reasons, and the
     // second is why it cannot ride the deferred teardown below.
     //
@@ -3589,6 +3723,21 @@ void SfuMediaEngine::unpublish(const QString &cid)
     gst_object_unref(srcPad);
 }
 
+int SfuMediaEngine::busesWithPendingMessagesForTest() const
+{
+    int pending = 0;
+    for (const Peer *peer : {&m_publisher, &m_subscriber}) {
+        if (!peer->pipeline)
+            continue;
+        if (GstBus *bus = gst_element_get_bus(peer->pipeline)) {
+            if (gst_bus_have_pending(bus))
+                ++pending;
+            gst_object_unref(bus);
+        }
+    }
+    return pending;
+}
+
 int SfuMediaEngine::publisherTrackSlotsForTest() const
 {
     if (!m_publisher.webrtc)
@@ -3620,8 +3769,25 @@ int SfuMediaEngine::publisherTrackSlotsForTest() const
     return slotCount;
 }
 
-void SfuMediaEngine::noteTeardownComplete(const QString &cid)
+void SfuMediaEngine::noteTeardownComplete(const QString &cid,
+                                          quint64 generation)
 {
+    // A COMPLETION FROM A CLOSED SESSION MUST NOT TOUCH THE NEXT ONE.
+    //
+    // The teardown is asynchronous by construction (see unpublish), so
+    // unpublish -> stop -> start can retire the session before it lands.
+    // With only the cid to go on, the completion then closed a descriptor
+    // the new session may have re-registered under the same cid and asked
+    // the NEW publisher to renegotiate — and that publisher has no media
+    // section yet, which is the ~98-byte offer LiveKit answers with
+    // Leave(reason=6 STATE_MISMATCH). Said rather than dropped silently:
+    // this file already learnt that a dropped offer and an offer that was
+    // never made look identical in a log.
+    if (generation != m_generation.load()) {
+        qCInfo(lcSfuMedia)
+            << "publish teardown completed for a closed session; dropped";
+        return;
+    }
     releasePublishedFd(cid);
     // Renegotiated only now. Offering while the bin was still attached would
     // describe a track that is on its way out.
@@ -3632,11 +3798,61 @@ void SfuMediaEngine::renegotiatePublisher()
 {
     if (!m_publisher.webrtc)
         return;
+    // AN OFFER WITH NO MEDIA SECTION IS WORSE THAN NO OFFER, and this is the
+    // second door into making one. onNegotiationNeeded already refuses it —
+    // webrtcbin raises that signal the moment it reaches PLAYING, before any
+    // track exists, and the ~98-byte SDP built then is what LiveKit answers
+    // with Leave(reason=6 STATE_MISMATCH). This path is reached from a
+    // deferred teardown, which can land on a publisher that never carried
+    // anything.
+    //
+    // The gate is "this publisher HAS carried a track", NOT the live count:
+    // withdrawing the last track legitimately renegotiates with zero
+    // published media, and that offer is exactly how the far end learns the
+    // track is over (the m= section stays and goes a=inactive). What must
+    // never be offered is a peer connection that has no section at all.
+    if (!m_publisherEverPublished) {
+        qCInfo(lcSfuMedia)
+            << "renegotiation skipped: this publisher has no media section";
+        return;
+    }
     GstPromise *promise = gst_promise_new_with_change_func(
         onOfferCreated, promiseCtxNew(this, m_publisher.webrtc, true),
         promiseCtxFree);
     g_signal_emit_by_name(m_publisher.webrtc, "create-offer", nullptr,
                           promise);
+}
+
+void SfuMediaEngine::awaitPublishTeardowns()
+{
+    // BOUNDED, and on purpose. A deferred teardown runs entirely on
+    // GStreamer threads (an IDLE pad probe, then gst_element_call_async), so
+    // waiting here does not need the Qt event loop and cannot deadlock
+    // against it — but a pad that never goes idle would otherwise hang the
+    // GUI thread, which is the failure this lane already paid for once.
+    //
+    // What the wait buys: publishTeardownAsync unparents the bin BEFORE it
+    // sets it to NULL, so between those two lines the bin is orphaned and
+    // still running — out of reach of destroyPeer(), which can only stop
+    // children of the pipeline. Its crypto probes hold raw pointers into
+    // this engine (CryptoProbeCtx), so a bin still pushing buffers after the
+    // engine is destroyed reads freed memory.
+    if (m_pendingTeardowns->load() <= 0)
+        return;
+    QElapsedTimer timer;
+    timer.start();
+    while (m_pendingTeardowns->load() > 0
+           && timer.elapsed() < kTeardownWaitMs) {
+        QThread::msleep(2);
+    }
+    const int left = m_pendingTeardowns->load();
+    if (left > 0) {
+        // Counts only. If this ever appears, the IDLE probe is not firing —
+        // the "leak wearing a fix's clothes" shape recorded in unpublish().
+        qCWarning(lcSfuMedia)
+            << "publish teardown did not finish within its budget; still"
+            << left << "outstanding after" << kTeardownWaitMs << "ms";
+    }
 }
 
 namespace {
@@ -4013,16 +4229,42 @@ void SfuMediaEngine::setTrackVolume(const QString &streamId,
             outputVolumeElementName(streamId);
         GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_subscriber.pipeline));
         GValue item = G_VALUE_INIT;
-        while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
-            auto *element = GST_ELEMENT(g_value_get_object(&item));
-            gchar *raw = element ? gst_element_get_name(element) : nullptr;
-            const QString name = QString::fromUtf8(raw ? raw : "");
-            g_free(raw);
-            if (name.startsWith(prefix)) {
-                g_object_set(element, "volume", volume, nullptr);
-                any = true;
+        // RESYNC IS NOT DONE. `while (next() == GST_ITERATOR_OK)` abandons
+        // the sweep the moment the pipeline changes under it — and it
+        // changes exactly when a remote track is being added, which is
+        // exactly when a participant's second element would be missed and
+        // left at full volume. Same bounded restart as setOutputMuted().
+        bool done = false;
+        int resyncsLeft = 8;
+        while (!done) {
+            switch (gst_iterator_next(it, &item)) {
+            case GST_ITERATOR_OK: {
+                auto *element = GST_ELEMENT(g_value_get_object(&item));
+                gchar *raw = element ? gst_element_get_name(element) : nullptr;
+                const QString name = QString::fromUtf8(raw ? raw : "");
+                g_free(raw);
+                if (name.startsWith(prefix)) {
+                    g_object_set(element, "volume", volume, nullptr);
+                    any = true;
+                }
+                g_value_reset(&item);
+                break;
             }
-            g_value_reset(&item);
+            case GST_ITERATOR_RESYNC:
+                // The sweep starts over, so what it had found does too;
+                // setting the same volume twice is idempotent.
+                any = false;
+                if (resyncsLeft-- <= 0) {
+                    done = true;
+                    break;
+                }
+                gst_iterator_resync(it);
+                break;
+            case GST_ITERATOR_ERROR:
+            case GST_ITERATOR_DONE:
+                done = true;
+                break;
+            }
         }
         g_value_unset(&item);
         gst_iterator_free(it);
@@ -4132,17 +4374,40 @@ int SfuMediaEngine::receiveMutedForTest(const QString &streamId) const
     int found = -1;
     GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_subscriber.pipeline));
     GValue item = G_VALUE_INIT;
-    while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
-        auto *element = GST_ELEMENT(g_value_get_object(&item));
-        gchar *raw = element ? gst_element_get_name(element) : nullptr;
-        const QString name = QString::fromUtf8(raw ? raw : "");
-        g_free(raw);
-        if (found < 0 && name.startsWith(prefix)) {
-            gboolean muted = FALSE;
-            g_object_get(element, "mute", &muted, nullptr);
-            found = muted ? 1 : 0;
+    // A RESYNC MUST RESTART THE SWEEP, not end it: a bin added while this
+    // walks would otherwise make the helper report "no receive bin" for a
+    // stream that has one, and the test reading it would blame the code
+    // under test. Same bounded restart as setOutputMuted().
+    bool done = false;
+    int resyncsLeft = 8;
+    while (!done) {
+        switch (gst_iterator_next(it, &item)) {
+        case GST_ITERATOR_OK: {
+            auto *element = GST_ELEMENT(g_value_get_object(&item));
+            gchar *raw = element ? gst_element_get_name(element) : nullptr;
+            const QString name = QString::fromUtf8(raw ? raw : "");
+            g_free(raw);
+            if (found < 0 && name.startsWith(prefix)) {
+                gboolean muted = FALSE;
+                g_object_get(element, "mute", &muted, nullptr);
+                found = muted ? 1 : 0;
+            }
+            g_value_reset(&item);
+            break;
         }
-        g_value_reset(&item);
+        case GST_ITERATOR_RESYNC:
+            found = -1;
+            if (resyncsLeft-- <= 0) {
+                done = true;
+                break;
+            }
+            gst_iterator_resync(it);
+            break;
+        case GST_ITERATOR_ERROR:
+        case GST_ITERATOR_DONE:
+            done = true;
+            break;
+        }
     }
     g_value_unset(&item);
     gst_iterator_free(it);
@@ -4157,17 +4422,37 @@ double SfuMediaEngine::receiveVolumeForTest(const QString &streamId) const
     double found = -1.0;
     GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_subscriber.pipeline));
     GValue item = G_VALUE_INIT;
-    while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
-        auto *element = GST_ELEMENT(g_value_get_object(&item));
-        gchar *raw = element ? gst_element_get_name(element) : nullptr;
-        const QString name = QString::fromUtf8(raw ? raw : "");
-        g_free(raw);
-        if (found < 0 && name.startsWith(prefix)) {
-            gdouble v = -1.0;
-            g_object_get(element, "volume", &v, nullptr);
-            found = v;
+    // A RESYNC RESTARTS the sweep; see receiveMutedForTest().
+    bool done = false;
+    int resyncsLeft = 8;
+    while (!done) {
+        switch (gst_iterator_next(it, &item)) {
+        case GST_ITERATOR_OK: {
+            auto *element = GST_ELEMENT(g_value_get_object(&item));
+            gchar *raw = element ? gst_element_get_name(element) : nullptr;
+            const QString name = QString::fromUtf8(raw ? raw : "");
+            g_free(raw);
+            if (found < 0 && name.startsWith(prefix)) {
+                gdouble v = -1.0;
+                g_object_get(element, "volume", &v, nullptr);
+                found = v;
+            }
+            g_value_reset(&item);
+            break;
         }
-        g_value_reset(&item);
+        case GST_ITERATOR_RESYNC:
+            found = -1.0;
+            if (resyncsLeft-- <= 0) {
+                done = true;
+                break;
+            }
+            gst_iterator_resync(it);
+            break;
+        case GST_ITERATOR_ERROR:
+        case GST_ITERATOR_DONE:
+            done = true;
+            break;
+        }
     }
     g_value_unset(&item);
     gst_iterator_free(it);
@@ -4321,14 +4606,18 @@ void SfuMediaEngine::onStatsReady(GstPromise *promise, void *userData)
     // hand numbers to the engine's thread; the alive registry in marshal()
     // drops the hand-off if the engine is gone.
     auto *ctx = static_cast<PromiseCtx *>(userData);
+    // EVERY ctx READ BELONGS ABOVE THE UNREF. promiseCtxFree is the
+    // promise's destroy notify, so when our unref is the last reference —
+    // which is the error-reply path — the context is destroyed inside it and
+    // anything read afterwards is freed memory.
+    SfuMediaEngine *engine = ctx->engine;
     StatsWalk walk;
     walk.peer = ctx->publisher ? QStringLiteral("pub") : QStringLiteral("sub");
     if (const GstStructure *reply = gst_promise_get_reply(promise))
         gst_structure_foreach(reply, collectStat, &walk);
-    gst_promise_unref(promise);
+    gst_promise_unref(promise); // may free ctx: read nothing from it below
     if (walk.out.isEmpty())
         return;
-    SfuMediaEngine *engine = ctx->engine;
     const QList<RtpStat> stats = walk.out;
     marshal(engine, [engine, stats] { engine->logStats(stats); });
 }
@@ -4874,22 +5163,33 @@ void SfuMediaEngine::onNegotiationNeeded(GstElement *webrtc, void *userData)
     g_signal_emit_by_name(webrtc, "create-offer", nullptr, promise);
 }
 
+// THE UNREF CAN BE THE PROMISE'S LAST, AND THE CONTEXT DIES WITH IT.
+//
+// promiseCtxFree is the promise's destroy notify: it runs when the promise
+// is finalized, which on webrtcbin's error-reply path is the
+// gst_promise_unref() inside these change functions. So every `ctx->` read
+// has to happen ABOVE it, and the element the function goes on to signal
+// needs a reference of its own — the one the context held is dropped by the
+// free. Nothing else about these functions changed.
 void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
+    auto *engine = ctx->engine;
+    GstElement *webrtc = GST_ELEMENT(gst_object_ref(ctx->webrtc));
     const GstStructure *reply = gst_promise_get_reply(promise);
     GstWebRTCSessionDescription *description = nullptr;
     if (reply)
         gst_structure_get(reply, "offer",
                           GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &description,
                           nullptr);
-    gst_promise_unref(promise);
-    if (!description)
+    gst_promise_unref(promise); // may free ctx: read nothing from it below
+    if (!description) {
+        gst_object_unref(webrtc);
         return;
+    }
 
     GstPromise *local = gst_promise_new();
-    g_signal_emit_by_name(ctx->webrtc, "set-local-description", description,
-                          local);
+    g_signal_emit_by_name(webrtc, "set-local-description", description, local);
     gst_promise_interrupt(local);
     gst_promise_unref(local);
 
@@ -4898,8 +5198,8 @@ void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
     g_free(text);
     gst_webrtc_session_description_free(description);
 
-    const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
-    auto *engine = ctx->engine;
+    const quintptr token = reinterpret_cast<quintptr>(webrtc);
+    gst_object_unref(webrtc);
     const quint64 generation = engine->m_generation.load();
     marshal(engine, [engine, token, generation, sdp] {
         engine->handleLocalDescription(token, generation, /*offer=*/true, sdp);
@@ -4909,19 +5209,24 @@ void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
 void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
+    // Above the unref; see the note on onOfferCreated.
+    auto *engine = ctx->engine;
+    const bool publisher = ctx->publisher;
+    GstElement *webrtc = GST_ELEMENT(gst_object_ref(ctx->webrtc));
     const GstStructure *reply = gst_promise_get_reply(promise);
     GstWebRTCSessionDescription *description = nullptr;
     if (reply)
         gst_structure_get(reply, "answer",
                           GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &description,
                           nullptr);
-    gst_promise_unref(promise);
-    if (!description)
+    gst_promise_unref(promise); // may free ctx: read nothing from it below
+    if (!description) {
+        gst_object_unref(webrtc);
         return;
+    }
 
     GstPromise *local = gst_promise_new();
-    g_signal_emit_by_name(ctx->webrtc, "set-local-description", description,
-                          local);
+    g_signal_emit_by_name(webrtc, "set-local-description", description, local);
     gst_promise_interrupt(local);
     gst_promise_unref(local);
 
@@ -4944,9 +5249,9 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
     // Subscriber only, and only counts and enum values — no ids, no content.
     // Two prior theories about this receive path were wrong; this is the
     // measurement that replaces a third guess.
-    if (!ctx->publisher) {
+    if (!publisher) {
         GArray *transceivers = nullptr;
-        g_signal_emit_by_name(ctx->webrtc, "get-transceivers", &transceivers);
+        g_signal_emit_by_name(webrtc, "get-transceivers", &transceivers);
         QStringList summary;
         if (transceivers) {
             for (guint i = 0; i < transceivers->len; ++i) {
@@ -4982,8 +5287,8 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
     g_free(text);
     gst_webrtc_session_description_free(description);
 
-    const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
-    auto *engine = ctx->engine;
+    const quintptr token = reinterpret_cast<quintptr>(webrtc);
+    gst_object_unref(webrtc);
     const quint64 generation = engine->m_generation.load();
     marshal(engine, [engine, token, generation, sdp] {
         engine->handleLocalDescription(token, generation, /*offer=*/false, sdp);

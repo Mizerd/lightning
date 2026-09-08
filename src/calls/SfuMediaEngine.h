@@ -441,12 +441,57 @@ public:
         return m_publishedBins.contains(cid);
     }
 
+    /// Test-only: how many of this engine's pipeline buses are holding
+    /// messages nobody has read.
+    ///
+    /// Nothing pops either bus — there is no bus watch behind them — so a
+    /// sync handler that PASSES a message parks it in the async queue for
+    /// the rest of the call, and every STATE_CHANGED there pins a reference
+    /// on the element that posted it. The only correct answer is 0, and
+    /// without an observation point a regression is invisible until a long
+    /// call's memory is looked at.
+    int busesWithPendingMessagesForTest() const;
+
+    /// Test-only fault injection: make the NEXT publish's link to the
+    /// publisher webrtcbin fail, once.
+    ///
+    /// The link-failure cleanup path cannot be reached any other way from a
+    /// test — webrtcbin always grants a `sink_%u` request pad and the caps
+    /// always intersect — and it is a path that has been wrong:
+    /// publishShareAudio left its bin registered and parented and never
+    /// released the request pad, so the next offer advertised an m=audio
+    /// section with nothing behind it. Cleared by the publish that consumes
+    /// it.
+    void failNextPublishLinkForTest() { m_failNextPublishLink = true; }
+
+    /// Test-only: how many deferred publish teardowns are still outstanding.
+    /// Zero after stop() and after destruction is the invariant; see
+    /// awaitPublishTeardowns().
+    int pendingTeardownsForTest() const
+    {
+        return m_pendingTeardowns->load();
+    }
+
+    /// Test-only: the same counter, shared, so a test can go on reading it
+    /// AFTER the engine is destroyed — which is the only moment the
+    /// invariant it guards actually matters.
+    std::shared_ptr<const std::atomic<int>> teardownCounterForTest() const
+    {
+        return m_pendingTeardowns;
+    }
+
     /// The tail of unpublish(), run once the deferred teardown has actually
     /// put the bin at NULL. Public only because that teardown is driven by
     /// GStreamer callbacks that are not members of this class; it is not a
     /// control surface and nothing outside SfuMediaEngine.cpp should call it.
     /// Always arrives on the GUI thread, via marshal().
-    void noteTeardownComplete(const QString &cid);
+    ///
+    /// `generation` is m_generation as it stood when the teardown was ARMED,
+    /// and a mismatch is dropped: the teardown is asynchronous by
+    /// construction, so unpublish -> stop -> start can retire the session
+    /// before the completion lands, and acting on it would renegotiate the
+    /// NEW call's publisher.
+    void noteTeardownComplete(const QString &cid, quint64 generation);
 
     /// A remote description from the SFU for one peer connection.
     void applyRemoteDescription(Target target, const QString &kind,
@@ -617,6 +662,30 @@ private:
     void renegotiatePublisher();
     /// Close and forget the PipeWire descriptor a published bin owned.
     void releasePublishedFd(const QString &cid);
+    /// Wait, BOUNDED, for every deferred publish teardown to finish.
+    ///
+    /// unpublish() defers the bin's state change onto a GStreamer thread
+    /// (the only shape that does not deadlock, see its comment), and that
+    /// step unparents the bin before it stops it — so for a moment the bin
+    /// is running and no longer reachable from destroyPeer(), which walks
+    /// the pipeline. Its crypto probes hold raw pointers into this engine,
+    /// so the engine must not be torn down while one is outstanding.
+    void awaitPublishTeardowns();
+    /// Test-only fault injection; see failNextPublishLinkForTest(). Always
+    /// false in production, and one-shot.
+    bool consumePublishLinkFailure();
+    /// Give a webrtcbin sink pad back after a publish failed to link to it.
+    ///
+    /// A request pad that is merely UNREFFED stays on the element, and a
+    /// webrtcbin sink pad is a transceiver — so the next offer would carry
+    /// an m= section with nothing behind it. Takes the reference too, so the
+    /// failure branches have one call rather than two. Safe only because the
+    /// link failed and the pad therefore has no peer; see the definition.
+    void releaseFailedPublishPad(GstPad *sinkPad);
+    /// How long awaitPublishTeardowns() will wait. Long enough for an IDLE
+    /// probe on an already-unlinked pad plus one thread-pool hop, short
+    /// enough that a pad which never goes idle costs a pause and not a hang.
+    static constexpr int kTeardownWaitMs = 750;
 
     // GStreamer-thread callbacks. Each carries the EMITTING element's
     // pointer as a session token, checked against the live session before
@@ -831,6 +900,23 @@ private:
     /// Atomic because on-negotiation-needed arrives on a GStreamer thread
     /// while this is written from the Qt thread.
     std::atomic<int> m_publishedMedia{0};
+    /// Whether THIS publisher peer connection has ever carried a track.
+    ///
+    /// Not the same question as m_publishedMedia, which falls back to zero
+    /// when the last track is withdrawn — and that withdrawal legitimately
+    /// renegotiates, because the m= section stays and goes a=inactive, which
+    /// is how the far end learns the track ended. What must never be offered
+    /// is a peer connection that has no section at all. Cleared with the
+    /// session in start()/stop().
+    bool m_publisherEverPublished = false;
+    /// Deferred publish teardowns still in flight. SHARED, because if the
+    /// bounded wait in awaitPublishTeardowns() ever expires the decrement
+    /// still has to be safe from a GStreamer thread after this engine is
+    /// gone.
+    std::shared_ptr<std::atomic<int>> m_pendingTeardowns
+        = std::make_shared<std::atomic<int>>(0);
+    /// Test-only fault injection; see failNextPublishLinkForTest().
+    bool m_failNextPublishLink = false;
 
     /// Not owned. QPointer so a router destroyed before the engine cannot
     /// be dereferenced from a late streaming-thread callback.

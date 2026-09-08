@@ -187,6 +187,39 @@ bool GstCallMediaBackend::runtimeAvailable(QString *whyNot)
     return true;
 }
 
+int GstCallMediaBackend::offerPromiseErrorReplyContextRefsForTest()
+{
+    if (!lightning::gst::ensureInitialised())
+        return -1;
+    GstElement *webrtc = gst_element_factory_make("webrtcbin", nullptr);
+    if (!webrtc)
+        return -1;
+    // Floating from the factory (one reference); promiseCtxNew takes the
+    // second. A null backend is deliberate: marshal() looks the pointer up
+    // in the alive registry, does not find it, and drops the hand-off — so
+    // this exercises the promise lifetime and nothing else.
+    GstPromise *promise = gst_promise_new_with_change_func(
+        onOfferCreated,
+        promiseCtxNew(nullptr, webrtc,
+                      QStringLiteral("promise-ctx-lifetime-probe")),
+        promiseCtxFree);
+    // What webrtcbin replies with when it cannot create a description: an
+    // "error" field and NO "offer". gst_promise_reply takes the structure
+    // and calls the change function inline.
+    GError *error = g_error_new(g_quark_from_static_string("lightning-test"),
+                                0, "no description");
+    gst_promise_reply(promise,
+                      gst_structure_new("application/x-gst-promise-error",
+                                        "error", G_TYPE_ERROR, error,
+                                        nullptr));
+    g_clear_error(&error);
+    // NOT unreffed here: the change function consumed the last reference,
+    // exactly as it does in production.
+    const int refs = static_cast<int>(GST_OBJECT_REFCOUNT_VALUE(webrtc));
+    gst_object_unref(webrtc);
+    return refs;
+}
+
 GstCallMediaBackend::GstCallMediaBackend(QObject *parent)
     : CallMediaBackend(parent)
 {
@@ -679,14 +712,28 @@ void GstCallMediaBackend::onNegotiationNeeded(GstElement *webrtc,
     g_signal_emit_by_name(webrtc, "create-offer", nullptr, promise);
 }
 
+// THE UNREF CAN BE THE PROMISE'S LAST, AND THE CONTEXT DIES WITH IT.
+//
+// `ctx` is the promise's user data and `promiseCtxFree` is its destroy
+// notify, so it runs when the promise is FINALIZED — including when the
+// gst_promise_unref() inside these change functions is the one that drops
+// the count to zero, which is what happens on webrtcbin's error-reply path
+// (it replies before anything else has taken a reference). Every `ctx->`
+// read below the unref was therefore a read of freed memory: a destroyed
+// QString for `callId`, and an element whose last reference the free had
+// just dropped.
+//
+// So each of the four reads every field it needs BEFORE the unref, and
+// onRemoteOfferSet, which goes on to USE the element, holds its own
+// reference across it. Nothing else about these functions changed.
 void GstCallMediaBackend::onOfferCreated(GstPromise *promise, void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
-    const QString sdp =
-        applyCreatedDescription(promise, ctx->webrtc, "offer");
-    gst_promise_unref(promise);
     GstCallMediaBackend *backend = ctx->backend;
     const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
+    const QString sdp =
+        applyCreatedDescription(promise, ctx->webrtc, "offer");
+    gst_promise_unref(promise); // may free ctx: read nothing from it below
     marshal(backend, [backend, token, sdp] {
         backend->handleLocalDescription(token, /*offer=*/true, sdp);
     });
@@ -696,36 +743,42 @@ void GstCallMediaBackend::onRemoteOfferSet(GstPromise *promise,
                                            void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
+    GstCallMediaBackend *backend = ctx->backend;
+    // OUR OWN reference, because the element has to survive the unref: the
+    // one the ctx holds is released by promiseCtxFree.
+    GstElement *webrtc = GST_ELEMENT(gst_object_ref(ctx->webrtc));
+    const QString callId = ctx->callId;
+    const quintptr token = reinterpret_cast<quintptr>(webrtc);
     const bool replied =
         gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED;
-    gst_promise_unref(promise);
-    GstCallMediaBackend *backend = ctx->backend;
-    const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
-    if (!replied)
+    gst_promise_unref(promise); // may free ctx: read nothing from it below
+    if (!replied) {
+        gst_object_unref(webrtc);
         return;
+    }
     marshal(backend, [backend, token] {
         backend->handleRemoteDescriptionApplied(token);
     });
-    // Answer creation continues on this thread against the ctx-held
-    // element — safe even if the session closed meanwhile (the element is
-    // ref-held; the eventual answer is dropped by the Qt-side token
-    // check).
+    // Answer creation continues on this thread against the same element —
+    // safe even if the session closed meanwhile (it is ref-held here and by
+    // the new promise's ctx; the eventual answer is dropped by the Qt-side
+    // token check).
     GstPromise *answerPromise = gst_promise_new_with_change_func(
-        onAnswerCreated, promiseCtxNew(backend, ctx->webrtc, ctx->callId),
+        onAnswerCreated, promiseCtxNew(backend, webrtc, callId),
         promiseCtxFree);
-    g_signal_emit_by_name(ctx->webrtc, "create-answer", nullptr,
-                          answerPromise);
+    g_signal_emit_by_name(webrtc, "create-answer", nullptr, answerPromise);
+    gst_object_unref(webrtc);
 }
 
 void GstCallMediaBackend::onAnswerCreated(GstPromise *promise,
                                           void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
-    const QString sdp =
-        applyCreatedDescription(promise, ctx->webrtc, "answer");
-    gst_promise_unref(promise);
     GstCallMediaBackend *backend = ctx->backend;
     const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
+    const QString sdp =
+        applyCreatedDescription(promise, ctx->webrtc, "answer");
+    gst_promise_unref(promise); // may free ctx: read nothing from it below
     marshal(backend, [backend, token, sdp] {
         backend->handleLocalDescription(token, /*offer=*/false, sdp);
     });
@@ -735,11 +788,11 @@ void GstCallMediaBackend::onRemoteAnswerSet(GstPromise *promise,
                                             void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
-    const bool replied =
-        gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED;
-    gst_promise_unref(promise);
     GstCallMediaBackend *backend = ctx->backend;
     const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
+    const bool replied =
+        gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED;
+    gst_promise_unref(promise); // may free ctx: read nothing from it below
     if (!replied)
         return;
     marshal(backend, [backend, token] {

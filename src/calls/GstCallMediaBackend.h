@@ -38,6 +38,23 @@ public:
     // needs resolves. `whyNot` (optional) receives a short, safe reason.
     static bool runtimeAvailable(QString *whyNot = nullptr);
 
+    /// Test-only: drive ONE create-offer promise change function through the
+    /// error reply webrtcbin sends when it cannot build a description, with
+    /// no second reference held on the promise.
+    ///
+    /// That is the shape in which the `gst_promise_unref()` inside the
+    /// change function is the promise's LAST reference, so the promise's
+    /// destroy notify (promiseCtxFree) destroys the callback context while
+    /// the change function is still running — the precondition the hoisted
+    /// reads in those four functions exist for. The promise type and the
+    /// context are both file-local, so a test cannot assemble this itself.
+    ///
+    /// Returns how many references remain on the element the context pinned,
+    /// counted immediately after the reply: 1 (ours) means the context was
+    /// destroyed synchronously inside the change function; a larger number
+    /// means it outlived it. -1 when webrtcbin cannot be instantiated.
+    static int offerPromiseErrorReplyContextRefsForTest();
+
     explicit GstCallMediaBackend(QObject *parent = nullptr);
     ~GstCallMediaBackend() override;
 

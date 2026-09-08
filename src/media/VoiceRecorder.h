@@ -113,6 +113,15 @@ private:
 
     bool ensureCaptureChain();
     void beginWaveformExtraction();
+    /// Finish the waveform decode from the EVENT LOOP, not from inside the
+    /// decoder's own signal emission.
+    ///
+    /// finishWithWaveform() destroys the QAudioDecoder, and every caller is
+    /// reached from one of that decoder's signals — deleting a QObject while
+    /// it is emitting is a use-after-free of the emitting object. `tag`
+    /// identifies the decode, so a hop from an abandoned one is dropped and
+    /// two signals from the same decode deliver one ready().
+    void finishLater(quint64 tag, const QList<int> &waveform);
     void finishWithWaveform(const QList<int> &waveform);
     void discardActiveFile();
 
@@ -130,6 +139,10 @@ private:
     bool m_cancelRequested = false;
     bool m_paused = false;
     bool m_decodeFormatMismatch = false;
+    /// Identifies the waveform decode in flight; see finishLater(). Bumped
+    /// when one starts, when one completes, and by anything that abandons
+    /// one (cancel, the finalization guard).
+    quint64 m_decodeTag = 0;
     int m_fileSerial = 0;
     // Per-chunk absolute peaks accumulated during waveform decode.
     QList<float> m_chunkPeaks;

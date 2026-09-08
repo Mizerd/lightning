@@ -34,6 +34,7 @@
 #include <atomic>
 #include <cerrno>
 #include <fcntl.h>
+#include <memory>
 #include <unistd.h>
 
 namespace {
@@ -2039,6 +2040,189 @@ private slots:
         engine.publishVideo(QStringLiteral("cid-video"), /*screenShare=*/false,
                             /*nodeId=*/-1);
         QTest::qWait(200);
+        engine.stop();
+    }
+
+    /// NOTHING POPS EITHER PIPELINE BUS, SO NOTHING MAY BE LEFT ON ONE.
+    ///
+    /// The engine sets a sync handler on each pipeline's bus and installs no
+    /// watch, and there is no GLib main loop behind them — so a handler that
+    /// returns GST_BUS_PASS parks every message in the bus's async queue for
+    /// the whole call. Every STATE_CHANGED there holds a reference on the
+    /// element that posted it, which keeps a bin alive past its own
+    /// teardown, and a long call accumulates thousands.
+    ///
+    /// The same defect has been found and fixed twice in this subsystem
+    /// already (GstCallMediaBackend's busSyncHandler drops "after
+    /// inspection"; ShareAudioSources flushes its device-monitor bus for the
+    /// identical reason), which is why it is worth an assertion rather than
+    /// a comment.
+    void thePipelineBusesAreNotLeftToAccumulate()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-audio"));
+        engine.publishVideo(QStringLiteral("cid-video"), /*screenShare=*/false,
+                            /*nodeId=*/-1);
+        // Long enough for both pipelines to reach PLAYING, which is where
+        // the STATE_CHANGED flood comes from.
+        QTest::qWait(600);
+        QVERIFY2(engine.busesWithPendingMessagesForTest() == 0,
+                 "a pipeline bus is holding messages nobody will ever read: "
+                 "the sync handler is passing them into the async queue and "
+                 "each one pins a reference on the element that posted it");
+        engine.stop();
+    }
+
+    /// AN ENGINE DESTROYED MID-TEARDOWN MUST LEAVE NOTHING RUNNING.
+    ///
+    /// unpublish() defers the bin's state change onto a GStreamer thread —
+    /// the only shape that does not deadlock (see the case above) — and that
+    /// step UNPARENTS the bin before it stops it. Between those two lines
+    /// the bin is running and no longer a child of the pipeline, so
+    /// destroyPeer() cannot reach it: it walks the pipeline. Its crypto pad
+    /// probes hold raw pointers into the engine (CryptoProbeCtx says so),
+    /// so a bin still pushing buffers after the engine's members are
+    /// destroyed reads freed memory.
+    ///
+    /// The counter is shared deliberately, so this case can keep reading it
+    /// after the engine is gone — which is the only moment the invariant
+    /// means anything.
+    void anEngineDestroyedMidTeardownLeavesNothingRunning()
+    {
+        std::shared_ptr<const std::atomic<int>> outstanding;
+        int armed = 0;
+        {
+            SfuMediaEngine engine;
+            engine.setTestSourceMode(true);
+            engine.start();
+            engine.publishVideo(QStringLiteral("cid-video"),
+                                /*screenShare=*/false, /*nodeId=*/-1);
+            engine.publishAudio(QStringLiteral("cid-audio"));
+            // THE WAIT IS PART OF THE CASE: unpublishing a bin that has not
+            // begun streaming does not exercise the deferred path at all.
+            QTest::qWait(400);
+            outstanding = engine.teardownCounterForTest();
+            engine.unpublish(QStringLiteral("cid-video"));
+            engine.unpublish(QStringLiteral("cid-audio"));
+            // NO event loop from here to the closing brace: the teardowns
+            // are genuinely in flight when the destructor runs.
+            armed = outstanding->load();
+        }
+        QVERIFY2(armed > 0,
+                 "no teardown was outstanding when the engine was destroyed, "
+                 "so this run proved nothing; the deferred path did not arm");
+        QVERIFY2(outstanding->load() == 0,
+                 "the engine was destroyed with a publish teardown still in "
+                 "flight: that bin is unparented, still running, and its "
+                 "crypto probes point at members that have just been "
+                 "destroyed");
+        // And nothing lands afterwards either.
+        QTest::qWait(200);
+        QCOMPARE(outstanding->load(), 0);
+    }
+
+    /// A TEARDOWN COMPLETION FROM A CLOSED SESSION MUST NOT TOUCH THE NEXT.
+    ///
+    /// The completion is marshalled to the GUI thread, and it used to carry
+    /// the cid alone while every other marshalled callback in the engine
+    /// carries (token, generation) and is filtered by tokenIsLive(). So
+    /// after unpublish -> stop -> start it landed on the NEW session and did
+    /// two things there: closed the descriptor registered under that cid,
+    /// and asked the new publisher to renegotiate.
+    ///
+    /// The descriptor is what this asserts, because it is exact. A share
+    /// republished under the same cid is ordinary — the cid is the client's
+    /// own track id — and having its PipeWire remote closed underneath it
+    /// kills the capture with nothing in the log to explain why.
+    void aTeardownCompletionFromAClosedSessionLeavesTheNextAlone()
+    {
+        int fds[2] = { -1, -1 };
+        QCOMPARE(::pipe(fds), 0);
+        const QString cid = QStringLiteral("cid-share");
+
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        engine.publishVideo(cid, /*screenShare=*/false, /*nodeId=*/-1);
+        QTest::qWait(400);
+        engine.unpublish(cid);
+        // stop() waits for the teardown, so by here the completion has been
+        // POSTED to this thread's event queue and is waiting for a spin.
+        engine.stop();
+
+        // A new session, and a new track published under the same cid with a
+        // real descriptor of its own. fds[0] is handed over; fds[1] stays
+        // ours. The plain video shape is used deliberately — descriptor
+        // registration does not depend on the screen-share branch, and this
+        // is the shape the rest of the suite exercises.
+        engine.start();
+        engine.publishVideo(cid, /*screenShare=*/false, /*nodeId=*/-1, fds[0]);
+        QVERIFY2(::fcntl(fds[0], F_GETFD) != -1,
+                 "the new share's descriptor was closed before the stale "
+                 "completion could even land, so this case proves nothing");
+
+        // NOW let the stale completion land.
+        QTest::qWait(400);
+        QVERIFY2(::fcntl(fds[0], F_GETFD) != -1,
+                 "a teardown completion from the previous call closed the "
+                 "new share's PipeWire descriptor: the capture dies and "
+                 "nothing says why");
+        engine.stop();
+        ::close(fds[1]);
+    }
+
+    /// A PUBLISH THAT CANNOT LINK MUST LEAVE NOTHING BEHIND.
+    ///
+    /// publishAudio and publishVideo both unwind their failure — remove the
+    /// cid, stop the bin, unparent it — and publishShareAudio did none of
+    /// it: the bin stayed in m_publishedBins and stayed parented in the
+    /// publisher pipeline, so the caller was told the publish failed while
+    /// the cid was permanently taken and a dead bin sat in a live pipeline
+    /// until the call ended. None of the three gave the webrtcbin request
+    /// pad back either, and a webrtcbin sink pad IS a transceiver: the next
+    /// offer advertises an m= section with nothing behind it, which is the
+    /// never-clearing empty tile at the far end.
+    ///
+    /// The failure is INJECTED because it cannot be staged: webrtcbin always
+    /// grants a sink_%u request pad and the caps always intersect.
+    void aPublishThatCannotLinkLeavesNothingRegistered()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy failed(&engine, &SfuMediaEngine::failed);
+        engine.start();
+        // One real track first, so the slot count below is a measurement of
+        // the failed publish rather than of an empty publisher.
+        engine.publishAudio(QStringLiteral("cid-audio"));
+        QTest::qWait(300);
+        QCOMPARE(engine.publisherTrackSlotsForTest(), 1);
+        QCOMPARE(failed.count(), 0);
+
+        engine.failNextPublishLinkForTest();
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"));
+        QVERIFY2(!engine.hasPublishedBinForTest(
+                     QStringLiteral("cid-share-audio")),
+                 "share audio left its bin registered after the link failed: "
+                 "the cid can never be published again and a dead bin stays "
+                 "in the live publisher pipeline");
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().at(0).toString(),
+                 QStringLiteral("share_audio_failed"));
+        QVERIFY2(engine.publisherTrackSlotsForTest() == 1,
+                 "the webrtcbin request pad was not given back, so the next "
+                 "offer carries an m=audio section with nothing behind it");
+
+        // ...and the cid is genuinely free again, which is the whole point
+        // of unwinding rather than merely reporting.
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"));
+        QTest::qWait(300);
+        QVERIFY2(engine.hasPublishedBinForTest(
+                     QStringLiteral("cid-share-audio")),
+                 "share audio could not be republished under the cid its own "
+                 "failure had taken");
+        QCOMPARE(engine.publisherTrackSlotsForTest(), 2);
         engine.stop();
     }
 
