@@ -247,6 +247,17 @@ public:
     QString identityForMembership(const QString &roomId,
                                   const QString &membershipEventId,
                                   const QString &sender) const;
+    /// Whether this room's observed session contains `membershipEventId` at
+    /// all, whoever owns it.
+    ///
+    /// `identityForMembership()` answers empty for TWO different facts — a
+    /// membership we have not read yet, and a sender who does not own the
+    /// one we did read — and only the first is worth waiting for. A caller
+    /// that parks an unresolved raise to retry it must be able to tell them
+    /// apart, or a forged annotation occupies that store until the call
+    /// ends and a real early raise can be crowded out of it.
+    bool knowsMembership(const QString &roomId,
+                         const QString &membershipEventId) const;
     /// This device's own membership event id in `roomId`, or empty. What a
     /// raise annotates.
     QString ownMembershipEventId(const QString &roomId) const;

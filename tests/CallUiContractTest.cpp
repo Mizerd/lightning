@@ -20,6 +20,8 @@
 
 #include <functional>
 
+#include <utility>
+
 #include <memory>
 
 #include "app/AppController.h"
@@ -4540,6 +4542,213 @@ Item {
                      ": AppTheme.success")),
                  "the badge's COLOUR does not depend on remoteMediaBlocked, "
                  "so the blocked state is still drawn in the success colour");
+    }
+
+
+    // EVERY JOIN-BLOCK TOKEN HAS WORDING ON EVERY SURFACE THAT SHOWS ONE.
+    //
+    // The token list is DERIVED from RtcController::joinBlockReason's own
+    // body rather than written out here, which is the whole point: a
+    // hard-coded copy would have to be edited by the same person who forgets
+    // the QML, and then it agrees with them. `DesktopIntegrationTest::
+    // parseTimeFlagsSurviveIntoTheQtParser` is the pattern.
+    //
+    // ON THE BROKEN TREE `media_encryption_unavailable` had no case in
+    // EITHER QML file — in IncomingCallPrompt.qml directly under a comment
+    // claiming the set is "kept in step with RoomCallBanner.blockText" — so
+    // the one refusal that is about ENCRYPTION rendered as the default
+    // "Joining isn't available". CallEventDelegate.qml mapped NO tokens at
+    // all and only hid its Join button, so a live call the reader could see
+    // and could not join explained nothing whatsoever.
+    void everyJoinBlockTokenHasWordingOnEverySurface()
+    {
+        const QString controller = read(QStringLiteral(
+            SRC_DIR "/calls/RtcController.cpp"));
+        QVERIFY(!controller.isEmpty());
+
+        // The body of joinBlockReason, walked to its own closing brace.
+        const int at = controller.indexOf(QStringLiteral(
+            "QString RtcController::joinBlockReason("));
+        QVERIFY2(at >= 0, "joinBlockReason is gone; this contract is aimed "
+                          "at nothing");
+        int depth = 0;
+        bool started = false;
+        int end = controller.size();
+        for (int i = at; i < controller.size(); ++i) {
+            if (controller.at(i) == QLatin1Char('{')) {
+                ++depth;
+                started = true;
+            } else if (controller.at(i) == QLatin1Char('}')) {
+                --depth;
+                if (started && depth <= 0) {
+                    end = i;
+                    break;
+                }
+            }
+        }
+        QVERIFY(started);
+        const QString body = controller.mid(at, end - at);
+
+        static const QRegularExpression token(
+            QStringLiteral("QStringLiteral\\(\"([a-z_]+)\"\\)"));
+        QStringList tokens;
+        auto it = token.globalMatch(body);
+        while (it.hasNext()) {
+            const QString found = it.next().captured(1);
+            if (!tokens.contains(found))
+                tokens.append(found);
+        }
+        // MUTATION GUARD. A derivation that matches nothing passes every
+        // assertion below it and proves nothing at all — §16 records that
+        // exact failure. Both the count and one token that must be there.
+        QVERIFY2(tokens.size() >= 7,
+                 qPrintable(QStringLiteral("the token derivation found only "
+                                           "%1 tokens, so it is not reading "
+                                           "joinBlockReason at all")
+                                .arg(tokens.size())));
+        QVERIFY2(tokens.contains(QStringLiteral("media_encryption_unavailable")),
+                 "the derivation missed the encryption block, which is the "
+                 "token this contract exists for");
+
+        struct Surface { const char *path; const char *what; };
+        const QList<Surface> surfaces = {
+            { QML_DIR "/RoomCallBanner.qml",    "the room's call banner" },
+            { QML_DIR "/IncomingCallPrompt.qml", "the incoming-call card" },
+            { QML_DIR "/CallEventDelegate.qml",  "the timeline's call row" },
+        };
+        for (const Surface &surface : surfaces) {
+            const QString source = read(QString::fromUtf8(surface.path));
+            QVERIFY2(!source.isEmpty(), surface.path);
+            for (const QString &name : std::as_const(tokens)) {
+                QVERIFY2(source.contains(QStringLiteral("case \"%1\":")
+                                             .arg(name)),
+                         qPrintable(QStringLiteral(
+                                        "%1 has no wording for the join "
+                                        "block `%2`, so it falls into the "
+                                        "default and says nothing useful")
+                                        .arg(QString::fromUtf8(surface.what),
+                                             name)));
+            }
+        }
+
+        // ...AND SO DOES THE ONE IN C++. join() refuses with a sentence of
+        // its own when a surface has drifted out of step with the gate; a
+        // token it does not know is a refusal the user cannot act on.
+        const QString sfu = read(QStringLiteral(
+            SRC_DIR "/calls/SfuCallController.cpp"));
+        QVERIFY(!sfu.isEmpty());
+        const int refusal = sfu.indexOf(QStringLiteral(
+            "SfuCallController::joinRefusalMessage("));
+        QVERIFY2(refusal >= 0,
+                 "join() has no wording for a block it refuses on");
+        const QString refusalBody = sfu.mid(refusal, 2400);
+        for (const QString &name : std::as_const(tokens)) {
+            QVERIFY2(refusalBody.contains(QStringLiteral("QLatin1String(\"%1\")")
+                                              .arg(name)),
+                     qPrintable(QStringLiteral(
+                                    "joinRefusalMessage() has no wording for "
+                                    "`%1`").arg(name)));
+        }
+    }
+
+    // JOIN REFUSES ON EVERY BLOCK, RATHER THAN PUBLISHING A MEMBERSHIP.
+    //
+    // ON THE BROKEN TREE join() logged "join refused: block=<token>" and then
+    // carried on to publish a membership for six of the seven tokens —
+    // returning only for `media_encryption_unavailable`. A log line saying
+    // the opposite of what happened, and a membership advertising a session
+    // this client had just decided it could not join, which the header of
+    // SfuCallController calls a lie on the wire.
+    //
+    // Read from the SOURCE because the behaviour is not reachable from a
+    // test: join()'s early half needs a live SfuMediaEngine, so the
+    // call-controller target (built without HAVE_LIGHTNING_WEBRTC) leaves at
+    // the build guard long before the block gate.
+    void joinRefusesEveryBlockInsteadOfPublishingAMembership()
+    {
+        const QString sfu = read(QStringLiteral(
+            SRC_DIR "/calls/SfuCallController.cpp"));
+        QVERIFY(!sfu.isEmpty());
+        const int gate = sfu.indexOf(QStringLiteral(
+            "m_rtc->joinBlockReason(roomId)"));
+        QVERIFY2(gate >= 0, "join() no longer consults the join gate at all");
+        const int publish = sfu.indexOf(
+            QStringLiteral("m_client->rtcPublishMembership("), gate);
+        QVERIFY2(publish > gate,
+                 "the membership publish moved; this contract is aimed at "
+                 "nothing");
+        const QString between = sfu.mid(gate, publish - gate);
+
+        // The refusal branch itself, walked to its own closing brace, so the
+        // `return false;` this asserts is provably INSIDE it and not one of
+        // join()'s other guards further down.
+        const int branch =
+            between.indexOf(QStringLiteral("if (!block.isEmpty()) {"));
+        QVERIFY2(branch >= 0,
+                 "join() does not refuse on a standing join block at all, so "
+                 "it publishes a membership for a call it has just decided "
+                 "it cannot join");
+        int depth = 0;
+        bool started = false;
+        int close = between.size();
+        for (int i = branch; i < between.size(); ++i) {
+            if (between.at(i) == QLatin1Char('{')) {
+                ++depth;
+                started = true;
+            } else if (between.at(i) == QLatin1Char('}')) {
+                --depth;
+                if (started && depth <= 0) {
+                    close = i;
+                    break;
+                }
+            }
+        }
+        QVERIFY(started);
+        QVERIFY2(between.mid(branch, close - branch)
+                     .contains(QStringLiteral("return false;")),
+                 "join()'s block branch falls through instead of returning, "
+                 "so the warning it logs says the opposite of what happens");
+        QVERIFY2(!between.contains(QStringLiteral(
+                     "if (block == QLatin1String(\"media_encryption_unavailable\")) {")),
+                 "join() still refuses only the encryption block and goes on "
+                 "to publish for every other one");
+    }
+
+    // THE RUST SIDE OF THE SAME QUESTION: a 404 is an ANSWER.
+    //
+    // `rtc_transports` carries `server_answered`, and it was spelled
+    // `category.is_empty()` — three lines under a comment saying a
+    // 404/400/M_UNRECOGNIZED is "this homeserver has no MatrixRTC, NOT a
+    // transient failure, and the two must stay distinguishable". So the one
+    // definitive negative crossed the FFI as "we could not check": the join
+    // gate rendered `discovery_failed` ("Couldn't check whether calling is
+    // available") for a server that had answered clearly, and
+    // `discoveryWorthRetrying()` — literally `!m_serverAnswered` — stayed
+    // true, re-running account-scoped discovery on EVERY room change for the
+    // rest of the session against a constant.
+    //
+    // Asserted on the source because the payload needs a live homeserver;
+    // the helper's own behaviour is pinned by
+    // `a_homeserver_without_matrixrtc_counts_as_having_answered` in
+    // rust/src/rtc.rs.
+    void aDefinitiveNoMatrixRtcAnswerIsNotReportedAsAFailedCheck()
+    {
+        const QString rtc = read(QStringLiteral(
+            QML_DIR "/../rust/src/rtc.rs"));
+        QVERIFY(!rtc.isEmpty());
+        QVERIFY2(!rtc.contains(QStringLiteral(
+                     "\"server_answered\": category.is_empty()")),
+                 "a homeserver that answered 404 (no MSC4143) is still "
+                 "reported as a check that failed, so the UI says "
+                 "\"couldn't check\" and discovery re-runs on every room "
+                 "change for the whole session");
+        QVERIFY2(rtc.contains(QStringLiteral(
+                     "\"server_answered\": discovery_answer_is_definitive(&category)")),
+                 "the discovery payload no longer routes through the helper "
+                 "that decides what counts as an answer");
+        QVERIFY2(rtc.contains(QStringLiteral(
+                     "fn discovery_answer_is_definitive(category: &str) -> bool")),
+                 "the helper is gone");
     }
 
 private:

@@ -414,6 +414,21 @@ QString RtcController::identityForMembership(
     return {};
 }
 
+bool RtcController::knowsMembership(const QString &roomId,
+                                    const QString &membershipEventId) const
+{
+    if (membershipEventId.isEmpty())
+        return false;
+    const auto it = m_sessions.constFind(roomId);
+    if (it == m_sessions.cend())
+        return false;
+    for (const RtcParticipant &participant : it->participants) {
+        if (participant.membershipEventId == membershipEventId)
+            return true;
+    }
+    return false;
+}
+
 QString RtcController::ownMembershipEventId(const QString &roomId) const
 {
     const auto it = m_sessions.constFind(roomId);

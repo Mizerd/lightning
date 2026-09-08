@@ -202,6 +202,16 @@ public:
     {
         Q_EMIT sfuStateChanged(state, category);
     }
+    /// A raise or lower off the sync loop, on the signal the bridge really
+    /// uses. A RAISE names the membership state event it annotates; a LOWER
+    /// names only the reaction, because a redaction names what it removed.
+    void emitHandChanged(const QString &roomId, const QString &sender,
+                         const QString &membershipEventId,
+                         const QString &reactionEventId, bool raised)
+    {
+        Q_EMIT rtcHandChanged(roomId, sender, membershipEventId,
+                              reactionEventId, raised);
+    }
     /// Answered with a real op id so a successful membership publish reaches
     /// Authorizing instead of failing on "couldn't connect".
     quint64 sfuConnect(const QString &serviceUrl,
@@ -3741,6 +3751,422 @@ private Q_SLOTS:
         hangup.partyId = QStringLiteral("peer-party");
         client.emitSignal(hangup);
         QCOMPARE(calls.state(), CallController::State::Ended);
+    }
+
+
+    // =====================================================================
+    // "CANNOT JOIN A GROUP CALL": the failure REPORTING half.
+    //
+    // Every case below is about a user or a bug report being able to tell
+    // one failure from another. A call that refuses is a fact; a call that
+    // refuses with the wrong sentence sends the reporter to the wrong
+    // administrator, and eight of them said the same thing.
+    // =====================================================================
+
+    // EVERY CATEGORY RUST CAN EMIT HAS ITS OWN HONEST WORDING.
+    //
+    // ON THE BROKEN TREE eight of these fell through `userFacingError`'s
+    // final `return` to "The call ended unexpectedly." — `focus_unroutable`
+    // (a focus that resolves to a private address, which Rust refuses by
+    // policy and whose own comment asks for "a reason that is not 'the
+    // network is down'"), `invalid`, `invalid_transport`, `invalid_request`,
+    // `unknown`, `send_failed`, `unrecognized` and `not_found`. A closed set
+    // on one side and a bare `default:` on the other is how that happens, so
+    // this pins the whole set: nothing may reach the fallback, categories
+    // that deliberately share a sentence must share exactly one, and
+    // categories that mean different things must not collide.
+    void everySfuFailureCategoryHasItsOwnHonestWording()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+
+        auto sentenceFor = [&](const QString &category) {
+            call.setCallStateForTest(SfuCallController::State::Connected);
+            client.emitSfuState(QStringLiteral("failed"), category);
+            return call.lastError();
+        };
+
+        // The fallback itself, asked for by name. Anything that equals this
+        // is a category nobody gave wording to.
+        const QString generic =
+            sentenceFor(QStringLiteral("a_category_no_path_emits"));
+        QVERIFY(!generic.isEmpty());
+
+        // category -> the group whose wording it must share. Same group,
+        // same sentence, on purpose (the distinction is for the log, which
+        // carries the category verbatim); different groups, different
+        // sentences, or the user cannot tell them apart at all.
+        const QList<QPair<QString, QString>> table = {
+            { QStringLiteral("forbidden"),         QStringLiteral("refused") },
+            { QStringLiteral("unsupported"),       QStringLiteral("no-service") },
+            { QStringLiteral("unrecognized"),      QStringLiteral("homeserver") },
+            { QStringLiteral("not_found"),         QStringLiteral("homeserver") },
+            { QStringLiteral("rate_limited"),      QStringLiteral("rate") },
+            { QStringLiteral("focus_unroutable"),  QStringLiteral("private") },
+            { QStringLiteral("network"),           QStringLiteral("connect") },
+            { QStringLiteral("connect_failed"),    QStringLiteral("connect") },
+            { QStringLiteral("connection_lost"),   QStringLiteral("connect") },
+            { QStringLiteral("send_failed"),       QStringLiteral("connect") },
+            { QStringLiteral("server_error"),      QStringLiteral("trouble") },
+            { QStringLiteral("invalid"),           QStringLiteral("misconfigured") },
+            { QStringLiteral("invalid_transport"), QStringLiteral("misconfigured") },
+            { QStringLiteral("invalid_request"),   QStringLiteral("misconfigured") },
+            { QStringLiteral("unknown"),           QStringLiteral("misconfigured") },
+        };
+
+        QHash<QString, QString> saidForGroup;
+        for (const auto &row : table) {
+            const QString said = sentenceFor(row.first);
+            QVERIFY2(!said.isEmpty(),
+                     qPrintable(QStringLiteral("`%1` produced no message at "
+                                               "all").arg(row.first)));
+            QVERIFY2(said != generic,
+                     qPrintable(QStringLiteral(
+                                    "`%1` still falls through to the generic "
+                                    "sentence, so the user is told \"%2\" for "
+                                    "a failure that has a real explanation")
+                                    .arg(row.first, generic)));
+            const auto known = saidForGroup.constFind(row.second);
+            if (known == saidForGroup.cend()) {
+                saidForGroup.insert(row.second, said);
+                continue;
+            }
+            QVERIFY2(*known == said,
+                     qPrintable(QStringLiteral(
+                                    "`%1` was meant to share the `%2` wording "
+                                    "and says something else: \"%3\" vs "
+                                    "\"%4\"").arg(row.first, row.second, said,
+                                                  *known)));
+        }
+
+        // Distinct groups must be distinct SENTENCES, or grouping them was
+        // pointless: a set that collapses is the defect wearing a table.
+        QStringList distinct = saidForGroup.values();
+        distinct.sort();
+        QStringList deduped = distinct;
+        deduped.removeDuplicates();
+        QVERIFY2(distinct == deduped,
+                 "two failure groups produce the same sentence, so the user "
+                 "still cannot tell them apart");
+
+        // AND `unsupported` MUST NOT BLAME THE USER'S HOMESERVER. It is a
+        // 404 from the SFU's own JWT service, and that service is named by
+        // the OLDEST MEMBERSHIP — usually somebody else's SFU on somebody
+        // else's infrastructure. "Calling isn't available on this
+        // homeserver." sent every reporter to the wrong administrator.
+        const QString serviceAbsent = saidForGroup.value(
+            QStringLiteral("no-service"));
+        QVERIFY2(serviceAbsent.contains(QStringLiteral("calling service"),
+                                        Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral(
+                                "a 404 from the call service must name the "
+                                "CALL SERVICE; it said: %1")
+                                .arg(serviceAbsent)));
+        QVERIFY2(serviceAbsent != saidForGroup.value(
+                     QStringLiteral("homeserver")),
+                 "the call service having no /sfu/get and the homeserver "
+                 "having no calling support are different facts about "
+                 "different machines and must not share a sentence");
+
+        // And the LAN-only focus must not read as a network outage: Element
+        // applies no such policy, so that room genuinely works there and not
+        // here, and "couldn't connect" invites the user to check their wifi.
+        QVERIFY2(saidForGroup.value(QStringLiteral("private"))
+                     != saidForGroup.value(QStringLiteral("connect")),
+                 "a focus refused for having a private address still reads "
+                 "as 'the network is down'");
+    }
+
+    // THE PERMISSION REFUSAL MUST NAME A REMEDY LIGHTNING ACTUALLY HAS.
+    //
+    // The state event this gate refuses is `org.matrix.msc3401.call.member`,
+    // and Lightning's own permissions matrix cannot set that key at all:
+    // RoomInfoController::powerLevelKeys() omits it deliberately and the
+    // Rust write allowlist refuses it with a written rationale. So "A room
+    // admin can change that in the room's permissions." sent people to a
+    // screen where the setting does not exist.
+    //
+    // ON THE BROKEN TREE this fails on the sentence naming that screen.
+    void theMembershipRefusalDoesNotPromiseAPermissionsScreenThatCannotHelp()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+
+        const quint64 publish = call.beginMembershipPublishForTest(
+            QStringLiteral("!room:example.org"),
+            QStringLiteral("https://sfu.example.org"));
+        QVERIFY(publish != 0);
+        client.refusePublish(publish, QStringLiteral("forbidden"));
+
+        const QString said = call.lastError();
+        QVERIFY(!said.isEmpty());
+        // Still a room-permission problem, and still says so — the existing
+        // case that keeps it apart from the call service's refusal depends
+        // on exactly these two words.
+        QVERIFY(said.contains(QStringLiteral("permission")));
+        QVERIFY(said.contains(QStringLiteral("room")));
+        QVERIFY2(!said.contains(QStringLiteral("in the room's permissions")),
+                 qPrintable(QStringLiteral(
+                                "the refusal still points at a permissions "
+                                "screen that cannot set call membership; it "
+                                "said: %1").arg(said)));
+    }
+
+    // =====================================================================
+    // LEAVING DURING `Preparing`: the publish that lands afterwards.
+    // =====================================================================
+
+    // A PUBLISH THAT LANDS AFTER WE LEFT IS RETRACTED, WITH THE DELAY ID IT
+    // ARMED.
+    //
+    // ON THE BROKEN TREE teardown() set `m_publishOp = 0`, so this answer
+    // matched nothing and was discarded at `if (opId != m_publishOp) return;`
+    // — no log, no retraction, no delay-id cancellation. The server is free
+    // to apply that write AFTER the leave's own retraction, which re-creates
+    // a live membership for a device that is not in the call; the header of
+    // SfuCallController says what that costs everyone else (media keys sent
+    // to a device that cannot use them, and a participant "waiting for
+    // media" forever). The delayed retraction it armed was never cancelled
+    // either, because nothing else in the process held that id.
+    //
+    // Broken-tree behaviour, precisely: ONE retraction, dispatched by
+    // teardown with an EMPTY delay id, and nothing at all after the answer.
+    void aMembershipPublishThatLandsAfterWeLeftIsRetracted()
+    {
+        const QString room = QStringLiteral("!room:example.org");
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+
+        const quint64 publish = call.beginMembershipPublishForTest(
+            room, QStringLiteral("https://sfu.example.org"));
+        QVERIFY(publish != 0);
+        QCOMPARE(static_cast<int>(call.state()),
+                 static_cast<int>(SfuCallController::State::Preparing));
+
+        // The user leaves while the homeserver is still deciding.
+        call.leave();
+        QVERIFY2(client.retractions.isEmpty(),
+                 "a retraction was sent for a membership that does not exist "
+                 "yet — and when the server refuses it, the give-up branch "
+                 "reports a ghost membership nobody ever created");
+
+        // ...and THEN the publish lands.
+        client.answerPublish(publish, true, QStringLiteral("delay-1"));
+
+        QCOMPARE(client.retractions.size(), 1);
+        QCOMPARE(client.retractions.first().first, room);
+        QVERIFY2(client.retractions.first().second
+                     == QStringLiteral("delay-1"),
+                 "the retraction did not carry the delay id THIS publish "
+                 "armed, so the server's delayed retraction is left running "
+                 "against an id nothing holds");
+    }
+
+    // A REFUSED PUBLISH LEAVES NOTHING TO RETRACT.
+    //
+    // ON THE BROKEN TREE the failure branch tore down and teardown always
+    // dispatched a retraction, so a refused join sent a second doomed state
+    // write to the same room — and when that was refused too, the log said
+    // "This device stays in the room's call membership until the server's
+    // delayed retraction fires" about a membership that never existed. A
+    // false alarm in the one line a ghost-membership report is read from.
+    void aRefusedPublishIsNotFollowedByARetractionOfNothing()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+
+        const quint64 publish = call.beginMembershipPublishForTest(
+            QStringLiteral("!room:example.org"),
+            QStringLiteral("https://sfu.example.org"));
+        client.refusePublish(publish, QStringLiteral("forbidden"));
+
+        QCOMPARE(static_cast<int>(call.state()),
+                 static_cast<int>(SfuCallController::State::Failed));
+        QVERIFY2(client.retractions.isEmpty(),
+                 "a membership the homeserver refused was 'retracted' anyway");
+    }
+
+    // ...AND A STALE PUBLISH MUST NOT RETRACT THE CALL WE ARE BACK IN.
+    //
+    // The membership state key is per (user, device), so an abandoned
+    // publish and the current call's own publish address the SAME state
+    // event: the server holds the newer one. Retracting on the stale
+    // answer's authority would remove a LIVE participant — ourselves — which
+    // is a worse defect than the ghost it was written to prevent.
+    void aStalePublishDoesNotRetractTheCallWeAreBackIn()
+    {
+        const QString room = QStringLiteral("!room:example.org");
+        const QString focus = QStringLiteral("https://sfu.example.org");
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+
+        const quint64 first = call.beginMembershipPublishForTest(room, focus);
+        call.leave();
+        // Straight back into the same room's call.
+        const quint64 second = call.beginMembershipPublishForTest(room, focus);
+        QVERIFY(second != first);
+        QCOMPARE(static_cast<int>(call.state()),
+                 static_cast<int>(SfuCallController::State::Preparing));
+
+        // The abandoned publish finally lands.
+        client.answerPublish(first, true, QStringLiteral("delay-1"));
+
+        QVERIFY2(client.retractions.isEmpty(),
+                 "the stale publish's answer retracted the state event the "
+                 "call we are in right now owns");
+        QCOMPARE(static_cast<int>(call.state()),
+                 static_cast<int>(SfuCallController::State::Preparing));
+    }
+
+    // =====================================================================
+    // A HAND RAISED BEFORE ITS MEMBERSHIP ARRIVED.
+    // =====================================================================
+
+    // ON THE BROKEN TREE this raise was DROPPED. A hand is attributed
+    // through the `m.call.member` state event it annotates, the reaction
+    // rides the sync handler and the membership rides a session read, and
+    // nothing orders the two — so a hand raised a moment before we finished
+    // joining was invisible for the whole call, with only the once-per-join
+    // backlog sweep as a chance of catching it. Same race the media-key lane
+    // already has its own repair for, in the same handler.
+    void aRaiseThatBeatsItsMembershipIsAppliedWhenItArrives()
+    {
+        const QString room = QStringLiteral("!room:example.org");
+        const QString identity = QStringLiteral("@bea:example.org:BDEV");
+        const QString membership = QStringLiteral("$bea-membership");
+
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        rtc.setPokeCoalesceMsForTest(0);
+
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        call.setMembershipForTest(room, QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
+        call.ingestParticipantsForTest({
+            sfuParticipant(identity, QStringLiteral("PA_BEA"), {}),
+        });
+        CallParticipantModel *model = call.participantModel();
+        const int row = participantRowFor(model, identity);
+        QVERIFY(row >= 0);
+
+        // THE REACTION GETS THERE FIRST. Nothing can attribute it yet.
+        client.emitHandChanged(room, QStringLiteral("@bea:example.org"),
+                               membership, QStringLiteral("$raise"), true);
+        QCOMPARE(participantRole(model, row,
+                                 CallParticipantModel::HandRaisedRole)
+                     .toBool(),
+                 false);
+
+        // ...and now the membership lands.
+        RtcParticipant bea;
+        bea.userId = QStringLiteral("@bea:example.org");
+        bea.deviceId = QStringLiteral("BDEV");
+        bea.rtcIdentity = identity;
+        bea.intent = QStringLiteral("audio");
+        bea.membershipEventId = membership;
+        bea.wireFormat = QStringLiteral("session");
+        RtcSessionData session;
+        session.roomId = room;
+        session.participants = { bea };
+        rtc.refresh(room);
+        QVERIFY(!client.sessionReads.isEmpty());
+        client.answerSession(client.lastSessionOp, session);
+
+        QVERIFY2(participantRole(model, participantRowFor(model, identity),
+                                 CallParticipantModel::HandRaisedRole)
+                     .toBool(),
+                 "a hand raised before its membership was read stayed down "
+                 "for the rest of the call");
+
+        // AND IT CAN STILL BE LOWERED. The redaction names only the reaction
+        // it removed, so the parked raise has to have been recorded under
+        // that id when it was finally applied.
+        client.emitHandChanged(room, QString(), QString(),
+                               QStringLiteral("$raise"), false);
+        QCOMPARE(participantRole(model, participantRowFor(model, identity),
+                                 CallParticipantModel::HandRaisedRole)
+                     .toBool(),
+                 false);
+    }
+
+    // A FORGED RAISE IS NEVER APPLIED, AND NEVER PARKED.
+    //
+    // Anyone may annotate anyone's state event, so a raise whose sender does
+    // not OWN the membership it annotates is refused — and, because the
+    // refusal and "not read yet" both come back as an empty identity, it
+    // must not be parked for retry either: a bounded store filled with
+    // forgeries is a store with no room left for a real early raise.
+    //
+    // HONEST NOTE: the first half of this passes on the unfixed tree, which
+    // dropped every unattributable raise. It is a guard on the parking code
+    // this round adds, not a regression test for the defect it fixes.
+    void aForgedRaiseIsNeitherAppliedNorParked()
+    {
+        const QString room = QStringLiteral("!room:example.org");
+        const QString identity = QStringLiteral("@bea:example.org:BDEV");
+        const QString membership = QStringLiteral("$bea-membership");
+
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        rtc.setPokeCoalesceMsForTest(0);
+
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        call.setMembershipForTest(room, QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
+        call.ingestParticipantsForTest({
+            sfuParticipant(identity, QStringLiteral("PA_BEA"), {}),
+        });
+        CallParticipantModel *model = call.participantModel();
+
+        RtcParticipant bea;
+        bea.userId = QStringLiteral("@bea:example.org");
+        bea.deviceId = QStringLiteral("BDEV");
+        bea.rtcIdentity = identity;
+        bea.intent = QStringLiteral("audio");
+        bea.membershipEventId = membership;
+        bea.wireFormat = QStringLiteral("session");
+        RtcSessionData session;
+        session.roomId = room;
+        session.participants = { bea };
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+
+        // Mallory raises BEA's hand.
+        client.emitHandChanged(room, QStringLiteral("@mallory:example.org"),
+                               membership, QStringLiteral("$forged"), true);
+        QCOMPARE(participantRole(model, participantRowFor(model, identity),
+                                 CallParticipantModel::HandRaisedRole)
+                     .toBool(),
+                 false);
+
+        // ...and a later membership read must not let it through either,
+        // which is what a parked forgery would do the moment anything
+        // about the session changed.
+        RtcParticipant moved = bea;
+        moved.displayName = QStringLiteral("Bea");
+        RtcSessionData again;
+        again.roomId = room;
+        again.participants = { moved };
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, again);
+        QVERIFY2(!participantRole(model, participantRowFor(model, identity),
+                                  CallParticipantModel::HandRaisedRole)
+                      .toBool(),
+                 "a raise from somebody who does not own the membership it "
+                 "annotates was applied on the next session read");
     }
 
 };

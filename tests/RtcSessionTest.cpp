@@ -379,9 +379,19 @@ void RtcSessionTest::joinBlockKeepsItsCausesApart()
     // Nothing looked yet: "checking", not "unavailable".
     QCOMPARE(controller.joinBlockReason(kRoom),
              QStringLiteral("undiscovered"));
+    QVERIFY(controller.discoveryWorthRetrying());
 
     // The server answered and named nothing: this homeserver has no
     // MatrixRTC. Different wording from a failed check.
+    //
+    // THE PAIR (answered = true, category = "unsupported") IS THE ONE RUST
+    // REALLY SENDS, and until this round it was not: `server_answered` was
+    // spelled `category.is_empty()`, so a definitive 404 crossed as
+    // "not answered" and this fixture was exercising a combination
+    // production could never produce. `rtc.rs` now routes it through
+    // `discovery_answer_is_definitive`, which counts an empty category AND
+    // `unsupported` as answers and nothing else — pinned there by
+    // `a_homeserver_without_matrixrtc_counts_as_having_answered`.
     controller.discover(kRoom);
     Q_EMIT client.rtcTransportsReceived(client.lastTransportsOp, true,
                                         QStringLiteral("unsupported"), {},
@@ -389,15 +399,23 @@ void RtcSessionTest::joinBlockKeepsItsCausesApart()
     QCOMPARE(controller.joinBlockReason(kRoom),
              QStringLiteral("no_transport"));
     QVERIFY(!controller.callingAvailable());
+    // ...and that settles it for the session. `discoveryWorthRetrying()` is
+    // what the automatic room-change trigger consults, so a server that has
+    // answered must stop it: re-asking is a poll against a constant, once
+    // per room change, for as long as the client runs.
+    QVERIFY2(!controller.discoveryWorthRetrying(),
+             "a homeserver that answered \"no MatrixRTC here\" is still "
+             "re-asked on every room change");
 
     // The check itself failed: we do not know, and must not claim the
-    // server lacks calling.
+    // server lacks calling — and this one IS worth asking again.
     controller.discover(kRoom);
     Q_EMIT client.rtcTransportsReceived(client.lastTransportsOp, false,
                                         QStringLiteral("network"), {},
                                         QString());
     QCOMPARE(controller.joinBlockReason(kRoom),
              QStringLiteral("discovery_failed"));
+    QVERIFY(controller.discoveryWorthRetrying());
 
     // A transport exists. Everything Matrix-side is fine, so the remaining
     // blocker is this build's missing media transport — and that is a

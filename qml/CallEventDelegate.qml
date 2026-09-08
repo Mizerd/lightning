@@ -27,7 +27,9 @@ import MatrixClient
 //   * ONE join path. The gate is `app.rtc.joinBlockReason()` and the action
 //     is `app.groupCall.join()` — the same two calls RoomCallBanner makes,
 //     never a second mechanism. The banner's closed-set reason tokens are
-//     the only thing consulted; a raw server string is never shown.
+//     the only thing consulted; a raw server string is never shown. And
+//     when one of those tokens blocks a call that is still up, the row now
+//     SAYS SO: hiding the button explained nothing.
 Item {
     id: root
 
@@ -96,6 +98,47 @@ Item {
     readonly property bool canJoin:
         sessionLive && blockReason.length === 0 && !alreadyInThisCall
         && groupCallReachable
+
+    /// Human wording for `blockReason`. The tokens are the same closed set
+    /// from RtcController::joinBlockReason that RoomCallBanner.blockText and
+    /// IncomingCallPrompt.joinBlockText map — a raw server string is never
+    /// shown.
+    ///
+    /// THIS ROW USED TO MAP NONE OF THEM. It only hid the Join button, so a
+    /// live call the reader could see and could not join said nothing at all
+    /// about why — the same "graceful fallback and silent absence look
+    /// identical" shape §16 keeps recording. The button standing down is not
+    /// an explanation.
+    readonly property string blockText: {
+        switch (root.blockReason) {
+        case "":
+            return "";
+        case "unsupported":
+            return qsTr("This build can't join Matrix calls");
+        case "undiscovered":
+            return qsTr("Checking whether calling is available…");
+        case "no_transport":
+            return qsTr("No MatrixRTC service on this homeserver");
+        case "discovery_failed":
+            return qsTr("Couldn't check whether calling is available");
+        case "session_closed":
+            return qsTr("This call has ended");
+        case "no_media_transport":
+            return qsTr("Joining calls isn't supported yet in this build");
+        case "media_encryption_unavailable":
+            return qsTr("This room is encrypted, and encrypted calls "
+                        + "aren't available in this build");
+        default:
+            return qsTr("Joining isn't available");
+        }
+    }
+    /// Shown exactly where the Join button would have been: a call that is
+    /// still up, that this device is not already in, and that cannot be
+    /// joined. An ENDED call is history and explains nothing — there is
+    /// nothing to join and no refusal to report.
+    readonly property string joinBlockedText:
+        (root.sessionLive && !root.alreadyInThisCall && root.groupCallReachable
+         && root.blockReason.length > 0) ? root.blockText : ""
 
     // Re-read on a real session change only. RtcController emits this when
     // something actually changed, so this does not churn on every poke —
@@ -223,6 +266,29 @@ Item {
                     sourceComponent: Label {
                         objectName: "callEventMeta"
                         text: root.metaText
+                        textFormat: Text.PlainText
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        elide: Label.ElideRight
+                        Accessible.name: text
+                    }
+                }
+
+                // WHY THERE IS NO JOIN BUTTON. Same Loader discipline as the
+                // two labels above, and for the same reason: this text is ""
+                // in every state where the call can be joined or has ended,
+                // which is most of them.
+                Loader {
+                    Layout.fillWidth: true
+                    active: root.joinBlockedText.length > 0
+                    visible: active
+                    sourceComponent: Label {
+                        objectName: "callEventBlockReason"
+                        text: root.joinBlockedText
+                        // The wording is Lightning's own closed set, but
+                        // PlainText anyway: this row already carries a
+                        // control the reader is invited to click, and the
+                        // rule here is that nothing in it is ever markup.
                         textFormat: Text.PlainText
                         color: AppTheme.textMuted
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)

@@ -740,6 +740,14 @@ private:
     /// sid does not exist until the SFU announces the participant, which can
     /// be long after that participant's key arrived.
     void noteParticipantIdentities();
+    /// Mark one participant's hand up, from a reaction event id we now know
+    /// the owner of. Shared by the live handler and the pending-raise retry
+    /// so the "it is OUR hand" half cannot drift between them.
+    void applyRaisedHand(const QString &reactionEventId,
+                         const QString &identity);
+    /// Re-attribute raises whose membership had not arrived when they did.
+    /// Called where that membership lands; a no-op with nothing parked.
+    void retryPendingHandRaises();
     /// The routing key for one participant's track of `source`
     /// ("camera" / "screen_share"): the TRACK's sid when the SFU stated one,
     /// else empty. Never the PARTICIPANT sid — that is where the camera
@@ -820,6 +828,11 @@ private:
     /// the last picture the capture gave it. See the definition.
     void clearLocalVideoSurface(const QString &streamId);
     QString userFacingError(const QString &category) const;
+    /// Plain wording for one `RtcController::joinBlockReason` token, for the
+    /// case where `join()` is reached with a block standing. Static because
+    /// it depends on nothing but the token. See the definition for why a
+    /// fourth copy of this mapping is deliberate.
+    static QString joinRefusalMessage(const QString &block);
 
     QPointer<MatrixClient> m_client;
     QPointer<RtcController> m_rtc;
@@ -893,6 +906,27 @@ private:
     /// also what makes forwarding every redaction in every room cheap: one
     /// hash lookup rejects the ones that are not ours.
     QHash<QString, QString> m_handReactions;
+    /// Raises whose membership had not been read yet, kept to be retried.
+    ///
+    /// A hand is attributed through the `m.call.member` state event it
+    /// annotates, and the reaction can perfectly well arrive first — the
+    /// membership arrives over the sync/session read, the reaction over the
+    /// sync handler, and nothing orders the two (the same race the media-key
+    /// lane already has its own repair for). A raise that lost that race was
+    /// simply DROPPED, and only the once-per-join backlog sweep could have
+    /// caught it, so a hand raised a moment before we finished joining was
+    /// invisible for the rest of the call.
+    ///
+    /// BOUNDED, and only genuinely-unknown memberships are parked
+    /// (RtcController::knowsMembership): an annotation of a membership whose
+    /// owner is somebody else is a forgery and is refused outright, so it
+    /// cannot fill this. Retried from the sessionChanged handler, which is
+    /// where the membership that resolves it arrives.
+    struct PendingHandRaise {
+        QString sender;
+        QString membershipEventId;
+    };
+    QHash<QString, PendingHandRaise> m_pendingHandRaises;
     bool m_mediaEncrypted = false;
     // Streams whose frames are arriving and being dropped, by LiveKit sid.
     // Cleared per stream when one of its frames decrypts again, and wholly
@@ -907,6 +941,32 @@ private:
     /// it was dispatched under; a mismatch is dropped.
     quint64 m_generation = 0;
     quint64 m_publishOp = 0;
+    /// A membership publish that was still IN FLIGHT when the call was torn
+    /// down, and the room it was for.
+    ///
+    /// Leaving during `Preparing` used to zero `m_publishOp`, so the answer
+    /// arrived, matched nothing and was discarded unread — no log, no
+    /// retraction, no delay-id cancellation. The server can perfectly well
+    /// apply that publish AFTER the leave's retraction, which re-creates a
+    /// live membership for a device that is not in the call and leaves the
+    /// delayed retraction it armed uncancelled. The header of this file says
+    /// what that costs everyone else: media keys addressed to a device that
+    /// cannot use them, and a participant "waiting for media" forever.
+    ///
+    /// These deliberately OUTLIVE the call, exactly as `m_retract*` do.
+    quint64 m_abandonedPublishOp = 0;
+    QString m_abandonedPublishRoomId;
+    /// Whether a membership state event was actually WRITTEN for this call.
+    ///
+    /// Retracting is a state-event write of its own, so issuing one when
+    /// nothing was ever published is a doomed request whose failure is then
+    /// reported as "this device stays in the room's call membership until
+    /// the server's delayed retraction fires" — about a membership that
+    /// never existed. Set whenever the server named an event id, INCLUDING
+    /// on a reported failure: rtc.rs reports `ok=false` when the long-expiry
+    /// write landed and the short-expiry replacement did not, and that first
+    /// write is a live membership.
+    bool m_membershipPublished = false;
     /// A membership RE-publish issued by the refresh heartbeat. Distinct from
     /// m_publishOp because its answer must not re-run the join sequence.
     quint64 m_refreshOp = 0;

@@ -113,6 +113,11 @@ constexpr int kMaxRetractAttempts = 4;
 constexpr int kRetractRetryDelayMs = 2000;
 /// Presentation bound on the participant list.
 constexpr int kMaxParticipants = 64;
+/// Raises waiting for the membership they annotate. One per participant is
+/// the real bound (a person has one hand and one membership), so this sits
+/// at the participant ceiling: enough that no honest raise is ever refused a
+/// slot, small enough that a room full of reactions cannot grow it.
+constexpr int kMaxPendingHandRaises = kMaxParticipants;
 } // namespace
 
 SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
@@ -210,6 +215,12 @@ void SfuCallController::setClient(MatrixClient *client)
     m_retractRoomId.clear();
     m_retractDelayId.clear();
     m_retractAttempts = 0;
+    // ...AND THE ABANDONED PUBLISH, for exactly the same reason. The teardown
+    // above may have just parked one; its answer can no longer arrive, and an
+    // unrelated op id from the NEW client would otherwise be mistaken for it
+    // and answered with a retraction in a room from the previous account.
+    m_abandonedPublishOp = 0;
+    m_abandonedPublishRoomId.clear();
     m_client = client;
     if (!m_client)
         return;
@@ -324,6 +335,14 @@ void SfuCallController::setRtcController(RtcController *rtc)
                 // that was received, installed, and never findable.
                 noteParticipantIdentities();
                 distributeKeyIfNeeded();
+                // ...AND THE HANDS THAT WERE ALREADY UP. A raise is
+                // attributed through the membership it annotates, so one
+                // that arrived before the membership did could not be
+                // attributed and was dropped — an early raiser stayed
+                // invisible for the whole call, with only the once-per-join
+                // backlog sweep as a chance of catching them. Same race as
+                // the key lane above, same repair, same place.
+                retryPendingHandRaises();
                 // ...AND REDRAW THE ROWS, because the membership is where a
                 // participant's NAME and AVATAR come from.
                 //
@@ -1073,6 +1092,16 @@ QString SfuCallController::userFacingError(const QString &category) const
     // must never reach the user (§47 of the calling brief, and the repo's
     // standing rule about rendering remote text).
     //
+    // THE `return` AT THE BOTTOM IS A LAST RESORT, NOT A LANDING ZONE. A
+    // closed set on the Rust side and a bare fallback here is how eight
+    // distinct failures — a LAN-only SFU, a misconfigured JWT service, a
+    // homeserver with no OpenID endpoint — all came out as "The call ended
+    // unexpectedly", which tells a user nothing and tells a bug report
+    // less. `everySfuFailureCategoryHasItsOwnHonestWording` pins every
+    // category Rust can emit against the fallback and against each other,
+    // so adding one there without adding wording here fails a test rather
+    // than reaching a user.
+    //
     // TWO GATES ANSWER `forbidden` AND THEY HAVE OPPOSITE REMEDIES, which is
     // why the membership one arrives here under its own category (see
     // membershipRefusalCategory() above onMembershipPublished):
@@ -1089,21 +1118,80 @@ QString SfuCallController::userFacingError(const QString &category) const
     // "in any room (even owned by me)" and nobody — user or maintainer —
     // could tell which of the two had refused. Reproduced here: a plain
     // member of a room was refused, and promoting them to Moderator fixed it.
+    //
+    // AND THE REMEDY HAS TO BE ONE LIGHTNING ACTUALLY OFFERS. The state
+    // event this gate refuses is `org.matrix.msc3401.call.member`, and
+    // Lightning's own permissions matrix cannot set that key at all —
+    // `RoomInfoController::powerLevelKeys()` omits it deliberately and the
+    // Rust write allowlist refuses it with a written rationale. So "a room
+    // admin can change that in the room's permissions" sent people to a
+    // screen where the setting does not exist. What an admin CAN do from
+    // here is raise this person's power level in the room; changing what
+    // call membership itself requires needs another client.
     if (category == QLatin1String("membership_forbidden"))
         return tr("You don't have permission to join calls in this room. "
-                  "A room admin can change that in the room's permissions.");
+                  "A room admin can raise your power level in it; Lightning "
+                  "can't change what call membership itself requires.");
     if (category == QLatin1String("forbidden"))
         return tr("The calling service refused to connect you to this call.");
+    // `unsupported` HERE IS NOT A FACT ABOUT OUR HOMESERVER. It is a 404
+    // from the SFU's own JWT service (sfu.rs, the `/sfu/get` status map),
+    // and that service is named by the OLDEST MEMBERSHIP — usually somebody
+    // else's SFU on somebody else's infrastructure. Saying "calling isn't
+    // available on this homeserver" sent every reporter to the wrong
+    // administrator. The homeserver's own "no MatrixRTC" answer arrives as
+    // `unrecognized`/`not_found` below, and as the `no_transport` join
+    // block before a call is ever attempted.
     if (category == QLatin1String("unsupported"))
-        return tr("Calling isn't available on this homeserver.");
+        return tr("The calling service this call uses didn't answer. It's "
+                  "chosen by whoever started the call, not by your "
+                  "homeserver.");
+    // The homeserver does not implement what a call needs — in practice the
+    // OpenID token endpoint the SFU's authorisation depends on, which an
+    // old or trimmed-down server answers with M_UNRECOGNIZED or a 404.
+    if (category == QLatin1String("unrecognized")
+        || category == QLatin1String("not_found"))
+        return tr("Your homeserver doesn't support Matrix calls.");
     if (category == QLatin1String("rate_limited"))
         return tr("Too many attempts. Try again in a moment.");
+    // THE FOCUS IS ON A PRIVATE ADDRESS AND WE REFUSED TO GO THERE. Every
+    // address the focus name resolves to must be public (docs/matrixrtc.md:
+    // that request carries the user's OpenID token, device id and room id,
+    // and the host is chosen by another participant), so a LAN-only SFU is
+    // refused by policy. The Rust half landed with a comment saying "a user
+    // pointed at a LAN-only SFU deserves a reason that is not 'the network
+    // is down'"; this is that reason. Element applies no such policy, so
+    // such a room genuinely works there and not here — the sentence must
+    // therefore not read as a fault in the network.
+    if (category == QLatin1String("focus_unroutable"))
+        return tr("This call's service is on a private network address, "
+                  "which Lightning won't connect to. Whoever set up the call "
+                  "needs to give it an address reachable from the internet.");
+    // `send_failed` is a websocket write that did not go out: from the
+    // user's side that is the connection, and it is deliberately folded in
+    // rather than given a sentence of its own.
     if (category == QLatin1String("network")
         || category == QLatin1String("connect_failed")
-        || category == QLatin1String("connection_lost"))
+        || category == QLatin1String("connection_lost")
+        || category == QLatin1String("send_failed"))
         return tr("Couldn't connect to the call.");
     if (category == QLatin1String("server_error"))
         return tr("The calling service is having trouble.");
+    // ONE SENTENCE FOR THE FOUR "the service answered something we can't
+    // use" CATEGORIES, on purpose. `invalid` (a 3xx, an oversized body, an
+    // unparseable answer, a cleartext SFU URL), `invalid_transport` (a
+    // service URL with no host, or a name that would not resolve),
+    // `invalid_request` (we could not even build the request) and `unknown`
+    // (an HTTP status outside every mapped range) differ only in where the
+    // answer went wrong, and the user's remedy is identical for all four.
+    // The distinction is for the LOG, which carries the category verbatim
+    // on every one of these paths.
+    if (category == QLatin1String("invalid")
+        || category == QLatin1String("invalid_transport")
+        || category == QLatin1String("invalid_request")
+        || category == QLatin1String("unknown"))
+        return tr("This call's service isn't set up correctly, so Lightning "
+                  "couldn't connect to it.");
     // Before the startsWith below, which would otherwise tell someone whose
     // shared window they just closed that it "couldn't start".
     if (category == QLatin1String("screen_share_source_closed"))
@@ -1117,6 +1205,37 @@ QString SfuCallController::userFacingError(const QString &category) const
     if (category == QLatin1String("audio_source_failed"))
         return tr("Your microphone isn't available.");
     return tr("The call ended unexpectedly.");
+}
+
+QString SfuCallController::joinRefusalMessage(const QString &block)
+{
+    // The tokens are RtcController::joinBlockReason's closed set, and this
+    // is the FOURTH surface that maps it — RoomCallBanner, IncomingCallPrompt
+    // and CallEventDelegate render the other three. That is deliberate and
+    // not a duplication to collapse: those three explain a button that is
+    // standing down, this one explains a join that was actually attempted
+    // and refused, and it is only ever reached if one of them drifts out of
+    // step with the gate. `everyJoinBlockTokenHasWordingOnEverySurface`
+    // derives the set from joinBlockReason's own body and requires all four
+    // to carry every token.
+    if (block == QLatin1String("unsupported"))
+        return tr("This build can't join Matrix calls.");
+    if (block == QLatin1String("undiscovered"))
+        return tr("Still checking whether calling is available here. Try "
+                  "again in a moment.");
+    if (block == QLatin1String("no_transport"))
+        return tr("There's no Matrix calling service on this homeserver.");
+    if (block == QLatin1String("discovery_failed"))
+        return tr("Lightning couldn't check whether calling is available "
+                  "here.");
+    if (block == QLatin1String("session_closed"))
+        return tr("This call has ended.");
+    if (block == QLatin1String("no_media_transport"))
+        return tr("This build has no calling media support.");
+    if (block == QLatin1String("media_encryption_unavailable"))
+        return tr("This room is encrypted, and encrypted calls aren't "
+                  "available yet on this build.");
+    return tr("This call can't be joined right now.");
 }
 
 bool SfuCallController::join(const QString &roomId, bool withVideo)
@@ -1146,13 +1265,19 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     // refused outright rather than joined in the clear: the user was told
     // that room is end-to-end encrypted, and carrying their audio where the
     // SFU can read it would make that untrue.
+    //
+    // AND EVERY BLOCK REFUSES, not only the encryption one. This used to
+    // log "join refused: block=<token>" and then publish a membership
+    // anyway for six of the seven tokens — a log line saying the opposite
+    // of what happened, and a membership advertising a session this client
+    // had just decided it could not join, which the header of this file
+    // calls a lie on the wire. Not reachable today (all four call sites
+    // gate on the same predicate), which is exactly why it could sit here
+    // unnoticed; a surface that drifts out of step must fail closed.
     const QString block = m_rtc->joinBlockReason(roomId);
-    if (!block.isEmpty())
+    if (!block.isEmpty()) {
         qCWarning(lcSfuCall) << "join refused: block=" << block;
-    if (block == QLatin1String("media_encryption_unavailable")) {
-        setState(State::Failed,
-                 tr("This room is encrypted, and encrypted calls aren't "
-                    "available yet on this build."));
+        setState(State::Failed, joinRefusalMessage(block));
         Q_EMIT callFailed(m_lastError);
         return false;
     }
@@ -1182,6 +1307,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_handReactionId.clear();
     m_handOp = 0;
     m_handReactions.clear();
+    m_pendingHandRaises.clear();
     m_participants.clear();
     // A blocked-media badge must never outlive the call that raised it.
     if (!m_blockedStreams.isEmpty()) {
@@ -1211,6 +1337,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_cameraCid.clear();
     m_screenCid.clear();
     m_membershipEventId.clear();
+    m_membershipPublished = false;
     m_delayId.clear();
     m_ownIdentity.clear();
     m_mediaEncrypted = false;
@@ -1306,6 +1433,49 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
 {
     if (opId == 0)
         return;
+    // THE ANSWER TO A PUBLISH WE ABANDONED BY LEAVING. This used to be
+    // discarded silently by the `opId != m_publishOp` test further down —
+    // no log, no retraction, no delay-id cancellation — while the write it
+    // reports is a LIVE MEMBERSHIP the leave's own retraction may well have
+    // preceded. That is the ghost this class exists to prevent: media keys
+    // addressed to a device that cannot use them, and a participant
+    // "waiting for media" forever.
+    if (m_abandonedPublishOp != 0 && opId == m_abandonedPublishOp) {
+        const QString room = m_abandonedPublishRoomId;
+        m_abandonedPublishOp = 0;
+        m_abandonedPublishRoomId.clear();
+        // `ok` alone is not the question. rtc.rs reports ok=false when the
+        // long-expiry write LANDED and the short-expiry replacement did not,
+        // and it carries the first write's event id in exactly that case —
+        // so the event id is what says whether a membership exists.
+        if (!ok && eventId.isEmpty()) {
+            qCInfo(lcSfuCall)
+                << "an abandoned membership publish was refused; nothing to "
+                   "retract category=" << category;
+            return;
+        }
+        // ...unless we are back in that room's call. The state key is per
+        // (user, device), so this write and the current call's own publish
+        // address the SAME state event: the server holds the newer one, and
+        // retracting here would remove a live participant — us.
+        if (active() && room == m_roomId) {
+            qCInfo(lcSfuCall)
+                << "a membership publish from a previous join landed while "
+                   "we are back in the same room; its state event has "
+                   "already been replaced by this call's own";
+            return;
+        }
+        qCWarning(lcSfuCall)
+            << "a membership publish landed AFTER we left; retracting it "
+               "delayed=" << !delayId.isEmpty();
+        // The delay id comes from the ANSWER, not from m_delayId: this
+        // publish armed its own delayed retraction and nothing else holds
+        // that id, so passing it is the only way it is ever cancelled.
+        m_retractRetryTimer.stop();
+        m_retractAttempts = 0;
+        dispatchRetraction(room, delayId);
+        return;
+    }
     // A REFRESH re-publish, not the join's first one. It must not re-run the
     // join sequence — but it MUST adopt the delay id, because a re-publish
     // arms a brand new delayed retraction and the old id is dead.
@@ -1322,6 +1492,7 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
                 << "membership refresh FAILED category=" << category;
             return;
         }
+        m_membershipPublished = true;
         m_delayId = delayId;
         qCInfo(lcSfuCall) << "membership refreshed delayed="
                           << !delayId.isEmpty();
@@ -1333,6 +1504,13 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
     qCInfo(lcSfuCall) << "membership published ok=" << ok
                       << "category=" << category
                       << "delayed=" << !delayId.isEmpty();
+    // RECORDED BEFORE THE FAILURE BRANCH, because that branch tears down and
+    // the teardown has to know whether there is anything to retract. An
+    // event id is the proof, not `ok`: rtc.rs reports ok=false when the
+    // long-expiry write landed and the short-expiry replacement did not, and
+    // that first write is a live membership carrying four hours of validity.
+    if (ok || !eventId.isEmpty())
+        m_membershipPublished = true;
     if (m_state != State::Preparing)
         return; // a reply for a call we already left
     if (!ok) {
@@ -2434,6 +2612,28 @@ void SfuCallController::teardown(State finalState, const QString &error)
                                       ? QStringLiteral("<none>") : error);
     ++m_generation;
     m_refreshTimer.stop();
+    // A PUBLISH STILL IN FLIGHT IS REMEMBERED, NOT FORGOTTEN. Zeroing the op
+    // id made its answer match nothing and be discarded unread, and the
+    // server is free to apply that write AFTER the retraction dispatched a
+    // few lines below — which re-creates a live membership for a device that
+    // has left, and leaves the delayed retraction that write armed with
+    // nobody holding its id. onMembershipPublished() retracts it when the
+    // answer lands. The room is captured here because m_roomId is cleared at
+    // the end of this function.
+    //
+    // Both ops are candidates: the join's publish (Preparing) and the
+    // heartbeat's re-publish (Connected) write the SAME state key, so either
+    // one landing late re-creates the same membership.
+    //
+    // ONE SLOT IS ENOUGH, and it holds the NEWEST. Every publish writes that
+    // one state key, so the server keeps whichever it received last — and
+    // that is the newest one we sent, which is the one recorded here.
+    // Retracting on its answer removes the surviving membership; an older
+    // abandoned publish's write was already replaced by it.
+    if (m_publishOp != 0 || m_refreshOp != 0) {
+        m_abandonedPublishOp = m_publishOp != 0 ? m_publishOp : m_refreshOp;
+        m_abandonedPublishRoomId = m_roomId;
+    }
     m_publishOp = 0;
     m_refreshOp = 0;
     m_delayedRestartOp = 0;
@@ -2449,10 +2649,19 @@ void SfuCallController::teardown(State finalState, const QString &error)
         m_portal->cancel();
     if (m_client) {
         m_client->sfuDisconnect();
-        if (!m_roomId.isEmpty()) {
-            // Retract our membership and cancel the delayed retraction. Safe
-            // to issue even if we never got as far as publishing: the Rust
-            // side treats an empty delay id as "nothing to cancel".
+        if (!m_roomId.isEmpty() && m_membershipPublished) {
+            // ONLY WHEN THERE IS SOMETHING TO RETRACT. A retraction is a
+            // state-event write of its own, so issuing one after a publish
+            // the homeserver REFUSED sends a second doomed write to the same
+            // room — and when that is refused too, the give-up branch of
+            // onMembershipRetracted() logs "this device stays in the room's
+            // call membership until the server's delayed retraction fires"
+            // about a membership that was never created. A false alarm in
+            // the one log line a ghost-membership report would be read from.
+            //
+            // The delay id may still be empty here (a server without
+            // MSC4140, or a leave during Preparing); the Rust side treats
+            // that as "nothing to cancel".
             //
             // This USED TO BE FIRE-AND-FORGET, with nothing listening to the
             // answer. A retraction is an ordinary network request issued at
@@ -2472,6 +2681,7 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_roomId.clear();
     m_focusUrl.clear();
     m_membershipEventId.clear();
+    m_membershipPublished = false;
     m_delayId.clear();
     m_ownIdentity.clear();
     m_participants.clear();
@@ -2510,6 +2720,7 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_handReactionId.clear();
     m_handOp = 0;
     m_handReactions.clear();
+    m_pendingHandRaises.clear();
     m_mediaEncrypted = false;
 #ifdef HAVE_LIGHTNING_WEBRTC
     // The sink table belonged to THIS call's track sids. In practice the
@@ -3058,6 +3269,10 @@ void SfuCallController::onHandChanged(const QString &roomId,
         return;
 
     if (!raised) {
+        // A raise that never resolved is lowered by forgetting it. Without
+        // this a hand raised and lowered while its membership was still in
+        // flight would go UP the moment the membership arrived, and stay up.
+        m_pendingHandRaises.remove(reactionEventId);
         // A REDACTION NAMES ONLY WHAT IT REMOVED. The reaction is gone, so
         // nothing on the wire can say whose hand it was — we answer from the
         // ids we are already holding. A redaction of anything else is not
@@ -3084,16 +3299,65 @@ void SfuCallController::onHandChanged(const QString &roomId,
         return;
     const QString identity =
         m_rtc->identityForMembership(roomId, membershipEventId, sender);
-    if (identity.isEmpty())
+    if (identity.isEmpty()) {
+        // TWO DIFFERENT FACTS COME BACK EMPTY and only one is worth
+        // waiting for. A membership we have simply not read YET is a race —
+        // the reaction rides the sync handler, the membership rides a
+        // session read, and nothing orders them — so the raise is parked and
+        // retried where that membership lands. A membership we HAVE read
+        // whose owner is somebody else is a forgery, and is dropped here so
+        // it can never occupy the bounded store.
+        if (!m_rtc->knowsMembership(roomId, membershipEventId)
+            && m_pendingHandRaises.size() < kMaxPendingHandRaises) {
+            m_pendingHandRaises.insert(reactionEventId,
+                                       PendingHandRaise{sender,
+                                                        membershipEventId});
+        }
         return;
+    }
+    applyRaisedHand(reactionEventId, identity);
+}
+
+void SfuCallController::applyRaisedHand(const QString &reactionEventId,
+                                        const QString &identity)
+{
+    if (!m_participantModel || reactionEventId.isEmpty()
+        || identity.isEmpty()) {
+        return;
+    }
     m_handReactions.insert(reactionEventId, identity);
     m_participantModel->setHandRaised(identity, true);
-    if (identity == m_ownIdentity) {
-        m_handReactionId = reactionEventId;
-        if (!m_handRaised) {
-            m_handRaised = true;
-            Q_EMIT mediaStateChanged();
+    if (identity != m_ownIdentity)
+        return;
+    // Our own hand: adopt the reaction id, or it is a hand this device can
+    // never lower (lowering is a redaction of that specific event).
+    m_handReactionId = reactionEventId;
+    if (!m_handRaised) {
+        m_handRaised = true;
+        Q_EMIT mediaStateChanged();
+    }
+}
+
+void SfuCallController::retryPendingHandRaises()
+{
+    if (m_pendingHandRaises.isEmpty() || !m_rtc || m_roomId.isEmpty())
+        return;
+    for (auto it = m_pendingHandRaises.begin();
+         it != m_pendingHandRaises.end();) {
+        const QString identity = m_rtc->identityForMembership(
+            m_roomId, it->membershipEventId, it->sender);
+        if (identity.isEmpty()) {
+            // Still unknown, OR now known and not owned by this sender. A
+            // membership that has arrived and refused the sender will never
+            // resolve, so it is dropped rather than kept forever.
+            if (m_rtc->knowsMembership(m_roomId, it->membershipEventId))
+                it = m_pendingHandRaises.erase(it);
+            else
+                ++it;
+            continue;
         }
+        applyRaisedHand(it.key(), identity);
+        it = m_pendingHandRaises.erase(it);
     }
 }
 
@@ -3114,17 +3378,11 @@ void SfuCallController::onHandsReceived(quint64 opId, const QString &roomId,
             hand.value(QStringLiteral("reactionEventId")).toString();
         if (identity.isEmpty() || reactionId.isEmpty())
             continue;
-        m_handReactions.insert(reactionId, identity);
-        m_participantModel->setHandRaised(identity, true);
-        if (identity == m_ownIdentity) {
-            // Our own hand, still up from before this join. Adopt it rather
-            // than leaving a raised hand nobody here can lower.
-            m_handReactionId = reactionId;
-            if (!m_handRaised) {
-                m_handRaised = true;
-                Q_EMIT mediaStateChanged();
-            }
-        }
+        // Whatever the sweep resolves, the live handler no longer has to.
+        m_pendingHandRaises.remove(reactionId);
+        // Including our own hand, still up from before this join: adopting
+        // its reaction id is what makes it lowerable from here at all.
+        applyRaisedHand(reactionId, identity);
     }
 }
 
@@ -3500,6 +3758,10 @@ void SfuCallController::setMembershipForTest(const QString &roomId,
 {
     m_roomId = roomId;
     m_delayId = delayId;
+    // The seam's whole purpose is "where a SUCCESSFUL publish leaves us", so
+    // it must also record that a membership state event exists — teardown()
+    // now refuses to retract one that never did.
+    m_membershipPublished = true;
     m_lastPublishMs = 0;
 }
 

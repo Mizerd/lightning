@@ -1114,6 +1114,32 @@ fn status_category(status: u16) -> &'static str {
     }
 }
 
+/// Whether a discovery outcome SETTLES the account-scoped question
+/// "does this homeserver have MatrixRTC?".
+///
+/// Two shapes are definitive and only one of them is a success:
+///
+///   * an EMPTY category — the endpoint answered, whatever it listed;
+///   * `unsupported` — a 400/404/405, which is exactly how a homeserver
+///     with no MSC4143 answers. That is "this homeserver has no
+///     MatrixRTC", not "we could not check".
+///
+/// Everything else (`forbidden`, `rate_limited`, `server_error`,
+/// `network`, `unknown`, …) leaves the question genuinely open, so the UI
+/// must keep saying "couldn't check" and the caller may retry.
+///
+/// This exists because `server_answered` used to be spelled
+/// `category.is_empty()`, which contradicted the comment three lines below
+/// it: a definitive 404 crossed the FFI as "not answered", the join gate
+/// reported `discovery_failed` ("Couldn't check whether calling is
+/// available") for a server that had answered clearly, and
+/// `RtcController::discoveryWorthRetrying()` — which is literally
+/// `!m_serverAnswered` — re-ran discovery on every room change for the
+/// whole session against a constant.
+fn discovery_answer_is_definitive(category: &str) -> bool {
+    category.is_empty() || category == "unsupported"
+}
+
 /// Local wall clock. Compared against server-supplied `created_ts` /
 /// `origin_server_ts` for expiry, so a badly skewed device clock can drop
 /// live participants (or keep dead ones). The reference implementation has
@@ -1222,10 +1248,16 @@ pub(crate) fn request_transports(
             "op_id": op_id,
             "lifecycle": lifecycle,
             "room_id": room_id,
-            // Empty with an empty category means the server answered and
-            // advertised nothing — genuinely "no MatrixRTC here", which is
-            // a different fact from "the request failed".
-            "server_answered": category.is_empty(),
+            // "The server SETTLED this", not "the server said yes". An
+            // empty category means it answered and advertised whatever it
+            // advertised; `unsupported` (400/404/405) means it answered by
+            // not implementing MSC4143 at all. Both are final facts about
+            // this homeserver and neither is worth re-asking. Only a real
+            // failure — forbidden, rate limited, a 5xx, the network —
+            // leaves the question open, and the UI must keep those apart
+            // (docs/matrixrtc.md, "'No calling here' and 'we could not
+            // check' are different facts").
+            "server_answered": discovery_answer_is_definitive(&category),
             "category": category,
             "server_transports": server_transports.iter()
                 .map(LivekitTransport::to_json).collect::<Vec<_>>(),
@@ -3096,6 +3128,55 @@ mod tests {
             "livekit_service_url": "https://sfu.example.org"
         }))
         .is_some());
+    }
+
+    // A HOMESERVER WITH NO MSC4143 HAS ANSWERED. It answers 404 (or 400 /
+    // 405, or M_UNRECOGNIZED), `status_category` calls that `unsupported`,
+    // and the comment above the discovery call has always said that is
+    // "this homeserver has no MatrixRTC, NOT a transient failure". The
+    // payload contradicted it: `server_answered` was `category.is_empty()`,
+    // so the one definitive negative crossed as "we could not check" —
+    // which the join gate renders as "Couldn't check whether calling is
+    // available", and which makes `discoveryWorthRetrying()` true forever,
+    // re-running account-scoped discovery on every room change for the rest
+    // of the session against a constant.
+    #[test]
+    fn a_homeserver_without_matrixrtc_counts_as_having_answered() {
+        for status in [400u16, 404, 405] {
+            assert_eq!(status_category(status), "unsupported");
+            assert!(
+                discovery_answer_is_definitive(status_category(status)),
+                "HTTP {status} is a homeserver saying it has no MatrixRTC, \
+                 not a check that failed"
+            );
+        }
+        // An endpoint that answered normally is definitive too, whatever
+        // it listed — an empty list is "no MatrixRTC here", not an error.
+        assert!(discovery_answer_is_definitive(""));
+
+        // ...and everything that is genuinely a FAILURE must stay open, or
+        // the UI claims the homeserver has no calling on the strength of a
+        // 500 and never asks again.
+        for category in [
+            "forbidden",
+            "rate_limited",
+            "server_error",
+            "unknown",
+            "network",
+            "not_found",
+            "unrecognized",
+        ] {
+            assert!(
+                !discovery_answer_is_definitive(category),
+                "`{category}` is a failed check and must not read as a \
+                 settled answer"
+            );
+        }
+        // The categories a real HTTP status can produce, pinned so a new
+        // status mapping cannot quietly become "definitive".
+        for status in [401u16, 403, 429, 500, 503, 418] {
+            assert!(!discovery_answer_is_definitive(status_category(status)));
+        }
     }
 
     #[test]

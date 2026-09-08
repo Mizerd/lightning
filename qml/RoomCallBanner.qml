@@ -60,6 +60,13 @@ Rectangle {
             return qsTr("This call has ended");
         case "no_media_transport":
             return qsTr("Joining calls isn't supported yet in this build");
+        case "media_encryption_unavailable":
+            // The room is encrypted and call media E2EE is not active, so
+            // joining would carry audio and video the SFU could read. It had
+            // no case here at all and fell into the default, so the one
+            // refusal that is about ENCRYPTION read as a generic shrug.
+            return qsTr("This room is encrypted, and encrypted calls "
+                        + "aren't available in this build");
         default:
             return qsTr("Joining isn't available");
         }

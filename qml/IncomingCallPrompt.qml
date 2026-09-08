@@ -117,7 +117,13 @@ Rectangle {
 
     /// Human wording for `joinBlockReason`. Closed set from
     /// RtcController::joinBlockReason — a raw server string is never shown.
-    /// Kept in step with RoomCallBanner.blockText, which maps the same set.
+    /// Kept in step with RoomCallBanner.blockText and
+    /// CallEventDelegate.blockText, which map the same set — and that claim
+    /// is now CHECKED rather than asserted in a comment:
+    /// `everyJoinBlockTokenHasWordingOnEverySurface` derives the token list
+    /// from joinBlockReason's own body and requires a case on all three.
+    /// It had been untrue for `media_encryption_unavailable` since that
+    /// token existed.
     readonly property string joinBlockText: {
         switch (root.joinBlockReason) {
         case "":
@@ -134,6 +140,14 @@ Rectangle {
             return qsTr("This call has ended.");
         case "no_media_transport":
             return qsTr("Joining calls isn't supported yet in this build.");
+        case "media_encryption_unavailable":
+            // The room is encrypted and call media E2EE is not active, so
+            // joining would carry audio and video the SFU could read. It had
+            // no case here at all and fell into the default, so the one
+            // refusal that is about ENCRYPTION read as a generic shrug — in
+            // a file whose own comment claims this set is kept in step.
+            return qsTr("This room is encrypted, and encrypted calls aren't "
+                        + "available in this build.");
         default:
             return qsTr("Joining isn't available.");
         }
