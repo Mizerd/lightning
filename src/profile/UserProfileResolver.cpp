@@ -19,6 +19,22 @@ void UserProfileResolver::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::userProfileFinished, this,
                 &UserProfileResolver::onFinished);
+        // A PROFILE BELONGS TO THE ACCOUNT THAT RESOLVED IT.
+        //
+        // This is the session boundary production actually crosses.
+        // AppController builds ONE MatrixClient in its constructor and keeps
+        // it for the process, so an account switch is `detachSession()`
+        // (which emits loggedOut) followed by `restoreSession()` on the same
+        // object — and `setClient` above returns early when the pointer has
+        // not changed. Without this the previous account's global display
+        // names and avatar URIs were still handed to the next account's
+        // mention pills and profile cards, and a refusal remembered under one
+        // account silenced the question under the next.
+        //
+        // Its three siblings in this directory — NameColorManager,
+        // ProfileBannerManager and ProfileBioManager — all do exactly this.
+        connect(m_client, &MatrixClient::loggedOut, this,
+                &UserProfileResolver::clear);
     }
 }
 

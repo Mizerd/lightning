@@ -143,6 +143,68 @@ private Q_SLOTS:
         QCOMPARE(resolver.cachedCount(), 0);
         QVERIFY(!resolver.profile(QStringLiteral("@dim:example.org")).known);
     }
+
+    // THE SESSION BOUNDARY PRODUCTION ACTUALLY CROSSES.
+    //
+    // The case above hands the resolver a DIFFERENT MatrixClient, and nothing
+    // in this application ever does that: AppController builds one client in
+    // its constructor and keeps it for the process, so an account switch is
+    // `detachSession()` (which emits loggedOut) followed by
+    // `restoreSession()` on the SAME object — and `setClient` returns early
+    // when the pointer has not changed. Without a loggedOut connection the
+    // previous account's global display names and avatar URIs were still
+    // served to the next account's mention pills and profile cards.
+    //
+    // Its three siblings in src/profile — NameColorManager,
+    // ProfileBannerManager and ProfileBioManager — all connect this signal
+    // for exactly this reason; this one did not.
+    void signingOutDropsTheProfilesTheAccountResolved()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.mockDisplayNames.insert(QStringLiteral("@dim:example.org"),
+                                       QStringLiteral("dim"));
+        client.mockAvatarUrls.insert(QStringLiteral("@dim:example.org"),
+                                     QStringLiteral("mxc://example.org/dim"));
+        UserProfileResolver resolver;
+        resolver.setClient(&client);
+        QSignalSpy resolved(&resolver, &UserProfileResolver::resolved);
+        resolver.request(QStringLiteral("@dim:example.org"));
+        QVERIFY(resolved.wait(kSignalTimeoutMs));
+        QCOMPARE(resolver.cachedCount(), 1);
+
+        // The account goes; the client object does not.
+        client.logout();
+        QCOMPARE(resolver.cachedCount(), 0);
+        QVERIFY(!resolver.profile(QStringLiteral("@dim:example.org")).known);
+        const QVariantMap after =
+            resolver.lookup(QStringLiteral("@dim:example.org"));
+        QVERIFY(!after.value(QStringLiteral("known")).toBool());
+        QVERIFY(after.value(QStringLiteral("displayName")).toString().isEmpty());
+        QVERIFY(after.value(QStringLiteral("avatarUrl")).toString().isEmpty());
+    }
+
+    // ...and a refusal is account-scoped too: the next account must be free to
+    // ask about a user the previous account's server would not name.
+    void signingOutAlsoDropsARememberedRefusal()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        UserProfileResolver resolver;
+        resolver.setClient(&client);
+        resolver.request(QStringLiteral("@nobody:example.org"));
+        QCOMPARE(resolver.inFlightCount(), 1);
+        QTRY_COMPARE_WITH_TIMEOUT(resolver.inFlightCount(), 0,
+                                  kSignalTimeoutMs);
+        // Within the retry interval the refusal stands.
+        resolver.request(QStringLiteral("@nobody:example.org"));
+        QCOMPARE(resolver.inFlightCount(), 0);
+
+        client.logout();
+        QVERIFY(login(client));
+        resolver.request(QStringLiteral("@nobody:example.org"));
+        QCOMPARE(resolver.inFlightCount(), 1);
+    }
 };
 
 QTEST_MAIN(UserProfileResolverTest)

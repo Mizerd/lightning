@@ -26,6 +26,12 @@ class MatrixClient;
 // failure and re-asked only after failureRetryMs, so a transient error is
 // not permanent and a missing user is not hammered. /profile takes a user
 // id and nothing else; no room context is sent.
+//
+// "Per session" ends at SIGN-OUT, not at process exit: an answer resolved
+// under one account's authority is dropped when that account's session ends
+// (MatrixClient::loggedOut, which an account switch emits through
+// detachSession()). setClient() cannot carry that on its own — the client
+// OBJECT is never replaced.
 class UserProfileResolver : public QObject
 {
     Q_OBJECT
