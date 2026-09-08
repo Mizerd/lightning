@@ -31,12 +31,35 @@ QString g_bundledPath;
 ///             directory of dylibs inside MacOS/, and QFileInfo::isDir
 ///             follows the link)
 ///   Linux     absent; the system GStreamer is used and nothing is touched.
+/// The AppImage layout, checked against what the AppRun hook actually
+/// exported. Filesystem side of the pure rule in the header.
+QString appImageBundle()
+{
+    const QByteArray appDir = qgetenv("APPDIR");
+    if (appDir.isEmpty())
+        return {};
+    const QString named = appImageBundledPluginPath(
+        QFile::decodeName(appDir),
+        QFile::decodeName(qgetenv("GST_PLUGIN_SYSTEM_PATH_1_0")),
+        QFile::decodeName(qgetenv("GST_PLUGIN_PATH_1_0")));
+    if (named.isEmpty() || !QFileInfo(named).isDir())
+        return {};
+    return named;
+}
+
 void applyBundledPluginPath()
 {
     const QString bundled = QDir(QCoreApplication::applicationDirPath())
                                 .absoluteFilePath(QStringLiteral("gstreamer-1.0"));
-    if (!QFileInfo(bundled).isDir())
-        return;   // development build: leave the system GStreamer alone.
+    if (!QFileInfo(bundled).isDir()) {
+        // Not the Windows/macOS layout, where the plugins sit beside the
+        // binary. It may still be an AppImage, whose AppRun hook pointed
+        // GStreamer at the bundle before this process began. Nothing to set;
+        // recording it is the difference between a diagnostic that names the
+        // runtime and one that names the wrong one.
+        g_bundledPath = appImageBundle();
+        return;   // otherwise a development build: leave the system alone.
+    }
     // An explicit override wins. Someone debugging a plugin against a packaged
     // build has said what they want, and silently ignoring it would make the
     // override look broken.
@@ -94,6 +117,24 @@ QString versionString()
 QString bundledPluginPath()
 {
     return g_bundledPath;
+}
+
+QString appImageBundledPluginPath(const QString &appDir,
+                                  const QString &systemPath,
+                                  const QString &pluginPath)
+{
+    if (appDir.isEmpty())
+        return {};
+    const QString wanted = QDir::cleanPath(
+        QDir(appDir).absoluteFilePath(QStringLiteral("usr/lib/gstreamer-1.0")));
+    for (const QString &value : { systemPath, pluginPath }) {
+        const auto parts = value.split(QLatin1Char(':'), Qt::SkipEmptyParts);
+        for (const QString &part : parts) {
+            if (QDir::cleanPath(part) == wanted)
+                return wanted;
+        }
+    }
+    return {};
 }
 
 } // namespace lightning::gst

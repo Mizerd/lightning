@@ -47,5 +47,29 @@ QString versionString();
 /// development build using the system GStreamer. Diagnostics only.
 QString bundledPluginPath();
 
+/// Which bundled plugin directory an AppImage is ALREADY using, or empty.
+///
+/// The AppImage is the one Linux package that carries its own GStreamer, and
+/// it does not put it beside the binary: linuxdeploy's layout is
+/// `usr/bin/lightning-matrix` with the plugins in `usr/lib/gstreamer-1.0`, and
+/// the AppRun hook exports `GST_PLUGIN_SYSTEM_PATH_1_0` and
+/// `GST_PLUGIN_PATH_1_0` at them before this process starts. So there is
+/// nothing for us to SET; what was missing is that nothing NOTICED, and
+/// `--call-media-status` reported "using system GStreamer" on the one Linux
+/// package that does not use one.
+///
+/// That is worth fixing because the flag exists so a tester's output
+/// identifies their runtime without a round trip, and four separate packaging
+/// defects in this project have turned on exactly which GStreamer was loaded.
+///
+/// It answers what is TRUE rather than what the layout suggests: one of the
+/// two variables the hook sets must actually name the directory. A bundle
+/// whose hook did not run is not reported as bundled, because it is not being
+/// used. Pure, and deliberately does NOT touch the filesystem, so the rule is
+/// testable without an AppImage; the caller checks the directory exists.
+QString appImageBundledPluginPath(const QString &appDir,
+                                  const QString &systemPath,
+                                  const QString &pluginPath);
+
 } // namespace lightning::gst
 

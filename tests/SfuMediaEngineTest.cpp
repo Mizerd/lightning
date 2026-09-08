@@ -3577,6 +3577,7 @@ private slots:
             gst_object_unref(wholeBin);
         QVERIFY2(wholeMessage.isEmpty(), qPrintable(wholeMessage));
     }
+
 };
 
 QTEST_MAIN(SfuMediaEngineTest)

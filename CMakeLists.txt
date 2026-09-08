@@ -3386,7 +3386,21 @@ if(BUILD_TESTING)
             Qt6::Core Qt6::Test PkgConfig::GSTWEBRTC)
         add_test(NAME call-media-loopback COMMAND call-media-loopback-test)
 
-        # 2026-08-23: SfuMediaEngine had NO test while becoming the engine
+            # 2026-09-08: the bundled-plugin rule, with no runtime required.
+        # Deliberately NOT in sfu-media-engine-test, which QSKIPs its whole
+        # suite when the SFU runtime is unavailable — and a skipped case
+        # reports as a pass through ctest, so it could never be trusted there.
+        qt_add_executable(gst-bootstrap-test
+            tests/GstBootstrapTest.cpp
+            src/calls/GstBootstrap.h
+            src/calls/GstBootstrap.cpp
+        )
+        target_include_directories(gst-bootstrap-test PRIVATE src)
+        target_link_libraries(gst-bootstrap-test PRIVATE
+            Qt6::Core Qt6::Test PkgConfig::GSTWEBRTC)
+        add_test(NAME gst-bootstrap COMMAND gst-bootstrap-test)
+
+    # 2026-08-23: SfuMediaEngine had NO test while becoming the engine
         # every call runs through — the .well-known discovery fix turned it
         # from unreachable into the default path in one commit, and the next
         # real run died instantly on pressing call. Test-source mode only:
