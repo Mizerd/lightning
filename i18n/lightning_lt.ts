@@ -9001,7 +9001,7 @@ Dydis: %3</translation>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+337"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+339"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>„Lightning“ negalėjo sukurti šios paskyros vietinės saugyklos katalogo. Patikrinkite failų sistemos leidimus ir laisvą vietą.</translation>
     </message>
@@ -9112,7 +9112,7 @@ Dydis: %3</translation>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3387"/>
+        <location line="+3398"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+64"/>
@@ -9121,15 +9121,15 @@ Dydis: %3</translation>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-3794"/>
+        <location line="-3805"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3596"/>
+        <location line="+3607"/>
         <source>Unknown room: %1</source>
         <translation>Nežinomas kambarys: %1</translation>
     </message>
     <message>
-        <location line="-3796"/>
+        <location line="-3807"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9176,7 +9176,7 @@ Dydis: %3</translation>
         <translation>Kvietimo veiksmas nepavyko. Bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="+196"/>
+        <location line="+207"/>
         <location line="+16"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
@@ -17137,6 +17137,24 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <location line="+5"/>
         <source>Backend to run: mock, http, or rust. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Paleidžiama posistemė: mock, http arba rust. Numatytoji: rust (versijose be Rust SDK – http).</translation>
+    </message>
+</context>
+<context>
+    <name>matrix::room_action</name>
+    <message>
+        <location filename="../src/matrix/RoomActionError.cpp" line="+10"/>
+        <source>Could not change this room&apos;s favourite status.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Could not mark this room as read.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Could not change this room&apos;s unread mark.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 </TS>

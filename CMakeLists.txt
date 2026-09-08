@@ -519,6 +519,8 @@ set(APP_SOURCES
     src/storage/AppDataPaths.cpp
     src/storage/BridgeLabelStore.h
     src/storage/BridgeLabelStore.cpp
+    src/matrix/RoomActionError.h
+    src/matrix/RoomActionError.cpp
     src/storage/PortableMode.h
     src/storage/PortableMode.cpp
     src/storage/CacheStore.h
@@ -1396,6 +1398,19 @@ if(BUILD_TESTING)
     target_include_directories(app-data-paths-test PRIVATE src)
     target_link_libraries(app-data-paths-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME app-data-paths COMMAND app-data-paths-test)
+
+    # B021: what to say when the server refuses a room action. Pure string
+    # mapping plus a source contract that the handler consults it, so it
+    # links Core alone rather than the whole Rust-backed client.
+    qt_add_executable(room-action-error-test
+        tests/RoomActionErrorTest.cpp
+        src/matrix/RoomActionError.cpp
+    )
+    target_include_directories(room-action-error-test PRIVATE src)
+    target_compile_definitions(room-action-error-test PRIVATE
+        SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(room-action-error-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME room-action-error COMMAND room-action-error-test)
 
     # B017: the remembered MSC2346 network badge per room. Pure storage, so
     # it links Core alone and needs neither the app nor a Matrix backend.

@@ -1,5 +1,7 @@
 #include "matrix/RustSdkMatrixClient.h"
 
+#include "matrix/RoomActionError.h"
+
 #include "app/GuiStallTracer.h"
 
 #include <QElapsedTimer>
@@ -4356,6 +4358,17 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         if (action == QLatin1String("read_receipt"))
             m_lastReceiptSent.remove(event.value(QStringLiteral("room_id")).toString());
         qCWarning(lcRust) << "room action failed category=" << action;
+        // A WRITE THE USER ASKED FOR MUST NOT FAIL SILENTLY. Three of the
+        // four actions that reach here are rows in the room's context menu,
+        // and every one of them used to leave the menu looking as though it
+        // had worked: the list simply did not change, which the reader cannot
+        // tell apart from a slow sync. The notification flyout in that same
+        // menu has always reported its refusals, which is the contrast that
+        // makes this a defect rather than a policy. read_receipt stays silent
+        // on purpose; see matrix/RoomActionError.h.
+        const QString message = matrix::room_action::userFacingError(action);
+        if (!message.isEmpty())
+            Q_EMIT errorOccurred(message);
         return;
     }
 
