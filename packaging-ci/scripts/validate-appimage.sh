@@ -71,6 +71,15 @@ call_media_status=$?
 set -e
 assert_call_media_engine AppImage dist/appimage-call-media-status.txt \
     "$call_media_status"
+# AND THAT IT IS THE BUNDLE'S OWN GSTREAMER, not the host's. The AppImage is
+# the one Linux package that ships GStreamer, its plugins live in
+# usr/lib/gstreamer-1.0 (not beside the binary), and the AppRun hook points at
+# them. Until 07f1491 the flag reported "<none - using system GStreamer>" here
+# and nothing noticed, because only the RESULT line was asserted. The macOS
+# validator has always asserted its own equivalent.
+grep -q "bundled plugin directory: .*/usr/lib/gstreamer-1.0" \
+    dist/appimage-call-media-status.txt \
+    || die "the AppImage did not report its own bundled GStreamer plugin directory"
 
 # THE IMAGE DECODERS, asked of the same shipped bundle on the same Qt-less
 # image, for the same reason: Qt image formats are dlopen'd plugins, so what a
@@ -261,8 +270,15 @@ grep -qx 'Icon=lightning' "$published" || die "the published launcher entry does
 # -F: the AppImage's own name carries dots, and $ROOT is whatever the runner
 # checked out into -- neither is a pattern.
 grep -qF "Exec=\"$ROOT/$app\"" "$published" || die "the published launcher entry does not exec the running AppImage"
+# UNCONDITIONAL. This ran only `if` the tool happened to be present, and the
+# job's package list did not install it -- so the one check that would catch a
+# malformed Exec= never ran at all. Graceful fallback and silent absence are
+# the same observable; §16 records four packaging defects of exactly that
+# shape. The tool is now installed by the job, so its absence is a failure.
 command -v desktop-file-validate >/dev/null 2>&1 \
-    && { desktop-file-validate "$published" || die "the published launcher entry is not a valid desktop entry"; }
+    || die "desktop-file-validate is missing from the validator image"
+desktop-file-validate "$published" \
+    || die "the published launcher entry is not a valid desktop entry"
 
 grep -RIl -e /nix/store -e /home/roksme -e /builds/ \
     -e 'LIGHTNING_GIPHY_API_KEY=' -e 'LIGHTNING_KLIPY_API_KEY=' \

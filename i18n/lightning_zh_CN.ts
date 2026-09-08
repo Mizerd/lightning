@@ -394,7 +394,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+881"/>
+        <location filename="../src/app/AppController.cpp" line="+889"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -525,7 +525,7 @@
         <translation>%1 想要验证一个会话。打开 Lightning 进行处理。</translation>
     </message>
     <message>
-        <location line="+331"/>
+        <location line="+329"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>导入的房间密钥已应用到当前打开的时间线。</translation>
     </message>
@@ -541,24 +541,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1851"/>
+        <location line="+1864"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning 无法读取所选文件。</translation>
     </message>
     <message>
-        <location line="-1857"/>
+        <location line="-1870"/>
         <source>A room-key import is already in progress.</source>
         <translation>已有房间密钥导入正在进行中。</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2488"/>
+        <location line="+2499"/>
         <source>Not signed in.</source>
         <translation>尚未登录。</translation>
     </message>
     <message>
-        <location line="-2486"/>
+        <location line="-2497"/>
         <source>Room-key import failed.</source>
         <translation>房间密钥导入失败。</translation>
     </message>
@@ -573,7 +573,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+470"/>
+        <location line="+483"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>视频通话需要 MatrixRTC 服务，目前尚不可用。</translation>
     </message>
@@ -768,7 +768,7 @@
         <translation>清除此设备的本地数据无法解决该问题，反而会销毁你仍然需要的加密密钥。</translation>
     </message>
     <message>
-        <location line="+493"/>
+        <location line="+491"/>
         <source>This backend cannot change your display name.</source>
         <translation>此后端无法更改你的显示名称。</translation>
     </message>
@@ -2963,16 +2963,32 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+37"/>
         <source>Signing in again creates a NEW session with new keys, which is what repairs this. Be aware of the cost:
 
-• Encrypted messages you have already received will only come back if they are in your key backup. Anything that is not backed up is not recoverable on this computer.
-• The new session starts unverified, so you will need to verify it from another device or with your recovery key.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>• Encrypted messages you have already received come back only if they are in your key backup. Anything not backed up is not recoverable on this computer.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>• KEY BACKUP IS NOT SET UP on this account, so encrypted messages already on this computer will NOT come back. This is not reversible.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>• The new session starts unverified, so you will need to verify it from another device or with your recovery key.
 • Lightning&apos;s local data for this account on this computer is removed. Your messages stay on the server.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+18"/>
         <source>Cancel</source>
         <translation type="unfinished">取消</translation>
     </message>
@@ -4932,7 +4948,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+532"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+535"/>
         <source>Profile for %1</source>
         <translation>%1 的个人资料</translation>
     </message>
@@ -17083,7 +17099,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+1937"/>
+        <location filename="../src/main.cpp" line="+2012"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>原生 Qt/QML Matrix 客户端。后端：--backend={mock,http,rust}。默认：rust（在没有 Rust SDK 的构建中为 http）。</translation>
     </message>

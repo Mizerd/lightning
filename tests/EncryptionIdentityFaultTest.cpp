@@ -331,9 +331,20 @@ private Q_SLOTS:
             QStringLiteral("encryptionBrokenSignOutConsequences"));
         QVERIFY(consequences != nullptr);
         const QString cost = consequences->property("text").toString();
-        QVERIFY2(cost.contains(QStringLiteral("key backup")),
-                 "the sign-out confirmation does not say that history "
-                 "outside key backup will not come back");
+        // NAMED FOR THIS ACCOUNT, not in general. "only if it is in your key
+        // backup" is true either way and useless when the answer is already
+        // no, and §6 asks for honest consequences on a destructive
+        // account-scoped action. This fixture has no usable backup, so the
+        // confirmation must say so outright rather than hedge. Raised in
+        // review of the round that added this prompt.
+        QVERIFY2(cost.contains(QStringLiteral("KEY BACKUP IS NOT SET UP")),
+                 "the sign-out confirmation hedged about key backup on an "
+                 "account that demonstrably has none: the user is deciding "
+                 "whether to destroy local history and is owed the specific "
+                 "answer, not the general one");
+        QVERIFY2(cost.contains(QStringLiteral("not come back"))
+                     || cost.contains(QStringLiteral("NOT come back")),
+                 "the confirmation does not say history will not come back");
         QVERIFY2(cost.contains(QStringLiteral("NEW session")),
                  "the confirmation does not say this creates a new session");
 

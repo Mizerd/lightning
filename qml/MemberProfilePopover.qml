@@ -256,7 +256,10 @@ Popup {
         // Pointing the controller at the current room is what those four
         // surfaces already do; doing it here costs one roster refresh, on a
         // card the user deliberately opened, and the answer arrives through
-        // the membersChanged connection below.
+        // the EXISTING onMembersChanged connection below, which already
+        // re-ran _refreshModeration() on every roster refresh. Review caught
+        // a second copy of that handler added here: it was redundant, and the
+        // comment on it wrongly claimed the mechanism had been missing.
         if (app.roomInfo && app.currentRoomId.length > 0
             && app.roomInfo.roomId !== app.currentRoomId)
             app.roomInfo.roomId = app.currentRoomId
@@ -1756,16 +1759,6 @@ Popup {
                 }
             }
 
-            // The roster is what canModerate() reads, and it arrives after
-            // openFor() has already asked. Without this the scope set above
-            // would answer "no permission" once and never correct itself,
-            // which is the same invisible-controls symptom with an extra step
-            // in front of it.
-            Connections {
-                target: app.roomInfo
-                enabled: root.visible
-                function onMembersChanged() { root._refreshModeration() }
-            }
             Connections {
                 target: app.roomInfo
                 enabled: root.visible

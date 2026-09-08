@@ -66,6 +66,13 @@ void BridgeLabelStore::load()
         return;
     if (!file.open(QIODevice::ReadOnly))
         return;
+    // A CAP, because this runs on the GUI thread at login. The file is a
+    // few tens of bytes per room and the map is capped at kMaxEntries, so
+    // anything past this ceiling is corruption or hostility, and reading it
+    // whole would stall the app on the way to painting the room list.
+    constexpr qint64 kMaxFileBytes = 4 * 1024 * 1024;
+    if (file.size() > kMaxFileBytes)
+        return;
     const QByteArray bytes = file.readAll();
     file.close();
 
@@ -135,8 +142,15 @@ void BridgeLabelStore::pruneToCap()
     byAge.reserve(static_cast<size_t>(m_entries.size()));
     for (auto it = m_entries.constBegin(); it != m_entries.constEnd(); ++it)
         byAge.emplace_back(it.value().learnedAt, it.key());
+    // Sort on the CLAMPED stamp. A row stamped in the future is the
+    // clock-went-backwards case `entryIsFresh` already refuses to believe;
+    // sorting on the raw value would make it the NEWEST row and evict
+    // genuinely fresh ones to keep it. Caught in review.
+    const qint64 now = nowSecs();
     std::sort(byAge.begin(), byAge.end(),
-              [](const auto &a, const auto &b) { return a.first < b.first; });
+              [now](const auto &a, const auto &b) {
+                  return std::min(a.first, now) < std::min(b.first, now);
+              });
     const int excess = m_entries.size() - kMaxEntries;
     for (int i = 0; i < excess; ++i)
         m_entries.remove(byAge[static_cast<size_t>(i)].second);

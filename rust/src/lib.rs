@@ -4897,16 +4897,48 @@ pub(crate) fn identity_key_agreement(
     local_base64: Option<&str>,
     published: Option<&str>,
 ) -> Option<bool> {
+    // COMPARED WITHOUT BASE64 PADDING. vodozemac renders an unpadded
+    // key; a server that re-encodes what we uploaded may pad it, and a
+    // padding difference is not a key difference. Reporting one as a fault
+    // would tell a healthy user their encryption is destroyed and push them
+    // toward a sign-out that loses history, which is the most damaging thing
+    // this whole surface can do. Raised in review.
+    fn unpadded(value: &str) -> &str {
+        value.trim_end_matches('=')
+    }
     match (local_base64, published) {
         (Some(local), Some(published))
             if !local.is_empty() && !published.is_empty() =>
         {
-            Some(local == published)
+            Some(unpadded(local) == unpadded(published))
         }
         _ => None,
     }
 }
 
+/// WHY THE SERVER'S ANSWER IS NOT SIGNATURE-CHECKED, and what that costs.
+///
+/// Review raised that this acts on an unsigned `/keys/query` answer: a
+/// homeserver could serve THIS client a false key for its own device and
+/// steer the user toward a sign-out that loses unbacked-up history. The
+/// suggested fix was to verify the returned `DeviceKeys` against the local
+/// ed25519 key and treat a failure as unknown.
+///
+/// IT WAS NOT IMPLEMENTED, because it would also reject the genuine fault.
+/// The B006 device published its keys from an Olm account it no longer holds,
+/// so the published ED25519 is that old account's too, and a real fault is
+/// therefore indistinguishable from a forged answer by that test: we no
+/// longer hold the private key that would tell them apart. Implementing it
+/// would have quietly disabled the detection this whole surface exists for,
+/// and a check that cannot be shown to preserve the true positive is worse
+/// than none.
+///
+/// What bounds the risk instead: this never acts on its own. It raises a card
+/// the user must read and a confirmation the user must accept, and the action
+/// offered is the ordinary sign-out, not a store deletion. A hostile server
+/// can therefore cost a user a session they chose to end, which it could
+/// equally provoke by withholding keys outright.
+///
 /// Ask the server what it publishes for THIS device and compare it with the
 /// local Olm account's key. Returns the tri-state above; every failure to
 /// establish an answer (no user/device id, no local key, a network or parse

@@ -172,13 +172,28 @@ Rectangle {
             Label {
                 objectName: "encryptionBrokenSignOutConsequences"
                 Layout.fillWidth: true
+                // THE APP KNOWS WHETHER BACKUP EXISTS, SO IT SAYS SO.
+                // "only if they are in your key backup" is true either way
+                // and useless when the answer is already no: §6 asks for
+                // honest consequences on a destructive account-scoped action,
+                // and this is the sentence the user decides on. Raised in
+                // review. `keyBackupUsable` is false when the state is
+                // unknown too, which is the safe direction: it warns.
+                readonly property bool backupUsable:
+                    app.cryptoHealth && app.cryptoHealth.keyBackupUsable
                 text: qsTr("Signing in again creates a NEW session with new "
                            + "keys, which is what repairs this. Be aware of "
-                           + "the cost:\n\n"
-                           + "• Encrypted messages you have already received "
-                           + "will only come back if they are in your key "
-                           + "backup. Anything that is not backed up is not "
-                           + "recoverable on this computer.\n"
+                           + "the cost:\n\n")
+                      + (backupUsable
+                         ? qsTr("• Encrypted messages you have already "
+                                + "received come back only if they are in "
+                                + "your key backup. Anything not backed up "
+                                + "is not recoverable on this computer.\n")
+                         : qsTr("• KEY BACKUP IS NOT SET UP on this account, "
+                                + "so encrypted messages already on this "
+                                + "computer will NOT come back. This is not "
+                                + "reversible.\n"))
+                      + qsTr(""
                            + "• The new session starts unverified, so you "
                            + "will need to verify it from another device or "
                            + "with your recovery key.\n"

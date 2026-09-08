@@ -860,7 +860,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 // on every launch unnecessary. `ok` was already required
                 // above, so a FAILED read never reaches here and can never be
                 // remembered as a negative answer.
-                m_bridgeLabels.remember(roomId, best.networkId, best.label);
+                // "This room advertises no bridge" and "this room advertises
+                // one we could not name" are DIFFERENT facts, and recording
+                // the second as a negative would keep the room unbadged for
+                // the negative lifetime even after its protocol joined the
+                // curated table. Only an empty advertisement is a negative
+                // answer; an unnameable one is left unrecorded so the next
+                // launch asks again.
+                if (!best.label.isEmpty() || bridges.isEmpty())
+                    m_bridgeLabels.remember(roomId, best.networkId, best.label);
             });
     // Invites: notify once per newly seen invited room. Invites present
     // before the initial sync completes are seeded silently (see
@@ -2428,6 +2436,19 @@ void AppController::requestRoomBridgeInfo(const QString &roomId,
 {
     if (roomId.isEmpty() || MatrixClient::isThreadTimelineId(roomId)
         || !m_client || !m_client->supportsRoomBridges())
+        return;
+    // A REMEMBERED ANSWER IS AN ANSWER, AND NOT CONSULTING IT MADE THE STORE
+    // WRITE-ONLY. `m_bridgeReadRooms` below is only "have I asked in THIS
+    // session"; the store is "what came back", and it is the half that
+    // survives a restart. Without this line every launch re-read /state for
+    // every room the user opened, which is the entire cost the store exists
+    // to remove, while still paying to write the answer down. Caught in
+    // review; the header and the commit had claimed otherwise.
+    //
+    // `knows()` is true for a fresh row of EITHER sign, which is the point: a
+    // recorded "this room advertises no bridge" is exactly the answer that
+    // makes re-asking unnecessary, and it expires on its own shorter clock.
+    if (m_bridgeLabels.knows(roomId))
         return;
     const auto seen = m_bridgeReadRooms.constFind(roomId);
     // Asked with the network already: the answer is as good as it gets.

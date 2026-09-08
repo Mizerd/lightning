@@ -396,7 +396,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+881"/>
+        <location filename="../src/app/AppController.cpp" line="+889"/>
         <source>Room invitation</source>
         <translation>রুমের আমন্ত্রণ</translation>
     </message>
@@ -527,7 +527,7 @@
         <translation>%1 একটি সেশন যাচাই করতে চান। পর্যালোচনার জন্য Lightning খুলুন।</translation>
     </message>
     <message>
-        <location line="+331"/>
+        <location line="+329"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>আমদানি করা রুম কী খোলা টাইমলাইনে প্রয়োগ করা হয়েছে।</translation>
     </message>
@@ -543,24 +543,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1851"/>
+        <location line="+1864"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning নির্বাচিত ফাইলটি পড়তে পারেনি।</translation>
     </message>
     <message>
-        <location line="-1857"/>
+        <location line="-1870"/>
         <source>A room-key import is already in progress.</source>
         <translation>একটি রুম-কী আমদানি ইতিমধ্যেই চলছে।</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2488"/>
+        <location line="+2499"/>
         <source>Not signed in.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-2486"/>
+        <location line="-2497"/>
         <source>Room-key import failed.</source>
         <translation>রুম-কী আমদানি ব্যর্থ হয়েছে।</translation>
     </message>
@@ -575,7 +575,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+470"/>
+        <location line="+483"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>ভিডিও কলের জন্য একটি MatrixRTC পরিষেবা প্রয়োজন, যা এখনও এখানে উপলব্ধ নয়৷</translation>
     </message>
@@ -770,7 +770,7 @@
         <translation>এই ডিভাইসের স্থানীয় ডেটা মুছলে এটি ঠিক হবে না, বরং আপনার এখনও প্রয়োজনীয় এনক্রিপশন কী নষ্ট হবে।</translation>
     </message>
     <message>
-        <location line="+493"/>
+        <location line="+491"/>
         <source>This backend cannot change your display name.</source>
         <translation>এই ব্যাকএন্ড আপনার প্রদর্শিত নাম বদলাতে পারে না।</translation>
     </message>
@@ -2969,16 +2969,32 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+37"/>
         <source>Signing in again creates a NEW session with new keys, which is what repairs this. Be aware of the cost:
 
-• Encrypted messages you have already received will only come back if they are in your key backup. Anything that is not backed up is not recoverable on this computer.
-• The new session starts unverified, so you will need to verify it from another device or with your recovery key.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>• Encrypted messages you have already received come back only if they are in your key backup. Anything not backed up is not recoverable on this computer.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>• KEY BACKUP IS NOT SET UP on this account, so encrypted messages already on this computer will NOT come back. This is not reversible.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>• The new session starts unverified, so you will need to verify it from another device or with your recovery key.
 • Lightning&apos;s local data for this account on this computer is removed. Your messages stay on the server.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+18"/>
         <source>Cancel</source>
         <translation type="unfinished">বাতিল</translation>
     </message>
@@ -4946,7 +4962,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+532"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+535"/>
         <source>Profile for %1</source>
         <translation>%1-এর প্রোফাইল</translation>
     </message>
@@ -17123,7 +17139,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+1937"/>
+        <location filename="../src/main.cpp" line="+2012"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>নেটিভ Qt/QML Matrix ক্লায়েন্ট। ব্যাকএন্ড: --backend={mock,http,rust}। ডিফল্ট: rust (Rust SDK ছাড়া বিল্ডে http)।</translation>
     </message>

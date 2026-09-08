@@ -846,7 +846,7 @@ validate-appimage:
     # reports a plugin that cannot load on a machine where it would.
     - >-
       apt-get install -y --no-install-recommends
-      binutils ca-certificates file libasound2t64 libcom-err2 libegl1 libfontconfig1
+      binutils ca-certificates desktop-file-utils file libasound2t64 libcom-err2 libegl1 libfontconfig1
       libfreetype6 libgl1 libglib2.0-0 libgpg-error0 libharfbuzz0b
       libopengl0 libwayland-client0 libwayland-cursor0 libwayland-egl1
       libx11-6 libxcb1 libxdamage1 libxext6 libxfixes3

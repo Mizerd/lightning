@@ -326,10 +326,17 @@ private Q_SLOTS:
         // handler that only reports failures would leave a successful report
         // indistinguishable from a dead menu item, because nothing visible
         // changes when one lands.
-        QVERIFY2(!body.contains(QStringLiteral("if (ok)"))
-                     && !body.contains(QStringLiteral("!ok &&")),
-                 "the handler reports only one outcome; a silent success "
-                 "cannot be told apart from a menu item that did nothing");
+        //
+        // ASSERTED AS A POSITIVE SHAPE, not as the absence of two spellings.
+        // The first version excluded `if (ok)` and `!ok &&`, and a review
+        // pointed out that `if (!ok) pinNotice.show(...)` contains neither and
+        // would have passed: an assertion that lists the ways to be wrong
+        // cannot cover the one nobody thought of.
+        QVERIFY2(body.contains(QStringLiteral("pinNotice.show(message, !ok)")),
+                 "the handler no longer passes the outcome straight through, "
+                 "so it either reports one outcome only (a silent success is "
+                 "indistinguishable from a dead menu item) or invents wording "
+                 "that can drift from the controller's own");
     }
 };
 

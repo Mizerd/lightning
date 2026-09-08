@@ -521,6 +521,8 @@ set(APP_SOURCES
     src/storage/BridgeLabelStore.cpp
     src/matrix/RoomActionError.h
     src/matrix/RoomActionError.cpp
+    src/app/DesktopEntryQuoting.h
+    src/app/DesktopEntryQuoting.cpp
     src/storage/PortableMode.h
     src/storage/PortableMode.cpp
     src/storage/CacheStore.h
@@ -1401,6 +1403,18 @@ if(BUILD_TESTING)
     target_include_directories(app-data-paths-test PRIVATE src)
     target_link_libraries(app-data-paths-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME app-data-paths COMMAND app-data-paths-test)
+
+    # The Exec quoting for the AppImage launcher entry. Its own unit because
+    # src/main.cpp defines main() and cannot be linked into a test, so the
+    # only guard available there was a source scan -- and a review found
+    # several of those pass on broken code.
+    qt_add_executable(desktop-entry-quoting-test
+        tests/DesktopEntryQuotingTest.cpp
+        src/app/DesktopEntryQuoting.cpp
+    )
+    target_include_directories(desktop-entry-quoting-test PRIVATE src)
+    target_link_libraries(desktop-entry-quoting-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME desktop-entry-quoting COMMAND desktop-entry-quoting-test)
 
     # B021: what to say when the server refuses a room action. Pure string
     # mapping plus a source contract that the handler consults it, so it

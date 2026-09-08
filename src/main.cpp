@@ -1,4 +1,5 @@
 #include "app/AppController.h"
+#include "app/DesktopEntryQuoting.h"
 #ifdef HAVE_LIGHTNING_WEBRTC
 #include "calls/GstBootstrap.h"
 #include "calls/ShareSourceImageProvider.h"
@@ -802,22 +803,11 @@ struct LauncherEntryReport {
 // lesson); leaving four unused static functions in them is exactly the noise
 // that hides a real warning.
 
-/// Quote one argument for a Desktop Entry Exec= field (spec: inside double
-/// quotes, `"`, `` ` ``, `$` and `\` are escaped with a backslash).
-QString quoteExecArgument(const QString &value)
-{
-    QString out;
-    out.reserve(value.size() + 2);
-    out.append(QLatin1Char('"'));
-    for (const QChar c : value) {
-        if (c == QLatin1Char('"') || c == QLatin1Char('\\')
-            || c == QLatin1Char('$') || c == QLatin1Char('`'))
-            out.append(QLatin1Char('\\'));
-        out.append(c);
-    }
-    out.append(QLatin1Char('"'));
-    return out;
-}
+// The Exec quoting lives in src/app/DesktopEntryQuoting.{h,cpp} so it can be
+// CALLED by a test. main.cpp cannot be linked into one (it defines main), so
+// everything here could only ever be guarded by source scans, and a review
+// found several of those would pass on broken code.
+using lightning::desktop_entry::quoteExecArgument;
 
 QStringList launcherEntrySource(const QString &payloadEntry)
 {
@@ -885,6 +875,11 @@ QString launcherEntryText(const QString &payloadEntry,
         kept.prepend(QStringLiteral("[Desktop Entry]"));
 
     QString exec = quoteExecArgument(appImagePath);
+    // Refused rather than mangled: a path carrying a control character has no
+    // honest Exec representation, and writing one anyway would inject a key
+    // into the file. An empty entry text is the caller's signal to skip.
+    if (exec.isEmpty())
+        return {};
     if (!execArguments.isEmpty())
         exec += QLatin1Char(' ') + execArguments;
     kept.append(QStringLiteral("Exec=") + exec);
@@ -910,10 +905,50 @@ QString launcherEntryText(const QString &payloadEntry,
 /// Copy the payload's hicolor icons into the user's own icon theme, so
 /// `Icon=lightning` resolves for the compositor, for the launcher and for
 /// QIcon::fromTheme alike. Returns the number of files actually written.
+/// The manifest of icon files THIS code wrote, one relative path per line.
+///
+/// It exists because the entry path honours "never overwrite what we did not
+/// write" and the icon path did not: replacing
+/// `~/.local/share/icons/hicolor/<size>/apps/lightning.png` is how a user
+/// deliberately re-icons an application, and we clobbered it on every launch.
+/// It also makes the copies reclaimable, so deferring to an installed package
+/// can take them away instead of leaving a user-level icon that SHADOWS the
+/// package's own for good. Caught in review.
+QString userIconManifestPath(const QString &dataHome)
+{
+    return dataHome
+           + QStringLiteral("/icons/hicolor/.lightning-appimage-icons");
+}
+
+QStringList readUserIconManifest(const QString &dataHome)
+{
+    QFile file(userIconManifestPath(dataHome));
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+    return QString::fromUtf8(file.readAll())
+        .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+}
+
+/// Remove every icon we recorded, and the manifest. Used when an installed
+/// package's entry wins, so our copies stop shadowing its artwork.
+void removeUserIcons(const QString &dataHome)
+{
+    const QString root = dataHome + QStringLiteral("/icons/hicolor/");
+    for (const QString &relative : readUserIconManifest(dataHome)) {
+        // Never follow a path out of the icon tree, whatever the file says.
+        if (relative.contains(QLatin1String("..")))
+            continue;
+        QFile::remove(root + relative);
+    }
+    QFile::remove(userIconManifestPath(dataHome));
+}
+
 int installUserIcons(const QString &appDir, const QString &dataHome,
                      int *payloadIcons)
 {
     int copied = 0;
+    const QStringList recorded = readUserIconManifest(dataHome);
+    QStringList written;
     const QDir hicolor(appDir + QStringLiteral("/usr/share/icons/hicolor"));
     if (!hicolor.exists())
         return 0;
@@ -937,13 +972,38 @@ int installUserIcons(const QString &appDir, const QString &dataHome,
             // artwork only changes when the icons themselves do. Re-reading
             // nine files on every launch to catch a same-size redraw is not
             // worth it.
+            const QString relative =
+                size + QStringLiteral("/apps/") + name;
+            // A FILE WE DID NOT WRITE IS THE USER'S. Overwriting one is how
+            // a deliberate icon override was being undone on every launch.
+            if (QFileInfo::exists(to) && !recorded.contains(relative)) {
+                written.append(relative);   // keep any earlier record honest
+                continue;
+            }
+            written.append(relative);
             if (QFileInfo(to).size() == QFileInfo(from).size())
                 continue;
             if (!QDir().mkpath(toDir))
                 continue;
+            // Copy beside and rename, so a full disk leaves the old icon in
+            // place instead of no icon at all.
+            const QString staging = to + QStringLiteral(".new");
+            QFile::remove(staging);
+            if (!QFile::copy(from, staging))
+                continue;
             QFile::remove(to);
-            if (QFile::copy(from, to))
+            if (QFile::rename(staging, to))
                 ++copied;
+            else
+                QFile::remove(staging);
+        }
+    }
+    if (!written.isEmpty()) {
+        QDir().mkpath(dataHome + QStringLiteral("/icons/hicolor"));
+        QSaveFile manifest(userIconManifestPath(dataHome));
+        if (manifest.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            manifest.write(written.join(QLatin1Char('\n')).toUtf8());
+            manifest.commit();
         }
     }
     return copied;
@@ -1063,6 +1123,11 @@ LauncherEntryReport publishAppImageLauncherEntry()
     // hicolor icons, which is the whole thing this publication exists to
     // achieve.
     if (const QString installed = systemLauncherEntry(); !installed.isEmpty()) {
+        // Take our icons back too. A user-level hicolor icon shadows the
+        // package's, so leaving ours behind would freeze the artwork at
+        // whatever this AppImage shipped, for good, even after the AppImage
+        // is deleted. Only files we recorded are removed.
+        removeUserIcons(dataHome);
         if (!existing.isEmpty() && QFile::remove(report.userEntry))
             report.outcome = QStringLiteral(
                 "skipped: %1 is installed; removed our own shadowing copy")
@@ -1073,11 +1138,21 @@ LauncherEntryReport publishAppImageLauncherEntry()
         return report;
     }
 
+    // BUILD THE ENTRY BEFORE TOUCHING THE FILESYSTEM. The text can be
+    // refused (a path with no honest Exec representation), and installing
+    // icons for an entry that is never written would leave artwork behind
+    // with nothing pointing at it.
+    const QByteArray wanted =
+        launcherEntryText(report.payloadEntry, report.appImagePath).toUtf8();
+    if (wanted.isEmpty()) {
+        report.outcome = QStringLiteral(
+            "skipped: the AppImage path cannot be represented in Exec=");
+        return report;
+    }
+
     report.iconsCopied =
         installUserIcons(report.appDir, dataHome, &report.payloadIcons);
 
-    const QByteArray wanted =
-        launcherEntryText(report.payloadEntry, report.appImagePath).toUtf8();
     if (existing == wanted) {
         report.outcome = QStringLiteral("already current");
         return report;

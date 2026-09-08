@@ -396,7 +396,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+881"/>
+        <location filename="../src/app/AppController.cpp" line="+889"/>
         <source>Room invitation</source>
         <translation>Convite para a sala</translation>
     </message>
@@ -527,7 +527,7 @@
         <translation>%1 quer verificar uma sessão. Abra o Lightning para a analisar.</translation>
     </message>
     <message>
-        <location line="+331"/>
+        <location line="+329"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>Chaves de sala importadas aplicadas à conversa aberta.</translation>
     </message>
@@ -543,24 +543,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1851"/>
+        <location line="+1864"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>O Lightning não conseguiu ler o ficheiro selecionado.</translation>
     </message>
     <message>
-        <location line="-1857"/>
+        <location line="-1870"/>
         <source>A room-key import is already in progress.</source>
         <translation>Já está em curso uma importação de chaves de sala.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2488"/>
+        <location line="+2499"/>
         <source>Not signed in.</source>
         <translation>Sessão não iniciada.</translation>
     </message>
     <message>
-        <location line="-2486"/>
+        <location line="-2497"/>
         <source>Room-key import failed.</source>
         <translation>A importação de chaves de sala falhou.</translation>
     </message>
@@ -575,7 +575,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+470"/>
+        <location line="+483"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>As videochamadas precisam de um serviço MatrixRTC, que ainda não está disponível aqui.</translation>
     </message>
@@ -770,7 +770,7 @@
         <translation>Limpar os dados locais deste dispositivo não resolveria isto e destruiria chaves de encriptação de que ainda precisa.</translation>
     </message>
     <message>
-        <location line="+493"/>
+        <location line="+491"/>
         <source>This backend cannot change your display name.</source>
         <translation>Este backend não pode alterar o seu nome de exibição.</translation>
     </message>
@@ -2969,16 +2969,32 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+37"/>
         <source>Signing in again creates a NEW session with new keys, which is what repairs this. Be aware of the cost:
 
-• Encrypted messages you have already received will only come back if they are in your key backup. Anything that is not backed up is not recoverable on this computer.
-• The new session starts unverified, so you will need to verify it from another device or with your recovery key.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>• Encrypted messages you have already received come back only if they are in your key backup. Anything not backed up is not recoverable on this computer.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>• KEY BACKUP IS NOT SET UP on this account, so encrypted messages already on this computer will NOT come back. This is not reversible.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>• The new session starts unverified, so you will need to verify it from another device or with your recovery key.
 • Lightning&apos;s local data for this account on this computer is removed. Your messages stay on the server.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+18"/>
         <source>Cancel</source>
         <translation type="unfinished">Cancelar</translation>
     </message>
@@ -4946,7 +4962,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+532"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+535"/>
         <source>Profile for %1</source>
         <translation>Perfil de %1</translation>
     </message>
@@ -17123,7 +17139,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+1937"/>
+        <location filename="../src/main.cpp" line="+2012"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Cliente Matrix nativo Qt/QML. Backend: --backend={mock,http,rust}. Predefinição: rust (http em compilações sem o Rust SDK).</translation>
     </message>
