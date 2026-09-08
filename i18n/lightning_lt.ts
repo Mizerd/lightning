@@ -458,7 +458,7 @@
         <translation>Kambarys buvo sukurtas, bet nepavyko nustatyti jo paveikslo.</translation>
     </message>
     <message>
-        <location line="+74"/>
+        <location line="+91"/>
         <source>Could not switch accounts — returning to the previous account.</source>
         <translation>Nepavyko perjungti paskyrų – grįžtama į ankstesnę paskyrą.</translation>
     </message>
@@ -935,7 +935,7 @@
         <translation>Tas failas jau pridėtas.</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+123"/>
         <source>The clipboard image is empty.</source>
         <translation>Iškarpinės vaizdas tuščias.</translation>
     </message>
@@ -1199,6 +1199,11 @@
     </message>
     <message>
         <location line="+2"/>
+        <source>You can&apos;t join calls in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1308,7 +1313,37 @@
         <translation>Pakelk ranką</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+30"/>
+        <source>Send a reaction</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+39"/>
+        <source>Thumbs up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Party</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Applause</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Dog</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Cat</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+70"/>
         <source>Show who&apos;s in the call (%1)</source>
         <translation>Rodyti, kas dalyvauja pokalbyje (%1)</translation>
     </message>
@@ -1361,7 +1396,7 @@
 <context>
     <name>CallParticipantTile</name>
     <message>
-        <location filename="../qml/CallParticipantTile.qml" line="+161"/>
+        <location filename="../qml/CallParticipantTile.qml" line="+169"/>
         <source>You</source>
         <translation>Jūs</translation>
     </message>
@@ -1387,6 +1422,11 @@
     </message>
     <message>
         <location line="+2"/>
+        <source>Reacted with %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Speaking</source>
         <translation>Kalbėdamas</translation>
     </message>
@@ -1396,7 +1436,7 @@
         <translation>Prastas ryšys</translation>
     </message>
     <message>
-        <location line="+462"/>
+        <location line="+541"/>
         <location line="+122"/>
         <source>Volume for %1</source>
         <translation>%1 tomas</translation>
@@ -1597,7 +1637,7 @@
 <context>
     <name>CallStage</name>
     <message>
-        <location filename="../qml/CallStage.qml" line="+587"/>
+        <location filename="../qml/CallStage.qml" line="+591"/>
         <source>Nobody to show here yet</source>
         <translation>Dar nėra ką čia parodyti</translation>
     </message>
@@ -1662,7 +1702,7 @@
         <translation>Atgal į tinklelį</translation>
     </message>
     <message>
-        <location line="+199"/>
+        <location line="+201"/>
         <source>Playing full screen</source>
         <translation>Leidžiama per visą ekraną</translation>
     </message>
@@ -3973,7 +4013,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Prisijungimas prie skambučių šioje versijoje dar nepalaikomas.</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+2"/>
+        <source>You can&apos;t join calls in this room. A room admin can raise your power level in it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5305,7 +5350,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Nepavyko nuskaityti iškarpinės vaizdo.</translation>
     </message>
     <message>
-        <location line="+110"/>
+        <location line="+114"/>
         <source>The attachment could not be queued.</source>
         <translation>Priedo nepavyko įtraukti į eilę.</translation>
     </message>
@@ -6536,7 +6581,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+41"/>
-        <location line="+414"/>
+        <location line="+416"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>Nežinomas kambarys: %1</translation>
@@ -7891,6 +7936,11 @@ Signing out and signing in again is the only fix.</source>
         <translation>Prisijungimas prie skambučių šioje versijoje dar nepalaikomas</translation>
     </message>
     <message>
+        <location line="+7"/>
+        <source>You can&apos;t start or join calls in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+6"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
         <translation type="unfinished"></translation>
@@ -8101,7 +8151,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+332"/>
+        <location line="+339"/>
         <source>You do not have permission to change that.</source>
         <translation>Neturite leidimo to keisti.</translation>
     </message>
@@ -13033,7 +13083,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+473"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+484"/>
         <location line="+79"/>
         <location line="+134"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -13087,12 +13137,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+443"/>
+        <location line="+453"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>Šiame namų serveryje skambinti negalima.</translation>
     </message>
     <message>
-        <location line="-423"/>
+        <location line="-433"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Per daug bandymų. Po akimirkos bandykite dar kartą.</translation>
     </message>
@@ -13118,12 +13168,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+410"/>
+        <location line="+420"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>Nepavyko prisijungti prie skambučio.</translation>
     </message>
     <message>
-        <location line="-408"/>
+        <location line="-418"/>
         <source>The calling service is having trouble.</source>
         <translation>Skambinimo tarnyba turi problemų.</translation>
     </message>
@@ -13159,12 +13209,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+15"/>
-        <location line="+24"/>
+        <location line="+32"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>Ši versija negali prisijungti prie Matrix skambučių.</translation>
     </message>
     <message>
-        <location line="-22"/>
+        <location line="-30"/>
         <source>Still checking whether calling is available here. Try again in a moment.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13185,13 +13235,18 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+16"/>
+        <location line="+24"/>
         <location line="+5"/>
         <source>This build has no calling media support.</source>
         <translation>Ši programos versija nepalaiko skambučių medijos.</translation>
     </message>
     <message>
-        <location line="-17"/>
+        <location line="-19"/>
+        <source>You don&apos;t have permission to start or join calls in this room. A room admin can raise your power level in it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>This call can&apos;t be joined right now.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13201,12 +13256,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Skambinti dar neparengta.</translation>
     </message>
     <message>
-        <location line="-24"/>
+        <location line="-32"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Šis kambarys yra užšifruotas, o šifruoti skambučiai šioje versijoje dar nepasiekiami.</translation>
     </message>
     <message>
-        <location line="+163"/>
+        <location line="+173"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>Nepavyko jūsų paskelbti skambučio metu.</translation>
     </message>

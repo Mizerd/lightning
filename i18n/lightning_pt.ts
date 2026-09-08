@@ -456,7 +456,7 @@
         <translation>A sala foi criada, mas não foi possível definir a sua imagem.</translation>
     </message>
     <message>
-        <location line="+74"/>
+        <location line="+91"/>
         <source>Could not switch accounts — returning to the previous account.</source>
         <translation>Não foi possível mudar de conta — a regressar à conta anterior.</translation>
     </message>
@@ -933,7 +933,7 @@
         <translation>Esse ficheiro já está anexado.</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+123"/>
         <source>The clipboard image is empty.</source>
         <translation>A imagem da área de transferência está vazia.</translation>
     </message>
@@ -1197,6 +1197,11 @@
     </message>
     <message>
         <location line="+2"/>
+        <source>You can&apos;t join calls in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1306,7 +1311,37 @@
         <translation>Levante sua mão</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+30"/>
+        <source>Send a reaction</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+39"/>
+        <source>Thumbs up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Party</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Applause</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Dog</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Cat</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+70"/>
         <source>Show who&apos;s in the call (%1)</source>
         <translation>Mostrar quem está na chamada (%1)</translation>
     </message>
@@ -1359,7 +1394,7 @@
 <context>
     <name>CallParticipantTile</name>
     <message>
-        <location filename="../qml/CallParticipantTile.qml" line="+161"/>
+        <location filename="../qml/CallParticipantTile.qml" line="+169"/>
         <source>You</source>
         <translation>Você</translation>
     </message>
@@ -1385,6 +1420,11 @@
     </message>
     <message>
         <location line="+2"/>
+        <source>Reacted with %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Speaking</source>
         <translation>Falando</translation>
     </message>
@@ -1394,7 +1434,7 @@
         <translation>Conexão ruim</translation>
     </message>
     <message>
-        <location line="+462"/>
+        <location line="+541"/>
         <location line="+122"/>
         <source>Volume for %1</source>
         <translation>Volume para %1</translation>
@@ -1594,7 +1634,7 @@
 <context>
     <name>CallStage</name>
     <message>
-        <location filename="../qml/CallStage.qml" line="+587"/>
+        <location filename="../qml/CallStage.qml" line="+591"/>
         <source>Nobody to show here yet</source>
         <translation>Ninguém para mostrar aqui ainda</translation>
     </message>
@@ -1659,7 +1699,7 @@
         <translation>De volta à grade</translation>
     </message>
     <message>
-        <location line="+199"/>
+        <location line="+201"/>
         <source>Playing full screen</source>
         <translation>Jogando em tela cheia</translation>
     </message>
@@ -3964,7 +4004,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Participar de chamadas ainda não é compatível com esta versão.</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+2"/>
+        <source>You can&apos;t join calls in this room. A room admin can raise your power level in it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5291,7 +5336,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Não foi possível ler a imagem da área de transferência.</translation>
     </message>
     <message>
-        <location line="+110"/>
+        <location line="+114"/>
         <source>The attachment could not be queued.</source>
         <translation>Não foi possível colocar o anexo na fila.</translation>
     </message>
@@ -6519,7 +6564,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+41"/>
-        <location line="+414"/>
+        <location line="+416"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconhecida: %1</translation>
@@ -7871,6 +7916,11 @@ Signing out and signing in again is the only fix.</source>
         <translation>Participar de chamadas ainda não é compatível com esta versão</translation>
     </message>
     <message>
+        <location line="+7"/>
+        <source>You can&apos;t start or join calls in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+6"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
         <translation type="unfinished"></translation>
@@ -8081,7 +8131,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+332"/>
+        <location line="+339"/>
         <source>You do not have permission to change that.</source>
         <translation>Não tem permissão para alterar isso.</translation>
     </message>
@@ -13007,7 +13057,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+473"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+484"/>
         <location line="+79"/>
         <location line="+134"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -13061,12 +13111,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+443"/>
+        <location line="+453"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>A chamada não está disponível neste servidor doméstico.</translation>
     </message>
     <message>
-        <location line="-423"/>
+        <location line="-433"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Muitas tentativas. Tente novamente em alguns instantes.</translation>
     </message>
@@ -13092,12 +13142,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+410"/>
+        <location line="+420"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>Não foi possível conectar-se à chamada.</translation>
     </message>
     <message>
-        <location line="-408"/>
+        <location line="-418"/>
         <source>The calling service is having trouble.</source>
         <translation>O serviço de chamada está com problemas.</translation>
     </message>
@@ -13133,12 +13183,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+15"/>
-        <location line="+24"/>
+        <location line="+32"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>Esta compilação não pode ingressar em chamadas Matrix.</translation>
     </message>
     <message>
-        <location line="-22"/>
+        <location line="-30"/>
         <source>Still checking whether calling is available here. Try again in a moment.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13159,13 +13209,18 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+16"/>
+        <location line="+24"/>
         <location line="+5"/>
         <source>This build has no calling media support.</source>
         <translation>Esta compilação não tem suporte de mídia de chamada.</translation>
     </message>
     <message>
-        <location line="-17"/>
+        <location line="-19"/>
+        <source>You don&apos;t have permission to start or join calls in this room. A room admin can raise your power level in it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>This call can&apos;t be joined right now.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13175,12 +13230,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>A chamada ainda não está pronta.</translation>
     </message>
     <message>
-        <location line="-24"/>
+        <location line="-32"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Esta sala está criptografada e as chamadas criptografadas ainda não estão disponíveis nesta versão.</translation>
     </message>
     <message>
-        <location line="+163"/>
+        <location line="+173"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>Não foi possível anunciar você na chamada.</translation>
     </message>

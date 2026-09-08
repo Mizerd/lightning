@@ -454,7 +454,7 @@
         <translation>房间已创建，但未能设置房间图片。</translation>
     </message>
     <message>
-        <location line="+74"/>
+        <location line="+91"/>
         <source>Could not switch accounts — returning to the previous account.</source>
         <translation>无法切换账号，已返回上一个账号。</translation>
     </message>
@@ -931,7 +931,7 @@
         <translation>该文件已添加。</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+123"/>
         <source>The clipboard image is empty.</source>
         <translation>剪贴板中的图片为空。</translation>
     </message>
@@ -1195,6 +1195,11 @@
     </message>
     <message>
         <location line="+2"/>
+        <source>You can&apos;t join calls in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1304,7 +1309,37 @@
         <translation>举起你的手</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+30"/>
+        <source>Send a reaction</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+39"/>
+        <source>Thumbs up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Party</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Applause</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Dog</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Cat</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+70"/>
         <source>Show who&apos;s in the call (%1)</source>
         <translation>显示谁在通话中 (%1)</translation>
     </message>
@@ -1357,7 +1392,7 @@
 <context>
     <name>CallParticipantTile</name>
     <message>
-        <location filename="../qml/CallParticipantTile.qml" line="+161"/>
+        <location filename="../qml/CallParticipantTile.qml" line="+169"/>
         <source>You</source>
         <translation>你</translation>
     </message>
@@ -1383,6 +1418,11 @@
     </message>
     <message>
         <location line="+2"/>
+        <source>Reacted with %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Speaking</source>
         <translation>说话</translation>
     </message>
@@ -1392,7 +1432,7 @@
         <translation>连接不良</translation>
     </message>
     <message>
-        <location line="+462"/>
+        <location line="+541"/>
         <location line="+122"/>
         <source>Volume for %1</source>
         <translation>%1 的数量</translation>
@@ -1591,7 +1631,7 @@
 <context>
     <name>CallStage</name>
     <message>
-        <location filename="../qml/CallStage.qml" line="+587"/>
+        <location filename="../qml/CallStage.qml" line="+591"/>
         <source>Nobody to show here yet</source>
         <translation>还没有人可以在这里展示</translation>
     </message>
@@ -1656,7 +1696,7 @@
         <translation>返回网格</translation>
     </message>
     <message>
-        <location line="+199"/>
+        <location line="+201"/>
         <source>Playing full screen</source>
         <translation>全屏播放</translation>
     </message>
@@ -3955,7 +3995,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Joining calls isn&apos;t supported yet in this build.</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+2"/>
+        <source>You can&apos;t join calls in this room. A room admin can raise your power level in it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5277,7 +5322,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>无法读取剪贴板中的图片。</translation>
     </message>
     <message>
-        <location line="+110"/>
+        <location line="+114"/>
         <source>The attachment could not be queued.</source>
         <translation>无法将该附件加入队列。</translation>
     </message>
@@ -6502,7 +6547,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+41"/>
-        <location line="+414"/>
+        <location line="+416"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>未知房间：%1</translation>
@@ -7851,6 +7896,11 @@ Signing out and signing in again is the only fix.</source>
         <translation>此版本尚不支持加入通话</translation>
     </message>
     <message>
+        <location line="+7"/>
+        <source>You can&apos;t start or join calls in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+6"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
         <translation type="unfinished"></translation>
@@ -8061,7 +8111,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+332"/>
+        <location line="+339"/>
         <source>You do not have permission to change that.</source>
         <translation>你没有权限更改该项。</translation>
     </message>
@@ -12981,7 +13031,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+473"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+484"/>
         <location line="+79"/>
         <location line="+134"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -13035,12 +13085,12 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+443"/>
+        <location line="+453"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>此家庭服务器上无法进行呼叫。</translation>
     </message>
     <message>
-        <location line="-423"/>
+        <location line="-433"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>尝试次数太多。稍后再试一次。</translation>
     </message>
@@ -13066,12 +13116,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+410"/>
+        <location line="+420"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>无法接通通话。</translation>
     </message>
     <message>
-        <location line="-408"/>
+        <location line="-418"/>
         <source>The calling service is having trouble.</source>
         <translation>呼叫服务出现问题。</translation>
     </message>
@@ -13107,12 +13157,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+15"/>
-        <location line="+24"/>
+        <location line="+32"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>This build can&apos;t join Matrix calls.</translation>
     </message>
     <message>
-        <location line="-22"/>
+        <location line="-30"/>
         <source>Still checking whether calling is available here. Try again in a moment.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13133,13 +13183,18 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+16"/>
+        <location line="+24"/>
         <location line="+5"/>
         <source>This build has no calling media support.</source>
         <translation>此版本没有通话媒体支持。</translation>
     </message>
     <message>
-        <location line="-17"/>
+        <location line="-19"/>
+        <source>You don&apos;t have permission to start or join calls in this room. A room admin can raise your power level in it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>This call can&apos;t be joined right now.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13149,12 +13204,12 @@ Note: importing keys does not verify this session.</source>
         <translation>呼叫尚未准备好。</translation>
     </message>
     <message>
-        <location line="-24"/>
+        <location line="-32"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>该房间已加密，并且在此版本中尚不支持加密呼叫。</translation>
     </message>
     <message>
-        <location line="+163"/>
+        <location line="+173"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>无法在通话中通知您。</translation>
     </message>

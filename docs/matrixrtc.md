@@ -1757,10 +1757,37 @@ What is actually left:
    Applied when a capture is BUILT, so a change lands on the next publish
    rather than relinking a live pipeline; hot-swapping a device mid-call is
    still not implemented.
-2. **Emoji reactions on the wire.** The RAISED HAND now interoperates (see
-   "Raised hands" below); the transient emoji reactions element-call sends
-   beside it — `io.element.call.reaction` with a `m.reference` to the
-   sender's membership — do not, and there is no control for them.
+2. ~~**Emoji reactions on the wire.**~~ **DONE 2026-09-08.** The transient
+   reactions element-call sends beside the raised hand are implemented:
+   `io.element.call.reaction` carrying `emoji` and `name`, related by
+   `m.reference` to the sender's own `m.call.member` state event.
+
+   NOTHING ABOUT THE FORMAT WAS GUESSED. element-call's own
+   `src/reactions/{index.ts,useReactionsSender.tsx,ReactionsReader.ts}` were
+   recovered and cross-checked byte-identical against the element-call bundle
+   inside `element-web-1.12.24` in the nix store — two independent copies
+   agreeing — and the type string, the relation, the field names, the
+   first-grapheme trim and `REACTION_ACTIVE_TIME_MS = 3000` all come from
+   there. We only ever send a `(name, emoji)` pair from their own
+   `ReactionSet` (all 16 transcribed, code-point-verified) because Element
+   looks a reaction's SOUND up by name; an unknown pair is refused before it
+   reaches the wire.
+
+   Attribution reuses the raised hand's own ownership check, so a reaction
+   referencing somebody else's membership is dropped; one that arrives before
+   its membership rides the same bounded pending lane. There is deliberately
+   NO join-time backlog sweep — a reaction that fired before we joined is
+   over, and element-call does not sweep them either. The 3000 ms window is
+   the display life, the duplicate-drop window and this device's cooldown,
+   all one constant.
+
+   Two things are honest to record. Serde does not verify an
+   internally-tagged relation on the way in, measured with a standalone
+   program: an `m.annotation` relation still deserializes as a reference. The
+   implementation stays liberal there, as element-call's reader is, because
+   the ownership check is the real gate. And **NOT TESTED live**: whether an
+   Element user sees ours, whether ours renders theirs, and whether their
+   sound lookup fires all need a two-client call.
 3. **The screen-share startup hold**, on a DAMAGE-DRIVEN capture only.
    Live-confirmed 2026-08-26 as near-instant on a first share and 1-2 s on a
    restart — much better than the 5-10 s originally reported — and measured on
