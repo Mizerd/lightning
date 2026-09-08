@@ -900,8 +900,21 @@ private slots:
                            .arg(failure)),
             30000);
 
+        // THE RECEIVE BIN IS REGISTERED, which is what makes retiring it
+        // possible at all. Nothing tracked these before: a bin stayed in the
+        // subscriber pipeline for the whole call, and `remoteTrackRemoved`
+        // was a signal no code emitted.
+        QCOMPARE(receiver.receiveBinsForTest(), 1);
+
         sender.stop();
         receiver.stop();
+
+        // AND STOPPING LEAVES NOTHING RUNNING. The bins go with the
+        // pipeline; what must not survive is an outstanding teardown, which
+        // is the invariant awaitPublishTeardowns() exists for and which a
+        // retired receive bin now also counts against.
+        QCOMPARE(receiver.pendingTeardownsForTest(), 0);
+        QCOMPARE(sender.pendingTeardownsForTest(), 0);
     }
 
     // AN UNKEYED SENDER IS REPORTED AS UNKEYED, NOT AS A DECRYPTION FAILURE.

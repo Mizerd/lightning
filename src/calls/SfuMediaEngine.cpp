@@ -952,6 +952,14 @@ bool SfuMediaEngine::ensurePeer(Target target)
     g_signal_connect(webrtc, "on-ice-candidate", G_CALLBACK(onIceCandidate),
                      this);
     g_signal_connect(webrtc, "pad-added", G_CALLBACK(onPadAdded), this);
+    // AND WHEN ONE GOES AWAY. Nothing listened for this, so a receive bin
+    // was never removed and `remoteTrackRemoved` was a signal nothing ever
+    // emitted. Whether webrtcbin raises it for a track LiveKit retires is
+    // not something this machine can prove without a live SFU, so the
+    // handler logs when it fires: if a capture from a real call never shows
+    // that line, the retirement needs a different trigger and this is the
+    // evidence that says so.
+    g_signal_connect(webrtc, "pad-removed", G_CALLBACK(onPadRemoved), this);
     armStatsTrace();
     // WHETHER THE CONNECTION EVER COMES UP.
     //
@@ -3483,6 +3491,37 @@ struct PublishTeardown {
     std::shared_ptr<std::atomic<int>> outstanding;
 };
 
+/// The receive-side twin of PublishTeardown. Simpler, because a receive bin
+/// owns no request pad and no transceiver: the far end already knows the
+/// track ended — it is the one that ended it.
+struct ReceiveTeardown {
+    GstElement *pipeline = nullptr;
+    /// Shared with the engine for exactly the reason PublishTeardown's is:
+    /// stop() waits on it, and if that bounded wait expires the decrement
+    /// must still be safe from a GStreamer thread with no engine left.
+    std::shared_ptr<std::atomic<int>> outstanding;
+};
+
+void receiveTeardownFree(gpointer data)
+{
+    auto *ctx = static_cast<ReceiveTeardown *>(data);
+    if (ctx->pipeline)
+        gst_object_unref(ctx->pipeline);
+    if (ctx->outstanding)
+        ctx->outstanding->fetch_sub(1);
+    delete ctx;
+}
+
+/// Runs on a GStreamer thread pool thread, never a streaming thread, which
+/// is why it may change state. A synchronous set_state(NULL) on a bin inside
+/// a PLAYING pipeline is the deadlock this subsystem already paid for once.
+void receiveTeardownAsync(GstElement *bin, gpointer data)
+{
+    auto *ctx = static_cast<ReceiveTeardown *>(data);
+    gst_bin_remove(GST_BIN(ctx->pipeline), bin);
+    gst_element_set_state(bin, GST_STATE_NULL);
+}
+
 void publishTeardownFree(gpointer data)
 {
     auto *ctx = static_cast<PublishTeardown *>(data);
@@ -5308,6 +5347,52 @@ void SfuMediaEngine::onIceCandidate(GstElement *webrtc, unsigned mlineIndex,
     });
 }
 
+void SfuMediaEngine::onPadRemoved(GstElement *webrtc, void *pad,
+                                  void *userData)
+{
+    Q_UNUSED(webrtc);
+    auto *engine = static_cast<SfuMediaEngine *>(userData);
+    if (!engine || !pad)
+        return;
+    auto *removed = static_cast<GstPad *>(pad);
+    ReceiveBin entry;
+    {
+        QMutexLocker lock(&engine->m_receiveBinMutex);
+        entry = engine->m_receiveBins.take(removed);
+    }
+    GstElement *bin = entry.bin;
+    if (!bin) {
+        // A pad we never built a bin for: the receive chain failed to build
+        // or to link, and both of those already logged their own reason.
+        return;
+    }
+    // THE EVIDENCE LINE. This subsystem could not previously observe a
+    // remote track ending at all, and whether webrtcbin raises pad-removed
+    // for a track LiveKit retires is unproven here — see the connect site.
+    qCInfo(lcSfuMedia) << "a remote track's pad was removed; retiring its "
+                          "receive bin";
+    GstElement *pipeline = engine->m_subscriber.pipeline;
+    if (!pipeline) {
+        // No pipeline left to remove it from: stop() already NULLed
+        // everything, which retires this bin with it.
+        return;
+    }
+    auto *ctx = new ReceiveTeardown{
+        GST_ELEMENT(gst_object_ref(pipeline)), engine->m_pendingTeardowns};
+    // Counted BEFORE the async work is queued, so stop()'s bounded wait can
+    // never observe zero while this bin is still being taken apart.
+    engine->m_pendingTeardowns->fetch_add(1);
+    gst_element_call_async(bin, receiveTeardownAsync, ctx, receiveTeardownFree);
+    // MARSHALLED, never emitted from here: this runs on a GStreamer
+    // streaming thread, and every other notification in this file crosses to
+    // the Qt thread the same way.
+    const QString streamId = entry.streamId;
+    const QString kind = entry.kind;
+    marshal(engine, [engine, streamId, kind] {
+        Q_EMIT engine->remoteTrackRemoved(streamId, kind);
+    });
+}
+
 void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
 {
     auto *engine = static_cast<SfuMediaEngine *>(userData);
@@ -5655,6 +5740,18 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
                                   QStringLiteral("media_receive"));
         });
         return;
+    }
+    // REMEMBER WHICH BIN THIS PAD FEEDS, so it can be retired when the pad
+    // goes away. Without this the bin stays in the subscriber pipeline, in
+    // PLAYING, for the rest of the call: every camera or share toggle is a
+    // new m= section on LiveKit's subscriber offer and therefore a new pad,
+    // so a long call accumulates decoders and, for audio, playback streams.
+    // It also makes `gst_bin_get_by_name` ambiguous, because a dead bin's
+    // `outvol_*` shadows the live one whenever a derived name repeats.
+    {
+        QMutexLocker lock(&engine->m_receiveBinMutex);
+        engine->m_receiveBins.insert(static_cast<GstPad *>(pad),
+                                     ReceiveBin{bin, streamId, mediaKind});
     }
     // FACT TWO OF FOUR: this track was attributed to a participant and has a
     // chain to run in. `attributed=false` above plus this line naming a

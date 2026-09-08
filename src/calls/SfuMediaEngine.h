@@ -464,6 +464,14 @@ public:
     /// it.
     void failNextPublishLinkForTest() { m_failNextPublishLink = true; }
 
+    /// Test-only: how many receive bins the subscriber pipeline is holding.
+    /// A remote track that came and went must leave none behind.
+    int receiveBinsForTest() const
+    {
+        QMutexLocker lock(&m_receiveBinMutex);
+        return static_cast<int>(m_receiveBins.size());
+    }
+
     /// Test-only: how many deferred publish teardowns are still outstanding.
     /// Zero after stop() and after destruction is the invariant; see
     /// awaitPublishTeardowns().
@@ -704,6 +712,11 @@ private:
     static void onIceCandidate(GstElement *webrtc, unsigned mlineIndex,
                                char *candidate, void *userData);
     static void onPadAdded(GstElement *webrtc, void *pad, void *userData);
+    /// The twin nothing was listening for. Retires the receive bin this pad
+    /// fed, through the same IDLE-probe route unpublish() uses — a
+    /// synchronous state change on a bin inside a PLAYING pipeline is the
+    /// recorded deadlock.
+    static void onPadRemoved(GstElement *webrtc, void *pad, void *userData);
     static void onOfferCreated(GstPromise *promise, void *userData);
     static void onAnswerCreated(GstPromise *promise, void *userData);
 
@@ -917,6 +930,24 @@ private:
         = std::make_shared<std::atomic<int>>(0);
     /// Test-only fault injection; see failNextPublishLinkForTest().
     bool m_failNextPublishLink = false;
+    /// Receive bins, keyed by the webrtcbin src pad that feeds each one.
+    ///
+    /// A remote track that goes away used to leave its bin in the subscriber
+    /// pipeline, in PLAYING, with its decoder task and — for audio — an open
+    /// playback stream, until the call ended. Every camera or share toggle
+    /// is a new m= section on LiveKit's subscriber offer and therefore a new
+    /// pad, so a long call accumulated them. Written from a streaming thread
+    /// (pad-added / pad-removed) and read by stop(), hence the mutex.
+    mutable QMutex m_receiveBinMutex;
+    struct ReceiveBin {
+        GstElement *bin = nullptr;
+        /// Carried so the retirement can say WHO stopped sending. A signal
+        /// emitted with empty strings would be worse than no signal: a
+        /// future consumer would act on it.
+        QString streamId;
+        QString kind;
+    };
+    QHash<GstPad *, ReceiveBin> m_receiveBins;
 
     /// Not owned. QPointer so a router destroyed before the engine cannot
     /// be dereferenced from a late streaming-thread callback.
