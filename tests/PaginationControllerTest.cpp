@@ -417,6 +417,105 @@ private Q_SLOTS:
         QCOMPARE(client.loadOlderCalls, 1);
     }
 
+    // A DISPATCHED BATCH THAT THE BACKEND NEVER ACKNOWLEDGES MUST NOT LATCH
+    // THE ROOM ON "LOADING" FOR THE REST OF THE VISIT.
+    //
+    // m_requestActive was cleared only by loading -> idle/failed, a room
+    // switch, or a synchronous dispatch failure. Rust's `paginate_back`
+    // returns Ok WITHOUT enqueuing anything in two real cases -- the start of
+    // history is already reached, and another request holds its single-flight
+    // -- and the bridge's event queue is bounded, so a poll stall can drop the
+    // terminal event outright. In all three the flag latched: busy() stayed
+    // true, presentationState stayed Loading (so no Retry was even offered),
+    // and every later request was suppressed as a duplicate of one that had
+    // already died.
+    //
+    // No `beginLoading` here on purpose: total silence after the dispatch is
+    // exactly the reported shape.
+    void aBatchTheBackendNeverAcknowledgesIsAbandoned()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRequestWatchdogForTest(20);
+        controller.setRoomId(kRoomA);
+
+        controller.requestNearTop();
+        QCOMPARE(client.loadOlderCalls, 1);
+        QVERIFY(controller.busy());
+
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 2000);
+        QCOMPARE(controller.presentationState(), PaginationController::Hidden);
+
+        // And the reader can ask again -- the point of clearing the flight.
+        controller.requestNearTop();
+        QCOMPARE(client.loadOlderCalls, 2);
+    }
+
+    // Abandoning is NOT a completion. Nothing was delivered, so reporting one
+    // would tell the view a page landed and let the near-top continuation
+    // chain off a page that never existed.
+    void anAbandonedBatchReportsNoCompletion()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRequestWatchdogForTest(20);
+        controller.setRoomId(kRoomA);
+        QSignalSpy completed(&controller,
+                             &PaginationController::paginationCompleted);
+
+        controller.requestNearTop();
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 2000);
+        QCOMPARE(completed.count(), 0);
+        QVERIFY(!controller.nearTopRunActive());
+    }
+
+    // An automatic fill whose pages never arrive must stop asking, exactly as
+    // one whose pages arrive empty does: initialContentSettled is gated on
+    // the fill stopping, so without this the room never becomes presentable
+    // and every layout pass re-dispatches into the same silence.
+    void abandonedFillsEventuallyStopTheFillLoop()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRequestWatchdogForTest(5);
+        controller.setRoomId(kRoomA);
+
+        // Twelve strikes, matching the empty-page budget above.
+        for (int i = 0; i < 12 && !controller.fillStopped(); ++i) {
+            controller.requestViewportFill();
+            QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 2000);
+        }
+        QVERIFY(controller.fillStopped());
+        QVERIFY(controller.initialContentSettled());
+    }
+
+    // The watchdog must never touch a batch that completed normally: it is a
+    // last resort, not a deadline. A fill that DELIVERED must not be charged
+    // a no-progress strike a few seconds later.
+    void aCompletedBatchIsNeverAbandonedAfterwards()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRequestWatchdogForTest(20);
+        controller.setRoomId(kRoomA);
+        QSignalSpy completed(&controller,
+                             &PaginationController::paginationCompleted);
+
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 3, false);
+        QCOMPARE(completed.count(), 1);
+
+        QTest::qWait(120); // well past the watchdog
+        QCOMPARE(completed.count(), 1);
+        QVERIFY(!controller.fillStopped());
+        QVERIFY(!controller.busy());
+    }
+
     void duplicateRequestsSuppressedWhileLoading()
     {
         FakeClient client;

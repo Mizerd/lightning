@@ -203,6 +203,8 @@ public:
     { m_highlightDurationMs = durationMs; }
     void setNearTopContinuationDelayForTest(int delayMs)
     { m_nearTopContinuationDelayMs = delayMs; }
+    void setRequestWatchdogForTest(int timeoutMs)
+    { m_requestWatchdogMs = timeoutMs; }
 
 Q_SIGNALS:
     void roomIdChanged();
@@ -246,6 +248,26 @@ private:
     void request(Reason reason);
     void resetPerRoomState();
     void finishBatch(bool reachedStart);
+    // Give up on a dispatched batch that never reached ANY terminal state.
+    //
+    // m_requestActive was cleared only by loading -> idle/failed, by a room
+    // switch, or by a synchronous dispatch failure. Two things break that.
+    // The Rust `paginate_back` returns Ok WITHOUT enqueuing anything at all
+    // when the start of history is already reached and when another request
+    // holds its single-flight, so no `loading` and no terminal state ever
+    // arrives; and the bridge's event queue is bounded, so a poll-timer stall
+    // can drop the terminal event outright. Either way the flag latched and
+    // busy() stayed true -- the room stuck on "Loading" for the rest of the
+    // visit, with no Retry offered, because the overlay is Loading and not
+    // Failed.
+    //
+    // This is NOT a completion: nothing was delivered, so paginationCompleted
+    // is not emitted and no near-top continuation is scheduled. It clears the
+    // flight so the ordinary triggers -- a layout pass, the reader's next
+    // approach to the top, Retry -- can dispatch again, and counts a fill
+    // strike so a backend that never answers cannot leave the automatic fill
+    // asking forever.
+    void abandonStalledRequest();
     // Schedules exactly one more NearTop request, paced by
     // m_nearTopContinuationDelayMs (never a tight loop). Only reached for a
     // page that reported no mirror growth (the backend delivered nothing new
@@ -333,6 +355,13 @@ private:
     // second request can start between `complete` and the first request's rows.
     QTimer m_completionSettleTimer;
     int m_completionSettleDelayMs = 250;
+    // Last resort for a dispatched batch that reports nothing at all; see
+    // abandonStalledRequest(). Generously long -- a real page against a slow
+    // homeserver is seconds, not tens of seconds, and this must never fire on
+    // a request that is merely working.
+    QTimer m_requestWatchdogTimer;
+    int m_requestWatchdogMs = 30000;
+    quint64 m_requestWatchdogGeneration = 0;
     quint64 m_autoRetryGeneration = 0;
     int m_autoRetryAttempts = 0;
     int m_maxAutomaticRetries = 3;

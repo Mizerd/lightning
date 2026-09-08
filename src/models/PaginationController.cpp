@@ -13,6 +13,7 @@ PaginationController::PaginationController(QObject *parent)
 {
     m_autoRetryTimer.setSingleShot(true);
     m_completionSettleTimer.setSingleShot(true);
+    m_requestWatchdogTimer.setSingleShot(true);
     m_highlightTimer.setSingleShot(true);
     m_navigationMessageTimer.setSingleShot(true);
     connect(&m_highlightTimer, &QTimer::timeout, this, [this] {
@@ -37,6 +38,9 @@ PaginationController::PaginationController(QObject *parent)
     connect(&m_completionSettleTimer, &QTimer::timeout, this, [this] {
         if (m_requestActive && m_completionPending)
             finishBatch(m_completionReachedStart);
+    });
+    connect(&m_requestWatchdogTimer, &QTimer::timeout, this, [this] {
+        abandonStalledRequest();
     });
 }
 
@@ -85,6 +89,7 @@ void PaginationController::resetPerRoomState()
 {
     m_autoRetryTimer.stop();
     m_completionSettleTimer.stop();
+    m_requestWatchdogTimer.stop();
     ++m_generation;
     m_requestActive = false;
     m_activeReason = Reason::None;
@@ -406,6 +411,13 @@ void PaginationController::request(Reason reason)
         m_requestActive = false;
         // Preserve the reason until the failure callback/log has observed it.
     }
+    // Arm the last-resort watchdog only for a flight that is actually in the
+    // air. Every path that ends the flight stops it; see
+    // abandonStalledRequest().
+    if (m_requestActive && m_requestWatchdogMs > 0) {
+        m_requestWatchdogGeneration = m_generation;
+        m_requestWatchdogTimer.start(m_requestWatchdogMs);
+    }
     Q_EMIT stateChanged();
 }
 
@@ -502,6 +514,7 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
         m_requestActive = false;
         m_activeReason = Reason::None;
         m_completionSettleTimer.stop();
+        m_requestWatchdogTimer.stop();
         m_completionPending = false;
         m_seenLoading = false;
         if (failedReason == Reason::Navigation) {
@@ -545,9 +558,56 @@ int PaginationController::batchRowGrowth() const
     return m_timelineModel->eventCount() - m_batchStartRows;
 }
 
+void PaginationController::abandonStalledRequest()
+{
+    // The generation guard is what makes a room switch, a timeline reset or a
+    // sign-out during the wait harmless: the timer is single-shot and stopped
+    // by resetPerRoomState(), but a queued timeout can still be delivered
+    // afterwards, and it must never clear a NEWER room's flight.
+    if (m_requestWatchdogGeneration != m_generation || !m_requestActive)
+        return;
+
+    const Reason reason = m_activeReason;
+    qCWarning(lcPagination)
+        << "timeline pagination abandoned: the backend never reported a"
+        << "terminal state reason=" << reasonName(reason)
+        << "seen_loading=" << m_seenLoading
+        << "timeout_ms=" << m_requestWatchdogMs
+        << "generation=" << m_generation;
+
+    m_requestActive = false;
+    m_activeReason = Reason::None;
+    m_batchInserted = 0;
+    m_batchStableIds.clear();
+    m_completionSettleTimer.stop();
+    m_completionPending = false;
+    m_completionReachedStart = false;
+    m_seenLoading = false;
+
+    // A navigation that can never land must SAY so. Silently clearing the
+    // flight would leave the reader waiting for a jump that is not coming.
+    if (reason == Reason::Navigation) {
+        failNavigation();
+        return;
+    }
+    // An automatic fill whose pages never arrive must stop asking, exactly as
+    // one whose pages arrive empty does — otherwise every layout pass
+    // re-dispatches into the same silence and the room never becomes
+    // presentable (initialContentSettled is gated on the fill stopping).
+    if (reason == Reason::ViewportFill
+        && ++m_noProgressStrikes >= kMaxNoProgressStrikes) {
+        m_fillStopped = true;
+        qCInfo(lcPagination)
+            << "timeline pagination fill stopped no_progress_strikes="
+            << m_noProgressStrikes << "generation=" << m_generation;
+    }
+    Q_EMIT stateChanged();
+}
+
 void PaginationController::finishBatch(bool hitStart)
 {
     m_completionSettleTimer.stop();
+    m_requestWatchdogTimer.stop();
     const Reason reason = m_activeReason;
     // Signal-counted inserts UNDER-report on the real backend (see
     // batchRowGrowth()); the model is the ground truth for whether the reader

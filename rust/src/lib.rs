@@ -63,7 +63,9 @@ use matrix_sdk::deserialized_responses::SyncOrStrippedState;
 use futures_util::StreamExt;
 use matrix_sdk_ui::{
     eyeball_im::VectorDiff,
-    room_list_service::{filters, RoomListItem, RoomListService},
+    room_list_service::{
+        filters, RoomListDynamicEntriesController, RoomListItem, RoomListService,
+    },
     spaces::SpaceService,
     sync_service::{Error as UnifiedSyncError, State as UnifiedSyncState, SyncService},
 };
@@ -198,6 +200,19 @@ struct RustClient {
     // a pin made this session, or by another client, would stay invisible
     // until the once-per-room `/state` probe ran again after a restart.
     room_list_service: Arc<Mutex<Option<Arc<RoomListService>>>>,
+    // THE PRODUCER THAT OWNS THE ROOM-LIST INDEX SPACE, published by the
+    // running modern sync loop and withdrawn on every exit path exactly like
+    // `room_list_service` above.
+    //
+    // C++ indexes its ordered room registry by the positions the dynamic
+    // adapter's diffs carry, so only that adapter may define what index 0
+    // means. `set_filter` is documented to make the stream yield a
+    // `VectorDiff::Reset` followed by the updates under that filter, which is
+    // precisely "re-emit the index base" — the room-list twin of re-opening
+    // an SDK timeline after an invalid timeline diff. Recovering from a
+    // rejected diff with a `client.rooms()` snapshot instead is what made the
+    // rejection self-sustaining (see `enqueue_rooms_stamped`).
+    room_list_entries: Arc<Mutex<Option<Arc<RoomListDynamicEntriesController>>>>,
     // The room the user currently has open — the single subscription the
     // sliding sync should carry. Remembered separately from the service so
     // a room opened before the sync loop is up is subscribed as soon as
@@ -346,6 +361,7 @@ impl RustClient {
             call_media_capable: Arc::new(
                 std::sync::atomic::AtomicBool::new(false)),
             room_list_service: Arc::new(Mutex::new(None)),
+            room_list_entries: Arc::new(Mutex::new(None)),
             active_room_subscription: Arc::new(Mutex::new(None)),
             uia_pending: Arc::new(Mutex::new(None)),
             import_task: Mutex::new(None),
@@ -979,8 +995,14 @@ pub extern "C" fn mx_rust_create(store_path: *const c_char) -> *mut c_void {
         // sensitive smoke-test session file has been 0600 all along.
         //
         // matrix-sdk offers no mode hook, so the databases are corrected
-        // after the client has opened them. Best effort: a filesystem with no
-        // Unix modes must not stop a sign-in.
+        // after they exist. THAT IS NOT HERE: `RustClient::new` opens no
+        // database — it builds a tokio runtime and fills a struct — so on a
+        // fresh login this directory is still empty and both calls below have
+        // nothing to correct. The databases are created by `build_client`'s
+        // `sqlite_store`, which does its own chmod for exactly that reason;
+        // these two keep the DIRECTORY at 0700 from the first moment it
+        // exists, and correct an EXISTING store's files on every later launch.
+        // Best effort: a filesystem with no Unix modes must not stop a sign-in.
         restrict_store_permissions(&path);
         let client = RustClient::new(path.clone())?;
         restrict_store_permissions(&path);
@@ -1445,6 +1467,7 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         let events = Arc::clone(&bridge.events);
         let sync_mode = Arc::clone(&bridge.sync_mode);
         let room_list_slot = Arc::clone(&bridge.room_list_service);
+        let entries_slot = Arc::clone(&bridge.room_list_entries);
         let active_subscription = Arc::clone(&bridge.active_room_subscription);
         let sync_timelines = Arc::clone(&bridge.timelines);
         let sync_media_capable = Arc::clone(&bridge.call_media_capable);
@@ -1461,8 +1484,8 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
             run_async(runtime_events, "sync", async move {
                 run_authoritative_sync(
                     sync_client, events, sync_mode, room_list_slot,
-                    active_subscription, sync_timelines, sync_media_capable,
-                    cancel_rx,
+                    entries_slot, active_subscription, sync_timelines,
+                    sync_media_capable, cancel_rx,
                 ).await;
             });
         });
@@ -2975,9 +2998,24 @@ pub unsafe extern "C" fn mx_rust_reject_invite(
 
 /// Controlled fresh room-list reset. Called by C++ if it ever rejects a
 /// malformed/out-of-range room-list diff, so the model recovers to a
-/// complete, correct snapshot from the SDK's current room set instead of
-/// staying stale. Well-formed diffs from the dynamic adapter should never
-/// trigger this; it is a safety net, not a routine path.
+/// complete, correct room set instead of staying stale. Well-formed diffs
+/// from the dynamic adapter should never trigger this; it is a safety net,
+/// not a routine path.
+///
+/// IT MUST RECOVER FROM THE PRODUCER THAT OWNS THE INDEX SPACE. Until
+/// 2026-09-08 it answered with `enqueue_rooms` — a `client.rooms()` snapshot
+/// of the whole state store, which is a DIFFERENT and differently-ordered
+/// vector from the dynamic adapter's paged, filtered, sorted one. C++ rebuilt
+/// its index base from that snapshot, the adapter's next `Set{index}` then
+/// addressed a different room, was rejected, and asked for the same snapshot
+/// again: the recovery was the cause of the loop it was recovering from
+/// ("room_list malformed diff rejected", twelve a minute on one account).
+///
+/// Re-setting the adapter's filter makes its stream yield a
+/// `VectorDiff::Reset` carrying the current entries, which is the same shape
+/// the timeline path already uses (re-open the SDK timeline after an invalid
+/// timeline diff). The snapshot stays as the fallback for the classic-sync
+/// lane, which has no dynamic adapter and therefore no index space to rebuild.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_resync_rooms(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -2985,6 +3023,19 @@ pub unsafe extern "C" fn mx_rust_resync_rooms(ptr: *mut c_void) -> *mut c_char {
         let Some(client) = bridge.client.lock().ok().and_then(|guard| guard.clone()) else {
             return Err("no active Matrix session".to_owned());
         };
+        let entries = bridge
+            .room_list_entries
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone());
+        // `set_filter` returns false once the stream it feeds has been
+        // dropped — a sync loop between rebuilds — in which case the reset
+        // would never be emitted and the snapshot is the honest answer.
+        if let Some(entries) = entries {
+            if entries.set_filter(Box::new(filters::new_filter_non_left())) {
+                return Ok(String::new());
+            }
+        }
         let events = Arc::clone(&bridge.events);
         bridge.spawn_room_action(async move {
             enqueue_rooms(&events, &client).await;
@@ -7706,6 +7757,18 @@ pub unsafe extern "C" fn mx_rust_room_bridges(
 /// a helper every entry point already calls cannot be the one somebody forgets
 /// to add to a fourth flow later.
 fn ensure_search_index(bridge: &RustClient) -> Result<(), String> {
+    // TEARDOWN CLOSED THIS INDEX ON PURPOSE, AND LAZY MEANS "REOPENS".
+    // `shutdown_managed_tasks` sets this flag and drops the connection
+    // precisely because an open SQLite handle inside a directory sign-out is
+    // about to delete makes the delete FAIL on Windows. The find bar is still
+    // on screen while that runs, so one keystroke between
+    // `mx_rust_shutdown_tasks` and `mx_rust_destroy` reached here and opened
+    // the file again — and `finishSignOut` then reported it could not
+    // completely reset the local session. Refusing is not a lost feature:
+    // there is no session left to search.
+    if bridge.index_shutdown.load(Ordering::Relaxed) {
+        return Err("the local index is closed for this session".to_owned());
+    }
     if let Ok(guard) = bridge.search_index.lock() {
         if guard.is_some() {
             return Ok(());
@@ -7717,6 +7780,10 @@ fn ensure_search_index(bridge: &RustClient) -> Result<(), String> {
     std::fs::create_dir_all(&bridge.store_path)
         .map_err(|e| format!("cannot create the store directory: {e}"))?;
     let index = localsearch::SearchIndex::open_in(&bridge.store_path)?;
+    // The index file is created by that open, at the process umask, in the
+    // directory that holds the account's keys. Same correction, same reason
+    // as in `build_client`; `open_in` sets no mode of its own.
+    restrict_store_permissions(&bridge.store_path);
     if let Ok(mut guard) = bridge.search_index.lock() {
         *guard = Some(index);
     }
@@ -9453,6 +9520,22 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
         .build()
         .await
         .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))?;
+    // 0600 ON THE DATABASES THAT WERE JUST CREATED, from the ONE place all
+    // three login paths (password, restore, OAuth-with-a-store) pass through.
+    //
+    // `mx_rust_create` chmods the store directory before and after
+    // `RustClient::new`, and its comment used to claim that corrected the
+    // databases "after the client has opened them". It does not: nothing is
+    // open at that point. The four SDK sqlite files, their -wal/-shm siblings
+    // and the search index are created HERE, at the process umask, and were
+    // corrected only by the NEXT launch. The containing directory is 0700, so
+    // the exposure is bounded to anything that reads by inode or copies with
+    // modes — a backup, rsync, tar, an NFS home — but this directory holds the
+    // Megolm and device keys and the fix is one call. Best effort, exactly as
+    // at creation.
+    if !store_path.as_os_str().is_empty() {
+        restrict_store_permissions(store_path);
+    }
     // Media-store retention policy. Without one the SDK runs
     // MediaRetentionPolicy::empty(): every fetched payload — including a
     // 500 MiB video — is INSERTed whole into matrix-sdk-media.sqlite3, the
@@ -10045,6 +10128,7 @@ async fn run_authoritative_sync(
     events: Arc<Mutex<VecDeque<String>>>,
     sync_mode: Arc<Mutex<SyncMode>>,
     room_list_slot: Arc<Mutex<Option<Arc<RoomListService>>>>,
+    entries_slot: Arc<Mutex<Option<Arc<RoomListDynamicEntriesController>>>>,
     active_subscription: Arc<Mutex<Option<OwnedRoomId>>>,
     timelines: Arc<timeline::TimelineRegistry>,
     call_media_capable: Arc<std::sync::atomic::AtomicBool>,
@@ -10089,7 +10173,7 @@ async fn run_authoritative_sync(
     if modern_supported {
         if let Some(cancel) = run_modern_sync(
             client.clone(), Arc::clone(&events), Arc::clone(&sync_mode),
-            room_list_slot, active_subscription, cancel
+            room_list_slot, entries_slot, active_subscription, cancel
         ).await {
             set_sync_mode(
                 &sync_mode, &events, SyncMode::ClassicSyncFallback, Some("unsupported")
@@ -10125,6 +10209,55 @@ fn authentication_error(error: &UnifiedSyncError) -> bool {
     matches!(unified_error_kind(error), Some(ErrorKind::UnknownToken { .. } | ErrorKind::Forbidden))
 }
 
+/// What one failed classic `/sync` means for the loop that issued it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClassicSyncFault {
+    /// The session itself is gone. Stop, say so, and never retry: retrying
+    /// a revoked token is how a client hammers a server it can never talk
+    /// to again.
+    Fatal,
+    /// Everything else. Keep syncing.
+    Transient,
+}
+
+/// Classify a classic-sync failure from the server's own errcode.
+///
+/// Pure over the `ErrorKind` so it is testable without a homeserver: the
+/// caller does the one impure step (`Error::client_api_error_kind`).
+///
+/// THE DEFAULT IS `Transient`, AND THAT IS THE WHOLE POINT. A dropped
+/// connection reaches here as `None` — no errcode, because the request never
+/// got a reply — and until 2026-09-08 that ended `run_classic_sync`, whose
+/// future then returned, whose thread then exited, with `startSync()` called
+/// from exactly one place (login). matrix-sdk's native client makes this
+/// certain rather than likely: `RequestConfig::default()` has no
+/// `retry_limit`, and its retry policy deliberately does NOT retry a network
+/// failure without one, so a two-second Wi-Fi drop was a permanent error.
+/// matrix-sdk-ui works around the same thing explicitly with `retry_limit(5)`.
+///
+/// The fatal set mirrors the modern lane's `authentication_error` exactly, so
+/// the two lanes cannot disagree about what a dead session looks like.
+pub(crate) fn classify_classic_sync_error(kind: Option<&ErrorKind>) -> ClassicSyncFault {
+    match kind {
+        Some(ErrorKind::UnknownToken { .. }) | Some(ErrorKind::Forbidden) =>
+            ClassicSyncFault::Fatal,
+        _ => ClassicSyncFault::Transient,
+    }
+}
+
+/// Bounded backoff between classic-sync attempts, by consecutive failure
+/// count. Capped so an overnight outage retries once every half minute
+/// instead of once a second, and never grows without bound.
+pub(crate) fn classic_sync_backoff(consecutive_failures: u32) -> std::time::Duration {
+    const CEILING_SECS: u64 = 30;
+    let secs = 1u64 << consecutive_failures.min(5);
+    std::time::Duration::from_secs(secs.min(CEILING_SECS))
+}
+
+/// Consecutive classic-sync failures before the silence is escalated from
+/// "offline" to a visible error. One report per outage; a success clears it.
+const CLASSIC_SYNC_REPORT_AFTER: u32 = 5;
+
 /// Runs matrix-sdk-ui's unified supervisor. Its `EncryptionSyncPermit`
 /// guarantees exactly one encryption Sliding Sync while the room-list sync is
 /// active. Returning `Some(cancel)` is the only path allowed to start classic
@@ -10134,6 +10267,7 @@ async fn run_modern_sync(
     events: Arc<Mutex<VecDeque<String>>>,
     sync_mode: Arc<Mutex<SyncMode>>,
     room_list_slot: Arc<Mutex<Option<Arc<RoomListService>>>>,
+    entries_slot: Arc<Mutex<Option<Arc<RoomListDynamicEntriesController>>>>,
     active_subscription: Arc<Mutex<Option<OwnedRoomId>>>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> Option<tokio::sync::oneshot::Receiver<()>> {
@@ -10154,6 +10288,47 @@ async fn run_modern_sync(
         }
     }
     let publication = RoomListPublication(room_list_slot);
+
+    // Same contract for the dynamic-entries controller, for a sharper
+    // reason: it is what `mx_rust_resync_rooms` uses to re-emit the room
+    // list's index base, and a controller whose stream has been dropped
+    // would accept the call and emit nothing at all.
+    struct EntriesPublication(
+        Arc<Mutex<Option<Arc<RoomListDynamicEntriesController>>>>,
+    );
+    impl EntriesPublication {
+        fn set(&self, controller: Option<Arc<RoomListDynamicEntriesController>>) {
+            if let Ok(mut guard) = self.0.lock() {
+                *guard = controller;
+            }
+        }
+    }
+    impl Drop for EntriesPublication {
+        fn drop(&mut self) {
+            self.set(None);
+        }
+    }
+    let entries_publication = EntriesPublication(entries_slot);
+
+    // ONE first-response watchdog for the WHOLE modern lane, spanning every
+    // rebuild of the supervisor below.
+    //
+    // The classic fallback has had this since the 13-minute silent wedge was
+    // reported; the sliding lane — the one every modern homeserver takes —
+    // emitted "starting" and could then wait forever with nothing else
+    // emitted, which renders as "Loading rooms…" and says nothing about
+    // whether anything is happening. Like the classic one it never cancels
+    // or restarts anything: after the last escalation it parks forever, so
+    // it can never be the arm that ends a select! and stops a working sync.
+    let first_response = Arc::new(AtomicBool::new(true));
+    let watchdog_events = Arc::clone(&events);
+    let watchdog_first = Arc::clone(&first_response);
+    let watchdog = async move {
+        watch_first_sync_response(&watchdog_events, &watchdog_first,
+                                  FIRST_SYNC_STALL_STEPS).await;
+        std::future::pending::<()>().await
+    };
+    tokio::pin!(watchdog);
 
     loop {
         let service = match SyncService::builder(client.clone()).build().await {
@@ -10181,14 +10356,39 @@ async fn run_modern_sync(
         let room_list = match room_list_service.all_rooms().await {
             Ok(list) => list,
             Err(_) => {
+                // NOT FATAL AND NOT PARKED. This used to enqueue a
+                // `room_list_error` category C++ discarded without even a log
+                // and then await cancellation forever: the sync thread stayed
+                // alive with nothing running for the rest of the session, and
+                // the only visible symptom was a room list that never
+                // arrived. It is the same transient shape the supervisor's own
+                // errors take, so it takes the same bounded rebuild backoff.
                 enqueue(&events, json!({ "type": "room_list_error", "category": "setup" }));
-                let _ = (&mut cancel).await;
-                return None;
+                enqueue(&events, json!({
+                    "type": "room_list_sync_state", "state": "offline"
+                }));
+                tokio::select! {
+                    _ = &mut cancel => return None,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {
+                        enqueue(&events, json!({
+                            "type": "room_list_sync_state", "state": "retrying"
+                        }));
+                        continue;
+                    }
+                }
             }
         };
         let (entries, controller) = room_list.entries_with_dynamic_adapters(10_000);
         controller.set_filter(Box::new(filters::new_filter_non_left()));
         tokio::pin!(entries);
+        // Published only now: before `set_filter` there is no stream to reset.
+        entries_publication.set(Some(Arc::new(controller)));
+        // The ordered ids this lane has forwarded, mirroring exactly the diffs
+        // it emits. Removals and pops carry no room in the SDK's own
+        // VectorDiff, and C++ was therefore deleting `order[index]` unchecked
+        // — with a drifted registry that silently deleted a room the SDK never
+        // named. The producer knows which id it means; it now says so.
+        let mut forwarded_order: Vec<OwnedRoomId> = Vec::new();
 
         let space_service = SpaceService::new(client.clone()).await;
         let mut unified_state = service.state();
@@ -10227,10 +10427,15 @@ async fn run_modern_sync(
                     service.stop().await;
                     return None;
                 }
+                // Never resolves once it has said its piece; see its
+                // construction above. It is here so the escalation is polled
+                // while this lane is the one that is silent.
+                _ = &mut watchdog => {}
                 batch = entries.next() => {
                     let Some(batch) = batch else { break; };
                     forward_room_list_diffs(&events, batch, latest_events,
-                                            &mut watched_latest).await;
+                                            &mut watched_latest,
+                                            &mut forwarded_order).await;
                     enqueue_spaces(&events, &space_service, &client).await;
                 }
                 changed = ignore_list_sub.next() => {
@@ -10248,6 +10453,7 @@ async fn run_modern_sync(
                         }));
                         if first_sync {
                             first_sync = false;
+                            first_response.store(false, Ordering::SeqCst);
                             enqueue(&events, json!({ "type": "initial_sync_done" }));
                         }
                     }
@@ -10293,6 +10499,10 @@ async fn run_modern_sync(
         }
 
         service.stop().await;
+        // This iteration's stream is gone with it, so the controller it feeds
+        // can no longer emit anything; withdraw it rather than let a resync
+        // call into a dead one.
+        entries_publication.set(None);
         // Bounded backoff before rebuilding the supervisor. Cancellation exits
         // immediately; there is no busy loop. The mode stays SlidingSync (the
         // next iteration re-affirms it, deduped) so only the connection state
@@ -10353,10 +10563,13 @@ async fn run_classic_sync(
 ) {
     enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
     let first_response = Arc::new(AtomicBool::new(true));
-    let settings = SyncSettings::default().ignore_timeout_on_first_sync(true).full_state(true);
-    let callback_client = client.clone();
-    let callback_events = Arc::clone(&events);
-    let callback_first = Arc::clone(&first_response);
+    // Consecutive failed attempts, shared with the callback: it drives the
+    // backoff and decides when silence becomes a visible error. Reset by any
+    // successful response.
+    let failure_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    // Set by the callback when it stops for a dead session, so the loop below
+    // parks instead of restarting into the same refusal.
+    let session_gone = Arc::new(AtomicBool::new(false));
     // Classic sync v2 populates NO recency information by itself: the SDK's
     // recency_stamp is written only by the simplified-sliding-sync response
     // processor, and LatestEventValue only for rooms registered with the
@@ -10368,12 +10581,16 @@ async fn run_classic_sync(
     // Two mechanisms, with distinct jobs:
     //
     //  * ORDERING comes from the sync responses themselves. Every response
-    //    carries each updated room's new timeline events, and the initial
-    //    full-state response carries a recent window for every room — so
+    //    carries each updated room's new timeline events, and an INITIAL
+    //    sync — one sent with no `since`, which is what the first request of
+    //    a fresh session is — carries a recent window for every room, so
     //    harvesting the newest origin_server_ts per room gives every room
     //    a truthful recency stamp, unbounded by any cap, and a room that
     //    wakes up after months re-stamps itself on the response that wakes
-    //    it. The stamp map overrides the payload's last_activity_ms
+    //    it. (That window is a property of an initial sync, NOT of the
+    //    `full_state` flag this loop used to set: `full_state` adds STATE to
+    //    an incremental response and no timeline at all. See the settings
+    //    below.) The stamp map overrides the payload's last_activity_ms
     //    whenever it knows better.
     //
     //  * PREVIEWS come from the Latest Events API, which stays bounded by
@@ -10383,157 +10600,30 @@ async fn run_classic_sync(
     //    is full a waking room evicts the stalest watched room rather than
     //    being refused — the cap bounds SDK computation, it must not
     //    freeze the set chosen in the first minute forever.
-    let callback_watched: Arc<tokio::sync::Mutex<BTreeSet<OwnedRoomId>>> =
+    let shared_watched: Arc<tokio::sync::Mutex<BTreeSet<OwnedRoomId>>> =
         Arc::new(tokio::sync::Mutex::new(BTreeSet::new()));
-    let callback_stamps: Arc<tokio::sync::Mutex<HashMap<OwnedRoomId, u64>>> =
+    let shared_stamps: Arc<tokio::sync::Mutex<HashMap<OwnedRoomId, u64>>> =
         Arc::new(tokio::sync::Mutex::new(HashMap::new()));
-    let sync = client.sync_with_callback(settings, move |response| {
-        let client = callback_client.clone();
-        let events = Arc::clone(&callback_events);
-        let first_response = Arc::clone(&callback_first);
-        let watched = Arc::clone(&callback_watched);
-        let stamps = Arc::clone(&callback_stamps);
-        async move {
-            {
-                let mut stamps = stamps.lock().await;
-                for (room_id, update) in &response.rooms.joined {
-                    let mut newest = 0u64;
-                    for event in &update.timeline.events {
-                        if let Ok(Some(ts)) = event
-                            .raw()
-                            .get_field::<UInt>("origin_server_ts")
-                        {
-                            newest = newest.max(u64::from(ts));
-                        }
-                    }
-                    if newest > 0 {
-                        let entry = stamps.entry(room_id.clone()).or_default();
-                        *entry = (*entry).max(newest);
-                    }
-                }
-            }
-            let latest_events = client.latest_events().await;
-            {
-                let started = std::time::Instant::now();
-                let mut watched = watched.lock().await;
-                let stamps = stamps.lock().await;
-                let joined: Vec<Room> = client
-                    .rooms()
-                    .into_iter()
-                    .filter(|room| matches!(room.state(), matrix_sdk::RoomState::Joined))
-                    .collect();
 
-                // The cap is one pool across the whole account, and a
-                // unified inbox spans many bridged networks of very unequal
-                // volume — allocated by raw recency alone, one firehose
-                // network starves the quiet ones of preview slots entirely.
-                // So the DESIRED watch set is a round-robin across coarse
-                // per-network buckets, most recent first within each: every
-                // network keeps previews for its own most active rooms, and
-                // spare capacity flows to the busy ones.
-                let mut buckets: HashMap<String, Vec<(&Room, u64)>> =
-                    HashMap::new();
-                for room in &joined {
-                    let stamp =
-                        stamps.get(room.room_id()).copied().unwrap_or(0);
-                    buckets
-                        .entry(preview_bucket(room))
-                        .or_default()
-                        .push((room, stamp));
-                }
-                for rooms in buckets.values_mut() {
-                    rooms.sort_by(|a, b| b.1.cmp(&a.1));
-                }
-                let mut bucket_keys: Vec<&String> = buckets.keys().collect();
-                bucket_keys.sort();
-
-                let mut desired: BTreeSet<OwnedRoomId> = BTreeSet::new();
-                let mut depth = 0usize;
-                'fill: loop {
-                    let mut any = false;
-                    for key in &bucket_keys {
-                        if desired.len() >= LATEST_EVENT_WATCH_CAP {
-                            break 'fill;
-                        }
-                        if let Some((room, _)) =
-                            buckets.get(*key).and_then(|rooms| rooms.get(depth))
-                        {
-                            desired.insert(room.room_id().to_owned());
-                            any = true;
-                        }
-                    }
-                    if !any {
-                        break;
-                    }
-                    depth += 1;
-                }
-
-                // Reconcile, don't accumulate: the watched set follows the
-                // desired set as stamps move, so the cap can never freeze
-                // the first minute's choice, and a bucket's slots return to
-                // the pool when its rooms go quiet.
-                let stale: Vec<OwnedRoomId> =
-                    watched.difference(&desired).cloned().collect();
-                let forgot = stale.len();
-                for room_id in stale {
-                    latest_events.forget_room(&room_id).await;
-                    watched.remove(&room_id);
-                }
-                let mut added = 0usize;
-                for room_id in &desired {
-                    if !watched.contains(room_id) {
-                        watch_latest_event(&latest_events, &mut watched, room_id)
-                            .await;
-                        added += 1;
-                    }
-                }
-
-                // Counts and timing only — instrumentation for tuning the
-                // cap against a real account, never identifiers.
-                enqueue(&events, json!({
-                    "type": "latest_event_watch_report",
-                    "elapsed_ms": started.elapsed().as_millis() as u64,
-                    "watched": watched.len(),
-                    "buckets": bucket_keys.len(),
-                    "rooms": joined.len(),
-                    "forgot": forgot,
-                    "added": added,
-                }));
-            }
-            {
-                let stamps = stamps.lock().await;
-                enqueue_rooms_stamped(&events, &client, Some(&stamps)).await;
-            }
-            let spaces = SpaceService::new(client.clone()).await;
-            enqueue_spaces(&events, &spaces, &client).await;
-            enqueue(&events, json!({ "type": "room_list_sync_state", "state": "running" }));
-            if first_response.swap(false, Ordering::SeqCst) {
-                enqueue(&events, json!({ "type": "initial_sync_done" }));
-            }
-            LoopCtrl::Continue
-        }
-    });
     // A WATCHDOG ON THE FIRST RESPONSE, because a sync that dies without
     // returning looks exactly like one that is merely slow.
     //
     // Reported as issue #2: against a server that takes this fallback, the
     // classic sync logged "starting" and then did nothing for 13+ minutes —
     // zero established TCP connections for the process, zero I/O progress,
-    // ~0.4% CPU, and no sync_error, although the select! arm below promises
-    // one on failure. The future was simply parked. Restarting the client
-    // with the same store synced normally, so it is a wedge on a first
-    // request rather than an incompatibility, and it has not reproduced on
-    // demand since.
+    // ~0.4% CPU, and no sync_error. The future was simply parked. Restarting
+    // the client with the same store synced normally, so it is a wedge on a
+    // first request rather than an incompatibility, and it has not reproduced
+    // on demand since.
     //
-    // This deliberately does NOT cancel or restart the sync. A first
-    // full-state request on a large account (the report was 1028 joined
-    // rooms) can legitimately take a long time, and killing a working sync
-    // would be a worse defect than the one being chased. What it does is
-    // make the silence VISIBLE — the next occurrence produces a line saying
-    // how long it has been waiting, instead of a spinner that means nothing.
+    // This deliberately does NOT cancel or restart the sync. A first sync on
+    // a large account (the report was 1028 joined rooms) can legitimately
+    // take a long time, and killing a working sync would be a worse defect
+    // than the one being chased. What it does is make the silence VISIBLE.
     //
     // The future never resolves: after the last escalation it parks forever,
-    // so it can never be the arm that ends the select! and stops the sync.
+    // so it can never be the arm that ends a select! and stops the sync. It
+    // is pinned outside the restart loop so it spans every attempt.
     let watchdog_events = Arc::clone(&events);
     let watchdog_first = Arc::clone(&first_response);
     let watchdog = async move {
@@ -10541,25 +10631,248 @@ async fn run_classic_sync(
                                   FIRST_SYNC_STALL_STEPS).await;
         std::future::pending::<()>().await
     };
-    tokio::pin!(sync);
     tokio::pin!(watchdog);
-    tokio::select! {
-        result = &mut sync => if let Err(err) = result {
-            enqueue(&events, json!({
-                "type": "sync_error",
-                "message": format_matrix_error("Matrix Rust SDK sync failed", err),
-            }));
-        },
-        _ = &mut watchdog => {},
-        _ = &mut cancel => {}
+
+    loop {
+        // NO `full_state(true)`. `sync_loop_helper` mutates only the token, so a
+        // setting made here is made for EVERY request the loop ever sends: this
+        // asked the server to serialise the complete state of every joined room
+        // every thirty seconds, forever. It bought nothing even on the first
+        // request — an initial `/sync` carries no `since`, and the spec's
+        // `full_state` only changes what an INCREMENTAL sync returns — and it
+        // cannot be cleared afterwards because the field is crate-private and the
+        // settings are moved into the stream. So it is simply not set.
+        let settings = SyncSettings::default().ignore_timeout_on_first_sync(true);
+        let callback_client = client.clone();
+        let callback_events = Arc::clone(&events);
+        let callback_first = Arc::clone(&first_response);
+        let callback_watched = Arc::clone(&shared_watched);
+        let callback_stamps = Arc::clone(&shared_stamps);
+        let callback_failures = Arc::clone(&failure_count);
+        let callback_gone = Arc::clone(&session_gone);
+        // `sync_with_result_callback`, not `sync_with_callback`: the callback is
+        // then the one place that sees a failed request, and returning
+        // `Ok(LoopCtrl::Continue)` from it keeps the SDK's own loop — and its
+        // sync token — alive across an outage instead of ending the whole future
+        // on the first dropped connection.
+        let sync = client.sync_with_result_callback(settings, move |result| {
+            let client = callback_client.clone();
+            let events = Arc::clone(&callback_events);
+            let first_response = Arc::clone(&callback_first);
+            let watched = Arc::clone(&callback_watched);
+            let stamps = Arc::clone(&callback_stamps);
+            let failures = Arc::clone(&callback_failures);
+            let session_gone = Arc::clone(&callback_gone);
+            async move {
+                let response = match result {
+                    Ok(response) => response,
+                    Err(error) => {
+                        if classify_classic_sync_error(error.client_api_error_kind())
+                            == ClassicSyncFault::Fatal
+                        {
+                            // Exactly the modern lane's authentication branch:
+                            // never downgrade, never sleep-retry, stop and say so.
+                            session_gone.store(true, Ordering::SeqCst);
+                            enqueue(&events, json!({
+                                "type": "room_list_error", "category": "authentication"
+                            }));
+                            return Ok(LoopCtrl::Break);
+                        }
+                        let seen = failures.fetch_add(1, Ordering::SeqCst) + 1;
+                        enqueue(&events, json!({
+                            "type": "room_list_sync_state", "state": "offline"
+                        }));
+                        // Silence stops being explainable by a flaky link at some
+                        // point; say so ONCE per outage rather than never or every
+                        // thirty seconds. A success resets the counter, and a
+                        // later "running" clears the state this sets in C++.
+                        if seen == CLASSIC_SYNC_REPORT_AFTER {
+                            enqueue(&events, json!({
+                                "type": "sync_error",
+                                "message": format_matrix_error(
+                                    "Matrix Rust SDK sync failed", error),
+                            }));
+                        }
+                        tokio::time::sleep(classic_sync_backoff(seen - 1)).await;
+                        return Ok(LoopCtrl::Continue);
+                    }
+                };
+                failures.store(0, Ordering::SeqCst);
+                {
+                    let mut stamps = stamps.lock().await;
+                    for (room_id, update) in &response.rooms.joined {
+                        let mut newest = 0u64;
+                        for event in &update.timeline.events {
+                            if let Ok(Some(ts)) = event
+                                .raw()
+                                .get_field::<UInt>("origin_server_ts")
+                            {
+                                newest = newest.max(u64::from(ts));
+                            }
+                        }
+                        if newest > 0 {
+                            let entry = stamps.entry(room_id.clone()).or_default();
+                            *entry = (*entry).max(newest);
+                        }
+                    }
+                }
+                let latest_events = client.latest_events().await;
+                {
+                    let started = std::time::Instant::now();
+                    let mut watched = watched.lock().await;
+                    let stamps = stamps.lock().await;
+                    let joined: Vec<Room> = client
+                        .rooms()
+                        .into_iter()
+                        .filter(|room| matches!(room.state(), matrix_sdk::RoomState::Joined))
+                        .collect();
+
+                    // The cap is one pool across the whole account, and a
+                    // unified inbox spans many bridged networks of very unequal
+                    // volume — allocated by raw recency alone, one firehose
+                    // network starves the quiet ones of preview slots entirely.
+                    // So the DESIRED watch set is a round-robin across coarse
+                    // per-network buckets, most recent first within each: every
+                    // network keeps previews for its own most active rooms, and
+                    // spare capacity flows to the busy ones.
+                    let mut buckets: HashMap<String, Vec<(&Room, u64)>> =
+                        HashMap::new();
+                    for room in &joined {
+                        let stamp =
+                            stamps.get(room.room_id()).copied().unwrap_or(0);
+                        buckets
+                            .entry(preview_bucket(room))
+                            .or_default()
+                            .push((room, stamp));
+                    }
+                    for rooms in buckets.values_mut() {
+                        rooms.sort_by(|a, b| b.1.cmp(&a.1));
+                    }
+                    let mut bucket_keys: Vec<&String> = buckets.keys().collect();
+                    bucket_keys.sort();
+
+                    let mut desired: BTreeSet<OwnedRoomId> = BTreeSet::new();
+                    let mut depth = 0usize;
+                    'fill: loop {
+                        let mut any = false;
+                        for key in &bucket_keys {
+                            if desired.len() >= LATEST_EVENT_WATCH_CAP {
+                                break 'fill;
+                            }
+                            if let Some((room, _)) =
+                                buckets.get(*key).and_then(|rooms| rooms.get(depth))
+                            {
+                                desired.insert(room.room_id().to_owned());
+                                any = true;
+                            }
+                        }
+                        if !any {
+                            break;
+                        }
+                        depth += 1;
+                    }
+
+                    // Reconcile, don't accumulate: the watched set follows the
+                    // desired set as stamps move, so the cap can never freeze
+                    // the first minute's choice, and a bucket's slots return to
+                    // the pool when its rooms go quiet.
+                    let stale: Vec<OwnedRoomId> =
+                        watched.difference(&desired).cloned().collect();
+                    let forgot = stale.len();
+                    for room_id in stale {
+                        latest_events.forget_room(&room_id).await;
+                        watched.remove(&room_id);
+                    }
+                    let mut added = 0usize;
+                    for room_id in &desired {
+                        if !watched.contains(room_id) {
+                            watch_latest_event(&latest_events, &mut watched, room_id)
+                                .await;
+                            added += 1;
+                        }
+                    }
+
+                    // Counts and timing only — instrumentation for tuning the
+                    // cap against a real account, never identifiers.
+                    enqueue(&events, json!({
+                        "type": "latest_event_watch_report",
+                        "elapsed_ms": started.elapsed().as_millis() as u64,
+                        "watched": watched.len(),
+                        "buckets": bucket_keys.len(),
+                        "rooms": joined.len(),
+                        "forgot": forgot,
+                        "added": added,
+                    }));
+                }
+                {
+                    let stamps = stamps.lock().await;
+                    enqueue_rooms_stamped(&events, &client, Some(&stamps)).await;
+                }
+                let spaces = SpaceService::new(client.clone()).await;
+                enqueue_spaces(&events, &spaces, &client).await;
+                enqueue(&events, json!({ "type": "room_list_sync_state", "state": "running" }));
+                if first_response.swap(false, Ordering::SeqCst) {
+                    enqueue(&events, json!({ "type": "initial_sync_done" }));
+                }
+                Ok(LoopCtrl::Continue)
+            }
+        });
+        tokio::pin!(sync);
+        tokio::select! {
+            result = &mut sync => if let Err(err) = result {
+                // The callback absorbs transient failures, so reaching here means
+                // the SDK's own loop gave up on something the callback never saw.
+                enqueue(&events, json!({
+                    "type": "sync_error",
+                    "message": format_matrix_error("Matrix Rust SDK sync failed", err),
+                }));
+            },
+            // Never resolves; see its construction above.
+            _ = &mut watchdog => {},
+            _ = &mut cancel => return,
+        }
+
+        // The SDK's loop returned. Nothing above restarted it, and
+        // `startSync()` has ONE caller (login), so before 2026-09-08 this was
+        // the end of sync for the whole session: the UI kept whatever state it
+        // was last told, which for a two-second Wi-Fi drop was "Error".
+        if session_gone.load(Ordering::SeqCst) {
+            // A revoked session: retrying is hammering a server that will keep
+            // saying no. C++ has already been told; wait for an explicit stop.
+            let _ = (&mut cancel).await;
+            return;
+        }
+        let seen = failure_count.fetch_add(1, Ordering::SeqCst) + 1;
+        enqueue(&events, json!({
+            "type": "room_list_sync_state", "state": "offline"
+        }));
+        tokio::select! {
+            _ = &mut cancel => return,
+            _ = tokio::time::sleep(classic_sync_backoff(seen - 1)) => {
+                enqueue(&events, json!({
+                    "type": "room_list_sync_state", "state": "retrying"
+                }));
+            }
+        }
     }
 }
 
+/// Forward one batch of room-list diffs, keeping `order` — this lane's own
+/// mirror of the index space it is describing — in step with them.
+///
+/// `order` exists so a `Remove`/`PopFront`/`PopBack`, which carry no room in
+/// the SDK's `VectorDiff`, can still name the room they mean. C++ indexes its
+/// registry by these positions and had no way to check one: with a drifted
+/// registry an unchecked `order.takeAt(index)` deletes a room the SDK never
+/// named, silently. It is built by applying exactly the diffs forwarded here,
+/// in order, so it cannot drift from what this function emitted; if it ever
+/// disagrees with C++'s copy, C++ rejects and asks for a fresh Reset.
 async fn forward_room_list_diffs(
     events: &Arc<Mutex<VecDeque<String>>>,
     batches: Vec<VectorDiff<RoomListItem>>,
     latest_events: &matrix_sdk::latest_events::LatestEvents,
     watched: &mut BTreeSet<OwnedRoomId>,
+    order: &mut Vec<OwnedRoomId>,
 ) {
     // Serialize the room AND register it with the lazy Latest Events API so
     // its preview/activity keep updating without the room ever being opened.
@@ -10572,45 +10885,103 @@ async fn forward_room_list_diffs(
         room_payload(&room).await
     }
 
+    // The id a positional diff refers to, or an empty string when this lane's
+    // mirror does not have that position — which is itself worth sending: C++
+    // then knows the producer could not confirm the target and rejects rather
+    // than deleting on trust.
+    fn id_at(order: &[OwnedRoomId], index: usize) -> String {
+        order.get(index).map(|id| id.to_string()).unwrap_or_default()
+    }
+
     for diff in batches {
         let value = match diff {
             VectorDiff::Reset { values } => {
                 let mut rooms = Vec::with_capacity(values.len());
+                order.clear();
                 for item in values {
-                    rooms.push(payload(item.into_inner(), latest_events, watched).await);
+                    let room = item.into_inner();
+                    order.push(room.room_id().to_owned());
+                    rooms.push(payload(room, latest_events, watched).await);
                 }
                 json!({ "type": "room_list_reset", "rooms": rooms })
             }
             VectorDiff::Append { values } => {
                 let mut rooms = Vec::with_capacity(values.len());
                 for item in values {
-                    rooms.push(payload(item.into_inner(), latest_events, watched).await);
+                    let room = item.into_inner();
+                    order.push(room.room_id().to_owned());
+                    rooms.push(payload(room, latest_events, watched).await);
                 }
                 json!({ "type": "room_list_append", "rooms": rooms })
             }
-            VectorDiff::PushFront { value } => json!({
-                "type": "room_list_push_front",
-                "room": payload(value.into_inner(), latest_events, watched).await
-            }),
-            VectorDiff::PushBack { value } => json!({
-                "type": "room_list_push_back",
-                "room": payload(value.into_inner(), latest_events, watched).await
-            }),
-            VectorDiff::PopFront => json!({ "type": "room_list_pop_front" }),
-            VectorDiff::PopBack => json!({ "type": "room_list_pop_back" }),
-            VectorDiff::Insert { index, value } => json!({
-                "type": "room_list_insert", "index": index,
-                "room": payload(value.into_inner(), latest_events, watched).await
-            }),
-            VectorDiff::Set { index, value } => json!({
-                "type": "room_list_set", "index": index,
-                "room": payload(value.into_inner(), latest_events, watched).await
-            }),
-            VectorDiff::Remove { index } => json!({ "type": "room_list_remove", "index": index }),
-            VectorDiff::Truncate { length } => json!({
-                "type": "room_list_truncate", "length": length
-            }),
-            VectorDiff::Clear => json!({ "type": "room_list_clear" }),
+            VectorDiff::PushFront { value } => {
+                let room = value.into_inner();
+                order.insert(0, room.room_id().to_owned());
+                json!({
+                    "type": "room_list_push_front",
+                    "room": payload(room, latest_events, watched).await
+                })
+            }
+            VectorDiff::PushBack { value } => {
+                let room = value.into_inner();
+                order.push(room.room_id().to_owned());
+                json!({
+                    "type": "room_list_push_back",
+                    "room": payload(room, latest_events, watched).await
+                })
+            }
+            VectorDiff::PopFront => {
+                let expected = id_at(order, 0);
+                if !order.is_empty() {
+                    order.remove(0);
+                }
+                json!({ "type": "room_list_pop_front", "expected_id": expected })
+            }
+            VectorDiff::PopBack => {
+                let expected = order.last().map(|id| id.to_string()).unwrap_or_default();
+                order.pop();
+                json!({ "type": "room_list_pop_back", "expected_id": expected })
+            }
+            VectorDiff::Insert { index, value } => {
+                let room = value.into_inner();
+                if index <= order.len() {
+                    order.insert(index, room.room_id().to_owned());
+                }
+                json!({
+                    "type": "room_list_insert", "index": index,
+                    "room": payload(room, latest_events, watched).await
+                })
+            }
+            VectorDiff::Set { index, value } => {
+                let room = value.into_inner();
+                if let Some(slot) = order.get_mut(index) {
+                    *slot = room.room_id().to_owned();
+                }
+                json!({
+                    "type": "room_list_set", "index": index,
+                    "room": payload(room, latest_events, watched).await
+                })
+            }
+            VectorDiff::Remove { index } => {
+                let expected = id_at(order, index);
+                if index < order.len() {
+                    order.remove(index);
+                }
+                json!({
+                    "type": "room_list_remove", "index": index,
+                    "expected_id": expected
+                })
+            }
+            VectorDiff::Truncate { length } => {
+                if length <= order.len() {
+                    order.truncate(length);
+                }
+                json!({ "type": "room_list_truncate", "length": length })
+            }
+            VectorDiff::Clear => {
+                order.clear();
+                json!({ "type": "room_list_clear" })
+            }
         };
         enqueue(events, value);
     }
@@ -10886,6 +11257,22 @@ async fn enqueue_rooms(events: &Arc<Mutex<VecDeque<String>>>, client: &Client) {
     enqueue_rooms_stamped(events, client, None).await;
 }
 
+/// A SNAPSHOT OF THE STATE STORE, AND DELIBERATELY NOT AN INDEX BASE.
+///
+/// This walks `client.rooms()` — every room the store knows, in the store's
+/// own order. The room-list diffs C++ applies by index come from an entirely
+/// different vector: the dynamic adapter's paged (20 rooms, then 100 at a
+/// time), filtered and sorted view. The two differ in length, in membership
+/// and in order, so a snapshot can never define what index 0 means.
+///
+/// It emitted `room_list_reset` until 2026-09-08, which is exactly that
+/// claim, and C++ rebuilt its ordered registry from it. Any of a dozen
+/// ordinary actions — mark read, favourite, accept an invite, leave a room —
+/// runs this, so the adapter's next `Set{index}` addressed a different room,
+/// was rejected, and the rejection asked for another snapshot: the
+/// "room_list malformed diff rejected" storm, self-sustaining. It says
+/// `room_snapshot` now, which C++ applies to the id-keyed room map alone.
+///
 /// `stamps`: response-harvested recency (classic sync only — see
 /// run_classic_sync). It overrides a payload's last_activity_ms when it
 /// knows a NEWER time; a payload whose own stamp is fresher (a live latest
@@ -10913,7 +11300,7 @@ async fn enqueue_rooms_stamped(
             out.push(payload);
         }
     }
-    enqueue(events, json!({ "type": "room_list_reset", "rooms": out }));
+    enqueue(events, json!({ "type": "room_snapshot", "rooms": out }));
 }
 
 /// Presentation-safe room-list preview text for a room's cached latest
@@ -13467,6 +13854,57 @@ mod live_e2ee_interop_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A SEARCH ISSUED DURING SIGN-OUT MUST NOT REOPEN THE INDEX.
+    ///
+    /// `shutdown_managed_tasks` sets `index_shutdown` and drops the SQLite
+    /// connection on purpose: an open handle inside a directory sign-out is
+    /// about to delete makes the delete FAIL on Windows, and the app then
+    /// reports it could not completely reset the local session.
+    /// `ensure_search_index` is LAZY, and before 2026-09-08 it never read that
+    /// flag — so one keystroke in the find bar, which is still on screen while
+    /// sign-out runs, opened the file straight back up.
+    ///
+    /// Offline by construction: no login and no homeserver, because the search
+    /// path needs neither. The control search before the shutdown is what
+    /// makes the assertion mean something — without it the test would pass on
+    /// a fixture where search could never have worked at all.
+    #[test]
+    fn a_search_after_shutdown_refuses_instead_of_reopening_the_index() {
+        let dir = tempfile_dir("lightning-search-shutdown");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("store dir");
+        let store = CString::new(dir.to_string_lossy().as_ref()).unwrap();
+        let handle = super::mx_rust_create(store.as_ptr());
+        assert!(!handle.is_null(), "bridge handle");
+
+        let index_path = dir.join(super::localsearch::INDEX_FILE);
+        unsafe {
+            let query = CString::new("quarterly deployment").unwrap();
+            let any_room = CString::new("").unwrap();
+
+            let err = take(super::mx_rust_local_search(
+                handle, query.as_ptr(), any_room.as_ptr(), 10, 0, 1));
+            assert!(err.is_empty(), "a search BEFORE shutdown was refused: {err}");
+            assert!(index_path.exists(),
+                    "the control search did not open an index, so the                      assertion below would pass on any code");
+
+            let _ = take(super::mx_rust_shutdown_tasks(handle));
+            // Sign-out deletes the store directory; stand in for that step so
+            // a recreated file is unambiguous evidence of a reopen.
+            let _ = std::fs::remove_file(&index_path);
+
+            let err = take(super::mx_rust_local_search(
+                handle, query.as_ptr(), any_room.as_ptr(), 10, 0, 2));
+            assert!(!err.is_empty(),
+                    "a search after shutdown was accepted; it reopened the                      index sign-out had just closed");
+            assert!(!index_path.exists(),
+                    "a search after shutdown recreated the index file");
+
+            super::mx_rust_destroy(handle);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     fn tempfile_dir(prefix: &str) -> std::path::PathBuf {
         let base = std::env::temp_dir().join(format!(
             "{prefix}-{}",
@@ -13634,6 +14072,128 @@ mod delegation_tests {
 // that means nothing. Driving it with millisecond steps is the difference
 // between covering the escalation and shipping three sleeps totalling ten
 // minutes that no test will ever run.
+// Classic-sync fault classification and backoff.
+//
+// The classifier exists as a pure function for exactly the reason the
+// watchdog below does: the behaviour that matters — "a dropped connection is
+// not a reason to stop syncing for the rest of the session" — is otherwise
+// only reachable by unplugging a network cable mid-`/sync` against a real
+// homeserver, and it was wrong for months because nothing could ask it.
+#[cfg(test)]
+mod classic_sync_fault_tests {
+    use super::{
+        classic_sync_backoff, classify_classic_sync_error, ClassicSyncFault,
+        CLASSIC_SYNC_REPORT_AFTER,
+    };
+    use matrix_sdk::ruma::api::error::{ErrorKind, UnknownTokenErrorData};
+
+    #[test]
+    fn a_dropped_connection_carries_no_errcode_and_is_transient() {
+        // THE DEFECT, in one line. A request that never got a reply has no
+        // `errcode` at all, so this is what a two-second Wi-Fi drop looks
+        // like — and matrix-sdk's native client does not retry it by itself
+        // (`RequestConfig::default()` sets no `retry_limit`, and the retry
+        // policy deliberately refuses a network failure without one).
+        assert_eq!(classify_classic_sync_error(None), ClassicSyncFault::Transient);
+    }
+
+    #[test]
+    fn a_server_side_failure_is_transient() {
+        for kind in [
+            ErrorKind::Unknown,
+            ErrorKind::NotFound,
+            ErrorKind::Unrecognized,
+            ErrorKind::MissingParam,
+        ] {
+            assert_eq!(
+                classify_classic_sync_error(Some(&kind)),
+                ClassicSyncFault::Transient,
+                "{kind:?} ended the sync loop"
+            );
+        }
+    }
+
+    #[test]
+    fn only_a_dead_session_is_fatal() {
+        // The same two the modern lane calls an authentication error, so the
+        // two lanes cannot disagree about what a dead session looks like.
+        assert_eq!(
+            classify_classic_sync_error(Some(&ErrorKind::Forbidden)),
+            ClassicSyncFault::Fatal
+        );
+        let mut revoked = UnknownTokenErrorData::new();
+        assert_eq!(
+            classify_classic_sync_error(Some(&ErrorKind::UnknownToken(revoked.clone()))),
+            ClassicSyncFault::Fatal
+        );
+        // A soft logout is still a session this client cannot use.
+        revoked.soft_logout = true;
+        assert_eq!(
+            classify_classic_sync_error(Some(&ErrorKind::UnknownToken(revoked))),
+            ClassicSyncFault::Fatal
+        );
+    }
+
+    #[test]
+    fn the_backoff_grows_and_then_stops_growing() {
+        assert_eq!(classic_sync_backoff(0).as_secs(), 1);
+        assert_eq!(classic_sync_backoff(1).as_secs(), 2);
+        assert_eq!(classic_sync_backoff(4).as_secs(), 16);
+        // Capped: an overnight outage retries twice a minute, not once a
+        // second, and never grows without bound.
+        for failures in [5u32, 6, 50, u32::MAX] {
+            assert_eq!(classic_sync_backoff(failures).as_secs(), 30,
+                       "backoff at {failures} failures");
+        }
+    }
+
+    #[test]
+    fn the_silence_is_escalated_before_the_backoff_is_at_its_ceiling() {
+        // Otherwise "we are offline" would be reported for the first time
+        // only after the retries had already slowed to their slowest, which
+        // is the wrong way round for a user watching a spinner.
+        assert!(classic_sync_backoff(CLASSIC_SYNC_REPORT_AFTER - 1).as_secs() <= 30);
+        assert!(CLASSIC_SYNC_REPORT_AFTER >= 2,
+                "one flaky request must not raise an error banner");
+    }
+}
+
+/// The classic sync's settings must not carry `full_state` past the first
+/// request — and since `sync_loop_helper` mutates only the token, a setting
+/// made once is made for every request, so the only way to hold that is not
+/// to set it at all. `SyncSettings` exposes no getter, and its fields are
+/// crate-private, so this asserts on its `Debug` output, which prints every
+/// field including `full_state`.
+#[cfg(test)]
+mod classic_sync_settings_tests {
+    use matrix_sdk::config::SyncSettings;
+
+    /// The exact expression `run_classic_sync` builds. Kept beside the
+    /// assertion so a future edit that re-adds `full_state(true)` has to
+    /// change this line too, and then fails.
+    fn classic_settings() -> SyncSettings {
+        SyncSettings::default().ignore_timeout_on_first_sync(true)
+    }
+
+    #[test]
+    fn the_classic_settings_do_not_ask_for_full_state() {
+        let printed = format!("{:?}", classic_settings());
+        assert!(printed.contains("full_state: false"),
+                "classic sync still asks the server to serialise the complete                  state of every joined room on every incremental sync: {printed}");
+        // The one flag it does set, so this test cannot pass on settings that
+        // simply lost everything.
+        assert!(printed.contains("ignore_timeout_on_first_sync: true"), "{printed}");
+    }
+
+    #[test]
+    fn full_state_would_be_visible_if_it_were_set() {
+        // Proves the assertion above is capable of failing: the same Debug
+        // output says `true` when the flag IS set.
+        let printed = format!("{:?}", classic_settings().full_state(true));
+        assert!(printed.contains("full_state: true"), "{printed}");
+    }
+}
+
 #[cfg(test)]
 mod first_sync_watchdog_tests {
     use super::{watch_first_sync_response, Ordering};

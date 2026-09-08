@@ -218,8 +218,15 @@ char *mx_rust_remove_message_edits(void *client,
 char *mx_rust_get_room_notification_mode(void *client, const char *room_id);
 char *mx_rust_accept_invite(void *client, const char *room_id);
 char *mx_rust_reject_invite(void *client, const char *room_id);
-/* Re-emit a full room_list_reset from the SDK's current room set. Safety
- * net invoked by C++ only when it rejects a malformed room-list diff. */
+/* Ask the room list to re-emit its index base. Safety net invoked by C++ only
+ * when it rejects a room-list diff that does not match its registry.
+ *
+ * On the sliding lane this re-sets the dynamic adapter's filter, which makes
+ * that stream yield a room_list_reset carrying its current entries — the
+ * producer that OWNS the index space those diffs are addressed by. It answers
+ * with a room_snapshot (the SDK state store, which defines no index space)
+ * only on the classic-sync fallback, which has no adapter. Answering with the
+ * snapshot on the sliding lane is what made the rejection self-sustaining. */
 char *mx_rust_resync_rooms(void *client);
 
 char *mx_rust_send_text(void *client,

@@ -14,6 +14,8 @@
 #include "crypto/QrImageProvider.h"
 #include "matrix/EventPreview.h"
 #include "matrix/RustSessionPolicy.h"
+#include "matrix/RustRoomRegistry.h"
+#include "matrix/RustTimelineMirror.h"
 #include "matrix/RustTimelineIngest.h"
 #include "matrix_rust.h"
 #include "models/UserLookup.h"
@@ -4225,6 +4227,11 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    if (type == QLatin1String("room_snapshot")) {
+        handleRoomSnapshotEvent(event.value(QStringLiteral("rooms")).toArray());
+        return;
+    }
+
     if (type.startsWith(QLatin1String("room_list_"))
         && type != QLatin1String("room_list_mode")
         && type != QLatin1String("room_list_sync_state")
@@ -4288,7 +4295,14 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         if (category == QLatin1String("authentication")) {
             setState(Error);
             Q_EMIT errorOccurred(tr("Matrix session is no longer authorized."));
+            return;
         }
+        // Every other category — "temporary", "setup" — used to be dropped
+        // here without even a log, so a sync that could not start looked
+        // exactly like one that was merely slow. The category is a literal
+        // chosen in Rust, never server text.
+        qCWarning(lcRust) << "room_list error category=" << category
+                          << "— the sync supervisor is retrying";
         return;
     }
 
@@ -4931,183 +4945,82 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
 
 void RustSdkMatrixClient::handleRoomsEvent(const QJsonArray &rooms)
 {
-    QHash<QString, RoomInfo> nextRooms;
-    nextRooms.reserve(rooms.size());
-    QStringList nextOrder;
-    QSet<QString> seen;
+    matrix::rust_rooms::applyIndexReset({m_rooms, m_roomOrder}, rooms);
+    Q_EMIT roomsChanged();
+}
 
-    for (const auto &value : rooms) {
-        const QJsonObject obj = value.toObject();
-        RoomInfo room = roomInfoFromJson(obj);
-        if (room.id.isEmpty() || seen.contains(room.id)) continue;
-        seen.insert(room.id);
-        nextRooms.insert(room.id, room);
-        nextOrder.append(room.id);
-    }
-    // Spaces are NOT in the SDK's room list, so a snapshot of that list does
-    // not mention them — and replacing the whole map wholesale therefore
-    // dropped the entire Space hierarchy until the next spaces event
-    // happened to arrive. Carried over instead: they are keyed separately in
-    // m_rooms and rooms() returns unordered entries after the ordered ones.
-    for (auto it = m_rooms.cbegin(); it != m_rooms.cend(); ++it) {
-        if (it->isSpace && !seen.contains(it.key()))
-            nextRooms.insert(it.key(), *it);
-    }
-    m_rooms = nextRooms;
-    m_roomOrder = nextOrder;
+void RustSdkMatrixClient::handleRoomSnapshotEvent(const QJsonArray &rooms)
+{
+    // A SNAPSHOT IS NOT AN INDEX BASE. It is a walk of the SDK's whole state
+    // store, in the store's order; the diffs m_roomOrder is indexed by come
+    // from the sliding-sync dynamic adapter's paged, filtered, sorted vector,
+    // which differs in length, membership and order. Rebuilding m_roomOrder
+    // from it — which is what this did while Rust emitted the snapshot as a
+    // `room_list_reset` — made the next Set{index} address a different room,
+    // and the rejection asked for another snapshot: the self-sustaining
+    // "room_list malformed diff rejected" storm.
+    //
+    // On the classic-sync fallback there are no diffs and m_roomOrder is
+    // empty, so applySnapshot() defines the room set outright, which is
+    // exactly what that lane needs. See matrix::rust_rooms.
+    matrix::rust_rooms::applySnapshot({m_rooms, m_roomOrder}, rooms);
     Q_EMIT roomsChanged();
 }
 
 RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
 {
+    // The field-merging rules moved to matrix::rust_rooms so the registry
+    // they feed can be exercised without a Rust handle. This wrapper survives
+    // because several call sites want "merged over what we already know
+    // about this room", and only this class holds that.
     const QString id = obj.value(QStringLiteral("id")).toString();
-    RoomInfo room = m_rooms.value(id);
-    room.id = id;
-    room.name = obj.value(QStringLiteral("name")).toString(room.name);
-    if (room.name.isEmpty()) room.name = room.id;
-    room.topic = obj.value(QStringLiteral("topic")).toString(room.topic);
-    room.canonicalAlias = obj.value(QStringLiteral("canonical_alias")).toString(room.canonicalAlias);
-    room.avatarUrl = obj.value(QStringLiteral("avatar_url")).toString(room.avatarUrl);
-    // A present-but-empty preview must not clobber one we already learned
-    // from the open timeline or a live event: Rust legitimately sends ""
-    // whenever the SDK has no latest event for the room yet, and room-list
-    // set/insert diffs arrive on every unread/order change — pre-0.7 this
-    // raced previews back to empty until the room was reopened.
-    {
-        // The Rust latest-event path sends plain text (typed summaries are
-        // built Rust-side); normalization still guards legacy multi-line
-        // bodies and mention markdown.
-        const QString incomingPreview = matrix::preview::normalizePreviewText(
-            obj.value(QStringLiteral("last_message_preview")).toString());
-        if (!incomingPreview.isEmpty())
-            room.lastMessagePreview = incomingPreview;
-    }
-    // RoomInfo::raiseActivity is monotonic; see its comment. Every writer of
-    // the room list's sort key goes through it.
-    room.raiseActivity(timestampFromMs(static_cast<qint64>(
-        obj.value(QStringLiteral("last_activity_ms")).toDouble(0))));
-    room.unreadCount = obj.value(QStringLiteral("unread_count")).toInt(room.unreadCount);
-    room.highlightCount = obj.value(QStringLiteral("highlight_count")).toInt(room.highlightCount);
-    room.markedUnread = obj.value(QStringLiteral("marked_unread")).toBool(room.markedUnread);
-    room.hasUnreadMessages = obj.value(QStringLiteral("has_unread_messages"))
-                                 .toBool(room.hasUnreadMessages || room.unreadCount > 0);
-    room.encrypted = obj.value(QStringLiteral("encrypted")).toBool(room.encrypted);
-    // Review H1: EncryptionState::Unknown must never read as "not
-    // encrypted" — absent field defaults to NOT known (fail closed).
-    room.encryptionKnown =
-        obj.value(QStringLiteral("encryption_known")).toBool(false);
-    room.isSpace = obj.value(QStringLiteral("is_space")).toBool(room.isSpace);
-    // Defaults to FALSE, not to the previous value, exactly like is_direct
-    // below: un-favouriting a room must actually clear the flag. Defaulting
-    // to the old value would latch a favourite on for the rest of the
-    // session the moment one payload arrived without the field.
-    room.isFavourite = obj.value(QStringLiteral("is_favourite")).toBool(false);
-    room.isDirect = obj.value(QStringLiteral("is_direct")).toBool(false);
-    room.directUserId = obj.value(QStringLiteral("direct_user_id")).toString();
-    room.directUserIds.clear();
-    for (const auto &value : obj.value(QStringLiteral("direct_user_ids")).toArray())
-        room.directUserIds.append(value.toString());
-    room.roomType = obj.value(QStringLiteral("room_type")).toString();
-    room.prevBatchToken = obj.value(QStringLiteral("prev_batch")).toString(room.prevBatchToken);
-    room.inviterUserId = obj.value(QStringLiteral("inviter_user_id")).toString();
-    room.inviterDisplayName = obj.value(QStringLiteral("inviter_display_name")).toString();
-    // v0.7.x room upgrades. The defaulting form is deliberate and does the
-    // right thing in both directions: an ABSENT field (a payload built by
-    // an older path, or a backend with no tombstone support) keeps what we
-    // already knew, while a PRESENT-but-empty one clears it, because Rust
-    // computes these from SDK state on every emission and empty there means
-    // the room genuinely has no successor. Both are room ids parsed by
-    // ruma; neither is ever free text.
-    room.successorRoomId =
-        obj.value(QStringLiteral("successor_room_id")).toString(room.successorRoomId);
-    room.predecessorRoomId =
-        obj.value(QStringLiteral("predecessor_room_id")).toString(room.predecessorRoomId);
-    const QString membership = obj.value(QStringLiteral("membership")).toString(
-        QStringLiteral("joined"));
-    room.membership = membership == QLatin1String("invited") ? RoomInfo::Invited
-        : membership == QLatin1String("knocked") ? RoomInfo::Knocked
-        : membership == QLatin1String("left") ? RoomInfo::Left : RoomInfo::Joined;
-    return room;
+    return matrix::rust_rooms::roomInfoFromJson(obj, m_rooms.value(id));
 }
 
 void RustSdkMatrixClient::handleRoomListDiff(const QJsonObject &event)
 {
     const QString type = event.value(QStringLiteral("type")).toString();
-    auto reject = [this, &type, &event] {
-        // Never apply a malformed/out-of-range diff — that is what would
-        // corrupt the ordered registry. Instead request a controlled fresh
-        // snapshot from Rust so the model recovers to a complete, correct
-        // room set rather than staying stale. (Well-formed dynamic-adapter
-        // diffs should never reach here.)
-        //
-        // NAMED, since 2026-09-05: the storm came back on one account
-        // (twelve rejections a minute, every one a snapshot refetch) and the
-        // open item asks for the rejected diff itself before any fix — the
-        // op alone could not say whether the index was past the registry or
-        // the id collided with a row already held. Room ids are stable
-        // public identifiers; nothing else of the room is logged.
-        const QJsonObject roomObject = event.value(QStringLiteral("room")).toObject();
-        const QString roomId = roomObject.value(QStringLiteral("id")).toString();
-        qCWarning(lcRust) << "room_list malformed diff rejected op=" << type
-                          << "index=" << event.value(QStringLiteral("index")).toInt(-1)
-                          << "length=" << event.value(QStringLiteral("length")).toInt(-1)
-                          << "room=" << roomId
-                          << "known=" << (!roomId.isEmpty() && m_rooms.contains(roomId))
-                          << "registry=" << m_roomOrder.size()
-                          << "— requesting fresh room-list snapshot";
-        if (m_rustHandle)
-            takeRustString(mx_rust_resync_rooms(m_rustHandle));
-    };
-    auto addRoom = [this](int index, const QJsonObject &object) {
-        RoomInfo room = roomInfoFromJson(object);
-        if (room.id.isEmpty() || m_rooms.contains(room.id)
-            || index < 0 || index > m_roomOrder.size()) return false;
-        m_rooms.insert(room.id, room);
-        m_roomOrder.insert(index, room.id);
-        return true;
-    };
-
-    bool ok = true;
-    if (type == QLatin1String("room_list_append")) {
-        for (const auto &value : event.value(QStringLiteral("rooms")).toArray())
-            ok = addRoom(m_roomOrder.size(), value.toObject()) && ok;
-    } else if (type == QLatin1String("room_list_push_front")) {
-        ok = addRoom(0, event.value(QStringLiteral("room")).toObject());
-    } else if (type == QLatin1String("room_list_push_back")) {
-        ok = addRoom(m_roomOrder.size(), event.value(QStringLiteral("room")).toObject());
-    } else if (type == QLatin1String("room_list_insert")) {
-        ok = addRoom(event.value(QStringLiteral("index")).toInt(-1),
-                     event.value(QStringLiteral("room")).toObject());
-    } else if (type == QLatin1String("room_list_set")) {
-        const int index = event.value(QStringLiteral("index")).toInt(-1);
-        const RoomInfo room = roomInfoFromJson(event.value(QStringLiteral("room")).toObject());
-        if (index < 0 || index >= m_roomOrder.size() || room.id.isEmpty()) ok = false;
-        else {
-            const QString oldId = m_roomOrder.at(index);
-            if (room.id != oldId && m_rooms.contains(room.id)) ok = false;
-            else {
-                m_rooms.remove(oldId); m_rooms.insert(room.id, room); m_roomOrder[index] = room.id;
-            }
-        }
-    } else if (type == QLatin1String("room_list_remove")) {
-        const int index = event.value(QStringLiteral("index")).toInt(-1);
-        if (index < 0 || index >= m_roomOrder.size()) ok = false;
-        else m_rooms.remove(m_roomOrder.takeAt(index));
-    } else if (type == QLatin1String("room_list_pop_front")) {
-        if (m_roomOrder.isEmpty()) ok = false; else m_rooms.remove(m_roomOrder.takeFirst());
-    } else if (type == QLatin1String("room_list_pop_back")) {
-        if (m_roomOrder.isEmpty()) ok = false; else m_rooms.remove(m_roomOrder.takeLast());
-    } else if (type == QLatin1String("room_list_clear")) {
-        m_rooms.clear(); m_roomOrder.clear();
-    } else if (type == QLatin1String("room_list_truncate")) {
-        const int length = event.value(QStringLiteral("length")).toInt(-1);
-        if (length < 0 || length > m_roomOrder.size()) ok = false;
-        else while (m_roomOrder.size() > length) m_rooms.remove(m_roomOrder.takeLast());
-    } else {
-        ok = false;
+    if (matrix::rust_rooms::applyRoomListDiff({m_rooms, m_roomOrder}, event)) {
+        Q_EMIT roomsChanged();
+        return;
     }
-    if (!ok) { reject(); return; }
-    Q_EMIT roomsChanged();
+
+    // Never apply a mismatched diff — that is what would corrupt the ordered
+    // registry, and until 2026-09-08 a Remove/Pop applied one unchecked and
+    // deleted whichever room happened to sit at that index. Ask the producer
+    // that OWNS the index space to re-emit its base instead.
+    //
+    // mx_rust_resync_rooms used to answer with a client.rooms() snapshot —
+    // a different vector, differently ordered — so the recovery re-created
+    // the drift it was recovering from and the next diff was rejected too:
+    // the "room_list malformed diff rejected" storm, twelve a minute on one
+    // account, each one re-emitting the whole room list and its avatar
+    // fetches. It now re-sets the dynamic adapter's filter, which makes the
+    // stream yield a real Reset, exactly as the timeline path re-opens the
+    // SDK timeline after an invalid timeline diff.
+    //
+    // Room ids are stable public identifiers; nothing else of the room is
+    // logged. `expected` is what Rust says occupies the index, `holding` what
+    // we have there — the pair the open item asked for, because the op alone
+    // could not say whether the index was past the registry or the id
+    // collided with a row already held.
+    const QJsonObject roomObject = event.value(QStringLiteral("room")).toObject();
+    const QString roomId = roomObject.value(QStringLiteral("id")).toString();
+    const int index = event.value(QStringLiteral("index")).toInt(-1);
+    const QString holding = index >= 0 && index < m_roomOrder.size()
+        ? m_roomOrder.at(index) : QString();
+    qCWarning(lcRust) << "room_list malformed diff rejected op=" << type
+                      << "index=" << index
+                      << "length=" << event.value(QStringLiteral("length")).toInt(-1)
+                      << "room=" << roomId
+                      << "expected=" << event.value(QStringLiteral("expected_id")).toString()
+                      << "holding=" << holding
+                      << "known=" << (!roomId.isEmpty() && m_rooms.contains(roomId))
+                      << "indexed=" << (!roomId.isEmpty() && m_roomOrder.contains(roomId))
+                      << "registry=" << m_roomOrder.size()
+                      << "— asking the room list to re-emit its index base";
+    if (m_rustHandle)
+        takeRustString(mx_rust_resync_rooms(m_rustHandle));
 }
 
 void RustSdkMatrixClient::handleSpacesEvent(const QJsonArray &spaces)
@@ -5204,6 +5117,11 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         return;
     }
 
+    // The mirror for a room the user has NOT opened. It is BOUNDED — see
+    // matrix::rust_timeline::kBackgroundMirrorCap — which also bounds this
+    // de-duplication scan to a constant. The scan stays here rather than
+    // moving to the append below because a duplicate must not re-emit
+    // eventAppended or re-raise the room's activity either.
     auto &timeline = m_timelines[roomId];
     for (const auto &existing : timeline) {
         if (existing.eventId == eventId)
@@ -5299,7 +5217,7 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
     const bool threadedReply = !timelineEvent.threadRootId.isEmpty()
         && timelineEvent.threadRootId != timelineEvent.eventId;
     if (!threadedReply)
-        timeline.append(timelineEvent);
+        matrix::rust_timeline::appendBounded(timeline, timelineEvent);
     Q_EMIT eventAppended(roomId, timelineEvent);
 
     auto roomIt = m_rooms.find(roomId);

@@ -962,7 +962,13 @@ private:
     // Persist where this session's store really is, taken from the directory
     // that was actually opened rather than re-derived from the user id.
     void recordStoreLocation(const matrix::app_data::AccountIdentity &identity);
+    // The index base: `room_list_reset` (and the legacy `rooms` envelope),
+    // which is the ONLY producer allowed to define what m_roomOrder's
+    // indices mean. See matrix::rust_rooms.
     void handleRoomsEvent(const QJsonArray &rooms);
+    // `room_snapshot`: the SDK state-store walk. Updates m_rooms; never
+    // touches m_roomOrder.
+    void handleRoomSnapshotEvent(const QJsonArray &rooms);
     void handleRoomListDiff(const QJsonObject &event);
     void handleSpacesEvent(const QJsonArray &spaces);
     RoomInfo roomInfoFromJson(const QJsonObject &obj) const;
@@ -1054,7 +1060,13 @@ private:
     matrix::app_data::AccountIdentity m_signOutIdentity;
     QString m_signOutDeviceId;
     QTimer m_pollTimer;
+    // Every room this session knows, by id — INCLUDING Spaces and, on the
+    // classic-sync fallback, rooms no index space names.
     QHash<QString, RoomInfo> m_rooms;
+    // The SDK room list's index space, one entry for one entry, because every
+    // room-list diff addresses it BY INDEX. Only `room_list_*` diffs and
+    // `room_list_reset` — the producer that owns those indices — may write
+    // it; a `room_snapshot` never does. See matrix::rust_rooms.
     QStringList m_roomOrder;
     QString m_syncMode = QStringLiteral("stopped");
     QString m_lastSyncState;

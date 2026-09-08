@@ -740,6 +740,9 @@ if(ENABLE_RUST_SDK_BACKEND)
     list(APPEND APP_SOURCES
         src/matrix/RustSdkMatrixClient.h
         src/matrix/RustSdkMatrixClient.cpp
+        src/matrix/RustRoomRegistry.h
+        src/matrix/RustRoomRegistry.cpp
+        src/matrix/RustTimelineMirror.h
         src/smoke/RustSdkSmokeTest.h
         src/smoke/RustSdkSmokeTest.cpp
     )
@@ -4820,6 +4823,17 @@ if(BUILD_TESTING)
             PRIVATE LIGHTNING_UPDATER_HAVE_ZLIB=1)
     endif()
     add_test(NAME updater-zip-safety COMMAND updater-zip-safety-test)
+
+    # The room-list registry: the index space the SDK's diffs address, kept
+    # apart from the room map they do not. Pure QJson in, QHash/QStringList
+    # out, so it needs no FFI and builds in both trees.
+    qt_add_executable(rust-room-registry-test
+        tests/RustRoomRegistryTest.cpp
+        src/matrix/RustRoomRegistry.cpp
+        src/matrix/EventPreview.cpp)
+    target_include_directories(rust-room-registry-test PRIVATE src)
+    target_link_libraries(rust-room-registry-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME rust-room-registry COMMAND rust-room-registry-test)
 
     qt_add_executable(capture-device-selection-test
         tests/CaptureDeviceSelectionTest.cpp src/calls/CaptureDeviceSelection.cpp)
