@@ -1439,6 +1439,15 @@ char *mx_rust_rtc_notify(void *client,
                          unsigned long long lifetime_ms,
                          const char *membership_event_id_or_empty,
                          unsigned long long op_id);
+/* element-call's transient call reaction: io.element.call.reaction relating
+ * to the sender's own call membership. The (emoji, name) pair is validated
+ * against element-call's own table in Rust; an unknown pair is refused. */
+char *mx_rust_rtc_send_call_reaction(void *client,
+                                     const char *room_id,
+                                     const char *membership_event_id,
+                                     const char *emoji,
+                                     const char *name,
+                                     unsigned long long op_id);
 /* Raised hands, in element-call's own wire format (read out of
  * src/reactions/useReactionsSender.tsx and ReactionsReader.ts, not chosen
  * here): raising sends an m.reaction annotating the sender's OWN

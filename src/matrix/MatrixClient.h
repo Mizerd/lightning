@@ -1328,6 +1328,21 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(membershipEventId);
         Q_UNUSED(reactionEventId); Q_UNUSED(raised); return 0;
     }
+    // element-call's TRANSIENT call reaction: `io.element.call.reaction`
+    // relating to the sender's own call membership by `m.reference`. Unlike
+    // the raised hand it is never redacted and never swept at join — it
+    // expires on its own, so a reaction that fired before we arrived is
+    // simply over. `emoji` and `name` must be a PAIR element-call knows; the
+    // bridge refuses an unknown one rather than putting an arbitrary string
+    // on the wire. Answers on the generic rtcSendFinished.
+    virtual quint64 rtcSendCallReaction(const QString &roomId,
+                                        const QString &membershipEventId,
+                                        const QString &emoji,
+                                        const QString &name)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(membershipEventId);
+        Q_UNUSED(emoji); Q_UNUSED(name); return 0;
+    }
     // The hands already raised when we joined. A hand raised before this
     // client arrived produces no sync event for us, so without this pass an
     // early raiser stays invisible for the whole call. Answers on
@@ -2067,6 +2082,13 @@ Q_SIGNALS:
     void rtcHandChanged(const QString &roomId, const QString &sender,
                         const QString &membershipEventId,
                         const QString &reactionEventId, bool raised);
+    /// Somebody sent a transient call reaction, from the sync loop. It is
+    /// attributed through the membership it references, exactly as a raised
+    /// hand is, so the receiver can refuse one whose sender does not own
+    /// that membership.
+    void rtcCallReactionReceived(const QString &roomId, const QString &sender,
+                                 const QString &membershipEventId,
+                                 const QString &emoji);
     /// The join-time sweep. Each entry:
     /// {userId, deviceId, rtcIdentity, membershipEventId, reactionEventId}.
     void rtcHandsReceived(quint64 opId, const QString &roomId,

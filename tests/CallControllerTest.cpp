@@ -212,6 +212,39 @@ public:
         Q_EMIT rtcHandChanged(roomId, sender, membershipEventId,
                               reactionEventId, raised);
     }
+    /// A transient call reaction, on the bridge's real signature. Records
+    /// what was asked for so a test can assert the WIRE arguments — which
+    /// membership event it referenced, and which (emoji, name) pair.
+    struct SentReaction {
+        QString roomId;
+        QString membershipEventId;
+        QString emoji;
+        QString name;
+    };
+    quint64 rtcSendCallReaction(const QString &roomId,
+                                const QString &membershipEventId,
+                                const QString &emoji,
+                                const QString &name) override
+    {
+        reactionSends.append({roomId, membershipEventId, emoji, name});
+        lastReactionOp = ++opCounter;
+        return lastReactionOp;
+    }
+    QList<SentReaction> reactionSends;
+    quint64 lastReactionOp = 0;
+    /// One arriving off the sync loop, on the signal the bridge really uses.
+    void emitCallReaction(const QString &roomId, const QString &sender,
+                          const QString &membershipEventId,
+                          const QString &emoji)
+    {
+        Q_EMIT rtcCallReactionReceived(roomId, sender, membershipEventId,
+                                       emoji);
+    }
+    /// The generic RTC send answer, which a reaction's result rides.
+    void answerRtcSend(quint64 opId, bool ok, const QString &category)
+    {
+        Q_EMIT rtcSendFinished(opId, ok, category, QString());
+    }
     /// Answered with a real op id so a successful membership publish reaches
     /// Authorizing instead of failing on "couldn't connect".
     quint64 sfuConnect(const QString &serviceUrl,
@@ -432,6 +465,52 @@ int participantRowFor(const CallParticipantModel *model,
                       const QString &identity)
 {
     return model->indexOfIdentity(identity);
+}
+
+/// THE TWO REACTION EMOJI THIS SUITE USES, BY THEIR UTF-8 BYTES.
+///
+/// `QStringLiteral` cannot express them: it expands to a `u""`-prefixed
+/// literal, so a `\xF0` escape becomes the UTF-16 code unit U+00F0 rather
+/// than the first byte of a UTF-8 sequence — four bytes of an emoji would
+/// silently become four Latin-1 characters, and every comparison here would
+/// still pass while testing the wrong string. `QString::fromUtf8` is what
+/// makes these the bytes that actually go on the wire, which is the same
+/// discipline `the_raised_hand_key_is_element_calls_own_bytes` applies in
+/// rust/src/rtc.rs.
+const QString kThumbsUpEmoji = QString::fromUtf8("\xF0\x9F\x91\x8D");
+const QString kPartyEmoji = QString::fromUtf8("\xF0\x9F\x8E\x89");
+
+/// A call fixture with one remote participant whose membership is known,
+/// so a reaction can actually be attributed. Returns the model.
+CallParticipantModel *stageOneRemoteParticipant(
+    RecordingCallClient &client, RtcController &rtc, SfuCallController &call,
+    const QString &room, const QString &identity, const QString &userId,
+    const QString &deviceId, const QString &membership)
+{
+    rtc.setClient(&client);
+    rtc.setPokeCoalesceMsForTest(0);
+    call.setClient(&client);
+    call.setRtcController(&rtc);
+    call.setMembershipForTest(room, QString());
+    call.setCallStateForTest(SfuCallController::State::Connected);
+    call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
+    call.ingestParticipantsForTest({
+        sfuParticipant(identity, QStringLiteral("PA_ONE"), {}),
+    });
+
+    RtcParticipant member;
+    member.userId = userId;
+    member.deviceId = deviceId;
+    member.rtcIdentity = identity;
+    member.intent = QStringLiteral("audio");
+    member.membershipEventId = membership;
+    member.wireFormat = QStringLiteral("session");
+    RtcSessionData session;
+    session.roomId = room;
+    session.participants = { member };
+    rtc.refresh(room);
+    client.answerSession(client.lastSessionOp, session);
+    return call.participantModel();
 }
 
 } // namespace
@@ -4167,6 +4246,430 @@ private Q_SLOTS:
                       .toBool(),
                  "a raise from somebody who does not own the membership it "
                  "annotates was applied on the next session read");
+    }
+
+    // =====================================================================
+    // TRANSIENT CALL REACTIONS (io.element.call.reaction)
+    // =====================================================================
+    //
+    // EVERY CASE BELOW FAILS TO COMPILE ON THE UNFIXED TREE, because none of
+    // sendCallReaction, rtcCallReactionReceived or ReactionEmojiRole exists
+    // there — the feature was "no control for them" (docs/matrixrtc.md, open
+    // item 2). Where a case also guards a rule that could regress WITHIN this
+    // round, the note says which rule.
+
+    void aCallReactionIsShownOnTheTileOfWhoeverOwnsTheMembership()
+    {
+        const QString room = QStringLiteral("!room:example.org");
+        const QString identity = QStringLiteral("@bea:example.org:BDEV");
+        const QString membership = QStringLiteral("$bea-membership");
+
+        RecordingCallClient client;
+        RtcController rtc;
+        SfuCallController call;
+        CallParticipantModel *model = stageOneRemoteParticipant(
+            client, rtc, call, room, identity,
+            QStringLiteral("@bea:example.org"), QStringLiteral("BDEV"),
+            membership);
+
+        client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
+                                membership, kThumbsUpEmoji);
+        QCOMPARE(participantRole(model, participantRowFor(model, identity),
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString(),
+                 kThumbsUpEmoji);
+
+        // ...AND NOBODY ELSE'S TILE MOVED. The local row is the other one in
+        // this fixture, and attribution is per participant: a reaction is
+        // drawn on the tile of whoever owns the membership it references,
+        // never on the room.
+        const int mine =
+            participantRowFor(model, QStringLiteral("@me:example.org:MEDEV"));
+        QVERIFY(mine >= 0);
+        QVERIFY2(participantRole(model, mine,
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString()
+                     .isEmpty(),
+                 "somebody else's reaction was drawn on the local tile");
+    }
+
+    void aCallReactionEndsWithItsOwnWindowAndADuplicateInsideItIsDropped()
+    {
+        const QString room = QStringLiteral("!room:example.org");
+        const QString identity = QStringLiteral("@bea:example.org:BDEV");
+        const QString membership = QStringLiteral("$bea-membership");
+
+        RecordingCallClient client;
+        RtcController rtc;
+        SfuCallController call;
+        // The REAL window, made short. The model's own timer and the real
+        // expiry clause run; only the clock is kind.
+        call.setReactionWindowMsForTest(40);
+        CallParticipantModel *model = stageOneRemoteParticipant(
+            client, rtc, call, room, identity,
+            QStringLiteral("@bea:example.org"), QStringLiteral("BDEV"),
+            membership);
+
+        client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
+                                membership, kThumbsUpEmoji);
+        const int row = participantRowFor(model, identity);
+        QCOMPARE(participantRole(model, row,
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString(),
+                 kThumbsUpEmoji);
+
+        // A SECOND ONE INSIDE THE WINDOW CHANGES NOTHING. element-call
+        // refuses the same way ("one is still playing"); without it a sender
+        // can hold a permanent badge on their own tile by re-sending, which
+        // is a transient affordance turned into a persistent one.
+        client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
+                                membership, kPartyEmoji);
+        QCOMPARE(participantRole(model, row,
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString(),
+                 kThumbsUpEmoji);
+
+        // ...and it goes away on its own, with nothing else happening.
+        QTRY_VERIFY(participantRole(model, row,
+                                    CallParticipantModel::ReactionEmojiRole)
+                        .toString()
+                        .isEmpty());
+
+        // Once the window has passed the next one is accepted, or the
+        // duplicate rule would be a permanent mute.
+        client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
+                                membership, kPartyEmoji);
+        QCOMPARE(participantRole(model, row,
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString(),
+                 kPartyEmoji);
+    }
+
+    void aForgedCallReactionIsNeitherShownNorParked()
+    {
+        // Anyone may reference anyone's state event, so a reaction whose
+        // sender does not OWN the membership it references must be dropped —
+        // and, because "not read yet" and "not yours" both come back as an
+        // empty identity, it must not be parked either: a bounded store full
+        // of forgeries has no room for a real early reaction.
+        const QString room = QStringLiteral("!room:example.org");
+        const QString identity = QStringLiteral("@bea:example.org:BDEV");
+        const QString membership = QStringLiteral("$bea-membership");
+
+        RecordingCallClient client;
+        RtcController rtc;
+        SfuCallController call;
+        CallParticipantModel *model = stageOneRemoteParticipant(
+            client, rtc, call, room, identity,
+            QStringLiteral("@bea:example.org"), QStringLiteral("BDEV"),
+            membership);
+
+        client.emitCallReaction(room, QStringLiteral("@mallory:example.org"),
+                                membership, kThumbsUpEmoji);
+        QVERIFY2(participantRole(model, participantRowFor(model, identity),
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString()
+                     .isEmpty(),
+                 "a reaction from somebody who does not own the membership it "
+                 "references was drawn on that membership's owner");
+
+        // ...and a later session read must not let it through either, which
+        // is exactly what a parked forgery would do.
+        RtcParticipant moved;
+        moved.userId = QStringLiteral("@bea:example.org");
+        moved.deviceId = QStringLiteral("BDEV");
+        moved.rtcIdentity = identity;
+        moved.intent = QStringLiteral("audio");
+        moved.membershipEventId = membership;
+        moved.wireFormat = QStringLiteral("session");
+        moved.displayName = QStringLiteral("Bea");
+        RtcSessionData again;
+        again.roomId = room;
+        again.participants = { moved };
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, again);
+        QVERIFY2(participantRole(model, participantRowFor(model, identity),
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString()
+                     .isEmpty(),
+                 "a forged reaction was applied on the next session read");
+    }
+
+    void anUnknownOrMalformedCallReactionChangesNothing()
+    {
+        const QString room = QStringLiteral("!room:example.org");
+        const QString identity = QStringLiteral("@bea:example.org:BDEV");
+        const QString membership = QStringLiteral("$bea-membership");
+
+        RecordingCallClient client;
+        RtcController rtc;
+        SfuCallController call;
+        CallParticipantModel *model = stageOneRemoteParticipant(
+            client, rtc, call, room, identity,
+            QStringLiteral("@bea:example.org"), QStringLiteral("BDEV"),
+            membership);
+        const int row = participantRowFor(model, identity);
+        QSignalSpy changes(model, &QAbstractItemModel::dataChanged);
+
+        // No emoji at all (rust/src/rtc.rs drops these before they reach the
+        // bridge; this pins the second gate rather than trusting the first).
+        client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
+                                membership, QString());
+        // A membership nobody has ever declared.
+        client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
+                                QStringLiteral("$nobodys-membership"),
+                                kThumbsUpEmoji);
+        // ...and one for a DIFFERENT room, which this call is not in.
+        client.emitCallReaction(QStringLiteral("!elsewhere:example.org"),
+                                QStringLiteral("@bea:example.org"), membership,
+                                kThumbsUpEmoji);
+
+        QVERIFY(participantRole(model, row,
+                                CallParticipantModel::ReactionEmojiRole)
+                    .toString()
+                    .isEmpty());
+        QCOMPARE(changes.count(), 0);
+    }
+
+    void aCallReactionThatBeatsItsMembershipIsShownWhenItArrives()
+    {
+        // THE SAME RACE THE RAISED HAND HAS, and deliberately the SAME
+        // bounded store: the reaction rides the sync handler, the membership
+        // rides a session read, and nothing orders the two.
+        const QString room = QStringLiteral("!room:example.org");
+        const QString identity = QStringLiteral("@bea:example.org:BDEV");
+        const QString membership = QStringLiteral("$bea-membership");
+
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        rtc.setPokeCoalesceMsForTest(0);
+
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        call.setMembershipForTest(room, QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
+        call.ingestParticipantsForTest({
+            sfuParticipant(identity, QStringLiteral("PA_BEA"), {}),
+        });
+        CallParticipantModel *model = call.participantModel();
+
+        // THE REACTION GETS THERE FIRST. Nothing can attribute it yet.
+        client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
+                                membership, kThumbsUpEmoji);
+        QVERIFY(participantRole(model, participantRowFor(model, identity),
+                                CallParticipantModel::ReactionEmojiRole)
+                    .toString()
+                    .isEmpty());
+
+        // ...and now the membership lands.
+        RtcParticipant bea;
+        bea.userId = QStringLiteral("@bea:example.org");
+        bea.deviceId = QStringLiteral("BDEV");
+        bea.rtcIdentity = identity;
+        bea.intent = QStringLiteral("audio");
+        bea.membershipEventId = membership;
+        bea.wireFormat = QStringLiteral("session");
+        RtcSessionData session;
+        session.roomId = room;
+        session.participants = { bea };
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+
+        QCOMPARE(participantRole(model, participantRowFor(model, identity),
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString(),
+                 kThumbsUpEmoji);
+    }
+
+    void aParkedCallReactionThatOutlivedItsWindowIsNeverDrawn()
+    {
+        // A membership read can land seconds after the reaction did. A hand
+        // parked that long is still up; a REACTION that long ago is over, and
+        // drawing it when the membership finally arrives would be a lie about
+        // the present.
+        const QString room = QStringLiteral("!room:example.org");
+        const QString identity = QStringLiteral("@bea:example.org:BDEV");
+        const QString membership = QStringLiteral("$bea-membership");
+
+        RecordingCallClient client;
+        RtcController rtc;
+        rtc.setClient(&client);
+        rtc.setPokeCoalesceMsForTest(0);
+
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        call.setReactionWindowMsForTest(20);
+        call.setMembershipForTest(room, QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
+        call.ingestParticipantsForTest({
+            sfuParticipant(identity, QStringLiteral("PA_BEA"), {}),
+        });
+        CallParticipantModel *model = call.participantModel();
+
+        client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
+                                membership, kThumbsUpEmoji);
+        QTest::qWait(60);
+
+        RtcParticipant bea;
+        bea.userId = QStringLiteral("@bea:example.org");
+        bea.deviceId = QStringLiteral("BDEV");
+        bea.rtcIdentity = identity;
+        bea.intent = QStringLiteral("audio");
+        bea.membershipEventId = membership;
+        bea.wireFormat = QStringLiteral("session");
+        RtcSessionData session;
+        session.roomId = room;
+        session.participants = { bea };
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+
+        QVERIFY2(participantRole(model, participantRowFor(model, identity),
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString()
+                     .isEmpty(),
+                 "a reaction whose window had already passed was drawn when "
+                 "its membership finally arrived");
+    }
+
+    void noReactionOutlivesTheParticipantOrTheCall()
+    {
+        const QString room = QStringLiteral("!room:example.org");
+        const QString identity = QStringLiteral("@bea:example.org:BDEV");
+        const QString membership = QStringLiteral("$bea-membership");
+
+        RecordingCallClient client;
+        RtcController rtc;
+        SfuCallController call;
+        CallParticipantModel *model = stageOneRemoteParticipant(
+            client, rtc, call, room, identity,
+            QStringLiteral("@bea:example.org"), QStringLiteral("BDEV"),
+            membership);
+
+        client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
+                                membership, kThumbsUpEmoji);
+        QVERIFY(!participantRole(model, participantRowFor(model, identity),
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString()
+                     .isEmpty());
+
+        // THE PARTICIPANT LEAVES. The row goes, and with it the reaction —
+        // and it must not come back with them.
+        QVariantMap gone =
+            sfuParticipant(identity, QStringLiteral("PA_ONE"), {});
+        gone.insert(QStringLiteral("state"), QStringLiteral("disconnected"));
+        call.ingestParticipantsForTest({ gone });
+        QCOMPARE(participantRowFor(model, identity), -1);
+
+        call.ingestParticipantsForTest({
+            sfuParticipant(identity, QStringLiteral("PA_ONE"), {}),
+        });
+        QVERIFY2(participantRole(model, participantRowFor(model, identity),
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString()
+                     .isEmpty(),
+                 "a reaction survived the participant who sent it leaving");
+
+        // THE CALL ENDS. Nothing transient may outlive it.
+        client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
+                                membership, kPartyEmoji);
+        QVERIFY(!participantRole(model, participantRowFor(model, identity),
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString()
+                     .isEmpty());
+        call.leave();
+        QCOMPARE(model->rowCount(), 0);
+    }
+
+    void sendingAReactionReferencesOurOwnMembershipAndIsNeverOptimistic()
+    {
+        const QString room = QStringLiteral("!room:example.org");
+        const QString ownIdentity = QStringLiteral("@me:example.org:MEDEV");
+        const QString ownMembership = QStringLiteral("$my-membership");
+
+        RecordingCallClient client;
+        client.simulatedUserId = QStringLiteral("@me:example.org");
+        RtcController rtc;
+        rtc.setClient(&client);
+        rtc.setPokeCoalesceMsForTest(0);
+
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        call.setMembershipForTest(room, QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setOwnIdentityForTest(ownIdentity);
+        call.ingestParticipantsForTest({
+            sfuParticipant(ownIdentity, QStringLiteral("PA_ME"), {}),
+        });
+        CallParticipantModel *model = call.participantModel();
+
+        // Our own membership, as the session read reports it. The controller
+        // prefers this over the id it published with, because a refresh
+        // REPLACES the state event and a reference to a superseded membership
+        // is one no client will attribute.
+        RtcParticipant me;
+        me.userId = QStringLiteral("@me:example.org");
+        me.deviceId = QStringLiteral("MEDEV");
+        me.rtcIdentity = ownIdentity;
+        me.intent = QStringLiteral("audio");
+        me.membershipEventId = ownMembership;
+        me.wireFormat = QStringLiteral("session");
+        me.ownUser = true;
+        me.ownDevice = true;
+        RtcSessionData session;
+        session.roomId = room;
+        session.participants = { me };
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+
+        call.sendCallReaction(kThumbsUpEmoji,
+                              QStringLiteral("thumbsup"));
+        QCOMPARE(client.reactionSends.size(), 1);
+        QCOMPARE(client.reactionSends.at(0).roomId, room);
+        QCOMPARE(client.reactionSends.at(0).membershipEventId, ownMembership);
+        QCOMPARE(client.reactionSends.at(0).emoji,
+                 kThumbsUpEmoji);
+        QCOMPARE(client.reactionSends.at(0).name,
+                 QStringLiteral("thumbsup"));
+
+        // NOT OPTIMISTIC. Our own tile lights from the event coming back
+        // through the sync handler, exactly like anybody else's — a local
+        // echo would show a reaction that may never have left the machine.
+        QVERIFY2(participantRole(model, participantRowFor(model, ownIdentity),
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString()
+                     .isEmpty(),
+                 "the sender's own tile was lit before the event existed");
+
+        // A SECOND PRESS INSIDE THE WINDOW SENDS NOTHING. Every receiver
+        // would drop it, so putting it on the wire is a room event nobody
+        // renders — and a held control must not become an event storm.
+        call.sendCallReaction(kPartyEmoji,
+                              QStringLiteral("party"));
+        QCOMPARE(client.reactionSends.size(), 1);
+
+        // ...unless the send FAILED, in which case nothing will ever come
+        // back to draw and the user must be able to try again at once.
+        client.answerRtcSend(client.lastReactionOp, false,
+                             QStringLiteral("network"));
+        call.sendCallReaction(kPartyEmoji,
+                              QStringLiteral("party"));
+        QCOMPARE(client.reactionSends.size(), 2);
+
+        // ...and the event coming back is what draws it, attributed through
+        // OUR membership like everybody else's.
+        client.emitCallReaction(room, QStringLiteral("@me:example.org"),
+                                ownMembership,
+                                kPartyEmoji);
+        QCOMPARE(participantRole(model, participantRowFor(model, ownIdentity),
+                                 CallParticipantModel::ReactionEmojiRole)
+                     .toString(),
+                 kPartyEmoji);
     }
 
 };

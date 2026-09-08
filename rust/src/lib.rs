@@ -8740,6 +8740,31 @@ pub unsafe extern "C" fn mx_rust_rtc_notify(
 /// Answers `rtc_hand_result {ok, raised, category, event_id}`; on a
 /// successful raise `event_id` is the reaction the eventual lower must
 /// redact, and without keeping it a raised hand can never be lowered.
+/// element-call's transient call reaction. The pair is validated in Rust
+/// against the table element-call itself uses; an unknown one is refused
+/// rather than put on the wire.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_rtc_send_call_reaction(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    membership_event_id: *const c_char,
+    emoji: *const c_char,
+    name: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let membership_event_id = unsafe { cstr_arg(membership_event_id) }?;
+        let emoji = unsafe { cstr_arg(emoji) }?;
+        let name = unsafe { cstr_arg(name) }?;
+        rtc::send_call_reaction(
+            bridge, room_id, membership_event_id, emoji, name, op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_rtc_set_hand(
     ptr: *mut c_void,

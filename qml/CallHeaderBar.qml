@@ -358,6 +358,134 @@ Rectangle {
             }
         }
 
+        // ── React (SFU lane only) ──
+        //
+        // Beside the hand, because they are the same gesture on the wire:
+        // element-call sends a transient `io.element.call.reaction` referencing
+        // the sender's own membership, exactly as a raise annotates it, and
+        // both are read by the same `ReactionsReader`. Here rather than on the
+        // stage for the reason recorded in `exactlyOneSurfaceOwnsTheMedia
+        // Controls`: every call control lives in this bar.
+        //
+        // THE SET IS element-call's OWN, and only its first row: `ReactionSet`
+        // in element-call/src/reactions/index.ts, of which the first
+        // `ReactionsRowSize` (5) are the ones their UI always shows. The
+        // `name` beside each emoji is what an Element client looks its SOUND
+        // up by, so the pairs must match theirs exactly — rust/src/rtc.rs
+        // holds the same table and refuses to send a pair that is not in it.
+        Loader {
+            active: root.richMedia && !root.compact
+            visible: active
+            sourceComponent: CallControlButton {
+                id: reactButton
+                objectName: "callBarReactButton"
+                iconName: "add_reaction"
+                role: "neutral"
+                diameter: root.controlDiameter
+                glyphSize: root.controlGlyph
+                tooltip: qsTr("Send a reaction")
+                onClicked: reactionPopup.opened ? reactionPopup.close()
+                                                : reactionPopup.open()
+
+                Popup {
+                    id: reactionPopup
+                    objectName: "callBarReactionPopup"
+                    // Above the bar in the dock, below it in the header:
+                    // the dock sits at the BOTTOM of the stage, so opening
+                    // downward would put the picker off the surface.
+                    x: (reactButton.width - width) / 2
+                    y: root.dock ? -height - 8 : reactButton.height + 8
+                    padding: 6
+                    // MODAL, with no dim. A non-modal popup over a tile leaves
+                    // the handlers beneath it live, and this repo has shipped
+                    // that collision three times (§16) — the emoji picker was
+                    // made modal for exactly this reason.
+                    modal: true
+                    dim: false
+                    closePolicy: Popup.CloseOnEscape
+                                 | Popup.CloseOnPressOutside
+                    background: Rectangle {
+                        radius: AppTheme.radiusMd
+                        color: AppTheme.surfaceElevated
+                        border.width: 1
+                        border.color: AppTheme.borderSubtle
+                    }
+
+                    contentItem: Row {
+                        spacing: 2
+                        Repeater {
+                            // element-call's ReactionSet, first row. LITERAL
+                            // emoji, like QuickReactionStrip's own defaults:
+                            // this file's bytes are what a contract test
+                            // compares against rust/src/rtc.rs's table, and
+                            // a mistyped escape would be a load-time error
+                            // that takes the whole bar down.
+                            model: [
+                                { emoji: "👍", name: "thumbsup",
+                                  label: qsTr("Thumbs up") },
+                                { emoji: "🎉", name: "party",
+                                  label: qsTr("Party") },
+                                { emoji: "👏", name: "clapping",
+                                  label: qsTr("Applause") },
+                                { emoji: "🐶", name: "dog",
+                                  label: qsTr("Dog") },
+                                { emoji: "🐱", name: "cat",
+                                  label: qsTr("Cat") }
+                            ]
+                            delegate: AbstractButton {
+                                id: reactionChoice
+                                required property var modelData
+                                objectName: "callReactionChoice"
+                                implicitWidth: 36
+                                implicitHeight: 36
+                                hoverEnabled: true
+                                focusPolicy: Qt.StrongFocus
+                                Accessible.role: Accessible.Button
+                                Accessible.name: reactionChoice.modelData.label
+                                background: Rectangle {
+                                    radius: AppTheme.radiusSm
+                                    color: reactionChoice.pressed
+                                           ? AppTheme.selectedHover
+                                           : (reactionChoice.hovered
+                                              || reactionChoice.activeFocus
+                                              ? AppTheme.hover
+                                              : "transparent")
+                                    border.width: reactionChoice.activeFocus
+                                                  ? 2 : 0
+                                    border.color: AppTheme.focusRing
+                                }
+                                contentItem: Text {
+                                    // Emoji, not interface chrome, so this is
+                                    // one of the few places a glyph is text —
+                                    // and the family is resolved in C++
+                                    // (§16: QML has no `font.families`, and
+                                    // Qt's own fallback picks a monochrome
+                                    // face on some versions).
+                                    textFormat: Text.PlainText
+                                    text: reactionChoice.modelData.emoji
+                                    font.pixelSize: 20
+                                    font.family:
+                                        (typeof app !== "undefined" && app
+                                         && app.emojiFontFamily) || ""
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                ToolTip.visible: reactionChoice.hovered
+                                ToolTip.delay: 400
+                                ToolTip.text: reactionChoice.modelData.label
+                                onClicked: {
+                                    app.groupCall.sendCallReaction(
+                                        reactionChoice.modelData.emoji,
+                                        reactionChoice.modelData.name)
+                                    reactionPopup.close()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // ── Participants (SFU lane only) ──
         Loader {
             active: root.richMedia && !root.compact

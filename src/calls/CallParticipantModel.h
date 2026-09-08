@@ -36,13 +36,15 @@
 // FIELD OWNERSHIP. Two feeds write here and they must not clobber each other:
 // `applyParticipants()` carries what the SFU states (identity, profile, track
 // state, track keys) and is the only writer of those; the speaking level,
-// connection quality, raised hand and local playback volume arrive on their
-// own signals and are preserved verbatim across a participant update.
+// connection quality, raised hand, transient reaction and local playback
+// volume arrive on their own signals and are preserved verbatim across a
+// participant update.
 #pragma once
 
 #include <QAbstractListModel>
 #include <QHash>
 #include <QString>
+#include <QTimer>
 #include <QVariantList>
 #include <QVector>
 #include <QtQml/qqmlregistration.h>
@@ -94,6 +96,11 @@ public:
         SpeakingRole,
         SpeakingLevelRole,
         HandRaisedRole,
+        /// The emoji of a TRANSIENT reaction, or "" when none is showing.
+        /// Empty is the ordinary state, so every surface that draws it must
+        /// do so behind a Loader (§16: a Label that can be created empty
+        /// keeps ItemObservesViewport forever).
+        ReactionEmojiRole,
         VolumePercentRole,
         ConnectionQualityRole,
         JoinedAtMsRole,
@@ -136,11 +143,33 @@ public:
     /// quality report is a delta, and "unmentioned" is not "unknown".
     void applyConnectionQuality(const QHash<QString, QString> &qualityBySid);
 
-    /// Raise state for ONE participant. Hand raise has no wire
-    /// representation in MatrixRTC as Lightning speaks it, so in practice the
-    /// only row this is ever true for is the local one. See the note on
-    /// `HandRaisedRole` in the .cpp.
+    /// Raise state for ONE participant.
+    ///
+    /// A hand IS on the wire (element-call's `m.reaction` annotating the
+    /// raiser's own membership state event), so this is true for remote rows
+    /// as well as the local one. It is only ever set from an event that was
+    /// attributed to that participant.
     void setHandRaised(const QString &identity, bool raised);
+
+    /// Show ONE transient reaction on a participant's row, expiring at
+    /// `nowMs + ttlMs`.
+    ///
+    /// Returns false and changes NOTHING when the identity is unknown, the
+    /// emoji is empty, or that participant already has a reaction still
+    /// running. That refusal is the duplicate rule, and it lives here rather
+    /// than in the caller so there is one place that knows whether a
+    /// reaction is live — element-call refuses the same way ("Got reaction
+    /// from ... but one is still playing"), which is what stops a sender
+    /// from holding a permanent badge on their own tile by re-sending.
+    bool setReaction(const QString &identity, const QString &emoji,
+                     qint64 nowMs, int ttlMs);
+
+    /// Clear every reaction whose deadline has passed at `nowMs`.
+    ///
+    /// Called by this model's own single-shot timer, and directly by tests
+    /// so expiry can be proven without waiting on wall-clock time. Bounded
+    /// by the row count, like every other sweep here.
+    void expireReactions(qint64 nowMs);
 
     /// Local playback volume, 0..200 (100 is unity; above it is real
     /// amplification, as Discord allows). Local-only: it reaches the audio
@@ -173,16 +202,26 @@ private:
         bool speaking = false;
         qreal speakingLevel = 0.0;
         bool handRaised = false;
+        /// The transient reaction currently showing, and when it stops.
+        /// Both are cleared together; a non-empty emoji with no deadline
+        /// would be a badge that never goes away.
+        QString reactionEmoji;
+        qint64 reactionExpiresAtMs = 0;
         int volumePercent = 100;
         QString connectionQuality; // "" = unknown; never rendered as a lie
         qint64 joinedAtMs = 0;
     };
 
     int indexOf(const QString &identity) const;
+    /// Re-arm the expiry timer to the EARLIEST outstanding deadline, or stop
+    /// it when nothing is showing. One timer for the whole model: a timer
+    /// per row would be one QObject per participant per reaction.
+    void rearmReactionTimer(qint64 nowMs);
     /// Copy the SFU-owned fields onto an existing entry, returning the roles
     /// that actually changed. An empty result means no signal is emitted at
     /// all, which is what keeps a steady call quiet.
     static QList<int> mergeRow(Entry &entry, const CallParticipantRow &row);
 
     QVector<Entry> m_rows;
+    QTimer m_reactionTimer;
 };

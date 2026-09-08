@@ -27,6 +27,13 @@ int clampVolume(int percent)
 CallParticipantModel::CallParticipantModel(QObject *parent)
     : QAbstractListModel(parent)
 {
+    // ONE timer for the whole model, single-shot, always armed to the
+    // earliest outstanding deadline. A repeating timer would tick for the
+    // whole call; a timer per row would be a QObject per participant.
+    m_reactionTimer.setSingleShot(true);
+    connect(&m_reactionTimer, &QTimer::timeout, this, [this] {
+        expireReactions(QDateTime::currentMSecsSinceEpoch());
+    });
 }
 
 int CallParticipantModel::rowCount(const QModelIndex &parent) const
@@ -52,6 +59,7 @@ QHash<int, QByteArray> CallParticipantModel::roleNames() const
         { SpeakingRole, "speaking" },
         { SpeakingLevelRole, "speakingLevel" },
         { HandRaisedRole, "handRaised" },
+        { ReactionEmojiRole, "reactionEmoji" },
         { VolumePercentRole, "volumePercent" },
         { ConnectionQualityRole, "connectionQuality" },
         { JoinedAtMsRole, "joinedAtMs" },
@@ -92,19 +100,19 @@ QVariant CallParticipantModel::data(const QModelIndex &index, int role) const
         return entry.speaking;
     case SpeakingLevelRole:
         return entry.speakingLevel;
-    // HAND RAISE IS LOCAL-ONLY AND INVISIBLE TO PEERS.
-    //
-    // `SfuCallController::setHandRaised` writes a member and emits
-    // `mediaStateChanged`; nothing reaches the SFU, the MatrixRTC membership
-    // or a to-device message, and `grep hand` finds nothing in
-    // SfuMediaEngine or rust/src/calls.rs. So this role can only ever be
-    // true for the LOCAL row. It is kept — honestly, and documented — rather
-    // than deleted, because the local badge is genuine feedback that the
-    // user's own toggle took effect; a remote hand would need a wire
-    // representation checked against a real element-call client, which is a
-    // protocol decision and not something to invent here.
+    // BOTH OF THESE ARE ON THE WIRE, in element-call's own formats: a hand
+    // is an `m.reaction` annotating the raiser's own `m.call.member` state
+    // event, and a reaction is an `io.element.call.reaction` referencing it.
+    // Each is set only from an event that arrived AND was attributed to this
+    // participant, so a true here is never a guess. (This comment used to
+    // say hand raise was local-only and invisible to peers; that was true
+    // until the wire representation was read out of element-call's source.)
     case HandRaisedRole:
         return entry.handRaised;
+    // Empty is the ordinary state and it must render as NOTHING — see the
+    // Loader rule on the role's declaration.
+    case ReactionEmojiRole:
+        return entry.reactionEmoji;
     case VolumePercentRole:
         return entry.volumePercent;
     case ConnectionQualityRole:
@@ -329,6 +337,65 @@ void CallParticipantModel::setHandRaised(const QString &identity, bool raised)
     Q_EMIT dataChanged(index(at), index(at), { HandRaisedRole });
 }
 
+bool CallParticipantModel::setReaction(const QString &identity,
+                                       const QString &emoji, qint64 nowMs,
+                                       int ttlMs)
+{
+    if (emoji.isEmpty() || ttlMs <= 0)
+        return false;
+    const int at = indexOf(identity);
+    if (at < 0)
+        return false;
+    // STILL RUNNING? Then this one is dropped whole, and the one on screen
+    // keeps its original deadline. Refreshing it instead would let a sender
+    // hold a permanent badge by re-sending inside the window, which is the
+    // spam element-call's own reader refuses.
+    if (!m_rows.at(at).reactionEmoji.isEmpty()
+        && m_rows.at(at).reactionExpiresAtMs > nowMs) {
+        return false;
+    }
+    m_rows[at].reactionEmoji = emoji;
+    m_rows[at].reactionExpiresAtMs = nowMs + ttlMs;
+    Q_EMIT dataChanged(index(at), index(at), { ReactionEmojiRole });
+    rearmReactionTimer(nowMs);
+    return true;
+}
+
+void CallParticipantModel::expireReactions(qint64 nowMs)
+{
+    for (int i = 0; i < m_rows.size(); ++i) {
+        Entry &entry = m_rows[i];
+        if (entry.reactionEmoji.isEmpty()
+            || entry.reactionExpiresAtMs > nowMs) {
+            continue;
+        }
+        entry.reactionEmoji.clear();
+        entry.reactionExpiresAtMs = 0;
+        Q_EMIT dataChanged(index(i), index(i), { ReactionEmojiRole });
+    }
+    rearmReactionTimer(nowMs);
+}
+
+void CallParticipantModel::rearmReactionTimer(qint64 nowMs)
+{
+    qint64 earliest = 0;
+    for (const Entry &entry : std::as_const(m_rows)) {
+        if (entry.reactionEmoji.isEmpty())
+            continue;
+        if (earliest == 0 || entry.reactionExpiresAtMs < earliest)
+            earliest = entry.reactionExpiresAtMs;
+    }
+    if (earliest == 0) {
+        m_reactionTimer.stop();
+        return;
+    }
+    // A deadline already in the past gives 0, and a zero-interval timer
+    // fires on the next pass of the event loop — which is exactly what a
+    // reaction that has already ended deserves. Never negative, which QTimer
+    // would treat as "stop".
+    m_reactionTimer.start(static_cast<int>(qMax<qint64>(0, earliest - nowMs)));
+}
+
 void CallParticipantModel::setVolumePercent(const QString &identity,
                                             int percent)
 {
@@ -344,6 +411,11 @@ void CallParticipantModel::setVolumePercent(const QString &identity,
 
 void CallParticipantModel::clear()
 {
+    // NOTHING TRANSIENT MAY OUTLIVE THE CALL. The reactions themselves go
+    // with the rows; the timer is stopped explicitly because it is the one
+    // piece of this that is not a row and would otherwise fire into an empty
+    // model after the call ended.
+    m_reactionTimer.stop();
     if (m_rows.isEmpty())
         return;
     beginRemoveRows(QModelIndex(), 0, m_rows.size() - 1);

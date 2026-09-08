@@ -2177,6 +2177,271 @@ pub(crate) fn read_raised_hands(
 }
 
 // ---------------------------------------------------------------------------
+// Transient call reactions (io.element.call.reaction)
+// ---------------------------------------------------------------------------
+
+/// element-call's transient reaction event type.
+///
+/// READ OUT OF element-call's own source, exactly as the raised hand above
+/// was: `src/reactions/index.ts` defines
+/// `ElementCallReactionEventType = "io.element.call.reaction"`,
+/// `useReactionsSender.tsx` sends it and `ReactionsReader.ts` reads it. The
+/// string itself lives in the event-content derive; this is the documented
+/// constant for readers and is asserted against the derive in tests.
+#[allow(dead_code)]
+pub(crate) const EV_CALL_REACTION: &str = "io.element.call.reaction";
+
+/// The reaction pairs element-call knows, `(name, emoji)`.
+///
+/// TRANSCRIBED FROM `element-call/src/reactions/index.ts` (`ReactionSet`),
+/// cross-checked against the bundle element-web ships, and it is a CLOSED
+/// SET FOR SENDING on purpose: element-call looks its sound up by `name`
+/// (`ReactionSet.find((r) => r.name === content.name)`), so a name outside
+/// this table reaches an Element user as a silent generic reaction. Sending
+/// only pairs it knows is the difference between interoperating and merely
+/// being parsed.
+///
+/// It is NOT applied to reactions we RECEIVE: a future element-call may add
+/// an entry, and refusing an unknown emoji on the way in would make this
+/// table a bug the next time theirs grows. What bounds an inbound emoji is
+/// [`reaction_emoji`].
+const ELEMENT_CALL_REACTIONS: &[(&str, &str)] = &[
+    ("thumbsup", "\u{1F44D}"),
+    ("party", "\u{1F389}"),
+    ("clapping", "\u{1F44F}"),
+    ("dog", "\u{1F436}"),
+    ("cat", "\u{1F431}"),
+    ("lightbulb", "\u{1F4A1}"),
+    ("crickets", "\u{1F997}"),
+    ("thumbsdown", "\u{1F44E}"),
+    ("dizzy", "\u{1F635}\u{200D}\u{1F4AB}"),
+    ("ok", "\u{1F44C}"),
+    ("heart", "\u{1F970}"),
+    ("laugh", "\u{1F604}"),
+    ("deer", "\u{1F98C}"),
+    ("rock", "\u{1F918}"),
+    ("wave", "\u{1F44B}"),
+    ("drum", "\u{1F941}"),
+];
+
+/// How long a send may take before it is reported as a failure. A reaction
+/// is fire-and-forget and nothing waits on the answer except a log line, so
+/// this only bounds the task, not the user.
+const REACTION_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Bound on an inbound `emoji` field, in BYTES, before anything is done with
+/// it. element-call only ever sends a table entry (4 to 11 bytes); this
+/// leaves room for a longer legitimate sequence and refuses a payload.
+const MAX_REACTION_EMOJI_LEN: usize = 64;
+/// Bound on the cluster [`first_emoji_cluster`] will build, in CODE POINTS.
+/// A family sequence is seven; eight leaves one spare and makes the
+/// continuation loop terminate on hostile input by construction.
+const MAX_REACTION_CLUSTER_CHARS: usize = 8;
+
+/// element-call's transient reaction, in its own shape.
+///
+///   `{ "m.relates_to": { "rel_type": "m.reference",
+///                        "event_id": <the SENDER'S OWN m.call.member state
+///                                     event> },
+///      "emoji": "\u{1F44D}", "name": "thumbsup" }`
+///
+/// Referencing the MEMBERSHIP rather than a timeline message is what scopes a
+/// reaction to one call and to one participant — it is also the only thing
+/// that can attribute it, since the annotated event names its owner. Same
+/// property the raised hand relies on, and the same forgery check applies:
+/// the sender must own the membership they reference (enforced on the C++
+/// side by `RtcController::identityForMembership`, which the hand lane
+/// already uses — there is deliberately no second implementation of it).
+///
+/// `relates_to` is REQUIRED and typed as ruma's `Reference`, so a content
+/// with no `m.relates_to`, or one whose relation carries no `event_id`,
+/// never reaches the handler at all: matrix-sdk drops a content it cannot
+/// deserialize. Same for a missing `emoji`.
+///
+/// WHAT THAT DOES *NOT* DO, measured rather than assumed: serde does NOT
+/// verify an internally-tagged struct's tag on the way IN, so a reaction
+/// whose `rel_type` says `m.annotation` still deserializes into a
+/// `Reference` (checked against serde 1 with exactly this shape). The type
+/// pins what we SEND — `rel_type: "m.reference"`, which is what element-call
+/// writes — and it is deliberately liberal inbound, because element-call's
+/// own reader never looks at `rel_type` either: it reads
+/// `content["m.relates_to"].event_id` and then requires the SENDER to own
+/// that membership. That ownership check is the security property here, and
+/// it lives on the C++ side where the hand's already does.
+///
+/// `name` is defaulted rather than required — liberal in what we accept.
+/// Lightning renders the emoji and nothing else (there are no reaction
+/// sounds here), so a nameless reaction from some other client is still a
+/// perfectly good reaction; we always SEND one, because Element uses it.
+#[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+#[ruma_event(type = "io.element.call.reaction", kind = MessageLike)]
+pub(crate) struct ElementCallReactionEventContent {
+    pub emoji: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(rename = "m.relates_to")]
+    pub relates_to: Reference,
+}
+
+/// Reduce an inbound `emoji` to something a tile can draw, or nothing.
+///
+/// Bounded first ([`sane`]: non-empty, byte-capped, no control characters),
+/// then reduced to ONE cluster. element-call does the same reduction with
+/// `Intl.Segmenter` and displays only the first grapheme — the field is
+/// documented there as "any excess characters are trimmed from this string"
+/// — so a client that packs a sentence into it gets one glyph on both ends
+/// rather than a line of attacker-chosen text on a call tile.
+fn reaction_emoji(raw: &str) -> Option<String> {
+    let bounded = sane(raw.trim(), MAX_REACTION_EMOJI_LEN)?;
+    let cluster = first_emoji_cluster(bounded);
+    if cluster.is_empty() {
+        return None;
+    }
+    Some(cluster)
+}
+
+/// True for a REGIONAL INDICATOR SYMBOL LETTER, the pair that forms a flag.
+fn is_regional_indicator(value: char) -> bool {
+    ('\u{1F1E6}'..='\u{1F1FF}').contains(&value)
+}
+
+/// The first grapheme-ish cluster of `value`.
+///
+/// AN APPROXIMATION OF `Intl.Segmenter`, and deliberately a small one: it
+/// takes the first character and keeps the code points that cannot stand on
+/// their own after it — variation selectors, zero-width joiners and whatever
+/// they join, skin-tone modifiers, the combining keycap, combining marks,
+/// tag sequences, and the second half of a regional-indicator flag pair.
+/// That covers every shape element-call's own set uses (including the ZWJ
+/// sequence in "dizzy") and every emoji this project draws.
+///
+/// It is NOT a Unicode segmentation implementation and must not be presented
+/// as one; `unicode-segmentation` is in the lock file only transitively and
+/// this crate's dependencies are lock-file controlled. Where it disagrees
+/// with the standard the answer is at worst one code point short, which
+/// renders as a bare base emoji — never as more text than element-call would
+/// have shown.
+fn first_emoji_cluster(value: &str) -> String {
+    let mut out = String::new();
+    let mut chars = value.chars().peekable();
+    let Some(first) = chars.next() else {
+        return out;
+    };
+    out.push(first);
+    // Set when the previous code point was a ZWJ, which always binds the one
+    // after it into the same cluster.
+    let mut after_join = false;
+    while out.chars().count() < MAX_REACTION_CLUSTER_CHARS {
+        let Some(&next) = chars.peek() else { break };
+        let continues = after_join
+            || matches!(next,
+                '\u{200D}'                  // zero-width joiner
+                | '\u{FE00}'..='\u{FE0F}'   // variation selectors
+                | '\u{1F3FB}'..='\u{1F3FF}' // skin tone modifiers
+                | '\u{20E3}'                // combining enclosing keycap
+                | '\u{0300}'..='\u{036F}'   // combining diacritical marks
+                | '\u{E0020}'..='\u{E007F}' // tag characters (flag sequences)
+            )
+            || (out.chars().count() == 1
+                && is_regional_indicator(first)
+                && is_regional_indicator(next));
+        if !continues {
+            break;
+        }
+        after_join = next == '\u{200D}';
+        out.push(next);
+        chars.next();
+    }
+    out
+}
+
+/// Send one transient call reaction.
+///
+/// `membership_event_id` is THIS DEVICE'S OWN `m.call.member` state event,
+/// resolved by the caller from the RtcController's observation so that a
+/// refresh's replacement event is the one referenced — the same rule
+/// `set_hand_raised` follows, and for the same reason: a reference to a
+/// superseded membership is one no client will attribute.
+///
+/// The `(name, emoji)` pair must be one element-call knows
+/// ([`ELEMENT_CALL_REACTIONS`]); anything else is refused here rather than
+/// sent, because a pair Element cannot look up is a reaction it renders with
+/// the wrong sound or not at all.
+///
+/// There is NO backlog sweep for reactions, deliberately, and no
+/// `read_call_reactions` to match `read_raised_hands`: a reaction is
+/// transient by construction and one that fired before we joined is over.
+/// Sweeping the relations of every membership at join would resurrect stale
+/// reactions minutes after they were sent. element-call does not do it
+/// either — its `onMembershipsChanged` looks only at hands.
+pub(crate) fn send_call_reaction(
+    bridge: &RustClient,
+    room_id: String,
+    membership_event_id: String,
+    emoji: String,
+    name: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+
+    let target = match sane(&membership_event_id, MAX_WIRE_LEN) {
+        Some(id) => EventId::parse(id)
+            .map_err(|_| "invalid membership event id".to_owned())?,
+        None => return Err("no membership event to reference".to_owned()),
+    };
+    let Some((name, emoji)) = ELEMENT_CALL_REACTIONS
+        .iter()
+        .find(|(known_name, known_emoji)| {
+            *known_name == name && *known_emoji == emoji
+        })
+    else {
+        return Err("unknown reaction".to_owned());
+    };
+
+    let content = ElementCallReactionEventContent {
+        emoji: (*emoji).to_owned(),
+        name: (*name).to_owned(),
+        relates_to: Reference::new(target),
+    };
+
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let result =
+            tokio::time::timeout(REACTION_TIMEOUT, room.send(content)).await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        let (ok, category, event_id) = match result {
+            Ok(Ok(sent)) => {
+                (true, String::new(), sent.response.event_id.to_string())
+            }
+            Ok(Err(err)) => (
+                false,
+                classify_room_error(&err.to_string()).to_owned(),
+                String::new(),
+            ),
+            Err(_) => (false, "network".to_owned(), String::new()),
+        };
+        // The generic RTC send lane, which already carries the notification
+        // send's answer. A reaction needs nothing a result cannot say: there
+        // is no id to keep (nothing redacts a reaction) and nothing local to
+        // put back (the tile is only ever drawn from an event that arrived).
+        enqueue(&events, json!({
+            "type": "rtc_send_result",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "ok": ok,
+            "category": category,
+            "event_id": event_id,
+        }));
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Media encryption keys (io.element.call.encryption_keys)
 // ---------------------------------------------------------------------------
 
@@ -2608,6 +2873,47 @@ pub(crate) fn register_rtc_handlers(
                         "sender": ev.sender().to_string(),
                         "reaction_event_id": redacts.to_string(),
                         "raised": false,
+                    }));
+                }
+            },
+        );
+        guards.push(client.event_handler_drop_guard(handle));
+    }
+
+    // Transient call reactions, element-call's `io.element.call.reaction`.
+    //
+    // UNFILTERED BY ROOM for the same reason the hand handler above is: the
+    // event type is ours alone, so the filter is free, and knowing which
+    // room a call is in is state this handler has no business holding.
+    //
+    // The emoji is bounded and reduced to ONE cluster HERE, before it leaves
+    // this file, so nothing downstream ever holds an unbounded remote
+    // string. Attribution is NOT done here: the C++ side already owns the
+    // "does this sender own the membership they annotate?" check for hands
+    // (`RtcController::identityForMembership`) and a second implementation
+    // of a security check is how the two drift apart.
+    {
+        let events = Arc::clone(events);
+        let timelines = Arc::clone(timelines);
+        let handle = client.add_event_handler(
+            move |ev: OriginalSyncElementCallReactionEvent, room: Room| {
+                let events = Arc::clone(&events);
+                let timelines = Arc::clone(&timelines);
+                async move {
+                    // A reaction with nothing drawable in it is dropped
+                    // whole, exactly as element-call drops one whose emoji
+                    // is empty after segmentation.
+                    let Some(emoji) = reaction_emoji(&ev.content.emoji) else {
+                        return;
+                    };
+                    enqueue(&events, json!({
+                        "type": "rtc_call_reaction",
+                        "lifecycle": timelines.lifecycle(),
+                        "room_id": room.room_id().to_string(),
+                        "sender": ev.sender.to_string(),
+                        "membership_event_id":
+                            ev.content.relates_to.event_id.to_string(),
+                        "emoji": emoji,
                     }));
                 }
             },
@@ -3748,6 +4054,211 @@ mod tests {
         assert_eq!(HAND_RAISED_KEY.chars().count(), 2);
         assert_eq!(HAND_RAISED_KEY.chars().next(), Some('\u{1F590}'));
         assert_eq!(HAND_RAISED_KEY.chars().nth(1), Some('\u{FE0F}'));
+    }
+
+    // ── Transient call reactions ─────────────────────────────────────────
+    //
+    // The same discipline the raised hand is held to: what must not drift is
+    // asserted by BYTES and by the serialized JSON, because that is what
+    // goes on the wire and because two visually identical emoji are a
+    // reaction Element will render with the wrong sound — or not at all.
+
+    #[test]
+    fn the_call_reaction_event_type_is_element_calls_own() {
+        // `ElementCallReactionEventType` in element-call/src/reactions/index.ts.
+        assert_eq!(
+            ElementCallReactionEventContent::TYPE,
+            "io.element.call.reaction"
+        );
+        // The documented constant and the derive must say the same thing:
+        // the derive is what the SDK matches on, the constant is what a
+        // reader greps for.
+        assert_eq!(ElementCallReactionEventContent::TYPE, EV_CALL_REACTION);
+    }
+
+    #[test]
+    fn a_call_reaction_serializes_the_way_element_reads_it() {
+        let content = ElementCallReactionEventContent {
+            emoji: "\u{1F44D}".to_owned(),
+            name: "thumbsup".to_owned(),
+            relates_to: Reference::new(
+                EventId::parse("$membership:example.org").expect("event id"),
+            ),
+        };
+        let value = serde_json::to_value(&content).expect("serializes");
+        // A REFERENCE to the membership, not an annotation. element-call's
+        // ReactionsReader reads `content["m.relates_to"].event_id` and
+        // matches it against a membership event; ruma's `Reference` is what
+        // stamps `rel_type`, and getting it wrong is a reaction no Element
+        // client will attribute to anybody.
+        assert_eq!(value["m.relates_to"]["rel_type"], json!("m.reference"));
+        assert_eq!(
+            value["m.relates_to"]["event_id"],
+            json!("$membership:example.org")
+        );
+        assert_eq!(value["emoji"], json!("\u{1F44D}"));
+        assert_eq!(value["name"], json!("thumbsup"));
+    }
+
+    #[test]
+    fn a_malformed_call_reaction_never_reaches_the_handler() {
+        // A content that cannot deserialize is dropped by matrix-sdk before
+        // any handler runs, so these shapes cost nothing downstream: there is
+        // no partially-trusted path for a malformed reaction.
+        //
+        // AND ONE THING THAT IS *NOT* ENFORCED HERE, measured rather than
+        // assumed: serde does not verify an internally-tagged struct's tag on
+        // the way in, so `rel_type: "m.annotation"` still deserializes into a
+        // `Reference`. Deliberately not "fixed": element-call's own reader
+        // never looks at `rel_type` either, and what actually protects the
+        // participant is the sender-owns-the-membership check on the C++
+        // side. Asserted so the next reader does not have to re-derive it —
+        // and so a future serde that DOES check the tag is noticed here
+        // rather than by a reaction quietly disappearing.
+        let annotation = json!({
+            "emoji": "\u{1F44D}",
+            "name": "thumbsup",
+            "m.relates_to": {
+                "rel_type": "m.annotation",
+                "event_id": "$membership:example.org",
+                "key": "\u{1F44D}",
+            },
+        });
+        assert!(serde_json::from_value::<ElementCallReactionEventContent>(
+            annotation
+        )
+        .is_ok());
+
+        let unrelated = json!({ "emoji": "\u{1F44D}", "name": "thumbsup" });
+        assert!(serde_json::from_value::<ElementCallReactionEventContent>(
+            unrelated
+        )
+        .is_err());
+
+        let no_emoji = json!({
+            "name": "thumbsup",
+            "m.relates_to": {
+                "rel_type": "m.reference",
+                "event_id": "$membership:example.org",
+            },
+        });
+        assert!(serde_json::from_value::<ElementCallReactionEventContent>(
+            no_emoji
+        )
+        .is_err());
+
+        // ...and the one thing we are deliberately LIBERAL about: a reaction
+        // with no `name`. Lightning draws the emoji and has no sounds, so a
+        // nameless reaction from another client is still a reaction.
+        let nameless = json!({
+            "emoji": "\u{1F44D}",
+            "m.relates_to": {
+                "rel_type": "m.reference",
+                "event_id": "$membership:example.org",
+            },
+        });
+        let parsed =
+            serde_json::from_value::<ElementCallReactionEventContent>(nameless)
+                .expect("a nameless reaction is still a reaction");
+        assert_eq!(parsed.name, "");
+    }
+
+    #[test]
+    fn the_reaction_set_is_element_calls_own_bytes() {
+        // Asserted by BYTES, exactly as the raised-hand key is, and for the
+        // same reason: element-call looks its sound up by `name` and draws
+        // `emoji`, and two emoji that look identical in an editor are not
+        // the same reaction.
+        let thumbsup = ELEMENT_CALL_REACTIONS
+            .iter()
+            .find(|(name, _)| *name == "thumbsup")
+            .expect("thumbsup is in element-call's set");
+        assert_eq!(thumbsup.1.as_bytes(), &[0xF0, 0x9F, 0x91, 0x8D]);
+        // The ZWJ sequence, which is the entry most likely to be mangled by
+        // a copy-paste: U+1F635 ZWJ U+1F4AB.
+        let dizzy = ELEMENT_CALL_REACTIONS
+            .iter()
+            .find(|(name, _)| *name == "dizzy")
+            .expect("dizzy is in element-call's set");
+        assert_eq!(
+            dizzy.1.as_bytes(),
+            &[0xF0, 0x9F, 0x98, 0xB5, 0xE2, 0x80, 0x8D, 0xF0, 0x9F, 0x92, 0xAB]
+        );
+        assert_eq!(dizzy.1.chars().count(), 3);
+
+        // No duplicate names: element-call's lookup is `find(r.name === ...)`
+        // and takes the first, so a duplicate would be a silently unreachable
+        // entry here.
+        let mut names: Vec<&str> =
+            ELEMENT_CALL_REACTIONS.iter().map(|(name, _)| *name).collect();
+        names.sort_unstable();
+        let before = names.len();
+        names.dedup();
+        assert_eq!(names.len(), before);
+
+        // EVERY entry must survive our own inbound reduction unchanged, or
+        // Lightning would draw its own reactions differently from the way it
+        // draws Element's. This is what catches a cluster rule that is too
+        // eager as well as one that is too shy.
+        for (_, emoji) in ELEMENT_CALL_REACTIONS {
+            assert_eq!(
+                reaction_emoji(emoji).as_deref(),
+                Some(*emoji),
+                "element-call's own reaction did not survive reduction"
+            );
+        }
+    }
+
+    #[test]
+    fn an_inbound_reaction_emoji_is_bounded_and_reduced_to_one_cluster() {
+        // Whole clusters survive, including the shapes a plain "first char"
+        // rule would cut in half.
+        assert_eq!(reaction_emoji("\u{1F44D}").as_deref(), Some("\u{1F44D}"));
+        assert_eq!(
+            reaction_emoji("\u{1F590}\u{FE0F}").as_deref(),
+            Some("\u{1F590}\u{FE0F}")
+        );
+        assert_eq!(
+            reaction_emoji("\u{1F44D}\u{1F3FF}").as_deref(),
+            Some("\u{1F44D}\u{1F3FF}")
+        );
+        assert_eq!(
+            reaction_emoji("\u{1F1EC}\u{1F1E7}").as_deref(),
+            Some("\u{1F1EC}\u{1F1E7}")
+        );
+
+        // ...and everything after the first cluster is DROPPED, which is what
+        // element-call's `Intl.Segmenter` does. Without it the field is a
+        // line of attacker-chosen text drawn on a call tile.
+        assert_eq!(
+            reaction_emoji("\u{1F44D}\u{1F389}\u{1F44F}").as_deref(),
+            Some("\u{1F44D}")
+        );
+        assert_eq!(reaction_emoji("call me on +1 555").as_deref(), Some("c"));
+        let long = "\u{1F44D}".repeat(64);
+        assert_eq!(
+            reaction_emoji(&long),
+            None,
+            "an oversized emoji field is dropped whole rather than trimmed"
+        );
+
+        // Nothing drawable is nothing.
+        assert_eq!(reaction_emoji(""), None);
+        assert_eq!(reaction_emoji("   "), None);
+        assert_eq!(reaction_emoji("\u{1F44D}\u{0007}"), None);
+
+        // A hostile run of continuations terminates at the cap rather than
+        // building an unbounded string out of one field.
+        let joined = format!("\u{1F44D}{}", "\u{200D}\u{1F44D}".repeat(8));
+        assert_eq!(
+            reaction_emoji(&joined).map(|value| value.chars().count()),
+            Some(8)
+        );
+        let selectors = format!("\u{1F44D}{}", "\u{FE0F}".repeat(16));
+        assert_eq!(
+            reaction_emoji(&selectors).map(|value| value.chars().count()),
+            Some(8)
+        );
     }
 
     /// A membership carries the id of the state event that declared it, and

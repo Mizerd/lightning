@@ -51,6 +51,14 @@ Item {
     property string identity: ""
     property bool screenSharing: false
     property bool handRaised: false
+    /// A TRANSIENT reaction's emoji, or "" — which is its ordinary state.
+    ///
+    /// Set from `CallParticipantModel`'s `reactionEmoji` role, which the
+    /// model itself clears when the reaction's window ends, so nothing here
+    /// runs a timer or decides a lifetime. The string is a REMOTE value:
+    /// bounded and reduced to one grapheme cluster in rust/src/rtc.rs, and
+    /// rendered as plain text only.
+    property string reactionEmoji: ""
     /// "" (unknown) | "poor" | "good" | "excellent". UNKNOWN DRAWS NOTHING —
     /// the SFU may never report quality for a participant, and an invented
     /// "good" is a claim nobody made.
@@ -250,6 +258,8 @@ Item {
             parts.push(qsTr("Sharing their screen"))
         if (root.handRaised)
             parts.push(qsTr("Hand raised"))
+        if (root.reactionEmoji.length > 0)
+            parts.push(qsTr("Reacted with %1").arg(root.reactionEmoji))
         if (root.speaking)
             parts.push(qsTr("Speaking"))
         if (root.connectionQuality === "poor")
@@ -616,6 +626,85 @@ Item {
                 sourceComponent: CallTileBadge {
                     iconName: "videocam_off"
                     tone: "muted"
+                }
+            }
+        }
+
+        // The TRANSIENT reaction, top-left — the badges own the top-right and
+        // the nameplate the bottom, so this is the one corner where a pill
+        // can appear and disappear without moving anything.
+        //
+        // IN A LOADER, and that is not a style choice: "" is this property's
+        // ordinary state, and a Text created empty keeps ItemObservesViewport
+        // for the life of the item, which makes Qt walk the whole
+        // instantiated tree on every scroll frame. The single most expensive
+        // QML mistake recorded in this repo (§16).
+        Loader {
+            active: root.reactionEmoji.length > 0
+            visible: active
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.margins: root.compact ? 6 : 8
+            sourceComponent: Rectangle {
+                id: reactionPill
+                objectName: "callTileReaction"
+                implicitWidth: reactionGlyph.implicitWidth
+                               + (root.compact ? 10 : 14)
+                implicitHeight: reactionGlyph.implicitHeight
+                                + (root.compact ? 4 : 6)
+                radius: height / 2
+                // Its own dark field, like the nameplate: this sits over
+                // arbitrary video, so a theme surface token would be legible
+                // on some frames and not others.
+                color: Qt.rgba(0, 0, 0, 0.55)
+                border.width: 1
+                border.color: Qt.rgba(1, 1, 1, 0.18)
+
+                Text {
+                    id: reactionGlyph
+                    anchors.centerIn: parent
+                    // A REMOTE STRING. Plain text, never markup — and the
+                    // emoji family is resolved in C++, because QML has no
+                    // `font.families` and Qt's automatic fallback picks a
+                    // MONOCHROME face on some versions (§16).
+                    textFormat: Text.PlainText
+                    text: root.reactionEmoji
+                    color: "#FFFFFF"
+                    font.pixelSize: root.compact ? 15 : 20
+                    font.family: (typeof app !== "undefined" && app
+                                  && app.emojiFontFamily) || ""
+                }
+
+                // A short entrance so a reaction reads as something that
+                // just happened rather than a badge that was always there.
+                // Nothing animates on the way out: the model clears the role
+                // and the Loader deactivates, and an exit transition would
+                // need the item to outlive its own data.
+                //
+                // Declarative and TARGETED BY ID. `target: parent` inside an
+                // Animation resolves to the enclosing item's parent, not to
+                // the item — it would animate the Loader. And with reduced
+                // motion the animation simply never runs, leaving the
+                // property values declared above.
+                scale: 1.0
+                opacity: 1.0
+                ParallelAnimation {
+                    running: !AppTheme.reducedMotion
+                    NumberAnimation {
+                        target: reactionPill
+                        property: "scale"
+                        from: 0.7
+                        to: 1.0
+                        duration: 140
+                        easing.type: Easing.OutBack
+                    }
+                    NumberAnimation {
+                        target: reactionPill
+                        property: "opacity"
+                        from: 0.0
+                        to: 1.0
+                        duration: 120
+                    }
                 }
             }
         }

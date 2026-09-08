@@ -113,11 +113,12 @@ constexpr int kMaxRetractAttempts = 4;
 constexpr int kRetractRetryDelayMs = 2000;
 /// Presentation bound on the participant list.
 constexpr int kMaxParticipants = 64;
-/// Raises waiting for the membership they annotate. One per participant is
-/// the real bound (a person has one hand and one membership), so this sits
-/// at the participant ceiling: enough that no honest raise is ever refused a
-/// slot, small enough that a room full of reactions cannot grow it.
-constexpr int kMaxPendingHandRaises = kMaxParticipants;
+/// Annotations waiting for the membership they address — raises and
+/// transient reactions alike. One per participant is the real bound (a
+/// person has one hand and one live reaction at a time), so this sits at the
+/// participant ceiling: enough that no honest one is ever refused a slot,
+/// small enough that a room full of them cannot grow it.
+constexpr int kMaxPendingAnnotations = kMaxParticipants;
 } // namespace
 
 SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
@@ -262,6 +263,16 @@ void SfuCallController::setClient(MatrixClient *client)
             &SfuCallController::onHandChanged);
     connect(m_client, &MatrixClient::rtcHandsReceived, this,
             &SfuCallController::onHandsReceived);
+    // Transient reactions, element-call's `io.element.call.reaction`. TWO
+    // lanes, not three: there is no backlog sweep, deliberately — a reaction
+    // that fired before we joined is over, and reading the relations of
+    // every membership at join would resurrect stale ones. The send's answer
+    // rides the generic RTC send result, which carries everything a
+    // fire-and-forget send can be told.
+    connect(m_client, &MatrixClient::rtcCallReactionReceived, this,
+            &SfuCallController::onCallReactionReceived);
+    connect(m_client, &MatrixClient::rtcSendFinished, this,
+            &SfuCallController::onRtcSendFinished);
     // The key SEND result was reported by the bridge and listened to by
     // NOBODY, so a distribution that reached zero devices was
     // indistinguishable from one that worked — and the only visible effect
@@ -342,7 +353,7 @@ void SfuCallController::setRtcController(RtcController *rtc)
                 // invisible for the whole call, with only the once-per-join
                 // backlog sweep as a chance of catching them. Same race as
                 // the key lane above, same repair, same place.
-                retryPendingHandRaises();
+                retryPendingAnnotations();
                 // ...AND REDRAW THE ROWS, because the membership is where a
                 // participant's NAME and AVATAR come from.
                 //
@@ -1235,6 +1246,14 @@ QString SfuCallController::joinRefusalMessage(const QString &block)
     if (block == QLatin1String("media_encryption_unavailable"))
         return tr("This room is encrypted, and encrypted calls aren't "
                   "available yet on this build.");
+    // The SAME correction `userFacingError("membership_forbidden")` carries,
+    // for the same reason: this is a power level in the ROOM, and Lightning's
+    // own permissions screen deliberately cannot set what call membership
+    // requires (the Rust write allowlist refuses that key), so pointing at it
+    // would send the user to a setting that is not there.
+    if (block == QLatin1String("no_permission"))
+        return tr("You don't have permission to start or join calls in this "
+                  "room. A room admin can raise your power level in it.");
     return tr("This call can't be joined right now.");
 }
 
@@ -1307,7 +1326,9 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_handReactionId.clear();
     m_handOp = 0;
     m_handReactions.clear();
-    m_pendingHandRaises.clear();
+    m_pendingAnnotations.clear();
+    m_reactionOp = 0;
+    m_lastReactionSentMs = 0;
     m_participants.clear();
     // A blocked-media badge must never outlive the call that raised it.
     if (!m_blockedStreams.isEmpty()) {
@@ -2720,7 +2741,9 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_handReactionId.clear();
     m_handOp = 0;
     m_handReactions.clear();
-    m_pendingHandRaises.clear();
+    m_pendingAnnotations.clear();
+    m_reactionOp = 0;
+    m_lastReactionSentMs = 0;
     m_mediaEncrypted = false;
 #ifdef HAVE_LIGHTNING_WEBRTC
     // The sink table belonged to THIS call's track sids. In practice the
@@ -3272,7 +3295,7 @@ void SfuCallController::onHandChanged(const QString &roomId,
         // A raise that never resolved is lowered by forgetting it. Without
         // this a hand raised and lowered while its membership was still in
         // flight would go UP the moment the membership arrived, and stay up.
-        m_pendingHandRaises.remove(reactionEventId);
+        m_pendingAnnotations.remove(reactionEventId);
         // A REDACTION NAMES ONLY WHAT IT REMOVED. The reaction is gone, so
         // nothing on the wire can say whose hand it was — we answer from the
         // ids we are already holding. A redaction of anything else is not
@@ -3308,10 +3331,13 @@ void SfuCallController::onHandChanged(const QString &roomId,
         // whose owner is somebody else is a forgery, and is dropped here so
         // it can never occupy the bounded store.
         if (!m_rtc->knowsMembership(roomId, membershipEventId)
-            && m_pendingHandRaises.size() < kMaxPendingHandRaises) {
-            m_pendingHandRaises.insert(reactionEventId,
-                                       PendingHandRaise{sender,
-                                                        membershipEventId});
+            && m_pendingAnnotations.size() < kMaxPendingAnnotations) {
+            // An EMPTY emoji is what marks this as a raise rather than a
+            // reaction; the two share one bounded store.
+            m_pendingAnnotations.insert(
+                reactionEventId,
+                PendingAnnotation{sender, membershipEventId, QString(),
+                                  QDateTime::currentMSecsSinceEpoch()});
         }
         return;
     }
@@ -3338,12 +3364,24 @@ void SfuCallController::applyRaisedHand(const QString &reactionEventId,
     }
 }
 
-void SfuCallController::retryPendingHandRaises()
+void SfuCallController::retryPendingAnnotations()
 {
-    if (m_pendingHandRaises.isEmpty() || !m_rtc || m_roomId.isEmpty())
+    if (m_pendingAnnotations.isEmpty() || !m_rtc || m_roomId.isEmpty())
         return;
-    for (auto it = m_pendingHandRaises.begin();
-         it != m_pendingHandRaises.end();) {
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    for (auto it = m_pendingAnnotations.begin();
+         it != m_pendingAnnotations.end();) {
+        // A PARKED REACTION EXPIRES WHERE IT SITS. The membership that would
+        // attribute it can land seconds later, and a reaction whose window
+        // has already passed is not a reaction that is happening now —
+        // drawing it then would be a lie about the present, and worse than
+        // never having drawn it. A raise has no such window: a hand stays up
+        // until it is lowered.
+        if (!it->emoji.isEmpty()
+            && now - it->receivedAtMs > m_reactionWindowMs) {
+            it = m_pendingAnnotations.erase(it);
+            continue;
+        }
         const QString identity = m_rtc->identityForMembership(
             m_roomId, it->membershipEventId, it->sender);
         if (identity.isEmpty()) {
@@ -3351,13 +3389,16 @@ void SfuCallController::retryPendingHandRaises()
             // membership that has arrived and refused the sender will never
             // resolve, so it is dropped rather than kept forever.
             if (m_rtc->knowsMembership(m_roomId, it->membershipEventId))
-                it = m_pendingHandRaises.erase(it);
+                it = m_pendingAnnotations.erase(it);
             else
                 ++it;
             continue;
         }
-        applyRaisedHand(it.key(), identity);
-        it = m_pendingHandRaises.erase(it);
+        if (it->emoji.isEmpty())
+            applyRaisedHand(it.key(), identity);
+        else
+            applyCallReaction(identity, it->emoji);
+        it = m_pendingAnnotations.erase(it);
     }
 }
 
@@ -3379,7 +3420,7 @@ void SfuCallController::onHandsReceived(quint64 opId, const QString &roomId,
         if (identity.isEmpty() || reactionId.isEmpty())
             continue;
         // Whatever the sweep resolves, the live handler no longer has to.
-        m_pendingHandRaises.remove(reactionId);
+        m_pendingAnnotations.remove(reactionId);
         // Including our own hand, still up from before this join: adopting
         // its reaction id is what makes it lowerable from here at all.
         applyRaisedHand(reactionId, identity);
@@ -3387,6 +3428,127 @@ void SfuCallController::onHandsReceived(quint64 opId, const QString &roomId,
 }
 
 void SfuCallController::toggleHandRaised() { setHandRaised(!m_handRaised); }
+
+void SfuCallController::sendCallReaction(const QString &emoji,
+                                         const QString &name)
+{
+    if (!active() || m_roomId.isEmpty() || !m_client || emoji.isEmpty())
+        return;
+    // OUR OWN OUTBOUND WINDOW. The same 3 s the reaction is shown for: a
+    // second send inside it would be dropped by every receiver anyway (both
+    // element-call's reader and this client's model refuse one while another
+    // is playing), so putting it on the wire would be a room event nobody
+    // renders. A held-down or double-clicked control must not become a
+    // stream of Matrix events.
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_lastReactionSentMs != 0
+        && now - m_lastReactionSentMs < m_reactionWindowMs) {
+        return;
+    }
+
+    // OUR OWN MEMBERSHIP EVENT, preferring the RtcController's observation
+    // over the id we published with — exactly as a raise does, and for the
+    // same reason: the periodic re-publish REPLACES the state event, and a
+    // reference to a superseded membership is one no client will attribute
+    // (element-call matches `e.eventId === membershipEventId`).
+    QString membership;
+    if (m_rtc)
+        membership = m_rtc->ownMembershipEventId(m_roomId);
+    if (membership.isEmpty())
+        membership = m_membershipEventId;
+    if (membership.isEmpty()) {
+        qCWarning(lcSfuCall)
+            << "call reaction not sent: no membership event to reference";
+        return;
+    }
+
+    const quint64 op =
+        m_client->rtcSendCallReaction(m_roomId, membership, emoji, name);
+    if (op == 0) {
+        // Refused at the bridge (an unknown pair, or no room). Nothing was
+        // sent, so nothing is remembered — the next press must be allowed.
+        qCWarning(lcSfuCall) << "call reaction refused before sending";
+        return;
+    }
+    m_reactionOp = op;
+    m_lastReactionSentMs = now;
+    // NOT drawn here. The tile lights when the event comes back through the
+    // sync handler and is attributed like anybody else's — see the note on
+    // the declaration for why this one is not optimistic.
+}
+
+void SfuCallController::onRtcSendFinished(quint64 opId, bool ok,
+                                          const QString &category,
+                                          const QString &eventId)
+{
+    Q_UNUSED(eventId);
+    // This signal is shared with every other RTC send. Only our own reaction
+    // is ours to report on, and only while its op id is outstanding.
+    if (opId == 0 || opId != m_reactionOp)
+        return;
+    m_reactionOp = 0;
+    if (ok)
+        return;
+    // `category` is a sanitized class, never a body and never the emoji.
+    qCWarning(lcSfuCall) << "call reaction not sent category=" << category;
+    // The send failed, so nothing will come back to draw and the outbound
+    // window has bought nothing: let the user try again immediately.
+    m_lastReactionSentMs = 0;
+}
+
+void SfuCallController::onCallReactionReceived(const QString &roomId,
+                                               const QString &sender,
+                                               const QString &membershipEventId,
+                                               const QString &emoji)
+{
+    if (roomId != m_roomId || m_roomId.isEmpty() || !m_participantModel)
+        return;
+    if (emoji.isEmpty() || !m_rtc)
+        return;
+
+    // ATTRIBUTION IS THE SECURITY PROPERTY, and it is the SAME ONE the hand
+    // uses — `identityForMembership` refuses a sender who does not own the
+    // membership they addressed. Anyone may reference anyone's state event,
+    // so without it one user could put a reaction on everybody's tile. There
+    // is deliberately no second implementation of this check.
+    const QString identity =
+        m_rtc->identityForMembership(roomId, membershipEventId, sender);
+    if (identity.isEmpty()) {
+        // Empty means two different things and only one is worth waiting
+        // for: a membership not read YET is the race the raise lane already
+        // has a repair for, so this rides the SAME bounded store; a
+        // membership we HAVE read whose owner is somebody else is a forgery
+        // and is dropped here so it can never occupy a slot.
+        if (!m_rtc->knowsMembership(roomId, membershipEventId)
+            && m_pendingAnnotations.size() < kMaxPendingAnnotations) {
+            m_pendingAnnotations.insert(
+                // Keyed by the membership plus the emoji rather than by an
+                // event id, because a reaction carries no id this side of
+                // the bridge — nothing ever redacts one, so none is needed.
+                // The key only has to be unique enough not to collide with
+                // a parked RAISE, which is keyed by a real event id.
+                membershipEventId + QStringLiteral("\x1f") + emoji,
+                PendingAnnotation{sender, membershipEventId, emoji,
+                                  QDateTime::currentMSecsSinceEpoch()});
+        }
+        return;
+    }
+    applyCallReaction(identity, emoji);
+}
+
+void SfuCallController::applyCallReaction(const QString &identity,
+                                          const QString &emoji)
+{
+    if (!m_participantModel || identity.isEmpty() || emoji.isEmpty())
+        return;
+    // The model owns the window AND the duplicate rule, so both are decided
+    // in one place for our own reaction and everybody else's. It refuses
+    // silently when one is still playing, which is exactly element-call's
+    // behaviour, and it clears the row itself when the window ends.
+    m_participantModel->setReaction(identity, emoji,
+                                    QDateTime::currentMSecsSinceEpoch(),
+                                    m_reactionWindowMs);
+}
 
 QString SfuCallController::userIdForIdentity(const QString &identity) const
 {

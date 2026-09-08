@@ -1615,6 +1615,184 @@ ApplicationWindow {
                  "sender owns the membership it annotates");
     }
 
+    // TRANSIENT CALL REACTIONS — the control, the tile, and the wire.
+    //
+    // docs/matrixrtc.md open item 2: "the transient emoji reactions
+    // element-call sends beside [the raised hand] — `io.element.call.reaction`
+    // with a `m.reference` to the sender's membership — do not [interoperate],
+    // and there is no control for them." Every assertion below fails on the
+    // tree that item describes, because none of this exists there.
+    void theCallReactionControlSendsElementCallsOwnPairs()
+    {
+        const QString bar = normalized(
+            read(QStringLiteral(QML_DIR "/CallHeaderBar.qml")));
+        QVERIFY(!bar.isEmpty());
+        QVERIFY2(bar.contains(
+                     QStringLiteral("objectName: \"callBarReactButton\"")),
+                 "there is no control for sending a call reaction");
+        // The icon must be one the bundled Material Symbols SUBSET carries,
+        // or the glyph is tofu (IconChromeTest owns the general rule).
+        QVERIFY(bar.contains(QStringLiteral("iconName: \"add_reaction\"")));
+        QVERIFY2(bar.contains(
+                     QStringLiteral("app.groupCall.sendCallReaction(")),
+                 "the reaction control does not reach the controller");
+
+        // THE PAIRS, BY BYTES ON BOTH SIDES.
+        //
+        // element-call looks a reaction's SOUND up by `name`
+        // (`ReactionSet.find((r) => r.name === content.name)`) and draws
+        // `emoji`, so a pair that is not one of theirs reaches an Element
+        // user as a silent generic reaction — or, with a mistyped emoji, as a
+        // different one. This test is the third independent statement of the
+        // same table (the QML picker and rust/src/rtc.rs are the other two),
+        // which is what makes a drift in either one fail here.
+        struct Pair {
+            const char *utf8;
+            const char *name;
+            const char *rustEntry;
+        };
+        const Pair firstRow[] = {
+            { "\xF0\x9F\x91\x8D", "thumbsup", "(\"thumbsup\", \"\\u{1F44D}\")" },
+            { "\xF0\x9F\x8E\x89", "party", "(\"party\", \"\\u{1F389}\")" },
+            { "\xF0\x9F\x91\x8F", "clapping", "(\"clapping\", \"\\u{1F44F}\")" },
+            { "\xF0\x9F\x90\xB6", "dog", "(\"dog\", \"\\u{1F436}\")" },
+            { "\xF0\x9F\x90\xB1", "cat", "(\"cat\", \"\\u{1F431}\")" },
+        };
+        const QString rtc =
+            read(QStringLiteral(QML_DIR "/../rust/src/rtc.rs"));
+        QVERIFY(!rtc.isEmpty());
+        for (const Pair &pair : firstRow) {
+            const QString expected =
+                QStringLiteral("emoji: \"%1\", name: \"%2\"")
+                    .arg(QString::fromUtf8(pair.utf8),
+                         QString::fromUtf8(pair.name));
+            QVERIFY2(bar.contains(expected),
+                     qPrintable(QStringLiteral(
+                                    "the picker no longer offers element-"
+                                    "call's own pair for %1")
+                                    .arg(QString::fromUtf8(pair.name))));
+            QVERIFY2(rtc.contains(QString::fromUtf8(pair.rustEntry)),
+                     qPrintable(QStringLiteral(
+                                    "rust/src/rtc.rs no longer carries "
+                                    "element-call's own entry for %1")
+                                    .arg(QString::fromUtf8(pair.name))));
+        }
+    }
+
+    void theCallReactionWireFormatIsElementCallsOwn()
+    {
+        const QString rtc =
+            read(QStringLiteral(QML_DIR "/../rust/src/rtc.rs"));
+        QVERIFY(!rtc.isEmpty());
+        // The EVENT TYPE. element-call's `ElementCallReactionEventType`; a
+        // different string is a reaction no Element client ever sees, in
+        // exactly the way a different hand emoji is a hand they never see.
+        QVERIFY2(rtc.contains(QStringLiteral(
+                     "#[ruma_event(type = \"io.element.call.reaction\", "
+                     "kind = MessageLike)]")),
+                 "the call reaction is not element-call's event type");
+        // The RELATION. A reference to the sender's own membership state
+        // event — not an annotation, which is what a raised HAND is. ruma's
+        // `Reference` is what stamps `rel_type: m.reference` on what we
+        // SEND. (It does not police what arrives: serde does not verify an
+        // internally-tagged struct's tag on the way in, which rust/src/rtc.rs
+        // records and asserts. Inbound safety is the sender-owns-the-
+        // membership check, not the relation type — element-call's own reader
+        // never looks at `rel_type` either.)
+        QVERIFY2(rtc.contains(QStringLiteral("pub relates_to: Reference,")),
+                 "a call reaction's relation is not typed as an m.reference");
+        QVERIFY(rtc.contains(QStringLiteral("relates_to: Reference::new(")));
+
+        // ONE LIFETIME CONSTANT, and it is element-call's own 3000 ms.
+        const QString controller = read(
+            QStringLiteral(QML_DIR "/../src/calls/SfuCallController.h"));
+        QVERIFY(!controller.isEmpty());
+        QVERIFY2(controller.contains(QStringLiteral(
+                     "static constexpr int kReactionActiveMs = 3000;")),
+                 "the reaction window is no longer element-call's own "
+                 "REACTION_ACTIVE_TIME_MS");
+        QVERIFY(normalized(controller).contains(
+            QStringLiteral("REACTION_ACTIVE_TIME_MS = 3000")));
+    }
+
+    void aCallReactionIsDrawnTransientlyAndNeverAsMarkup()
+    {
+        const QString tile =
+            read(QStringLiteral(QML_DIR "/CallParticipantTile.qml"));
+        QVERIFY(!tile.isEmpty());
+        QVERIFY(tile.contains(QStringLiteral("property string reactionEmoji")));
+
+        // BEHIND A LOADER, because "" is this property's ordinary state and a
+        // Text created empty keeps ItemObservesViewport for the life of the
+        // item — the most expensive QML mistake recorded in this repo. The
+        // Loader's `active` is what proves the item is not created at all
+        // while there is no reaction.
+        const QString normalizedTile = normalized(tile);
+        const int at = normalizedTile.indexOf(
+            QStringLiteral("active: root.reactionEmoji.length > 0"));
+        QVERIFY2(at >= 0,
+                 "the reaction indicator is not gated on there being one");
+        const QString block = normalizedTile.mid(at, 1200);
+        const int loaderAt =
+            normalizedTile.lastIndexOf(QStringLiteral("Loader {"), at);
+        QVERIFY2(loaderAt >= 0 && at - loaderAt < 200,
+                 "the reaction indicator is not behind a Loader, so an empty "
+                 "Text is created on every tile of every call");
+        QVERIFY2(block.contains(QStringLiteral("textFormat: Text.PlainText")),
+                 "a REMOTE emoji is rendered as something other than plain "
+                 "text");
+        QVERIFY2(block.contains(QStringLiteral("app.emojiFontFamily")),
+                 "the reaction glyph does not use the resolved emoji family, "
+                 "so Qt's own fallback may draw it monochrome");
+
+        // NOTHING HERE OWNS A LIFETIME. The model clears the role when the
+        // window ends; a timer in the delegate would be a second answer to
+        // "is this reaction still current", one per tile.
+        QVERIFY2(!block.contains(QStringLiteral("Timer")),
+                 "the tile runs its own reaction timer");
+
+        // ...and the stage passes the role through to both person surfaces,
+        // or a reaction is invisible everywhere but the grid.
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY(!stage.isEmpty());
+        QCOMPARE(stage.count(
+                     QStringLiteral("required property string reactionEmoji")),
+                 2);
+        QCOMPARE(stage.count(
+                     QStringLiteral("reactionEmoji: spotPerson.reactionEmoji")),
+                 1);
+        QCOMPARE(stage.count(QStringLiteral(
+                     "reactionEmoji: stripPerson.reactionEmoji")),
+                 1);
+    }
+
+    void ourOwnReactionIsDrawnFromTheEventAndNotOptimistically()
+    {
+        // The raise-hand toggle IS optimistic, deliberately: it is a control
+        // whose state the user is watching, and a refusal puts it back. A
+        // reaction is not, and this pins the difference — a local echo would
+        // show the sender a reaction that may never have left the machine,
+        // and nothing would put THAT back.
+        const QString controller = code(read(
+            QStringLiteral(QML_DIR "/../src/calls/SfuCallController.cpp")));
+        QVERIFY(!controller.isEmpty());
+        const int at = controller.indexOf(
+            QStringLiteral("void SfuCallController::sendCallReaction("));
+        QVERIFY2(at >= 0, "there is no way to send a call reaction");
+        const int end = controller.indexOf(
+            QStringLiteral("void SfuCallController::onRtcSendFinished("), at);
+        QVERIFY(end > at);
+        const QString body = controller.mid(at, end - at);
+        QVERIFY2(!body.contains(QStringLiteral("setReaction(")),
+                 "the sender's own tile is lit before the event exists");
+        QVERIFY2(!body.contains(QStringLiteral("applyCallReaction(")),
+                 "the sender's own tile is lit before the event exists");
+        // ...and it references OUR OWN membership, preferring the observed
+        // one: a refresh REPLACES the state event, so referencing the id we
+        // published with would address an event the room has superseded.
+        QVERIFY(body.contains(QStringLiteral("ownMembershipEventId(")));
+    }
+
     // 2026-08-23 reporter round: FOUR call surfaces were on screen at once
     // for one call — the header bar, the stage's own control bar, the Voice
     // Connected strip, and a "You are in a call" banner still offering Join.

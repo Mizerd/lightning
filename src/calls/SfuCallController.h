@@ -504,6 +504,36 @@ public:
     Q_INVOKABLE void stopScreenShare();
     Q_INVOKABLE void setHandRaised(bool raised);
     Q_INVOKABLE void toggleHandRaised();
+    /// Send ONE transient call reaction, in element-call's own format:
+    /// `io.element.call.reaction` referencing THIS DEVICE'S OWN
+    /// `m.call.member` state event by `m.reference`.
+    ///
+    /// `name` is element-call's own key for the emoji ("thumbsup", "party",
+    /// …) and is what an Element client looks its sound up by; the pair is
+    /// checked against element-call's `ReactionSet` in rust/src/rtc.rs and
+    /// refused there if it is not one of theirs.
+    ///
+    /// DELIBERATELY NOT OPTIMISTIC. Unlike the raise-hand toggle — a control
+    /// the user is watching, whose state has to survive a failure — a
+    /// reaction is drawn only from an event that actually arrived and was
+    /// attributed, exactly like a remote one. A local echo would show the
+    /// sender a reaction that may never have left the machine, and it would
+    /// need its own de-duplication against the copy that comes back.
+    Q_INVOKABLE void sendCallReaction(const QString &emoji,
+                                      const QString &name);
+
+    /// HOW LONG A TRANSIENT REACTION STAYS ON A TILE — the one constant this
+    /// feature has, and not a taste decision.
+    ///
+    /// element-call's `src/reactions/ReactionsReader.ts` sets
+    /// `REACTION_ACTIVE_TIME_MS = 3000` and expires its own reactions on
+    /// exactly that, so both clients show the same reaction for the same
+    /// length of time. It is ALSO the window inside which a second reaction
+    /// from the same sender is dropped (their "one is still playing" rule),
+    /// which is what stops a peer pinning a permanent badge on their own
+    /// tile by re-sending, and the window inside which THIS device refuses
+    /// to send a second one.
+    static constexpr int kReactionActiveMs = 3000;
     /// Local-only playback volume for one participant, 0..200.
     ///
     /// 200 rather than 100 because amplification was the request. Nothing is
@@ -598,6 +628,14 @@ public:
     /// exercised. This runs the same last three statements join() does.
     quint64 beginMembershipPublishForTest(const QString &roomId,
                                           const QString &focusUrl);
+    /// Shorten the reaction window so its expiry, its duplicate rule and the
+    /// staleness clause on a parked reaction can be exercised without three
+    /// seconds of wall clock each. Nothing is faked: the REAL model timer and
+    /// the REAL clauses run, only sooner.
+    void setReactionWindowMsForTest(int ms)
+    {
+        m_reactionWindowMs = ms > 0 ? ms : 1;
+    }
     /// Drive the local device's camera / screen-share INTENT the way the
     /// buttons do, minus the media engine.
     ///
@@ -645,6 +683,17 @@ private Q_SLOTS:
     /// The join-time sweep over hands raised before we arrived.
     void onHandsReceived(quint64 opId, const QString &roomId,
                          const QVariantList &hands);
+    /// A transient reaction arrived from the sync loop. Attributed exactly
+    /// as a raise is — through the membership it references, whose owner
+    /// must be the sender.
+    void onCallReactionReceived(const QString &roomId, const QString &sender,
+                                const QString &membershipEventId,
+                                const QString &emoji);
+    /// The generic RTC send answer. Only our own reaction sends are matched
+    /// here (by op id); everything else on this signal belongs to somebody
+    /// else and is ignored.
+    void onRtcSendFinished(quint64 opId, bool ok, const QString &category,
+                           const QString &eventId);
     void onMembershipPublished(quint64 opId, bool ok, const QString &category,
                                const QString &eventId,
                                const QString &delayId);
@@ -745,9 +794,14 @@ private:
     /// so the "it is OUR hand" half cannot drift between them.
     void applyRaisedHand(const QString &reactionEventId,
                          const QString &identity);
-    /// Re-attribute raises whose membership had not arrived when they did.
-    /// Called where that membership lands; a no-op with nothing parked.
-    void retryPendingHandRaises();
+    /// Show one transient reaction on a participant's row. Shared by the
+    /// live handler and the pending retry, so the window and the duplicate
+    /// rule cannot drift between them.
+    void applyCallReaction(const QString &identity, const QString &emoji);
+    /// Re-attribute annotations whose membership had not arrived when they
+    /// did — raises and reactions alike. Called where that membership lands;
+    /// a no-op with nothing parked.
+    void retryPendingAnnotations();
     /// The routing key for one participant's track of `source`
     /// ("camera" / "screen_share"): the TRACK's sid when the SFU stated one,
     /// else empty. Never the PARTICIPANT sid — that is where the camera
@@ -922,11 +976,37 @@ private:
     /// owner is somebody else is a forgery and is refused outright, so it
     /// cannot fill this. Retried from the sessionChanged handler, which is
     /// where the membership that resolves it arrives.
-    struct PendingHandRaise {
+    ///
+    /// ONE LANE, TWO KINDS. A transient reaction loses exactly the same race
+    /// and is parked in the same store rather than in a second one beside
+    /// it: an empty `emoji` is a raise, a non-empty one is a reaction. A
+    /// parked reaction also carries WHEN IT ARRIVED, because it must not be
+    /// drawn after its own window has already passed — a membership read can
+    /// land seconds later, and a reaction that fired ten seconds ago
+    /// appearing now is a lie about the present.
+    struct PendingAnnotation {
         QString sender;
         QString membershipEventId;
+        /// Empty for a raised hand; the reaction's emoji otherwise.
+        QString emoji;
+        /// Monotonic-ish arrival time, for the reaction window only.
+        qint64 receivedAtMs = 0;
     };
-    QHash<QString, PendingHandRaise> m_pendingHandRaises;
+    /// Keyed by the annotating event's id (a reaction event id for a raise,
+    /// the reaction event's own id for a reaction).
+    QHash<QString, PendingAnnotation> m_pendingAnnotations;
+    /// The live reaction window. `kReactionActiveMs` in production; a test
+    /// may shorten it (setReactionWindowMsForTest) and nothing else writes it.
+    int m_reactionWindowMs = kReactionActiveMs;
+    /// The op id of our own in-flight reaction send, so its answer can be
+    /// told from every other send on the shared result signal.
+    quint64 m_reactionOp = 0;
+    /// When this device last sent a reaction. Sending again inside the
+    /// display window is refused locally rather than put on the wire:
+    /// element-call refuses the same way, every other client would drop the
+    /// duplicate on arrival anyway, and a held-down control must not become
+    /// a room-wide event storm.
+    qint64 m_lastReactionSentMs = 0;
     bool m_mediaEncrypted = false;
     // Streams whose frames are arriving and being dropped, by LiveKit sid.
     // Cleared per stream when one of its frames decrypts again, and wholly

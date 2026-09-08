@@ -546,6 +546,9 @@ Rectangle {
                     required property bool speaking
                     required property real speakingLevel
                     required property bool handRaised
+                    // Transient, and "" for almost the whole call. The tile
+                    // draws it behind a Loader for exactly that reason.
+                    required property string reactionEmoji
                     required property string connectionQuality
 
                     anchors.fill: parent
@@ -570,6 +573,7 @@ Rectangle {
                         speaking: spotPerson.speaking
                         speakingLevel: spotPerson.speakingLevel
                         handRaised: spotPerson.handRaised
+                        reactionEmoji: spotPerson.reactionEmoji
                         connectionQuality: spotPerson.connectionQuality
                         focused: true
                         onActivated: root.focusedSurfaceActivated()
@@ -1029,6 +1033,7 @@ Rectangle {
                                     required property bool speaking
                                     required property real speakingLevel
                                     required property bool handRaised
+                                    required property string reactionEmoji
                                     required property string connectionQuality
 
                                     height: spotlightColumn.stripTileHeight
@@ -1059,6 +1064,7 @@ Rectangle {
                                         speaking: stripPerson.speaking
                                         speakingLevel: stripPerson.speakingLevel
                                         handRaised: stripPerson.handRaised
+                                        reactionEmoji: stripPerson.reactionEmoji
                                         connectionQuality: stripPerson.connectionQuality
                                         onActivated: {
                                             if (root.stageState)

@@ -187,6 +187,10 @@ Item {
             required property bool speaking
             required property real speakingLevel
             required property bool handRaised
+            // element-call's transient reaction, empty while none is
+            // playing. Required like every other role this delegate reads,
+            // so a model that stops supplying it fails loudly at load.
+            required property string reactionEmoji
             required property string connectionQuality
 
             // Offset by the share count: shares occupy the first cells.
@@ -216,6 +220,7 @@ Item {
                 speaking: personCell.speaking
                 speakingLevel: personCell.speakingLevel
                 handRaised: personCell.handRaised
+                reactionEmoji: personCell.reactionEmoji
                 connectionQuality: personCell.connectionQuality
                 bare: root.voiceOnly
                 compact: root.compact

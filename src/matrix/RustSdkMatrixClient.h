@@ -621,6 +621,10 @@ public:
                      bool encrypted) override;
     void sfuMuteTrack(const QString &sid, bool muted) override;
     void sfuDisconnect() override;
+    quint64 rtcSendCallReaction(const QString &roomId,
+                                const QString &membershipEventId,
+                                const QString &emoji,
+                                const QString &name) override;
     quint64 rtcSetHandRaised(const QString &roomId,
                              const QString &membershipEventId,
                              const QString &reactionEventId,

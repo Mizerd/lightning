@@ -7173,6 +7173,28 @@ void RustSdkMatrixClient::sfuDisconnect()
     takeRustString(mx_rust_sfu_disconnect(m_rustHandle));
 }
 
+quint64 RustSdkMatrixClient::rtcSendCallReaction(
+    const QString &roomId, const QString &membershipEventId,
+    const QString &emoji, const QString &name)
+{
+    if (!m_rustHandle || roomId.isEmpty() || membershipEventId.isEmpty()
+        || emoji.isEmpty() || name.isEmpty()) {
+        return 0;
+    }
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray membership = membershipEventId.toUtf8();
+    const QByteArray emojiBytes = emoji.toUtf8();
+    const QByteArray nameBytes = name.toUtf8();
+    // The (emoji, name) pair is validated in Rust against element-call's own
+    // table: an unknown one is refused there rather than put on the wire,
+    // because Element looks a reaction's SOUND up by its name.
+    const QString result = takeRustString(mx_rust_rtc_send_call_reaction(
+        m_rustHandle, room.constData(), membership.constData(),
+        emojiBytes.constData(), nameBytes.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::rtcSetHandRaised(
     const QString &roomId, const QString &membershipEventId,
     const QString &reactionEventId, bool raised)
@@ -8140,6 +8162,19 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("membership_event_id")).toString(),
             event.value(QStringLiteral("reaction_event_id")).toString(),
             event.value(QStringLiteral("raised")).toBool());
+        return true;
+    }
+    if (type == QLatin1String("rtc_call_reaction")) {
+        // element-call's transient reaction. Every field was bounded in
+        // rust/src/rtc.rs, and the emoji was reduced there to a single
+        // cluster — this side renders it as PLAIN TEXT and attributes it
+        // through the membership it references, never through its sender
+        // alone.
+        Q_EMIT rtcCallReactionReceived(
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("sender")).toString(),
+            event.value(QStringLiteral("membership_event_id")).toString(),
+            event.value(QStringLiteral("emoji")).toString());
         return true;
     }
     if (type == QLatin1String("rtc_hands")) {
