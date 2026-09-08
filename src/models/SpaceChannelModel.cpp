@@ -272,7 +272,47 @@ void SpaceChannelModel::setScopeSpaceId(const QString &spaceId)
     rebuild();
 }
 
-QStringList SpaceChannelModel::listedSpaceIds() const
+QStringList SpaceChannelModel::childSpacesOf(
+    const QString &spaceId, const QHash<QString, RoomInfo> &byId) const
+{
+    // THE RAIL'S NESTING IS NOT THIS VIEW'S HIERARCHY, and reading it as one
+    // made a Space's column disagree with its own rail badge.
+    //
+    // `SpaceManager::childSpaceIds` is deliberately restricted to the children
+    // whose PRIMARY parent is this Space — that restriction is what makes the
+    // rail a tree, so a subspace with two joined parents draws exactly one
+    // tile. A Space's COLUMN is not a tree: it is one Space's view, and the two
+    // parents of a shared subspace have separate views, so nothing there is
+    // drawn twice by listing the subspace under both. Meanwhile SpaceManager's
+    // aggregates walk the real hierarchy, so the parent that lost the primary
+    // link still counted the shared subspace's rooms in the unread total on its
+    // rail tile — a badge counting rooms its own view refused to list.
+    //
+    // So: the rail's answer (which also covers a backend that reports the edge
+    // only from the CHILD's side, through `parentSpaceIds`), plus this Space's
+    // own `m.space.child` state. Strictly additive, and in the Space's own
+    // child order behind the rail's.
+    QStringList out;
+    if (m_spaces)
+        out = m_spaces->childSpaceIds(spaceId);
+    const auto parent = byId.constFind(spaceId);
+    if (parent == byId.constEnd())
+        return out;
+    for (const QString &childId : parent->childRoomIds) {
+        if (childId == spaceId || out.contains(childId))
+            continue;
+        const auto child = byId.constFind(childId);
+        if (child == byId.constEnd() || !child->isSpace
+            || child->membership != RoomInfo::Joined) {
+            continue;
+        }
+        out.append(childId);
+    }
+    return out;
+}
+
+QStringList SpaceChannelModel::listedSpaceIds(
+    const QHash<QString, RoomInfo> &byId) const
 {
     // Home and People list NO Spaces. The rail already shows every one of
     // them, and repeating the whole set under Home is what made picking one
@@ -302,10 +342,16 @@ QStringList SpaceChannelModel::listedSpaceIds() const
     // The scoped Space, then its subspaces — recursively, deduped, and with a
     // visited set so a cyclic hierarchy cannot loop. FLAT, like every other
     // folder here: a subspace is a folder at the same level, not a level.
+    //
+    // The visited set is load-bearing rather than defensive now: childSpacesOf
+    // reads the Space's own state as well as the rail's nesting, and raw
+    // m.space.child state is a graph — A contains B contains A is legal, and
+    // the rail's primary-parent restriction used to prune it into a forest
+    // before this walk ever saw it.
     QStringList out{ m_scopeSpaceId };
     QSet<QString> seen{ m_scopeSpaceId };
     for (int head = 0; head < out.size(); ++head) {
-        for (const QString &childId : m_spaces->childSpaceIds(out.at(head))) {
+        for (const QString &childId : childSpacesOf(out.at(head), byId)) {
             if (seen.contains(childId))
                 continue;
             seen.insert(childId);
@@ -313,10 +359,22 @@ QStringList SpaceChannelModel::listedSpaceIds() const
         }
     }
     // Back into rail order, so a scoped view and the whole list agree about
-    // where a Space sits relative to its siblings.
-    QStringList ranked;
+    // where a Space sits relative to its siblings — except the SELECTED Space,
+    // which always heads its own view.
+    //
+    // THE RAIL RANKS ROOTS, NOT SUBSPACES, so asking it where the scoped Space
+    // sits among its own children asks the wrong list. RailEntryModel hands
+    // `arrange()` only the Spaces whose `parentSpaceId` is empty, so a subspace
+    // never enters `RailLayoutStore`'s stored order; `orderedSpaceIds` appends
+    // every one of them afterwards in the SpaceManager model's own order, which
+    // is the room list's — activity order on the Rust backend. So a subspace
+    // could rank ahead of its parent, and the Space the user had just clicked
+    // rendered its own channels BELOW its subspaces' folders, moving as rooms
+    // received messages. Seeding `ranked` with the selection is the whole fix:
+    // the subspaces still follow the rail's arrangement behind it.
+    QStringList ranked{ m_scopeSpaceId };
     for (const QString &id : ordered) {
-        if (seen.contains(id))
+        if (seen.contains(id) && !ranked.contains(id))
             ranked.append(id);
     }
     for (const QString &id : out) {
@@ -756,7 +814,7 @@ int SpaceChannelModel::buildSpace(QVector<Row> &rows,
     // level. Nothing is nested: a subspace's rooms appearing both under the
     // subspace and (transitively) under its parent is what the flat shape
     // exists to prevent.
-    for (const QString &spaceId : listedSpaceIds()) {
+    for (const QString &spaceId : listedSpaceIds(byId)) {
         const auto info = byId.constFind(spaceId);
         if (info == byId.constEnd())
             continue;

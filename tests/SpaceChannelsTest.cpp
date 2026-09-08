@@ -194,6 +194,19 @@ int rowOfName(const SpaceChannelModel &model, const QString &name)
     return namesOf(model).indexOf(name);
 }
 
+/// What the rail tile for `spaceId` puts on its badge. Read through the same
+/// map the rail reads, so a test comparing a badge against a view is comparing
+/// the two things the user actually sees.
+int railUnreadTotal(const SpaceManager &spaces, const QString &spaceId)
+{
+    for (const QVariant &value : spaces.allSpaces()) {
+        const QVariantMap entry = value.toMap();
+        if (entry.value(QStringLiteral("spaceId")).toString() == spaceId)
+            return entry.value(QStringLiteral("unreadTotal")).toInt();
+    }
+    return -1;
+}
+
 } // namespace
 
 class SpaceChannelsTest : public QObject
@@ -645,6 +658,139 @@ private Q_SLOTS:
                               SpaceChannelModel::HiddenUnreadRole).toInt() > 0,
                  "collapsing the Invites group hid the fact that an invite is "
                  "waiting");
+    }
+
+    // A SPACE'S BADGE MUST COUNT WHAT ITS OWN VIEW LISTS, and a subspace with
+    // two joined parents broke that in one direction.
+    //
+    // SpaceManager nests such a subspace under exactly ONE parent — the rail
+    // has to be a tree or the tile is drawn twice — and SpaceChannelModel read
+    // that same restricted answer to decide which folders a Space's column
+    // carries. But SpaceManager's unread aggregate walks the REAL hierarchy, so
+    // the parent that lost the primary link counted the shared subspace's rooms
+    // on its rail badge and then refused to list them: click the tile showing
+    // "3" and the column is empty. A column is not a tree — the two parents
+    // have separate views — so listing the subspace under both draws nothing
+    // twice.
+    void aSubspaceWithTwoParentsIsListedUnderBothOfThem()
+    {
+        Fixture f;
+        f.client.roomList = {
+            space(QStringLiteral("!p1:x"), QStringLiteral("Product"),
+                  { QStringLiteral("!shared:x") }),
+            space(QStringLiteral("!p2:x"), QStringLiteral("Platform"),
+                  { QStringLiteral("!shared:x") }),
+            space(QStringLiteral("!shared:x"), QStringLiteral("Shared"),
+                  { QStringLiteral("!design:x") },
+                  { QStringLiteral("!p1:x"), QStringLiteral("!p2:x") }),
+            room(QStringLiteral("!design:x"), QStringLiteral("design"),
+                 /*unread=*/3),
+        };
+        f.spaces.setClient(&f.client);
+        f.model.setSettings(&f.settings);
+        f.model.setSources(&f.client, &f.spaces, &f.layout);
+
+        // Both rail tiles count the shared subspace's room...
+        QCOMPARE(railUnreadTotal(f.spaces, QStringLiteral("!p1:x")), 3);
+        QCOMPARE(railUnreadTotal(f.spaces, QStringLiteral("!p2:x")), 3);
+
+        // ...so both views have to list it.
+        const QStringList parents{ QStringLiteral("!p1:x"),
+                                   QStringLiteral("!p2:x") };
+        for (const QString &parent : parents) {
+            f.selectSpace(parent);
+            const QStringList names = namesOf(f.model);
+            QVERIFY2(names.contains(QStringLiteral("Shared")),
+                     qPrintable(QStringLiteral(
+                                    "%1 counts the shared subspace on its rail "
+                                    "badge and does not list it")
+                                    .arg(parent)));
+            QVERIFY2(names.contains(QStringLiteral("design")),
+                     qPrintable(QStringLiteral(
+                                    "%1's badge counts an unread room its own "
+                                    "view refuses to show")
+                                    .arg(parent)));
+        }
+    }
+
+    // A -> B -> A is legal m.space.child state. The rail's primary-parent
+    // restriction used to prune it into a forest before this walk ever saw it;
+    // reading each Space's own state means the walk meets the real graph, so
+    // the visited set is now what terminates it. Both Spaces stay reachable and
+    // each is listed exactly once — and the rooms behind the cycle, which the
+    // aggregate already counted, are visible.
+    void aCyclicSubspaceHierarchyTerminatesAndListsEachSpaceOnce()
+    {
+        Fixture f;
+        f.client.roomList = {
+            space(QStringLiteral("!a:x"), QStringLiteral("Alpha"),
+                  { QStringLiteral("!ra:x"), QStringLiteral("!b:x") },
+                  { QStringLiteral("!b:x") }),
+            space(QStringLiteral("!b:x"), QStringLiteral("Beta"),
+                  { QStringLiteral("!rb:x"), QStringLiteral("!a:x") },
+                  { QStringLiteral("!a:x") }),
+            room(QStringLiteral("!ra:x"), QStringLiteral("ra")),
+            room(QStringLiteral("!rb:x"), QStringLiteral("rb"), /*unread=*/2),
+        };
+        f.spaces.setClient(&f.client);
+        f.model.setSettings(&f.settings);
+        f.model.setSources(&f.client, &f.spaces, &f.layout);
+        f.selectSpace(QStringLiteral("!a:x"));
+
+        const QStringList names = namesOf(f.model);
+        QCOMPARE(names.count(QStringLiteral("Alpha")), 1);
+        QCOMPARE(names.count(QStringLiteral("Beta")), 1);
+        QVERIFY(names.contains(QStringLiteral("ra")));
+        QCOMPARE(railUnreadTotal(f.spaces, QStringLiteral("!a:x")), 2);
+        QVERIFY2(names.contains(QStringLiteral("rb")),
+                 "the other half of the cycle is on Alpha's rail badge and "
+                 "missing from Alpha's view");
+    }
+
+    // THE SELECTED SPACE HEADS ITS OWN VIEW, whatever the rail order says.
+    //
+    // listedSpaceIds() ranked the scoped Space among its own subspaces by the
+    // rail's arrangement — but the rail only ever ranks ROOTS (RailEntryModel
+    // hands arrange() the Spaces whose parentSpaceId is empty), so a subspace
+    // reaches RailLayoutStore::orderedSpaceIds only through its `natural`
+    // fallback, which is the SpaceManager model's order and therefore the room
+    // list's. Put the subspace ahead of its parent there — which activity
+    // ordering does on its own — and the Space the user just clicked rendered
+    // its own channels BELOW its subspace's folder.
+    //
+    // No layout order is set here on purpose: a fresh account has none, and
+    // that is exactly the case that broke.
+    void theSelectedSpaceHeadsItsOwnViewNotItsSubspaces()
+    {
+        Fixture f;
+        // The SUBSPACE first in the room list, which is all it takes.
+        f.client.roomList = {
+            space(QStringLiteral("!eng:x"), QStringLiteral("Engineering"),
+                  { QStringLiteral("!backend:x") },
+                  { QStringLiteral("!work:x") }),
+            space(QStringLiteral("!work:x"), QStringLiteral("Work"),
+                  { QStringLiteral("!general:x"), QStringLiteral("!eng:x") }),
+            room(QStringLiteral("!general:x"), QStringLiteral("general")),
+            room(QStringLiteral("!backend:x"), QStringLiteral("backend")),
+        };
+        f.spaces.setClient(&f.client);
+        f.model.setSettings(&f.settings);
+        f.model.setSources(&f.client, &f.spaces, &f.layout);
+        f.selectSpace(QStringLiteral("!work:x"));
+
+        const QStringList names = namesOf(f.model);
+        const int work = names.indexOf(QStringLiteral("Work"));
+        const int eng = names.indexOf(QStringLiteral("Engineering"));
+        QVERIFY2(work >= 0, "the selected Space is not in its own view");
+        QVERIFY2(eng >= 0, "the subspace is not in its parent's view");
+        QVERIFY2(work < eng,
+                 "the selected Space's own folder was ranked BELOW its "
+                 "subspace: the rail's order does not rank subspaces, so it "
+                 "cannot say where the selection goes among them");
+        QVERIFY2(names.indexOf(QStringLiteral("general"))
+                     < names.indexOf(QStringLiteral("backend")),
+                 "the rooms of the Space the user clicked are below the "
+                 "subspace's rooms");
     }
 
     void spaceOrderFollowsTheRailArrangement()

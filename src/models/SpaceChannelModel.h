@@ -344,12 +344,17 @@ private:
     /// survived the filter — a "Rooms" label over an empty list is worse than
     /// no label. Returns how many rooms were appended.
     int appendGroup(QVector<Row> &rows, Row header, QVector<Row> rooms);
-    /// The Spaces the column lists, in rail order: the selected Space
-    /// followed by its subspaces (recursively, deduped, cycle-safe). EMPTY in
+    /// The Spaces the column lists: the selected Space FIRST, then its
+    /// subspaces in rail order (recursively, deduped, cycle-safe). EMPTY in
     /// the Home and People views — the rail already lists every Space, and
     /// repeating them under Home is what made picking one look like it did
     /// nothing.
-    QStringList listedSpaceIds() const;
+    QStringList listedSpaceIds(const QHash<QString, RoomInfo> &byId) const;
+    /// Every joined child SPACE of `spaceId`: the rail's own nesting UNION the
+    /// Space's own `m.space.child` state. See the implementation for why the
+    /// rail's answer alone is the wrong hierarchy for a column.
+    QStringList childSpacesOf(const QString &spaceId,
+                              const QHash<QString, RoomInfo> &byId) const;
     /// One command row.
     Row actionRow(const QString &id, const QString &name,
                   const QString &icon) const;
