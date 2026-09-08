@@ -3945,6 +3945,15 @@ void AppController::applyOwnDeviceKeyAgreement(
         // and can clear it — a re-login on the same controller must not stay
         // stuck on a stale fault.
         m_ownDeviceKeyTimer.stop();
+    } else if (m_client && m_client->isLoggedIn()
+               && !m_ownDeviceKeyTimer.isActive()) {
+        // ...AND IF ONE OF THOSE CALLERS DOES CLEAR IT, THE BACKSTOP COMES
+        // BACK. Stopping it above and only ever starting it from the
+        // sign-in handler left the timer dead for the rest of a session in
+        // which the fault had been cleared by a verification or a manual
+        // refresh, so a fault appearing later would go unnoticed until the
+        // next login. Raised in review.
+        m_ownDeviceKeyTimer.start();
     }
     Q_EMIT encryptionIdentityBrokenChanged();
 }

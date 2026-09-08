@@ -428,8 +428,21 @@ void NotificationManager::closeRoomNotifications(const QString &roomId)
             return waiting.payload.value(QStringLiteral("roomId")).toString()
                 == roomId;
         };
-        if (m_avatarWaits.removeIf(sameRoom) > 0 && m_avatarWaits.isEmpty())
-            m_avatarWaitTimer.stop();
+        // SAY SO. The delivered branch below logs "withdrew N
+        // notification(s)"; this one dropped a notification that was never
+        // shown and left no trace, on a path a level-triggered sweep fires
+        // for every not-unread room on every room update. A drop that is
+        // never recorded cannot be told apart from a notification that was
+        // never raised. Raised in review. Count only, never a body or a
+        // room name.
+        const qsizetype dropped = m_avatarWaits.removeIf(sameRoom);
+        if (dropped > 0) {
+            qCInfo(lcNotify) << "dropped" << dropped
+                             << "notification(s) parked for an avatar in a "
+                                "room that has been read";
+            if (m_avatarWaits.isEmpty())
+                m_avatarWaitTimer.stop();
+        }
     }
     if (m_pendingPayloads.isEmpty())
         return;

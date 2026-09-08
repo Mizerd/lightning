@@ -679,7 +679,15 @@ private slots:
         const QString src = QString::fromUtf8(file.readAll());
         const int at = src.indexOf(QStringLiteral("id: bannerImage"));
         QVERIFY2(at > 0, "the banner Image is gone");
-        const QString block = src.mid(at);
+        // BOUNDED TO THE BANNER'S OWN BLOCK. `src.mid(at)` ran to the end
+        // of a 1,100-line file, so any later Connections carrying the same
+        // two handler names would keep this green after the banner's own
+        // were removed. Raised in review. The next `id: ` after the banner
+        // is the end of its block; fall back to a generous window if the
+        // banner is the last named item.
+        const int nextId = src.indexOf(QStringLiteral("id: "), at + 20);
+        const QString block =
+            nextId > at ? src.mid(at, nextId - at) : src.mid(at, 3000);
         QVERIFY2(block.contains(QStringLiteral("function onMediaCached(")),
                  "the banner no longer re-resolves when its bytes land");
         QVERIFY2(block.contains(QStringLiteral("function onMediaRetryable(")),

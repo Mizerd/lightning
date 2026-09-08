@@ -928,8 +928,13 @@ QString launcherEntryText(const QString &payloadEntry,
 /// package's own for good. Caught in review.
 QString userIconManifestPath(const QString &dataHome)
 {
+    // OUR BOOKKEEPING, IN OUR OWN DIRECTORY. This first lived inside
+    // `icons/hicolor/`, which belongs to the icon theme specification and is
+    // shared with every other application; a dotfile there is not indexed by
+    // anything, but it is still somebody else's directory. Moved before the
+    // feature ever shipped, so there is nothing to migrate. Raised in review.
     return dataHome
-           + QStringLiteral("/icons/hicolor/.lightning-appimage-icons");
+           + QStringLiteral("/lightning/appimage-icons.list");
 }
 
 QStringList readUserIconManifest(const QString &dataHome)
@@ -946,13 +951,42 @@ QStringList readUserIconManifest(const QString &dataHome)
 void removeUserIcons(const QString &dataHome)
 {
     const QString root = dataHome + QStringLiteral("/icons/hicolor/");
+    const QString canonicalRoot = QFileInfo(root).canonicalFilePath();
     for (const QString &relative : readUserIconManifest(dataHome)) {
-        // Never follow a path out of the icon tree, whatever the file says.
-        if (relative.contains(QLatin1String("..")))
+        // CONTAINMENT, CHECKED AGAINST THE RESOLVED PATH. A ".." string match
+        // stops the obvious traversal and misses a SYMLINKED size directory
+        // redirecting the removal somewhere else entirely. Resolve both sides
+        // and require the target to be inside the icon tree. Raised in
+        // review.
+        const QString target = root + relative;
+        const QString canonicalTarget = QFileInfo(target).canonicalFilePath();
+        if (canonicalRoot.isEmpty() || canonicalTarget.isEmpty())
             continue;
-        QFile::remove(root + relative);
+        if (!canonicalTarget.startsWith(canonicalRoot + QLatin1Char('/')))
+            continue;
+        QFile::remove(target);
     }
     QFile::remove(userIconManifestPath(dataHome));
+}
+
+/// How many icons the bundle carries, without touching the filesystem.
+/// Used when publication is refused, so the diagnostic still describes the
+/// payload rather than reporting an empty one.
+void countPayloadIcons(const QString &appDir, int *payloadIcons)
+{
+    if (!payloadIcons)
+        return;
+    const QDir hicolor(appDir + QStringLiteral("/usr/share/icons/hicolor"));
+    if (!hicolor.exists())
+        return;
+    for (const QString &size :
+         hicolor.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
+        const QDir apps(hicolor.filePath(size + QStringLiteral("/apps")));
+        if (!apps.exists())
+            continue;
+        *payloadIcons += apps.entryList(
+            QStringList{ kAppId + QStringLiteral(".*") }, QDir::Files).size();
+    }
 }
 
 int installUserIcons(const QString &appDir, const QString &dataHome,
@@ -1042,11 +1076,16 @@ int installUserIcons(const QString &appDir, const QString &dataHome,
             written.append(earlier);
     }
     if (!written.isEmpty()) {
-        QDir().mkpath(dataHome + QStringLiteral("/icons/hicolor"));
+        QDir().mkpath(dataHome + QStringLiteral("/lightning"));
         QSaveFile manifest(userIconManifestPath(dataHome));
         if (manifest.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
             manifest.write(written.join(QLatin1Char('\n')).toUtf8());
-            manifest.commit();
+            // A failed commit means the next run sees no record and treats
+            // its own copies as the user's, leaving them in place forever.
+            // Not fatal, and worth saying rather than discarding. Raised in
+            // review.
+            if (!manifest.commit())
+                qWarning("lightning: could not record the icons written");
         }
     }
     return copied;
@@ -1188,6 +1227,11 @@ LauncherEntryReport publishAppImageLauncherEntry()
     const QByteArray wanted =
         launcherEntryText(report.payloadEntry, report.appImagePath).toUtf8();
     if (wanted.isEmpty()) {
+        // COUNT THE PAYLOAD WITHOUT INSTALLING ANYTHING. A refusal used to
+        // return with payloadIcons still zero, so --desktop-status reported
+        // a bundle carrying no icons and named the wrong cause. Raised in
+        // review. countUserIcons writes nothing.
+        countPayloadIcons(report.appDir, &report.payloadIcons);
         report.outcome = QStringLiteral(
             "skipped: the AppImage path cannot be represented in Exec=");
         return report;

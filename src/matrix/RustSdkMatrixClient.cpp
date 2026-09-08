@@ -217,6 +217,11 @@ void RustSdkMatrixClient::clearLocalState()
     m_callSdpStore.clear();
     clearTimelineInsertBatch();
     m_loggedIn = false;
+    // Log dedupe is per SESSION, not per process: without this a second
+    // broken account in one run would print nothing, because the first one
+    // had already said it. Reset at every point the session ends rather than
+    // at one chosen path, so none can be missed. Raised in review.
+    m_ownIdentityKeyMismatchLogged = false;
     m_homeserver.clear();
     m_userId.clear();
     m_deviceId.clear();
@@ -725,6 +730,11 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     m_userId.clear();
     m_deviceId.clear();
     m_loggedIn = false;
+    // Log dedupe is per SESSION, not per process: without this a second
+    // broken account in one run would print nothing, because the first one
+    // had already said it. Reset at every point the session ends rather than
+    // at one chosen path, so none can be missed. Raised in review.
+    m_ownIdentityKeyMismatchLogged = false;
     m_rooms.clear();
     m_roomOrder.clear();
     m_timelines.clear();
@@ -1383,6 +1393,11 @@ void RustSdkMatrixClient::adoptBrowserSession(
     m_userId = identity.userId;
     m_deviceId = deviceId;
     m_loggedIn = false;
+    // Log dedupe is per SESSION, not per process: without this a second
+    // broken account in one run would print nothing, because the first one
+    // had already said it. Reset at every point the session ends rather than
+    // at one chosen path, so none can be missed. Raised in review.
+    m_ownIdentityKeyMismatchLogged = false;
     m_rooms.clear();
     m_roomOrder.clear();
     m_timelines.clear();
@@ -1489,6 +1504,11 @@ bool RustSdkMatrixClient::restoreSession()
     m_userId = userId;
     m_deviceId = deviceId;
     m_loggedIn = false;
+    // Log dedupe is per SESSION, not per process: without this a second
+    // broken account in one run would print nothing, because the first one
+    // had already said it. Reset at every point the session ends rather than
+    // at one chosen path, so none can be missed. Raised in review.
+    m_ownIdentityKeyMismatchLogged = false;
     m_rooms.clear();
     m_roomOrder.clear();
     m_timelines.clear();
@@ -1570,6 +1590,11 @@ bool RustSdkMatrixClient::restoreSessionFromFile(const QString &homeserver,
     m_userId = expectedUser;
     m_deviceId.clear();
     m_loggedIn = false;
+    // Log dedupe is per SESSION, not per process: without this a second
+    // broken account in one run would print nothing, because the first one
+    // had already said it. Reset at every point the session ends rather than
+    // at one chosen path, so none can be missed. Raised in review.
+    m_ownIdentityKeyMismatchLogged = false;
     m_rooms.clear();
     m_roomOrder.clear();
     m_timelines.clear();
@@ -4107,6 +4132,11 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
 
     if (type == QLatin1String("login_failed")) {
         m_loggedIn = false;
+    // Log dedupe is per SESSION, not per process: without this a second
+    // broken account in one run would print nothing, because the first one
+    // had already said it. Reset at every point the session ends rather than
+    // at one chosen path, so none can be missed. Raised in review.
+    m_ownIdentityKeyMismatchLogged = false;
         setState(Error);
         // A failed fresh-store login must not leave a half-initialised
         // store directory behind — that is exactly what used to poison

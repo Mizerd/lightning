@@ -6,6 +6,7 @@
 
 #include "matrix/TimelineEvent.h"
 
+#include <QMetaMethod>
 #include <QtTest/QtTest>
 
 namespace {
@@ -48,6 +49,7 @@ private Q_SLOTS:
     void aTrayBalloonClickOpensTheRoomItWasRaisedFor();
     void signingOutForgetsTheTrayBalloonsClick();
     void readingARoomDropsAPopupStillWaitingForItsAvatar();
+    void everySlotTheseCasesDriveByNameStillExists();
     void directMessageNotifiesWithSenderOnlyDefault()
     {
         const auto decision =
@@ -835,6 +837,39 @@ void NotificationManagerTest::readingARoomDropsAPopupStillWaitingForItsAvatar()
     // silence another, in this queue as in the delivered map.
     manager.closeRoomNotifications(QStringLiteral("!other:example.org"));
     QCOMPARE(manager.avatarWaitCountForTest(), 0);
+}
+
+
+// EVERY SLOT THESE CASES DRIVE BY NAME MUST STILL EXIST.
+//
+// Seventeen call sites invoke these through QMetaObject::invokeMethod and
+// discard the bool it returns. A rename would make all seventeen silent
+// no-ops, and the assertions after them would pass vacuously: "nothing was
+// opened" is exactly what a case expects when the click never happened. One
+// guard covers every site, which is cheaper and harder to forget than
+// wrapping each call. Raised in review.
+void NotificationManagerTest::everySlotTheseCasesDriveByNameStillExists()
+{
+    NotificationManager manager;
+    const QMetaObject *mo = manager.metaObject();
+    const QList<QByteArray> names{
+        QByteArrayLiteral("onActionInvoked"),
+        QByteArrayLiteral("onNotificationClosed"),
+        QByteArrayLiteral("onNotificationReplied"),
+        QByteArrayLiteral("onFallbackMessageClicked"),
+    };
+    for (const QByteArray &name : names) {
+        bool found = false;
+        for (int i = 0; i < mo->methodCount() && !found; ++i)
+            found = mo->method(i).name() == name;
+        QVERIFY2(found,
+                 qPrintable(QStringLiteral(
+                                "NotificationManager has no invokable \"%1\" "
+                                "any more, so every case that drives it by "
+                                "name is a silent no-op that passes without "
+                                "testing anything")
+                                .arg(QString::fromLatin1(name))));
+    }
 }
 
 QTEST_MAIN(NotificationManagerTest)
