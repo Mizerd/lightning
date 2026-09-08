@@ -155,6 +155,21 @@ MediaBridge::MediaBridge(QObject *parent)
     });
 }
 
+MediaBridge::~MediaBridge()
+{
+    // THE LIVE MARK MUST GO BEFORE THE DIRECTORY, at process exit as well as
+    // on a sign-out. clear() gets this right and says so; there was no
+    // destructor, so on exit the QTemporaryDir removed the directory with the
+    // lock file inside it while the QLockFile in PortableMode's static map
+    // was still alive. That map is destroyed later, and QLockFile then
+    // reported "Could not remove our own lock file ... No such file or
+    // directory" on every clean shutdown. Seen in a maintainer's run,
+    // 2026-09-08. Cosmetic, but an error line on a healthy exit trains
+    // people to ignore error lines.
+    if (m_animatedDir)
+        lightning::portable::releaseScratchDir(m_animatedDir->path());
+}
+
 void MediaBridge::noteMediaActivity()
 {
     m_burstPeakQueued = qMax(m_burstPeakQueued,

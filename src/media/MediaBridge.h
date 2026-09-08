@@ -48,6 +48,13 @@ class MediaBridge : public QObject
 
 public:
     explicit MediaBridge(QObject *parent = nullptr);
+    // Releases the scratch directory's live mark before the directory goes.
+    // Without it, process exit removed the directory (and the lock file
+    // inside it) while PortableMode's static map still held the QLockFile,
+    // and Qt reported "Could not remove our own lock file" on every clean
+    // shutdown. clear() already had the right order; exit had no destructor
+    // at all.
+    ~MediaBridge() override;
 
     void setClient(MatrixClient *client);
     bool supported() const;
