@@ -4507,6 +4507,41 @@ Item {
                  "the idle flag outlives the state it belongs to");
     }
 
+    // THE PADLOCK MUST NOT REASSURE WHILE MEDIA IS BEING DROPPED.
+    //
+    // CallStage drew a green lock whenever the call was encrypted. That is
+    // true and it is not the whole answer: the engine has always detected a
+    // remote stream whose frames arrive and are thrown away for want of a
+    // usable key, and only wrote it to the log, so the participant you could
+    // not hear sat under a badge saying everything was in order. B026, found
+    // by review of the call receive path.
+    void theEncryptionBadgeStopsReassuringWhenMediaIsBeingDropped()
+    {
+        const QString norm = normalized(read(QStringLiteral(QML_DIR "/CallStage.qml")));
+        QVERIFY(!norm.isEmpty());
+        const int lock = norm.indexOf(QStringLiteral("app.groupCall.mediaEncrypted"));
+        QVERIFY2(lock >= 0, "the encryption badge is gone entirely");
+        // Bounded to the badge's own Loader, so an unrelated mention of the
+        // property elsewhere in a large file cannot satisfy this.
+        const QString block = norm.mid(lock, 900);
+        // THE APPEARANCE MUST DEPEND ON IT, not merely mention it. The first
+        // version of this asserted the property appeared somewhere in the
+        // block, and a mutation that reverted the icon and the colour to
+        // constants still PASSED, because the tooltip below them kept the
+        // mention. Assert the two bindings that actually decide what the user
+        // sees.
+        QVERIFY2(block.contains(QStringLiteral(
+                     "name: app.groupCall.remoteMediaBlocked ? \"warning\" : \"lock\"")),
+                 "the badge's ICON does not depend on remoteMediaBlocked, so "
+                 "it still shows a reassuring lock over a participant whose "
+                 "every frame is being dropped");
+        QVERIFY2(block.contains(QStringLiteral(
+                     "color: app.groupCall.remoteMediaBlocked ? AppTheme.warning "
+                     ": AppTheme.success")),
+                 "the badge's COLOUR does not depend on remoteMediaBlocked, "
+                 "so the blocked state is still drawn in the success colour");
+    }
+
 private:
     QTemporaryDir m_configHome;
 };

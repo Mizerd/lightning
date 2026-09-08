@@ -63,6 +63,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QRect>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -124,6 +125,14 @@ class SfuCallController : public QObject
                    READ shareAudioExcludesOwnPlayback CONSTANT)
     Q_PROPERTY(bool handRaised READ handRaised NOTIFY mediaStateChanged)
     Q_PROPERTY(bool mediaEncrypted READ mediaEncrypted NOTIFY mediaStateChanged)
+    /// WHETHER ANY REMOTE PARTICIPANT'S FRAMES ARE BEING THROWN AWAY.
+    ///
+    /// The engine has always detected a stream whose frames arrive and cannot
+    /// be decrypted, and only ever logged it, so the call header drew a green
+    /// padlock over someone the user could not hear. Encrypted is true and
+    /// "fine" is not, and the badge said both. B026.
+    Q_PROPERTY(bool remoteMediaBlocked READ remoteMediaBlocked
+                   NOTIFY remoteMediaBlockedChanged)
     /// NOTIFY is the MODEL's own countChanged, forwarded, and not
     /// `participantsChanged`. This reader now answers out of
     /// `CallParticipantModel::rowCount()`, and the model is rebuilt from
@@ -286,6 +295,10 @@ public:
     bool handRaised() const { return m_handRaised; }
     /// True only when every frame we publish is encrypted. Never optimistic.
     bool mediaEncrypted() const { return m_mediaEncrypted; }
+    bool remoteMediaBlocked() const { return !m_blockedStreams.isEmpty(); }
+    /// Whether THIS participant's media is the blocked one, for a per-tile
+    /// mark. Empty identity answers false.
+    Q_INVOKABLE bool mediaBlockedFor(const QString &identity) const;
     /// Read from the MODEL, not from the raw SFU list, so the count and the
     /// tiles can never disagree — the model is the one derivation.
     int participantCount() const;
@@ -600,6 +613,7 @@ public:
 Q_SIGNALS:
     void stateChanged();
     void mediaStateChanged();
+    void remoteMediaBlockedChanged();
     void participantsChanged();
     /// Forwarded from CallParticipantModel::countChanged. See the property.
     void participantCountChanged();
@@ -880,6 +894,10 @@ private:
     /// hash lookup rejects the ones that are not ours.
     QHash<QString, QString> m_handReactions;
     bool m_mediaEncrypted = false;
+    // Streams whose frames are arriving and being dropped, by LiveKit sid.
+    // Cleared per stream when one of its frames decrypts again, and wholly
+    // on teardown, so a badge cannot outlive the call that raised it.
+    QSet<QString> m_blockedStreams;
     /// Whether the ROOM is encrypted, so call media must be too. Captured at
     /// join from the tri-state the client reports, and UNKNOWN fails closed
     /// to true — a call in a room we cannot prove is unencrypted encrypts.

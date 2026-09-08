@@ -559,6 +559,21 @@ Q_SIGNALS:
     /// that makes this safe is in handlePublishError().
     void publishFailed(const QString &cid, const QString &category);
 
+    /// A REMOTE PARTICIPANT'S FRAMES ARE ARRIVING AND BEING THROWN AWAY.
+    ///
+    /// The engine has always detected this and only ever written it to the
+    /// log, so the call UI drew a green padlock over someone the user could
+    /// not hear: encrypted, and therefore fine, is what the badge said, while
+    /// every frame from them was being dropped. B026.
+    ///
+    /// `streamId` is the LiveKit participant sid, which the controller joins
+    /// to a Matrix identity. `reason` is a CLOSED SET:
+    ///   "no_key"        no media key has been installed for that stream
+    ///   "undecryptable" a key is installed and the frames will not open
+    ///   ""              cleared: frames from that stream decrypt again
+    /// Never a key, a session id or any frame content.
+    void remoteMediaBlocked(const QString &streamId, const QString &reason);
+
 private:
     struct Peer {
         GstElement *pipeline = nullptr;

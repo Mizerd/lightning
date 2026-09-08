@@ -131,6 +131,24 @@ bool parseCandidateInit(const QString &json, QString *candidate,
 namespace {
 /// What a pad probe needs to know. Owned by the probe, freed when the probe
 /// is removed.
+/// Raise `remoteMediaBlocked` from a GSTREAMER STREAMING THREAD.
+///
+/// The probe runs on the pipeline's own thread, so the signal is posted to
+/// the engine's thread rather than emitted in place. Only the sid and a
+/// closed-set reason cross: never a key, a session id or frame content.
+void announceBlocked(SfuMediaEngine *engine, const QString &streamId,
+                     const QString &reason)
+{
+    if (!engine)
+        return;
+    QMetaObject::invokeMethod(
+        engine,
+        [engine, streamId, reason] {
+            Q_EMIT engine->remoteMediaBlocked(streamId, reason);
+        },
+        Qt::QueuedConnection);
+}
+
 struct CryptoProbeCtx {
     SfuMediaEngine *engine = nullptr;
     /// Shared, not raw: a receive cryptor belongs to a sender who can leave
@@ -180,6 +198,11 @@ struct CryptoProbeCtx {
     /// counters above).
     bool saidNoKey = false;
     bool saidFailed = false;
+    // Whether the UI has been told this stream is blocked. Separate from the
+    // two log-once flags above: those stay set for the life of the stream so
+    // the log is not flooded, while this one has to go back down when frames
+    // decrypt again or the badge would never clear. B026.
+    bool blockedAnnounced = false;
     bool saidWorking = false;
 };
 
@@ -387,6 +410,11 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             ++ctx->dropped;
             if (ctx->totalDropped)
                 ctx->totalDropped->fetch_add(1);
+            if (!ctx->encrypting && !ctx->blockedAnnounced && ctx->engine) {
+                ctx->blockedAnnounced = true;
+                announceBlocked(ctx->engine, ctx->streamId,
+                                QStringLiteral("no_key"));
+            }
             if (!ctx->encrypting && !ctx->saidNoKey) {
                 ctx->saidNoKey = true;
                 qCWarning(lcSfuMedia)
@@ -461,6 +489,11 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         ++ctx->dropped;
         if (ctx->totalDropped)
             ctx->totalDropped->fetch_add(1);
+        if (!ctx->encrypting && !ctx->blockedAnnounced && ctx->engine) {
+            ctx->blockedAnnounced = true;
+            announceBlocked(ctx->engine, ctx->streamId,
+                            QStringLiteral("undecryptable"));
+        }
         if (!ctx->encrypting && !ctx->saidFailed) {
             ctx->saidFailed = true;
             qCWarning(lcSfuMedia)
@@ -482,6 +515,14 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
     ++ctx->passed;
     if (ctx->total)
         ctx->total->fetch_add(1);
+    // A FRAME DECRYPTED, SO THE BADGE COMES OFF. The two log-once flags stay
+    // set on purpose, so the log is not flooded by a stream that flaps; the
+    // UI has to be told the other way, or a participant who recovers keeps a
+    // "cannot be decrypted" mark for the rest of the call. B026.
+    if (!ctx->encrypting && ctx->blockedAnnounced && ctx->engine) {
+        ctx->blockedAnnounced = false;
+        announceBlocked(ctx->engine, ctx->streamId, QString());
+    }
     if (!ctx->encrypting && !ctx->saidWorking) {
         ctx->saidWorking = true;
         qCInfo(lcSfuMedia)

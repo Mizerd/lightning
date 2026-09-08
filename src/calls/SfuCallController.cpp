@@ -371,6 +371,24 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
     // the call, and one broken capture device must not do that.
     connect(m_engine, &SfuMediaEngine::publishFailed, this,
             &SfuCallController::onEnginePublishFailed);
+    // B026: a remote stream whose frames are being thrown away. The engine
+    // detected this from the start and only wrote it to the log, so the call
+    // header kept a green padlock over someone the user could not hear.
+    connect(m_engine, &SfuMediaEngine::remoteMediaBlocked, this,
+            [this](const QString &streamId, const QString &reason) {
+                if (streamId.isEmpty())
+                    return;
+                const bool had = !m_blockedStreams.isEmpty();
+                if (reason.isEmpty())
+                    m_blockedStreams.remove(streamId);
+                else
+                    m_blockedStreams.insert(streamId);
+                if (had != !m_blockedStreams.isEmpty())
+                    Q_EMIT remoteMediaBlockedChanged();
+                // The per-tile mark reads through mediaBlockedFor(), which
+                // the participant list re-evaluates on this signal.
+                Q_EMIT participantsChanged();
+            });
 #else
     Q_UNUSED(engine);
 #endif
@@ -1165,6 +1183,11 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_handOp = 0;
     m_handReactions.clear();
     m_participants.clear();
+    // A blocked-media badge must never outlive the call that raised it.
+    if (!m_blockedStreams.isEmpty()) {
+        m_blockedStreams.clear();
+        Q_EMIT remoteMediaBlockedChanged();
+    }
     m_speaking.clear();
     m_speakingLevel.clear();
     m_connectionQuality.clear();
@@ -1995,6 +2018,14 @@ QString SfuCallController::trackKeyForSource(const QString &identity,
     return {};
 }
 
+bool SfuCallController::mediaBlockedFor(const QString &identity) const
+{
+    if (identity.isEmpty() || m_blockedStreams.isEmpty())
+        return false;
+    const QString streamId = streamIdForIdentity(identity);
+    return !streamId.isEmpty() && m_blockedStreams.contains(streamId);
+}
+
 QString SfuCallController::streamIdForIdentity(const QString &identity) const
 {
     if (identity.isEmpty())
@@ -2444,6 +2475,11 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_delayId.clear();
     m_ownIdentity.clear();
     m_participants.clear();
+    // A blocked-media badge must never outlive the call that raised it.
+    if (!m_blockedStreams.isEmpty()) {
+        m_blockedStreams.clear();
+        Q_EMIT remoteMediaBlockedChanged();
+    }
     m_speaking.clear();
     m_speakingLevel.clear();
     m_connectionQuality.clear();

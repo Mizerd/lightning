@@ -646,13 +646,39 @@ Rectangle {
                     font.pixelSize: 12
                 }
             }
+            // THE PADLOCK MUST NOT SAY "FINE" WHEN SOMEONE CANNOT BE HEARD.
+            //
+            // This drew a green lock whenever the call was encrypted, which
+            // is true and is not the whole answer: the engine has always
+            // detected a remote stream whose frames arrive and are thrown
+            // away for want of a usable key, and only wrote it to the log.
+            // So the participant you could not hear sat under a badge saying
+            // everything was in order. B026.
+            //
+            // Encrypted stays encrypted; what changes is that the badge stops
+            // being reassuring while media is being dropped, and says which
+            // it is on hover.
             Loader {
                 active: app.groupCall.mediaEncrypted
                 visible: active
                 sourceComponent: Icon {
-                    name: "lock"
+                    // "warning", not a lock variant: the icon map has no
+                    // lock-with-alert and an unknown name renders nothing at
+                    // all, which would have quietly removed the badge.
+                    name: app.groupCall.remoteMediaBlocked
+                          ? "warning" : "lock"
                     size: 14
-                    color: AppTheme.success
+                    color: app.groupCall.remoteMediaBlocked
+                           ? AppTheme.warning : AppTheme.success
+                    ToolTip.visible: lockHover.hovered
+                    ToolTip.delay: 400
+                    ToolTip.text: app.groupCall.remoteMediaBlocked
+                        ? qsTr("This call is encrypted, but media from "
+                               + "someone here cannot be decrypted and is "
+                               + "being dropped. You will not hear or see "
+                               + "them.")
+                        : qsTr("This call is end-to-end encrypted.")
+                    HoverHandler { id: lockHover }
                 }
             }
 
