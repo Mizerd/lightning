@@ -888,9 +888,21 @@ QString launcherEntryText(const QString &payloadEntry,
     // a bare path with no quoting in the spec, so a path containing whitespace
     // would read as "not installed" and HIDE a working entry: omit it there
     // rather than trade a stale menu item for no icon at all.
+    // TRYEXEC IS A DESKTOP-ENTRY STRING TOO, so layer 1 of the rule the
+    // Exec field just learned applies here as well: a backslash in the path
+    // is read as an escape. `\s` becomes a SPACE silently, `\b` is invalid
+    // and makes the reader return NULL for the value, and a TryExec that
+    // does not resolve makes the desktop treat the entry as not installed
+    // and HIDE it. desktop-file-validate does not catch it, so the new CI
+    // check is no guard here either. Raised in review, measured against real
+    // GLib. Only the backslash needs escaping: `%` and `$` mean nothing in
+    // this field.
     if (!appImagePath.contains(QLatin1Char(' '))
-        && !appImagePath.contains(QLatin1Char('\t')))
-        kept.append(QStringLiteral("TryExec=") + appImagePath);
+        && !appImagePath.contains(QLatin1Char('\t'))) {
+        QString tryExec = appImagePath;
+        tryExec.replace(QLatin1Char('\\'), QLatin1String("\\\\"));
+        kept.append(QStringLiteral("TryExec=") + tryExec);
+    }
     kept.append(QStringLiteral("Icon=") + kAppId);
     kept.append(QStringLiteral("StartupWMClass=") + kWmClass);
     kept.append(QStringLiteral("X-AppImage-Version=")
@@ -974,10 +986,33 @@ int installUserIcons(const QString &appDir, const QString &dataHome,
             // worth it.
             const QString relative =
                 size + QStringLiteral("/apps/") + name;
-            // A FILE WE DID NOT WRITE IS THE USER'S. Overwriting one is how
-            // a deliberate icon override was being undone on every launch.
+            // A FILE WE DID NOT WRITE IS THE USER'S, AND ADOPTING IT ON
+            // SIGHT IS HOW ONE GETS DELETED.
+            //
+            // The first version of this recorded an unrecognised file as
+            // ours while skipping it, so that existing installs (our icons
+            // on disk, no manifest yet) would not end up with an empty
+            // manifest and unreclaimable artwork. Review showed what that
+            // costs: a user's own override is skipped on run one and
+            // RECORDED, so on run two the guard no longer fires and it is
+            // overwritten, and removeUserIcons() would later delete a file
+            // Lightning never wrote. That deletion path is new, so this was
+            // a data-loss path introduced by the fix for a data-loss path.
+            //
+            // Provenance, not existence: adopt an untracked file only when
+            // it is byte-identical to the payload icon it shadows, which is
+            // exactly the migration case and never a user's own artwork.
             if (QFileInfo::exists(to) && !recorded.contains(relative)) {
-                written.append(relative);   // keep any earlier record honest
+                QFile ours(from);
+                QFile theirs(to);
+                bool identical = QFileInfo(to).size() == QFileInfo(from).size()
+                                 && ours.open(QIODevice::ReadOnly)
+                                 && theirs.open(QIODevice::ReadOnly)
+                                 && ours.readAll() == theirs.readAll();
+                if (identical)
+                    written.append(relative);   // a copy of ours from before
+                // Either way it is left ALONE: identical needs no write, and
+                // different is the user's.
                 continue;
             }
             written.append(relative);
@@ -997,6 +1032,14 @@ int installUserIcons(const QString &appDir, const QString &dataHome,
             else
                 QFile::remove(staging);
         }
+    }
+    // A UNION, NOT A REPLACEMENT. A release shipping fewer icon sizes would
+    // otherwise drop the older sizes from the manifest while leaving the
+    // files on disk, where nothing could ever reclaim them and they would
+    // shadow an installed package's artwork for good. Raised in review.
+    for (const QString &earlier : recorded) {
+        if (!written.contains(earlier))
+            written.append(earlier);
     }
     if (!written.isEmpty()) {
         QDir().mkpath(dataHome + QStringLiteral("/icons/hicolor"));

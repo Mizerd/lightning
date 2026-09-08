@@ -32,6 +32,7 @@ private Q_SLOTS:
     void aCorruptFileIsDiscardedRatherThanHalfRead();
     void theStoreIsInertWithoutAPath();
     void removeStoreDeletesTheFile();
+    void theCapEvictsAFutureStampedRowBeforeAFreshOne();
     void theCapDropsTheOldestRowsFirst();
 
 private:
@@ -211,6 +212,46 @@ void BridgeLabelStoreTest::removeStoreDeletesTheFile()
     QVERIFY(!QFile::exists(path()));
     // Idempotent: an absent file is already gone.
     QVERIFY(BridgeLabelStore::removeStore(path()));
+}
+
+// A FUTURE-STAMPED ROW IS EVICTED BEFORE A FRESH ONE.
+//
+// A clock that moved backwards leaves rows stamped ahead of now.
+// `entryIsFresh` already refuses to believe them, so they are worthless,
+// and the cap must not keep one at the cost of a row that is real. The
+// first attempt clamped the sort key to `now`, which a review showed is
+// a no-op: the smallest keys are evicted, and a clamped future row still
+// sorts at or above every legitimate row.
+void BridgeLabelStoreTest::theCapEvictsAFutureStampedRowBeforeAFreshOne()
+{
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    QJsonObject root;
+    // One row stamped in the future, and kMaxEntries genuinely fresh
+    // ones. Exactly one must go, and it must be the future row.
+    QJsonObject ahead;
+    ahead.insert(QStringLiteral("n"), QStringLiteral("irc"));
+    ahead.insert(QStringLiteral("l"), QStringLiteral("IRC"));
+    ahead.insert(QStringLiteral("t"), static_cast<double>(now + 86400));
+    root.insert(QStringLiteral("!future:example.org"), ahead);
+    for (int i = 0; i < BridgeLabelStore::kMaxEntries; ++i) {
+        QJsonObject row;
+        row.insert(QStringLiteral("n"), QStringLiteral("irc"));
+        row.insert(QStringLiteral("l"), QStringLiteral("IRC"));
+        row.insert(QStringLiteral("t"), static_cast<double>(now - 1000 + i));
+        root.insert(QStringLiteral("!fresh%1:example.org").arg(i), row);
+    }
+    writeRaw(root);
+
+    BridgeLabelStore store;
+    QVERIFY(store.openFor(path()));
+    QCOMPARE(store.count(), BridgeLabelStore::kMaxEntries);
+    QVERIFY2(!store.knows(QStringLiteral("!future:example.org")),
+             "the cap kept a row stamped in the future, which is one the "
+             "freshness rule already refuses to believe, and evicted a "
+             "genuinely fresh row to make room for it");
+    QVERIFY2(store.knows(QStringLiteral("!fresh0:example.org")),
+             "the oldest genuinely fresh row was evicted while a "
+             "worthless future-stamped row survived");
 }
 
 void BridgeLabelStoreTest::theCapDropsTheOldestRowsFirst()

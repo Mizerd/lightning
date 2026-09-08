@@ -10,6 +10,7 @@
 #include <QSaveFile>
 
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -142,14 +143,24 @@ void BridgeLabelStore::pruneToCap()
     byAge.reserve(static_cast<size_t>(m_entries.size()));
     for (auto it = m_entries.constBegin(); it != m_entries.constEnd(); ++it)
         byAge.emplace_back(it.value().learnedAt, it.key());
-    // Sort on the CLAMPED stamp. A row stamped in the future is the
-    // clock-went-backwards case `entryIsFresh` already refuses to believe;
-    // sorting on the raw value would make it the NEWEST row and evict
-    // genuinely fresh ones to keep it. Caught in review.
+    // A FUTURE ROW IS EVICTED FIRST, not kept.
+    //
+    // The first attempt at this clamped the sort key to `now`, and a review
+    // showed that is a no-op: the list is sorted ASCENDING and the smallest
+    // keys are removed, so a future row clamped to `now` is still at least
+    // as large as every legitimate row (one learned a second ago is
+    // `now - 1`) and is still kept while a fresh row is evicted. The comment
+    // claimed otherwise, which is worse than not having tried.
+    //
+    // `entryIsFresh` already refuses to believe a future stamp, so such a
+    // row is worthless: sort it to the very front and let it go first.
     const qint64 now = nowSecs();
+    const auto sortKey = [now](qint64 stamp) {
+        return stamp > now ? std::numeric_limits<qint64>::min() : stamp;
+    };
     std::sort(byAge.begin(), byAge.end(),
-              [now](const auto &a, const auto &b) {
-                  return std::min(a.first, now) < std::min(b.first, now);
+              [&sortKey](const auto &a, const auto &b) {
+                  return sortKey(a.first) < sortKey(b.first);
               });
     const int excess = m_entries.size() - kMaxEntries;
     for (int i = 0; i < excess; ++i)
