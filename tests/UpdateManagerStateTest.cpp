@@ -2001,14 +2001,46 @@ void UpdateManagerStateTest::theFallbackFetcherHopsOnlyWithinTheMirror()
 // parser. No hand-built arguments anywhere.
 void UpdateManagerStateTest::everyInstallTypeBuildsArgumentsTheHelperAccepts()
 {
+    // THE SET IS DERIVED, NOT LISTED. This case said "for every install
+    // type" and then listed five, omitting linux-rpm -- one of the six that
+    // canInstallAutomatically() answers true for. A hand-written table is
+    // exactly how the omission happened, and the seam it guards is the one
+    // that shipped two broken updaters. So: walk EVERY enum value, keep the
+    // ones the product claims it can install automatically, and require the
+    // kept set to be non-empty. Adding an installable type without adding it
+    // here is no longer possible.
     struct Case { InstallType type; const char *name; };
-    const QVector<Case> cases{
+    const QVector<Case> everyType{
         { InstallType::WindowsMsi, "windows-msi" },
         { InstallType::WindowsSetup, "windows-setup" },
         { InstallType::WindowsPortable, "windows-portable" },
         { InstallType::LinuxAppImage, "linux-appimage" },
         { InstallType::LinuxDeb, "linux-deb" },
+        { InstallType::LinuxRpm, "linux-rpm" },
+        { InstallType::LinuxFlatpak, "linux-flatpak" },
+        { InstallType::LinuxSnap, "linux-snap" },
+        { InstallType::MacosDmg, "macos-dmg" },
+        { InstallType::Development, "development" },
+        { InstallType::Unknown, "unknown" },
     };
+    QVector<Case> cases;
+    for (const Case &c : everyType) {
+        // The wire id and the enum must already agree, or the filter below
+        // is testing a name nobody uses.
+        QCOMPARE(lightning::update::installTypeId(c.type),
+                 QString::fromLatin1(c.name));
+        if (lightning::update::canInstallAutomatically(c.type))
+            cases.append(c);
+    }
+    QVERIFY2(cases.size() >= 6,
+             "fewer install types claim automatic installation than this "
+             "product ships; either a type lost the claim or the enum list "
+             "above went stale");
+    // macOS must NOT be in there: the helper has no strategy for it and
+    // advertising one would be a promise the product cannot keep.
+    for (const Case &c : cases)
+        QVERIFY(c.type != InstallType::MacosDmg);
+
     for (const Case &c : cases) {
         const auto manager = makeManager(c.type, QStringLiteral("0.7.0"));
         manager->setProcessLauncherForTest(
