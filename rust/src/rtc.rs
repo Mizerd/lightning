@@ -2792,6 +2792,16 @@ pub(crate) fn register_rtc_handlers(
     // Olm-vouched: it names who the homeserver says this came from, which is
     // the right datum for a diagnostic and would be the wrong one for a
     // decision.
+    //
+    // THERE IS A SECOND HANDLER ON THIS EXACT EVENT TYPE, in `lib.rs`
+    // (search `ToDeviceRoomEncryptedEvent`), and both are deliberate. That one
+    // is the GENERAL counter: every sender, rate limited to the first, tenth
+    // and every hundredth, and it says only that the Olm channel from that
+    // user is not opening. This one is the CALL-SPECIFIC reading: it fires
+    // only for a peer this client has actually sent a media key to, and says
+    // what the failure costs in the call. Neither subsumes the other, and
+    // deleting one to remove the "duplicate" loses either the general signal
+    // or the actionable one. matrix-sdk supports several handlers per type.
     {
         let events = Arc::clone(events);
         let timelines = Arc::clone(timelines);

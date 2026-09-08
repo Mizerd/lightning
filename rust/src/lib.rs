@@ -9608,6 +9608,13 @@ fn install_event_handlers(
     // count, never ciphertext, a session id, a device key or key material. A
     // wedged Olm session produces these in bulk, so only the first, the tenth
     // and every hundredth are reported.
+    //
+    // THERE IS A SECOND HANDLER ON THIS EXACT EVENT TYPE, in `rtc.rs`, and
+    // both are deliberate. That one fires only for a peer this client has
+    // actually sent a call media key to and says what the failure costs in
+    // the call; this one is the general counter across every sender. Neither
+    // subsumes the other, and deleting one to remove the "duplicate" loses
+    // either the general signal or the actionable one.
     let utd_events = Arc::clone(&events);
     let utd_counts: Arc<Mutex<HashMap<OwnedUserId, u64>>> =
         Arc::new(Mutex::new(HashMap::new()));
