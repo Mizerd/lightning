@@ -24,6 +24,7 @@
 #include "matrix/TimelineEvent.h"
 #include "notifications/NotificationManager.h"
 
+#include <QFile>
 #include <QSignalSpy>
 #include <QtTest/QtTest>
 
@@ -289,6 +290,46 @@ private Q_SLOTS:
         QVERIFY(!ctl.reportPromptActive());
         QVERIFY(!ctl.busy());
         QVERIFY(ctl.revision() > revBefore);
+    }
+
+    // A SUBMITTED REPORT MUST TELL THE USER WHAT HAPPENED.
+    //
+    // reportFinished carried a translated sentence for both outcomes from the
+    // day it was written, and NOTHING outside this suite ever listened to it.
+    // submitReport clears the prompt BEFORE the server answers, so
+    // ReportMessageDialog closes at once: the user pressed Report, the dialog
+    // vanished, and no surface ever said whether the server accepted it,
+    // refused it, rate-limited it or lost it.
+    //
+    // The consumer is a Connections in Main.qml, so this is a source
+    // contract. The cases above already prove the signal fires with the right
+    // payload; what could not be proven at this layer, and what actually
+    // broke, is that anyone is listening.
+    void theReportOutcomeReachesAScreen()
+    {
+        QFile file(QStringLiteral(QML_DIR "/Main.qml"));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+        const QString source = QString::fromUtf8(file.readAll());
+
+        const int handler = source.indexOf(QStringLiteral("onReportFinished"));
+        QVERIFY2(handler > 0,
+                 "no surface listens to ModerationController::reportFinished, "
+                 "so a submitted report never tells the user whether the "
+                 "server accepted it, refused it or lost it");
+        // Bounded to the handler, so an unrelated notice elsewhere in this
+        // very large file cannot satisfy the contract.
+        const QString body = source.mid(handler, 400);
+        QVERIFY2(body.contains(QStringLiteral("pinNotice.show")),
+                 "the report outcome is received and then dropped without "
+                 "being shown");
+        // The controller already carries the wording for both outcomes. A
+        // handler that only reports failures would leave a successful report
+        // indistinguishable from a dead menu item, because nothing visible
+        // changes when one lands.
+        QVERIFY2(!body.contains(QStringLiteral("if (ok)"))
+                     && !body.contains(QStringLiteral("!ok &&")),
+                 "the handler reports only one outcome; a silent success "
+                 "cannot be told apart from a menu item that did nothing");
     }
 };
 

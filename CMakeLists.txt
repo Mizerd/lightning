@@ -3008,6 +3008,8 @@ if(BUILD_TESTING)
         src/storage/PortableMode.cpp
     )
     target_include_directories(moderation-test PRIVATE src)
+    target_compile_definitions(moderation-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(moderation-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Widgets Qt6::Test)
     if(TARGET Qt6::DBus)

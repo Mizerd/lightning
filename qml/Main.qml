@@ -933,6 +933,27 @@ ApplicationWindow {
                     pinNotice.show(message)
             }
         }
+        // A REPORT WAS SUBMITTED AND THEN NOTHING HAPPENED, WHICH IS THE
+        // WHOLE PROBLEM. `ModerationController::reportFinished` had no
+        // consumer anywhere outside its own test, and `submitReport` clears
+        // the prompt BEFORE the server answers, so ReportMessageDialog closes
+        // at once. The user pressed Report, the dialog vanished, and nothing
+        // ever said whether the server accepted it, refused it, rate-limited
+        // it or lost it.
+        //
+        // SUCCESS is reported here, unlike a pin: nothing visible changes
+        // when a report lands, so a silent success is indistinguishable from
+        // a dead menu item -- the same reasoning as the sticker save below.
+        // The controller already carries a translated sentence for both
+        // outcomes, so this names no wording of its own and cannot drift
+        // from it.
+        Connections {
+            target: app.moderation
+            function onReportFinished(ok, message) {
+                if (message.length > 0)
+                    pinNotice.show(message, !ok)
+            }
+        }
         // "Add to my stickers": the message context menu has closed by the
         // time the account-data write answers, so the outcome is reported
         // here, on the same transient notice.
