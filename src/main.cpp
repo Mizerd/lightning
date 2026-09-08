@@ -53,7 +53,9 @@
 #endif
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QSaveFile>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QDateTime>
 #include <QFile>
@@ -268,6 +270,7 @@ struct PreflightResult {
         RunCallMediaStatus, // --call-media-status: probe the media engines
         RunImageFormatStatus, // --image-format-status: probe the image decoders
         RunSpellStatus, // --spell-status: probe the platform spell checker
+        RunDesktopStatus, // --desktop-status: launcher entry + icon association
     };
     Action action = Continue;
     // Compile-time default (Rust when the SDK backend is built, else HTTP). A
@@ -373,6 +376,15 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "                       dlopen (Linux) or COM object (Windows), so this is\n"
                 "                       a property of the MACHINE, not of the source. No\n"
                 "                       network, no GUI.\n"
+                "  --desktop-status     Publish this build's launcher entry the way a\n"
+                "                       normal launch does, then print whether this\n"
+                "                       session can resolve the app id to an entry\n"
+                "                       and an icon, and exit. That association is\n"
+                "                       the ONLY route to a window icon on Wayland:\n"
+                "                       Qt implements no icon protocol there, so\n"
+                "                       setWindowIcon() reaches the compositor\n"
+                "                       through nothing. Exit 0 only when both\n"
+                "                       resolve. No network, no GUI.\n"
                 "  --gif-status         Print 'GIPHY/KLIPY configured: yes|no' and exit.\n"
                 "                       Booleans only; never prints keys. No network.\n"
                 "  --gif-selftest       As --gif-status plus a bounded live trending\n"
@@ -520,6 +532,10 @@ PreflightResult preflightParse(int argc, char *argv[])
         }
         if (a == QLatin1String("--spell-status")) {
             r.action = PreflightResult::RunSpellStatus;
+            return r;
+        }
+        if (a == QLatin1String("--desktop-status")) {
+            r.action = PreflightResult::RunDesktopStatus;
             return r;
         }
         if (a == QLatin1String("--gif-status")) {
@@ -713,6 +729,499 @@ void installVaapiLogGate()
 }
 
 } // namespace
+
+// ── THE WINDOW ICON, AND WHY AN APPIMAGE HAS TO PUBLISH A LAUNCHER ENTRY
+//    TO HAVE ONE ─────────────────────────────────────────────────────────
+//
+// Reported against the AppImage: after updating, the window and taskbar icon
+// is a generic placeholder. The evidence, established 2026-09-08:
+//
+//  * QT'S WAYLAND CLIENT IMPLEMENTS NO ICON PROTOCOL. `xdg_toplevel_icon`
+//    appears ZERO times in libQt6WaylandClient (measured on 6.11.0; the
+//    AppImage bundles Debian's OLDER 6.8.2, so it cannot have it either). On
+//    a native Wayland session QGuiApplication::setWindowIcon() therefore
+//    reaches the compositor through NOTHING — it is inert. Under X11 and
+//    XWayland the same call sets _NET_WM_ICON and the icon is correct, which
+//    is why this was never seen before.
+//  * The compositor's only remaining route is the toplevel's app id. Qt takes
+//    that from QGuiApplication::desktopFileName() — "lightning" — and the
+//    session resolves it by looking for `lightning.desktop` in XDG_DATA_HOME
+//    and XDG_DATA_DIRS, then reading its Icon= key.
+//  * AN APPIMAGE INSTALLS NOTHING, so that lookup finds nothing. The
+//    reporter's log carries the very same lookup failing in a second consumer:
+//    `qt.qpa.services: Failed to register with host portal ... Could not
+//    register app ID: App info not found for 'lightning'`.
+//  * WHY IT APPEARED ON AN UPDATE. AppImages up to 0.9.0 shipped without
+//    wayland-shell-integration, so Qt refused its own Wayland plugin and ran
+//    under XWayland — where setWindowIcon works. Staging that plugin (the fix
+//    for the black screen share, asserted by validate-appimage.sh since) moved
+//    the client onto native Wayland, and the icon association went with it.
+//    Nothing about the icon payload changed; the protocol under it did.
+//
+// So an AppImage that wants an icon has to publish a launcher entry, and the
+// icons it names, where the session can see them. That is what every
+// self-integrating AppImage does and it is the only route Wayland offers.
+//
+// SCOPED HARD. It runs only when the AppImage runtime's APPIMAGE **and**
+// APPDIR are both set and both resolve, so a deb, rpm, flatpak, snap, macOS
+// or source run never writes a byte — those install a real launcher entry
+// through their own packaging and already work. It never overwrites a
+// `lightning.desktop` it did not write (the X-Lightning-Generated marker), and
+// LIGHTNING_NO_DESKTOP_INTEGRATION=1 turns it off entirely.
+//
+// NOT CLAIMED: that the icon appears on the FIRST run of a new AppImage. The
+// entry is written while this process starts, and a session that has already
+// cached its application index may only pick it up on the next launch.
+namespace {
+
+// The ONE name that has to agree in three places or the icon is generic: the
+// app id Qt stamps on every Wayland toplevel (setDesktopFileName, below), the
+// basename of the launcher entry the compositor looks that id up in, and the
+// icon name that entry's Icon= key carries.
+constexpr QLatin1String kAppId("lightning");
+// X11/XWayland association: Qt's xcb plugin takes the WM_CLASS instance from
+// argv[0], i.e. the binary name.
+constexpr QLatin1String kWmClass("lightning-matrix");
+
+struct LauncherEntryReport {
+    bool appImageRun = false;
+    QString appImagePath;
+    QString appDir;
+    QString payloadEntry;     // launcher entry inside the AppImage payload
+    QString payloadIconName;  // its Icon= value
+    int payloadIcons = 0;     // icon files in the payload's hicolor tree
+    QString userEntry;        // launcher entry under the user's data dir
+    int iconsCopied = 0;
+    QString outcome = QStringLiteral("not an AppImage run");
+};
+
+#if defined(Q_OS_LINUX)
+// Everything between here and the publication function is reached only from
+// the AppImage path, so it is compiled only where that path exists. Windows
+// and macOS are guarded builds this repository cannot run locally (the QtDBus
+// lesson); leaving four unused static functions in them is exactly the noise
+// that hides a real warning.
+
+/// Quote one argument for a Desktop Entry Exec= field (spec: inside double
+/// quotes, `"`, `` ` ``, `$` and `\` are escaped with a backslash).
+QString quoteExecArgument(const QString &value)
+{
+    QString out;
+    out.reserve(value.size() + 2);
+    out.append(QLatin1Char('"'));
+    for (const QChar c : value) {
+        if (c == QLatin1Char('"') || c == QLatin1Char('\\')
+            || c == QLatin1Char('$') || c == QLatin1Char('`'))
+            out.append(QLatin1Char('\\'));
+        out.append(c);
+    }
+    out.append(QLatin1Char('"'));
+    return out;
+}
+
+QStringList launcherEntrySource(const QString &payloadEntry)
+{
+    QFile file(payloadEntry);
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
+    // The payload's entry is asserted by validate-appimage.sh, so this is the
+    // belt to that braces: an icon is worth more than fidelity to a file that
+    // is not there.
+    return QStringList{
+        QStringLiteral("[Desktop Entry]"),
+        QStringLiteral("Type=Application"),
+        QStringLiteral("Name=Lightning"),
+        QStringLiteral("GenericName=Matrix Client"),
+        QStringLiteral("Comment=Native Qt Matrix chat client"),
+        QStringLiteral("Terminal=false"),
+        QStringLiteral("Categories=Network;Chat;InstantMessaging;"),
+        QStringLiteral("StartupNotify=true"),
+    };
+}
+
+/// The launcher entry to publish: the payload's own entry — so Name, Comment,
+/// Categories, Keywords and any translations stay in the one tracked place,
+/// data/lightning.desktop — with the keys a single-file bundle gets wrong
+/// rewritten.
+QString launcherEntryText(const QString &payloadEntry,
+                          const QString &appImagePath)
+{
+    const QStringList source = launcherEntrySource(payloadEntry);
+
+    // Arguments come from the payload's own Exec line, so `--backend=rust`
+    // (or whatever a future entry passes) is not duplicated here to drift.
+    QString execArguments;
+    QStringList kept;
+    bool seenHeader = false;
+    for (const QString &raw : source) {
+        const QString line = raw.trimmed();
+        if (line.startsWith(QLatin1Char('['))) {
+            // Our keys are appended at the end, so they must land in the FIRST
+            // group. A second group (a Desktop Action) ends the copy.
+            if (seenHeader)
+                break;
+            seenHeader = true;
+            kept.append(line);
+            continue;
+        }
+        if (line.startsWith(QLatin1String("Exec="))) {
+            const QString value = line.mid(5).trimmed();
+            const int space = value.indexOf(QLatin1Char(' '));
+            if (space > 0)
+                execArguments = value.mid(space + 1).trimmed();
+            continue;
+        }
+        if (line.startsWith(QLatin1String("TryExec="))
+            || line.startsWith(QLatin1String("Icon="))
+            || line.startsWith(QLatin1String("StartupWMClass="))
+            || line.startsWith(QLatin1String("X-AppImage-"))
+            || line.startsWith(QLatin1String("X-Lightning-")))
+            continue;
+        if (line.isEmpty())
+            continue;
+        kept.append(line);
+    }
+    if (!seenHeader)
+        kept.prepend(QStringLiteral("[Desktop Entry]"));
+
+    QString exec = quoteExecArgument(appImagePath);
+    if (!execArguments.isEmpty())
+        exec += QLatin1Char(' ') + execArguments;
+    kept.append(QStringLiteral("Exec=") + exec);
+    // TryExec is what makes the entry disappear from menus once the AppImage
+    // is deleted — a single-file bundle has no uninstall step to do it. It is
+    // a bare path with no quoting in the spec, so a path containing whitespace
+    // would read as "not installed" and HIDE a working entry: omit it there
+    // rather than trade a stale menu item for no icon at all.
+    if (!appImagePath.contains(QLatin1Char(' '))
+        && !appImagePath.contains(QLatin1Char('\t')))
+        kept.append(QStringLiteral("TryExec=") + appImagePath);
+    kept.append(QStringLiteral("Icon=") + kAppId);
+    kept.append(QStringLiteral("StartupWMClass=") + kWmClass);
+    kept.append(QStringLiteral("X-AppImage-Version=")
+                + QLatin1String(APP_VERSION));
+    // The marker that makes this file ours. Without it we cannot tell our own
+    // entry from one the user or a distribution wrote, and overwriting theirs
+    // would be a data-loss defect wearing an icon fix's clothes.
+    kept.append(QStringLiteral("X-Lightning-Generated=true"));
+    return kept.join(QLatin1Char('\n')) + QLatin1Char('\n');
+}
+
+/// Copy the payload's hicolor icons into the user's own icon theme, so
+/// `Icon=lightning` resolves for the compositor, for the launcher and for
+/// QIcon::fromTheme alike. Returns the number of files actually written.
+int installUserIcons(const QString &appDir, const QString &dataHome,
+                     int *payloadIcons)
+{
+    int copied = 0;
+    const QDir hicolor(appDir + QStringLiteral("/usr/share/icons/hicolor"));
+    if (!hicolor.exists())
+        return 0;
+    const QStringList sizes =
+        hicolor.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QString &size : sizes) {
+        const QDir apps(hicolor.filePath(size + QStringLiteral("/apps")));
+        if (!apps.exists())
+            continue;
+        const QStringList names =
+            apps.entryList(QStringList{ kAppId + QStringLiteral(".*") },
+                           QDir::Files, QDir::Name);
+        for (const QString &name : names) {
+            if (payloadIcons)
+                ++*payloadIcons;
+            const QString from = apps.filePath(name);
+            const QString toDir = dataHome + QStringLiteral("/icons/hicolor/")
+                + size + QStringLiteral("/apps");
+            const QString to = toDir + QLatin1Char('/') + name;
+            // Size is the cheap discriminator on a startup path, and this
+            // artwork only changes when the icons themselves do. Re-reading
+            // nine files on every launch to catch a same-size redraw is not
+            // worth it.
+            if (QFileInfo(to).size() == QFileInfo(from).size())
+                continue;
+            if (!QDir().mkpath(toDir))
+                continue;
+            QFile::remove(to);
+            if (QFile::copy(from, to))
+                ++copied;
+        }
+    }
+    return copied;
+}
+
+/// The launcher entry an installed PACKAGE published, if any: XDG_DATA_DIRS
+/// only, never XDG_DATA_HOME, because the point is to notice somebody else's
+/// copy of the same basename before shadowing it.
+///
+/// THE BUNDLE'S OWN SHARE DIRECTORY DOES NOT COUNT, and forgetting that would
+/// turn the whole publication into a no-op: linuxdeploy's AppRun PREPENDS
+/// `$APPDIR/usr/share` to XDG_DATA_DIRS (which is why the AppImage hook saves
+/// the session's value as XDG_DATA_DIRS_APPIMAGE — see UrlLauncher). Our own
+/// payload entry would then look like an installed package to the loop below.
+/// It is not one: that directory exists only inside this process's
+/// environment, on a mount that disappears when it exits, and the compositor
+/// asking "which desktop entry is app id lightning?" has never heard of it.
+QString systemLauncherEntry()
+{
+    QString dirs = QString::fromLocal8Bit(qgetenv("XDG_DATA_DIRS"));
+    if (dirs.isEmpty())
+        dirs = QStringLiteral("/usr/local/share:/usr/share");
+    const QString appDir = QString::fromLocal8Bit(qgetenv("APPDIR"));
+    const QStringList entries =
+        dirs.split(QLatin1Char(':'), Qt::SkipEmptyParts);
+    for (const QString &dir : entries) {
+        if (!appDir.isEmpty() && dir.startsWith(appDir))
+            continue;
+        const QString candidate = dir + QStringLiteral("/applications/")
+            + kAppId + QStringLiteral(".desktop");
+        if (QFileInfo(candidate).isFile())
+            return candidate;
+    }
+    return {};
+}
+
+#endif // Q_OS_LINUX
+
+/// Publish the launcher entry and the icons it names for an AppImage run; a
+/// no-op everywhere else. A handful of small local writes, done once — the
+/// second launch finds everything current and writes nothing.
+LauncherEntryReport publishAppImageLauncherEntry()
+{
+    LauncherEntryReport report;
+#ifndef Q_OS_LINUX
+    report.outcome = QStringLiteral("skipped: not Linux");
+    return report;
+#else
+    report.appImagePath = QString::fromLocal8Bit(qgetenv("APPIMAGE"));
+    report.appDir = QString::fromLocal8Bit(qgetenv("APPDIR"));
+    report.appImageRun = !report.appImagePath.isEmpty()
+        && !report.appDir.isEmpty()
+        && QFileInfo(report.appImagePath).isFile()
+        && QFileInfo(report.appDir).isDir();
+    if (!report.appImageRun) {
+        report.outcome = QStringLiteral("skipped: not an AppImage run");
+        return report;
+    }
+    report.payloadEntry = report.appDir
+        + QStringLiteral("/usr/share/applications/") + kAppId
+        + QStringLiteral(".desktop");
+    if (!QFileInfo(report.payloadEntry).isFile()) {
+        report.payloadEntry.clear();
+    } else {
+        QFile payload(report.payloadEntry);
+        if (payload.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            const QStringList lines =
+                QString::fromUtf8(payload.readAll()).split(QLatin1Char('\n'));
+            for (const QString &line : lines) {
+                if (line.trimmed().startsWith(QLatin1String("Icon="))) {
+                    report.payloadIconName = line.trimmed().mid(5);
+                    break;
+                }
+            }
+        }
+    }
+
+    const QString optOut =
+        QString::fromLocal8Bit(qgetenv("LIGHTNING_NO_DESKTOP_INTEGRATION"));
+    if (!optOut.isEmpty() && optOut != QLatin1String("0")) {
+        report.outcome =
+            QStringLiteral("skipped: LIGHTNING_NO_DESKTOP_INTEGRATION is set");
+        return report;
+    }
+
+    const QString dataHome = QStandardPaths::writableLocation(
+        QStandardPaths::GenericDataLocation);
+    if (dataHome.isEmpty()) {
+        report.outcome = QStringLiteral("failed: no writable data location");
+        return report;
+    }
+    report.userEntry = dataHome + QStringLiteral("/applications/") + kAppId
+        + QStringLiteral(".desktop");
+
+    QByteArray existing;
+    {
+        QFile current(report.userEntry);
+        if (current.open(QIODevice::ReadOnly))
+            existing = current.readAll();
+    }
+    if (!existing.isEmpty()
+        && !existing.contains("X-Lightning-Generated=true")) {
+        report.outcome = QStringLiteral(
+            "skipped: an existing launcher entry was not written by Lightning");
+        return report;
+    }
+
+    // DEFER TO AN INSTALLED PACKAGE, and remove our own copy if one is there.
+    //
+    // A deb, rpm, flatpak or snap installs `lightning.desktop` into a system
+    // data directory, and a file of the same basename under XDG_DATA_HOME
+    // SHADOWS it. Publishing ours over that would repoint the shared name at
+    // this AppImage, and the TryExec below would then HIDE the entry the day
+    // the AppImage file is deleted — taking the installed package's launcher
+    // with it. There is nothing to gain by it either: the system entry
+    // already carries Icon=lightning and the package already installed the
+    // hicolor icons, which is the whole thing this publication exists to
+    // achieve.
+    if (const QString installed = systemLauncherEntry(); !installed.isEmpty()) {
+        if (!existing.isEmpty() && QFile::remove(report.userEntry))
+            report.outcome = QStringLiteral(
+                "skipped: %1 is installed; removed our own shadowing copy")
+                                 .arg(installed);
+        else
+            report.outcome =
+                QStringLiteral("skipped: %1 is installed").arg(installed);
+        return report;
+    }
+
+    report.iconsCopied =
+        installUserIcons(report.appDir, dataHome, &report.payloadIcons);
+
+    const QByteArray wanted =
+        launcherEntryText(report.payloadEntry, report.appImagePath).toUtf8();
+    if (existing == wanted) {
+        report.outcome = QStringLiteral("already current");
+        return report;
+    }
+    if (!QDir().mkpath(dataHome + QStringLiteral("/applications"))) {
+        report.outcome = QStringLiteral("failed: cannot create %1/applications")
+                             .arg(dataHome);
+        return report;
+    }
+    QSaveFile out(report.userEntry);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)
+        || out.write(wanted) != wanted.size() || !out.commit()) {
+        report.outcome =
+            QStringLiteral("failed: could not write the launcher entry");
+        return report;
+    }
+    report.outcome = QStringLiteral("written");
+    return report;
+#endif
+}
+
+/// Every directory a session searches for launcher entries and icons:
+/// $XDG_DATA_HOME (or ~/.local/share) first, then $XDG_DATA_DIRS. This is the
+/// lookup the compositor and xdg-desktop-portal perform on the app id, so what
+/// it finds IS the diagnosis of a generic window icon.
+///
+/// $APPDIR is excluded for the reason systemLauncherEntry() gives: AppRun puts
+/// the bundle's own share directory on XDG_DATA_DIRS, and counting it here
+/// would make --desktop-status report the reported defect as fixed on every
+/// AppImage ever built.
+QStringList xdgDataDirs()
+{
+    QStringList dirs;
+    const QString home = QStandardPaths::writableLocation(
+        QStandardPaths::GenericDataLocation);
+    if (!home.isEmpty())
+        dirs << home;
+    const QString appDir = QString::fromLocal8Bit(qgetenv("APPDIR"));
+    QString system = QString::fromLocal8Bit(qgetenv("XDG_DATA_DIRS"));
+    if (system.isEmpty())
+        system = QStringLiteral("/usr/local/share:/usr/share");
+    const QStringList entries =
+        system.split(QLatin1Char(':'), Qt::SkipEmptyParts);
+    for (const QString &entry : entries) {
+        if (!appDir.isEmpty() && entry.startsWith(appDir))
+            continue;
+        if (!dirs.contains(entry))
+            dirs << entry;
+    }
+    return dirs;
+}
+
+} // namespace
+
+/// `--desktop-status`: ask the RUNNING BUILD whether this session can resolve
+/// its app id to a launcher entry and an icon — the association that decides
+/// the window and taskbar icon on Wayland, where setWindowIcon() reaches the
+/// compositor through nothing at all (see the block above).
+///
+/// Same shape and same reason as --call-media-status and
+/// --image-format-status: no file listing can answer it. The AppImage's
+/// payload has always carried a perfectly good desktop entry and a full
+/// hicolor icon set; what it never had was a copy of them anywhere the SESSION
+/// looks, and every check in the pipeline passed while the icon was generic.
+///
+/// It performs the same publication a normal launch does, deliberately: a
+/// probe that skips the write cannot prove the write works.
+static int printDesktopStatus()
+{
+    QTextStream out(stdout);
+
+    QGuiApplication::setDesktopFileName(kAppId);
+    out << "qt version: " << QLatin1String(qVersion()) << "\n";
+    out << "app id (desktop file name): "
+        << QGuiApplication::desktopFileName() << "\n";
+    out << "launcher entry basename: " << kAppId << ".desktop\n";
+    out << "wm class: " << kWmClass << "\n";
+
+    const LauncherEntryReport report = publishAppImageLauncherEntry();
+    out << "appimage runtime: " << (report.appImageRun ? "yes" : "no") << "\n";
+    if (report.appImageRun) {
+        out << "appimage: " << report.appImagePath << "\n";
+        out << "appdir: " << report.appDir << "\n";
+        out << "payload launcher entry: "
+            << (report.payloadEntry.isEmpty() ? QStringLiteral("MISSING")
+                                              : report.payloadEntry)
+            << "\n";
+        out << "payload entry icon name: "
+            << (report.payloadIconName.isEmpty() ? QStringLiteral("MISSING")
+                                                 : report.payloadIconName)
+            << "\n";
+        out << "payload icon files: " << report.payloadIcons << "\n";
+        out << "user icon files copied: " << report.iconsCopied << "\n";
+        out << "user launcher entry: " << report.userEntry << "\n";
+    }
+    out << "launcher entry: " << report.outcome << "\n";
+
+    // What the session itself would find, searched exactly as it searches.
+    QString visibleEntry;
+    QString visibleIcon;
+    const QStringList dirs = xdgDataDirs();
+    for (const QString &dir : dirs) {
+        const QString candidate = dir + QStringLiteral("/applications/")
+            + kAppId + QStringLiteral(".desktop");
+        if (visibleEntry.isEmpty() && QFileInfo(candidate).isFile())
+            visibleEntry = candidate;
+        const QDir hicolor(dir + QStringLiteral("/icons/hicolor"));
+        if (visibleIcon.isEmpty() && hicolor.exists()) {
+            const QStringList sizes = hicolor.entryList(
+                QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+            for (const QString &size : sizes) {
+                const QDir apps(
+                    hicolor.filePath(size + QStringLiteral("/apps")));
+                const QStringList hits = apps.entryList(
+                    QStringList{ kAppId + QStringLiteral(".*") }, QDir::Files);
+                if (!hits.isEmpty()) {
+                    visibleIcon = apps.filePath(hits.first());
+                    break;
+                }
+            }
+        }
+    }
+    out << "data dirs searched: " << dirs.size() << " ("
+        << dirs.join(QLatin1Char(' ')) << ")\n";
+    out << "visible launcher entry: "
+        << (visibleEntry.isEmpty() ? QStringLiteral("NONE") : visibleEntry)
+        << "\n";
+    out << "visible icon: "
+        << (visibleIcon.isEmpty() ? QStringLiteral("NONE") : visibleIcon)
+        << "\n";
+
+    if (visibleEntry.isEmpty() || visibleIcon.isEmpty()) {
+        out << "\nRESULT: this session cannot resolve the app id \"" << kAppId
+            << "\" to a launcher entry and an icon, so the window and taskbar "
+               "icon is a generic placeholder on Wayland. Expected for a source "
+               "build, which installs neither; a packaging defect for any "
+               "package.\n";
+        return 1;
+    }
+    out << "\nRESULT: the app id \"" << kAppId
+        << "\" resolves to a launcher entry and an icon this session can "
+           "find.\n";
+    return 0;
+}
 
 /// `--image-format-status`: ask the RUNNING BUILD which image formats it can
 /// decode, and say plainly whether that covers what Lightning accepts.
@@ -1073,6 +1582,19 @@ int main(int argc, char *argv[])
                "machine.\n";
         return 0;
     }
+    if (pf.action == PreflightResult::RunDesktopStatus) {
+        // A QCoreApplication is enough and is what makes this askable of
+        // EVERY packaged artifact: the lookup is XDG_DATA_HOME and
+        // XDG_DATA_DIRS on disk, not a windowing-system round trip. No QPA
+        // platform plugin, no display, no window — the Windows package
+        // stages only qwindows.dll, and forcing offscreen would turn the
+        // one command that reports packaging into a packaging-dependent
+        // command.
+        QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
+        QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
+        QCoreApplication desktopProbeApp(argc, argv);
+        return printDesktopStatus();
+    }
     if (pf.action == PreflightResult::RunGifStatus) {
         // Booleans only; no Qt application or network needed.
         return gif::printProviderStatus();
@@ -1350,7 +1872,18 @@ int main(int argc, char *argv[])
     // the desktop-file name (app_id "lightning" ↔ lightning.desktop); X11
     // matches WM_CLASS (the binary name, "lightning-matrix") through
     // StartupWMClass.
-    QGuiApplication::setDesktopFileName(QStringLiteral("lightning"));
+    QGuiApplication::setDesktopFileName(kAppId);
+    // ...and, for an AppImage, put a launcher entry carrying that id
+    // where the session can find it. Without one there is no window icon
+    // on Wayland at all: Qt has no icon protocol there, so the compositor
+    // resolves the app id against installed desktop entries or shows a
+    // generic placeholder. A no-op for every other install type.
+    {
+        const LauncherEntryReport entry = publishAppImageLauncherEntry();
+        if (entry.appImageRun)
+            qInfo("lightning: AppImage launcher entry: %s (%d icon file(s) copied)",
+                  qUtf8Printable(entry.outcome), entry.iconsCopied);
+    }
 
     // ONE LINE IN THE LOG when this build accepts an image format it cannot
     // draw. Warn, not debug: the failure it names is otherwise a blank box in

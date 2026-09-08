@@ -163,6 +163,12 @@ config-tests:
     # nineteen shortcut cases, this time on the Windows install surface.
     - python3 ./packaging-ci/tests/test-msi-payload-completeness.py
     - python3 ./packaging-ci/tests/test-release-notes-policy.py
+    # The launcher entry and the icons it names -- the window icon, which on
+    # Wayland is decided by packaging alone: Qt implements no icon protocol
+    # there, so setWindowIcon() is inert and the compositor resolves the app id
+    # to a desktop entry or draws a placeholder. Reported against 0.9.x, once
+    # the AppImage stopped falling back to XWayland.
+    - python3 ./packaging-ci/tests/test-appimage-desktop-entry.py
 
 # Proves the GitHub mirror can be written BEFORE anything is published. The
 # mirror job runs after the GitLab tag and release exist, so a dead or

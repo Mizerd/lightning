@@ -133,13 +133,83 @@ private Q_SLOTS:
         const QString main =
             readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
         QVERIFY(!main.isEmpty());
-        // Wayland app_id ↔ desktop entry.
+        // Wayland app_id ↔ desktop entry. ONE literal, in ONE constant: the
+        // app id, the basename of the entry the compositor looks it up in and
+        // the Icon= key that entry carries all come from kAppId, so they
+        // cannot drift apart into a generic window icon.
         QVERIFY(main.contains(QStringLiteral(
-            "setDesktopFileName(QStringLiteral(\"lightning\"))")));
+            "constexpr QLatin1String kAppId(\"lightning\")")));
+        QVERIFY(main.contains(QStringLiteral(
+            "setDesktopFileName(kAppId)")));
         // Themed icon with the bundled fallback.
         QVERIFY(main.contains(QStringLiteral("QIcon::fromTheme")));
         QVERIFY(main.contains(QStringLiteral(
             "icons/hicolor/256x256/apps/lightning.png")));
+    }
+
+    // THE WINDOW ICON ON WAYLAND, which setWindowIcon() above cannot supply.
+    //
+    // Qt's Wayland client implements no icon protocol (`xdg_toplevel_icon`
+    // appears zero times in libQt6WaylandClient), so the compositor's only
+    // route is the toplevel's app id resolved against installed launcher
+    // entries. An AppImage installs nothing, so it has to publish one itself
+    // — reported as a generic placeholder icon once 0.9.x stopped falling
+    // back to XWayland, where _NET_WM_ICON had been doing the job.
+    //
+    // The properties pinned here are the ones whose absence is SILENT: a
+    // publication that never runs, one that runs for a deb as well, and one
+    // that overwrites a launcher entry somebody else wrote.
+    void anAppImageRunPublishesItsOwnLauncherEntry()
+    {
+        const QString main =
+            readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
+        QVERIFY(!main.isEmpty());
+
+        // It is called ON THE NORMAL STARTUP PATH, not only from the status
+        // flag that reports it. A publication function nothing production
+        // invokes is the exact shape of the row window that shipped as a
+        // permanent no-op, covered six ways and never once reached.
+        QVERIFY2(main.contains(QStringLiteral(
+                     "LauncherEntryReport publishAppImageLauncherEntry()")),
+                 "publishAppImageLauncherEntry is not defined");
+        // From the LAST application of the app id — main()'s, since
+        // --desktop-status applies it too, earlier in the file.
+        const int appIdAt =
+            main.lastIndexOf(QStringLiteral("setDesktopFileName(kAppId);"));
+        QVERIFY2(appIdAt > 0, "the app id is never applied");
+        QVERIFY2(main.indexOf(QStringLiteral(
+                     "publishAppImageLauncherEntry();"), appIdAt) > 0,
+                 "the launcher entry is never published after the app id is "
+                 "set on the startup path: an AppImage would carry an app id "
+                 "nothing in the session can resolve, and the window icon "
+                 "would be a generic placeholder");
+
+        // Scoped to an AppImage run by BOTH variables the runtime exports. A
+        // deb, rpm, flatpak, snap or source run installs a real launcher entry
+        // through its own packaging and must never have files written into the
+        // user's data directory behind its back.
+        QVERIFY(main.contains(QStringLiteral("qgetenv(\"APPIMAGE\")")));
+        QVERIFY(main.contains(QStringLiteral("qgetenv(\"APPDIR\")")));
+        QVERIFY(main.contains(QStringLiteral(
+            "LIGHTNING_NO_DESKTOP_INTEGRATION")));
+
+        // It never clobbers an entry it did not write. Without the marker
+        // there is no way to tell ours from the user's or a distribution's,
+        // and overwriting theirs would be data loss dressed as an icon fix.
+        QVERIFY(main.contains(QStringLiteral("X-Lightning-Generated=true")));
+
+        // ...and it defers to an entry an installed package published rather
+        // than shadowing it. A user-level lightning.desktop wins over
+        // /usr/share's by basename, so publishing over a deb's entry would
+        // repoint it at the AppImage — and the TryExec key would then HIDE it
+        // the day that file is deleted, taking the installed package's
+        // launcher with it.
+        QVERIFY(main.contains(QStringLiteral("systemLauncherEntry()")));
+        QVERIFY(main.contains(QStringLiteral("TryExec=")));
+
+        // And the shipped artifact can be asked whether any of it worked;
+        // validate-appimage.sh runs exactly this flag on the real bundle.
+        QVERIFY(main.contains(QStringLiteral("--desktop-status")));
     }
 
     // Qt routes logging to the systemd journal when stderr is not a TTY,

@@ -122,6 +122,123 @@ assert_image_formats() {
     fi
 }
 
+# --- desktop launcher entry and icons ----------------------------------------
+#
+# THE WINDOW ICON IS A PACKAGING PROPERTY ON WAYLAND, AND NOTHING ASSERTED IT.
+#
+# Qt's Wayland client implements no icon protocol -- `xdg_toplevel_icon` appears
+# zero times in libQt6WaylandClient -- so QGuiApplication::setWindowIcon() is
+# INERT on a native Wayland session. The compositor's only route to an icon is
+# the toplevel's app id ("lightning"), which it resolves to `lightning.desktop`
+# in XDG_DATA_HOME/XDG_DATA_DIRS and then reads the Icon= key of. Under X11 and
+# XWayland the same setWindowIcon() call sets _NET_WM_ICON and the icon is
+# right, which is exactly why this hid: AppImages up to 0.9.0 shipped without
+# wayland-shell-integration and ran under XWayland. Staging that plugin moved
+# them onto native Wayland and the icon went generic -- reported as "after
+# updating, the icon is a placeholder".
+#
+# So: the entry and the icons it names must be IN the payload (here), and for a
+# single-file bundle the app must publish a copy where the session looks
+# (assert_desktop_status, below). Neither was checked anywhere.
+#
+#   $1  format label for the error message
+#   $2  the staged/extracted tree whose usr/share is audited
+assert_desktop_launcher_payload() {
+    local label="$1" tree="$2"
+    local entry="$tree/usr/share/applications/lightning.desktop"
+    [[ -f "$entry" ]] || die \
+        "$label: no launcher entry at usr/share/applications/lightning.desktop. Qt stamps the app id \"lightning\" on every Wayland toplevel and the compositor resolves it to that file -- without it the window and taskbar icon is a generic placeholder and nothing logs a word."
+    grep -qx 'Type=Application' "$entry" || die \
+        "$label: the launcher entry has no Type=Application"
+    # The Icon= key is the ONE line the compositor reads for the icon, and the
+    # packaging-ci fallback entry shipped without it for four releases.
+    local icon
+    icon="$(sed -n 's/^Icon=//p' "$entry" | head -n1)"
+    [[ -n "$icon" ]] || die \
+        "$label: the launcher entry has no Icon= key, so the app id resolves to an entry that names no icon -- a generic placeholder, and every other check still passes"
+    [[ "$icon" == lightning ]] || die \
+        "$label: the launcher entry names Icon=$icon; it must be \"lightning\", the basename of the installed hicolor icons"
+    grep -qx 'StartupWMClass=lightning-matrix' "$entry" || die \
+        "$label: the launcher entry has no StartupWMClass=lightning-matrix, so an X11/XWayland session cannot map the window to it"
+    grep -q '^Exec=' "$entry" || die "$label: the launcher entry has no Exec="
+
+    # The icons that entry names. A launcher entry pointing at an icon nobody
+    # installed is the same observable as no entry at all.
+    local size
+    for size in 48 128 192 256; do
+        [[ -f "$tree/usr/share/icons/hicolor/${size}x${size}/apps/$icon.png" ]] || die \
+            "$label: the launcher entry names Icon=$icon and usr/share/icons/hicolor/${size}x${size}/apps/$icon.png is missing"
+    done
+    [[ -f "$tree/usr/share/icons/hicolor/scalable/apps/$icon.svg" ]] || die \
+        "$label: usr/share/icons/hicolor/scalable/apps/$icon.svg is missing; docks and launchers prefer the scalable slot at every zoom"
+    local count
+    count="$(find "$tree/usr/share/icons/hicolor" -name "$icon.*" -type f 2>/dev/null | wc -l)"
+    printf '%s: launcher entry ok (Icon=%s, %s icon file(s) installed)\n' \
+        "$label" "$icon" "$count"
+}
+
+# The AppDir's own top-level icon: what a FILE MANAGER shows for the .AppImage
+# before it is ever run, and what appimagetool embeds. linuxdeploy creates all
+# three from --desktop-file/--icon-file; if either argument ever stops matching
+# a real path it fails silently into a bundle with a blank icon.
+#
+#   $1  format label
+#   $2  the extracted AppDir root
+assert_appdir_root_icon() {
+    local label="$1" tree="$2"
+    [[ -f "$tree/lightning.desktop" ]] || die \
+        "$label: the AppDir root has no lightning.desktop; appimagetool needs it and integration tools read it"
+    [[ -e "$tree/.DirIcon" ]] || die \
+        "$label: the AppDir root has no .DirIcon, so a file manager shows a blank icon for the .AppImage itself"
+    [[ -e "$tree/lightning.png" ]] || [[ -e "$tree/lightning.svg" ]] || die \
+        "$label: the AppDir root has no top-level lightning icon beside .DirIcon"
+    printf '%s: AppDir root icon ok\n' "$label"
+}
+
+# ONE judgement of a `--desktop-status` transcript.
+#
+# Asks the SHIPPED artifact the question a file listing cannot: can this
+# session resolve the app id to a launcher entry and an icon? For a single-file
+# bundle the answer depends on the app publishing a copy into the user's own
+# data directory at startup, so this proves the publication runs, writes, and
+# lands somewhere the lookup finds -- the whole feature, end to end.
+#
+#   $1  format label
+#   $2  path to the captured combined output
+#   $3  the command's exit status
+#   $4  "appimage" when the artifact is expected to self-publish an entry
+assert_desktop_status() {
+    local label="$1" log="$2" status="$3" kind="${4:-}"
+    [[ -s "$log" ]] || die "$label: --desktop-status produced no output at all (an older source has no such flag; the app and the packaging must land together)"
+    cat "$log"
+    grep -qx 'app id (desktop file name): lightning' "$log" || die \
+        "$label: the binary does not stamp the app id \"lightning\" on its windows, so no launcher entry can ever match it"
+    grep -qx 'launcher entry basename: lightning.desktop' "$log" || die \
+        "$label: the app id and the launcher entry basename disagree"
+    if [[ "$kind" == appimage ]]; then
+        grep -qx 'appimage runtime: yes' "$log" || die \
+            "$label: the binary did not see APPIMAGE/APPDIR, so it never even tried to publish a launcher entry"
+        grep -q '^payload entry icon name: lightning$' "$log" || die \
+            "$label: the payload's own launcher entry does not name Icon=lightning"
+        # "written" or "already current" and nothing else. The app has one
+        # other legitimate outcome -- it DEFERS to a launcher entry an
+        # installed deb/rpm already published, rather than shadowing it -- but
+        # the caller runs this against empty scratch XDG directories precisely
+        # so that outcome cannot arise. Seeing it here means the validation
+        # image carries a Lightning package, which is worth failing over.
+        grep -Eqx 'launcher entry: (written|already current)' "$log" || die \
+            "$label: the AppImage did not publish a launcher entry (see the 'launcher entry:' line above for the reason). Without one there is no window icon on Wayland at all."
+    fi
+    grep -q '^visible launcher entry: NONE$' "$log" && die \
+        "$label: no launcher entry is visible to the session in XDG_DATA_HOME or XDG_DATA_DIRS -- this is the generic-placeholder icon defect"
+    grep -q '^visible icon: NONE$' "$log" && die \
+        "$label: a launcher entry is visible but names an icon that is not installed anywhere the session looks"
+    grep -q '^RESULT: the app id' "$log" || die \
+        "$label: --desktop-status did not report success (see the transcript above)"
+    [[ "$status" == 0 ]] || die \
+        "$label: --desktop-status reported success but exited $status"
+}
+
 # --- Windows signing state ---------------------------------------------------
 #
 # ONE place decides whether a Windows release is signed, so artifact metadata,

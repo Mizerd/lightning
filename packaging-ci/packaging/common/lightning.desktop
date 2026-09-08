@@ -1,9 +1,19 @@
+# Fallback launcher entry, installed by configure-build.sh only when the source
+# tree did not install its own (data/lightning.desktop). Keep the two in
+# agreement: Icon= is the ONE line a Wayland compositor reads to draw the window
+# and taskbar icon -- it resolves the toplevel's app id ("lightning") to this
+# file and takes the icon name from here. Qt's Wayland client implements no icon
+# protocol, so setWindowIcon() cannot supply it and an entry without this key is
+# a generic placeholder that nothing logs. This file had neither Icon= nor
+# StartupWMClass from 0.7 to 0.9.2.
 [Desktop Entry]
 Type=Application
 Name=Lightning
 Comment=Native Matrix desktop client
 Exec=lightning-matrix --backend=rust
+Icon=lightning
 Terminal=false
 Categories=Network;Chat;InstantMessaging;
 Keywords=Matrix;Chat;Messaging;
 StartupNotify=true
+StartupWMClass=lightning-matrix

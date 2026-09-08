@@ -88,7 +88,8 @@ assert_image_formats AppImage dist/appimage-image-format-status.txt \
 
 # Payload audit on the extracted squashfs.
 audit=$(mktemp -d)
-cleanup() { rm -rf "$audit"; }
+desktop_home=$(mktemp -d)
+cleanup() { rm -rf "$audit" "$desktop_home"; }
 trap cleanup EXIT
 ( cd "$audit" && "$ROOT/$app" --appimage-extract >/dev/null )
 tree="$audit/squashfs-root"
@@ -209,6 +210,60 @@ readelf -d "$tree/usr/bin/lightning-updater" | grep -E 'RPATH|RUNPATH' \
 readelf -d "$tree/usr/bin/lightning-updater" | grep -E 'RPATH|RUNPATH' \
     | grep -q '\$ORIGIN' \
     || die "the update helper has no \$ORIGIN RPATH; linuxdeploy did not bundle it"
+# THE LAUNCHER ENTRY AND THE ICONS IT NAMES — the window icon, which on
+# Wayland is decided entirely by packaging and by nothing in the picture.
+#
+# Reported against 0.9.x: after updating, the AppImage's window and taskbar
+# icon is a generic placeholder. Qt's Wayland client implements no icon
+# protocol at all (`xdg_toplevel_icon` appears zero times in
+# libQt6WaylandClient), so setWindowIcon() is inert there and the compositor's
+# only route is the app id -> lightning.desktop -> Icon= lookup. AppImages up
+# to 0.9.0 shipped without wayland-shell-integration and ran under XWayland,
+# where setWindowIcon DOES work — staging that plugin moved them onto native
+# Wayland and the icon went generic. Nothing in the payload changed; the
+# protocol under it did, and no check anywhere looked at either half.
+assert_desktop_launcher_payload AppImage "$tree"
+assert_appdir_root_icon AppImage "$tree"
+
+# ...and the half a payload audit cannot see: a single-file bundle installs
+# nothing, so the entry above is invisible to the session unless the app
+# publishes a copy into the user's own data directory at startup. Ask the
+# SHIPPED bundle whether it does.
+#
+# APPIMAGE/APPDIR are handed in rather than trusted from the runtime. A normal
+# (FUSE) run exports both — that is what every AppImage integration, this
+# repository's own UrlLauncher included, is built on — but CI runs with
+# APPIMAGE_EXTRACT_AND_RUN=1 because containers have no FUSE, and this check is
+# about the APPLICATION's behaviour given that environment, not about which
+# variables one launch mode happens to set. The runtime overwrites both when it
+# does set them, so a FUSE run tests the same path.
+#
+# XDG_DATA_HOME and XDG_DATA_DIRS point at empty scratch directories, so the
+# only way "visible launcher entry" can be non-NONE is that this run wrote it.
+mkdir -p "$desktop_home/data" "$desktop_home/empty"
+set +e
+( cd /tmp && timeout 60s env \
+    HOME="$desktop_home" \
+    XDG_DATA_HOME="$desktop_home/data" \
+    XDG_DATA_DIRS="$desktop_home/empty" \
+    APPIMAGE="$ROOT/$app" APPDIR="$tree" \
+    QT_QPA_PLATFORM=offscreen "$ROOT/$app" --desktop-status ) \
+    > dist/appimage-desktop-status.txt 2>&1
+desktop_status=$?
+set -e
+assert_desktop_status AppImage dist/appimage-desktop-status.txt \
+    "$desktop_status" appimage
+# The entry it wrote has to be launchable and has to carry the icon name, or
+# "written" is a file nobody can act on.
+published="$desktop_home/data/applications/lightning.desktop"
+test -f "$published" || die "the AppImage reported a published launcher entry that is not there: $published"
+grep -qx 'Icon=lightning' "$published" || die "the published launcher entry does not name Icon=lightning"
+# -F: the AppImage's own name carries dots, and $ROOT is whatever the runner
+# checked out into -- neither is a pattern.
+grep -qF "Exec=\"$ROOT/$app\"" "$published" || die "the published launcher entry does not exec the running AppImage"
+command -v desktop-file-validate >/dev/null 2>&1 \
+    && { desktop-file-validate "$published" || die "the published launcher entry is not a valid desktop entry"; }
+
 grep -RIl -e /nix/store -e /home/roksme -e /builds/ \
     -e 'LIGHTNING_GIPHY_API_KEY=' -e 'LIGHTNING_KLIPY_API_KEY=' \
     -e 'PRIVATE-TOKEN:' -e 'recovery_key=' "$tree/usr/bin" \
