@@ -158,7 +158,29 @@ Rectangle {
                     // asked to stay as it is.
                     readonly property bool channelsLayout:
                         app.settings && app.settings.roomNavigationLayout === 1
+                    // A METHOD CALL IN A BINDING CREATES NO DEPENDENCY, and
+                    // `app.spaces` is CONSTANT, so `spaceName(id)` below was
+                    // evaluated once and never again. A Space created from
+                    // this client is named a moment AFTER its room appears,
+                    // so the first evaluation got matrix-sdk's display name
+                    // for a room with no name and one member -- "Empty Room"
+                    // -- and the header kept saying that for the rest of the
+                    // session while the Space's own page showed the real name
+                    // three lines below it. B025, seen live on the
+                    // 2026-09-08 sweep.
+                    //
+                    // The same shape, and the same fix, as SpaceSettingsDialog
+                    // and SpacesRail: read a counter the model bumps, so the
+                    // binding has something to depend on.
+                    property int spacesRevision: 0
+                    Connections {
+                        target: app.spaces
+                        function onSpacesChanged() {
+                            workspaceLabel.spacesRevision++
+                        }
+                    }
                     text: {
+                        void spacesRevision
                         if (!app.spaces)
                             return qsTr("Lightning")
                         var id = app.spaces.activeSpaceId

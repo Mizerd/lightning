@@ -68,7 +68,23 @@ Item {
             id: preview
             anchors.fill: parent
             source: tile.source
-            fillMode: Image.PreserveAspectCrop
+            // CROP WHAT IS NEARLY SQUARE, FIT WHAT IS NOT.
+            //
+            // A square tile that always crops to fill looks tidy and quietly
+            // throws away the part of a picture that identifies it: a tall
+            // screenshot or a wide panorama keeps only its middle band, which
+            // is the one thing a thumbnail exists to avoid. Reported
+            // 2026-09-08: "it currently shows a square that fits in the
+            // image, which for some images isn't working well". B016.
+            //
+            // The threshold is a judgement, not a measurement: within half to
+            // double, cropping loses nothing worth seeing and the grid stays
+            // even. Past it the whole picture is shown, letterboxed.
+            readonly property real aspect:
+                (implicitWidth > 0 && implicitHeight > 0)
+                ? implicitWidth / implicitHeight : 1
+            fillMode: (aspect > 0.5 && aspect < 2.0)
+                      ? Image.PreserveAspectCrop : Image.PreserveAspectFit
             asynchronous: true
             cache: true
             // A width-only sourceSize keeps the aspect; the provider honours
