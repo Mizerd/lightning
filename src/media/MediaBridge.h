@@ -101,6 +101,27 @@ public:
     // replace a perfectly good picture with a retry card.
     Q_INVOKABLE QString animatedSource(const QString &mediaKey,
                                        bool speculative = false);
+    // The same materialization, for media identified by a BARE mxc URI
+    // rather than by an event-scoped media key — the sticker PICKER's
+    // tiles. A pack entry is not an event, so it has no media key, and
+    // `mxcImageSource` (the still tile) asks for a SERVER THUMBNAIL, which
+    // is a single frame by construction: an animated sticker therefore
+    // played in the timeline and sat frozen in the picker it was chosen
+    // from.
+    //
+    // ALWAYS SPECULATIVE, with no way to ask otherwise. A pack entry's
+    // `mimetype` is optional under MSC2545 and the pack is room state any
+    // member can write, so no caller here can ever KNOW the payload is an
+    // animation; and the tile's still Image is already drawing these exact
+    // bytes, so "not an animation" must be answered with silence. The
+    // failure obligation of animatedSource() has no counterpart here on
+    // purpose — see the speculative note above.
+    //
+    // Bytes are validated exactly as every other class is: the §6 markup
+    // and gzip refusal (SVG/SVGZ), the thumbnail-class A/V-container
+    // refusal, and finally `animatedExtensionFor`'s container magic. The
+    // declared type is used only by the CALLER, and only to skip asking.
+    Q_INVOKABLE QString mxcAnimatedSource(const QString &mxcUri);
     // v0.7: inline video/audio playback. Same secure materialization
     // contract as animatedSource — SDK-fetched/decrypted bytes, validated
     // by container magic, written 0600 inside the session's 0700 temp dir

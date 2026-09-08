@@ -622,6 +622,61 @@ QString MediaBridge::animatedSource(const QString &mediaKey, bool speculative)
     return {};
 }
 
+QString MediaBridge::mxcAnimatedSource(const QString &mxcUri)
+{
+    if (!mxcUri.startsWith(QLatin1String("mxc://")) || !supported())
+        return {};
+    // Its OWN cache class, distinct from the `mxcimg:<edge>:` still tile:
+    // that key holds a server THUMBNAIL of the same mxc and the two payloads
+    // are different bytes. Sharing a key would let whichever landed first
+    // answer the other. The prefix does not start with "mxc:", so
+    // isAvatarClassKey() leaves it in the main cache budget, exactly where
+    // mxcimg: already lives — a picker full of stickers must never evict
+    // the reserved avatar cache.
+    const QString cacheKey = QStringLiteral("mxcanim:") + mxcUri;
+    const QString path = m_animatedFiles.value(cacheKey);
+    if (!path.isEmpty() && QFileInfo::exists(path)) {
+        m_animatedLru.removeOne(cacheKey);
+        m_animatedLru.prepend(cacheKey);
+        return QUrl::fromLocalFile(path).toString();
+    }
+    // Deliberately NOT inserted into m_animatedDemanded: this caller is
+    // asking, never demanding, so the completion path answers a non-animation
+    // with silence and the tile keeps the still frame it is already drawing.
+    m_animatedWanted.insert(cacheKey);
+    if (failureBlocks(cacheKey))
+        return {};
+    const QByteArray cached = cachedBytes(cacheKey);
+    if (!cached.isEmpty()) {
+        const QString written = writeAnimatedFile(cacheKey, cached);
+        return written.isEmpty() ? QString{} : QUrl::fromLocalFile(written).toString();
+    }
+    if (!alreadyPending(cacheKey)) {
+        Pending request;
+        request.cacheKey = cacheKey;
+        request.isMxc = true;
+        request.mediaKey = mxcUri;
+        // `kind` is a C++-SIDE CLASSIFICATION ONLY for an mxc request:
+        // dispatch() routes isMxc through fetchMxcThumbnail() and never
+        // passes kind to the backend. Choosing 2 (thumbnail class) buys the
+        // A/V-container refusal in onMediaReady — a picker tile must be an
+        // image — and keeps this out of the kind==0 playableSizeLearned
+        // branch, which is about timeline A/V media and would otherwise be
+        // fed an mxc URI as a media key.
+        request.kind = 2;
+        // ZERO IS THE WHOLE POINT. rust/src/rooms.rs media_fetch_mxc picks
+        // MediaFormat::File when either edge is 0 and MediaFormat::Thumbnail
+        // otherwise, so this — and only this — asks for the ORIGINAL bytes.
+        // A server thumbnail is a still frame, which is the defect.
+        request.size = 0;
+        // Speculative, like every other animation prefetch: never allowed to
+        // starve the still tiles the user is actually looking at.
+        request.priority = 3;
+        dispatch(request);
+    }
+    return {};
+}
+
 QString MediaBridge::playableSource(const QString &mediaKey)
 {
     if (mediaKey.isEmpty()

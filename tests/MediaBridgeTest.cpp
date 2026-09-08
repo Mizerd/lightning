@@ -884,6 +884,171 @@ private Q_SLOTS:
         QVERIFY(ext(QByteArray()).isEmpty());
     }
 
+    // ── The sticker PICKER's tiles ───────────────────────────────────────
+    //
+    // An animated sticker played in the timeline and sat frozen in the grid
+    // it was chosen from. The timeline plays a MATERIALISED file (AnimatedImage
+    // is QMovie-backed and cannot read an `image://` provider at all); the
+    // picker had only `mxcImageSource`, which asks for a SERVER THUMBNAIL —
+    // one frame by construction. A pack entry is not an event, so it has no
+    // media key and `animatedSource` could not be pointed at it.
+
+    // THE ZERO EDGE IS THE ENTIRE FIX. rust/src/rooms.rs `media_fetch_mxc`
+    // selects MediaFormat::File when either edge is 0 and MediaFormat::Thumbnail
+    // otherwise, so asking with a size is asking for a still frame — the
+    // defect, restated. On a tree where mxcAnimatedSource passes an edge this
+    // case fails on the width QCOMPARE with the edge it passed.
+    void stickerPickerAsksForTheOriginalBytesNotAServerThumbnail()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        QCOMPARE(bridge.mxcAnimatedSource(kMxc), QString());
+        QCOMPARE(client.fetches.size(), 1);
+        const FakeClient::Fetch fetch = client.fetches.first();
+        QCOMPARE(fetch.key, kMxc);
+        // Zero on BOTH edges: media_fetch_mxc tests `width == 0 || height == 0`,
+        // so a single non-zero edge would still be a thumbnail request.
+        QCOMPARE(fetch.width, 0);
+        QCOMPARE(fetch.height, 0);
+
+        QByteArray gif("GIF89a");
+        gif.append(QByteArray(64, '\0'));
+        client.succeed(fetch.opId, gif, QString()); // unlabelled, as MSC2545 allows
+        QCOMPARE(ready.count(), 1);
+        QCOMPARE(ready.first().first().toString(),
+                 QStringLiteral("mxcanim:") + kMxc);
+        const QString source = bridge.mxcAnimatedSource(kMxc);
+        QVERIFY(source.startsWith(QStringLiteral("file://")));
+        const QString path = QUrl(source).toLocalFile();
+        QVERIFY(QFileInfo::exists(path));
+        // Materialised bytes are 0600, like every other payload written out
+        // of an encrypted room (CLAUDE.md §6).
+        QCOMPARE(QFileInfo(path).permissions()
+                     & (QFileDevice::ReadGroup | QFileDevice::WriteGroup
+                        | QFileDevice::ReadOther | QFileDevice::WriteOther),
+                 QFileDevice::Permissions());
+        client.logout();
+        QVERIFY(!QFileInfo::exists(path));
+        // Not an mxc URI: refused without a fetch. Pack entries are sanitised
+        // in Rust, so this is depth, not the only guard.
+        QVERIFY(bridge.mxcAnimatedSource(QStringLiteral("https://evil.example/x.gif"))
+                    .isEmpty());
+    }
+
+    // The still tile and the animation are DIFFERENT BYTES for the same mxc —
+    // a scaled server thumbnail and the original upload. Sharing one cache key
+    // would let whichever landed first answer the other, which for the
+    // thumbnail means materialising a single frame and calling it the
+    // animation. On a tree that shares the key this fails at the fetch count.
+    void theStillTileAndTheAnimatedPickerTileAreSeparateFetches()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        bridge.mxcImageSource(kMxc, 160);
+        bridge.mxcAnimatedSource(kMxc);
+        QCOMPARE(client.fetches.size(), 2);
+        QCOMPARE(client.fetches.at(0).width, 160); // still: a thumbnail
+        QCOMPARE(client.fetches.at(1).width, 0);   // animation: the original
+
+        // The thumbnail answers FIRST and is a still PNG. It must not satisfy
+        // the animated ask, and must not mark it failed either.
+        QByteArray png("\x89PNG\r\n\x1a\n", 8);
+        png.append(QByteArray(64, '\0'));
+        client.succeed(client.fetches.at(0).opId, png, QStringLiteral("image/png"));
+        QCOMPARE(ready.count(), 0);
+        QCOMPARE(bridge.mxcAnimatedSource(kMxc), QString());
+
+        QByteArray gif("GIF89a");
+        gif.append(QByteArray(64, '\0'));
+        client.succeed(client.fetches.at(1).opId, gif, QString());
+        QCOMPARE(ready.count(), 1);
+        QVERIFY(bridge.mxcAnimatedSource(kMxc).startsWith(QStringLiteral("file://")));
+    }
+
+    // ASKING MUST BE FREE OF CONSEQUENCE — the picker's half of the contract
+    // `aSpeculativeAnimationAskIsAnsweredWithSilenceNotAFailure` pins for the
+    // timeline. A pack entry's mimetype is optional under MSC2545 and the pack
+    // is room state any member can write, so no caller can KNOW; and the still
+    // tile is already drawing these exact bytes, so a failure mark would put
+    // an "Unavailable" card on every non-animated sticker in the grid.
+    // On a tree where mxcAnimatedSource joins m_animatedDemanded, this fails
+    // with failed.count() == 1.
+    void aNonAnimatedPickerTileIsAnsweredWithSilenceNotAFailure()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+        bridge.mxcAnimatedSource(kMxc);
+        QByteArray png("\x89PNG\r\n\x1a\n", 8);
+        png.append(QByteArray(64, '\0'));
+        client.succeed(client.fetches.last().opId, png, QString());
+        QCOMPARE(ready.count(), 0);
+        QCOMPARE(failed.count(), 0);
+        QCOMPARE(bridge.failureCategory(QStringLiteral("mxcanim:") + kMxc),
+                 QString());
+    }
+
+    // CLAUDE.md §6: SVG is never rendered as active content, and the DECLARED
+    // type cannot carry that rule — `im.ponies.room_emotes` is room state any
+    // member can write and MSC2545 lets `mimetype` be omitted. The bytes
+    // decide, on this new door exactly as on every other one. SVGZ too: Qt's
+    // SVG handler decompresses gzip, so refusing only the plain spelling
+    // would leave the same file reachable under another name.
+    void aPickerTileRefusesMarkupAndGzipBeforeAnyDecode()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+
+        bridge.mxcAnimatedSource(kMxc);
+        client.succeed(client.fetches.last().opId,
+                       QByteArrayLiteral("<svg xmlns=\"http://www.w3.org/2000/svg\"/>"),
+                       QStringLiteral("image/gif")); // lying label
+        QCOMPARE(ready.count(), 0);
+        QCOMPARE(cached.count(), 0); // never entered the image cache either
+        QVERIFY(bridge.mxcAnimatedSource(kMxc).isEmpty());
+
+        const QString svgz = QStringLiteral("mxc://example.org/svgz");
+        bridge.mxcAnimatedSource(svgz);
+        QByteArray gz("\x1F\x8B\x08", 3);
+        gz.append(QByteArray(64, '\0'));
+        client.succeed(client.fetches.last().opId, gz, QString());
+        QCOMPARE(ready.count(), 0);
+        QCOMPARE(cached.count(), 0);
+    }
+
+    // A picker tile is an IMAGE. The mxc request is classified kind 2 so the
+    // thumbnail-class A/V refusal applies: a pack entry pointing at an MP4 (or
+    // a homeserver answering with one) must not enter the image cache, and
+    // must not be mistaken for timeline A/V media either — kind 0 would emit
+    // playableSizeLearned with an mxc URI in the media-key argument.
+    // On a tree that classifies this kind 0, both QCOMPAREs below fail.
+    void anAvContainerNeverEntersThePickerImagePath()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+        QSignalSpy learned(&bridge, &MediaBridge::playableSizeLearned);
+        bridge.mxcAnimatedSource(kMxc);
+        QByteArray mp4(4, '\0');
+        mp4.append("ftypisom", 8);
+        mp4.append(QByteArray(32, '\0'));
+        client.succeed(client.fetches.last().opId, mp4, QStringLiteral("image/gif"));
+        QCOMPARE(ready.count(), 0);
+        QCOMPARE(cached.count(), 0);
+        QCOMPARE(learned.count(), 0);
+    }
+
     void clientPreviewGifUsesTheSameControlledFilePath()
     {
         MediaBridge bridge;

@@ -455,7 +455,67 @@ AnchoredPopup {
                 required property string shortcode
                 required property string url
                 required property string body
+                required property string mimetype
                 readonly property bool current: GridView.isCurrentItem
+
+                // ── Animated tiles ───────────────────────────────────────
+                //
+                // The timeline animates a sticker and this picker did not,
+                // so the very grid you choose an animated sticker FROM
+                // showed it frozen. Two reasons, both structural:
+                //
+                // 1. The still tile below asks for `mxcImageSource`, a
+                //    SERVER THUMBNAIL. A thumbnail is one frame by
+                //    construction, so no amount of decoding could have
+                //    animated it.
+                // 2. `AnimatedImage` is backed by QMovie and cannot read an
+                //    `image://` provider URL at all. Every animated surface
+                //    in this codebase (the timeline, the GIF picker, the
+                //    image viewer) therefore plays a MATERIALISED file, and
+                //    `mxcAnimatedSource` is the one that materialises a
+                //    bare pack mxc.
+                //
+                // Mirrors MessageDelegate's sticker block exactly, including
+                // the two rules that make it safe:
+                //
+                // THE DECLARED MIMETYPE IS NOT THE GATE. A pack lives in
+                // `im.ponies.room_emotes` — room state any member can write
+                // — and MSC2545 makes `mimetype` optional, so it is
+                // routinely absent on a perfectly good GIF and is
+                // attacker-chosen when present. It is used ONLY to skip
+                // asking: an entry that claims to be a PNG or a JPEG is
+                // taken at its word for the purpose of not spending a
+                // fetch. An empty label always asks. What may actually
+                // animate is decided by MediaBridge from the container
+                // magic, after the §6 markup/gzip refusal.
+                //
+                // ASKING IS FREE OF CONSEQUENCE. The request is speculative:
+                // a payload that is not an animation is answered with
+                // SILENCE, never a failure mark, because the still Image is
+                // already drawing those exact bytes — a failure there would
+                // put an "Unavailable" card on every non-animated sticker.
+                readonly property string declaredMimetype:
+                    (tile.mimetype || "").toLowerCase()
+                readonly property bool maybeAnimated:
+                    declaredMimetype === "" || declaredMimetype === "image/gif"
+                    || declaredMimetype === "image/webp"
+                readonly property int gifMode: app.settings.gifAutoplay
+                readonly property bool playAnimation:
+                    gifMode === 0 || (gifMode === 1 && tileHover.hovered)
+                property string animatedSource: ""
+                readonly property string animatedCacheKey: "mxcanim:" + tile.url
+                function refreshAnimatedSource() {
+                    if (tile.url.length === 0 || !app.mediaBridge.supported)
+                        return
+                    if (!maybeAnimated || gifMode === 2)
+                        return
+                    tile.animatedSource =
+                        app.mediaBridge.mxcAnimatedSource(tile.url)
+                }
+                Component.onCompleted: refreshAnimatedSource()
+                // Turning autoplay back on while the picker is open must
+                // start the fetch that `gifMode === 2` refused above.
+                onGifModeChanged: refreshAnimatedSource()
                 // The exact row this tile is showing, captured at activation
                 // time so a refresh landing mid-click cannot swap it.
                 function snapshot() {
@@ -478,25 +538,76 @@ AnchoredPopup {
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     cache: true
+                    // The still frame is the DEFAULT and the FALLBACK, not
+                    // merely the not-animated case: it keeps drawing until
+                    // the AnimatedImage actually reports Ready, so a build
+                    // whose image plugins cannot decode the animation
+                    // degrades to exactly today's picture rather than to a
+                    // blank square.
+                    visible: !tileAnim.animating
                     // Re-resolve through a counter the binding READS, never
                     // by assigning `source`: an imperative write destroys the
                     // binding, and the tile would then keep painting the
                     // first image it ever loaded for the rest of the session
                     // (the 2026-08-23 sticky-banner defect).
                     property int resolveTick: 0
+                    // Kept beside the edge the source binding passes: the
+                    // bridge builds "mxcimg:<edge>:<mxc>", so the two must
+                    // agree or the re-resolve below never fires.
+                    readonly property int stillEdge: 160
+                    readonly property string stillCacheKey:
+                        "mxcimg:" + stillEdge + ":" + tile.url
                     source: {
                         var _tick = resolveTick
                         return (tile.url.length > 0 && app.mediaBridge.supported)
-                            ? app.mediaBridge.mxcImageSource(tile.url, 160)
+                            ? app.mediaBridge.mxcImageSource(tile.url, stillEdge)
                             : ""
                     }
                     Connections {
                         target: app.mediaBridge
                         enabled: tile.url.length > 0
                         function onMediaCached(cacheKey) {
-                            if (cacheKey.endsWith(":" + tile.url))
+                            // The EXACT still key, not a suffix match. Since
+                            // the animated ask landed, two cache keys now end
+                            // with ":" + tile.url ("mxcimg:160:…" and
+                            // "mxcanim:…"), and a loose match re-resolved this
+                            // binding on the animation's bytes as well — churn
+                            // for a source that cannot change.
+                            if (cacheKey === tileImage.stillCacheKey)
                                 tileImage.resolveTick++
                         }
+                    }
+                }
+                AnimatedImage {
+                    id: tileAnim
+                    objectName: "stickerPickerAnimatedTile"
+                    anchors.fill: parent
+                    anchors.margins: 6
+                    fillMode: Image.PreserveAspectFit
+                    // Loaded whenever animated bytes exist and animation is
+                    // not globally off, so On-hover playback starts on the
+                    // hover rather than on a decode.
+                    source: tile.gifMode !== 2 ? tile.animatedSource : ""
+                    readonly property bool animating:
+                        status === AnimatedImage.Ready
+                        && tile.animatedSource.length > 0
+                        && tile.playAnimation
+                    visible: animating
+                    playing: animating
+                    asynchronous: true
+                    cache: true
+                }
+                Connections {
+                    target: app.mediaBridge
+                    enabled: tile.url.length > 0
+                    function onAnimatedMediaReady(cacheKey) {
+                        // MediaBridge validated these bytes as an animation
+                        // from the container magic. Only now does the
+                        // AnimatedImage get a source; a sticker that is not
+                        // one never reaches here and keeps its still frame,
+                        // which is what makes asking safe.
+                        if (cacheKey === tile.animatedCacheKey)
+                            tile.refreshAnimatedSource()
                     }
                 }
                 // A sticker that will not load says so rather than leaving a
@@ -504,7 +615,12 @@ AnchoredPopup {
                 Loader {
                     anchors.centerIn: parent
                     width: parent.width - 8
+                    // Never over a playing animation: the still thumbnail and
+                    // the animation are two independent fetches, so a server
+                    // that cannot thumbnail this mxc must not put
+                    // "Unavailable" on top of a tile that is animating fine.
                     active: tileImage.status === Image.Error
+                            && !tileAnim.animating
                     sourceComponent: Label {
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap

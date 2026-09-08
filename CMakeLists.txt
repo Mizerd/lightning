@@ -2723,6 +2723,30 @@ if(BUILD_TESTING)
     target_link_libraries(sticker-packs-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME sticker-packs COMMAND sticker-packs-test)
 
+    # Animated sticker tiles: the two contracts the picker depends on that
+    # fail SILENTLY. A `required property` no model serves builds zero
+    # delegates while the view's count stays right, and the picker matches
+    # MediaBridge's cache keys as plain strings, so a rename on the C++ side
+    # stops the match without breaking a build. Source-derived, so a new
+    # required property is covered without editing the test.
+    qt_add_executable(sticker-picker-tile-contract-test
+        tests/StickerPickerTileContractTest.cpp
+        src/stickers/StickerPack.h
+        src/stickers/StickerPack.cpp
+        src/stickers/StickerPackModel.h
+        src/stickers/StickerPackModel.cpp
+        src/stickers/StickerImageModel.h
+        src/stickers/StickerImageModel.cpp
+    )
+    target_include_directories(sticker-picker-tile-contract-test PRIVATE src)
+    target_compile_definitions(sticker-picker-tile-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+        LIGHTNING_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(sticker-picker-tile-contract-test PRIVATE
+        Qt6::Core Qt6::Qml Qt6::Test)
+    add_test(NAME sticker-picker-tile-contract
+        COMMAND sticker-picker-tile-contract-test)
+
     # v0.7.x room upgrades: the banner-and-link contract. An unknown
     # successor stays Unknown (never "inaccessible"), a joined one navigates
     # without joining, an invited one joins BEFORE navigating, a failed join
