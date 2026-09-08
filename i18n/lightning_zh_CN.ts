@@ -394,7 +394,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+873"/>
+        <location filename="../src/app/AppController.cpp" line="+881"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -409,7 +409,7 @@
         <translation>你被邀请加入 %1</translation>
     </message>
     <message>
-        <location line="+172"/>
+        <location line="+180"/>
         <source>Incoming voice call</source>
         <translation>语音来电</translation>
     </message>
@@ -553,12 +553,12 @@
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2395"/>
+        <location line="+2440"/>
         <source>Not signed in.</source>
         <translation>尚未登录。</translation>
     </message>
     <message>
-        <location line="-2393"/>
+        <location line="-2438"/>
         <source>Room-key import failed.</source>
         <translation>房间密钥导入失败。</translation>
     </message>
@@ -768,7 +768,7 @@
         <translation>清除此设备的本地数据无法解决该问题，反而会销毁你仍然需要的加密密钥。</translation>
     </message>
     <message>
-        <location line="+439"/>
+        <location line="+484"/>
         <source>This backend cannot change your display name.</source>
         <translation>此后端无法更改你的显示名称。</translation>
     </message>
@@ -4873,19 +4873,19 @@ Size: %3</source>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+510"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+532"/>
         <source>Profile for %1</source>
         <translation>%1 的个人资料</translation>
     </message>
     <message>
-        <location line="+305"/>
+        <location line="+319"/>
         <location line="+407"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>无法获取在线状态</translation>
     </message>
     <message>
-        <location line="-903"/>
+        <location line="-917"/>
         <source>Invited</source>
         <translation>已邀请</translation>
     </message>
@@ -4905,7 +4905,7 @@ Size: %3</source>
         <translation>个人资料链接已复制</translation>
     </message>
     <message>
-        <location line="+730"/>
+        <location line="+744"/>
         <source>Bio</source>
         <translation>简介</translation>
     </message>
@@ -5069,7 +5069,7 @@ Size: %3</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-1326"/>
+        <location line="-1340"/>
         <source>Matrix ID copied</source>
         <translation>已复制 Matrix ID</translation>
     </message>
@@ -6699,13 +6699,13 @@ Size: %3</source>
 <context>
     <name>NotificationManager</name>
     <message>
-        <location filename="../src/notifications/NotificationManager.cpp" line="+639"/>
-        <location line="+210"/>
+        <location filename="../src/notifications/NotificationManager.cpp" line="+665"/>
+        <location line="+223"/>
         <source>Open</source>
         <translation>打开</translation>
     </message>
     <message>
-        <location line="-205"/>
+        <location line="-218"/>
         <source>Mark as read</source>
         <translation type="unfinished">标记为已读</translation>
     </message>
@@ -6720,7 +6720,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+200"/>
+        <location line="+213"/>
         <source>Decline</source>
         <translation>拒绝</translation>
     </message>
@@ -6728,7 +6728,7 @@ Size: %3</source>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-586"/>
+        <location line="-625"/>
         <source>Matrix room</source>
         <translation>Matrix 房间</translation>
     </message>
@@ -9803,34 +9803,34 @@ Size: %3</source>
         <location line="+2"/>
         <location line="+563"/>
         <location line="+637"/>
-        <location line="+3167"/>
+        <location line="+3213"/>
         <source>Account</source>
         <translation>账号</translation>
     </message>
     <message>
-        <location line="-4370"/>
+        <location line="-4416"/>
         <source>account profile</source>
         <translation>账号 个人资料 profile account</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5378"/>
+        <location line="+5424"/>
         <source>Homeserver</source>
         <translation>主服务器</translation>
     </message>
     <message>
-        <location line="-5378"/>
+        <location line="-5424"/>
         <source>homeserver server url</source>
         <translation>主服务器 服务器 地址 server homeserver url</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5412"/>
+        <location line="+5458"/>
         <source>Start minimized</source>
         <translation>启动时最小化</translation>
     </message>
     <message>
-        <location line="-5412"/>
+        <location line="-5458"/>
         <source>startup minimized</source>
         <translation>启动 最小化 minimized startup</translation>
     </message>
@@ -10251,12 +10251,12 @@ Size: %3</source>
     <message>
         <location line="+4"/>
         <location line="+956"/>
-        <location line="+3119"/>
+        <location line="+3165"/>
         <source>Desktop notifications</source>
         <translation>桌面通知</translation>
     </message>
     <message>
-        <location line="-4074"/>
+        <location line="-4120"/>
         <source>notifications desktop enable</source>
         <translation>通知 桌面 启用 desktop notifications enable</translation>
     </message>
@@ -10267,18 +10267,18 @@ Size: %3</source>
         <location line="+3"/>
         <location line="+438"/>
         <location line="+649"/>
-        <location line="+2963"/>
+        <location line="+3009"/>
         <source>Notifications</source>
         <translation>通知</translation>
     </message>
     <message>
-        <location line="-4060"/>
-        <location line="+4077"/>
+        <location line="-4106"/>
+        <location line="+4123"/>
         <source>Notification preview</source>
         <translation>通知预览</translation>
     </message>
     <message>
-        <location line="-4076"/>
+        <location line="-4122"/>
         <source>notification preview privacy sender message</source>
         <translation>通知 预览 隐私 发送者 消息 preview notification privacy message sender</translation>
     </message>
@@ -10294,12 +10294,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4138"/>
+        <location line="+4184"/>
         <source>Notification sound</source>
         <translation>通知提示音</translation>
     </message>
     <message>
-        <location line="-4137"/>
+        <location line="-4183"/>
         <source>notification sound mute</source>
         <translation>通知 声音 提示音 静音 sound notification mute</translation>
     </message>
@@ -10398,20 +10398,20 @@ Size: %3</source>
         <location line="+4"/>
         <location line="+363"/>
         <location line="+657"/>
-        <location line="+4629"/>
+        <location line="+4675"/>
         <location line="+485"/>
         <source>Sessions</source>
         <translation>会话</translation>
     </message>
     <message>
-        <location line="-6178"/>
+        <location line="-6224"/>
         <location line="+900"/>
-        <location line="+2783"/>
+        <location line="+2829"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation>在未加密房间中自动加载预览</translation>
     </message>
     <message>
-        <location line="-3682"/>
+        <location line="-3728"/>
         <source>link preview privacy</source>
         <translation>链接 预览 隐私 preview link privacy</translation>
     </message>
@@ -10423,24 +10423,24 @@ Size: %3</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+3685"/>
+        <location line="+3731"/>
         <source>Load previews in encrypted rooms</source>
         <translation>在加密房间中加载预览</translation>
     </message>
     <message>
-        <location line="-3684"/>
+        <location line="-3730"/>
         <source>link preview encrypted</source>
         <translation>链接 预览 加密 preview link encrypted</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3756"/>
+        <location line="+3802"/>
         <location line="+7"/>
         <source>Autoplay and prefetch media</source>
         <translation>自动播放并预取媒体</translation>
     </message>
     <message>
-        <location line="-3762"/>
+        <location line="-3808"/>
         <source>gif autoplay prefetch video audio media</source>
         <translation>GIF 自动播放 预取 视频 音频 媒体 autoplay gif prefetch media video audio</translation>
     </message>
@@ -10451,12 +10451,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3799"/>
+        <location line="+3845"/>
         <source>GIF safe search</source>
         <translation>GIF 安全搜索</translation>
     </message>
     <message>
-        <location line="-3798"/>
+        <location line="-3844"/>
         <source>gif safe search rating</source>
         <translation>GIF 安全搜索 分级 safe search gif rating</translation>
     </message>
@@ -10469,36 +10469,36 @@ Size: %3</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+3824"/>
+        <location line="+3870"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation>首选 GIF 提供方</translation>
     </message>
     <message>
-        <location line="-3830"/>
+        <location line="-3876"/>
         <source>gif provider giphy klipy</source>
         <translation>GIF 提供方 服务商 provider gif giphy klipy</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3863"/>
+        <location line="+3909"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation>保存最近使用的 GIF</translation>
     </message>
     <message>
-        <location line="-3865"/>
+        <location line="-3911"/>
         <source>gif recents store</source>
         <translation>GIF 最近使用 保存 recents gif store</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5309"/>
+        <location line="+5355"/>
         <source>Security status</source>
         <translation>安全状态</translation>
     </message>
     <message>
-        <location line="-5308"/>
+        <location line="-5354"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>加密 状态 交叉签名 备份 encryption e2ee status cross-signing backup</translation>
     </message>
@@ -10512,13 +10512,13 @@ Size: %3</source>
     </message>
     <message>
         <location line="-3296"/>
-        <location line="+6690"/>
+        <location line="+6736"/>
         <location line="+19"/>
         <source>Recovery key or passphrase</source>
         <translation>恢复密钥或密码短语</translation>
     </message>
     <message>
-        <location line="-6708"/>
+        <location line="-6754"/>
         <source>recovery key passphrase backup restore</source>
         <translation>恢复密钥 密码短语 备份 恢复 recovery passphrase key backup restore</translation>
     </message>
@@ -10531,23 +10531,23 @@ Size: %3</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+6774"/>
+        <location line="+6820"/>
         <source>Import room keys</source>
         <translation>导入房间密钥</translation>
     </message>
     <message>
-        <location line="-6773"/>
+        <location line="-6819"/>
         <source>import room keys export</source>
         <translation>导入 房间密钥 导出 import keys room export</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6997"/>
+        <location line="+7043"/>
         <source>Danger Zone</source>
         <translation>危险区域</translation>
     </message>
     <message>
-        <location line="-6996"/>
+        <location line="-7042"/>
         <source>reset danger local session</source>
         <translation>重置 危险 本地 会话 danger reset local session</translation>
     </message>
@@ -10558,34 +10558,34 @@ Size: %3</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6459"/>
+        <location line="+6505"/>
         <source>Current session</source>
         <translation>当前会话</translation>
     </message>
     <message>
-        <location line="-6458"/>
+        <location line="-6504"/>
         <source>device id session status</source>
         <translation>设备 ID 会话 状态 session device id status</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5683"/>
+        <location line="+5729"/>
         <source>Sign in another device</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5682"/>
+        <location line="-5728"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+6512"/>
+        <location line="+6558"/>
         <source>Verify this session</source>
         <translation>验证此会话</translation>
     </message>
     <message>
-        <location line="-6511"/>
+        <location line="-6557"/>
         <source>verify verification sas cross-signing</source>
         <translation>验证 交叉签名 verification verify sas cross-signing</translation>
     </message>
@@ -10606,12 +10606,12 @@ Size: %3</source>
         <location line="+3"/>
         <location line="+354"/>
         <location line="+664"/>
-        <location line="+6049"/>
+        <location line="+6095"/>
         <source>Labs</source>
         <translation>实验室</translation>
     </message>
     <message>
-        <location line="-7073"/>
+        <location line="-7119"/>
         <source>Sync mode</source>
         <translation>同步模式</translation>
     </message>
@@ -10632,12 +10632,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+7115"/>
+        <location line="+7161"/>
         <source>Refresh current room</source>
         <translation>刷新当前房间</translation>
     </message>
     <message>
-        <location line="-7114"/>
+        <location line="-7160"/>
         <source>refresh reload timeline</source>
         <translation>刷新 重新加载 时间线 reload refresh timeline</translation>
     </message>
@@ -10646,12 +10646,12 @@ Size: %3</source>
         <location line="+1"/>
         <location line="+353"/>
         <location line="+711"/>
-        <location line="+6084"/>
+        <location line="+6130"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
     <message>
-        <location line="-7149"/>
+        <location line="-7195"/>
         <source>about version license</source>
         <translation>关于 版本 许可证 version about license</translation>
     </message>
@@ -10690,14 +10690,14 @@ Size: %3</source>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+4309"/>
+        <location line="+4355"/>
         <location line="+198"/>
         <location line="+1293"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-5645"/>
+        <location line="-5691"/>
         <source>Needs attention</source>
         <translation>需要注意</translation>
     </message>
@@ -10708,12 +10708,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3091"/>
+        <location line="+3137"/>
         <source>Clear index</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3078"/>
+        <location line="-3124"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10729,14 +10729,14 @@ Size: %3</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3946"/>
+        <location line="+3992"/>
         <location line="+416"/>
         <location line="+1918"/>
         <source>Clear</source>
         <translation>清除</translation>
     </message>
     <message>
-        <location line="-6270"/>
+        <location line="-6316"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>从此设备删除你保存的所有服务商 GIF？从聊天中保存的 GIF 不受影响。此操作无法撤销。</translation>
     </message>
@@ -10935,7 +10935,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+142"/>
+        <location line="+188"/>
         <source>Message search index</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11032,7 +11032,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5819"/>
+        <location line="-5865"/>
         <source>Moss Light</source>
         <translation>Moss Light</translation>
     </message>
@@ -11370,12 +11370,12 @@ Size: %3</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+2460"/>
+        <location line="+2506"/>
         <source>Choose image…</source>
         <translation>选择图片…</translation>
     </message>
     <message>
-        <location line="-2453"/>
+        <location line="-2499"/>
         <source>Reset to Lightning default</source>
         <translation>恢复为 Lightning 默认图标</translation>
     </message>
@@ -11593,7 +11593,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>告诉你的家庭服务器你何时在线或空闲，以便与你同处房间的人能看到。关闭它会发布一次“离线”并停止更新；你能否看到他人的状态由他们的服务器决定，而不是由这个开关决定。</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+64"/>
         <source>Nobody is ignored. Ignore a person from their profile to hide their messages everywhere, on every device.</source>
         <translation>没有屏蔽任何人。在某人的资料页屏蔽他，可在所有设备的所有地方隐藏其消息。</translation>
     </message>
@@ -11608,7 +11608,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>取消屏蔽 %1</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+31"/>
         <source>Ignoring hides a person&apos;s messages and invites in every room. The list is stored in your Matrix account and applies on all your clients.</source>
         <translation>屏蔽会在每个房间隐藏某人的消息和邀请。该列表保存在你的 Matrix 账号中，并在你所有客户端上生效。</translation>
     </message>
@@ -11850,13 +11850,13 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>未设置</translation>
     </message>
     <message>
-        <location line="-2826"/>
-        <location line="+2835"/>
+        <location line="-2872"/>
+        <location line="+2881"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location line="-2681"/>
+        <location line="-2727"/>
         <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
         <translation>启用后，Lightning 遵循系统方案：浅色模式下的 Moss Light，深色模式下的 Indigo Night。</translation>
     </message>
@@ -11891,7 +11891,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>频道将您所在的每个空间列为文件夹，其下方包含房间。没有空间的房间和您的直接消息都集中在房间中。</translation>
     </message>
     <message>
-        <location line="+1921"/>
+        <location line="+1967"/>
         <source>Your homeserver loads the preview, so the linked site sees your server rather than you. If your server cannot — many have previews turned off — Lightning loads it directly instead, which may reveal your IP address and request timing to a site the sender chose. Asking your homeserver also tells it which link was previewed, which in an encrypted room it would not otherwise know. No JavaScript is executed. Both switches are off by default; leave them off and use the “Show” button on each message&apos;s link card to decide one at a time.</source>
         <translation>您的家庭服务器加载预览，因此链接的站点看到的是您的服务器而不是您。如果您的服务器不能（许多服务器都关闭了预览），那么 Lightning 会直接加载它，这可能会泄露您的 IP 地址和对发件人选择的站点的请求时间。询问您的家庭服务器还会告诉它预览了哪个链接，否则在加密房间中它不会知道哪个链接。不执行 JavaScript。默认情况下，两个开关均处于关闭状态；将它们保留下来并使用每条消息链接卡上的“显示”按钮一次决定一个。</translation>
     </message>
@@ -11999,8 +11999,8 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation>没有横幅</translation>
     </message>
     <message>
-        <location line="-2780"/>
-        <location line="+2490"/>
+        <location line="-2826"/>
+        <location line="+2536"/>
         <location line="+309"/>
         <source>Remove</source>
         <translation>移除</translation>
@@ -12761,12 +12761,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="-211"/>
-        <location line="+589"/>
+        <location line="+656"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>屏幕共享无法启动。</translation>
     </message>
     <message>
-        <location line="-531"/>
+        <location line="-598"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>Wayland 上的屏幕共享需要 xdg-desktop-portal，但它没有响应。安装或启动桌面门户（例如 xdg-desktop-portal-kde 或 xdg-desktop-portal-gnome），然后重试。</translation>
     </message>
@@ -12802,29 +12802,34 @@ Note: importing keys does not verify this session.</source>
         <translation>无法开始共享该显示。</translation>
     </message>
     <message>
-        <location line="+135"/>
-        <source>You don&apos;t have permission to join this call.</source>
-        <translation>您无权加入此通话。</translation>
+        <location line="+199"/>
+        <source>You don&apos;t have permission to join calls in this room. A room admin can change that in the room&apos;s permissions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The calling service refused to connect you to this call.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+267"/>
+        <location line="+298"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>此家庭服务器上无法进行呼叫。</translation>
     </message>
     <message>
-        <location line="-265"/>
+        <location line="-296"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>尝试次数太多。稍后再试一次。</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+269"/>
+        <location line="+300"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>无法接通通话。</translation>
     </message>
     <message>
-        <location line="-267"/>
+        <location line="-298"/>
         <source>The calling service is having trouble.</source>
         <translation>呼叫服务出现问题。</translation>
     </message>
@@ -12880,7 +12885,7 @@ Note: importing keys does not verify this session.</source>
         <translation>无法在通话中通知您。</translation>
     </message>
     <message>
-        <location line="+135"/>
+        <location line="+171"/>
         <source>The call ended because the connection was lost.</source>
         <translation>由于连接丢失，通话结束。</translation>
     </message>
@@ -13293,7 +13298,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+605"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+663"/>
         <source>Create Room</source>
         <translation>创建房间</translation>
     </message>
@@ -13371,7 +13376,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceSettingsDialog</name>
     <message>
-        <location filename="../qml/SpaceSettingsDialog.qml" line="+105"/>
+        <location filename="../qml/SpaceSettingsDialog.qml" line="+138"/>
         <source>General</source>
         <translation>一般</translation>
     </message>
@@ -13427,12 +13432,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+896"/>
+        <location line="+933"/>
         <source>Invite</source>
         <translation>邀请</translation>
     </message>
     <message>
-        <location line="-895"/>
+        <location line="-932"/>
         <source>Kick</source>
         <translation>踢</translation>
     </message>
@@ -13458,18 +13463,18 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+305"/>
+        <location line="+307"/>
         <source>Space name</source>
         <translation>空间名称</translation>
     </message>
     <message>
-        <location line="-304"/>
-        <location line="+348"/>
+        <location line="-306"/>
+        <location line="+350"/>
         <source>Space topic</source>
         <translation>空间主题</translation>
     </message>
     <message>
-        <location line="-344"/>
+        <location line="-346"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
@@ -13504,7 +13509,7 @@ Note: importing keys does not verify this session.</source>
         <translation>其他设置</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+25"/>
         <source>Space</source>
         <translation>空间</translation>
     </message>
@@ -13570,17 +13575,17 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+31"/>
-        <location line="+311"/>
+        <location line="+346"/>
         <source>Save</source>
         <translation>保存</translation>
     </message>
     <message>
-        <location line="-286"/>
+        <location line="-321"/>
         <source>Banner</source>
         <translation>横幅</translation>
     </message>
     <message>
-        <location line="+89"/>
+        <location line="+124"/>
         <source>No banner</source>
         <translation>没有横幅</translation>
     </message>
@@ -17014,7 +17019,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+1404"/>
+        <location filename="../src/main.cpp" line="+1937"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>原生 Qt/QML Matrix 客户端。后端：--backend={mock,http,rust}。默认：rust（在没有 Rust SDK 的构建中为 http）。</translation>
     </message>

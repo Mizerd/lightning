@@ -396,7 +396,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+873"/>
+        <location filename="../src/app/AppController.cpp" line="+881"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -411,7 +411,7 @@
         <translation>Te han invitado a %1</translation>
     </message>
     <message>
-        <location line="+172"/>
+        <location line="+180"/>
         <source>Incoming voice call</source>
         <translation>Llamada de voz entrante</translation>
     </message>
@@ -555,12 +555,12 @@
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2395"/>
+        <location line="+2440"/>
         <source>Not signed in.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-2393"/>
+        <location line="-2438"/>
         <source>Room-key import failed.</source>
         <translation>Falló la importación de claves de sala.</translation>
     </message>
@@ -770,7 +770,7 @@
         <translation>Borrar los datos locales de este dispositivo no lo solucionaría y destruiría claves de cifrado que todavía necesitas.</translation>
     </message>
     <message>
-        <location line="+439"/>
+        <location line="+484"/>
         <source>This backend cannot change your display name.</source>
         <translation>Este backend no puede cambiar tu nombre visible.</translation>
     </message>
@@ -4887,19 +4887,19 @@ Tamaño: %3</translation>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+510"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+532"/>
         <source>Profile for %1</source>
         <translation>Perfil de %1</translation>
     </message>
     <message>
-        <location line="+305"/>
+        <location line="+319"/>
         <location line="+407"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Presencia no disponible</translation>
     </message>
     <message>
-        <location line="-903"/>
+        <location line="-917"/>
         <source>Invited</source>
         <translation>Invitado</translation>
     </message>
@@ -4919,7 +4919,7 @@ Tamaño: %3</translation>
         <translation>Enlace de perfil copiado</translation>
     </message>
     <message>
-        <location line="+730"/>
+        <location line="+744"/>
         <source>Bio</source>
         <translation>Biografía</translation>
     </message>
@@ -5083,7 +5083,7 @@ Tamaño: %3</translation>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-1326"/>
+        <location line="-1340"/>
         <source>Matrix ID copied</source>
         <translation>ID de Matrix copiado</translation>
     </message>
@@ -6716,13 +6716,13 @@ Tamaño: %3</translation>
 <context>
     <name>NotificationManager</name>
     <message>
-        <location filename="../src/notifications/NotificationManager.cpp" line="+639"/>
-        <location line="+210"/>
+        <location filename="../src/notifications/NotificationManager.cpp" line="+665"/>
+        <location line="+223"/>
         <source>Open</source>
         <translation>Abrir</translation>
     </message>
     <message>
-        <location line="-205"/>
+        <location line="-218"/>
         <source>Mark as read</source>
         <translation type="unfinished">Marcar como leída</translation>
     </message>
@@ -6737,7 +6737,7 @@ Tamaño: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+200"/>
+        <location line="+213"/>
         <source>Decline</source>
         <translation>Rechazar</translation>
     </message>
@@ -6745,7 +6745,7 @@ Tamaño: %3</translation>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-586"/>
+        <location line="-625"/>
         <source>Matrix room</source>
         <translation>Sala de Matrix</translation>
     </message>
@@ -9825,34 +9825,34 @@ Tamaño: %3</translation>
         <location line="+2"/>
         <location line="+563"/>
         <location line="+637"/>
-        <location line="+3167"/>
+        <location line="+3213"/>
         <source>Account</source>
         <translation>Cuenta</translation>
     </message>
     <message>
-        <location line="-4370"/>
+        <location line="-4416"/>
         <source>account profile</source>
         <translation>cuenta perfil</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5378"/>
+        <location line="+5424"/>
         <source>Homeserver</source>
         <translation>Servidor doméstico</translation>
     </message>
     <message>
-        <location line="-5378"/>
+        <location line="-5424"/>
         <source>homeserver server url</source>
         <translation>servidor doméstico url</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5412"/>
+        <location line="+5458"/>
         <source>Start minimized</source>
         <translation>Iniciar minimizado</translation>
     </message>
     <message>
-        <location line="-5412"/>
+        <location line="-5458"/>
         <source>startup minimized</source>
         <translation>inicio arranque minimizado</translation>
     </message>
@@ -10273,12 +10273,12 @@ Tamaño: %3</translation>
     <message>
         <location line="+4"/>
         <location line="+956"/>
-        <location line="+3119"/>
+        <location line="+3165"/>
         <source>Desktop notifications</source>
         <translation>Notificaciones de escritorio</translation>
     </message>
     <message>
-        <location line="-4074"/>
+        <location line="-4120"/>
         <source>notifications desktop enable</source>
         <translation>notificaciones escritorio activar</translation>
     </message>
@@ -10289,18 +10289,18 @@ Tamaño: %3</translation>
         <location line="+3"/>
         <location line="+438"/>
         <location line="+649"/>
-        <location line="+2963"/>
+        <location line="+3009"/>
         <source>Notifications</source>
         <translation>Notificaciones</translation>
     </message>
     <message>
-        <location line="-4060"/>
-        <location line="+4077"/>
+        <location line="-4106"/>
+        <location line="+4123"/>
         <source>Notification preview</source>
         <translation>Vista previa de las notificaciones</translation>
     </message>
     <message>
-        <location line="-4076"/>
+        <location line="-4122"/>
         <source>notification preview privacy sender message</source>
         <translation>notificación vista previa privacidad remitente mensaje</translation>
     </message>
@@ -10316,12 +10316,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4138"/>
+        <location line="+4184"/>
         <source>Notification sound</source>
         <translation>Sonido de las notificaciones</translation>
     </message>
     <message>
-        <location line="-4137"/>
+        <location line="-4183"/>
         <source>notification sound mute</source>
         <translation>notificación sonido silenciar</translation>
     </message>
@@ -10420,20 +10420,20 @@ Tamaño: %3</translation>
         <location line="+4"/>
         <location line="+363"/>
         <location line="+657"/>
-        <location line="+4629"/>
+        <location line="+4675"/>
         <location line="+485"/>
         <source>Sessions</source>
         <translation>Sesiones</translation>
     </message>
     <message>
-        <location line="-6178"/>
+        <location line="-6224"/>
         <location line="+900"/>
-        <location line="+2783"/>
+        <location line="+2829"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation>Cargar vistas previas automáticamente en salas sin cifrar</translation>
     </message>
     <message>
-        <location line="-3682"/>
+        <location line="-3728"/>
         <source>link preview privacy</source>
         <translation>vista previa enlace privacidad</translation>
     </message>
@@ -10445,24 +10445,24 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+3685"/>
+        <location line="+3731"/>
         <source>Load previews in encrypted rooms</source>
         <translation>Cargar vistas previas en salas cifradas</translation>
     </message>
     <message>
-        <location line="-3684"/>
+        <location line="-3730"/>
         <source>link preview encrypted</source>
         <translation>vista previa enlace cifrado</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3756"/>
+        <location line="+3802"/>
         <location line="+7"/>
         <source>Autoplay and prefetch media</source>
         <translation>Reproducir y precargar multimedia automáticamente</translation>
     </message>
     <message>
-        <location line="-3762"/>
+        <location line="-3808"/>
         <source>gif autoplay prefetch video audio media</source>
         <translation>gif reproducción automática precarga video audio multimedia</translation>
     </message>
@@ -10473,12 +10473,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3799"/>
+        <location line="+3845"/>
         <source>GIF safe search</source>
         <translation>Búsqueda segura de GIF</translation>
     </message>
     <message>
-        <location line="-3798"/>
+        <location line="-3844"/>
         <source>gif safe search rating</source>
         <translation>gif búsqueda segura clasificación</translation>
     </message>
@@ -10491,36 +10491,36 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+3824"/>
+        <location line="+3870"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation>Proveedor de GIF preferido</translation>
     </message>
     <message>
-        <location line="-3830"/>
+        <location line="-3876"/>
         <source>gif provider giphy klipy</source>
         <translation>gif proveedor giphy klipy</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3863"/>
+        <location line="+3909"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation>Guardar los GIF usados recientemente</translation>
     </message>
     <message>
-        <location line="-3865"/>
+        <location line="-3911"/>
         <source>gif recents store</source>
         <translation>gif recientes guardar</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5309"/>
+        <location line="+5355"/>
         <source>Security status</source>
         <translation>Estado de seguridad</translation>
     </message>
     <message>
-        <location line="-5308"/>
+        <location line="-5354"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>e2ee cifrado estado firma cruzada copia de seguridad</translation>
     </message>
@@ -10534,13 +10534,13 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-3296"/>
-        <location line="+6690"/>
+        <location line="+6736"/>
         <location line="+19"/>
         <source>Recovery key or passphrase</source>
         <translation>Clave de recuperación o frase de contraseña</translation>
     </message>
     <message>
-        <location line="-6708"/>
+        <location line="-6754"/>
         <source>recovery key passphrase backup restore</source>
         <translation>clave recuperación frase contraseña copia seguridad restaurar</translation>
     </message>
@@ -10553,23 +10553,23 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+6774"/>
+        <location line="+6820"/>
         <source>Import room keys</source>
         <translation>Importar claves de sala</translation>
     </message>
     <message>
-        <location line="-6773"/>
+        <location line="-6819"/>
         <source>import room keys export</source>
         <translation>importar claves sala exportar</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6997"/>
+        <location line="+7043"/>
         <source>Danger Zone</source>
         <translation>Zona de peligro</translation>
     </message>
     <message>
-        <location line="-6996"/>
+        <location line="-7042"/>
         <source>reset danger local session</source>
         <translation>restablecer peligro sesión local</translation>
     </message>
@@ -10580,34 +10580,34 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6459"/>
+        <location line="+6505"/>
         <source>Current session</source>
         <translation>Sesión actual</translation>
     </message>
     <message>
-        <location line="-6458"/>
+        <location line="-6504"/>
         <source>device id session status</source>
         <translation>id dispositivo sesión estado</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5683"/>
+        <location line="+5729"/>
         <source>Sign in another device</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5682"/>
+        <location line="-5728"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+6512"/>
+        <location line="+6558"/>
         <source>Verify this session</source>
         <translation>Verificar esta sesión</translation>
     </message>
     <message>
-        <location line="-6511"/>
+        <location line="-6557"/>
         <source>verify verification sas cross-signing</source>
         <translation>verificar verificación sas firma cruzada</translation>
     </message>
@@ -10628,12 +10628,12 @@ Tamaño: %3</translation>
         <location line="+3"/>
         <location line="+354"/>
         <location line="+664"/>
-        <location line="+6049"/>
+        <location line="+6095"/>
         <source>Labs</source>
         <translation>Labs</translation>
     </message>
     <message>
-        <location line="-7073"/>
+        <location line="-7119"/>
         <source>Sync mode</source>
         <translation>Modo de sincronización</translation>
     </message>
@@ -10654,12 +10654,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+7115"/>
+        <location line="+7161"/>
         <source>Refresh current room</source>
         <translation>Actualizar la sala actual</translation>
     </message>
     <message>
-        <location line="-7114"/>
+        <location line="-7160"/>
         <source>refresh reload timeline</source>
         <translation>actualizar recargar cronología</translation>
     </message>
@@ -10668,12 +10668,12 @@ Tamaño: %3</translation>
         <location line="+1"/>
         <location line="+353"/>
         <location line="+711"/>
-        <location line="+6084"/>
+        <location line="+6130"/>
         <source>About</source>
         <translation>Acerca de</translation>
     </message>
     <message>
-        <location line="-7149"/>
+        <location line="-7195"/>
         <source>about version license</source>
         <translation>acerca de versión licencia</translation>
     </message>
@@ -10712,14 +10712,14 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+4309"/>
+        <location line="+4355"/>
         <location line="+198"/>
         <location line="+1293"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-5645"/>
+        <location line="-5691"/>
         <source>Needs attention</source>
         <translation>Requiere atención</translation>
     </message>
@@ -10730,12 +10730,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3091"/>
+        <location line="+3137"/>
         <source>Clear index</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3078"/>
+        <location line="-3124"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10751,14 +10751,14 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3946"/>
+        <location line="+3992"/>
         <location line="+416"/>
         <location line="+1918"/>
         <source>Clear</source>
         <translation>Borrar</translation>
     </message>
     <message>
-        <location line="-6270"/>
+        <location line="-6316"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>¿Eliminar de este dispositivo todos los GIF de proveedores que has guardado? Los GIF que guardaste desde conversaciones no se ven afectados. Esta acción no se puede deshacer.</translation>
     </message>
@@ -10957,7 +10957,7 @@ Tamaño: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+142"/>
+        <location line="+188"/>
         <source>Message search index</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11055,7 +11055,7 @@ Tamaño: %3</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5819"/>
+        <location line="-5865"/>
         <source>Moss Light</source>
         <translation>Moss Light</translation>
     </message>
@@ -11395,12 +11395,12 @@ Tamaño: %3</translation>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+2460"/>
+        <location line="+2506"/>
         <source>Choose image…</source>
         <translation>Elegir imagen…</translation>
     </message>
     <message>
-        <location line="-2453"/>
+        <location line="-2499"/>
         <source>Reset to Lightning default</source>
         <translation>Restablecer al icono predeterminado de Lightning</translation>
     </message>
@@ -11618,7 +11618,7 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
         <translation>Indica a tu servidor doméstico cuándo estás en línea o inactivo, para que quienes comparten salas contigo puedan verlo. Desactivarlo publica «desconectado» una vez y detiene las actualizaciones; que el estado de los demás te sea visible lo deciden sus servidores, no este interruptor.</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+64"/>
         <source>Nobody is ignored. Ignore a person from their profile to hide their messages everywhere, on every device.</source>
         <translation>No se ignora a nadie. Ignora a una persona desde su perfil para ocultar sus mensajes en todas partes y en todos los dispositivos.</translation>
     </message>
@@ -11633,7 +11633,7 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
         <translation>Dejar de ignorar a %1</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+31"/>
         <source>Ignoring hides a person&apos;s messages and invites in every room. The list is stored in your Matrix account and applies on all your clients.</source>
         <translation>Ignorar oculta los mensajes y las invitaciones de una persona en todas las salas. La lista se guarda en tu cuenta de Matrix y se aplica en todos tus clientes.</translation>
     </message>
@@ -11875,13 +11875,13 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
         <translation>Sin definir</translation>
     </message>
     <message>
-        <location line="-2826"/>
-        <location line="+2835"/>
+        <location line="-2872"/>
+        <location line="+2881"/>
         <source>Edit</source>
         <translation>Editar</translation>
     </message>
     <message>
-        <location line="-2681"/>
+        <location line="-2727"/>
         <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
         <translation>Cuando está encendido, Lightning sigue el esquema del sistema: Moss Light en modo claro, Indigo Night en modo oscuro.</translation>
     </message>
@@ -11916,7 +11916,7 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
         <translation>Canales enumera cada espacio en el que te encuentras como una carpeta, con las salas que contiene debajo. Rooms sin espacio y tus mensajes directos permanecen juntos en Rooms.</translation>
     </message>
     <message>
-        <location line="+1921"/>
+        <location line="+1967"/>
         <source>Your homeserver loads the preview, so the linked site sees your server rather than you. If your server cannot — many have previews turned off — Lightning loads it directly instead, which may reveal your IP address and request timing to a site the sender chose. Asking your homeserver also tells it which link was previewed, which in an encrypted room it would not otherwise know. No JavaScript is executed. Both switches are off by default; leave them off and use the “Show” button on each message&apos;s link card to decide one at a time.</source>
         <translation>Su servidor doméstico carga la vista previa, por lo que el sitio vinculado ve su servidor en lugar de usted. Si su servidor no puede (muchos tienen las vistas previas desactivadas), Lightning lo carga directamente, lo que puede revelar su dirección IP y solicitar tiempo para un sitio que el remitente eligió. Preguntarle a su servidor doméstico también le indica qué enlace se obtuvo una vista previa, algo que de otro modo no sabría en una sala cifrada. No se ejecuta ningún JavaScript. Ambos interruptores están apagados de forma predeterminada; déjelos fuera y use el botón “Mostrar” en la tarjeta de enlace de cada mensaje para decidir uno a la vez.</translation>
     </message>
@@ -12024,8 +12024,8 @@ Escape y las letras individuales que utiliza el menú de mensajes mientras está
         <translation>Sin banner</translation>
     </message>
     <message>
-        <location line="-2780"/>
-        <location line="+2490"/>
+        <location line="-2826"/>
+        <location line="+2536"/>
         <location line="+309"/>
         <source>Remove</source>
         <translation>Eliminar</translation>
@@ -12787,12 +12787,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="-211"/>
-        <location line="+589"/>
+        <location line="+656"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>No se pudo iniciar el uso compartido de pantalla.</translation>
     </message>
     <message>
-        <location line="-531"/>
+        <location line="-598"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>Compartir pantalla en Wayland necesita xdg-desktop-portal y no responde. Instale o inicie el portal para su escritorio (por ejemplo, xdg-desktop-portal-kde o xdg-desktop-portal-gnome) y vuelva a intentarlo.</translation>
     </message>
@@ -12828,29 +12828,34 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>No se pudo empezar a compartir esa pantalla.</translation>
     </message>
     <message>
-        <location line="+135"/>
-        <source>You don&apos;t have permission to join this call.</source>
-        <translation>No tienes permiso para unirte a esta llamada.</translation>
+        <location line="+199"/>
+        <source>You don&apos;t have permission to join calls in this room. A room admin can change that in the room&apos;s permissions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The calling service refused to connect you to this call.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+267"/>
+        <location line="+298"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>Las llamadas no están disponibles en este servidor doméstico.</translation>
     </message>
     <message>
-        <location line="-265"/>
+        <location line="-296"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Demasiados intentos. Inténtalo de nuevo en un momento.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+269"/>
+        <location line="+300"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>No se pudo conectar con la llamada.</translation>
     </message>
     <message>
-        <location line="-267"/>
+        <location line="-298"/>
         <source>The calling service is having trouble.</source>
         <translation>El servicio de llamadas está teniendo problemas.</translation>
     </message>
@@ -12906,7 +12911,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>No pude anunciarte en la llamada.</translation>
     </message>
     <message>
-        <location line="+135"/>
+        <location line="+171"/>
         <source>The call ended because the connection was lost.</source>
         <translation>La llamada terminó porque se perdió la conexión.</translation>
     </message>
@@ -13319,7 +13324,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+605"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+663"/>
         <source>Create Room</source>
         <translation>Crear habitación</translation>
     </message>
@@ -13397,7 +13402,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>SpaceSettingsDialog</name>
     <message>
-        <location filename="../qml/SpaceSettingsDialog.qml" line="+105"/>
+        <location filename="../qml/SpaceSettingsDialog.qml" line="+138"/>
         <source>General</source>
         <translation>generales</translation>
     </message>
@@ -13453,12 +13458,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+896"/>
+        <location line="+933"/>
         <source>Invite</source>
         <translation>Invitar</translation>
     </message>
     <message>
-        <location line="-895"/>
+        <location line="-932"/>
         <source>Kick</source>
         <translation>patada</translation>
     </message>
@@ -13484,18 +13489,18 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+305"/>
+        <location line="+307"/>
         <source>Space name</source>
         <translation>Nombre del espacio</translation>
     </message>
     <message>
-        <location line="-304"/>
-        <location line="+348"/>
+        <location line="-306"/>
+        <location line="+350"/>
         <source>Space topic</source>
         <translation>Tema del espacio</translation>
     </message>
     <message>
-        <location line="-344"/>
+        <location line="-346"/>
         <source>Settings</source>
         <translation>Ajustes</translation>
     </message>
@@ -13530,7 +13535,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Otras configuraciones</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+25"/>
         <source>Space</source>
         <translation>Espacio</translation>
     </message>
@@ -13596,17 +13601,17 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+31"/>
-        <location line="+311"/>
+        <location line="+346"/>
         <source>Save</source>
         <translation>Guardar</translation>
     </message>
     <message>
-        <location line="-286"/>
+        <location line="-321"/>
         <source>Banner</source>
         <translation>pancarta</translation>
     </message>
     <message>
-        <location line="+89"/>
+        <location line="+124"/>
         <source>No banner</source>
         <translation>Sin banner</translation>
     </message>
@@ -17054,7 +17059,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+1404"/>
+        <location filename="../src/main.cpp" line="+1937"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Cliente Matrix nativo Qt/QML. Backend: --backend={mock,http,rust}. Predeterminado: rust (http en compilaciones sin el Rust SDK).</translation>
     </message>
