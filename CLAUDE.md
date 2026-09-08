@@ -26,13 +26,34 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.9.2** (`v0.9.2` -> `2545391`), tagged
-2026-09-06 by **project 6** pipeline **180, 22/22 green**; notes in
-`docs/releases/v0.9.2.md`. The synchronized version reads **0.9.2** in
+Latest published release: **Lightning 0.9.3** (`v0.9.3` -> `7306dde`), tagged
+2026-09-08 by **project 6** pipeline **183, 21/22** (the one red job is
+`mirror-update-manifest-to-github`, `allow_failure`, and it was a false
+negative: see below); notes in `docs/releases/v0.9.3.md`. The synchronized
+version reads **0.9.3** in
 `CMakeLists.txt` (both `project()` and `APP_VERSION_LABEL`), `rust/Cargo.toml`,
 `rust/Cargo.lock`, and the Rust/HTTP user agent (derived from
 `CARGO_PKG_VERSION`). Any bump after it is a new release checkpoint and only on
 Rokas's explicit request (§14).
+
+The anonymous verification bar (§14) was run for **0.9.3** on 2026-09-08 and
+PASSED in full: release at `7306dde`, nine package links 200, manifest 0.9.3 /
+`v0.9.3` with six artifacts all carrying `mirror_url` and macOS absent, the
+Ed25519 signature VERIFIED against the key extracted from the shipped `.deb`
+with a one-field-changed copy REJECTED, the GitHub tag peeling to the same
+commit, 10 mirror assets, and a `.deb` from GitHub matching the GitLab-signed
+digest. The website (third repo, §14) is at 0.9.3 and both of its checks pass
+against the real release.
+
+**0.9.3's ONE red job was a verification racing GitHub's CDN, not a bad
+upload.** `mirror-update-manifest-to-github` read its own upload back 1.5 s
+later and got the PREVIOUS release's object at a 200, from an edge that had
+not been invalidated; the stored bytes were correct throughout (the API served
+0.9.3 immediately) and the public URL caught up within about two minutes. The
+read-back now compares the digest INSIDE its retry loop rather than once after
+it (`6149337`), with a mock that serves stale-but-200 reads so both halves are
+covered. Its sibling failure shape, a 404 while the API says `state=uploaded`,
+is the one recorded below.
 
 **THE PIPELINE NOW LIVES IN THIS REPOSITORY.** 0.9.2 is the first release cut
 from project 6: the packaging project was folded in under `packaging-ci/` on
@@ -58,19 +79,11 @@ commit, 10 mirror assets, and a `.deb` from GitHub matching the GitLab-signed
 digest. **Two of its lines FAIL for a reason that is not the release**:
 openssl is not on the bare shell's PATH, so the signature check cannot run
 there — verify it with `nix shell nixpkgs#openssl`, and note the signature
-file's field is `sig`, not `signature`. The same bar was run for 0.9.0 on
-2026-09-05 and PASSED in full: the GitLab release sits at `9dc6a07` with every package link
-200 under curl; the `latest` manifest reports 0.9.0 / `v0.9.0`, six artifacts
-all carrying `mirror_url`, macOS absent; its Ed25519 signature
-(`lightning-release-2026a`) VERIFIED against the public key extracted from
-the shipped `.deb`'s own binary and a one-field-changed copy was REJECTED;
-the GitHub annotated tag peels to the same commit, the mirror carries 10
-assets, and a `.deb` fetched from GitHub matched the GitLab-signed SHA-256.
-The script is `verify-release.sh` in the session scratchpad; the recipe is
-in §14. Pipelines 171 and 172 were CANCELLED on the way (§16: the QtDBus
-guard, and the Windows builder image). It was run and passed for 0.8.0 too
-(tag peeled to `6f203be` on both hosts, 10 links, manifest signature verified
-and tampered copies rejected). Run the same bar against every release.
+file's field is `sig`, not `signature`. The same bar passed in
+full for 0.9.0 (`9dc6a07`; pipelines 171 and 172 were CANCELLED on the way,
+§16: the QtDBus guard and the Windows builder image) and for 0.8.0
+(`6f203be`). The script is `verify-release.sh` in the session scratchpad; the
+recipe is in §14. Run the same bar against every release.
 
 `matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to
 **0.18.0** in `rust/Cargo.lock`; UI and base are exact-pinned in
@@ -93,6 +106,7 @@ the same round; both were already in the lock file, so the build stays
 
 | Version | Commit | Deploy pipeline | Notes file |
 |---|---|---|---|
+| 0.9.3 | `7306dde` | **project 6** 183, 21/22 (the red one is the allow_failure manifest mirror, a CDN race, not the release) | `docs/releases/v0.9.3.md` |
 | 0.9.2 | `2545391` | **project 6** 180, 22/22 (177/178/179 lost to runner memory; 176 to the migration's own path bug) | `docs/releases/v0.9.2.md` |
 | 0.9.1 | `d2e343b` | 175, 22/22 (174 failed validate-appimage) | `docs/releases/v0.9.1.md` |
 | 0.9.0 | `9dc6a07` | 173, 22/22 green (171 lost `build-windows` + macOS to the QtDBus guard, 172 `build-windows` to the builder image) | `docs/releases/v0.9.0.md` |
