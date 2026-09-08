@@ -949,10 +949,18 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // offering Join with no explanation (seen on the 2026-09-06 GUI pass in
     // a room whose state_default was 50). The status bar shows it, exactly
     // like every other reported error.
+    // The EMPTY reason is a WITHDRAWAL, not a no-op, and it must be
+    // forwarded. `errorReported` reaches Main.qml's status strip as a
+    // one-shot copy that nothing ever takes back, so a refusal announced by
+    // one join attempt outlived the later attempt that succeeded: the strip
+    // went on saying the user had no permission while the call was up.
+    // SfuCallController::setState withdraws it once a retry reaches
+    // Authorizing or later, and dropping the empty string here is what made
+    // that withdrawal invisible. An empty errorReported is already how four
+    // other paths in this file clear the strip.
     connect(m_groupCall.get(), &SfuCallController::callFailed, this,
             [this](const QString &reason) {
-                if (!reason.isEmpty())
-                    Q_EMIT errorReported(reason);
+                Q_EMIT errorReported(reason);
             });
     connect(m_groupCall.get(), &SfuCallController::stateChanged, this,
             [this] {

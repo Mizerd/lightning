@@ -14,6 +14,7 @@
 #include "app/SettingsManager.h"
 #include "auth/AuthManager.h"
 #include "calls/CallController.h"
+#include "calls/SfuCallController.h"
 #include "matrix/CallSignal.h"
 #include "matrix/MockMatrixClient.h"
 #include "notifications/NotificationManager.h"
@@ -355,6 +356,51 @@ private Q_SLOTS:
         QCOMPARE(controller.calls()->state(), CallController::State::Ended);
         QCOMPARE(controller.calls()->endReason(),
                  CallController::EndReason::LocalReject);
+    }
+
+    // A REFUSAL THAT WAS WITHDRAWN MUST STOP BEING SHOWN.
+    //
+    // `errorReported` reaches Main.qml as `statusBar.lastError = msg`, a
+    // one-shot copy that nothing ever takes back. So the sentence a refused
+    // join put on the strip outlived the later join that SUCCEEDED: the user
+    // was in the call while being told they had no permission to be.
+    //
+    // SfuCallController withdraws it by emitting `callFailed` with an EMPTY
+    // reason once a retry reaches Authorizing or later (proven in
+    // CallControllerTest). AppController used to drop that empty string on
+    // the floor, which made the withdrawal invisible and is the half of the
+    // defect that lives here. An empty `errorReported` is already how four
+    // other paths in AppController clear the strip.
+    //
+    // Driven through the real signal rather than a functor: the claim is
+    // about the PRODUCTION connection, and a test that calls the lambda
+    // directly would pass with the connection deleted.
+    void aWithdrawnCallRefusalReachesTheStatusStrip()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        QSignalSpy errors(&controller, &AppController::errorReported);
+        QVERIFY(errors.isValid());
+
+        auto *call = controller.groupCall();
+        QVERIFY(call);
+        QVERIFY(QMetaObject::invokeMethod(
+            call, "callFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("You cannot join calls here."))));
+        QCOMPARE(errors.size(), 1);
+        QCOMPARE(errors.at(0).at(0).toString(),
+                 QStringLiteral("You cannot join calls here."));
+
+        QVERIFY(QMetaObject::invokeMethod(call, "callFailed",
+                                          Qt::DirectConnection,
+                                          Q_ARG(QString, QString{})));
+        QVERIFY2(errors.size() == 2,
+                 "the withdrawal never reached the status strip, so a refusal "
+                 "from an earlier attempt goes on being displayed over a call "
+                 "the user successfully joined");
+        QVERIFY2(errors.at(1).at(0).toString().isEmpty(),
+                 "the withdrawal arrived carrying text, which would replace "
+                 "one stale sentence with another instead of clearing it");
     }
 
 private:
