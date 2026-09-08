@@ -436,6 +436,36 @@ void RtcSessionTest::joinBlockKeepsItsCausesApart()
     controller.setMediaAvailable(true);
     QVERIFY(controller.joinBlockReason(kRoom).isEmpty());
     QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
+
+    // AND THE ROOM'S OWN POWER LEVELS. A room with default levels puts state
+    // events at 50, so an ordinary member cannot write the call membership
+    // at all — which used to be discovered only when the publish came back
+    // refused. Blocked before the click now, with its own reason.
+    controller.setCanPublishMembership(kRoom, false);
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::NoPermission);
+    QCOMPARE(controller.joinBlockReason(kRoom), QStringLiteral("no_permission"));
+
+    // UNKNOWN IS NOT REFUSED. A room whose capability has not been reported
+    // must keep the button live: the server is still the authority, and
+    // disabling it on a guess would take calling away from anyone whose
+    // snapshot has not landed yet. (Opposite default to the encryption
+    // gate above, and deliberately so — that one fails safe by refusing,
+    // this one fails safe by letting the server answer.)
+    controller.setCanPublishMembership(kRoom, true);
+    QVERIFY(controller.joinBlockReason(kRoom).isEmpty());
+    RtcController fresh;
+    fresh.setClient(&client);
+    fresh.setMediaAvailable(true);
+    fresh.setRoomEncrypted(kRoom, false);
+    fresh.refresh(kRoom);
+    fresh.discover(kRoom);
+    Q_EMIT client.rtcSessionChanged(kRoom);
+    Q_EMIT client.rtcTransportsReceived(
+        client.lastTransportsOp, true, QString(),
+        QStringList{QStringLiteral("https://sfu.example.org/")}, QString());
+    QVERIFY2(fresh.joinBlockReason(kRoom) != QStringLiteral("no_permission"),
+             "a room whose call-membership capability was never reported was "
+             "refused, so a Join button was disabled on a guess");
 }
 
 void RtcSessionTest::unsupportedBackendDoesNothingAtAll()

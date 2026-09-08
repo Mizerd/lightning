@@ -201,6 +201,19 @@ void RtcController::setRoomEncrypted(const QString &roomId, bool encrypted)
     Q_EMIT sessionChanged(roomId);
 }
 
+void RtcController::setCanPublishMembership(const QString &roomId, bool can)
+{
+    if (roomId.isEmpty())
+        return;
+    const auto it = m_canPublishMembership.constFind(roomId);
+    if (it != m_canPublishMembership.cend() && it.value() == can)
+        return;
+    m_canPublishMembership.insert(roomId, can);
+    // Same signal the encryption fact uses: the banner and the call row both
+    // re-read their block reason from it.
+    Q_EMIT sessionChanged(roomId);
+}
+
 void RtcController::setPokeCoalesceMsForTest(int ms)
 {
     m_pokeCoalesceMs = ms < 0 ? 0 : ms;
@@ -735,6 +748,17 @@ RtcController::JoinBlock RtcController::joinBlock(const QString &roomId) const
     // connect to, which is the one thing this controller must never do.
     if (!m_mediaAvailable)
         return JoinBlock::NoMediaTransport;
+    // AND WHETHER THE SERVER WOULD EVEN ACCEPT THE MEMBERSHIP. Checked last,
+    // because everything above is a fact about this build or this homeserver
+    // and this one is about this ROOM: a user who could not join anywhere
+    // should hear the wider reason first.
+    //
+    // Default TRUE, and for the opposite reason to the encryption default
+    // above: a room we have not been told about must not have its Join
+    // button disabled on a guess. An unknown capability is "let them try",
+    // which is exactly today's behaviour; a KNOWN refusal is what this adds.
+    if (!m_canPublishMembership.value(roomId, true))
+        return JoinBlock::NoPermission;
     // Everything checks out — the call is joinable.
     return JoinBlock::None;
 }
@@ -749,6 +773,7 @@ QString RtcController::joinBlockReason(const QString &roomId) const
     case JoinBlock::DiscoveryFailed:  return QStringLiteral("discovery_failed");
     case JoinBlock::SessionClosed:    return QStringLiteral("session_closed");
     case JoinBlock::NoMediaTransport: return QStringLiteral("no_media_transport");
+    case JoinBlock::NoPermission:      return QStringLiteral("no_permission");
     case JoinBlock::MediaEncryptionUnavailable:
         return QStringLiteral("media_encryption_unavailable");
     }

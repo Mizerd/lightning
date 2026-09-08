@@ -96,6 +96,14 @@ public:
         /// media transport, so joining would publish a membership nobody
         /// can connect to.
         NoMediaTransport,
+        /// This account may not write `org.matrix.msc3401.call.member` in
+        /// this room, so a join could only ever be refused by the server.
+        /// A room with default power levels puts state events at 50, so
+        /// this is the ordinary member's case, not an exotic one — and it
+        /// was previously discovered only AFTER the publish came back
+        /// refused, with a message pointing at a permissions screen that
+        /// cannot set this key.
+        NoPermission,
         /// The room is ENCRYPTED but call media E2EE is not active, so
         /// joining would carry audio and video the SFU could read. Refused
         /// rather than downgraded: §6 requires failing safely and saying so,
@@ -184,6 +192,12 @@ public:
 
     /// Why joining this room's call is refused right now.
     Q_INVOKABLE JoinBlock joinBlock(const QString &roomId) const;
+
+    /// Whether this account may write the room's call membership, as the
+    /// room snapshot reports it. Absent means "not known yet", which is
+    /// deliberately treated as permitted: a Join button must not be disabled
+    /// on a guess.
+    void setCanPublishMembership(const QString &roomId, bool can);
     /// The same answer as a stable, translatable-at-the-QML-layer token.
     Q_INVOKABLE QString joinBlockReason(const QString &roomId) const;
 
@@ -361,5 +375,6 @@ private:
     bool m_mediaEncryption = false;
     bool m_mediaAvailable = false;
     QHash<QString, bool> m_encryptedRooms;
+    QHash<QString, bool> m_canPublishMembership;
 
 };

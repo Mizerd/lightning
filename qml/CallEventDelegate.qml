@@ -125,6 +125,8 @@ Item {
             return qsTr("This call has ended");
         case "no_media_transport":
             return qsTr("Joining calls isn't supported yet in this build");
+        case "no_permission":
+            return qsTr("You can't join calls in this room");
         case "media_encryption_unavailable":
             return qsTr("This room is encrypted, and encrypted calls "
                         + "aren't available in this build");

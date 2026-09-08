@@ -140,6 +140,9 @@ Rectangle {
             return qsTr("This call has ended.");
         case "no_media_transport":
             return qsTr("Joining calls isn't supported yet in this build.");
+        case "no_permission":
+            return qsTr("You can't join calls in this room. A room admin "
+                        + "can raise your power level in it.");
         case "media_encryption_unavailable":
             // The room is encrypted and call media E2EE is not active, so
             // joining would carry audio and video the SFU could read. It had

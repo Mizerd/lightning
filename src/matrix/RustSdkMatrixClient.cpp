@@ -8871,6 +8871,13 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         snapshot.insert(
             QStringLiteral("canUpgradeRoom"),
             event.value(QStringLiteral("own_can_upgrade")).toBool());
+        // Whether this account may write the call membership. The Join
+        // button used to be offered enabled to a user who provably could
+        // not, and the refusal only arrived after the publish.
+        snapshot.insert(
+            QStringLiteral("canPublishCallMembership"),
+            event.value(QStringLiteral("own_can_publish_rtc_membership"))
+                .toBool());
         snapshot.insert(QStringLiteral("joinRule"),
                         event.value(QStringLiteral("join_rule")).toString());
         snapshot.insert(

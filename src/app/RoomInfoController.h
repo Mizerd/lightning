@@ -180,6 +180,8 @@ public:
     QVariantMap powerLevels() const { return m_powerLevels; }
     QString roomVersion() const { return m_roomVersion; }
     bool canUpgradeRoom() const { return m_canUpgradeRoom; }
+    bool canPublishCallMembership() const
+    { return m_canPublishCallMembership; }
     bool powerMatrixPending() const { return m_powerMatrixOp != 0; }
     QString powerMatrixError() const { return m_powerMatrixError; }
     bool powerLevelPending() const { return m_powerLevelOp != 0; }
@@ -558,6 +560,10 @@ private:
     QVariantMap m_powerLevels;
     QString m_roomVersion;
     bool m_canUpgradeRoom = false;
+    /// Whether this account may write the room's call membership. Read by
+    /// the join gate, which used to offer an enabled Join button to a user
+    /// the server would always refuse.
+    bool m_canPublishCallMembership = true;
     quint64 m_powerMatrixOp = 0;
     QString m_powerMatrixError;
     quint64 m_powerLevelOp = 0;

@@ -1491,6 +1491,23 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // never opened optimistically ahead of that.
     connect(m_forward.get(), &ForwardController::forwarded,
             this, &AppController::openRoom);
+    // THE JOIN GATE LEARNS WHETHER THE SERVER WOULD ACCEPT A MEMBERSHIP.
+    //
+    // The capability rides the member snapshot, which lands when a room's
+    // roster is fetched — so the Join button starts permitted (an unknown
+    // capability must never disable it) and turns into a specific refusal
+    // once the room's own power levels are known. Before this the user was
+    // offered an enabled button and learned only from the publish coming
+    // back refused, with wording that pointed at a permissions screen which
+    // cannot set `org.matrix.msc3401.call.member` at all.
+    connect(m_roomInfo.get(), &RoomInfoController::membersChanged, this,
+            [this] {
+                const QString roomId = m_roomInfo->roomId();
+                if (!roomId.isEmpty()) {
+                    m_rtc->setCanPublishMembership(
+                        roomId, m_roomInfo->canPublishCallMembership());
+                }
+            });
     connect(m_roomInfo.get(), &RoomInfoController::roomLeft,
             this, [this](const QString &roomId) {
         if (m_currentRoomId == roomId) {

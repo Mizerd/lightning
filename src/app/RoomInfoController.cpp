@@ -168,6 +168,7 @@ void RoomInfoController::clearSnapshot()
     m_powerLevels.clear();
     m_roomVersion.clear();
     m_canUpgradeRoom = false;
+    m_canPublishCallMembership = true;
     Q_EMIT membersChanged();
 }
 
@@ -269,6 +270,12 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
     m_roomVersion = snapshot.value(QStringLiteral("roomVersion")).toString();
     m_canUpgradeRoom =
         snapshot.value(QStringLiteral("canUpgradeRoom")).toBool();
+    // DEFAULT TRUE when the backend does not report it: a Join button must
+    // not be disabled on a guess, and a backend with no capability field is
+    // exactly today's behaviour ("let them try, the server decides").
+    m_canPublishCallMembership =
+        !snapshot.contains(QStringLiteral("canPublishCallMembership"))
+        || snapshot.value(QStringLiteral("canPublishCallMembership")).toBool();
     Q_EMIT membersChanged();
 }
 

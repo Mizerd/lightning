@@ -1785,6 +1785,20 @@ async fn members_snapshot_json(
         let can_upgrade = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::RoomTombstone));
+        // WHETHER THIS ACCOUNT MAY PUBLISH A CALL MEMBERSHIP, which is what
+        // decides whether the Join button can work at all.
+        //
+        // Computed with the SAME STRING Lightning actually sends
+        // (`rtc::EV_MEMBER_LEGACY`), not a typed ruma enum: this file already
+        // records that ruma's aliasing makes a typed variant govern a
+        // different wire string than the one we write, and getting that wrong
+        // here would report a capability for an event nobody sends. A room
+        // with default power levels puts state events at 50, so an ordinary
+        // member cannot join a call at all — and until now they learned that
+        // only after the publish came back refused.
+        let can_publish_rtc_membership = own_member.as_ref().is_some_and(|m| {
+            m.can_send_state(StateEventType::from(crate::rtc::EV_MEMBER_LEGACY))
+        });
         let join_rule = join_rule_str(room.join_rule().as_ref());
         let canonical_alias = room
             .canonical_alias()
@@ -1896,6 +1910,7 @@ async fn members_snapshot_json(
             "own_power_level": own_power_level,
             "users_default_power_level": users_default,
             "own_can_upgrade": can_upgrade,
+            "own_can_publish_rtc_membership": can_publish_rtc_membership,
             "room_version": room_version,
             // Every key here is one this file chose; see the comment above.
             // The C++ side mirrors them verbatim into the Permissions matrix.
