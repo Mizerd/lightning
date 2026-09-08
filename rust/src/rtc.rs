@@ -2190,6 +2190,47 @@ fn device_refresh_marks()
     MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// When we last SAID that an Olm to-device message from a peer would not
+/// decrypt.
+///
+/// Separate map, same TTL and the same [`device_refresh_due`] predicate — the
+/// two facts are different ("when did we last re-query their keys" against
+/// "when did we last report a loss"), and sharing one slot would let a
+/// distribution silence the report or the report suppress a real refresh.
+/// Only ever written for a user who is already in [`device_refresh_marks`],
+/// and capped besides, so a homeserver cannot grow it by inventing senders.
+fn undecryptable_report_marks()
+    -> &'static std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>
+{
+    static MARKS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    > = std::sync::OnceLock::new();
+    MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Ceiling on [`undecryptable_report_marks`], mirroring the cap the C++ side
+/// already puts on its own cooldown table.
+const MAX_REPORT_MARKS: usize = 256;
+
+/// Should an Olm to-device message that would not decrypt be reported as a
+/// media key this device lost?
+///
+/// Pure so the policy is testable without a client, a call or a network.
+///
+/// TWO conditions, and the first is what keeps the claim honest. An
+/// undecryptable to-device message carries NO type — that is the whole point
+/// of it — so this code cannot know whether the one that just failed was a
+/// media key, a room key, or a verification step. What it can know is whether
+/// the sender is somebody this process has distributed a media key TO, which
+/// is the set [`device_refresh_marks`] holds; for anybody else the loss is
+/// real but it is not a call fault and must not be announced as one.
+pub(crate) fn undecryptable_key_report_due(
+    is_media_key_peer: bool,
+    since_last_report_secs: Option<u64>,
+) -> bool {
+    is_media_key_peer && device_refresh_due(since_last_report_secs)
+}
+
 pub(crate) fn send_media_key(
     bridge: &RustClient,
     room_id: String,
@@ -2706,6 +2747,109 @@ pub(crate) fn register_rtc_handlers(
         guards.push(client.event_handler_drop_guard(handle));
     }
 
+    // THE DISCARD THAT ACTUALLY HAPPENED IS ONE THIS HANDLER NEVER SEES.
+    //
+    // Every `discard!` above requires the handler ABOVE to run, and it only
+    // runs for a to-device event the SDK decrypted. Measured against
+    // matrix-sdk 0.18: `handle_sync_to_device_events` matches
+    // `ProcessedToDeviceEvent::Decrypted` to hand over the DECRYPTED raw
+    // event, and every other variant — `UnableToDecrypt` above all — is
+    // handed over as the `m.room.encrypted` ENVELOPE with no encryption info
+    // (matrix-sdk-0.18.0/src/event_handler/mod.rs:379-384). So a media key
+    // whose Olm message failed is not a discard we can name: the typed
+    // handler for `io.element.call.encryption_keys` is never called at all.
+    //
+    // That is exactly the shape captured live on 2026-09-07 — the sender
+    // reporting `delivered= 1` three times while the receiver logged NO key
+    // receive AND no discard — and it took an opt-in SDK tracing bridge to
+    // say so. An ordinary log, and therefore any tester's report, said
+    // nothing whatsoever.
+    //
+    // This handler is the ordinary-log version of that line. It reports the
+    // loss and nothing more: it does not retry, does not soften a refusal,
+    // and cannot make a key land. It CANNOT, and must not pretend to,
+    // distinguish the reasons, because the SDK's own reason
+    // (`ToDeviceUnableToDecryptInfo`) travels on `SyncResponse.to_device` and
+    // never reaches an event handler. The three that produce this shape are:
+    //
+    //   * the sender encrypted to an identity key we no longer hold
+    //     (`EventError::MissingCiphertext`, olm/account.rs:1239) — the
+    //     2026-09-07 capture. Note the SDK marks a device for a fresh Olm
+    //     session only on `SessionWedged`, so this one does NOT self-heal,
+    //     which is why leaving and rejoining did not recover it;
+    //   * the sending device is not in our store and the message carried no
+    //     MSC4147 `sender_device_keys` (`EventError::MissingSigningKey`,
+    //     olm/account.rs:1606) — a genuine race, and one matrix-sdk senders
+    //     cannot cause because their sessions always attach those keys
+    //     (olm/session.rs:204);
+    //   * the sending device does not meet the configured trust requirement
+    //     (`OlmError::UnverifiedSenderDevice`). That refusal is CORRECT and
+    //     must stay a refusal — this line exists so it stops being a silent
+    //     one.
+    //
+    // Sender only, never ciphertext, never key material, and NOTE that on an
+    // undecryptable envelope the sender is server-asserted rather than
+    // Olm-vouched: it names who the homeserver says this came from, which is
+    // the right datum for a diagnostic and would be the wrong one for a
+    // decision.
+    {
+        let events = Arc::clone(events);
+        let timelines = Arc::clone(timelines);
+        let handle = client.add_event_handler(
+            move |ev: matrix_sdk::ruma::events::room::encrypted::ToDeviceRoomEncryptedEvent| {
+                let events = Arc::clone(&events);
+                let timelines = Arc::clone(&timelines);
+                async move {
+                    let Some(sender) = sane(ev.sender.as_str(), MAX_WIRE_LEN)
+                    else {
+                        return;
+                    };
+                    // A POISONED LOCK MUST NOT SILENCE THE DIAGNOSTIC. Both
+                    // fallbacks below fail towards saying too much rather
+                    // than too little; the C++ consumer applies its own
+                    // 60 s per-(sender, reason) cooldown, so the worst case
+                    // is a repeated warning rather than a hidden fault.
+                    let is_peer = match device_refresh_marks().lock() {
+                        Ok(marks) => marks.contains_key(sender),
+                        Err(_) => true,
+                    };
+                    let elapsed = match undecryptable_report_marks().lock() {
+                        Ok(marks) => marks
+                            .get(sender)
+                            .map(|at| at.elapsed().as_secs()),
+                        Err(_) => None,
+                    };
+                    if !undecryptable_key_report_due(is_peer, elapsed) {
+                        return;
+                    }
+                    if let Ok(mut marks) = undecryptable_report_marks().lock()
+                    {
+                        // Refresh an existing mark always; take a new slot
+                        // only while there is room, so the map is bounded
+                        // even if the gate above ever let a stranger past.
+                        if marks.len() < MAX_REPORT_MARKS
+                            || marks.contains_key(sender)
+                        {
+                            marks.insert(
+                                sender.to_owned(),
+                                std::time::Instant::now(),
+                            );
+                        }
+                    }
+                    enqueue(&events, json!({
+                        "type": "rtc_key_discarded",
+                        "lifecycle": timelines.lifecycle(),
+                        "reason": "an olm to-device message from them would \
+                                   not decrypt on this device, so if it was \
+                                   carrying the key the key never arrived",
+                        "sender": sender,
+                    }));
+                }
+            },
+        );
+        guards.push(client.event_handler_drop_guard(handle));
+    }
+
     RtcHandlerGuards { _guards: guards }
 }
 
@@ -3198,6 +3342,49 @@ mod tests {
         // The window is a real bound, not zero (which would query on every
         // single distribution) and not enormous.
         assert!(DEVICE_REFRESH_TTL_SECS >= 10 && DEVICE_REFRESH_TTL_SECS <= 600);
+    }
+
+    // A LOSS WE CANNOT ATTRIBUTE TO A CALL MUST NOT BE ANNOUNCED AS ONE.
+    //
+    // An undecryptable to-device message carries no type, so the only thing
+    // that makes "a media key from them was discarded" a true sentence is
+    // that we have actually distributed a media key to that user. Without
+    // this gate the same line would fire for a failed room key, a
+    // verification step, or anything a homeserver chose to inject with an
+    // invented `sender` — and it would grow an unbounded table doing it.
+    #[test]
+    fn an_undecryptable_message_is_only_a_call_fault_for_a_call_peer() {
+        assert!(!undecryptable_key_report_due(false, None));
+        assert!(!undecryptable_key_report_due(false, Some(0)));
+        assert!(!undecryptable_key_report_due(
+            false,
+            Some(DEVICE_REFRESH_TTL_SECS * 10),
+        ));
+    }
+
+    // A WEDGED SESSION RE-SENDS, SO THE REPORT MUST BE PACED.
+    //
+    // The event queue is bounded and drops its OLDEST entry, so an
+    // unthrottled report would evict real events to make room for repeats of
+    // itself. Same window and the same predicate as the device refresh: one
+    // line a minute per peer is enough to name the fault and cheap enough to
+    // leave on.
+    #[test]
+    fn a_lost_key_is_reported_once_and_then_paced() {
+        // Never said for this peer: say it.
+        assert!(undecryptable_key_report_due(true, None));
+        // Just said: do not repeat.
+        assert!(!undecryptable_key_report_due(true, Some(0)));
+        assert!(!undecryptable_key_report_due(
+            true,
+            Some(DEVICE_REFRESH_TTL_SECS - 1),
+        ));
+        // A call that is still broken a minute later says so again, rather
+        // than falling silent for the rest of the session.
+        assert!(undecryptable_key_report_due(
+            true,
+            Some(DEVICE_REFRESH_TTL_SECS),
+        ));
     }
 
     #[test]
