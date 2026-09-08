@@ -5201,11 +5201,6 @@ Size: %3</source>
         <source>Upload failed. Retry or remove.</source>
         <translation>فشل الرفع. أعد المحاولة أو أزله.</translation>
     </message>
-    <message>
-        <location line="+104"/>
-        <source>Unknown command /%1. It was not sent.</source>
-        <translation type="unfinished"></translation>
-    </message>
 </context>
 <context>
     <name>MessageComposerBar</name>
@@ -5319,7 +5314,7 @@ Size: %3</source>
         <translation>إزالة المرفق %1</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+94"/>
         <source>Send as message</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5519,7 +5514,7 @@ Size: %3</source>
         <translation>تسجيل رسالة صوتية</translation>
     </message>
     <message>
-        <location line="-3062"/>
+        <location line="-3068"/>
         <source>A recording is already in progress.</source>
         <translation>هناك تسجيل قيد التنفيذ بالفعل.</translation>
     </message>
@@ -5529,7 +5524,7 @@ Size: %3</source>
         <translation>التسجيل الصوتي غير متاح.</translation>
     </message>
     <message>
-        <location line="+2799"/>
+        <location line="+2805"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">المزيد</translation>
@@ -9186,21 +9181,21 @@ Size: %3</source>
         <location line="+3387"/>
         <location line="+93"/>
         <location line="+13"/>
-        <location line="+37"/>
+        <location line="+64"/>
         <location line="+37"/>
         <source>Not signed in.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-3767"/>
+        <location line="-3794"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3569"/>
+        <location line="+3596"/>
         <source>Unknown room: %1</source>
         <translation>غرفة غير معروفة: %1</translation>
     </message>
     <message>
-        <location line="-3769"/>
+        <location line="-3796"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9323,7 +9318,7 @@ Size: %3</source>
         <translation>إعادة تحميل المحادثة: لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="+123"/>
+        <location line="+150"/>
         <source>No file selected.</source>
         <translation>لم يُحدد ملف.</translation>
     </message>
@@ -14869,12 +14864,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+391"/>
-        <source>Unknown command /%1. It was not sent.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+194"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+595"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>المرفقات غير مدعومة على هذه الخلفية.</translation>
     </message>
@@ -15446,12 +15436,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+6114"/>
+        <location line="+6138"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location line="-6113"/>
+        <location line="-6137"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
@@ -15506,12 +15496,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4711"/>
+        <location line="+4735"/>
         <source>Room information</source>
         <translation>معلومات الغرفة</translation>
     </message>
     <message>
-        <location line="-4490"/>
+        <location line="-4514"/>
         <source>This room has been upgraded.</source>
         <translation>تمت ترقية هذه الغرفة.</translation>
     </message>
@@ -15686,7 +15676,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعذّر إتمام البحث.</translation>
     </message>
     <message>
-        <location line="+3763"/>
+        <location line="+3787"/>
         <source>Loading older messages…</source>
         <translation>جارٍ تحميل رسائل أقدم…</translation>
     </message>

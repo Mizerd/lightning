@@ -1572,10 +1572,16 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 0
 
-                // v0.9 slash commands: the non-destructive refusal strip. An
-                // unknown command or missing arguments lands here — the
-                // draft stays in the box, nothing was sent, and "Send as
-                // message" posts the text literally for the deliberate case.
+                // v0.9 slash commands: the non-destructive refusal strip.
+                // Only a KNOWN command that cannot run lands here now, such
+                // as one missing its argument — the draft stays in the box,
+                // nothing was sent, and "Send as message" posts the text
+                // literally for the deliberate case.
+                //
+                // An UNKNOWN command no longer reaches this strip at all: it
+                // is sent as text (issue #11), because a client cannot tell a
+                // bot's command from a typo and blocking every bot command to
+                // guard against the typo was the wrong trade.
                 Item {
                     id: commandErrorRow
                     objectName: "composerCommandError"

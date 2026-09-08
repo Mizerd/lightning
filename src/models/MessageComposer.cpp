@@ -540,11 +540,19 @@ void MessageComposer::sendInternal(bool allowCommands)
             body = parsed.literalText.trimmed();
             break;
         case SlashCommands::Parse::Unknown:
-            // Non-destructive refusal: the draft stays, and the error bar
-            // offers sendBypassingCommands for a deliberate literal send.
-            setCommandError(tr("Unknown command /%1. It was not sent.")
-                                .arg(parsed.name));
-            return;
+            // SENT AS TEXT, NOT REFUSED. Reported as issue #11: people run
+            // bots whose command sets Lightning cannot know, so "/new" met
+            // "Unknown command. It was not sent." and a mouse trip to a
+            // button, every single time. A client cannot tell a bot's command
+            // from a typo, and refusing every one of them to guard against
+            // the typo is the wrong trade: the bot case is constant and the
+            // typo case is rare and recoverable by redacting.
+            //
+            // Falls through to the ordinary send with the leading slash
+            // intact, which is what the bot needs to receive. A KNOWN command
+            // with bad arguments still refuses, because there Lightning does
+            // know what was meant. `//text` still escapes to a literal.
+            break;
         case SlashCommands::Parse::Known:
             if (executeCommand(parsed, mentionIds))
                 return;

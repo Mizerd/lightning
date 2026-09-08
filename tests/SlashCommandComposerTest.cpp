@@ -263,21 +263,39 @@ private Q_SLOTS:
         QVERIFY(m_composer->commandError().isEmpty());
     }
 
-    void unknownCommandRefusesAndSendAnywayPostsItLiterally()
+    // AN UNKNOWN COMMAND IS SENT, NOT REFUSED.
+    //
+    // Reported as issue #11: people run bots whose command sets Lightning
+    // cannot know, so "/new" met "Unknown command. It was not sent." and a
+    // mouse trip to a button, every time. A client cannot tell a bot's
+    // command from a typo, and blocking every one to guard against the typo
+    // is the wrong trade.
+    //
+    // FAIL-ON-OLD: the old behaviour left `sends` empty and set a command
+    // error, so both assertions below fail.
+    void unknownCommandIsSentAsTextWithItsSlashIntact()
     {
         m_composer->setText(QStringLiteral("/frobnicate hard"));
         m_composer->send();
-        QVERIFY(m_client->sends.isEmpty());
-        QVERIFY(m_composer->commandError()
-                    .contains(QStringLiteral("/frobnicate")));
-        QCOMPARE(m_composer->text(), QStringLiteral("/frobnicate hard"));
-
-        m_composer->sendBypassingCommands();
         QCOMPARE(m_client->sends.size(), 1);
         QCOMPARE(m_client->sends.first().body,
                  QStringLiteral("/frobnicate hard"));
-        QVERIFY(m_client->sends.first().spec.isEmpty());
+        QVERIFY2(m_composer->commandError().isEmpty(),
+                 "an unknown command must not raise a refusal any more");
         QCOMPARE(m_composer->text(), QString());
+    }
+
+    // ...AND A KNOWN COMMAND WITH BAD ARGUMENTS STILL REFUSES, because there
+    // Lightning does know what was meant. Losing this would turn every
+    // mistyped real command into a message in the room.
+    void aKnownCommandWithMissingArgumentsStillRefuses()
+    {
+        m_composer->setText(QStringLiteral("/me"));
+        m_composer->send();
+        QVERIFY2(m_client->sends.isEmpty(),
+                 "a known command missing its argument was sent as text");
+        QVERIFY(!m_composer->commandError().isEmpty());
+        QCOMPARE(m_composer->text(), QStringLiteral("/me"));
     }
 
     void doubleSlashSendsTheLiteralSingleSlashText()

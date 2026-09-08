@@ -5145,11 +5145,6 @@ Tamaño: %3</translation>
         <source>Upload failed. Retry or remove.</source>
         <translation>Ha fallado la subida. Reintenta o quita el adjunto.</translation>
     </message>
-    <message>
-        <location line="+104"/>
-        <source>Unknown command /%1. It was not sent.</source>
-        <translation type="unfinished"></translation>
-    </message>
 </context>
 <context>
     <name>MessageComposerBar</name>
@@ -5263,7 +5258,7 @@ Tamaño: %3</translation>
         <translation>Quitar el adjunto %1</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+94"/>
         <source>Send as message</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5463,7 +5458,7 @@ Tamaño: %3</translation>
         <translation>Grabar un mensaje de voz</translation>
     </message>
     <message>
-        <location line="-3062"/>
+        <location line="-3068"/>
         <source>A recording is already in progress.</source>
         <translation>Ya hay una grabación en curso.</translation>
     </message>
@@ -5473,7 +5468,7 @@ Tamaño: %3</translation>
         <translation>La grabación de voz no está disponible.</translation>
     </message>
     <message>
-        <location line="+2799"/>
+        <location line="+2805"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">Más</translation>
@@ -9098,21 +9093,21 @@ Tamaño: %3</translation>
         <location line="+3387"/>
         <location line="+93"/>
         <location line="+13"/>
-        <location line="+37"/>
+        <location line="+64"/>
         <location line="+37"/>
         <source>Not signed in.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-3767"/>
+        <location line="-3794"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3569"/>
+        <location line="+3596"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconocida: %1</translation>
     </message>
     <message>
-        <location line="-3769"/>
+        <location line="-3796"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9235,7 +9230,7 @@ Tamaño: %3</translation>
         <translation>Recargar la cronología: no has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="+123"/>
+        <location line="+150"/>
         <source>No file selected.</source>
         <translation>No se ha seleccionado ningún archivo.</translation>
     </message>
@@ -14761,12 +14756,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+391"/>
-        <source>Unknown command /%1. It was not sent.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+194"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+595"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Este backend no admite archivos adjuntos.</translation>
     </message>
@@ -15318,12 +15308,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+6114"/>
+        <location line="+6138"/>
         <source>Space</source>
         <translation>Espacio</translation>
     </message>
     <message>
-        <location line="-6113"/>
+        <location line="-6137"/>
         <source>Home</source>
         <translation>Inicio</translation>
     </message>
@@ -15378,12 +15368,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4711"/>
+        <location line="+4735"/>
         <source>Room information</source>
         <translation>Información de la sala</translation>
     </message>
     <message>
-        <location line="-4490"/>
+        <location line="-4514"/>
         <source>This room has been upgraded.</source>
         <translation>Esta sala se ha actualizado.</translation>
     </message>
@@ -15558,7 +15548,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>No se pudo completar la búsqueda.</translation>
     </message>
     <message>
-        <location line="+3763"/>
+        <location line="+3787"/>
         <source>Loading older messages…</source>
         <translation>Cargando mensajes anteriores…</translation>
     </message>

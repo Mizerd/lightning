@@ -5131,11 +5131,6 @@ Ukuran: %3</translation>
         <source>Upload failed. Retry or remove.</source>
         <translation>Unggahan gagal. Coba lagi atau hapus.</translation>
     </message>
-    <message>
-        <location line="+104"/>
-        <source>Unknown command /%1. It was not sent.</source>
-        <translation type="unfinished"></translation>
-    </message>
 </context>
 <context>
     <name>MessageComposerBar</name>
@@ -5249,7 +5244,7 @@ Ukuran: %3</translation>
         <translation>Hapus lampiran %1</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+94"/>
         <source>Send as message</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5449,7 +5444,7 @@ Ukuran: %3</translation>
         <translation>Rekam pesan suara</translation>
     </message>
     <message>
-        <location line="-3062"/>
+        <location line="-3068"/>
         <source>A recording is already in progress.</source>
         <translation>Rekaman sedang berlangsung.</translation>
     </message>
@@ -5459,7 +5454,7 @@ Ukuran: %3</translation>
         <translation>Perekaman suara tidak tersedia.</translation>
     </message>
     <message>
-        <location line="+2799"/>
+        <location line="+2805"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">Lainnya</translation>
@@ -9076,21 +9071,21 @@ Ukuran: %3</translation>
         <location line="+3387"/>
         <location line="+93"/>
         <location line="+13"/>
-        <location line="+37"/>
+        <location line="+64"/>
         <location line="+37"/>
         <source>Not signed in.</source>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-3767"/>
+        <location line="-3794"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3569"/>
+        <location line="+3596"/>
         <source>Unknown room: %1</source>
         <translation>Ruang tidak dikenal: %1</translation>
     </message>
     <message>
-        <location line="-3769"/>
+        <location line="-3796"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9213,7 +9208,7 @@ Ukuran: %3</translation>
         <translation>Muat ulang linimasa: belum masuk.</translation>
     </message>
     <message>
-        <location line="+123"/>
+        <location line="+150"/>
         <source>No file selected.</source>
         <translation>Tidak ada berkas yang dipilih.</translation>
     </message>
@@ -14734,12 +14729,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+391"/>
-        <source>Unknown command /%1. It was not sent.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+194"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+595"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Lampiran tidak didukung pada backend ini.</translation>
     </message>
@@ -15286,12 +15276,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+6114"/>
+        <location line="+6138"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
     <message>
-        <location line="-6113"/>
+        <location line="-6137"/>
         <source>Home</source>
         <translation>Beranda</translation>
     </message>
@@ -15346,12 +15336,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4711"/>
+        <location line="+4735"/>
         <source>Room information</source>
         <translation>Informasi ruang</translation>
     </message>
     <message>
-        <location line="-4490"/>
+        <location line="-4514"/>
         <source>This room has been upgraded.</source>
         <translation>Ruang ini telah ditingkatkan.</translation>
     </message>
@@ -15526,7 +15516,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Pencarian tidak dapat diselesaikan.</translation>
     </message>
     <message>
-        <location line="+3763"/>
+        <location line="+3787"/>
         <source>Loading older messages…</source>
         <translation>Memuat pesan lama…</translation>
     </message>
