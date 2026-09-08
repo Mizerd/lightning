@@ -756,10 +756,12 @@ public:
     /// this is a fact about your own hardware and is the same on every
     /// account you sign into on this machine.
     // v0.9.0: pop the call out into a small always-on-top window when the
-    // main window is minimised or closed to the tray. Default ON — that is
-    // the behaviour every other call client has and the only situation the
-    // window is useful in — and it never appears while the main window is on
-    // screen, which is what keeps "default on" from being intrusive.
+    // main window is minimised or closed to the tray. It never appears while
+    // the main window is on screen.
+    // Default OFF since 2026-09-05 (`8af148b`, "the automatic call pop-out is
+    // opt-in"): shipped on, it popped the call out the moment the main window
+    // was minimised. This comment still claimed "Default ON" afterwards — see
+    // callPictureInPicture() in the .cpp, which is authoritative.
     Q_PROPERTY(bool callPictureInPicture READ callPictureInPicture
                    WRITE setCallPictureInPicture
                    NOTIFY callPictureInPictureChanged)

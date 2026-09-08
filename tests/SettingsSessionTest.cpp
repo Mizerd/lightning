@@ -4,9 +4,12 @@
 
 #include <QFile>
 #include <QHash>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
+
+#include <utility>
 
 class FakeSecretStore final : public SecretStore
 {
@@ -116,6 +119,10 @@ private Q_SLOTS:
     void theEncryptedPreviewLevelDefaultsToFollowingTheGeneralOne();
     void anUnknownEncryptionStateTakesTheStricterLevel();
     void strictDeviceTrustDefaultsOffAndPersists();
+    // 2026-09-08 audit: five account-scoped values were never re-announced.
+    void switchingAccountsReAnnouncesEveryAccountScopedAppearanceValue();
+    void everyAccountScopedGetterHasItsSignalInTheAccountSwitch();
+    void turningOffCloseToTrayAnnouncesTheStartInTrayItDerives();
 
 private:
     QTemporaryDir m_configHome;
@@ -1147,6 +1154,182 @@ void SettingsSessionTest::anUnknownEncryptionStateTakesTheStricterLevel()
     QCOMPARE(settings.effectiveNotificationPreview(false, false), 2);
     // Known-encrypted still means exactly what the user asked for.
     QCOMPARE(settings.effectiveNotificationPreview(true, true), 0);
+}
+
+// ── Every account-scoped value must be re-announced on a switch ─────────
+//
+// `switchingAccountsReAnnouncesTheRoomListFilter` above is written around a
+// comment calling roomFilterMode "the ONE such value missing". That claim was
+// wrong when it was made: FIVE more properties resolve through
+// appearanceValue() and none of their NOTIFY signals was emitted by the
+// switch. Each of their signals is emitted from its own setter and nowhere
+// else, so a switch changed the resolved value and told nobody — and every
+// consumer kept the previous account's answer for the rest of the session.
+//
+// reducedMotion is the worst of them: Main.qml pushes it into AppTheme through
+// a one-way Binding read by ~50 QML sites, so an accessibility preference set
+// under one account governed the next one silently.
+void SettingsSessionTest::switchingAccountsReAnnouncesEveryAccountScopedAppearanceValue()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    const QString alice = QStringLiteral("@alice:matrix.example");
+    const QString bob = QStringLiteral("@bob:matrix.example");
+    settings.saveSession(QStringLiteral("https://matrix.example"), alice,
+                         QStringLiteral("ALICEDEVICE"),
+                         QStringLiteral("alice-token-fixture"));
+    settings.saveSession(QStringLiteral("https://matrix.example"), bob,
+                         QStringLiteral("BOBDEVICE"),
+                         QStringLiteral("bob-token-fixture"));
+
+    // Alice's answers, all different from the defaults Bob will resolve.
+    settings.setActiveAccountUserId(alice);
+    settings.setReducedMotion(true);
+    settings.setSmoothScrolling(false);
+    settings.setHiddenComposerButtons(QStringList{ QStringLiteral("gif") });
+    settings.setClockFormat(2);
+    settings.setMicrophoneGain(140);
+
+    // Bob's, so that switching back to Alice genuinely moves every value.
+    settings.setActiveAccountUserId(bob);
+    settings.setReducedMotion(false);
+    settings.setSmoothScrolling(true);
+    settings.setHiddenComposerButtons(QStringList{});
+    settings.setClockFormat(1);
+    settings.setMicrophoneGain(60);
+
+    QSignalSpy motion(&settings, &SettingsManager::reducedMotionChanged);
+    QSignalSpy scrolling(&settings, &SettingsManager::smoothScrollingChanged);
+    QSignalSpy composer(&settings,
+                        &SettingsManager::hiddenComposerButtonsChanged);
+    QSignalSpy clock(&settings, &SettingsManager::clockFormatChanged);
+    QSignalSpy gain(&settings, &SettingsManager::microphoneGainChanged);
+
+    settings.setActiveAccountUserId(alice);
+
+    // The values really did move — otherwise the notify assertions below
+    // would be asserting nothing.
+    QCOMPARE(settings.reducedMotion(), true);
+    QCOMPARE(settings.smoothScrolling(), false);
+    QCOMPARE(settings.hiddenComposerButtons(),
+             QStringList{ QStringLiteral("gif") });
+    QCOMPARE(settings.clockFormat(), 2);
+    QCOMPARE(settings.microphoneGain(), 140);
+
+    QVERIFY2(motion.count() >= 1,
+             "an account switch did not re-announce reducedMotion, so "
+             "AppTheme keeps the previous account's accessibility choice");
+    QVERIFY2(scrolling.count() >= 1,
+             "an account switch did not re-announce smoothScrolling, so the "
+             "wheel handler keeps the previous account's choice");
+    QVERIFY2(composer.count() >= 1,
+             "an account switch did not re-announce hiddenComposerButtons, so "
+             "the composer keeps the previous account's button set");
+    QVERIFY2(clock.count() >= 1,
+             "an account switch did not re-announce clockFormat, so every "
+             "timestamp keeps the previous account's clock");
+    QVERIFY2(gain.count() >= 1,
+             "an account switch did not re-announce microphoneGain, so a live "
+             "call keeps the previous account's gain");
+}
+
+// A HAND-WRITTEN LIST IS WHAT WAS WRONG, so this one is derived. It reads
+// SettingsManager.cpp, collects the getter that encloses every
+// appearanceValue() call — those, and only those, resolve per account — and
+// requires setActiveAccountUserId() to emit each one's `<getter>Changed`.
+// Adding a new account-scoped getter without its notify fails here rather
+// than in a user's session six weeks later.
+void SettingsSessionTest::everyAccountScopedGetterHasItsSignalInTheAccountSwitch()
+{
+    QFile file(QStringLiteral(REPO_ROOT "/src/app/SettingsManager.cpp"));
+    QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
+             qPrintable(file.errorString()));
+    const QStringList lines =
+        QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
+
+    // The body of setActiveAccountUserId, so the search is scoped to the
+    // switch itself rather than to the whole file.
+    QString switchBody;
+    bool inSwitch = false;
+    int depth = 0;
+    QStringList scopedGetters;
+    QString currentGetter;
+    // `QVariant SettingsManager::appearanceValue(` must not count itself.
+    static const QRegularExpression definition(
+        QStringLiteral("^[A-Za-z_].*\\bSettingsManager::([A-Za-z_][A-Za-z0-9_]*)\\("));
+    for (const QString &line : lines) {
+        const auto match = definition.match(line);
+        if (match.hasMatch())
+            currentGetter = match.captured(1);
+        if (line.contains(QLatin1String("SettingsManager::setActiveAccountUserId(")))
+            inSwitch = true;
+        if (inSwitch) {
+            switchBody += line + QLatin1Char('\n');
+            depth += line.count(QLatin1Char('{')) - line.count(QLatin1Char('}'));
+            if (depth == 0 && switchBody.contains(QLatin1Char('}')))
+                inSwitch = false;
+        }
+        // A comment mentioning appearanceValue() is not a call site — and
+        // setActiveAccountUserId's own comment names it, which would
+        // otherwise make the switch demand a signal for itself.
+        const QString code = line.trimmed();
+        if (code.startsWith(QLatin1String("//")))
+            continue;
+        if (code.contains(QLatin1String("appearanceValue("))
+            && !currentGetter.startsWith(QLatin1String("appearanceValue"))
+            && !currentGetter.startsWith(QLatin1String("setAppearanceValue"))
+            && !scopedGetters.contains(currentGetter)) {
+            scopedGetters.append(currentGetter);
+        }
+    }
+
+    // The scan must have found something, or it would pass on any tree.
+    QVERIFY2(scopedGetters.size() >= 10,
+             qPrintable(QStringLiteral("the appearanceValue() scan found only "
+                                       "%1 account-scoped getters — the scan "
+                                       "itself is broken")
+                            .arg(scopedGetters.size())));
+    QVERIFY(!switchBody.isEmpty());
+
+    QStringList missing;
+    for (const QString &getter : std::as_const(scopedGetters)) {
+        const QString emitLine =
+            QStringLiteral("Q_EMIT %1Changed();").arg(getter);
+        if (!switchBody.contains(emitLine))
+            missing.append(getter);
+    }
+    QVERIFY2(missing.isEmpty(),
+             qPrintable(QStringLiteral(
+                            "these getters resolve per account through "
+                            "appearanceValue() but setActiveAccountUserId() "
+                            "never announces them, so a switch changes their "
+                            "value and tells nobody: %1")
+                            .arg(missing.join(QStringLiteral(", ")))));
+}
+
+// startInTray() is `closeToTray() && stored`, so setCloseToTray changes it —
+// and emitted only closeToTrayChanged. The checkbox bound to startInTray
+// therefore stayed TICKED (greyed out) while the setting it draws read false.
+void SettingsSessionTest::turningOffCloseToTrayAnnouncesTheStartInTrayItDerives()
+{
+    SettingsManager settings;
+    settings.setCloseToTray(true);
+    settings.setStartInTray(true);
+    QCOMPARE(settings.startInTray(), true);
+
+    QSignalSpy startSpy(&settings, &SettingsManager::startInTrayChanged);
+    settings.setCloseToTray(false);
+    QCOMPARE(settings.startInTray(), false);
+    QVERIFY2(startSpy.count() >= 1,
+             "turning close-to-tray off silently changed startInTray, so its "
+             "checkbox still draws ticked for a setting that reads false");
+
+    // And back on: the stored preference returns, and is announced.
+    startSpy.clear();
+    settings.setCloseToTray(true);
+    QCOMPARE(settings.startInTray(), true);
+    QVERIFY(startSpy.count() >= 1);
 }
 
 QTEST_MAIN(SettingsSessionTest)

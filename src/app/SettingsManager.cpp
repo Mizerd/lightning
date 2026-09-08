@@ -497,6 +497,30 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT textScaleChanged();
     Q_EMIT uiFontChanged();
     Q_EMIT monoFontChanged();
+    // FIVE MORE, AND THE COMMENT ABOVE WAS WRONG TO CALL roomFilterMode "the
+    // ONE such value missing". Every one of these resolves through
+    // appearanceValue(), so the switched-to account can answer differently,
+    // and every one of their NOTIFY signals is emitted from its own setter
+    // and NOWHERE else — so a switch changed the value and told nobody.
+    //
+    // reducedMotion is the one that matters most: Main.qml pushes it into
+    // AppTheme through a one-way Binding that ~50 QML sites read, so an
+    // accessibility choice made under one account silently governed the next
+    // one for the rest of the session. clockFormat has thirteen readers
+    // across the timeline and room list; smoothScrolling steers the wheel
+    // handler; hiddenComposerButtons decides which composer buttons exist;
+    // microphoneGain is applied to a live call by SfuCallController.
+    //
+    // Do not add an account-scoped getter without adding its signal here.
+    // `everyAccountScopedGetterHasItsSignalInTheAccountSwitch` (settings-
+    // session) DERIVES the list from this file's own appearanceValue() call
+    // sites rather than trusting a hand-written one, because a hand-written
+    // one is exactly what was wrong for these five.
+    Q_EMIT reducedMotionChanged();
+    Q_EMIT smoothScrollingChanged();
+    Q_EMIT hiddenComposerButtonsChanged();
+    Q_EMIT clockFormatChanged();
+    Q_EMIT microphoneGainChanged();
     // Also account-scoped: the switched-to account has its own answer.
     Q_EMIT verificationWarningDismissedChanged();
 }
@@ -1948,6 +1972,14 @@ void SettingsManager::setCloseToTray(bool v)
         return;
     m_store->setValue(kCloseToTray, v);
     Q_EMIT closeToTrayChanged();
+    // startInTray() IS A FUNCTION OF THIS VALUE, so this write changes it
+    // too. Without the notify the checkbox bound to it never re-evaluated:
+    // turning "keep running in the tray" off left "Start in the tray" drawn
+    // greyed-out and STILL TICKED while the setting it shows reads false —
+    // a control asserting the opposite of the behaviour. A derived property
+    // must be announced by every write that can move it, not only by its
+    // own setter.
+    Q_EMIT startInTrayChanged();
 }
 
 bool SettingsManager::startInTray() const
