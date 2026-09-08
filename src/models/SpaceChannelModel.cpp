@@ -14,7 +14,10 @@
 #include <algorithm>
 
 namespace {
-constexpr auto kCollapsedKey = "shell/channelCollapsed";
+// One spelling, shared with the sweep that has to remove the device-global
+// copy when the last account is cleared
+// (SettingsManager::forgetDeviceGlobalAccountResidue).
+constexpr auto kCollapsedKey = SettingsManager::kChannelCollapsedKey;
 
 // EVERY Material Symbols glyph this model names, in one block.
 //
@@ -198,6 +201,17 @@ void SpaceChannelModel::setSettings(SettingsManager *settings)
             m_settings = nullptr;
             m_collapsedLoaded = false;
             m_collapsed.clear();
+        });
+        // The loggedOut connection above is not sufficient on its own: it
+        // fires from detachSession() BEFORE setActiveAccountUserId() moves
+        // the active account, and its own rebuild() reads isCollapsed() —
+        // re-loading the OUTGOING account's set and re-caching it. This one
+        // fires after the active id moves, which is the state the cache has
+        // to agree with.
+        connect(m_settings, &SettingsManager::sessionChanged, this, [this] {
+            m_collapsedLoaded = false;
+            m_collapsed.clear();
+            rebuild();
         });
     }
     m_collapsedLoaded = false;
@@ -419,7 +433,7 @@ void SpaceChannelModel::loadCollapsed() const
     if (!m_settings)
         return;
     const QString json =
-        m_settings->appearanceValue(kCollapsedKey, QString()).toString();
+        m_settings->accountScopedValue(kCollapsedKey, QString()).toString();
     if (json.isEmpty())
         return;
     const QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
@@ -440,7 +454,7 @@ void SpaceChannelModel::saveCollapsed()
     // Sorted so the stored value is stable and a no-op toggle pair does not
     // rewrite the file with a different ordering every time.
     std::sort(ids.begin(), ids.end());
-    m_settings->setAppearanceValue(
+    m_settings->setAccountScopedValue(
         kCollapsedKey,
         QString::fromUtf8(QJsonDocument(QJsonArray::fromStringList(ids))
                               .toJson(QJsonDocument::Compact)));

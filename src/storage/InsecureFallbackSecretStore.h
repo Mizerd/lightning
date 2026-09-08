@@ -39,9 +39,22 @@ public:
 
     bool isSecure() const override { return false; }
     bool isAvailable() const override { return true; }
+    // Two independent reasons a read here cannot be trusted, and returning
+    // only the first was a constant wearing a predicate's clothes.
+    //
     // A substituted store cannot see what the native one holds, so every miss
-    // is inconclusive rather than a fact.
-    bool lastReadFailed() const override { return m_substitutedForNative; }
+    // is inconclusive rather than a fact. AND this store's own backing file
+    // can be unreadable or malformed — a truncated INI, a permissions
+    // change, a half-written config — in which case QSettings answers every
+    // value() with an empty QVariant and says so only through status(),
+    // which readSecret() never asked. An empty token then read as "no saved
+    // sign-in", which is precisely the conflation SecretStore.h's own
+    // comment exists to prevent, and it routes the user to a destructive
+    // reset prompt for what is a config-file problem.
+    bool lastReadFailed() const override
+    {
+        return m_substitutedForNative || m_lastReadFailed;
+    }
     QString backendName() const override;
 
     bool storeSecret(const QString &userId,
@@ -59,5 +72,9 @@ private:
 
     std::unique_ptr<QSettings> m_store;
     mutable QString m_lastError;
+    // The outcome of the most recent readSecret(), taken from the backing
+    // QSettings' own status rather than assumed. Mutable because reading is
+    // const and the outcome of a read is exactly what this records.
+    mutable bool m_lastReadFailed = false;
     bool m_substitutedForNative = false;
 };

@@ -989,6 +989,16 @@ public:
     // entries could not be removed; non-secret metadata is still cleared.
     bool clearSession();
 
+    // The two shell keys that store MATRIX objects rather than a preference
+    // about this computer: the Spaces rail's arrangement (Space room ids and
+    // the folder names the user typed for them) and which Space folders the
+    // Channels layout has collapsed. Named here, and not privately inside
+    // their own stores, because forgetDeviceGlobalAccountResidue() has to
+    // sweep exactly these — a second spelling in a second file is how a key
+    // survives the cleanup written for it.
+    static constexpr const char *kRailLayoutKey = "shell/railLayout";
+    static constexpr const char *kChannelCollapsedKey = "shell/channelCollapsed";
+
     // Account-scoped variant used by signed-out reset. It always clears
     // secrets for `userId`, but removes the global active-session metadata
     // only when that metadata belongs to the same account.
@@ -1094,6 +1104,37 @@ private:
     QVariant appearanceValue(const char *globalKey,
                              const QVariant &fallback) const;
     void setAppearanceValue(const char *globalKey, const QVariant &value);
+    // STRICTLY per-account storage, for values that name Matrix objects
+    // rather than describe this computer.
+    //
+    // setAppearanceValue's dual write is right for a theme — the logged-out
+    // shell has to paint something, and the last colour anyone chose is the
+    // best answer available. It is WRONG for anything carrying room ids or
+    // user-typed labels for them: the mirrored device-global copy makes a
+    // fresh account inherit the previous account's Spaces, and it survives
+    // "remove this account from this computer" because removal only deletes
+    // accounts/<slug>.
+    //
+    // The write therefore goes to the account key ALONE while an account is
+    // active. The read still falls back to the bare global key, deliberately:
+    // that is where an upgrading user's existing arrangement lives, and
+    // dropping it would lose their layout on the release that fixes this.
+    // Nothing signed in ever writes that key again, so it can only hold
+    // pre-upgrade (or genuinely signed-out) state, and
+    // forgetDeviceGlobalAccountResidue() sweeps it once the last account is
+    // gone. A write with no active account keeps the old device-global
+    // behaviour — there is no account to scope it to, and the next sign-in
+    // reads it exactly once as its migration source.
+    QVariant accountScopedValue(const char *globalKey,
+                                const QVariant &fallback) const;
+    void setAccountScopedValue(const char *globalKey, const QVariant &value);
+    // Called from clearSessionForAccount when the LAST saved account record
+    // has just been removed: drops the device-global keys that name Matrix
+    // rooms/Spaces. They are per-device by history rather than by design and
+    // their read fallbacks exist for accounts that still exist; with none
+    // left they are just room ids outliving the user's "remove this account"
+    // by an unbounded time.
+    void forgetDeviceGlobalAccountResidue();
     QString accountKey(const QString &slug, const char *subKey) const;
     QString slugForSavedAccount(const QString &userId) const;
     // Per-room notification-mode keys: the account-scoped key (empty when

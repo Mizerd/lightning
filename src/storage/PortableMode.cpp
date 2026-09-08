@@ -474,10 +474,18 @@ int cleanStaleTempDirs(const QDateTime &now)
     // a directory with one of our names that belongs to another user is not
     // ours to touch. This runs unattended at startup — it must not be
     // capable of removing anything it did not create.
+    //
+    // THIS LIST IS HAND-MAINTAINED, WHICH IS ITS OWN HAZARD. The image
+    // cropper's directories were absent from it AND created outside this
+    // root entirely (a bare `QDir::temp()`, the exact mistake the root
+    // exists to prevent), so a crash mid-crop left re-encoded copies of a
+    // user's pictures in /tmp permanently. `lightning-playable-*` is the
+    // other tell: nothing creates that name any more, and the entry stayed.
     static const QStringList kOurs = {
         QStringLiteral("lightning-voice-*"),
         QStringLiteral("lightning-animated-*"),
         QStringLiteral("lightning-playable-*"),
+        QStringLiteral("lightning-crop-*"),
     };
     int removed = 0;
     QDir dir(root);

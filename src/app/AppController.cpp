@@ -1275,6 +1275,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // The rail's rows: the user's arrangement applied to the hierarchy, with
     // the transient drag preview living in the model rather than in QML.
     m_railEntries->setSources(m_spaces.get(), m_railLayout.get());
+    // The arrangement is per-account storage behind a process-lifetime cache,
+    // so the store has to be TOLD about a sign-out / switch: without this the
+    // outgoing account's Space ids and folder names stay on screen under the
+    // incoming one. Same connection, same reason, as SpaceChannelModel's
+    // collapse set below.
+    m_railLayout->setClient(m_client.get());
     // The Channels layout is GLOBAL — every joined Space is a flat folder, so
     // it needs the account's rooms and the rail's order, and nothing about
     // which Space happens to be selected.
@@ -4524,6 +4530,15 @@ void AppController::onLoggedOut()
         // the main screen while the target account activates. A plain
         // switch never deletes the outgoing account's starred-GIF store —
         // only a genuine sign-out (below) does.
+        //
+        // A pending removal cannot survive this either. removeAccount()
+        // refuses to arm one while a switch is running, so reaching here
+        // with one armed means the logout it was waiting for never came;
+        // carrying it forward would let a LATER, unrelated sign-out delete
+        // an account nobody asked about.
+        m_pendingRemovalUserId.clear();
+        m_pendingRemovalIdentity = {};
+        m_pendingRemovalResolved = false;
         return;
     }
     // v0.6.6: a genuine sign-out (never a switch — that returned above,
@@ -4581,6 +4596,40 @@ void AppController::onLoggedOut()
                           << (outcome == matrix::app_data::DirRemoval::Deleted
                                   ? "deleted"
                                   : "absent");
+        }
+    }
+    // "Remove this account from this computer", aimed at the account that
+    // was signed in, finishes HERE — this is the second half of the branch
+    // in removeAccount() that had to delegate to a real server logout. It
+    // runs BEFORE clearActiveUser() and before the fallback loop below, so
+    // the account being removed can never be chosen as the account to
+    // continue with.
+    if (!m_pendingRemovalUserId.isEmpty()) {
+        const QString target = m_pendingRemovalUserId;
+        const bool resolved = m_pendingRemovalResolved;
+        const matrix::app_data::AccountIdentity identity =
+            m_pendingRemovalIdentity;
+        m_pendingRemovalUserId.clear();
+        m_pendingRemovalIdentity = {};
+        m_pendingRemovalResolved = false;
+        // Only ever for the session that actually ended. m_lastSessionUserId
+        // is empty when this handler could not attribute the session at all
+        // (the starred-GIF block above skips for the same reason); the
+        // captured identity is still the one the user named, so the removal
+        // proceeds, but a session belonging to a DIFFERENT account is a
+        // contradiction and the removal is abandoned rather than guessed.
+        if (m_lastSessionUserId.isEmpty() || m_lastSessionUserId == target) {
+            if (resolved)
+                removeAccountLocalState(identity);
+            else
+                qCWarning(lcApp) << "account removal completed without a "
+                                    "resolvable local layout — record and "
+                                    "secrets only";
+            m_accounts->removeAccount(target); // record + secrets
+        } else {
+            qCWarning(lcApp)
+                << "pending account removal abandoned: the session that "
+                   "ended is not the account that was being removed";
         }
     }
     m_accounts->clearActiveUser();
@@ -4996,6 +5045,124 @@ void AppController::failAccountSwitch(const QString &message)
     Q_EMIT loggedInChanged();
 }
 
+bool AppController::resolveRemovalIdentity(
+    const QString &userId, matrix::app_data::AccountIdentity *identity) const
+{
+    if (!identity)
+        return false;
+    *identity = {};
+    // Resolve from the SAVED record, which binds the store slug this account
+    // actually uses. Re-deriving the identity from the user id would delete
+    // the canonical path and leave a store written under a divergent slug
+    // sitting on disk — Megolm and device keys surviving an explicit
+    // "remove account", while the cleanup reports success.
+    if (m_settings->resolveSavedIdentity(userId, identity))
+        return true;
+    // Never leave everything behind because the record was unreadable:
+    // fall back to the canonical layout so a removal still removes
+    // something rather than silently succeeding.
+    const QString hs = m_settings->accountRecord(userId)
+                           .value(QStringLiteral("homeserver")).toString();
+    return matrix::app_data::resolveAccountIdentity(hs, userId, identity);
+}
+
+void AppController::removeAccountLocalState(
+    const matrix::app_data::AccountIdentity &identity)
+{
+    // Retiring a Rust client is asynchronous (RustSdkMatrixClient::
+    // releaseRustHandle), so the account being removed may still have an
+    // open SQLite store. Deleting the directory out from under it is the
+    // one race that leaves key material on disk while reporting success —
+    // exactly the data-at-rest defect §6 has a rule against. Wait for the
+    // close first; removal is a deliberate, rare action and can afford it.
+#ifdef ENABLE_RUST_SDK_BACKEND
+    RustSdkMatrixClient::waitForRustRetirement(
+        RustSdkMatrixClient::kStoreCloseBudgetMs);
+#endif
+    const auto removed = matrix::app_data::removeAccountRustState(identity);
+
+    // v0.6.6: the local-starred-GIF store lives under the CANONICAL
+    // account root (matrix::app_data::accountRoot(userId) — see
+    // GifStarredStore's header), which can differ from
+    // identity.accountRoot for an account with a recorded divergent
+    // store slug — the roots-sweep loop below already handles that
+    // divergence for the Rust store/cache.sqlite, but this directory
+    // gets its own explicit, distinctly-reported deletion here rather
+    // than relying on being incidentally swept. Close it first if it
+    // happens to be the store this process currently has open (e.g.
+    // this was the last signed-in account before being fully signed
+    // out, and nothing has opened a different account's store since —
+    // MatrixClient::loggedOut's own close only fires on a session
+    // detach, which the background-removal path is not).
+    const QString starredDir =
+        matrix::app_data::starredGifsDir(identity.userId);
+    if (m_gif->starredStore()->currentDirectory() == starredDir)
+        m_gif->closeStarredStore();
+    // B017: the bridge badge file lives directly under the canonical
+    // account root and so is swept by the removeRecursively() below.
+    // What that sweep cannot do is stop a still-open store from writing
+    // the file back afterwards, which is what remember() does on every
+    // answer — so close it first when it is this account's.
+    const QString bridgeFile =
+        matrix::app_data::bridgeLabelsFile(identity.userId);
+    if (!bridgeFile.isEmpty() && m_bridgeLabels.filePath() == bridgeFile)
+        m_bridgeLabels.close();
+    const auto starredOutcome = matrix::app_data::removeAppDataDir(starredDir);
+    // FAILED leaves decrypted material behind — warn (normal filters).
+    if (starredOutcome == matrix::app_data::DirRemoval::Failed) {
+        qCWarning(lcApp) << "removing account starred-GIF store FAILED"
+                         << "slug=" << identity.slug;
+    } else {
+        qCInfo(lcApp) << "removed account starred-GIF store"
+                      << "slug=" << identity.slug
+                      << "outcome="
+                      << (starredOutcome
+                                  == matrix::app_data::DirRemoval::Deleted
+                              ? "deleted"
+                              : "absent");
+    }
+
+    // A divergent store slug means this account owns TWO directories: the
+    // recorded one holding the SDK store, and the canonical one, which is
+    // where CacheStore::openFor() unconditionally puts cache.sqlite
+    // (derived from accountRoot(userId), never from the recording).
+    // Removing only one leaves the other behind — room ids, unencrypted
+    // bodies and display names surviving a removal that told the user
+    // its local data was deleted from this computer.
+    QStringList roots{identity.accountRoot};
+    const QString canonical = matrix::app_data::accountRoot(identity.userId);
+    if (!canonical.isEmpty() && !roots.contains(canonical))
+        roots.append(canonical);
+    int rootsDeleted = 0;
+    int rootsFailed = 0;
+    for (const QString &root : roots) {
+        QDir accountDir(root);
+        if (!accountDir.exists())
+            continue;
+        if (accountDir.removeRecursively())
+            ++rootsDeleted;
+        else
+            ++rootsFailed;
+    }
+    // Three distinct outcomes, never folded together (§6, and
+    // RemovalSummary::removedAnything() for the SDK-store half): absent is
+    // roots_deleted=0 with roots_failed=0, and a FAILED delete leaves the
+    // account's local data on disk after the user asked for it to be gone.
+    if (rootsFailed > 0) {
+        qCWarning(lcApp) << "removing account local state FAILED for"
+                         << rootsFailed << "root(s)"
+                         << "slug=" << identity.slug;
+    }
+    qCInfo(lcApp) << "removed account local state"
+                  << "slug=" << identity.slug
+                  << "roots=" << roots.size()
+                  << "roots_deleted=" << rootsDeleted
+                  << "roots_failed=" << rootsFailed
+                  << "rust_removed_anything=" << removed.removedAnything()
+                  << "rust_deleted=" << removed.deleted
+                  << "failed=" << removed.failed;
+}
+
 void AppController::removeAccount(const QString &userId)
 {
     const QString target = userId.trimmed();
@@ -5006,107 +5173,36 @@ void AppController::removeAccount(const QString &userId)
 
     const bool isActive = target == m_settings->activeAccountUserId();
     if (isActive && m_client->isLoggedIn()) {
-        // Real (server) logout. Local store/record cleanup (Rust crypto
-        // store AND the local-starred-GIF store — see
-        // AppController::onLoggedOut) and switching to a remaining account
-        // follow from the logout flow.
+        // The active, signed-in account cannot be wiped from here: its store
+        // is open and a REAL server logout has to happen first. It used to
+        // simply delegate and return, which quietly turned "remove this
+        // account from this computer" into a sign-out — the account
+        // directory (whose name is the Matrix localpart), its cache.sqlite
+        // and any divergent second store root were all left standing, while
+        // the identical button on a BACKGROUND account deleted every one of
+        // them. One button, one stated intent, two outcomes.
+        //
+        // So record the intent and finish in onLoggedOut. The identity is
+        // resolved NOW, while the saved record still exists: the Rust
+        // sign-out removes it on its way out, and §6 requires the deletion
+        // to key on the record rather than re-derive a path afterwards.
+        matrix::app_data::AccountIdentity identity;
+        m_pendingRemovalResolved = resolveRemovalIdentity(target, &identity);
+        m_pendingRemovalIdentity = identity;
+        m_pendingRemovalUserId = target;
+        if (!m_pendingRemovalResolved) {
+            qCWarning(lcApp) << "removal could not resolve an account layout"
+                             << "slug=" << matrix::app_data::safeUserSlug(target);
+        }
         m_auth->logout();
         return;
     }
 
     // Background (or signed-out) account: delete its local state without
     // touching the active session.
-    //
-    // Resolve from the SAVED record, which binds the store slug this account
-    // actually uses. Re-deriving the identity from the user id would delete
-    // the canonical path and leave a store written under a divergent slug
-    // sitting on disk — Megolm and device keys surviving an explicit
-    // "remove account", while the cleanup reports success.
     matrix::app_data::AccountIdentity identity;
-    bool resolved = m_settings->resolveSavedIdentity(target, &identity);
-    if (!resolved) {
-        // Never leave everything behind because the record was unreadable:
-        // fall back to the canonical layout so a removal still removes
-        // something rather than silently succeeding.
-        const QString hs = m_settings->accountRecord(target)
-                               .value(QStringLiteral("homeserver")).toString();
-        resolved = matrix::app_data::resolveAccountIdentity(hs, target, &identity);
-    }
-    if (resolved) {
-        // Retiring a Rust client is asynchronous (RustSdkMatrixClient::
-        // releaseRustHandle), so the account being removed may still have an
-        // open SQLite store. Deleting the directory out from under it is the
-        // one race that leaves key material on disk while reporting success —
-        // exactly the data-at-rest defect §6 has a rule against. Wait for the
-        // close first; removal is a deliberate, rare action and can afford it.
-#ifdef ENABLE_RUST_SDK_BACKEND
-        RustSdkMatrixClient::waitForRustRetirement(
-            RustSdkMatrixClient::kStoreCloseBudgetMs);
-#endif
-        const auto removed = matrix::app_data::removeAccountRustState(identity);
-
-        // v0.6.6: the local-starred-GIF store lives under the CANONICAL
-        // account root (matrix::app_data::accountRoot(userId) — see
-        // GifStarredStore's header), which can differ from
-        // identity.accountRoot for an account with a recorded divergent
-        // store slug — the roots-sweep loop below already handles that
-        // divergence for the Rust store/cache.sqlite, but this directory
-        // gets its own explicit, distinctly-reported deletion here rather
-        // than relying on being incidentally swept. Close it first if it
-        // happens to be the store this process currently has open (e.g.
-        // this was the last signed-in account before being fully signed
-        // out, and nothing has opened a different account's store since —
-        // MatrixClient::loggedOut's own close only fires on a session
-        // detach, which this explicit-removal path is not).
-        const QString starredDir =
-            matrix::app_data::starredGifsDir(identity.userId);
-        if (m_gif->starredStore()->currentDirectory() == starredDir)
-            m_gif->closeStarredStore();
-        // B017: the bridge badge file lives directly under the canonical
-        // account root and so is swept by the removeRecursively() below.
-        // What that sweep cannot do is stop a still-open store from writing
-        // the file back afterwards, which is what remember() does on every
-        // answer — so close it first when it is this account's.
-        const QString bridgeFile =
-            matrix::app_data::bridgeLabelsFile(identity.userId);
-        if (!bridgeFile.isEmpty() && m_bridgeLabels.filePath() == bridgeFile)
-            m_bridgeLabels.close();
-        const auto starredOutcome = matrix::app_data::removeAppDataDir(starredDir);
-        // FAILED leaves decrypted material behind — warn (normal filters).
-        if (starredOutcome == matrix::app_data::DirRemoval::Failed) {
-            qCWarning(lcApp) << "removing account starred-GIF store FAILED"
-                             << "slug=" << identity.slug;
-        } else {
-            qCInfo(lcApp) << "removed account starred-GIF store"
-                          << "slug=" << identity.slug
-                          << "outcome="
-                          << (starredOutcome
-                                      == matrix::app_data::DirRemoval::Deleted
-                                  ? "deleted"
-                                  : "absent");
-        }
-
-        // A divergent store slug means this account owns TWO directories: the
-        // recorded one holding the SDK store, and the canonical one, which is
-        // where CacheStore::openFor() unconditionally puts cache.sqlite
-        // (derived from accountRoot(userId), never from the recording).
-        // Removing only one leaves the other behind — room ids, unencrypted
-        // bodies and display names surviving a removal that told the user
-        // its local data was deleted from this computer.
-        QStringList roots{identity.accountRoot};
-        const QString canonical = matrix::app_data::accountRoot(identity.userId);
-        if (!canonical.isEmpty() && !roots.contains(canonical))
-            roots.append(canonical);
-        for (const QString &root : roots) {
-            QDir accountDir(root);
-            if (accountDir.exists())
-                accountDir.removeRecursively();
-        }
-        qCInfo(lcApp) << "removed account local state"
-                      << "slug=" << identity.slug
-                      << "roots=" << roots.size()
-                      << "rust_deleted=" << removed.deleted
-                      << "failed=" << removed.failed;
+    if (resolveRemovalIdentity(target, &identity)) {
+        removeAccountLocalState(identity);
     } else {
         qCWarning(lcApp) << "removal could not resolve an account layout"
                          << "slug=" << matrix::app_data::safeUserSlug(target);

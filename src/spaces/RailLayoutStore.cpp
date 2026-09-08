@@ -1,13 +1,16 @@
 #include "spaces/RailLayoutStore.h"
 
 #include "app/SettingsManager.h"
+#include "matrix/MatrixClient.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 
 namespace {
-constexpr auto kLayoutKey = "shell/railLayout";
+// One spelling, shared with the sweep that has to remove it when the last
+// account is cleared (SettingsManager::forgetDeviceGlobalAccountResidue).
+constexpr auto kLayoutKey = SettingsManager::kRailLayoutKey;
 
 // A pseudo row (All rooms, orphans) is not something the user can order or
 // file: it is a view of everything, not a Space. Both keep their place at the
@@ -22,6 +25,41 @@ RailLayoutStore::RailLayoutStore(SettingsManager *settings, QObject *parent)
     : QObject(parent)
     , m_settings(settings)
 {
+    if (m_settings) {
+        // BOTH halves of an account change, and the second one is not
+        // belt-and-braces. loggedOut fires from detachSession() BEFORE
+        // setActiveAccountUserId() moves the active account, and this
+        // store's own layoutChanged makes RailEntryModel rebuild, which
+        // re-reads — under the OUTGOING account, re-caching exactly what
+        // the invalidation was for. sessionChanged fires AFTER the active
+        // id moves, so it is the one that leaves the cache correct.
+        connect(m_settings, &SettingsManager::sessionChanged, this,
+                &RailLayoutStore::invalidate);
+    }
+}
+
+void RailLayoutStore::setClient(MatrixClient *client)
+{
+    if (m_client == client)
+        return;
+    if (m_client)
+        disconnect(m_client, nullptr, this, nullptr);
+    m_client = client;
+    if (!m_client)
+        return;
+    connect(m_client, &QObject::destroyed, this, [this] { m_client = nullptr; });
+    connect(m_client, &MatrixClient::loggedOut, this,
+            &RailLayoutStore::invalidate);
+}
+
+void RailLayoutStore::invalidate()
+{
+    // Unconditional, not "only when it changed": the point is that the next
+    // read consults the account that is active NOW, and comparing against a
+    // cache that belongs to the previous account would be answering with it.
+    m_loaded = false;
+    m_cache = {};
+    Q_EMIT layoutChanged();
 }
 
 const RailLayoutStore::Layout &RailLayoutStore::load() const
@@ -34,7 +72,7 @@ const RailLayoutStore::Layout &RailLayoutStore::load() const
         return m_cache;
 
     const QString json =
-        m_settings->appearanceValue(kLayoutKey, QString()).toString();
+        m_settings->accountScopedValue(kLayoutKey, QString()).toString();
     if (json.isEmpty())
         return m_cache;
     const QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
@@ -106,7 +144,7 @@ void RailLayoutStore::save(const Layout &layout)
                   QJsonArray::fromStringList(next.order));
     object.insert(QStringLiteral("expanded"),
                   QJsonArray::fromStringList(next.expanded));
-    m_settings->setAppearanceValue(
+    m_settings->setAccountScopedValue(
         kLayoutKey, QString::fromUtf8(
                         QJsonDocument(object).toJson(QJsonDocument::Compact)));
     m_cache = next;

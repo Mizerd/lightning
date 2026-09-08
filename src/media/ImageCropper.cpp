@@ -2,6 +2,8 @@
 
 #include "media/StagedImageStore.h"
 
+#include "storage/PortableMode.h"
+
 #include <QBuffer>
 #include <QDir>
 #include <QFile>
@@ -121,7 +123,13 @@ ImageCropper::ImageCropper(QObject *parent)
 {
 }
 
-ImageCropper::~ImageCropper() = default;
+ImageCropper::~ImageCropper()
+{
+    // Drop the live-lock BEFORE the QTemporaryDir destructor removes the
+    // directory the lock file lives in (see holdScratchDirLive).
+    if (m_outputDir)
+        lightning::portable::releaseScratchDir(m_outputDir->path());
+}
 
 void ImageCropper::setStagedImages(StagedImageStore *store)
 {
@@ -239,8 +247,15 @@ QString ImageCropper::outputDirectory()
 {
     if (m_outputDir && m_outputDir->isValid())
         return m_outputDir->path();
+    // mediaScratchRoot(), never QDir::temp() directly. This was the one
+    // media path still reaching for the OS temp directory itself, which
+    // PortableMode names as the mistake that writes decrypted payloads
+    // outside a portable folder with nothing to report it — and it also put
+    // these re-encoded copies of a user-picked picture outside
+    // cleanStaleTempDirs()'s reach, so a crash left them in /tmp forever.
     m_outputDir = std::make_unique<QTemporaryDir>(
-        QDir::temp().filePath(QStringLiteral("lightning-crop-XXXXXX")));
+        lightning::portable::mediaScratchRoot()
+        + QStringLiteral("/lightning-crop-XXXXXX"));
     if (!m_outputDir->isValid()) {
         m_outputDir.reset();
         return QString();
@@ -250,6 +265,11 @@ QString ImageCropper::outputDirectory()
     QFile::setPermissions(m_outputDir->path(),
                           QFile::ReadOwner | QFile::WriteOwner
                               | QFile::ExeOwner);
+    // Marked LIVE so a SECOND Lightning instance's startup sweep cannot
+    // delete this one's crop output from under an upload in flight — the
+    // sweep matches by prefix, and the names are unique per process but not
+    // per install.
+    lightning::portable::holdScratchDirLive(m_outputDir->path());
     return m_outputDir->path();
 }
 
@@ -350,6 +370,10 @@ void ImageCropper::clearSession()
     for (const QString &path : std::as_const(m_written))
         QFile::remove(path);
     m_written.clear();
+    // Release the live-lock first: the descriptor must not outlive the
+    // directory the QTemporaryDir destructor is about to remove.
+    if (m_outputDir)
+        lightning::portable::releaseScratchDir(m_outputDir->path());
     // The QTemporaryDir destructor removes the directory recursively.
     m_outputDir.reset();
     setError(QString());

@@ -26,6 +26,7 @@
 #include "app/PolicyListController.h"
 #include "crypto/QrLoginController.h"
 #include "crypto/OwnDeviceKeyWatch.h"
+#include "storage/AppDataPaths.h"
 #include "storage/BridgeLabelStore.h"
 #include "app/TrayIcon.h"
 #include "text/SpellChecker.h"
@@ -1320,6 +1321,22 @@ private:
     // a real logout clears the same state through loggedOut connections.
     void clearCrossAccountCaches();
 
+    // Resolve one saved account's on-disk layout for removal: the recorded
+    // identity first (which binds the store slug it ACTUALLY uses), then the
+    // canonical layout as a fallback so an unreadable record still removes
+    // something rather than silently succeeding. False = nothing to act on.
+    bool resolveRemovalIdentity(const QString &userId,
+                                matrix::app_data::AccountIdentity *identity) const;
+    // Delete every local trace of one already-resolved account: its SDK
+    // store, the account directory (whose NAME is the Matrix localpart), the
+    // cache.sqlite under a possibly divergent second root, the local starred
+    // GIFs and the bridge-badge file. ONE implementation for both removal
+    // paths — the background account and the active one whose removal has to
+    // wait for a sign-out — because two of them is how the same button came
+    // to mean two different things. Logs deleted/absent/failed distinctly:
+    // "target absent" is not "reset completed" (§6).
+    void removeAccountLocalState(const matrix::app_data::AccountIdentity &identity);
+
     // B011. Dispatch one own-identity-key check if the rate limit allows it,
     // and fold one answer in. Both are here rather than at each call site so
     // the four event-driven callers and the periodic backstop share one gate.
@@ -1373,6 +1390,22 @@ private:
     // The account whose session most recently succeeded — used to detect a
     // cross-account transition in onLoginSucceeded.
     QString m_lastSessionUserId;
+    // "Remove this account from this computer", aimed at the account that is
+    // ACTIVE and signed in. That case cannot delete anything up front — the
+    // store is open and a real server logout has to happen first — so it
+    // delegates to AuthManager::logout() and finishes in onLoggedOut. These
+    // three fields carry the intent across that gap.
+    //
+    // The identity is resolved and captured HERE, before the logout runs,
+    // because the sign-out removes the saved record on the Rust backend
+    // (RustSdkMatrixClient::finishSignOut -> clearSessionForAccount): by the
+    // time onLoggedOut lands there may be nothing left to resolve FROM, and
+    // §6 requires the deletion to key on the record rather than re-derive a
+    // path from a user id. Empty user id = no removal pending, and the wipe
+    // is only ever run for the identity that was actually signed out.
+    QString m_pendingRemovalUserId;
+    matrix::app_data::AccountIdentity m_pendingRemovalIdentity;
+    bool m_pendingRemovalResolved = false;
     // v0.7.4 own display name. 0 = idle; otherwise the id of the ONE write
     // in flight. The counter is separate from the backend's own op ids on
     // purpose — this is a caller-owned id, like PresenceManager's.

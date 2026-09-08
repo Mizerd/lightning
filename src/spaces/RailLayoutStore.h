@@ -6,6 +6,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+class MatrixClient;
 class SettingsManager;
 
 // How the Spaces rail is arranged: the order the user dragged their Spaces
@@ -42,6 +43,20 @@ class RailLayoutStore : public QObject
 public:
     explicit RailLayoutStore(SettingsManager *settings,
                              QObject *parent = nullptr);
+
+    // The arrangement is ACCOUNT-SCOPED storage, so a sign-out or an account
+    // switch must drop the in-memory copy and read whoever is next. Without
+    // this the cache (m_loaded/m_cache) is loaded once per process and one
+    // account's Space ids and folder names stay on screen under the next
+    // account — the exact rule SpaceChannelModel already follows for its
+    // collapse set. detachSession() (the switch) emits loggedOut too, so the
+    // invalidation is idempotent rather than duplicated.
+    //
+    // Optional: the constructor already listens to SettingsManager's
+    // sessionChanged, which is the connection that gets the FINAL state
+    // right (see the .cpp). This one makes the drop happen at the moment the
+    // session ends rather than one signal later.
+    void setClient(MatrixClient *client);
 
     QVariantList folders() const;
     QStringList order() const;
@@ -176,7 +191,12 @@ private:
     Layout dropEmptiedFolders(const Layout &layout) const;
     static QString makeFolderId(const Layout &layout);
 
+    /// Drops the cached arrangement so the next read re-resolves it against
+    /// whichever account is active now.
+    void invalidate();
+
     SettingsManager *m_settings = nullptr;
+    MatrixClient *m_client = nullptr;
     mutable Layout m_cache;
     mutable bool m_loaded = false;
 };

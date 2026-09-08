@@ -4111,6 +4111,8 @@ if(BUILD_TESTING)
         tests/ImageCropTest.cpp
         src/media/ImageCropper.h
         src/media/ImageCropper.cpp
+        src/storage/PortableMode.h
+        src/storage/PortableMode.cpp
         src/media/StagedImageStore.h
         src/media/StagedImageStore.cpp
     )

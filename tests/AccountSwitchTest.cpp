@@ -12,12 +12,16 @@
 #include "auth/AuthManager.h"
 #include "gif/GifSearchController.h"
 #include "gif/GifStarredStore.h"
+#include "spaces/RailLayoutStore.h"
 #include "storage/AppDataPaths.h"
+#include "storage/InsecureFallbackSecretStore.h"
 #include "storage/SecretStore.h"
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QHash>
+#include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -616,6 +620,191 @@ private Q_SLOTS:
         QVERIFY(QDir(aliceStarredDir).exists());
         QVERIFY(QFile::exists(aliceStarredDir + QStringLiteral("/")
                               + aliceGifFile));
+    }
+
+    // 2026-09-08 audit: the Spaces rail's arrangement is a JSON blob of
+    // Matrix Space room ids and the folder names the user typed for them,
+    // and it leaked between accounts three ways — setAppearanceValue
+    // mirrored every write into a bare device-global key, appearanceValue
+    // then served that key to a fresh account, and RailLayoutStore's own
+    // process-lifetime cache was never invalidated on a switch (it has no
+    // loggedOut connection at all, unlike its sibling SpaceChannelModel).
+    void theRailArrangementDoesNotFollowTheUserIntoTheNextAccount()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob, QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+
+        const QString aliceSpace = QStringLiteral("!alice-space:one.example");
+        RailLayoutStore *rail = app.railLayout();
+        QVERIFY(rail);
+        const QString folder = rail->createFolder(QStringLiteral("Work"));
+        QVERIFY(!folder.isEmpty());
+        rail->setSpaceFolder(aliceSpace, folder);
+        QCOMPARE(rail->folders().size(), 1);
+        QCOMPARE(rail->folderOf(aliceSpace), folder);
+
+        // No device-global copy: the mirrored key is what made a fresh
+        // account read the previous one's Spaces, and what survived
+        // "remove this account from this computer".
+        {
+            QSettings raw;
+            QVERIFY2(!raw.contains(QString::fromLatin1(
+                         SettingsManager::kRailLayoutKey)),
+                     "the arrangement was mirrored into a device-global key");
+        }
+
+        app.switchToAccount(kBob);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kBob);
+
+        QVERIFY2(app.railLayout()->folders().isEmpty(),
+                 "the next account inherited the previous one's folders");
+        QVERIFY2(app.railLayout()->folderOf(aliceSpace).isEmpty(),
+                 "the next account inherited the previous one's Space ids");
+
+        // Bob's own arrangement is his, and Alice's survives untouched.
+        const QString bobSpace = QStringLiteral("!bob-space:two.example");
+        const QString bobFolder =
+            app.railLayout()->createFolder(QStringLiteral("Personal"));
+        QVERIFY(!bobFolder.isEmpty());
+        app.railLayout()->setSpaceFolder(bobSpace, bobFolder);
+
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+        QCOMPARE(app.railLayout()->folders().size(), 1);
+        QCOMPARE(app.railLayout()->folderOf(aliceSpace), folder);
+        QVERIFY(app.railLayout()->folderOf(bobSpace).isEmpty());
+    }
+
+    // 2026-09-08 audit: "Remove account" aimed at the ACTIVE account
+    // returned early and delegated to a plain sign-out, so the recursive
+    // local wipe never ran — the account directory (whose NAME is the
+    // Matrix localpart), its cache.sqlite and any divergent second store
+    // root were left standing, while the identical button on a background
+    // account deleted every one of them.
+    void removingTheActiveAccountStillDeletesItsLocalState()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob, QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+
+        // Real local state for Alice: starring a GIF creates her account
+        // directory, and cache.sqlite is the file only the recursive wipe
+        // removes (it is deliberately preserved by removeAccountRustState).
+        const QByteArray gif = QByteArray("GIF89a\x10\x00\x10\x00", 10);
+        app.gif()->starredStore()->starBytes(QStringLiteral("mk"), gif);
+        const QString aliceRoot = matrix::app_data::accountRoot(kAlice);
+        QVERIFY(!aliceRoot.isEmpty());
+        QVERIFY(QDir(aliceRoot).exists());
+        {
+            QFile cache(aliceRoot + QStringLiteral("/cache.sqlite"));
+            QVERIFY(cache.open(QIODevice::WriteOnly));
+            cache.write("not a real database");
+        }
+        const QString bobRoot = matrix::app_data::accountRoot(kBob);
+        QDir().mkpath(bobRoot);
+        {
+            QFile bobCache(bobRoot + QStringLiteral("/cache.sqlite"));
+            QVERIFY(bobCache.open(QIODevice::WriteOnly));
+            bobCache.write("bob's, and nobody asked about bob");
+        }
+
+        app.removeAccount(kAlice);
+
+        // The wipe completes on the sign-out this had to wait for.
+        QTRY_VERIFY2(!QDir(aliceRoot).exists(),
+                     "removing the signed-in account left its local data — "
+                     "the account directory is named after the localpart");
+        QVERIFY(!app.settings()->hasSavedAccount(kAlice));
+        QVERIFY(app.settings()->accessTokenFor(kAlice).isEmpty());
+
+        // Never widened: the other account is untouched, record and files.
+        QVERIFY(app.settings()->hasSavedAccount(kBob));
+        QVERIFY(QFile::exists(bobRoot + QStringLiteral("/cache.sqlite")));
+        QTRY_COMPARE(app.auth()->currentUserId(), kBob);
+    }
+
+    // 2026-09-08 audit: lastReadFailed() returned a CONSTANT, so a
+    // truncated or unparsable settings file answered every read empty and
+    // called that a fact. secretBackendUnavailable() then said "I can
+    // answer", an empty token read as "no saved sign-in", and the user is
+    // routed to a destructive reset prompt for a config-file problem —
+    // exactly the conflation SecretStore.h's own comment exists to prevent.
+    void anUnreadableFallbackSecretStoreReportsThatItsReadFailed()
+    {
+        const QString appName = QCoreApplication::applicationName();
+        // A private application name, so the malformed file this writes is
+        // never the settings file the rest of this suite runs against.
+        QCoreApplication::setApplicationName(
+            QStringLiteral("account-switch-test-corrupt-secrets"));
+        QString path;
+        {
+            QSettings probe;
+            path = probe.fileName();
+        }
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        {
+            QFile file(path);
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            // A line with no '=' outside a comment: QSettings reports
+            // FormatError and answers every value() with an empty QVariant.
+            file.write("[secrets]\nthis line has no equals sign\n");
+        }
+        {
+            // NOT substituted for a native store: the only thing that can
+            // make this report a failed read is the read itself.
+            InsecureFallbackSecretStore store(nullptr, false);
+            QCOMPARE(store.readSecret(kAlice, QStringLiteral("accessToken")),
+                     QString());
+            QVERIFY2(store.lastReadFailed(),
+                     "an unparsable store answered empty and called it a "
+                     "fact about the account");
+            QVERIFY(!store.lastError().isEmpty());
+        }
+        // And a healthy store still reports a clean miss as a clean miss —
+        // otherwise the fix would shut the destructive path for everyone.
+        // Its own application name again, so the malformed file above
+        // cannot be what it is reading.
+        QFile::remove(path);
+        QCoreApplication::setApplicationName(
+            QStringLiteral("account-switch-test-healthy-secrets"));
+        {
+            QSettings probe;
+            path = probe.fileName();
+        }
+        {
+            InsecureFallbackSecretStore store(nullptr, false);
+            QVERIFY(store.storeSecret(kAlice, QStringLiteral("accessToken"),
+                                      QStringLiteral("tok")));
+            QCOMPARE(store.readSecret(kAlice, QStringLiteral("accessToken")),
+                     QStringLiteral("tok"));
+            QVERIFY(!store.lastReadFailed());
+            QCOMPARE(store.readSecret(kBob, QStringLiteral("accessToken")),
+                     QString());
+            QVERIFY2(!store.lastReadFailed(),
+                     "a genuine miss was reported as an unreadable backend");
+            QVERIFY(store.clearAccountSecrets(kAlice));
+        }
+        QFile::remove(path);
+        QCoreApplication::setApplicationName(appName);
     }
 
 private:

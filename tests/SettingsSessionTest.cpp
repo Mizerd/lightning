@@ -1,10 +1,12 @@
 #include "app/SettingsManager.h"
 #include "media/MediaVisibilityStore.h"
+#include "storage/AppDataPaths.h"
 #include "storage/SecretStore.h"
 
 #include <QFile>
 #include <QHash>
 #include <QRegularExpression>
+#include <QSet>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -90,6 +92,16 @@ private Q_SLOTS:
     void reportsSecretCleanupFailureButClearsMetadata();
     void migratesInsecureSecretsGroupIntoSecureStore();
     void keepsPlaintextWhenSecureMigrationFails();
+    // 2026-09-08 audit: the insecure->secure migration passed a MANGLED
+    // QSettings group name back as the user id, verified the write against
+    // that same mangled key, and then deleted the plaintext AND the two
+    // OAuth secrets it never carried.
+    void migratesEverySecretOfAnAccountWhoseIdContainsASlash();
+    void leavesPlaintextWhenNoSavedAccountOwnsTheGroup();
+    void insecureSecretsGroupFoldingIsStillTwoCharacters();
+    // Same audit: device-global keys carrying room and Space ids outlived
+    // "remove this account from this computer" indefinitely.
+    void clearingTheLastAccountSweepsTheDeviceGlobalRoomKeys();
     // v0.5.11.
     void validThemeIdsRoundTripAndPersist();
     void unknownStoredThemeFallsBackToSystem();
@@ -125,8 +137,30 @@ private Q_SLOTS:
     void turningOffCloseToTrayAnnouncesTheStartInTrayItDerives();
 
 private:
+    // Writes the QSettings shape SettingsManager::upsertAccountRecord
+    // produces, without needing a SecretStore: the migration cases have to
+    // start from an account record that exists and a token that is ONLY in
+    // plaintext, which saveSession() cannot express.
+    static void seedAccountRecord(const QString &userId,
+                                  const QString &homeserver);
+
     QTemporaryDir m_configHome;
 };
+
+void SettingsSessionTest::seedAccountRecord(const QString &userId,
+                                            const QString &homeserver)
+{
+    const QString slug = matrix::app_data::safeUserSlug(userId);
+    QVERIFY2(!slug.isEmpty(), "the fixture user id has no valid slug");
+    QSettings seed;
+    const QString base = QStringLiteral("accounts/") + slug + QLatin1Char('/');
+    seed.setValue(base + QStringLiteral("userId"), userId);
+    seed.setValue(base + QStringLiteral("homeserver"), homeserver);
+    seed.setValue(base + QStringLiteral("deviceId"), QStringLiteral("DEVICE"));
+    seed.setValue(base + QStringLiteral("addedAt"),
+                  QStringLiteral("2026-09-08T00:00:00"));
+    seed.sync();
+}
 
 void SettingsSessionTest::initTestCase()
 {
@@ -221,9 +255,12 @@ void SettingsSessionTest::reportsSecretCleanupFailureButClearsMetadata()
 void SettingsSessionTest::migratesInsecureSecretsGroupIntoSecureStore()
 {
     // Simulate a prior InsecureFallback run: a plaintext token under
-    // secrets/<user>/accessToken in QSettings.
+    // secrets/<user>/accessToken in QSettings, belonging to a real saved
+    // account (the app never writes one without the other, and the
+    // migration now refuses to move a credential it cannot attribute).
     const QString user = QStringLiteral("@alice:matrix.example");
     const QString token = QStringLiteral("plaintext-token-fixture");
+    seedAccountRecord(user, QStringLiteral("https://matrix.example"));
     {
         QSettings seed;
         seed.setValue(QStringLiteral("secrets/%1/accessToken").arg(user), token);
@@ -245,6 +282,7 @@ void SettingsSessionTest::keepsPlaintextWhenSecureMigrationFails()
 {
     const QString user = QStringLiteral("@bob:matrix.example");
     const QString token = QStringLiteral("plaintext-token-fixture-2");
+    seedAccountRecord(user, QStringLiteral("https://matrix.example"));
     {
         QSettings seed;
         seed.setValue(QStringLiteral("secrets/%1/accessToken").arg(user), token);
@@ -261,6 +299,204 @@ void SettingsSessionTest::keepsPlaintextWhenSecureMigrationFails()
     QSettings check;
     QCOMPARE(check.value(QStringLiteral("secrets/%1/accessToken").arg(user)).toString(),
              token);
+}
+
+// THE GROUP NAME IS NOT THE USER ID. InsecureFallbackSecretStore folds '/'
+// and '\\' to '_' so a Matrix id can be a QSettings group, and the Matrix
+// localpart grammar DOES include '/' — an appservice or bridge id is the
+// realistic case. The migration passed the folded group name back as the
+// user id, so its read-back compared the mangled key against itself, always
+// "succeeded", and deleted the plaintext; every runtime read
+// (accessTokenFor -> readSecret(<real mxid>, ...)) then missed, and the
+// surviving keyring entry was one clearAccountSecrets(<real mxid>) could
+// never name. It also migrated the access token ALONE and then removed the
+// whole group, so an OAuth account came out with a token, no refresh token
+// and no client id — restoreSession reports MissingSessionMetadata.
+void SettingsSessionTest::migratesEverySecretOfAnAccountWhoseIdContainsASlash()
+{
+    const QString user = QStringLiteral("@a/b:matrix.example");
+    const QString group = QStringLiteral("@a_b:matrix.example");
+    const QString token = QStringLiteral("slash-access-token-fixture");
+    const QString refresh = QStringLiteral("slash-refresh-token-fixture");
+    const QString clientId = QStringLiteral("slash-oauth-client-id-fixture");
+
+    seedAccountRecord(user, QStringLiteral("https://matrix.example"));
+    {
+        QSettings seed;
+        seed.setValue(QStringLiteral("secrets/%1/accessToken").arg(group),
+                      token);
+        seed.setValue(QStringLiteral("secrets/%1/refreshToken").arg(group),
+                      refresh);
+        seed.setValue(QStringLiteral("secrets/%1/oauthClientId").arg(group),
+                      clientId);
+        seed.sync();
+    }
+
+    FakeSecretStore secrets;   // isSecure() == true
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);   // triggers the migration
+
+    // All three, under the REAL user id.
+    QCOMPARE(secrets.readSecret(user, QStringLiteral("accessToken")), token);
+    QCOMPARE(secrets.readSecret(user, QStringLiteral("refreshToken")), refresh);
+    QCOMPARE(secrets.readSecret(user, QStringLiteral("oauthClientId")),
+             clientId);
+    // And nothing under the mangled one, which nothing would ever read and
+    // clearAccountSecrets() could never remove.
+    QVERIFY2(!secrets.hasSecret(group, QStringLiteral("accessToken")),
+             "the token was stored under the folded QSettings group name");
+
+    // The runtime path agrees — this is the read that used to miss.
+    QCOMPARE(settings.accessTokenFor(user), token);
+
+    // Plaintext gone, all of it.
+    QSettings check;
+    QVERIFY(!check.contains(
+        QStringLiteral("secrets/%1/accessToken").arg(group)));
+    QVERIFY(!check.contains(
+        QStringLiteral("secrets/%1/refreshToken").arg(group)));
+    QVERIFY(!check.contains(
+        QStringLiteral("secrets/%1/oauthClientId").arg(group)));
+
+    // Sign-out can reach what the migration wrote (CLAUDE.md section 6:
+    // sign-out must delete the credential that was actually in use).
+    QVERIFY(settings.clearSessionForAccount(user));
+    QVERIFY(!secrets.hasSecret(user, QStringLiteral("accessToken")));
+    QVERIFY(!secrets.hasSecret(user, QStringLiteral("refreshToken")));
+    QVERIFY(!secrets.hasSecret(user, QStringLiteral("oauthClientId")));
+}
+
+// The folding is not injective, so a group that no single saved account
+// resolves to cannot be attributed. Moving a credential to a guess and
+// deleting the readable copy is strictly worse than leaving it where the
+// user can still sign in from it.
+void SettingsSessionTest::leavesPlaintextWhenNoSavedAccountOwnsTheGroup()
+{
+    const QString ghost = QStringLiteral("@ghost:matrix.example");
+    const QString token = QStringLiteral("orphan-token-fixture");
+    {
+        QSettings seed;   // deliberately NO account record
+        seed.setValue(QStringLiteral("secrets/%1/accessToken").arg(ghost),
+                      token);
+        seed.sync();
+    }
+
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+
+    QVERIFY2(!secrets.hasSecret(ghost, QStringLiteral("accessToken")),
+             "a credential was moved to an account that is not saved here");
+    QSettings check;
+    QCOMPARE(check.value(QStringLiteral("secrets/%1/accessToken").arg(ghost))
+                 .toString(),
+             token);
+}
+
+// SettingsManager mirrors InsecureFallbackSecretStore's group-name folding
+// in its own anonymous namespace, because including that class's header
+// would emit its vtable into every target that compiles SettingsManager.cpp
+// without linking its .cpp. A mirror can drift, so read the real thing: if
+// the folding there ever grows a third substitution, this fails and names
+// the copy that has to learn it too.
+void SettingsSessionTest::insecureSecretsGroupFoldingIsStillTwoCharacters()
+{
+    QFile source(QStringLiteral(
+        REPO_ROOT "/src/storage/InsecureFallbackSecretStore.cpp"));
+    QVERIFY2(source.open(QIODevice::ReadOnly | QIODevice::Text),
+             qPrintable(source.fileName()));
+    const QString text = QString::fromUtf8(source.readAll());
+
+    static const QRegularExpression fold(
+        QStringLiteral(R"(safeUser\.replace\(QLatin1Char\('(.*?)'\))"));
+    QSet<QString> substituted;
+    auto it = fold.globalMatch(text);
+    while (it.hasNext())
+        substituted.insert(it.next().captured(1));
+
+    QVERIFY2(!substituted.isEmpty(),
+             "the folding could not be found at all — this scan is broken, "
+             "not the code it guards");
+    QVERIFY(substituted.contains(QStringLiteral("/")));
+    QVERIFY(substituted.contains(QStringLiteral("\\\\")));
+    QVERIFY2(substituted.size() == 2,
+             qPrintable(QStringLiteral(
+                            "InsecureFallbackSecretStore now folds %1 "
+                            "characters into the group name; teach "
+                            "insecureSecretsGroupName() in SettingsManager.cpp "
+                            "the same set or the migration will fail to "
+                            "attribute a group")
+                            .arg(substituted.size())));
+}
+
+// Device-global keys that name Matrix objects rather than describe this
+// computer: the Spaces rail's arrangement (Space room ids plus the folder
+// names the user typed) and notifications/room-mode/<roomId>. Both exist as
+// read fallbacks for accounts that still have no scoped value; with the last
+// account gone they are just a record of the rooms and Spaces somebody was
+// in, outliving "remove this account from this computer".
+void SettingsSessionTest::clearingTheLastAccountSweepsTheDeviceGlobalRoomKeys()
+{
+    const QString alice = QStringLiteral("@alice:matrix.example");
+    const QString bob = QStringLiteral("@bob:matrix.example");
+    const QString railKey =
+        QString::fromLatin1(SettingsManager::kRailLayoutKey);
+    const QString collapsedKey =
+        QString::fromLatin1(SettingsManager::kChannelCollapsedKey);
+    const QString roomModeKey =
+        QStringLiteral("notifications/room-mode/!secret:matrix.example");
+    // The on-disk names, pinned: these keys exist in users' settings files
+    // already, so the constants are a single spelling of an EXISTING name
+    // and not a free choice. (They are also what makes this case runnable
+    // against the unfixed tree — substitute the literals.)
+    QCOMPARE(railKey, QStringLiteral("shell/railLayout"));
+    QCOMPARE(collapsedKey, QStringLiteral("shell/channelCollapsed"));
+
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    settings.saveSession(QStringLiteral("https://matrix.example"), alice,
+                         QStringLiteral("ALICEDEVICE"),
+                         QStringLiteral("alice-token-fixture"));
+    settings.saveSession(QStringLiteral("https://matrix.example"), bob,
+                         QStringLiteral("BOBDEVICE"),
+                         QStringLiteral("bob-token-fixture"));
+    {
+        QSettings seed;   // the pre-scoping, device-global shape
+        seed.setValue(railKey,
+                      QStringLiteral("{\"folders\":[{\"id\":\"f1\","
+                                     "\"name\":\"Work\",\"collapsed\":false,"
+                                     "\"spaceIds\":[\"!space:matrix.example\"]}],"
+                                     "\"order\":[\"f1\"]}"));
+        seed.setValue(collapsedKey,
+                      QStringLiteral("[\"!space:matrix.example\"]"));
+        seed.setValue(roomModeKey, 2);
+        seed.sync();
+    }
+
+    // One account left: they are still that account's read fallback.
+    QVERIFY(settings.clearSessionForAccount(bob));
+    {
+        QSettings check;
+        QVERIFY2(check.contains(railKey),
+                 "the migration source was swept while an account still "
+                 "needed it");
+        QVERIFY(check.contains(collapsedKey));
+        QVERIFY(check.contains(roomModeKey));
+    }
+
+    // None left: nothing to be a fallback for.
+    QVERIFY(settings.clearSessionForAccount(alice));
+    QVERIFY(settings.savedAccountUserIds().isEmpty());
+    {
+        QSettings check;
+        QVERIFY2(!check.contains(railKey),
+                 "Space room ids and the user's own folder names survived "
+                 "the removal of every account");
+        QVERIFY(!check.contains(collapsedKey));
+        QVERIFY2(!check.contains(roomModeKey),
+                 "a raw room id survived the removal of every account");
+    }
 }
 
 void SettingsSessionTest::validThemeIdsRoundTripAndPersist()

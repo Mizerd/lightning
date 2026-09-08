@@ -55,7 +55,24 @@ QString InsecureFallbackSecretStore::readSecret(const QString &userId,
                                                 const QString &key) const
 {
     m_lastError.clear();
-    return m_store->value(settingsKey(userId, key)).toString();
+    m_lastReadFailed = false;
+    const QVariant value = m_store->value(settingsKey(userId, key));
+    // ASK, do not assume. QSettings reports an unreadable or unparsable
+    // backing file only through status(); value() itself answers an empty
+    // QVariant and nothing else. status() records the FIRST error and keeps
+    // it, which is the honest behaviour here: a corrupt config does not heal
+    // itself between two reads, and every answer from it stays untrusted.
+    const QSettings::Status status = m_store->status();
+    if (status != QSettings::NoError) {
+        m_lastReadFailed = true;
+        // Never the file's contents and never the key — this string reaches
+        // logs and the Settings screen.
+        m_lastError = status == QSettings::AccessError
+            ? QStringLiteral("the settings file could not be read")
+            : QStringLiteral("the settings file is malformed");
+        return {};
+    }
+    return value.toString();
 }
 
 bool InsecureFallbackSecretStore::deleteSecret(const QString &userId,

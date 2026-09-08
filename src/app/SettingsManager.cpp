@@ -8,8 +8,10 @@
 
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QHash>
 #include <QLocale>
 #include <QLoggingCategory>
+#include <QSet>
 
 #include <algorithm>
 
@@ -127,6 +129,23 @@ constexpr auto kSecretAccessToken   = "accessToken";
 // installation to the authorization server. Neither is ever exposed to QML.
 constexpr auto kSecretRefreshToken  = "refreshToken";
 constexpr auto kSecretOAuthClientId = "oauthClientId";
+
+// MIRRORS InsecureFallbackSecretStore::settingsKey()'s group-name folding,
+// which is the ONE place that decides how a user id becomes a QSettings
+// group name. It is duplicated here rather than shared because that class's
+// header carries Q_OBJECT and defines its overrides out of line, so
+// including it would emit its vtable into every target that compiles this
+// file without linking its .cpp (CLAUDE.md §16, the QPointer lesson in a
+// third costume). `insecureSecretsGroupFoldingIsStillTwoCharacters` in
+// tests/SettingsSessionTest.cpp reads that file and fails if the folding
+// there ever grows a third substitution this copy does not know about.
+QString insecureSecretsGroupName(const QString &userId)
+{
+    QString safeUser = userId;
+    safeUser.replace(QLatin1Char('/'), QLatin1Char('_'));
+    safeUser.replace(QLatin1Char('\\'), QLatin1Char('_'));
+    return safeUser;
+}
 }
 
 SettingsManager::SettingsManager(QObject *parent)
@@ -645,27 +664,109 @@ void SettingsManager::migrateInsecureSecretsGroup()
     if (accounts.isEmpty())
         return;
 
-    int migrated = 0;
-    int failed = 0;
-    for (const QString &safeUser : accounts) {
-        const QString plainKey = QStringLiteral("secrets/%1/%2")
-            .arg(safeUser, QLatin1String(kSecretAccessToken));
-        if (!m_store->contains(plainKey))
-            continue;
-        const QString token = m_store->value(plainKey).toString();
-        const QString groupKey = QStringLiteral("secrets/%1").arg(safeUser);
-        if (token.isEmpty()) {
-            m_store->remove(groupKey);
+    // THE GROUP NAME IS NOT THE USER ID, and treating it as one wrote the
+    // token where nothing reads it. QSettings cannot hold a '/' inside a key
+    // component, so InsecureFallbackSecretStore folds '/' and '\\' to '_'
+    // before building `secrets/<safeUser>/<key>` — and the Matrix localpart
+    // grammar DOES include '/' (appservice and bridge ids are the realistic
+    // case, e.g. "@a/b:server"). Passing the folded group name back as the
+    // user id made the read-back compare the mangled key against itself, so
+    // it always "succeeded"; the plaintext was then deleted while every
+    // runtime read (accessTokenFor -> readSecret(<real mxid>, …)) missed,
+    // and the surviving keyring entry was one clearAccountSecrets() could
+    // never name.
+    //
+    // So resolve each group back to a REAL saved account first, and skip —
+    // leaving the plaintext exactly where it is — when there is no match or
+    // more than one. The folding is not injective, and moving a credential
+    // to a guess is worse than leaving it readable where the user can still
+    // sign in.
+    QHash<QString, QString> byGroupName;
+    QSet<QString> ambiguousGroups;
+    const QStringList saved = savedAccountUserIds();
+    for (const QString &uid : saved) {
+        const QString group = insecureSecretsGroupName(uid);
+        const auto existing = byGroupName.constFind(group);
+        if (existing != byGroupName.constEnd()) {
+            if (*existing != uid)
+                ambiguousGroups.insert(group);
             continue;
         }
-        // safeUser equals the MXID for every valid id: InsecureFallback only
-        // substitutes '/' and '\\', which a Matrix user id never contains.
-        // Verify the secure write read-backs before deleting the plaintext, so
-        // a failed write never locks the user out of their session.
-        if (m_secretStore->storeSecret(safeUser, QLatin1String(kSecretAccessToken), token)
-            && m_secretStore->readSecret(safeUser, QLatin1String(kSecretAccessToken)) == token) {
+        byGroupName.insert(group, uid);
+    }
+
+    // Every secret an account can own. Migrating only the access token and
+    // then removing the whole group left an OAuth account with a token, no
+    // refresh token and no client id — restoreSession then reports
+    // MissingSessionMetadata, i.e. a repaired sign-in broken by the repair.
+    const QLatin1String secretKeys[] = {
+        QLatin1String(kSecretAccessToken),
+        QLatin1String(kSecretRefreshToken),
+        QLatin1String(kSecretOAuthClientId),
+    };
+
+    int migrated = 0;
+    int failed = 0;
+    int unresolved = 0;
+    for (const QString &safeUser : accounts) {
+        const QString groupKey = QStringLiteral("secrets/%1").arg(safeUser);
+        if (ambiguousGroups.contains(safeUser)) {
+            ++unresolved;
+            continue;
+        }
+        const QString uid = byGroupName.value(safeUser);
+        if (uid.isEmpty()) {
+            // No saved record owns this group: it may belong to an account
+            // this install no longer knows about, and there is no id to
+            // store it under. Leave it; a later sign-in re-creates the
+            // record and the next start migrates it.
+            ++unresolved;
+            continue;
+        }
+
+        m_store->beginGroup(groupKey);
+        const QStringList presentKeys = m_store->childKeys();
+        m_store->endGroup();
+        if (presentKeys.isEmpty())
+            continue;
+
+        bool allMoved = true;
+        int movedHere = 0;
+        for (const QLatin1String &key : secretKeys) {
+            const QString plainKey = groupKey + QLatin1Char('/') + key;
+            if (!m_store->contains(plainKey))
+                continue;
+            const QString value = m_store->value(plainKey).toString();
+            if (value.isEmpty())
+                continue;   // nothing to move; removing it loses nothing
+            // Verify the secure write reads back UNDER THE REAL ID before
+            // deleting the plaintext, so a failed write never locks the user
+            // out of their session.
+            if (m_secretStore->storeSecret(uid, key, value)
+                && m_secretStore->readSecret(uid, key) == value) {
+                ++movedHere;
+            } else {
+                allMoved = false;
+            }
+        }
+
+        // Anything in this group we do not recognise is not ours to delete:
+        // a newer build's secret would be thrown away by a migration that
+        // never carried it.
+        for (const QString &present : presentKeys) {
+            const bool known =
+                std::any_of(std::begin(secretKeys), std::end(secretKeys),
+                            [&present](const QLatin1String &key) {
+                                return present == key;
+                            });
+            if (!known)
+                allMoved = false;
+        }
+
+        if (allMoved) {
             m_store->remove(groupKey);
-            ++migrated;
+            if (movedHere > 0)
+                ++migrated;
         } else {
             ++failed;   // keep plaintext; do not claim success
         }
@@ -682,6 +783,11 @@ void SettingsManager::migrateInsecureSecretsGroup()
             << "Secure credential migration: failed for" << failed
             << "account(s) — plaintext left in place; SecretStore error:"
             << m_secretStore->lastError();
+    if (unresolved > 0)
+        qCWarning(lcSettings)
+            << "Secure credential migration: left" << unresolved
+            << "plaintext group(s) in place — no single saved account "
+               "resolves to them";
 }
 
 QString SettingsManager::homeserverUrl() const
@@ -918,6 +1024,48 @@ void SettingsManager::setAppearanceValue(const char *globalKey,
     if (!slug.isEmpty())
         m_store->setValue(accountKey(slug, globalKey), value);
     m_store->setValue(QLatin1String(globalKey), value);
+}
+
+QVariant SettingsManager::accountScopedValue(const char *globalKey,
+                                             const QVariant &fallback) const
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (!slug.isEmpty()) {
+        const QString key = accountKey(slug, globalKey);
+        if (m_store->contains(key))
+            return m_store->value(key);
+    }
+    // Migration source only — see the header. Nothing signed in writes here.
+    return m_store->value(QLatin1String(globalKey), fallback);
+}
+
+void SettingsManager::setAccountScopedValue(const char *globalKey,
+                                            const QVariant &value)
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty()) {
+        // Nothing to scope it to. Keeping the device-global write is what
+        // lets a signed-out shell (and the pure unit tests that drive these
+        // stores without an account) round-trip a value at all.
+        m_store->setValue(QLatin1String(globalKey), value);
+        return;
+    }
+    m_store->setValue(accountKey(slug, globalKey), value);
+}
+
+void SettingsManager::forgetDeviceGlobalAccountResidue()
+{
+    // Room ids and the user's own names for groups of them. Each has a
+    // per-account key now; the bare ones are read-only migration sources,
+    // and with no account left there is nothing to migrate them into.
+    m_store->remove(QLatin1String(kRailLayoutKey));
+    m_store->remove(QLatin1String(kChannelCollapsedKey));
+    // notifications/room-mode/<roomId>: raw room ids, one key each. The
+    // retention rationale on roomNotificationModeGlobalKey() is "it remains
+    // the shared fallback for the OTHER accounts" — with none left, it is
+    // just a list of rooms this person was in.
+    m_store->remove(QStringLiteral("notifications/room-mode"));
+    m_store->sync();
 }
 
 SettingsManager::Theme SettingsManager::theme() const
@@ -1407,6 +1555,13 @@ void SettingsManager::setPreferredCameraId(const QString &id)
 // fall back to it so an upgrading user keeps every mode until an account's
 // first write shadows it. The legacy key is never deleted by an account
 // write — it remains the shared fallback for the OTHER accounts.
+//
+// That rationale runs out when there are no other accounts. The bare keys
+// hold RAW ROOM IDS, so once the last saved record is cleared they are a
+// list of the rooms somebody was in outliving their "remove this account
+// from this computer": clearSessionForAccount sweeps the whole
+// notifications/room-mode group at that point
+// (forgetDeviceGlobalAccountResidue).
 QString SettingsManager::roomNotificationModeGlobalKey(const QString &roomId)
 {
     return QStringLiteral("notifications/room-mode/") + roomId;
@@ -2828,6 +2983,11 @@ bool SettingsManager::clearSessionForAccount(const QString &uid,
         m_store->beginGroup(QLatin1String(kAccountsGroup));
         m_store->remove(slug);
         m_store->endGroup();
+        // The last record just went: the device-global keys that carry room
+        // and Space ids have no account left to be a fallback FOR, and
+        // "remove this account from this computer" has to mean it.
+        if (savedAccountUserIds().isEmpty())
+            forgetDeviceGlobalAccountResidue();
         Q_EMIT accountsChanged();
     }
     if (activeAccount) {
