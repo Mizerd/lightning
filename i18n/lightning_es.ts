@@ -446,7 +446,7 @@
         <translation>Has perdido una llamada de voz en %1</translation>
     </message>
     <message>
-        <location line="+319"/>
+        <location line="+325"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>La sala se creó, pero no se pudo añadir al espacio.</translation>
     </message>
@@ -543,24 +543,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1873"/>
+        <location line="+1893"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning no pudo leer el archivo seleccionado.</translation>
     </message>
     <message>
-        <location line="-1879"/>
+        <location line="-1899"/>
         <source>A room-key import is already in progress.</source>
         <translation>Ya hay una importación de claves de sala en curso.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2508"/>
+        <location line="+2571"/>
         <source>Not signed in.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-2506"/>
+        <location line="-2569"/>
         <source>Room-key import failed.</source>
         <translation>Falló la importación de claves de sala.</translation>
     </message>
@@ -600,7 +600,7 @@
         <translation>Las llamadas no están disponibles aquí.</translation>
     </message>
     <message>
-        <location line="+136"/>
+        <location line="+156"/>
         <source>Modern room list</source>
         <translation>Lista de salas moderna</translation>
     </message>
@@ -770,7 +770,7 @@
         <translation>Borrar los datos locales de este dispositivo no lo solucionaría y destruiría claves de cifrado que todavía necesitas.</translation>
     </message>
     <message>
-        <location line="+491"/>
+        <location line="+534"/>
         <source>This backend cannot change your display name.</source>
         <translation>Este backend no puede cambiar tu nombre visible.</translation>
     </message>
@@ -1166,7 +1166,47 @@
 <context>
     <name>CallEventDelegate</name>
     <message>
-        <location filename="../qml/CallEventDelegate.qml" line="+246"/>
+        <location filename="../qml/CallEventDelegate.qml" line="+117"/>
+        <source>This build can&apos;t join Matrix calls</source>
+        <translation type="unfinished">Esta compilación no puede unirse a llamadas de Matrix</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Checking whether calling is available…</source>
+        <translation type="unfinished">Comprobando si hay llamadas disponibles...</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No MatrixRTC service on this homeserver</source>
+        <translation type="unfinished">No hay servicio MatrixRTC en este servidor doméstico</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Couldn&apos;t check whether calling is available</source>
+        <translation type="unfinished">No se pudo verificar si las llamadas están disponibles</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This call has ended</source>
+        <translation type="unfinished">Esta llamada ha terminado</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Joining calls isn&apos;t supported yet in this build</source>
+        <translation type="unfinished">Unirse a llamadas aún no es compatible con esta compilación</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Joining isn&apos;t available</source>
+        <translation type="unfinished">Unirse no está disponible</translation>
+    </message>
+    <message>
+        <location line="+180"/>
         <source>Join</source>
         <translation>Unirse</translation>
     </message>
@@ -3894,7 +3934,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>IncomingCallPrompt</name>
     <message>
-        <location filename="../qml/IncomingCallPrompt.qml" line="+126"/>
+        <location filename="../qml/IncomingCallPrompt.qml" line="+132"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>Esta compilación no puede unirse a llamadas de Matrix.</translation>
     </message>
@@ -3924,7 +3964,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Unirse a llamadas aún no es compatible con esta compilación.</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+7"/>
+        <source>This room is encrypted, and encrypted calls aren&apos;t available in this build.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Joining isn&apos;t available.</source>
         <translation>Unirse no está disponible.</translation>
     </message>
@@ -7639,7 +7684,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RailLayoutStore</name>
     <message>
-        <location filename="../src/spaces/RailLayoutStore.cpp" line="+212"/>
+        <location filename="../src/spaces/RailLayoutStore.cpp" line="+250"/>
         <location line="+208"/>
         <source>Folder</source>
         <translation>Carpeta</translation>
@@ -7826,7 +7871,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Unirse a llamadas aún no es compatible con esta compilación</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+6"/>
+        <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Joining isn&apos;t available</source>
         <translation>Unirse no está disponible</translation>
     </message>
@@ -9157,7 +9207,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+344"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+346"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>Lightning no pudo crear su carpeta de almacenamiento local para esta cuenta. Comprueba los permisos del sistema de archivos y el espacio libre.</translation>
     </message>
@@ -9268,7 +9318,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3464"/>
+        <location line="+3380"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+51"/>
@@ -9277,15 +9327,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-3858"/>
+        <location line="-3774"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3660"/>
+        <location line="+3576"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconocida: %1</translation>
     </message>
     <message>
-        <location line="-3860"/>
+        <location line="-3776"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9322,12 +9372,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Falló el inicio de sesión del SDK de Rust.</translation>
     </message>
     <message>
-        <location line="+110"/>
+        <location line="+115"/>
         <source>Matrix session is no longer authorized.</source>
         <translation>La sesión de Matrix ya no está autorizada.</translation>
     </message>
     <message>
-        <location line="+91"/>
+        <location line="+98"/>
         <source>Invite action failed. Try again.</source>
         <translation>La invitación falló. Inténtalo de nuevo.</translation>
     </message>
@@ -9388,7 +9438,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Se desbordó la cola de eventos del SDK de Rust.</translation>
     </message>
     <message>
-        <location line="+335"/>
+        <location line="+239"/>
         <source>[unable to decrypt yet]</source>
         <translation>[todavía no se puede descifrar]</translation>
     </message>
@@ -12957,7 +13007,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+454"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+473"/>
         <location line="+79"/>
         <location line="+134"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -12965,12 +13015,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="-211"/>
-        <location line="+656"/>
+        <location line="+725"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>No se pudo iniciar el uso compartido de pantalla.</translation>
     </message>
     <message>
-        <location line="-598"/>
+        <location line="-667"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>Compartir pantalla en Wayland necesita xdg-desktop-portal y no responde. Instale o inicie el portal para su escritorio (por ejemplo, xdg-desktop-portal-kde o xdg-desktop-portal-gnome) y vuelva a intentarlo.</translation>
     </message>
@@ -13006,39 +13056,58 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>No se pudo empezar a compartir esa pantalla.</translation>
     </message>
     <message>
-        <location line="+199"/>
-        <source>You don&apos;t have permission to join calls in this room. A room admin can change that in the room&apos;s permissions.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+3"/>
+        <location line="+223"/>
         <source>The calling service refused to connect you to this call.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2"/>
-        <location line="+303"/>
+        <location line="+443"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>Las llamadas no están disponibles en este servidor doméstico.</translation>
     </message>
     <message>
-        <location line="-301"/>
+        <location line="-423"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Demasiados intentos. Inténtalo de nuevo en un momento.</translation>
     </message>
     <message>
-        <location line="+4"/>
-        <location line="+305"/>
+        <location line="-24"/>
+        <source>You don&apos;t have permission to join calls in this room. A room admin can raise your power level in it; Lightning can&apos;t change what call membership itself requires.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>The calling service this call uses didn&apos;t answer. It&apos;s chosen by whoever started the call, not by your homeserver.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Your homeserver doesn&apos;t support Matrix calls.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>This call&apos;s service is on a private network address, which Lightning won&apos;t connect to. Whoever set up the call needs to give it an address reachable from the internet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <location line="+410"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>No se pudo conectar con la llamada.</translation>
     </message>
     <message>
-        <location line="-303"/>
+        <location line="-408"/>
         <source>The calling service is having trouble.</source>
         <translation>El servicio de llamadas está teniendo problemas.</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+14"/>
+        <source>This call&apos;s service isn&apos;t set up correctly, so Lightning couldn&apos;t connect to it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>The window you were sharing was closed.</source>
         <translation>La ventana que estabas compartiendo estaba cerrada.</translation>
     </message>
@@ -13063,33 +13132,60 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>La llamada terminó inesperadamente.</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+15"/>
+        <location line="+24"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>Esta compilación no puede unirse a llamadas de Matrix.</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="-22"/>
+        <source>Still checking whether calling is available here. Try again in a moment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>There&apos;s no Matrix calling service on this homeserver.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Lightning couldn&apos;t check whether calling is available here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>This call has ended.</source>
+        <translation type="unfinished">Esta llamada ha terminado.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <location line="+16"/>
         <location line="+5"/>
         <source>This build has no calling media support.</source>
         <translation>Esta compilación no tiene soporte para llamar a los medios.</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="-17"/>
+        <source>This call can&apos;t be joined right now.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+22"/>
         <source>Calling isn&apos;t ready yet.</source>
         <translation>La llamada aún no está lista.</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="-24"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Esta sala está cifrada y las llamadas cifradas aún no están disponibles en esta compilación.</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+163"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>No pude anunciarte en la llamada.</translation>
     </message>
     <message>
-        <location line="+171"/>
+        <location line="+222"/>
         <source>The call ended because the connection was lost.</source>
         <translation>La llamada terminó porque se perdió la conexión.</translation>
     </message>
@@ -13502,7 +13598,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+663"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+677"/>
         <source>Create Room</source>
         <translation>Crear habitación</translation>
     </message>
@@ -17035,7 +17131,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>La grabación alcanzó la duración máxima y se descartó.</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+21"/>
         <source>The recording could not be finalized.</source>
         <translation>No se pudo finalizar la grabación.</translation>
     </message>

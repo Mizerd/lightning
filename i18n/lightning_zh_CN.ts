@@ -444,7 +444,7 @@
         <translation>你错过了 %1 中的一通语音通话</translation>
     </message>
     <message>
-        <location line="+319"/>
+        <location line="+325"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>房间已创建，但未能将其添加到空间。</translation>
     </message>
@@ -541,24 +541,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1873"/>
+        <location line="+1893"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning 无法读取所选文件。</translation>
     </message>
     <message>
-        <location line="-1879"/>
+        <location line="-1899"/>
         <source>A room-key import is already in progress.</source>
         <translation>已有房间密钥导入正在进行中。</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2508"/>
+        <location line="+2571"/>
         <source>Not signed in.</source>
         <translation>尚未登录。</translation>
     </message>
     <message>
-        <location line="-2506"/>
+        <location line="-2569"/>
         <source>Room-key import failed.</source>
         <translation>房间密钥导入失败。</translation>
     </message>
@@ -598,7 +598,7 @@
         <translation>这里无法打电话。</translation>
     </message>
     <message>
-        <location line="+136"/>
+        <location line="+156"/>
         <source>Modern room list</source>
         <translation>新版房间列表</translation>
     </message>
@@ -768,7 +768,7 @@
         <translation>清除此设备的本地数据无法解决该问题，反而会销毁你仍然需要的加密密钥。</translation>
     </message>
     <message>
-        <location line="+491"/>
+        <location line="+534"/>
         <source>This backend cannot change your display name.</source>
         <translation>此后端无法更改你的显示名称。</translation>
     </message>
@@ -1164,7 +1164,47 @@
 <context>
     <name>CallEventDelegate</name>
     <message>
-        <location filename="../qml/CallEventDelegate.qml" line="+246"/>
+        <location filename="../qml/CallEventDelegate.qml" line="+117"/>
+        <source>This build can&apos;t join Matrix calls</source>
+        <translation type="unfinished">此版本无法加入 Matrix 调用</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Checking whether calling is available…</source>
+        <translation type="unfinished">Checking whether calling is available…</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No MatrixRTC service on this homeserver</source>
+        <translation type="unfinished">该家庭服务器上没有 MatrixRTC 服务</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Couldn&apos;t check whether calling is available</source>
+        <translation type="unfinished">无法检查通话是否可用</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This call has ended</source>
+        <translation type="unfinished">本次通话已结束</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Joining calls isn&apos;t supported yet in this build</source>
+        <translation type="unfinished">此版本尚不支持加入通话</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Joining isn&apos;t available</source>
+        <translation type="unfinished">无法加入</translation>
+    </message>
+    <message>
+        <location line="+180"/>
         <source>Join</source>
         <translation>加入</translation>
     </message>
@@ -3885,7 +3925,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>IncomingCallPrompt</name>
     <message>
-        <location filename="../qml/IncomingCallPrompt.qml" line="+126"/>
+        <location filename="../qml/IncomingCallPrompt.qml" line="+132"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>This build can&apos;t join Matrix calls.</translation>
     </message>
@@ -3915,7 +3955,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Joining calls isn&apos;t supported yet in this build.</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+7"/>
+        <source>This room is encrypted, and encrypted calls aren&apos;t available in this build.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Joining isn&apos;t available.</source>
         <translation>无法加入。</translation>
     </message>
@@ -7620,7 +7665,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RailLayoutStore</name>
     <message>
-        <location filename="../src/spaces/RailLayoutStore.cpp" line="+212"/>
+        <location filename="../src/spaces/RailLayoutStore.cpp" line="+250"/>
         <location line="+208"/>
         <source>Folder</source>
         <translation>文件夹</translation>
@@ -7806,7 +7851,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>此版本尚不支持加入通话</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+6"/>
+        <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Joining isn&apos;t available</source>
         <translation>无法加入</translation>
     </message>
@@ -9135,7 +9185,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+344"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+346"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>Lightning 无法为此账号创建本地存储目录。请检查文件系统权限和可用空间。</translation>
     </message>
@@ -9246,7 +9296,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3464"/>
+        <location line="+3380"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+51"/>
@@ -9255,15 +9305,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>未登录。</translation>
     </message>
     <message>
-        <location line="-3858"/>
+        <location line="-3774"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3660"/>
+        <location line="+3576"/>
         <source>Unknown room: %1</source>
         <translation>未知房间：%1</translation>
     </message>
     <message>
-        <location line="-3860"/>
+        <location line="-3776"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9300,12 +9350,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Rust SDK 登录失败。</translation>
     </message>
     <message>
-        <location line="+110"/>
+        <location line="+115"/>
         <source>Matrix session is no longer authorized.</source>
         <translation>Matrix 会话已失去授权。</translation>
     </message>
     <message>
-        <location line="+91"/>
+        <location line="+98"/>
         <source>Invite action failed. Try again.</source>
         <translation>邀请操作失败。请重试。</translation>
     </message>
@@ -9366,7 +9416,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Rust SDK 事件队列已溢出。</translation>
     </message>
     <message>
-        <location line="+335"/>
+        <location line="+239"/>
         <source>[unable to decrypt yet]</source>
         <translation>[暂时无法解密]</translation>
     </message>
@@ -12931,7 +12981,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+454"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+473"/>
         <location line="+79"/>
         <location line="+134"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -12939,12 +12989,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="-211"/>
-        <location line="+656"/>
+        <location line="+725"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>屏幕共享无法启动。</translation>
     </message>
     <message>
-        <location line="-598"/>
+        <location line="-667"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>Wayland 上的屏幕共享需要 xdg-desktop-portal，但它没有响应。安装或启动桌面门户（例如 xdg-desktop-portal-kde 或 xdg-desktop-portal-gnome），然后重试。</translation>
     </message>
@@ -12980,39 +13030,58 @@ Note: importing keys does not verify this session.</source>
         <translation>无法开始共享该显示。</translation>
     </message>
     <message>
-        <location line="+199"/>
-        <source>You don&apos;t have permission to join calls in this room. A room admin can change that in the room&apos;s permissions.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+3"/>
+        <location line="+223"/>
         <source>The calling service refused to connect you to this call.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2"/>
-        <location line="+303"/>
+        <location line="+443"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>此家庭服务器上无法进行呼叫。</translation>
     </message>
     <message>
-        <location line="-301"/>
+        <location line="-423"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>尝试次数太多。稍后再试一次。</translation>
     </message>
     <message>
-        <location line="+4"/>
-        <location line="+305"/>
+        <location line="-24"/>
+        <source>You don&apos;t have permission to join calls in this room. A room admin can raise your power level in it; Lightning can&apos;t change what call membership itself requires.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>The calling service this call uses didn&apos;t answer. It&apos;s chosen by whoever started the call, not by your homeserver.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Your homeserver doesn&apos;t support Matrix calls.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>This call&apos;s service is on a private network address, which Lightning won&apos;t connect to. Whoever set up the call needs to give it an address reachable from the internet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <location line="+410"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>无法接通通话。</translation>
     </message>
     <message>
-        <location line="-303"/>
+        <location line="-408"/>
         <source>The calling service is having trouble.</source>
         <translation>呼叫服务出现问题。</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+14"/>
+        <source>This call&apos;s service isn&apos;t set up correctly, so Lightning couldn&apos;t connect to it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>The window you were sharing was closed.</source>
         <translation>您共享的窗口已关闭。</translation>
     </message>
@@ -13037,33 +13106,60 @@ Note: importing keys does not verify this session.</source>
         <translation>通话意外结束。</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+15"/>
+        <location line="+24"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>This build can&apos;t join Matrix calls.</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="-22"/>
+        <source>Still checking whether calling is available here. Try again in a moment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>There&apos;s no Matrix calling service on this homeserver.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Lightning couldn&apos;t check whether calling is available here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>This call has ended.</source>
+        <translation type="unfinished">本次通话结束。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <location line="+16"/>
         <location line="+5"/>
         <source>This build has no calling media support.</source>
         <translation>此版本没有通话媒体支持。</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="-17"/>
+        <source>This call can&apos;t be joined right now.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+22"/>
         <source>Calling isn&apos;t ready yet.</source>
         <translation>呼叫尚未准备好。</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="-24"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>该房间已加密，并且在此版本中尚不支持加密呼叫。</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+163"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>无法在通话中通知您。</translation>
     </message>
     <message>
-        <location line="+171"/>
+        <location line="+222"/>
         <source>The call ended because the connection was lost.</source>
         <translation>由于连接丢失，通话结束。</translation>
     </message>
@@ -13476,7 +13572,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+663"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+677"/>
         <source>Create Room</source>
         <translation>创建房间</translation>
     </message>
@@ -16995,7 +17091,7 @@ Note: importing keys does not verify this session.</source>
         <translation>录音已达到最大时长并被放弃。</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+21"/>
         <source>The recording could not be finalized.</source>
         <translation>录音无法完成。</translation>
     </message>
