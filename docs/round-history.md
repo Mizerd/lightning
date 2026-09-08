@@ -15,6 +15,138 @@ By THEME, not chronology, and reduced to rules, refutations, deliberate
 decisions, measured numbers and live status. Features are §7; the caps
 contract, the refutation rule and the probe rule are in the standing warnings.
 
+#### 2026-09-08, the post-0.9.3 audit round (four read-only audits, then the fixes)
+
+Four independent read-only audits — MatrixRTC join and keys, GStreamer object
+lifetime, sync and the timeline, crypto/storage isolation — followed by fixes
+under strict single-file ownership. Every claim below was traced to `file:line`
+before anything was changed, and the headline ones were re-verified against
+`HEAD` by the orchestrator rather than taken on the auditor's word.
+
+- **TWO PRODUCERS WROTE ONE INDEX BASE, and the recovery WAS the storm.** The
+  SDK's diffs address a vector from `entries_with_dynamic_adapters`, which
+  starts at 20 rooms and grows in batches; the snapshot came from
+  `client.rooms()` — the whole state store, different order, Spaces included —
+  and both were handed to one C++ handler that rebuilt the ordered list. A
+  dozen ordinary actions (mark read, favourite, accept an invite, leave a
+  room) therefore replaced the index base, the next `set{index}` addressed a
+  different room, was rejected, and the rejection called resync, which
+  re-emitted the same snapshot. That is the recorded "room_list malformed diff
+  rejected" storm, self-sustaining, and `4185a92` could not have fixed it: it
+  touched only the C++ side. GENERALISE: **a positional diff and a snapshot
+  are not interchangeable inputs**; only the producer that owns the index
+  space may re-establish it, which is what the timeline path has always done
+  by re-opening the SDK timeline.
+- **And the storm was the benign branch.** `remove{index}`, `pop_front` and
+  `pop_back` deleted `m_roomOrder.at(index)` with NO id check, so a drifted
+  index silently removed a room the SDK never named. The SDK's `VectorDiff`
+  carries no id for those, but the PRODUCER knows one — it now stamps it, and
+  a mismatch rejects instead of deleting.
+- **The classic-sync fallback died permanently on the first network error,
+  and matrix-sdk's defaults are why.** `sync_with_callback` cannot return
+  `Ok(())`, so any error ends the loop and nothing re-invokes it. NEW, read
+  out of the linked SDK: `RequestConfig::default()` has `retry_limit: None`,
+  and the native http client treats a network failure with no retry limit as
+  PERMANENT — matrix-sdk-ui works around exactly this in its own sync service
+  with `retry_limit(5)`. Two seconds of Wi-Fi killed sync for the session.
+- **`full_state(true)` was set once and never cleared**, and `sync_loop_helper`
+  mutates only the token, so every 30-second incremental sync asked the server
+  to serialise the complete state of every joined room. It bought nothing even
+  on the first request, which carries no `since`.
+- **A promise change function read its own context after freeing it**, in four
+  handlers of the 1:1 engine and three of the SFU engine: `ctx->…` below
+  `gst_promise_unref`, where the destroy notify deletes it. On webrtcbin's
+  error-reply path our ref is the last one. The SFU engine's equivalents
+  survived only by returning early on exactly the branch an error reply takes
+  — luck, not design. GENERALISE: **hoist every read of a promise-owned
+  context above the unref**; upstream's own example does.
+- **Neither SFU bus was ever drained.** The sync handler returned
+  `GST_BUS_PASS` on every path and nothing pops those queues, so every message
+  of a whole call accumulated — and a `STATE_CHANGED` holds a ref on the
+  element that posted it, keeping every torn-down bin alive. The same defect
+  had already been found and fixed TWICE in this subsystem
+  (`GstCallMediaBackend`'s "DROP after inspection", `ShareAudioSources`' bus
+  flush); this was the third bus and the only one still leaking.
+- **A deferred teardown could outlive the engine.** The IDLE-probe teardown
+  unparents the bin and only then NULLs it, so between those lines the bin is
+  orphaned and running where `destroyPeer` cannot reach it, and nothing waited
+  for that work — a crypto probe firing in that window reads raw pointers into
+  a destroyed engine. The teardowns are counted now and `stop()` waits with a
+  bounded budget. The comment that asserted the opposite invariant was itself
+  part of the defect.
+- **The insecure-to-keyring migration wrote credentials under a mangled key.**
+  Group names fold `/` and `\` to `_`, and the loop passed the folded GROUP
+  NAME back as the user id; the read-back compared against the same folded key
+  so it always "succeeded", and the plaintext was deleted. The comment
+  justified it by asserting a Matrix user id never contains `/` — the
+  localpart grammar includes it. It also removed the whole secrets group after
+  migrating one key, taking the refresh token and OAuth client id with it.
+- **"Remove account" on the ACTIVE account was a sign-out.** The active branch
+  returned early and delegated to logout, leaving the account directory —
+  whose name is the Matrix localpart — its cache and any divergent second
+  store root on disk, while the same button on a background account deleted
+  every one of them.
+- **The Spaces rail followed the user into the next account**: its layout
+  (Space room ids, user-typed folder names) was written to a device-global key
+  as well as a scoped one, never reset on a switch, and never removed by
+  account removal. `loggedOut` alone was not enough to fix it and the test
+  found that: the signal fires BEFORE the active account moves, so the store
+  re-cached the outgoing account.
+- **The store's databases were chmod'd before they existed.** The calls sit
+  either side of `RustClient::new`, which builds a runtime and opens nothing;
+  the sqlite store is created later in `build_client`. So the run that CREATED
+  a store left it at the umask and only a later launch corrected it — while
+  the comment asserted the opposite.
+- **Eight SFU failure categories arrived as one sentence**, including the two
+  that name a configuration mistake, and a 404 from the call's own JWT service
+  was reported as "Calling isn't available on this homeserver" — the focus
+  comes from the oldest membership and is usually somebody else's
+  infrastructure. GENERALISE: **a closed set on one side of an FFI and a bare
+  `default:` on the other is how these drift**; the test that pins every
+  category against the fallback AND against each other is the cheap fix.
+- **A definitive "no MatrixRTC here" was reported as "couldn't check".**
+  Discovery maps a 404 well-known to `unsupported` and the comment says in as
+  many words that this is an answer, not a failure — then reported
+  `server_answered: category.is_empty()`, which is false for exactly that
+  case. The retry predicate is the negation of that flag, so discovery re-ran
+  on every room change for the whole session against a constant.
+- **Leaving while a membership publish was in flight left a ghost.** Teardown
+  zeroed the op id, so the answer was discarded unread — no log, no
+  retraction, and no cancellation of the delayed retraction that publish had
+  armed. Three guards were needed for the fix and all three are non-obvious:
+  the event id (not `ok`) says whether a membership exists; a refusal that
+  created nothing retracts nothing; and being back in the same room retracts
+  nothing, because the state key is per device and this call's own publish
+  already replaced it.
+- **The device picker was decoration on the lane that carries calls.** Camera,
+  microphone and speaker selections reached only the legacy 1:1 engine; the
+  SFU engine built its capture from a bare element name with no device
+  property. GENERALISE: **Qt and GStreamer enumerate devices through different
+  subsystems, so their ids are not one namespace** — measured here,
+  `gst-device-monitor-1.0 Audio/Source` answers `pipewiresrc target-object=68`
+  for a device Qt names in PulseAudio form. Resolution must be identity first,
+  display name second, and the id's own shape only when the monitor cannot
+  answer; ambiguity resolves to nothing, because opening the wrong camera is
+  worse than opening the default.
+- **A test's timeout can fail a DIFFERENT component.** Raising this suite's
+  QTRY budget from 2 s to 10 s made a failing run of the anchor case stack its
+  waits to ~34 s — past the 30 s pagination watchdog added in the same round —
+  so the watchdog fired inside the test and the run then failed for a second,
+  unrelated reason. 4 s is twice the measured overshoot and keeps the watchdog
+  out of reach. GENERALISE: **a test budget has a ceiling as well as a floor,
+  set by whatever production timer is shorter than it.**
+- **A flake rate measured on a busy machine is not a measurement.** The same
+  anchor case ran 3/10, 4/10, 6/10 and 11/12 across batches that differed only
+  in machine load, and an A/B that looked decisive (8/8 vs 5/8) was load
+  confounded. Interleave A/B/A, and quiet the machine, before calling anything
+  a regression.
+- **An attached audio file carried no duration** because `attachment_info`
+  hard-coded `duration: None` for audio AND video; video only looked right
+  because `sendVideo` has a separate path. The decoder that grabs video
+  posters already knows the length and was throwing it away with the frame an
+  audio file does not have. `duration: 0` is a claim, not an absence — it
+  renders as the 0:00 the fix removes.
+
 #### 2026-09-05, the second evening on 0.9.0 (mentions, tray, profile card, room load)
 
 - **A `QGuiApplication` cannot host Qt's XEmbed tray icon.** `QSystemTrayIcon`
