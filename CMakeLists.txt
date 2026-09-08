@@ -692,6 +692,8 @@ set(APP_SOURCES
     src/crypto/CryptoBootstrapModel.cpp
     src/crypto/E2eeDiagnostics.h
     src/crypto/E2eeDiagnostics.cpp
+    src/crypto/OwnDeviceKeyWatch.h
+    src/crypto/OwnDeviceKeyWatch.cpp
     src/crypto/QrImageProvider.h
     src/crypto/QrImageProvider.cpp
     src/crypto/QrLoginController.h
@@ -939,6 +941,7 @@ set(APP_QML_FILES
     qml/RoomCallBanner.qml
     qml/CallEventDelegate.qml
     qml/VerifySessionPrompt.qml
+    qml/EncryptionBrokenPrompt.qml
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
     qml/TrustCard.qml
@@ -3536,6 +3539,19 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME crypto-health-model COMMAND crypto-health-model-test)
 
+    # B011: the policy half of "this device can never decrypt anything" —
+    # the tri-state latch (Unknown is neither a fault nor a clearance) and
+    # the re-check rate limit that keeps the /keys/query backstop cheap.
+    qt_add_executable(own-device-key-watch-test
+        tests/OwnDeviceKeyWatchTest.cpp
+        src/crypto/OwnDeviceKeyWatch.h
+        src/crypto/OwnDeviceKeyWatch.cpp
+    )
+    target_include_directories(own-device-key-watch-test PRIVATE src)
+    target_link_libraries(own-device-key-watch-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME own-device-key-watch COMMAND own-device-key-watch-test)
+
     # v0.7: verified-session bootstrap status state machine — phase
     # derivation from sanitized SDK state streams, key-count accumulation,
     # idempotency, and per-session reset isolation.
@@ -3562,6 +3578,23 @@ if(BUILD_TESTING)
     target_link_libraries(verification-flow-test PRIVATE Qt6::Test)
     add_test(NAME verification-flow COMMAND verification-flow-test)
     set_tests_properties(verification-flow PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # B011: a device whose published identity key is not its own can never
+    # decrypt anything, and used to say nothing at all. Covers the answer
+    # reaching the application layer as durable state, the tri-state that
+    # keeps "could not be established" from reading as "broken", the corner
+    # card that explains it and offers the sign-out repair with its honest
+    # cost, and the timeline row that stops promising an endless wait.
+    qt_add_executable(encryption-identity-fault-test
+        tests/EncryptionIdentityFaultTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(encryption-identity-fault-test)
+    target_link_libraries(encryption-identity-fault-test PRIVATE Qt6::Test)
+    add_test(NAME encryption-identity-fault
+             COMMAND encryption-identity-fault-test)
+    set_tests_properties(encryption-identity-fault PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Show-QR rendering: packed grid -> QImage (module placement, quiet

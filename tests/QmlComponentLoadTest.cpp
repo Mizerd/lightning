@@ -61,6 +61,7 @@ constexpr const char *kComponents[] = {
     "MessageSearchDialog",
     "ThemeEditorDialog",
     "IncomingCallPrompt",
+    "EncryptionBrokenPrompt",  // B011: the undecryptable-device card
     "CallHeaderBar",
     "ActivityCenterPanel",
     "JumpToDateDialog",

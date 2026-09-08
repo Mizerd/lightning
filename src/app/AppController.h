@@ -25,6 +25,7 @@
 #include "crypto/QrImageProvider.h"
 #include "app/PolicyListController.h"
 #include "crypto/QrLoginController.h"
+#include "crypto/OwnDeviceKeyWatch.h"
 #include "storage/BridgeLabelStore.h"
 #include "app/TrayIcon.h"
 #include "text/SpellChecker.h"
@@ -188,6 +189,23 @@ class AppController : public QObject
     Q_PROPERTY(QString sessionDeviceId READ sessionDeviceId NOTIFY securityStateChanged)
     Q_PROPERTY(bool ownIdentityAvailable READ ownIdentityAvailable NOTIFY securityStateChanged)
     Q_PROPERTY(bool crossSigningAvailable READ crossSigningAvailable NOTIFY securityStateChanged)
+
+    // B011: THIS SESSION CANNOT DECRYPT ANYTHING, AND NOTHING USED TO SAY SO.
+    //
+    // True only when the check has ANSWERED and the answer is that the
+    // curve25519 identity key this device publishes on the server is not the
+    // one its local Olm account holds. Peers encrypt to the published key, so
+    // every room key and every call media key addressed here is unreadable,
+    // permanently: encrypted messages sit on "Waiting for keys…" and an
+    // encrypted call is silent one way while the other side hears us fine.
+    //
+    // NEVER true because the check could not run. Offline, no keys uploaded
+    // yet and a 5xx on /keys/query all leave it false — telling a healthy
+    // user their encryption is destroyed would be worse than saying nothing.
+    // Its own notify signal, not securityStateChanged, so binding to it in a
+    // per-row delegate does not re-evaluate on every trust update.
+    Q_PROPERTY(bool encryptionIdentityBroken READ encryptionIdentityBroken
+                   NOTIFY encryptionIdentityBrokenChanged)
     // v0.7.x verification prompts. TRUE only for the one state the user can
     // actually act on: signed in, on a crypto-capable backend, with a
     // cross-signing identity that has NOT signed this device.
@@ -1179,6 +1197,8 @@ public:
     QString sessionDeviceId() const { return m_sessionDeviceId; }
     bool ownIdentityAvailable() const { return m_ownIdentityAvailable; }
     bool crossSigningAvailable() const { return m_crossSigningAvailable; }
+    bool encryptionIdentityBroken() const
+    { return m_ownDeviceKeyWatch.broken(); }
 
     QString roomKeyImportState() const { return m_roomKeyImportState; }
     int roomKeyImportImportedCount() const { return m_roomKeyImportImported; }
@@ -1274,6 +1294,7 @@ Q_SIGNALS:
 
     // v0.5.6 Security & Recovery.
     void securityStateChanged();
+    void encryptionIdentityBrokenChanged();
     void roomKeyImportStateChanged();
     // Emitted after a successful room-key import completes, with the
     // aggregate counts the UI should display. Non-secret.
@@ -1298,6 +1319,12 @@ private:
     // session devices, room-list profile lookups). Used on account change;
     // a real logout clears the same state through loggedOut connections.
     void clearCrossAccountCaches();
+
+    // B011. Dispatch one own-identity-key check if the rate limit allows it,
+    // and fold one answer in. Both are here rather than at each call site so
+    // the four event-driven callers and the periodic backstop share one gate.
+    void requestOwnDeviceKeyCheck();
+    void applyOwnDeviceKeyAgreement(matrix::crypto::KeyAgreement agreement);
 
     static std::unique_ptr<MatrixClient> makeClient(Backend backend,
                                                     SettingsManager *settings,
@@ -1548,6 +1575,15 @@ private:
     QString m_verificationState;
     QVariantList m_verificationEmojis;
     QVariantList m_verificationDecimals;
+
+    // B011: the tri-state latch and the re-check rate limit. See
+    // OwnDeviceKeyWatch for why "unknown" may never become "broken".
+    matrix::crypto::OwnDeviceKeyWatch m_ownDeviceKeyWatch;
+    // The periodic backstop for a fault that appears after login.
+    // Started on sign-in, stopped on sign-out and once the fault is
+    // latched (it cannot recover without a new session, so asking
+    // again buys nothing).
+    QTimer m_ownDeviceKeyTimer;
 
     // v0.5.6 Security & Recovery cache.
     QString m_sessionTrustState = QStringLiteral("Unknown");

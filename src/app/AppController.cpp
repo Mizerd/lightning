@@ -1237,6 +1237,19 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         if (m_client)
             m_client->sweepSearchIndex();
     });
+    // B011: THE BACKSTOP FOR A FAULT THAT APPEARS AFTER LOGIN.
+    //
+    // A device whose published identity key stops matching its local Olm
+    // account can never decrypt anything again, and the four event-driven
+    // checks all cluster around sign-in — so without this the app could go a
+    // whole session without asking. One single-device /keys/query every
+    // fifteen minutes; requestOwnDeviceKeyCheck() holds the rate limit, and
+    // the timer stops once the fault is latched.
+    m_ownDeviceKeyTimer.setInterval(
+        static_cast<int>(matrix::crypto::OwnDeviceKeyWatch::kRecheckIntervalMs));
+    m_ownDeviceKeyTimer.setSingleShot(false);
+    connect(&m_ownDeviceKeyTimer, &QTimer::timeout, this,
+            [this] { requestOwnDeviceKeyCheck(); });
     // A redaction must reach the index, or a message somebody asked to be
     // unsayable stays findable by its own text — the single worst thing a
     // local index can do.
@@ -1696,6 +1709,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 this, [this, rust](const QString &) {
             Q_EMIT rustDeviceIdChanged();
             rust->refreshOwnDeviceStatus();
+            // B011: ask once at sign-in, then keep the backstop running. The
+            // fault can appear AFTER login, so one check is not enough.
+            requestOwnDeviceKeyCheck();
+            if (!m_ownDeviceKeyTimer.isActive())
+                m_ownDeviceKeyTimer.start();
             // Start a fresh crypto epoch for the new session, then capture it
             // at dispatch so a logout before the answer arrives rejects it.
             m_cryptoHealth->resetForNewGeneration();
@@ -1720,6 +1738,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             if (!rust->initialSyncDone())
                 return;
             rust->refreshOwnDeviceStatus();
+            requestOwnDeviceKeyCheck();
             m_cryptoQueryGeneration = m_cryptoHealth->generation();
             rust->queryCryptoHealth();
         });
@@ -1833,6 +1852,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_sessionDeviceId.clear();
             m_ownIdentityAvailable = false;
             m_crossSigningAvailable = false;
+            // B011: the fault belongs to the session that is going away.
+            // Signing out and in again IS the repair, so carrying it into
+            // the next session would keep accusing a device that is fine.
+            m_ownDeviceKeyTimer.stop();
+            const bool wasBroken = m_ownDeviceKeyWatch.broken();
+            m_ownDeviceKeyWatch.reset();
+            if (wasBroken)
+                Q_EMIT encryptionIdentityBrokenChanged();
             m_roomKeyImportState.clear();
             m_roomKeyImportImported = 0;
             m_roomKeyImportTotal = 0;
@@ -1967,6 +1994,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             // "confirmed" guess. Do NOT set the trust state from here —
             // only the SDK snapshot may promote to "Verified".
             rust->refreshOwnDeviceStatus();
+            requestOwnDeviceKeyCheck();
             // v0.5.1: post-verification retry. matrix-sdk 0.18 does not
             // expose an explicit per-event "request room key" API on
             // Client — internal event_cache/redecryptor.rs re-runs
@@ -2063,6 +2091,24 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             }
             Q_EMIT securityStateChanged();
             Q_EMIT rustDeviceIdChanged();
+        });
+        // B011: A DEVICE THAT CAN NEVER DECRYPT ANYTHING NOW SAYS SO.
+        //
+        // Detection shipped in 0d4578d and stopped at one qCCritical into a
+        // log the user never reads: they still saw "Waiting for keys…" and
+        // nothing else — no explanation, no diagnosis, no suggested action.
+        // The latch lives in OwnDeviceKeyWatch so "could not be established"
+        // can never be presented as "your encryption is destroyed".
+        connect(rust, &RustSdkMatrixClient::ownDeviceIdentityKeyChecked,
+                this, [this](bool established, bool matchesServer) {
+            if (!established) {
+                applyOwnDeviceKeyAgreement(
+                    matrix::crypto::KeyAgreement::Unknown);
+                return;
+            }
+            applyOwnDeviceKeyAgreement(
+                matchesServer ? matrix::crypto::KeyAgreement::Matches
+                              : matrix::crypto::KeyAgreement::Mismatch);
         });
         connect(rust, &RustSdkMatrixClient::roomKeyImportStarted,
                 this, [this] {
@@ -3837,10 +3883,49 @@ void AppController::refreshSessionTrustState()
     if (m_backend != RustBackend || !m_client) return;
     if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get())) {
         rust->refreshOwnDeviceStatus();
+        requestOwnDeviceKeyCheck();
         m_cryptoQueryGeneration = m_cryptoHealth->generation();
         rust->queryCryptoHealth();
     }
 #endif
+}
+
+// B011. ONE GATE FOR EVERY CALLER.
+//
+// The check costs a /keys/query. The four event-driven callers (sign-in,
+// first sync, after a verification, an explicit refresh) can all fire within
+// a second of each other on a fresh sign-in, and the periodic backstop fires
+// on top of them — so the rate limit belongs here, not at each call site.
+void AppController::requestOwnDeviceKeyCheck()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client)
+        return;
+    auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get());
+    if (!rust)
+        return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (!m_ownDeviceKeyWatch.checkDue(now))
+        return;
+    m_ownDeviceKeyWatch.noteDispatched(now);
+    rust->checkOwnIdentityKey();
+#endif
+}
+
+// B011. Fold one answer in and announce only a real transition.
+void AppController::applyOwnDeviceKeyAgreement(
+    matrix::crypto::KeyAgreement agreement)
+{
+    if (!m_ownDeviceKeyWatch.apply(agreement))
+        return;
+    if (m_ownDeviceKeyWatch.broken()) {
+        // The fault is permanent until this account signs in again, so the
+        // backstop has nothing left to learn. Event-driven callers still run
+        // and can clear it — a re-login on the same controller must not stay
+        // stuck on a stale fault.
+        m_ownDeviceKeyTimer.stop();
+    }
+    Q_EMIT encryptionIdentityBrokenChanged();
 }
 
 void AppController::requestEncryptionKeys()
@@ -4517,6 +4602,13 @@ void AppController::clearCrossAccountCaches()
     m_sessionDeviceId.clear();
     m_ownIdentityAvailable = false;
     m_crossSigningAvailable = false;
+    // B011: see the logout handler — an account switch must not carry the
+    // previous account's undecryptable-device fault into the next one.
+    m_ownDeviceKeyTimer.stop();
+    const bool wasKeyFaultLatched = m_ownDeviceKeyWatch.broken();
+    m_ownDeviceKeyWatch.reset();
+    if (wasKeyFaultLatched)
+        Q_EMIT encryptionIdentityBrokenChanged();
     m_roomKeyImportState.clear();
     m_roomKeyImportImported = 0;
     m_roomKeyImportTotal = 0;

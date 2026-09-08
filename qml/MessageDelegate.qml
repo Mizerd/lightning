@@ -2335,6 +2335,24 @@ Item {
                         spacing: AppTheme.spacingS
                         Label {
                             text: {
+                                // B011: "Waiting for keys…" IS A LIE WHEN THE
+                                // KEYS CAN NEVER ARRIVE. If this session's
+                                // published identity key does not match its
+                                // own Olm account, every peer encrypts to a
+                                // key we cannot read and no wait will ever
+                                // end. The corner prompt carries the
+                                // explanation and the repair; this row stops
+                                // promising something that will not happen.
+                                //
+                                // ONE extra property read, on a dedicated
+                                // notify signal that fires at most once per
+                                // session — not securityStateChanged, which
+                                // would re-evaluate this binding in every
+                                // instantiated row on every trust update. It
+                                // adds no item to the delegate.
+                                if (app.encryptionIdentityBroken)
+                                    return qsTr("This session can't unlock "
+                                                + "encrypted messages")
                                 var kind = model.errorKind || ""
                                 if (kind === "membership")
                                     return qsTr("Sent before you joined")

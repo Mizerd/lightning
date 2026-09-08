@@ -1112,6 +1112,14 @@ ApplicationWindow {
         VerifySessionPrompt {
             objectName: "verifySessionPromptHost"
         }
+        // B011: nearest the corner, below the verification nudge. An
+        // unverified session is a nudge; a session whose published identity
+        // key does not match its own account can never open anything it
+        // receives, so it takes the most anchored spot. The two are
+        // independent and can both be true.
+        EncryptionBrokenPrompt {
+            objectName: "encryptionBrokenPromptHost"
+        }
     }
 
     // ── Picture-in-picture ───────────────────────────────────────────────
