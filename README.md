@@ -29,100 +29,70 @@ rough edges and occasional regressions.
 ## What it does
 
 **Messaging.** Live SDK timelines with replies, edits, reactions, redactions,
-mentions, typing indicators and read receipts — receipts as Element-style avatar
-chips you can click for the reader list. Pinned messages, message forwarding
-(media is re-uploaded rather than mxc-copied, so the target room can actually
-fetch it), polls (MSC3381), drafts that survive a room switch, and `@room` where
-the room's own power level allows it. Forward several messages to several rooms
-at once, with or without naming where they came from, and be told which copies
-failed rather than a single "sent". Search uses the homeserver's own index in
-unencrypted rooms and the loaded timeline in encrypted ones, and says which it is
-doing — a server cannot search ciphertext. Locations
-that other people send from their phones — including live shares — render as
-a card with a map link and, for a live share, whether it is still current.
+mentions, typing indicators and read receipts, shown as clickable avatar chips.
+Pinned messages, polls (MSC3381), drafts that survive a room switch, and
+`@room` where your power level allows. Forward several messages to several
+rooms at once and be told which copies failed. Search uses the homeserver's
+index in unencrypted rooms and the loaded timeline in encrypted ones, and says
+which it is doing. Received locations, including live shares, render as a map
+card.
+
+**Threads.** Real Matrix threads on SDK thread timelines: side panel, per-room
+Threads view, summary cards, threaded receipts, follow/unfollow, and text,
+image, file and voice replies in encrypted rooms too.
+
+**Calls.** Group calls over MatrixRTC with audio, camera and screen sharing,
+interoperating with Element Call: raised hands, per-participant volume,
+speaking indication, mute. A share can carry the computer's audio as a
+separate encrypted track, at a volume the viewer controls. Resolution and
+frame rate are selectable, and the convert-and-scale stage runs on the GPU
+where the system supports it. Windows can share a single window. Windows and
+macOS packages bundle GStreamer.
+
+**Spaces and navigation.** Two layouts per account: Classic, one
+activity-ordered list; or Channels, a Spaces rail with Home, Direct Messages
+and one view per Space, with nested subspaces, drag-to-reorder and local
+folders. A Space's front page lists its rooms and subspaces with in-place
+editing. Directory browsing, joining by address or `matrix:` URI, knocking,
+and role changes, all gated by what Matrix permits.
+
+**Encryption and accounts.** SDK-owned Olm/Megolm with cross-signing, SAS and
+QR verification, Secure Backup restore, key import and late in-place
+decryption. Sign in with a password or the homeserver's browser flow
+(OAuth 2.0 / OIDC), and sign your other devices in from this one with a code
+(MSC4108), arriving verified. Optionally refuse unverified devices (MSC4153),
+off by default. Per-room display name and avatar. Several accounts on
+different homeservers at once, each with an isolated store; only the active
+one syncs.
+
+**Media and the composer.** Images, video and audio with inline playback,
+posters and waveforms; encrypted attachments throughout; voice messages
+(MSC3245); a two-provider GIF browser (GIPHY and KLIPY) that sends only your
+search term; emoji picker; MSC2545 sticker packs with editing; custom emoji
+with `:shortcode` completion; a media browser that walks a room's full history
+and reports how much it has read; JPEG XL; drag-and-drop. Link previews are
+off by default, because Lightning fetches them itself rather than through your
+homeserver.
 
 **Moderation and safety.** Mjolnir-style policy lists: read a room's published
-ban rules, publish and remove your own where the room's power level allows,
-and follow lists other people maintain. Following a list does **not** block
-anyone by itself — Lightning tells you when someone is covered by a list you
-follow and you decide, because a published list is somebody else's judgement
-and acting on it silently is a different thing from acting on it.
+ban rules, publish your own where permitted, and follow lists others maintain.
+Following a list never blocks anyone by itself. Lightning tells you when
+someone is covered by a list you follow, and you decide.
 
-**Threads.** Real Matrix threads on SDK thread timelines: a side panel, a per-room
-Threads view, summary cards with participant facepiles, threaded read receipts,
-follow/unfollow, and text, image, file and voice replies including in encrypted
-rooms.
+**Desktop.** Eleven WCAG-AA themes plus an editor for your own. Eleven
+languages, switchable without a restart, including right-to-left Arabic.
+Native notifications with per-room modes written to your account's server push
+rules, with reply and mark-as-read from the notification where supported.
+Floating always-on-top call window, close-to-tray, quick switcher (Ctrl-K),
+rebindable shortcuts, spell checking, imported fonts, and keyboard navigation
+throughout. Read receipts can be private or off; typing notices can be off.
 
-**Calls.** Group calls over MatrixRTC — audio, camera and screen sharing — talking
-to Element Call, including raised hands, per-participant volume, speaking
-indication and mute. A share can carry **the computer's audio** as well as your
-microphone, as a separate encrypted track, and a viewer can set that share's
-volume independently of the person sharing it. Resolution and frame rate are
-selectable, and the convert-and-scale stage runs **on the GPU** where the
-system supports it, falling back to the CPU with a reason in the log where it
-does not. On Windows you can share a single **window** rather than a
-whole display, through a GStreamer capture element Lightning ships itself. Windows
-and macOS packages bundle GStreamer, so calling works without installing anything
-alongside them. Calls are live-validated against Element on Linux — from the
-AppImage, the rpm and the Flatpak — and on a packaged Windows build; the deb is
-believed to work by inference from the rpm rather than tested, and **macOS
-calling is not tested**.
-
-**Spaces and navigation.** Two navigation layouts, chosen per account. *Classic* is
-one activity-ordered conversation list. *Channels* is a Spaces rail with a Home
-view, a Direct Messages view and one view per Space — with nested Matrix
-subspaces, device-local folders you make by dropping one Space onto another, and
-drag-to-reorder. A Space's front page lists its rooms and subspaces together, each
-stating its own membership, with in-place editing of the Space where your power
-level allows. Public-directory browsing, joining by address or `matrix:` URI,
-knocking, moderation and role changes, and room access settings are all gated by
-what Matrix would actually permit.
-
-**Encryption and accounts.** SDK-owned Olm/Megolm with cross-signing, SAS **and**
-QR device verification, Secure Backup restore, key import, and late in-place
-decryption when keys arrive. Sign in with a password or through the homeserver's
-own browser flow (OAuth 2.0 / OIDC, live-validated against matrix.org), and
-sign your OTHER devices in from this one with a code (MSC4108) — they arrive
-verified, with your cross-signing and backup keys, rather than needing a
-separate verification afterwards. Optionally refuse to exchange messages with
-devices their owner has not cross-signed (MSC4153), off by default because
-turning it on makes unverified people unreadable. A display name and avatar
-that apply in one room only. Several accounts on different homeservers at
-once, each with an isolated SDK and encryption store, switching in place;
-only the active one syncs.
-
-**Media and the composer.** Images, video and audio with inline playback, posters
-and waveforms; encrypted attachments throughout; voice messages (MSC3245) with a
-live waveform, in rooms and threads; a two-provider GIF browser (GIPHY and KLIPY)
-that sends real Matrix media and never sends a provider anything but your search
-term; a local emoji picker; MSC2545 sticker packs — your own, a room's, and
-packs subscribed from elsewhere — with a browser, save-to-pack, and pack
-editing (rename a shortcode, remove an image, rename or empty a pack);
-**custom emoji inline in a message**, with `:shortcode` completion as you
-type; a media browser that walks a room's whole history for its images,
-files and links rather than only what the timeline has loaded, and says how
-much of that history it has actually read; JPEG XL
-alongside the usual formats; drag-and-drop; and link previews, off by
-default because Lightning fetches them itself rather than through your
-homeserver, and separately controllable for encrypted rooms.
-
-**Desktop.** Eleven WCAG-AA themes and an editor for your own, which you can name,
-keep and share as a block of text. Eleven languages, switchable without a restart,
-including right-to-left Arabic. Native notifications with per-room modes written to your
-account's server push rules — reply and mark-as-read straight from the
-notification where the desktop supports it, and a separate preview level for
-encrypted rooms. A floating always-on-top call window when Lightning is
-minimised. Read receipts can be private or off, and typing notices can be
-switched off entirely. Close-to-tray, resizable and hideable panes, a quick
-switcher (Ctrl-K), rebindable shortcuts, native spell checking in the composer,
-your own imported fonts, and keyboard navigation throughout.
-
-**Updates.** Settings → Updates checks for a new release and, where the package
-format allows, installs it. An Ed25519-signed manifest fixes the filename, size
-and SHA-256 before anything is downloaded; a failed signature or hash check is
+**Updates.** Settings, Updates checks for a new release and installs it where
+the package format allows. An Ed25519-signed manifest fixes the filename, size
+and SHA-256 before anything downloads, and a failed signature or hash is
 terminal. Checks are on by default, can be turned off, and send nothing but
-`Lightning/<version>` — no Matrix ID, homeserver, device ID, token or tracking
-identifier of any kind. See [Application updates](docs/updates.md).
+`Lightning/<version>`: no Matrix ID, homeserver, device ID, token or tracking
+identifier. See [Application updates](docs/updates.md).
 
 ## Screenshots
 
