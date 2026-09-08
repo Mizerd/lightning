@@ -122,6 +122,43 @@ private slots:
         delete m_controller;
     }
 
+    // OPENING A MEMBER CARD SCOPES ROOM INFORMATION TO THE CURRENT ROOM.
+    //
+    // The card refuses Kick, Ban, Unban and Set role unless `app.roomInfo` is
+    // scoped to the room the reader is in, and that gate is right: the power
+    // levels the controller answers with belong to whichever room it was last
+    // pointed at. What was missing is anything that pointed it. The only
+    // writers of that scope are Room Information, People, Pinned and Search,
+    // so a card opened the ordinary way -- a timeline avatar, a mention pill,
+    // "View profile" -- found the scope wherever it happened to be, and an
+    // admin saw no moderation controls at all.
+    //
+    // This drives the real openFor() rather than the helper it calls, because
+    // the claim is about what opening a card DOES.
+    void openingAMemberCardScopesRoomInformationToTheCurrentRoom()
+    {
+        const QString roomId = QStringLiteral("!general:mock.local");
+        m_controller->setCurrentRoomId(roomId);
+        QCOMPARE(m_controller->currentRoomId(), roomId);
+        // Exactly the state a timeline avatar click finds: the reader is in a
+        // room and Room Information has never been opened for it.
+        m_controller->roomInfo()->setRoomId(QString{});
+        QVERIFY(m_controller->roomInfo()->roomId().isEmpty());
+
+        QMetaObject::invokeMethod(m_root, "openFor",
+                                  Q_ARG(QVariant, QStringLiteral("@carol:mock.local")),
+                                  Q_ARG(QVariant, QStringLiteral("Carol")),
+                                  Q_ARG(QVariant, QStringLiteral("join")),
+                                  Q_ARG(QVariant, QString{}),
+                                  Q_ARG(QVariant, false));
+
+        QVERIFY2(m_controller->roomInfo()->roomId() == roomId,
+                 "opening a member card left Room Information scoped to "
+                 "another room, so every admin control on the card refuses "
+                 "itself: an admin who reached the card from an avatar or a "
+                 "mention sees no Kick, no Ban and no Set role at all");
+    }
+
     void popoverIsFixed296WideAndCentredModal()
     {
         auto *popover = find(QStringLiteral("popover"));

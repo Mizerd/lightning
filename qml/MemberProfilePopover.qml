@@ -238,6 +238,28 @@ Popup {
         inviteBackChecked = true
         policyReason = ""
         policyMatched = false
+        // ROOM ADMINISTRATION NEEDS A SCOPE, AND NOTHING ELSE ESTABLISHED IT.
+        //
+        // _refreshModeration() below refuses every admin control unless
+        // app.roomInfo is scoped to the room the reader is in. That gate is
+        // correct and must stay: the power levels the controller answers with
+        // belong to whichever room it was last pointed at, and showing Ban
+        // because another room said so would be worse than not showing it.
+        //
+        // But the ONLY writers of that scope are Room Information, People,
+        // Pinned and Search. A member card reached the ordinary way -- an
+        // avatar in the timeline, a mention pill, "View profile" -- left the
+        // scope wherever it happened to be, so an admin who had not opened
+        // one of those four surfaces for THIS room in THIS session saw no
+        // Kick, no Ban, no Unban and no Set role at all.
+        //
+        // Pointing the controller at the current room is what those four
+        // surfaces already do; doing it here costs one roster refresh, on a
+        // card the user deliberately opened, and the answer arrives through
+        // the membersChanged connection below.
+        if (app.roomInfo && app.currentRoomId.length > 0
+            && app.roomInfo.roomId !== app.currentRoomId)
+            app.roomInfo.roomId = app.currentRoomId
         _refreshModeration()
         _refreshIgnored()
         open()
@@ -1734,6 +1756,16 @@ Popup {
                 }
             }
 
+            // The roster is what canModerate() reads, and it arrives after
+            // openFor() has already asked. Without this the scope set above
+            // would answer "no permission" once and never correct itself,
+            // which is the same invisible-controls symptom with an extra step
+            // in front of it.
+            Connections {
+                target: app.roomInfo
+                enabled: root.visible
+                function onMembersChanged() { root._refreshModeration() }
+            }
             Connections {
                 target: app.roomInfo
                 enabled: root.visible
