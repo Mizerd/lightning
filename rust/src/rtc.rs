@@ -2162,6 +2162,34 @@ const MAX_KEY_INDEX: u8 = 15;
 /// the homeserver never sees the key. `targets` are `(user_id, device_id)`
 /// pairs taken from the observed membership — we send only to devices that
 /// have actually declared themselves present in this call.
+/// How long a device-list refresh is trusted before the next media-key
+/// distribution pays for another one.
+pub(crate) const DEVICE_REFRESH_TTL_SECS: u64 = 60;
+
+/// Is a `/keys/query` owed for this user before we encrypt to their devices?
+///
+/// Pure so the policy can be tested without a client, a network or a call.
+/// `None` means never refreshed in this process.
+pub(crate) fn device_refresh_due(elapsed_secs: Option<u64>) -> bool {
+    match elapsed_secs {
+        None => true,
+        Some(secs) => secs >= DEVICE_REFRESH_TTL_SECS,
+    }
+}
+
+/// Users whose device list has been refreshed, and when.
+///
+/// Bounded by the number of distinct users this process sends media keys to,
+/// which is the set of people it has been in calls with.
+fn device_refresh_marks()
+    -> &'static std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>
+{
+    static MARKS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    > = std::sync::OnceLock::new();
+    MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
 pub(crate) fn send_media_key(
     bridge: &RustClient,
     room_id: String,
@@ -2238,6 +2266,43 @@ pub(crate) fn send_media_key(
             };
             let device_id: matrix_sdk::ruma::OwnedDeviceId =
                 device.as_str().into();
+            // A STALE DEVICE IS WORSE THAN AN ABSENT ONE, AND ONLY THE
+            // ABSENT CASE WAS COVERED.
+            //
+            // The fallback below spends a `/keys/query` when the device is
+            // MISSING from the store. It cannot help when the device is
+            // present with keys that have since changed: `get_device` answers
+            // happily, we encrypt to the old curve25519 identity key, the
+            // send reports success, and the recipient's SDK says
+            //
+            //   Olm event doesn't contain a ciphertext for our key
+            //
+            // and drops it. Neither end can tell: the sender sees
+            // `delivered= 1`, the receiver logs no key receive at all, and
+            // every frame from that participant is dropped for want of a
+            // key while the call looks perfectly connected. Captured live on
+            // 2026-09-07 between two accounts whose stores had drifted.
+            //
+            // So the refresh is owed BEFORE the lookup, not only after it
+            // fails, and it is rate-limited per user rather than skipped:
+            // one `/keys/query` per user per minute is nothing beside a call
+            // that silently carries no audio.
+            let refresh_due = {
+                let marks = device_refresh_marks().lock().ok();
+                match marks {
+                    Some(marks) => device_refresh_due(
+                        marks.get(user).map(|at| at.elapsed().as_secs()),
+                    ),
+                    // A poisoned lock must not disable the refresh.
+                    None => true,
+                }
+            };
+            if refresh_due {
+                let _ = client.encryption().request_user_identity(&user_id).await;
+                if let Ok(mut marks) = device_refresh_marks().lock() {
+                    marks.insert(user.clone(), std::time::Instant::now());
+                }
+            }
             let mut found =
                 client.encryption().get_device(&user_id, &device_id).await;
             // `get_device` is a STORE lookup and does not fetch anything.
@@ -3107,6 +3172,32 @@ mod tests {
                 "membership without {missing} must be refused"
             );
         }
+    }
+
+    #[test]
+    // A DEVICE LIST THAT IS MERELY STALE MUST STILL BE REFRESHED.
+    //
+    // The media-key path used to spend a `/keys/query` only when the target
+    // device was ABSENT from the store. A device that is present with keys
+    // that have since rotated passes that check, so the key is encrypted to
+    // the old identity key; the recipient's SDK reports "Olm event doesn't
+    // contain a ciphertext for our key" and drops it, while the sender sees a
+    // successful delivery. Captured live on 2026-09-07.
+    #[test]
+    fn a_device_refresh_is_owed_before_the_first_send_and_then_rate_limited() {
+        // Never refreshed in this process: always owed.
+        assert!(device_refresh_due(None));
+        // Just refreshed: not owed again immediately, or every key rotation
+        // in a busy call would be a `/keys/query` per participant.
+        assert!(!device_refresh_due(Some(0)));
+        assert!(!device_refresh_due(Some(DEVICE_REFRESH_TTL_SECS - 1)));
+        // Past the window: owed again, so a device that rotates its keys
+        // mid-call is picked up rather than cached forever.
+        assert!(device_refresh_due(Some(DEVICE_REFRESH_TTL_SECS)));
+        assert!(device_refresh_due(Some(DEVICE_REFRESH_TTL_SECS * 10)));
+        // The window is a real bound, not zero (which would query on every
+        // single distribution) and not enormous.
+        assert!(DEVICE_REFRESH_TTL_SECS >= 10 && DEVICE_REFRESH_TTL_SECS <= 600);
     }
 
     #[test]
