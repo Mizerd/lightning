@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include "calls/CallFrameCryptor.h"
+#include "calls/CaptureDeviceSelection.h"
 #include "calls/GstBootstrap.h"
 #include "calls/RtpVp8Payloader.h"
 #include "calls/WindowCaptureSrc.h"
@@ -1148,6 +1149,175 @@ bool SfuMediaEngine::shareAudioAvailable()
         || !shareAudioSourceDescription().description.isEmpty();
 }
 
+namespace {
+
+// WHAT GSTREAMER ITSELF CAN SEE, asked at the moment a capture is built.
+//
+// Qt and GStreamer enumerate devices through different subsystems, so a Qt
+// device id is not a GStreamer handle and must never be pasted into one (see
+// CaptureDeviceSelection.h). The monitor is the only authority that can bridge
+// them, and it is cheap enough to ask per publish -- which also means an
+// unplugged device is noticed rather than remembered.
+QList<lightning::calls::GstDeviceCandidate> monitorCandidates(const char *klass)
+{
+    QList<lightning::calls::GstDeviceCandidate> out;
+    if (!lightning::gst::ensureInitialised())
+        return out;
+    GstDeviceMonitor *monitor = gst_device_monitor_new();
+    if (!monitor)
+        return out;
+    gst_device_monitor_add_filter(monitor, klass, nullptr);
+    // A monitor that will not start is not an error: it means "no answer",
+    // and the caller then keeps the platform default.
+    if (!gst_device_monitor_start(monitor)) {
+        gst_object_unref(monitor);
+        return out;
+    }
+    GList *devices = gst_device_monitor_get_devices(monitor);
+    for (GList *item = devices; item; item = item->next) {
+        auto *device = static_cast<GstDevice *>(item->data);
+        lightning::calls::GstDeviceCandidate candidate;
+        if (gchar *name = gst_device_get_display_name(device)) {
+            candidate.displayName = QString::fromUtf8(name);
+            g_free(name);
+        }
+        if (GstStructure *props = gst_device_get_properties(device)) {
+            const int fields = gst_structure_n_fields(props);
+            for (int i = 0; i < fields; ++i) {
+                const gchar *key = gst_structure_nth_field_name(props, i);
+                if (!key)
+                    continue;
+                // Serialised rather than read as a string: an identity key
+                // may be an int (`object.serial`) or a uint, and asking for
+                // the wrong type answers null.
+                const GValue *value = gst_structure_get_value(props, key);
+                if (!value)
+                    continue;
+                gchar *text = gst_value_serialize(value);
+                if (text) {
+                    candidate.properties.insert(QString::fromUtf8(key),
+                                                QString::fromUtf8(text));
+                    g_free(text);
+                }
+            }
+            gst_structure_free(props);
+        }
+        out.append(candidate);
+        gst_object_unref(device);
+    }
+    g_list_free(devices);
+    gst_device_monitor_stop(monitor);
+    gst_object_unref(monitor);
+    return out;
+}
+
+// The concrete elements that can carry a device choice, in the order they
+// should be tried. `autoaudiosrc`/`autoaudiosink` are bins with no device
+// property, so honouring a preference means leaving them behind.
+QStringList microphoneElementPreference()
+{
+#if defined(Q_OS_WIN)
+    return {QStringLiteral("wasapisrc")};
+#elif defined(Q_OS_MACOS)
+    return {QStringLiteral("osxaudiosrc")};
+#else
+    // pipewiresrc first: on a PipeWire desktop the device monitor enumerates
+    // through it (measured: `gst-device-monitor-1.0 Audio/Source` answers
+    // `pipewiresrc target-object=`), so that is where a match can land at all.
+    return {QStringLiteral("pipewiresrc"), QStringLiteral("pulsesrc")};
+#endif
+}
+
+QStringList speakerElementPreference()
+{
+#if defined(Q_OS_WIN)
+    return {QStringLiteral("wasapisink")};
+#elif defined(Q_OS_MACOS)
+    return {QStringLiteral("osxaudiosink")};
+#else
+    return {QStringLiteral("pipewiresink"), QStringLiteral("pulsesink")};
+#endif
+}
+
+// Which of them this build can actually instantiate. A description naming a
+// missing element fails to PARSE, which would cost the whole capture.
+QStringList availableElements(const QStringList &names)
+{
+    QStringList out;
+    if (!lightning::gst::ensureInitialised())
+        return out;
+    for (const QString &name : names) {
+        GstElementFactory *factory =
+            gst_element_factory_find(name.toUtf8().constData());
+        if (!factory)
+            continue;
+        gst_object_unref(factory);
+        out << name;
+    }
+    return out;
+}
+
+// Set the resolved property on the named element inside an already-parsed
+// bin. Never interpolated into a description: a device name is system data,
+// and `gst_parse_bin_from_description` would take a quote in one as syntax.
+void applyBindingTo(GstElement *bin, const char *elementName,
+                    const lightning::calls::DeviceBinding &binding)
+{
+    if (binding.isEmpty())
+        return;
+    GstElement *element = gst_bin_get_by_name(GST_BIN(bin), elementName);
+    if (!element)
+        return;
+    // The element must actually HAVE the property. A build carrying a
+    // different version of a plugin is exactly the case this lane has been
+    // bitten by before, and g_object_set on an absent property is a runtime
+    // warning that reaches nobody.
+    if (g_object_class_find_property(G_OBJECT_GET_CLASS(element),
+                                     binding.property.toUtf8().constData())) {
+        g_object_set(element, binding.property.toUtf8().constData(),
+                     binding.value.toUtf8().constData(), nullptr);
+        qCInfo(lcSfuMedia) << "capture device bound element=" << elementName
+                           << "property=" << binding.property
+                           << "value=" << binding.value
+                           << "matched-by=" << binding.reason;
+    } else {
+        qCWarning(lcSfuMedia)
+            << "capture element has no" << binding.property
+            << "property; using the platform default device instead";
+    }
+    gst_object_unref(element);
+}
+
+} // namespace
+
+void SfuMediaEngine::setPreferredDevices(const DeviceChoice &camera,
+                                         const DeviceChoice &microphone,
+                                         const DeviceChoice &speaker)
+{
+    QMutexLocker lock(&m_deviceMutex);
+    m_cameraChoice = camera;
+    m_microphoneChoice = microphone;
+    m_speakerChoice = speaker;
+}
+
+SfuMediaEngine::DeviceChoice SfuMediaEngine::cameraChoice() const
+{
+    QMutexLocker lock(&m_deviceMutex);
+    return m_cameraChoice;
+}
+
+SfuMediaEngine::DeviceChoice SfuMediaEngine::microphoneChoice() const
+{
+    QMutexLocker lock(&m_deviceMutex);
+    return m_microphoneChoice;
+}
+
+SfuMediaEngine::DeviceChoice SfuMediaEngine::speakerChoice() const
+{
+    QMutexLocker lock(&m_deviceMutex);
+    return m_speakerChoice;
+}
+
 void SfuMediaEngine::setShareQuality(int maxHeight, int fps)
 {
     // Snapped, never trusted: these cross from settings and a bad value
@@ -1514,10 +1684,33 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     if (m_publishedBins.contains(cid))
         return;
 
+    // THE USER'S MICROPHONE, and the reason this is not one property.
+    //
+    // `autoaudiosrc` is a BIN, and a bin has no device property: a preference
+    // can only be honoured by naming a concrete element instead. Which one is
+    // a per-platform question with a per-element property spelling, so the
+    // decision lives in a pure function that is tested by calling it, and it
+    // returns nothing at all unless the chosen element is BOTH present in this
+    // build and able to bind the chosen device -- swapping a working default
+    // for an element that cannot open the device would lose the microphone
+    // entirely. The name is what lets the property be set after the parse
+    // rather than interpolated into the description.
+    const lightning::calls::ElementChoice micChoice =
+        m_testSources ? lightning::calls::ElementChoice{}
+                      : lightning::calls::chooseCaptureElement(
+                            lightning::calls::CaptureKind::Microphone,
+                            microphoneElementPreference(),
+                            availableElements(microphoneElementPreference()),
+                            microphoneChoice().id,
+                            microphoneChoice().description,
+                            monitorCandidates("Audio/Source"));
     const QString source = m_testSources
         ? QStringLiteral(
-              "audiotestsrc is-live=true wave=sine freq=440 volume=0.05")
-        : QStringLiteral("autoaudiosrc");
+              "audiotestsrc is-live=true wave=sine freq=440 volume=0.05 "
+              "name=micsrc")
+        : (micChoice.isEmpty() ? QStringLiteral("autoaudiosrc name=micsrc")
+                               : QStringLiteral("%1 name=micsrc")
+                                     .arg(micChoice.element));
     // The valve is the real mute (drop=true stops buffers before the
     // encoder, so no RTP is produced at all). Opus 111 is the ecosystem
     // convention and what LiveKit expects for audio.
@@ -1668,6 +1861,7 @@ void SfuMediaEngine::publishAudio(const QString &cid)
         return;
     }
     m_publishedBins.insert(cid, bin);
+    applyBindingTo(bin, "micsrc", micChoice.binding);
     // Encrypt on the ENCODER's src pad — after encoding, before RTP
     // payloading. That is one whole encoded frame, which is the unit
     // LiveKit and Element Call encrypt.
@@ -2969,6 +3163,23 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     // fact handlePublishError() keys on: zero here plus a bus error is a
     // publish that never prerolled, which is a real failure the user is
     // entitled to be told about.
+    // THE USER'S CAMERA, not the platform's idea of one.
+    //
+    // The element was built from a bare name, so the picker in settings chose
+    // nothing: `v4l2src` with no `device` opens whatever the driver enumerates
+    // first. Resolved against GStreamer's own device monitor rather than by
+    // pasting a Qt id into a description (CaptureDeviceSelection.h), and
+    // applied HERE because the bin exists and has not been set playing yet.
+    // A share has no device choice: it is a portal node, chosen by the user in
+    // the portal dialog itself.
+    if (const DeviceChoice camera = cameraChoice();
+        !screenShare && !camera.id.isEmpty()) {
+        applyBindingTo(bin, "capsrc",
+                       lightning::calls::resolveDeviceBinding(
+                           lightning::calls::CaptureKind::Camera,
+                           cameraSource(), camera.id, camera.description,
+                           monitorCandidates("Video/Source")));
+    }
     if (GstElement *capture = gst_bin_get_by_name(GST_BIN(bin), "capsrc")) {
         if (GstPad *srcPad = gst_element_get_static_pad(capture, "src")) {
             auto *held = new std::shared_ptr<PublishProbeState>(probeState);

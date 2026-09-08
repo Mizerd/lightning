@@ -40,6 +40,25 @@ QString platformDeviceElement(const QString &element, const QString &id)
     Q_UNUSED(element);
     return QString();
 #else
+    // THIS STRING IS PARSED. It becomes part of a
+    // `gst_parse_bin_from_description` description, where a quote ends the
+    // value and `!` starts another element -- so a device id carrying either
+    // would break the parse and take the microphone out of the call, and in
+    // principle append elements nobody asked for. Device names are system
+    // data rather than remote input, which is why this is a robustness rule
+    // and not a vulnerability, but the safe answer is the same: a value that
+    // cannot be represented literally is refused, and the caller then uses
+    // the automatic element.
+    //
+    // The SFU engine does not go through here at all -- it sets the property
+    // on the parsed element instead, which is the shape with no quoting
+    // question (CaptureDeviceSelection.h).
+    for (const QChar c : id) {
+        if (c == QLatin1Char('"') || c == QLatin1Char('\\')
+            || c == QLatin1Char('!') || c.category() == QChar::Other_Control) {
+            return QString();
+        }
+    }
     return QStringLiteral("%1 device=\"%2\"").arg(element, id);
 #endif
 }
@@ -252,6 +271,46 @@ void CallDeviceController::selectCamera(const QString &id)
 {
     if (m_settings)
         m_settings->setPreferredCameraId(id);
+}
+
+namespace {
+
+// The description Qt gives the device with this id, empty when it is gone.
+// Looked up rather than stored: a description is a driver string that can
+// change under a hotplug, and the id is the only thing worth persisting.
+template <typename ListT>
+QString describe(const ListT &devices, const QString &id)
+{
+    if (id.isEmpty())
+        return {};
+    for (const auto &device : devices) {
+        if (QString::fromUtf8(device.id()) == id)
+            return device.description();
+    }
+    return {};
+}
+
+} // namespace
+
+CallDeviceController::Selection CallDeviceController::cameraSelection() const
+{
+    ensureBackend();
+    const QString id = activeCameraId();
+    return {id, describe(QMediaDevices::videoInputs(), id)};
+}
+
+CallDeviceController::Selection CallDeviceController::microphoneSelection() const
+{
+    ensureBackend();
+    const QString id = activeMicrophoneId();
+    return {id, describe(QMediaDevices::audioInputs(), id)};
+}
+
+CallDeviceController::Selection CallDeviceController::speakerSelection() const
+{
+    ensureBackend();
+    const QString id = activeSpeakerId();
+    return {id, describe(QMediaDevices::audioOutputs(), id)};
 }
 
 QString CallDeviceController::microphoneElement() const

@@ -86,6 +86,21 @@ public:
     QString microphoneElement() const;
     QString speakerElement() const;
 
+    /// The ACTIVE device, id and human description together.
+    ///
+    /// The description is carried because Qt and GStreamer enumerate devices
+    /// through different subsystems and their ids are not one namespace: an
+    /// engine has to bridge them, and the driver-supplied name is what both
+    /// sides agree on when the ids do not (CaptureDeviceSelection.h). Empty
+    /// id means "system default"; the description is then meaningless.
+    struct Selection {
+        QString id;
+        QString description;
+    };
+    Selection cameraSelection() const;
+    Selection microphoneSelection() const;
+    Selection speakerSelection() const;
+
 Q_SIGNALS:
     /// The device LIST changed (hotplug).
     void devicesChanged();

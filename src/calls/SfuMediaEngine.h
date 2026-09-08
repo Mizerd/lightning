@@ -80,6 +80,30 @@ public:
     /// is what Discord offers and for the same reason.
     void setShareQuality(int maxHeight, int fps);
 
+    /// The device the user chose, as QMediaDevices names it.
+    ///
+    /// Applied when a capture is BUILT, not to a live one: swapping a source
+    /// inside a running pipeline means relinking the send branch mid-call,
+    /// and a half-relinked pipeline is worse than a change that waits for the
+    /// next publish. Same rule the 1:1 engine already follows.
+    ///
+    /// An empty id is "system default", which is a real choice: the element
+    /// keeps following the platform's default as it changes instead of being
+    /// pinned to whatever is default today.
+    struct DeviceChoice {
+        QString id;
+        QString description;
+    };
+    void setPreferredDevices(const DeviceChoice &camera,
+                             const DeviceChoice &microphone,
+                             const DeviceChoice &speaker);
+    /// Thread-safe reads: the publish paths run on the GUI thread and the
+    /// receive bin is built on a GStreamer streaming thread, so these three
+    /// values are the one piece of engine state both touch.
+    DeviceChoice cameraChoice() const;
+    DeviceChoice microphoneChoice() const;
+    DeviceChoice speakerChoice() const;
+
     /// The share's caps ceiling and encoder stage for a chosen height and
     /// rate. STATIC AND PURE so the arithmetic is testable without a live
     /// peer — every caps defect this lane has had was invisible to the tests
@@ -668,6 +692,10 @@ private:
     Peer m_subscriber;
     bool m_active = false;
     bool m_testSources = false;
+    mutable QMutex m_deviceMutex;
+    DeviceChoice m_cameraChoice;
+    DeviceChoice m_microphoneChoice;
+    DeviceChoice m_speakerChoice;
     int m_shareMaxHeight = kScreenHeight;
     int m_shareFps = 30;
     /// Bumped on every start/stop so a late callback is discarded.

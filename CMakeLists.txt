@@ -772,6 +772,8 @@ if(HAVE_LIGHTNING_WEBRTC)
         src/calls/GstCallMediaBackend.cpp
         src/calls/SfuMediaEngine.h
         src/calls/SfuMediaEngine.cpp
+        src/calls/CaptureDeviceSelection.h
+        src/calls/CaptureDeviceSelection.cpp
         src/calls/RtpVp8Payloader.h
         src/calls/RtpVp8Payloader.cpp
         # Window capture, ours because nothing shippable does it: the only
@@ -3470,6 +3472,8 @@ if(BUILD_TESTING)
             src/calls/GstBootstrap.cpp
             src/calls/SfuMediaEngine.h
             src/calls/SfuMediaEngine.cpp
+            src/calls/CaptureDeviceSelection.h
+            src/calls/CaptureDeviceSelection.cpp
             src/calls/RtpVp8Payloader.h
             src/calls/RtpVp8Payloader.cpp
             src/calls/WindowCaptureSrc.h
@@ -4816,6 +4820,12 @@ if(BUILD_TESTING)
             PRIVATE LIGHTNING_UPDATER_HAVE_ZLIB=1)
     endif()
     add_test(NAME updater-zip-safety COMMAND updater-zip-safety-test)
+
+    qt_add_executable(capture-device-selection-test
+        tests/CaptureDeviceSelectionTest.cpp src/calls/CaptureDeviceSelection.cpp)
+    target_include_directories(capture-device-selection-test PRIVATE src)
+    target_link_libraries(capture-device-selection-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME capture-device-selection COMMAND capture-device-selection-test)
 
     qt_add_executable(updater-relaunch-environment-test
         tests/RelaunchEnvironmentTest.cpp src/updater/RelaunchEnvironment.cpp)

@@ -2844,6 +2844,26 @@ void AppController::enableCallMediaEngine()
     if (SfuMediaEngine::runtimeAvailable(&sfuWhyNot)) {
         auto *sfu = new SfuMediaEngine(this);
         m_groupCall->setMediaEngine(sfu);
+        // THE CHOSEN DEVICES REACH THE LANE THAT ACTUALLY CARRIES CALLS.
+        //
+        // Until now only the 1:1 engine above was told, so on the MatrixRTC
+        // path the settings picker chose nothing at all: the capture was
+        // built from a bare element name and opened whatever the platform
+        // called default. Camera selection was honoured by neither engine.
+        // Applied per publish by the engine, so a change lands on the next
+        // capture rather than relinking a live pipeline.
+        const auto applySfuDevices = [this, sfu] {
+            const auto camera = m_callDevices->cameraSelection();
+            const auto microphone = m_callDevices->microphoneSelection();
+            const auto speaker = m_callDevices->speakerSelection();
+            sfu->setPreferredDevices({camera.id, camera.description},
+                                     {microphone.id, microphone.description},
+                                     {speaker.id, speaker.description});
+        };
+        applySfuDevices();
+        connect(m_callDevices.get(),
+                &CallDeviceController::activeDevicesChanged, sfu,
+                applySfuDevices);
         // SDP transport is opt-in at the Rust edge, and the SFU lane shares
         // ONE flag with the legacy 1:1 lane — so until now the group call's
         // ability to carry media depended on whether the OTHER lane's engine
