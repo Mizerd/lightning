@@ -18,6 +18,7 @@
 #include "updater/AtomicReplace.h"
 #include "updater/InstallStrategies.h"
 #include "updater/ProcessWaiter.h"
+#include "updater/RelaunchEnvironment.h"
 #include "updater/SafeArchive.h"
 #include "storage/PortableMode.h"
 #include "updater/UpdaterArgs.h"
@@ -345,6 +346,25 @@ int main(int argc, char *argv[])
     // Relaunch ONLY when Lightning asked for it by passing --relaunch. A
     // plain "install when I quit" must not start the application back up.
     if (args.relaunchRequested()) {
+        // The child inherits THIS process's environment, which is the one
+        // Lightning was started with, and two things in it are wrong by now:
+        // a private temporary directory that died with the shell that
+        // launched us, and an AppImage that cannot mount itself where it is
+        // about to be restarted. See RelaunchEnvironment.h — both were
+        // measured, not assumed.
+        const auto changes = updater::relaunchEnvironmentChanges(
+            args.mode == updater::UpdaterMode::LinuxAppImage,
+            [](const QString &name) { return qEnvironmentVariable(name.toLatin1().constData()); },
+            [](const QString &path) { return QFileInfo(path).isDir(); });
+        for (const auto &change : changes) {
+            const QByteArray name = change.name.toLatin1();
+            if (change.remove)
+                qunsetenv(name.constData());
+            else
+                qputenv(name.constData(), change.value.toLocal8Bit());
+            writeStderr(QStringLiteral("lightning-updater: relaunch environment: %1")
+                            .arg(change.reason));
+        }
         // Empty argument vector — the helper never forwards anything it was
         // given to the application.
         if (!QProcess::startDetached(args.relaunchPath, QStringList(),

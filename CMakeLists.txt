@@ -4817,6 +4817,12 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME updater-zip-safety COMMAND updater-zip-safety-test)
 
+    qt_add_executable(updater-relaunch-environment-test
+        tests/RelaunchEnvironmentTest.cpp src/updater/RelaunchEnvironment.cpp)
+    target_include_directories(updater-relaunch-environment-test PRIVATE src)
+    target_link_libraries(updater-relaunch-environment-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME updater-relaunch-environment COMMAND updater-relaunch-environment-test)
+
     qt_add_executable(updater-portable-swap-test
         tests/UpdaterPortableSwapTest.cpp src/updater/AtomicReplace.cpp)
     target_include_directories(updater-portable-swap-test PRIVATE src)
@@ -4954,6 +4960,7 @@ qt_add_executable(lightning-updater
     src/updater/UpdaterArgs.h        src/updater/UpdaterArgs.cpp
     src/updater/ArtifactDigest.h     src/updater/ArtifactDigest.cpp
     src/updater/ProcessWaiter.h      src/updater/ProcessWaiter.cpp
+    src/updater/RelaunchEnvironment.h src/updater/RelaunchEnvironment.cpp
     src/updater/SafeArchive.h        src/updater/SafeArchive.cpp
     src/updater/InstallStrategies.h  src/updater/InstallStrategies.cpp
     src/updater/AtomicReplace.h      src/updater/AtomicReplace.cpp

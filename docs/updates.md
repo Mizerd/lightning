@@ -296,6 +296,39 @@ is a symlink to a versioned file, the *pointed-to* file is now replaced
 rather than the link — better, but if it sits somewhere unwritable the
 update fails where it used to succeed by clobbering the link.
 
+### What the relaunched application is started with
+
+The helper starts Lightning again by inheriting its own environment, which is
+Lightning's environment, which is whatever launched Lightning in the first
+place. Two things in there are wrong by then, and both were measured on
+2026-09-08 against a real 0.9.3 AppImage on NixOS.
+
+A shell that owns a **private temporary directory** deletes it when it exits,
+and it exits when Lightning does, which is exactly when the helper starts
+work. `nix-shell` is the common case, systemd's `PrivateTmp` another. The
+AppImage runtime creates its mount point under `TMPDIR`, so the relaunched
+process died on `create mount dir error: No such file or directory` before
+running an instruction of its own. Any `TMPDIR`, `TMP`, `TEMP` or `TEMPDIR`
+naming a directory that no longer exists is dropped, for every install type,
+because a Qt temporary file in the new process would fail the same way.
+
+An AppImage started through an **extractor rather than its own runtime** —
+`appimage-run` on NixOS, Gearlever, or a previous
+`--appimage-extract-and-run` — is running inside that wrapper's sandbox, and
+so is the helper, and so is the relaunch. bubblewrap sets `no_new_privs`
+there, so the setuid `fusermount3` cannot gain privilege: the runtime answers
+`No suitable fusermount binary found on the $PATH` and exits 127. The same
+AppImage relaunched with `APPIMAGE_EXTRACT_AND_RUN=1` in that same sandbox
+started normally. Lightning asks for extraction only when the running instance
+was itself extracted, which `APPDIR` states exactly: a mounted AppImage points
+it at its own `.mount_XXXXXX`, and that is the evidence that a mount works
+here. A value already in the environment is never overridden.
+
+Both corrections live in `src/updater/RelaunchEnvironment.cpp`. As always,
+they take effect from the version that CARRIES them: the relaunch is performed
+by the updater already on disk, so an update *into* the version with this fix
+still restarts the old way.
+
 ## Recovery, rollback and concurrency
 
 For the two formats Lightning replaces itself (portable ZIP and AppImage) the

@@ -114,6 +114,7 @@ private slots:
     // installs.
     void theHelperRefusesAnArtifactWhoseDigestChanged();
     void theHelperInstallsWhenTheDigestMatches();
+    void theRelaunchedApplicationDoesNotInheritADeadTemporaryDirectory();
 
 private:
     QStringList baseArgs(const QString &mode, const QString &target) const;
@@ -1129,6 +1130,86 @@ void UpdaterHelperArgsTest::theHelperInstallsWhenTheDigestMatches()
     QCOMPARE(installed.readAll(), QByteArray("verified bytes"));
     QVERIFY(QFileInfo(target).isExecutable());
     QCOMPARE(readStatus(status).value(QStringLiteral("ok")).toBool(false), true);
+#endif
+}
+
+// THE RELAUNCH'S ENVIRONMENT, through the REAL helper binary.
+//
+// RelaunchEnvironmentTest calls the policy directly, which says nothing about
+// whether the helper ever reaches it -- the mistake this project has recorded
+// under "a policy test that invokes the policy function directly proves
+// nothing". So this one installs a recording script and reads back what the
+// relaunched process was actually handed.
+//
+// The environment given here is the maintainer's measured one: a TMPDIR that
+// nix-shell deleted on its way out, and an APPDIR that says appimage-run
+// unpacked us rather than the runtime mounting us.
+void UpdaterHelperArgsTest::theRelaunchedApplicationDoesNotInheritADeadTemporaryDirectory()
+{
+#ifdef Q_OS_WIN
+    QSKIP("the end-to-end helper run uses a POSIX shell script as the relaunch target");
+#else
+    const QString helper = QStringLiteral(LIGHTNING_UPDATER_HELPER_PATH);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QDir root(dir.path());
+    const QString record = root.absoluteFilePath(QStringLiteral("relaunch-environment.txt"));
+    const QByteArray script =
+        QByteArrayLiteral("#!/bin/sh\nprintf 'tmpdir=[%s] extract=[%s]' "
+                          "\"${TMPDIR-unset}\" \"${APPIMAGE_EXTRACT_AND_RUN-unset}\" > '")
+        + record.toLocal8Bit() + QByteArrayLiteral("'\n");
+    const QString artifact = writeFile(root.absoluteFilePath(QStringLiteral("new.AppImage")),
+                                       script);
+    const QString target = writeFile(root.absoluteFilePath(QStringLiteral("Lightning.AppImage")),
+                                     QByteArray("installed bytes"));
+    const QString status = root.absoluteFilePath(QStringLiteral("status.json"));
+    const qint64 pid = exitedPid();
+    QVERIFY(pid > 1);
+
+    // A temporary directory that existed when Lightning started and does not
+    // exist now, which is exactly what a shell that owns one does when it
+    // exits -- and it exits when Lightning does.
+    const QString deadTemp = root.absoluteFilePath(QStringLiteral("shell-private-tmp"));
+    QVERIFY(QDir().mkpath(deadTemp));
+    QVERIFY(QDir(deadTemp).removeRecursively());
+    QVERIFY(!QFileInfo::exists(deadTemp));
+
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(QStringLiteral("TMPDIR"), deadTemp);
+    environment.insert(QStringLiteral("APPDIR"),
+                       QStringLiteral("/home/someone/.cache/appimage-run/e77b1a96fe0a"));
+    environment.remove(QStringLiteral("APPIMAGE_EXTRACT_AND_RUN"));
+
+    QProcess run;
+    run.setProcessEnvironment(environment);
+    run.start(helper, {QStringLiteral("--mode"), QStringLiteral("linux-appimage"),
+                       QStringLiteral("--artifact"), artifact,
+                       QStringLiteral("--pid"), QString::number(pid),
+                       QStringLiteral("--target"), target,
+                       QStringLiteral("--status"), status,
+                       QStringLiteral("--sha256"), sha256HexOfFile(artifact),
+                       QStringLiteral("--relaunch"), target});
+    QVERIFY(run.waitForStarted(5000));
+    QVERIFY(run.waitForFinished(30000));
+    QCOMPARE(run.exitCode(), 0);
+
+    // The relaunch is detached, so it lands a moment after the helper exits.
+    for (int waited = 0; waited < 10000 && !QFileInfo::exists(record); waited += 50)
+        QTest::qWait(50);
+    QVERIFY2(QFileInfo::exists(record), "the relaunched application never ran");
+    QFile file(record);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QString seen = QString::fromLocal8Bit(file.readAll());
+
+    QVERIFY2(!seen.contains(deadTemp),
+             qPrintable(QStringLiteral("the relaunched process inherited a TMPDIR that no "
+                                       "longer exists, which is 'create mount dir error': %1")
+                            .arg(seen)));
+    QVERIFY2(seen.contains(QStringLiteral("extract=[1]")),
+             qPrintable(QStringLiteral("an AppImage that was unpacked by appimage-run was "
+                                       "relaunched expecting to mount itself, which cannot "
+                                       "work inside that sandbox: %1")
+                            .arg(seen)));
 #endif
 }
 
