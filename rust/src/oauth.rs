@@ -56,6 +56,10 @@ use std::ffi::{c_char, c_void};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use matrix_sdk::authentication::oauth::error::{
+    ClientRegistrationErrorResponseType, OAuthClientRegistrationError, OAuthError,
+    RequestTokenError,
+};
 use matrix_sdk::authentication::oauth::registration::{
     ApplicationType, ClientMetadata, Localized, OAuthGrantType,
 };
@@ -80,9 +84,11 @@ const CLIENT_URI: &str = "https://gitlab.smetonis.net/Mizerd/lightning";
 
 /// Build Lightning's OAuth client metadata for dynamic client registration.
 ///
-/// `redirect_uri` is the loopback URI the C++ listener is bound to. It is
-/// registered as the sole redirect URI, so an authorization response aimed
-/// anywhere else is rejected by the authorization server rather than by us.
+/// `redirect_uri` is registered as the sole redirect URI, so an authorization
+/// response aimed anywhere else is rejected by the authorization server rather
+/// than by us. It is normally the exact loopback URI the C++ listener is bound
+/// to; on a server that enforces RFC 8252 §7.3 strictly it is that URI with
+/// its ephemeral port removed — see `portless_registration_retry`.
 fn client_metadata(redirect_uri: Url) -> Result<Raw<ClientMetadata>, String> {
     let client_uri = Url::parse(CLIENT_URI)
         .map_err(|err| format!("invalid Lightning client URI: {err}"))?;
@@ -99,6 +105,103 @@ fn client_metadata(redirect_uri: Url) -> Result<Raw<ClientMetadata>, String> {
 
     Raw::new(&metadata)
         .map_err(|err| format!("failed to serialize OAuth client metadata: {err}"))
+}
+
+/// The registration-time form of a loopback redirect URI: the same URI with
+/// its ephemeral port removed.
+///
+/// RFC 8252 §7.3 requires an authorization server to accept ANY port at
+/// request time for a loopback redirect URI, precisely because a native client
+/// takes the port from the operating system when the attempt starts. Some
+/// servers enforce the corollary: registering a PINNED port is invalid client
+/// metadata, because it claims a constraint the server will not honour.
+/// Continuwuity refuses registration outright with `invalid_client_metadata`
+/// ("HTTP redirect URIs for native applications do not need to specify a
+/// port"), which blocks OAuth sign-in on those homeservers entirely.
+///
+/// Returns `None` when there is nothing to do or nothing safe to do: a URI
+/// with no explicit port, a non-`http` scheme, or a host that is not loopback.
+/// The loopback list mirrors `mx_rust_oauth_begin`'s own guard — `host_str()`
+/// returns an IPv6 literal in its bracketed form, so `[::1]` is the spelling
+/// that actually occurs.
+///
+/// Only the PORT is removed. The path still carries the per-attempt 128-bit
+/// nonce the C++ listener generates, so the widening is bounded to "any port
+/// on loopback, this exact path" rather than "any loopback URI".
+fn portless_loopback_redirect(redirect: &Url) -> Option<Url> {
+    if redirect.scheme() != "http" {
+        return None;
+    }
+    match redirect.host_str() {
+        Some("127.0.0.1") | Some("localhost") | Some("[::1]") | Some("::1") => {}
+        _ => return None,
+    }
+    // `Url::port()` is None both when no port was given and when it equals the
+    // scheme default, and either way there is nothing to strip.
+    redirect.port()?;
+    let mut portless = redirect.clone();
+    portless.set_port(None).ok()?;
+    Some(portless)
+}
+
+/// Whether an `OAuth::login().build()` failure is the authorization server
+/// REFUSING our client metadata, as opposed to a network error, a missing
+/// registration endpoint, or a failure later in the flow.
+///
+/// Matched structurally on RFC 7591 §3.2.2's error code rather than on the
+/// server's prose: the wording is implementation-specific and localizable,
+/// the code is not.
+/// Returns WHICH code was matched, not merely that one was: the retry reports
+/// it, and a report that conflates the two tells the reader less than it
+/// appears to. Raised in review.
+fn registration_refused_metadata(err: &OAuthError) -> Option<&'static str> {
+    let OAuthError::ClientRegistration(OAuthClientRegistrationError::OAuth(
+        RequestTokenError::ServerResponse(response),
+    )) = err
+    else {
+        return None;
+    };
+    match response.error() {
+        ClientRegistrationErrorResponseType::InvalidClientMetadata => {
+            Some("invalid_client_metadata")
+        }
+        ClientRegistrationErrorResponseType::InvalidRedirectUri => {
+            Some("invalid_redirect_uri")
+        }
+        _ => None,
+    }
+}
+
+/// Decide how to retry a registration the authorization server refused.
+///
+/// Returns the metadata to register (the loopback redirect URI WITHOUT its
+/// port) paired with the redirect URI to put in the authorization REQUEST
+/// (the live listener URI, port and all) — which is exactly the split RFC 8252
+/// §7.3 contemplates, and which matrix-sdk 0.18 permits: `OAuth::login()`
+/// takes the request URI as its own argument and never derives it from the
+/// registration metadata, and `finish_login()` sends that same request URI in
+/// the token exchange (RFC 6749 §4.1.3), so the two stay consistent.
+///
+/// `None` means "do not retry": the failure was not a metadata refusal, or
+/// there is no port to remove, or the URI is not a loopback `http` URI.
+///
+/// Retrying rather than registering portless unconditionally is deliberate.
+/// MAS accepts the pinned port today and is the only configuration this flow
+/// has ever been live-validated against; changing what every sign-in sends it
+/// would risk a regression nothing here can catch. This path is reached only
+/// when a server has already said no, so a server that works today is
+/// untouched — and the portless form is what BOTH implementations then match
+/// against: continuwuity strips the port from the authorization request before
+/// comparing it to the registered set (gated on `application_type: native`),
+/// and MAS does the same in `Client::resolve_redirect_uri`.
+fn portless_registration_retry(
+    redirect: &Url,
+    err: &OAuthError,
+) -> Option<(Raw<ClientMetadata>, Url, &'static str)> {
+    let reason = registration_refused_metadata(err)?;
+    let portless = portless_loopback_redirect(redirect)?;
+    let metadata = client_metadata(portless).ok()?;
+    Some((metadata, redirect.clone(), reason))
 }
 
 /// Persist rotated session tokens for the lifetime of this client.
@@ -321,11 +424,40 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
                 // device_id None: the SDK generates one and encodes it in the
                 // requested scope. It comes back from finish_login() and is
                 // the device the account store in Phase B must belong to.
-                let built = client
+                let mut built = client
                     .oauth()
-                    .login(redirect, None, Some(metadata.into()), None)
+                    .login(redirect.clone(), None, Some(metadata.into()), None)
                     .build()
                     .await;
+
+                // A server that enforces RFC 8252 §7.3 strictly refuses to
+                // register a loopback redirect URI that pins a port. Retry
+                // ONCE with the port removed from the METADATA only; the
+                // authorization request keeps the live listener port. Safe to
+                // reuse this client: a failed registration leaves the SDK's
+                // client_id unset, so the retry re-registers rather than
+                // panicking on already-set authentication data.
+                let retry = built
+                    .as_ref()
+                    .err()
+                    .and_then(|err| portless_registration_retry(&redirect, err));
+                if let Some((retry_metadata, request_redirect, reason)) = retry {
+                    // SAY THAT IT HAPPENED. This ships to users on servers
+                    // nobody here can reproduce, and without a line the three
+                    // outcomes — the retry never fired, it fired and worked,
+                    // it fired and was refused again — are indistinguishable
+                    // in a report. Carries no URI, no port, no nonce and no
+                    // token: the fact alone is the whole diagnostic.
+                    enqueue(&events, json!({
+                        "type": "oauth_registration_retry",
+                        "reason": reason,
+                    }));
+                    built = client
+                        .oauth()
+                        .login(request_redirect, None, Some(retry_metadata.into()), None)
+                        .build()
+                        .await;
+                }
 
                 match built {
                     Ok(data) => {
@@ -738,6 +870,208 @@ mod tests {
         let grants = json["grant_types"].as_array().expect("grant_types is a list");
         assert!(!grants.iter().any(|g| g == "urn:ietf:params:oauth:grant-type:device_code"),
                 "device_code grant must not be requested: {grants:?}");
+    }
+
+    // ---------------------------------------------------------------------
+    // RFC 8252 §7.3: a strict authorization server refuses to register a
+    // loopback redirect URI that pins a port.
+    // ---------------------------------------------------------------------
+
+    /// The listener URI the C++ callback server produces: loopback, an
+    /// ephemeral port, and a per-attempt 128-bit nonce in the path.
+    const LISTENER: &str = "http://127.0.0.1:51234/lightning-oauth/0a1b2c3d4e5f60718293a4b5c6d7e8f9";
+    const LISTENER_PORTLESS: &str =
+        "http://127.0.0.1/lightning-oauth/0a1b2c3d4e5f60718293a4b5c6d7e8f9";
+
+    fn url(raw: &str) -> Url {
+        Url::parse(raw).expect("test URL parses")
+    }
+
+    /// The refusal continuwuity actually sends, reduced to what the wire
+    /// carries: RFC 7591 §3.2.2's `invalid_client_metadata` code plus prose.
+    fn metadata_refusal(description: &str) -> OAuthError {
+        use matrix_sdk::authentication::oauth::error::StandardErrorResponse;
+        OAuthError::ClientRegistration(OAuthClientRegistrationError::OAuth(
+            RequestTokenError::ServerResponse(StandardErrorResponse::new(
+                ClientRegistrationErrorResponseType::InvalidClientMetadata,
+                Some(description.to_owned()),
+                None,
+            )),
+        ))
+    }
+
+    fn continuwuity_refusal() -> OAuthError {
+        metadata_refusal(
+            "HTTP redirect URIs for native applications do not need to specify a port. \
+             All ports will be accepted during authorization.",
+        )
+    }
+
+    // Nothing may re-attach a port on the way into the metadata: the whole
+    // point of the retry is that the REGISTERED URI carries none.
+    #[test]
+    fn client_metadata_registers_a_portless_loopback_uri_verbatim() {
+        let json = metadata_json(LISTENER_PORTLESS);
+        assert_eq!(json["redirect_uris"], serde_json::json!([LISTENER_PORTLESS]));
+        assert_eq!(json["application_type"], "native");
+    }
+
+    #[test]
+    fn portless_loopback_redirect_strips_the_ephemeral_port_and_keeps_the_path() {
+        let stripped = portless_loopback_redirect(&url(LISTENER)).expect("a port to strip");
+        // The per-attempt nonce path survives, so the registration is widened
+        // to "any port on loopback, THIS path" and no further.
+        assert_eq!(stripped.as_str(), LISTENER_PORTLESS);
+    }
+
+    // mx_rust_oauth_begin's own guard accepts the bracketed IPv6 literal, so
+    // the port stripper has to handle it too or a `[::1]` listener would fall
+    // back to no retry at all.
+    #[test]
+    fn portless_loopback_redirect_handles_ipv6_loopback() {
+        let stripped =
+            portless_loopback_redirect(&url("http://[::1]:51234/cb/abc")).expect("a port to strip");
+        assert_eq!(stripped.as_str(), "http://[::1]/cb/abc");
+    }
+
+    #[test]
+    fn portless_loopback_redirect_handles_localhost() {
+        let stripped =
+            portless_loopback_redirect(&url("http://localhost:51234/cb")).expect("a port to strip");
+        assert_eq!(stripped.as_str(), "http://localhost/cb");
+    }
+
+    // Nothing to strip is not an error, but it must not produce a retry
+    // either: re-registering the identical metadata would just fail again.
+    #[test]
+    fn portless_loopback_redirect_declines_when_there_is_no_port() {
+        assert!(portless_loopback_redirect(&url(LISTENER_PORTLESS)).is_none());
+    }
+
+    // Defence in depth. mx_rust_oauth_begin refuses a non-loopback redirect
+    // before it ever gets here, and the retry must not become a second,
+    // laxer door into registering one.
+    #[test]
+    fn portless_loopback_redirect_refuses_a_non_loopback_host() {
+        assert!(portless_loopback_redirect(&url("http://evil.example:8080/cb")).is_none());
+        assert!(portless_loopback_redirect(&url("http://127.0.0.2:8080/cb")).is_none());
+        assert!(portless_loopback_redirect(&url("http://127.0.0.1.evil.example:8080/cb")).is_none());
+    }
+
+    // The port rule is about http loopback URIs specifically; anything else
+    // keeps whatever it was given.
+    #[test]
+    fn portless_loopback_redirect_refuses_a_non_http_scheme() {
+        assert!(portless_loopback_redirect(&url("https://127.0.0.1:8443/cb")).is_none());
+        assert!(portless_loopback_redirect(&url("org.lightning:/cb")).is_none());
+    }
+
+    #[test]
+    fn registration_refused_metadata_recognises_a_metadata_refusal() {
+        // The code is REPORTED, not merely detected: the retry's diagnostic
+        // names which of the two the server actually sent.
+        assert_eq!(
+            registration_refused_metadata(&continuwuity_refusal()),
+            Some("invalid_client_metadata")
+        );
+        // The sibling code RFC 7591 defines for the same class of complaint.
+        assert_eq!(
+            registration_refused_metadata(&OAuthError::ClientRegistration(
+                OAuthClientRegistrationError::OAuth(RequestTokenError::ServerResponse(
+                    matrix_sdk::authentication::oauth::error::StandardErrorResponse::new(
+                        ClientRegistrationErrorResponseType::InvalidRedirectUri,
+                        None,
+                        None,
+                    ),
+                )),
+            )),
+            Some("invalid_redirect_uri")
+        );
+    }
+
+    // A retry is only ever correct for a refusal of what we SENT. A transport
+    // failure or a server with no registration endpoint would fail the second
+    // attempt identically, and a later-stage failure has already registered.
+    #[test]
+    fn registration_refused_metadata_ignores_everything_else() {
+        assert!(registration_refused_metadata(&OAuthError::ClientRegistration(
+            OAuthClientRegistrationError::NotSupported
+        ))
+        .is_none());
+        assert!(registration_refused_metadata(&OAuthError::ClientRegistration(
+            OAuthClientRegistrationError::OAuth(RequestTokenError::Other(
+                "connection reset".to_owned()
+            )),
+        ))
+        .is_none());
+        assert!(registration_refused_metadata(&OAuthError::NotRegistered).is_none());
+    }
+
+    // THE RULE THIS ROUND EXISTS FOR: register without the port, request WITH
+    // it. matrix-sdk 0.18 keeps the two separate — OAuth::login() takes the
+    // request URI directly and never reads it back out of the metadata — so
+    // both halves come out of this one function and are asserted together.
+    #[test]
+    fn portless_registration_retry_registers_without_the_port_and_requests_with_it() {
+        let listener = url(LISTENER);
+        let (metadata, request_redirect, reason) =
+            portless_registration_retry(&listener, &continuwuity_refusal())
+                .expect("a metadata refusal on a ported loopback URI retries");
+        assert_eq!(reason, "invalid_client_metadata");
+
+        let json: serde_json::Value =
+            serde_json::from_str(metadata.json().get()).expect("metadata is JSON");
+        assert_eq!(json["redirect_uris"], serde_json::json!([LISTENER_PORTLESS]));
+        assert_eq!(json["application_type"], "native");
+
+        // The authorization request keeps the live port: that is the URI the
+        // browser is sent to, the one the listener is actually bound to, and
+        // the one finish_login() replays in the token exchange.
+        assert_eq!(request_redirect.as_str(), LISTENER);
+        assert_eq!(request_redirect.port(), Some(51234));
+        // And the input is untouched.
+        assert_eq!(listener.as_str(), LISTENER);
+    }
+
+    #[test]
+    fn portless_registration_retry_handles_an_ipv6_listener() {
+        let listener = url("http://[::1]:51234/cb/abc");
+        let (metadata, request_redirect, _reason) =
+            portless_registration_retry(&listener, &continuwuity_refusal()).expect("retries");
+        let json: serde_json::Value =
+            serde_json::from_str(metadata.json().get()).expect("metadata is JSON");
+        assert_eq!(json["redirect_uris"], serde_json::json!(["http://[::1]/cb/abc"]));
+        assert_eq!(request_redirect.as_str(), "http://[::1]:51234/cb/abc");
+    }
+
+    #[test]
+    fn portless_registration_retry_declines_an_unrelated_failure() {
+        assert!(portless_registration_retry(&url(LISTENER), &OAuthError::NotRegistered).is_none());
+        assert!(portless_registration_retry(
+            &url(LISTENER),
+            &OAuthError::ClientRegistration(OAuthClientRegistrationError::NotSupported),
+        )
+        .is_none());
+    }
+
+    // A metadata refusal is not a licence to register a redirect URI pointing
+    // off the machine.
+    #[test]
+    fn portless_registration_retry_declines_a_non_loopback_redirect() {
+        assert!(portless_registration_retry(
+            &url("http://evil.example:8080/cb"),
+            &continuwuity_refusal(),
+        )
+        .is_none());
+    }
+
+    // A server that refuses metadata for some OTHER reason must not put us in
+    // a loop: with no port to strip there is nothing new to send.
+    #[test]
+    fn portless_registration_retry_declines_when_the_uri_is_already_portless() {
+        assert!(
+            portless_registration_retry(&url(LISTENER_PORTLESS), &continuwuity_refusal()).is_none()
+        );
     }
 }
 

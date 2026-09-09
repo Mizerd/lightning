@@ -1171,6 +1171,21 @@ void RustSdkMatrixClient::drainAuthEvents()
             continue;
         }
 
+        if (type == QLatin1String("oauth_registration_retry")) {
+            // The homeserver refused our client metadata as invalid and we
+            // are re-registering without the loopback port (RFC 8252 §7.3:
+            // a native client takes an ephemeral port and the server must
+            // accept any). Diagnostic only — a fixed reason token, no URI,
+            // no port, no nonce, no token. Without it the three outcomes
+            // (never retried / retried and worked / retried and refused
+            // again) are indistinguishable in a user's report, and this
+            // ships to servers nobody here can reproduce.
+            qCInfo(lcRust) << "oauth client registration retried without the "
+                              "loopback port reason="
+                           << event.value(QStringLiteral("reason")).toString();
+            continue;
+        }
+
         if (type == QLatin1String("oauth_failed")) {
             const QString message = event.value(QStringLiteral("message")).toString();
             endOAuthAttempt();
