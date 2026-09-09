@@ -738,6 +738,15 @@ Item {
     // screen is on screen: the Loader that hosts it keeps it alive between
     // opens now (see settingsViewLoader), so existence no longer scopes it.
     //
+    // ONE HALF of `app.openSettings`. qml/MainScreen.qml declares the SAME
+    // action for the case where Settings is closed, and opens it; this one
+    // handles the already-open case. Two enabled Shortcuts on one sequence
+    // make Qt fire NEITHER, so the two gates have to be exclusive: this one
+    // is `root.visible`, which for this item IS `app.currentScreen === 2`
+    // (settingsViewLoader in qml/Main.qml binds its visibility to exactly
+    // that), and MainScreen's is that condition's complement. Changing
+    // either gate means re-deriving the pair.
+    //
     // The sequence comes from ShortcutRegistry now (default still Ctrl+,).
     // `bindingRevision` is read INSIDE the binding ON PURPOSE: sequenceFor()
     // is a plain function call and therefore creates no dependency Qt can
@@ -748,7 +757,7 @@ Item {
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
-            return [app.shortcuts.sequenceFor("app.settingsSearch")]
+            return [app.shortcuts.sequenceFor("app.openSettings")]
         }
         enabled: root.visible
         onActivated: settingsSearchField.forceActiveFocus()
@@ -996,7 +1005,19 @@ Item {
                                     root.section = root.matchedSearchResults[0].section
                             }
                         }
-                        MenuKeycap { keys: "Ctrl+," }
+                        // FROM THE REGISTRY, not a literal. The row is
+                        // rebindable, and a keycap that keeps saying Ctrl+,
+                        // after someone has changed it is a label that lies.
+                        // bindingRevision is read INSIDE the binding on
+                        // purpose: sequenceFor() is a function call and
+                        // creates no dependency Qt can track.
+                        MenuKeycap {
+                            keys: {
+                                var _rev = app.shortcuts.bindingRevision
+                                return app.shortcuts.sequenceFor(
+                                    "app.openSettings")
+                            }
+                        }
                     }
 
                     // ── Search results panel (replaces the nav list while

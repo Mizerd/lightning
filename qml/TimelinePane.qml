@@ -423,6 +423,41 @@ Rectangle {
         enabled: app.currentRoomId !== ""
         onActivated: root.openFind()
     }
+    // ── The room-information panel's two named sections ──────────────────
+    //
+    // Both call the SAME functions the room header's own buttons call, so
+    // the key adds no semantics: toggleMemberPanel() and togglePinnedPanel()
+    // already carry the "open on this section, or close if it is the section
+    // showing" behaviour and the roomInfo.supported refusal.
+    //
+    // GATED ON `app.currentScreen === 1`. MainScreen stays LOADED under the
+    // full-view Settings and a Shortcut is matched by window rather than by
+    // its item's visibility, so without this Ctrl+U would be taken from
+    // every text field in Settings to toggle a panel nobody can see. (The
+    // find shortcut above predates this reasoning and is left alone.)
+    //
+    // Ctrl+U IS ALSO `composer.underline`, in EditorContext, and that is
+    // deliberate: while the message box has focus it accepts the
+    // ShortcutOverride and underlines, and everywhere else this runs. Same
+    // arrangement as Ctrl+B/Bold, same as Discord's. It is a SHADOW, not the
+    // fire-neither ambiguity — that hazard is two shortcuts in the SAME
+    // dispatch context, which the registry refuses outright.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("room.togglePeople")]
+        }
+        enabled: app.currentScreen === 1 && app.currentRoomId !== ""
+        onActivated: root.toggleMemberPanel()
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("room.togglePinned")]
+        }
+        enabled: app.currentScreen === 1 && app.currentRoomId !== ""
+        onActivated: root.togglePinnedPanel()
+    }
     Connections {
         target: app.timeline
         function onSearchChanged() {
@@ -4651,7 +4686,28 @@ Rectangle {
                 Keys.onPressed: (event) => {
                     switch (event.key) {
                     case Qt.Key_PageUp:
-                        keyboardPage(-1); event.accepted = true; break
+                        // Shift+PgUp jumps to the OLDEST unread message.
+                        // goToFirstUnread() existed and was reachable only
+                        // from the jump pill; the divider tells you where you
+                        // stopped reading and there was no key for it.
+                        //
+                        // DELIBERATE CHANGE OF BEHAVIOUR: Shift+PgUp used to
+                        // page up, because this switch ignored modifiers
+                        // entirely. Plain PgUp still pages up, which is the
+                        // key anyone reaching for "page up" actually presses.
+                        //
+                        // A Keys case rather than a Shortcut, like every
+                        // other key in this block: PgUp/PgDown/Home/End/Space
+                        // are in the registry's RESERVED table precisely
+                        // because a window Shortcut on them is consumed
+                        // before the focused item ever sees the key, and
+                        // Shift alone would not qualify as a modifier there
+                        // anyway.
+                        if (event.modifiers & Qt.ShiftModifier)
+                            goToFirstUnread()
+                        else
+                            keyboardPage(-1)
+                        event.accepted = true; break
                     case Qt.Key_PageDown:
                         keyboardPage(1); event.accepted = true; break
                     case Qt.Key_Home:

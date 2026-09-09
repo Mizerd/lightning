@@ -1258,6 +1258,141 @@ Item {
         id: createPollDialog
     }
 
+    // ── Keyboard access to the three message-box surfaces ────────────────
+    //
+    // These are GlobalContext registry rows, not EditorContext ones, and the
+    // difference is load-bearing. An EditorContext row is delivered by the
+    // editors below CLAIMING the ShortcutOverride and is then routed by
+    // action id into applyFormat() — opening a picker is not a format, so it
+    // would arrive there as a name applyFormat() does not know. Global also
+    // means the key works while the TIMELINE has focus, which is when a
+    // reader most often reaches for a GIF.
+    //
+    // ONE INSTANCE PER WINDOW: MessageComposerBar is created exactly once,
+    // by qml/TimelinePane.qml, and ThreadPanel carries its own composer
+    // rather than a second copy of this one. So these three sequences are
+    // declared once each in this window and cannot become the two-enabled-
+    // Shortcuts-fire-neither case.
+    //
+    // Gated on the chat shell being the screen ON SCREEN: MainScreen stays
+    // LOADED under the full-view Settings, and a Shortcut is matched by
+    // window, never by its item's visibility.
+    function openAttachFiles() {
+        if (app.currentRoomId === "")
+            return
+        // The attach BUTTON may open a menu (polls, or the emoji/GIF actions
+        // displaced by a narrow window). A menu popped from a keystroke would
+        // appear at the mouse pointer, wherever that happens to be, so the
+        // key goes straight to the file picker instead — which is what
+        // "Attach files" says, and the menu remains the pointer affordance.
+        if (app.composer.attachmentsSupported)
+            pickAttachmentsDialog.open()
+        else
+            pickFileDialog.open()
+    }
+    Shortcut {
+        // bindingRevision is read INSIDE the binding on purpose: sequenceFor()
+        // is a function call and creates no dependency Qt can track, so
+        // without it a rebind would not apply until this component was next
+        // created.
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("composer.emojiPicker")]
+        }
+        enabled: app.currentScreen === 1 && app.currentRoomId !== ""
+        // `false`, not `true`: the fromButton argument exists to swallow the
+        // press-then-click double-toggle a real button produces, and a key
+        // press is not that gesture. It still closes an open picker.
+        onActivated: root.openEmojiPicker(false)
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("composer.gifPicker")]
+        }
+        enabled: app.currentScreen === 1 && app.currentRoomId !== ""
+                 && (app.gif.available || app.stickers.available)
+        onActivated: {
+            // Named for GIFs, so it opens on GIFs — but only when opening.
+            // Setting the kind while the window is already up would make the
+            // key silently swap the Stickers tab away instead of closing it.
+            // effectiveMediaKind() still falls back to stickers on a build
+            // with no GIF provider, so the key degrades rather than dying.
+            if (!gifPicker.opened && !stickerPicker.opened)
+                root.mediaPickerKind = "gif"
+            root.openMediaPicker(false)
+        }
+    }
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("composer.attach")]
+        }
+        enabled: app.currentScreen === 1 && app.currentRoomId !== ""
+        onActivated: root.openAttachFiles()
+    }
+
+    // ── Up in an EMPTY message box edits your last message ───────────────
+    //
+    // The one keyboard behaviour every chat client has, and Lightning had no
+    // route to Edit that was not the pointer (the hover action bar or the
+    // context menu's E accelerator). Everything it needs already existed:
+    // canEditEvent() is the SAME gate those two surfaces use (own, plain
+    // text, actually sent — not a local echo), and beginEdit() takes exactly
+    // the triple they pass.
+    //
+    // Deliberately NOT a Shortcut. Up is modifier-less, so the registry
+    // would refuse it outright (a global Shortcut on a bare key is consumed
+    // before any text field sees it), and it must only act in ONE state of
+    // ONE field — which is what a Keys handler on that field expresses and a
+    // window shortcut cannot.
+    //
+    // Bounded at 200 source rows. An unbounded walk back through a room's
+    // whole loaded history is a hang wearing no spinner at all, and a user
+    // whose last message is 200 rows up is not reaching for this.
+    readonly property int editLastMessageScanRows: 200
+    function composerIsEmpty() {
+        return root.richMode ? root.richBlank : (input.length === 0)
+    }
+    function editLastOwnMessage() {
+        if (app.currentRoomId === "" || !app.timeline)
+            return false
+        if (!root.composerIsEmpty())
+            return false
+        // Already editing: Up is ordinary cursor movement inside the text
+        // being edited, and re-entering edit mode would throw it away. A
+        // staged attachment or a thread reply means the box is empty for a
+        // reason that is not "nothing to say", so leave those alone too.
+        if (app.composer.isEditing || app.composer.inThread
+                || app.composer.hasAttachments)
+            return false
+        // The model must be showing the room this composer sends to. They
+        // are kept in step by the controller, so this should never fire —
+        // but an edit resolved against the PREVIOUS room would put an
+        // m.replace for room A on the wire addressed to room B, and one
+        // comparison is cheaper than that outcome.
+        if (app.timeline.roomId !== app.currentRoomId)
+            return false
+        // Source rows: row 0 is the OLDEST, so the newest is count - 1. (The
+        // timeline VIEW is rotated and counts from the newest; this is the
+        // model, not the view.)
+        var newest = app.timeline.count - 1
+        var oldestScanned =
+            Math.max(0, newest - root.editLastMessageScanRows + 1)
+        for (var row = newest; row >= oldestScanned; --row) {
+            var eventId = app.timeline.eventIdAt(row)
+            if (eventId === "" || !app.timeline.canEditEvent(eventId))
+                continue
+            app.composer.beginEdit(
+                eventId,
+                app.timeline.visibleTextForEvent(eventId),
+                app.timeline.sanitizedHtmlForEvent(eventId))
+            root.focusEditor()
+            return true
+        }
+        return false
+    }
+
     // Development-only: screenshot-demo popup hooks (see
     // ScreenshotDemoController and SpacesRail.qml:accountSwitcherRequested
     // for the pattern this mirrors). Null target / disabled in a non-demo
@@ -2202,6 +2337,16 @@ Item {
                                 } else if (emojiPopup.visible) {
                                     emojiPopup.moveUp()
                                     event.accepted = true
+                                } else if (root.editLastOwnMessage()) {
+                                    // LAST in the chain, and only from the
+                                    // else arm: the three completion popups
+                                    // own Up while any of them is open.
+                                    // editLastOwnMessage() refuses unless the
+                                    // box is empty and is not already an
+                                    // edit/thread/attachment state, so a
+                                    // false return leaves Up exactly as it
+                                    // was — ordinary cursor movement.
+                                    event.accepted = true
                                 } else {
                                     event.accepted = false
                                 }
@@ -2490,6 +2635,12 @@ Item {
                                 event.accepted = true
                             } else if (emojiPopup.visible) {
                                 emojiPopup.moveUp()
+                                event.accepted = true
+                            } else if (root.editLastOwnMessage()) {
+                                // Same branch as the rich editor's, and in
+                                // the same place: after the three completion
+                                // popups, in the else arm only. The two
+                                // editors are peers and both are live.
                                 event.accepted = true
                             } else {
                                 event.accepted = false

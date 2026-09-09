@@ -46,6 +46,7 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
     const QString navCat = tr("Navigation");
     const QString viewCat = tr("View");
     const QString roomCat = tr("Conversation");
+    const QString composerCat = tr("Message box");
     const QString composeCat = tr("Message formatting");
     const QString callCat = tr("Calls");
 
@@ -58,8 +59,31 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
         // ── Application ─────────────────────────────────────────────────
         { QStringLiteral("app.quit"), appCat,
           tr("Quit Lightning"), QStringLiteral("Ctrl+Q"), GlobalContext },
-        { QStringLiteral("app.settingsSearch"), appCat,
-          tr("Focus the Settings search field"), QStringLiteral("Ctrl+,"),
+        // WIDENED, and RENAMED with it (was `app.settingsSearch`). The row
+        // only ever focused the search field of an ALREADY-OPEN Settings, so
+        // nothing in the client opened Settings from the keyboard at all —
+        // the one thing Ctrl+, means in every other desktop application.
+        // It now does both, from two Shortcuts on PROVABLY EXCLUSIVE gates
+        // (qml/MainScreen.qml `app.currentScreen !== 2`, qml/
+        // SettingsScreen.qml `root.visible`, and SettingsScreen's visibility
+        // IS `app.currentScreen === 2` — see qml/Main.qml's
+        // settingsViewLoader). Two enabled Shortcuts on one sequence make Qt
+        // fire NEITHER, so that exclusivity is the whole safety argument and
+        // must survive any change to either gate.
+        //
+        // The rename orphans a stored override of the old id: the value is
+        // ignored and the default applies, which is the same degradation an
+        // unparseable stored value already gets. Deliberate — the alternative
+        // is an id that lies about what the row does.
+        { QStringLiteral("app.openSettings"), appCat,
+          tr("Open Settings, or focus its search field"),
+          QStringLiteral("Ctrl+,"), GlobalContext },
+        // Discord's own key for the shortcut list. Lightning's equivalent is
+        // the rebinding page itself, so this navigates there rather than
+        // opening a second, separate cheat sheet that would immediately
+        // disagree with the page that can actually change the keys.
+        { QStringLiteral("app.shortcutsHelp"), appCat,
+          tr("Show the keyboard shortcuts"), QStringLiteral("Ctrl+/"),
           GlobalContext },
 
         // ── Navigation ──────────────────────────────────────────────────
@@ -99,6 +123,23 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
         { QStringLiteral("room.markRead"), roomCat,
           tr("Mark the open conversation as read"),
           QStringLiteral("Ctrl+Shift+M"), GlobalContext },
+        // A DELIBERATE SECOND DUAL BINDING, and Discord's own arrangement:
+        // Ctrl+U opens the member list, and inside the message box Ctrl+U is
+        // still Underline (`composer.underline`, EditorContext). That is a
+        // SHADOW, not a conflict — the composer accepts the ShortcutOverride
+        // while it has focus, so the global action keeps the key everywhere
+        // else. It is the Ctrl+B/Bold arrangement exactly, and both rows say
+        // so through ShadowNoteRole rather than leaving it to be discovered.
+        { QStringLiteral("room.togglePeople"), roomCat,
+          tr("Show or hide the people in this conversation"),
+          QStringLiteral("Ctrl+U"), GlobalContext },
+        // Ctrl+Shift+P, NOT Discord's Ctrl+P. The same argument this table
+        // already makes for refusing Ctrl+S as the strikethrough default: on
+        // a desktop Ctrl+P is Print in every other application, and a client
+        // that eats a universal key is a client people distrust.
+        { QStringLiteral("room.togglePinned"), roomCat,
+          tr("Show or hide pinned messages"), QStringLiteral("Ctrl+Shift+P"),
+          GlobalContext },
 
         // ── Calls ───────────────────────────────────────────────────────
         //
@@ -127,6 +168,43 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
         { QStringLiteral("call.toggleDeafen"), callCat,
           tr("Deafen or undeafen"), QStringLiteral("Ctrl+Shift+H"),
           GlobalContext },
+        // Discord's own key. A camera exists only on the MatrixRTC lane —
+        // the legacy 1:1 lane is audio-only BY DESIGN (see CallHeaderBar's
+        // `richMedia`), so there is no second lane to fall back to and the
+        // handler says so rather than calling something that would refuse.
+        { QStringLiteral("call.toggleCamera"), callCat,
+          tr("Turn the camera on or off"), QStringLiteral("Ctrl+Shift+V"),
+          GlobalContext },
+        // Discord's own key, and free here. Brings the window back to the
+        // room the live call is in, from anywhere — including Settings,
+        // which is exactly where a call is easiest to lose track of.
+        { QStringLiteral("call.returnToCall"), callCat,
+          tr("Return to the active call"), QStringLiteral("Ctrl+Alt+A"),
+          GlobalContext },
+
+        // ── Message box surfaces (Global context) ───────────────────────
+        //
+        // GLOBAL, not Editor, and the distinction matters: an EditorContext
+        // row is delivered by the composer CLAIMING the ShortcutOverride and
+        // is then routed through applyFormat() by action id
+        // (qml/MessageComposerBar.qml). Opening a picker is not a format, so
+        // routing it there would hand applyFormat() a name it does not know.
+        // Global also means the key works while the timeline has focus,
+        // which is when you are most likely to reach for it.
+        //
+        // NONE of these is Discord's own key, and each departure is forced:
+        // Ctrl+E is `composer.code` here, so a global Ctrl+E would be
+        // shadowed by the composer at exactly the moment the picker is
+        // wanted; and Discord's Ctrl+Shift+U (upload) is `call.toggleMute`
+        // here and must not move.
+        { QStringLiteral("composer.emojiPicker"), composerCat,
+          tr("Open the emoji picker"), QStringLiteral("Ctrl+Shift+E"),
+          GlobalContext },
+        { QStringLiteral("composer.gifPicker"), composerCat,
+          tr("Open the GIF and sticker picker"), QStringLiteral("Ctrl+Shift+G"),
+          GlobalContext },
+        { QStringLiteral("composer.attach"), composerCat,
+          tr("Attach files"), QStringLiteral("Ctrl+Shift+O"), GlobalContext },
 
         // ── Message formatting (Editor context) ─────────────────────────
         // These call the composer's existing applyFormat(), which the

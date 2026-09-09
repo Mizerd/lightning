@@ -32,6 +32,46 @@ Item {
         onActivated:
             app.settings.spacesRailVisible = !app.settings.spacesRailVisible
     }
+
+    // ── Settings, from the keyboard ────────────────────────────────────
+    //
+    // THE OTHER HALF OF `app.openSettings`. qml/SettingsScreen.qml declares
+    // the same action for the case where Settings is ALREADY open (it
+    // focuses the search field there); this one opens it.
+    //
+    // TWO ENABLED SHORTCUTS ON ONE SEQUENCE MAKE QT FIRE NEITHER, so the two
+    // gates must be exclusive, and they provably are: SettingsScreen's gate
+    // is its own `root.visible`, and that item is the child of
+    // settingsViewLoader in qml/Main.qml, whose `visible` binding IS
+    // `app.currentScreen === 2`. This gate is that condition's exact
+    // complement. Do not relax either one without re-deriving the pair.
+    //
+    // The gate cannot be left off on the grounds that MainScreen is hidden
+    // under Settings: `enabled: visible` on that Loader disables ITEMS, and
+    // a Shortcut is not an item — every Shortcut in this file stays live
+    // while Settings covers the window, which is precisely why
+    // SettingsScreen's own Escape carries a visibility gate too.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("app.openSettings")]
+        }
+        enabled: app.currentScreen !== 2
+        onActivated: app.showSettings()
+    }
+    // Lightning's shortcut list IS the rebinding page, so this navigates
+    // there rather than opening a second cheat sheet that could disagree
+    // with the page that can actually change the keys. Ungated on purpose:
+    // showSettingsSection() works whether Settings is open or not, and there
+    // is only ONE declaration of this sequence in the window.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("app.shortcutsHelp")]
+        }
+        onActivated: app.showSettingsSection("shortcuts")
+    }
+
     // ── Call audio, from anywhere in the window ─────────────────────────
     //
     // The point of a mute key is that it works while you are doing something
@@ -68,6 +108,42 @@ Item {
                 app.groupCall.toggleDeafened()
             else if (app.calls.muteControlAvailable)
                 app.calls.toggleDeafened()
+        }
+    }
+    // Camera. The lane selection above collapses to ONE lane here and that is
+    // not an omission: a camera exists only on the MatrixRTC lane, because
+    // the legacy 1:1 lane is audio-only by design — CallHeaderBar draws its
+    // camera control behind `richMedia`, which is exactly `groupLive`. There
+    // is nothing on `app.calls` to fall through to, so the key is inert
+    // outside an SFU call for the same reason mute is inert outside any call.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.toggleCamera")]
+        }
+        onActivated: {
+            if (app.groupCall.active)
+                app.groupCall.toggleCamera()
+        }
+    }
+    // Back to the room the live call is in, from anywhere — including
+    // Settings, which is where a call is easiest to lose track of. Both
+    // lanes, because both can be live while the user is reading elsewhere;
+    // the Voice Connected strip's Return button does the same thing with a
+    // pointer (qml/RoomsPanel.qml).
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.returnToCall")]
+        }
+        onActivated: {
+            var callRoomId = app.groupCall.active ? app.groupCall.roomId
+                                                  : app.calls.activeRoomId
+            if (callRoomId === "")
+                return
+            if (app.currentScreen !== 1)
+                app.showMain()
+            app.openRoom(callRoomId)
         }
     }
 
