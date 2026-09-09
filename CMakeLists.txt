@@ -1053,6 +1053,20 @@ function(_lightning_configure_qml_module target _scope)
             # stays crisp on high-DPI and on Windows, where there is no icon
             # theme to supply a larger size.
             data/icons/hicolor/256x256/apps/lightning.png
+            # macOS menu-bar (status item) TEMPLATE icon — monochrome, alpha
+            # only, so AppKit recolours it for a light or a dark menu bar.
+            # Read only under Q_OS_MACOS (src/app/TrayIcon.cpp); listed on
+            # every platform so the resource set does not diverge between the
+            # many targets that register this QML module (~7 KB in total).
+            # Regenerate with scripts/generate-macos-menubar-icon.sh.
+            data/icons/menubar/lightning-template-16.png
+            data/icons/menubar/lightning-template-18.png
+            data/icons/menubar/lightning-template-20.png
+            data/icons/menubar/lightning-template-22.png
+            data/icons/menubar/lightning-template-32.png
+            data/icons/menubar/lightning-template-36.png
+            data/icons/menubar/lightning-template-40.png
+            data/icons/menubar/lightning-template-44.png
             # Development-only demo media fixtures (empty list in a release
             # build; see DEMO_MEDIA_RESOURCES above).
             ${DEMO_MEDIA_RESOURCES}

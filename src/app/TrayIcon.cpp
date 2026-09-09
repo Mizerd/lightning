@@ -60,6 +60,96 @@ QPixmap withBadge(const QPixmap &base, const QString &label)
 
 } // namespace
 
+QPixmap TrayIcon::macTemplateBadged(const QPixmap &base, const QString &label)
+{
+    if (base.isNull() || label.isEmpty())
+        return base;
+    QPixmap out = base;
+    QPainter painter(&out);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    const qreal side = qMin(out.width(), out.height());
+    const bool dotOnly = (label == QStringLiteral("\u2022"));
+    const qreal diameter = dotOnly ? side * 0.42 : side * 0.62;
+    const QRectF circle(out.width() - diameter, out.height() - diameter,
+                        diameter, diameter);
+
+    // A MOAT FIRST. In a template only the alpha channel survives, so the
+    // badge and the mark beneath it are painted in the same ink and would
+    // fuse into one blob wherever they touch — the same reason the asset
+    // itself cuts a gap where the bolt crosses the bubble. Clearing a
+    // slightly larger disc is what makes the badge read as a separate thing.
+    const qreal moat = qMax<qreal>(1.0, side * 0.08);
+    painter.setCompositionMode(QPainter::CompositionMode_Clear);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(Qt::black);
+    painter.drawEllipse(circle.adjusted(-moat, -moat, moat, moat));
+
+    // Then the badge itself, fully opaque. The COLOUR is irrelevant to AppKit
+    // — it repaints the shape for the current appearance — but it is written
+    // as opaque black so the pixmap is also correct if it is ever drawn
+    // without the template treatment.
+    painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+    painter.setBrush(QColor(0, 0, 0, 255));
+    painter.drawEllipse(circle);
+    if (dotOnly)
+        return out;
+
+    // And the digit KNOCKED OUT of the disc rather than drawn on top of it.
+    // White ink would vanish: a template keeps no colour, so a white "3" on a
+    // black disc is a black disc. Clearing those pixels lets the menu bar
+    // show through, which is how a macOS counter actually looks.
+    QFont font = QGuiApplication::font();
+    font.setBold(true);
+    font.setPixelSize(qMax(6, qRound(diameter * 0.68)));
+    painter.setFont(font);
+    painter.setCompositionMode(QPainter::CompositionMode_Clear);
+    painter.setPen(QColor(0, 0, 0, 255));
+    painter.drawText(circle, Qt::AlignCenter, label);
+    return out;
+}
+
+#ifdef Q_OS_MACOS
+namespace {
+
+// The sizes the macOS template asset is shipped in.
+//
+// Qt's cocoa backend picks the largest available pixmap whose HEIGHT is at
+// most `NSStatusBar.thickness - 4` times the device pixel ratio, then centres
+// it in a full-thickness one (qcocoasystemtrayicon.mm). Thickness is 22 on
+// most Macs and 24 on some, so 18/20/22 at 1x and 36/40/44 at 2x are exact
+// hits that need no scaling at all; 16 is a floor so there is always
+// something small enough to pick, and 32 covers a 1.5x scale.
+constexpr int kTemplateSizes[] = { 16, 18, 20, 22, 32, 36, 40, 44 };
+
+QString templateResource(int size)
+{
+    return QStringLiteral(
+               ":/qt/qml/MatrixClient/data/icons/menubar/"
+               "lightning-template-%1.png")
+        .arg(size);
+}
+
+/// The macOS status-item icon: the monochrome template asset at every size it
+/// ships in, badged. Null when the asset is not in this binary's resources —
+/// which is every test target that compiles TrayIcon without the QML module,
+/// and is why the caller keeps the colour icon as a fallback rather than
+/// clearing the tray entry.
+QIcon macTemplateIcon(const QString &label)
+{
+    QIcon icon;
+    for (const int size : kTemplateSizes) {
+        const QPixmap asset(templateResource(size));
+        if (asset.isNull())
+            continue;
+        icon.addPixmap(TrayIcon::macTemplateBadged(asset, label));
+    }
+    return icon;
+}
+
+} // namespace
+#endif // Q_OS_MACOS
+
 TrayIcon::TrayIcon(QObject *parent)
     : QObject(parent)
 {
@@ -148,8 +238,29 @@ void TrayIcon::refreshIcon()
 {
     if (!m_icon)
         return;
-    const QIcon base = QGuiApplication::windowIcon();
     const QString label = badgeLabel(m_unread, m_anyUnread);
+#ifdef Q_OS_MACOS
+    // THE MENU BAR IS NOT A TRAY. macOS wants a monochrome TEMPLATE image
+    // that it recolours for the current appearance; the full-colour
+    // application icon is wrong there, and so is a white copy of it, which
+    // would be wrong in the opposite appearance. `setIsMask(true)` is what
+    // Qt's cocoa backend turns into `[NSImage setTemplate:YES]`.
+    //
+    // The Dock, the Finder and the About box keep the colour icon: they read
+    // `QGuiApplication::windowIcon()` and the bundle's own .icns, neither of
+    // which this touches. Linux and Windows never reach this branch at all.
+    //
+    // A null icon means the template asset is not in this binary's
+    // resources; falling through to the colour icon is better than clearing
+    // the tray entry, which an empty QIcon would do.
+    QIcon templated = macTemplateIcon(label);
+    if (!templated.isNull()) {
+        templated.setIsMask(true);
+        m_icon->setIcon(templated);
+        return;
+    }
+#endif
+    const QIcon base = QGuiApplication::windowIcon();
     if (base.isNull() || label.isEmpty()) {
         m_icon->setIcon(base);
         return;

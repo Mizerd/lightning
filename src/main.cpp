@@ -1522,6 +1522,22 @@ static int printCallMediaStatus()
                 ? QStringLiteral("<none - using system GStreamer>")
                 : bundled)
         << "\n";
+    // THE REGISTRY HELPER, because its absence is silent in every other
+    // check we have. GStreamer builds its plugin registry by dlopen'ing
+    // candidates in a separate `gst-plugin-scanner` process; when it cannot
+    // find one it prints "External plugin loader failed", scans in-process
+    // and carries on — graceful fallback and silent absence being the same
+    // observable, which is the shape that has cost this project four
+    // packaging defects. The path is derived from the bundle in
+    // GstBootstrap; naming it here is what makes a missing helper a
+    // one-command answer instead of a warning nobody can attribute.
+    const QString scanner = lightning::gst::bundledScannerPath();
+    out << "plugin scanner: "
+        << (scanner.isEmpty()
+                ? QStringLiteral("<GStreamer's own - in-process fallback if "
+                                 "it is not installed>")
+                : scanner)
+        << "\n";
     if (!inited) {
         out << "gstreamer: FAILED (" << whyNot << ")\n"
             << "\nRESULT: calls will be refused by this build.\n";

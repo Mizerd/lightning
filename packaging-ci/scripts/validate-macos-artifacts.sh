@@ -145,6 +145,7 @@ printf '  bundled frameworks: %s\n' "$qt_fw_count"
 GST_PLUGIN_LINK="$CONTENTS/MacOS/gstreamer-1.0"
 GST_PLUGIN_DIR="$CONTENTS/PlugIns/gstreamer-plugins"
 GST_LIB_DIR="$CONTENTS/PlugIns/gstreamer-libs"
+GST_SCANNER="$CONTENTS/MacOS/gst-plugin-scanner"
 
 # The app looks for applicationDirPath()/gstreamer-1.0 and nothing else
 # (src/calls/SfuMediaEngine.cpp). It has to be a SYMLINK: codesign refuses to
@@ -172,6 +173,28 @@ for plugin in app applemedia audioconvert audiomixer audioresample audiotestsrc 
         test -f "$GST_PLUGIN_DIR/libgst${plugin}.dylib"
 done
 check "GStreamer core library bundled" test -f "$GST_LIB_DIR/libgstreamer-1.0.0.dylib"
+
+# THE REGISTRY HELPER. Its absence is the exact failure shape this project has
+# now paid for five times — sctp on Windows, ximagesrc, opengl, the AppImage's
+# Qt tls/wayland plugins, and this: GStreamer falls back to scanning plugins
+# in-process and everything still works, so nothing fails, and all the bundle
+# does is print "External plugin loader failed" into every user's log.
+# Graceful fallback and silent absence are the same observable unless something
+# asserts the payload. Presence, executability and a signature are three
+# different failures here: an unsigned or mis-signed helper is SIGKILLed on
+# Apple Silicon with no message at all, which looks identical to a missing one.
+check "GStreamer registry helper bundled" test -f "$GST_SCANNER"
+check "GStreamer registry helper is executable" test -x "$GST_SCANNER"
+if [[ -f "$GST_SCANNER" ]]; then
+    if codesign --verify --strict "$GST_SCANNER" >/dev/null 2>&1; then
+        printf '  ok: the registry helper carries a valid signature\n'
+    else
+        printf '  FAIL: the registry helper is unsigned or its signature is stale\n' >&2
+        printf '        (Apple Silicon SIGKILLs such a binary with no message, which\n' >&2
+        printf '         is indistinguishable from the helper being absent)\n' >&2
+        failures=$((failures + 1))
+    fi
+fi
 
 # The executable must link GStreamer — the media engine is the only thing in
 # Lightning that does, and its CMake probe fails silently — and it must link the
@@ -239,7 +262,8 @@ while IFS= read -r macho; do
         printf '  builder rpath in %s: %s\n' "${macho#"$APP_DIR"/}" "$rp" >&2
         host_rpaths=$((host_rpaths + 1))
     done < <(rpaths_of "$macho")
-done < <(find "$CONTENTS/MacOS/$APP_NAME" "$GST_PLUGIN_DIR" "$GST_LIB_DIR" -type f 2>/dev/null)
+done < <(find "$CONTENTS/MacOS/$APP_NAME" "$GST_SCANNER" "$GST_PLUGIN_DIR" \
+              "$GST_LIB_DIR" -type f 2>/dev/null)
 if (( host_rpaths > 0 )); then
     printf '  FAIL: %d builder rpaths survive in the executable or the staged runtime\n' "$host_rpaths" >&2
     failures=$((failures + 1))
@@ -281,7 +305,7 @@ while IFS= read -r macho; do
         esac
         gst_unresolved=$((gst_unresolved + 1))
     done < <(otool -L "$macho" 2>/dev/null | grep '^	' | awk '{print $1}')
-done < <(find "$GST_PLUGIN_DIR" "$GST_LIB_DIR" -type f 2>/dev/null)
+done < <(find "$GST_SCANNER" "$GST_PLUGIN_DIR" "$GST_LIB_DIR" -type f 2>/dev/null)
 if (( gst_unresolved > 0 )); then
     printf '  FAIL: %d staged GStreamer dependencies do not resolve inside the bundle\n' \
         "$gst_unresolved" >&2
@@ -409,6 +433,46 @@ else
             printf '  ok: every call media element resolves from the bundled plugins alone\n'
             gst_elements_state=resolved
         fi
+
+        # AND THE REGISTRY IS BUILT BY THE BUNDLED HELPER, NOT BY THE
+        # FALLBACK.
+        #
+        # Everything above passes on a bundle with no gst-plugin-scanner at
+        # all, because GStreamer scans in-process when it cannot exec one and
+        # the elements resolve either way. That is precisely the shape this
+        # project keeps shipping — graceful fallback and silent absence are
+        # the same observable — so this asks the SHIPPED helper to do the
+        # scan and fails on the warning GStreamer prints when it could not.
+        #
+        # A FRESH registry is mandatory: with the cached one from the element
+        # probe above, nothing is scanned, no helper is exec'd, and this check
+        # passes on a bundle with no helper in it. That is the difference
+        # between asserting the payload and asserting a cache.
+        scanner_registry="$probe_dir/registry-scanner.bin"
+        scanner_log="$probe_dir/scanner.log"
+        env \
+            GST_PLUGIN_SYSTEM_PATH= GST_PLUGIN_SYSTEM_PATH_1_0= \
+            GST_PLUGIN_PATH="$GST_PLUGIN_LINK" GST_PLUGIN_PATH_1_0="$GST_PLUGIN_LINK" \
+            GST_REGISTRY="$scanner_registry" GST_REGISTRY_1_0="$scanner_registry" \
+            GST_PLUGIN_SCANNER="$GST_SCANNER" GST_PLUGIN_SCANNER_1_0="$GST_SCANNER" \
+            "$probe" webrtcbin >/dev/null 2>"$scanner_log" || true
+        if [[ ! -s "$scanner_registry" ]]; then
+            printf '  FAIL: no registry was built through the bundled gst-plugin-scanner\n' >&2
+            failures=$((failures + 1))
+            gst_scanner_state=unproven
+        elif grep -q 'External plugin loader failed' "$scanner_log"; then
+            printf '  FAIL: the bundled gst-plugin-scanner could not be run\n' >&2
+            printf '        GStreamer fell back to scanning plugins in-process and\n' >&2
+            printf '        printed "External plugin loader failed" — the warning every\n' >&2
+            printf '        macOS launch carried before the helper was staged. Usually a\n' >&2
+            printf '        missing, unsigned or non-executable %s\n' \
+                "${GST_SCANNER#"$APP_DIR"/}" >&2
+            failures=$((failures + 1))
+            gst_scanner_state=failed
+        else
+            printf '  ok: the bundled gst-plugin-scanner builds the registry\n'
+            gst_scanner_state=ok
+        fi
     fi
     rm -rf -- "$probe_dir"
 fi
@@ -462,6 +526,15 @@ if "$CONTENTS/MacOS/$APP_NAME" --call-media-status         >"$REPORT_DIR/call-me
     # would pass on this runner (which has one installed) and fail on every
     # user's Mac, which is the worst possible shape for a check.
     check "the bundled app used its own plugin directory"         grep -Eq '^bundled plugin directory: .*gstreamer-1\.0'             "$REPORT_DIR/call-media-status.txt"
+    # AND ITS REGISTRY HELPER, asked of the shipped binary rather than of the
+    # layout. This is the line that ties the three places that have to agree:
+    # GstBootstrap derives the path from applicationDirPath(),
+    # stage-macos-gstreamer.sh puts the file there, and this asserts the
+    # running app resolved one. A grep over the staging script would pass on a
+    # bundle where the app looks somewhere else entirely.
+    check "the bundled app found its registry helper" \
+        grep -Eq '^plugin scanner: .*/gst-plugin-scanner$' \
+            "$REPORT_DIR/call-media-status.txt"
 else
     printf '  FAIL: the bundled app cannot place calls
 ' >&2
@@ -564,6 +637,7 @@ jq -n \
     --argjson gst_plugins "${gst_plugin_count:-0}" \
     --argjson gst_libs "${gst_lib_count:-0}" \
     --arg gst_elements "${gst_elements_state:-unproven}" \
+    --arg gst_scanner "${gst_scanner_state:-unproven}" \
     --argjson gst_optional_absent "${gst_degraded:-0}" \
     '{bundle_identifier:$bundle_id, version:$version, architectures:$archs,
       bundled_frameworks:$frameworks, bundle_bytes:$bundle_bytes,
@@ -571,6 +645,7 @@ jq -n \
       structural_failures:$failures,
       gstreamer:{plugins:$gst_plugins, support_libraries:$gst_libs,
                  call_elements:$gst_elements,
+                 registry_scanner:$gst_scanner,
                  optional_elements_absent:$gst_optional_absent},
       call_media_live_tested:false,
       native_macos_acceptance_tested:false}' \

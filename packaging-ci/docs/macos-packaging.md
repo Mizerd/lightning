@@ -179,6 +179,7 @@ Lightning.app/Contents/
 │   ├── Lightning.icns         built from the source hicolor PNGs via iconutil
 │   ├── build-info.json
 │   └── qml/                   Qt QML modules (macdeployqt)
+│   ├── gst-plugin-scanner    GStreamer's registry helper (its own process)
 │   └── gstreamer-1.0          symlink -> ../PlugIns/gstreamer-plugins
 ├── Frameworks/                Qt frameworks (macdeployqt)
 └── PlugIns/
@@ -532,13 +533,25 @@ the arch check and the element probe.
 
 ### Known gaps
 
-- **`gst-plugin-scanner` is not bundled.** GStreamer prefers to scan plugins in
-  a helper process and falls back to scanning in-process, which works and is
-  what happens here — at the cost of one `GStreamer-WARNING` line at startup
-  ("External plugin loader failed"). Finding the helper needs
-  `GST_PLUGIN_SCANNER` set by the application, which is an app-side change; the
-  binary is not staged in the meantime rather than shipping a file nothing
-  loads.
+- ~~**`gst-plugin-scanner` is not bundled.**~~ **CLOSED 2026-09-09.** It is
+  staged into `Contents/MacOS/gst-plugin-scanner` (the executables directory:
+  no dot in the name, and `build-macos.sh`'s inside-out codesign pass finds
+  every Mach-O under the bundle, so it is signed with everything else), and the
+  application exports `GST_PLUGIN_SCANNER_1_0`/`GST_PLUGIN_SCANNER` at it
+  before `gst_init`, derived from `applicationDirPath()` — never a written-down
+  path (`src/calls/GstBootstrap.cpp`, `scannerPathBesideExecutable`). Neither
+  half works alone. Three checks assert it, because the failure it fixes is
+  invisible: the file is present, executable and validly signed (an unsigned
+  helper is SIGKILLed on Apple Silicon with no message, which looks exactly
+  like a missing one); a FRESH registry builds through it with no "External
+  plugin loader failed" on stderr (a cached registry scans nothing and would
+  pass on a bundle with no helper); and the shipped binary's own
+  `--call-media-status` names a resolved `plugin scanner:` path, which is what
+  ties the app's path derivation to where the packaging actually put the file.
+  What this did NOT fix: it is a robustness and log-noise fix, not a call fix.
+  The in-process fallback worked, so no call ever failed because of it — the
+  warning simply sat at the top of every user's log looking like the cause of
+  whatever else went wrong.
 - **No call has been placed from a packaged macOS build.** Everything above is
   structural: the elements resolve from the bundled plugins, which is what the
   engine's own probe requires before it registers. Whether a call connects to
@@ -858,14 +871,15 @@ version`**. These indicated a real bug and should no longer appear — see
 [Deployment target](#deployment-target). If they come back, the derived target
 has drifted from what Qt or the Rust objects were actually built against.
 
-**`GStreamer-WARNING **: External plugin loader failed.`** Printed by the
-validator's element probe, which is the only step here that builds a GStreamer
-registry. (It does *not* appear in the launch smoke test: `--version` and
-`--build-info` are answered by main.cpp's pre-flight parser and return before
-`gst_init` is ever reached.) GStreamer prefers to enumerate plugins in a helper
-process (`gst-plugin-scanner`) and falls back to doing it in-process; the bundle
-ships no helper, so the fallback is what runs, and it works. See
-[Known gaps](#known-gaps).
+**`GStreamer-WARNING **: External plugin loader failed.`** Should no longer
+appear anywhere since 2026-09-09 — the helper is staged and the application
+points at it. If it comes back, the validator now fails on it explicitly
+("the bundled gst-plugin-scanner could not be run"); the causes are a missing,
+non-executable or stale-signed `Contents/MacOS/gst-plugin-scanner`, and the
+fallback it names is GStreamer scanning plugins in-process, which still works.
+(It never appeared in the launch smoke test's `--version` or `--build-info`:
+those are answered by main.cpp's pre-flight parser and return before `gst_init`
+is reached.)
 
 **Long single-threaded stretches.** Lightning's `[profile.release]` sets
 `lto = true` and `codegen-units = 1`, so the final Rust crate and its link-time

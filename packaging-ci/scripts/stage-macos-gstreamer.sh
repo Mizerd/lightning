@@ -190,8 +190,13 @@ is_macho() { file -b "$1" 2>/dev/null | grep -q 'Mach-O'; }
 # from the dependency record, which this script does not get to choose — and the
 # files such a filter missed would be exactly the ones no later loop repairs or
 # checks.
+# $SCANNER_DEST is named explicitly rather than by directory: it is the one
+# staged Mach-O that does NOT live under PlugIns (it is an executable, and it
+# belongs beside the main one), and leaving it out of this list would leave it
+# out of the rpath retarget, the self-containment proof and the arch check all
+# at once — the three things that make the rest of this file trustworthy.
 staged_machos() {
-    find "$PLUGIN_DIR" "$SUPPORT_DIR" -type f 2>/dev/null | while IFS= read -r f; do
+    find "$PLUGIN_DIR" "$SUPPORT_DIR" "$SCANNER_DEST" -type f 2>/dev/null | while IFS= read -r f; do
         is_macho "$f" && printf '%s\n' "$f"
     done
 }
@@ -202,6 +207,46 @@ for p in "${PLUGINS[@]}"; do
     copy_thin "$src" "$PLUGIN_DIR/libgst${p}.dylib"
 done
 printf 'staged %d GStreamer plugins\n' "${#PLUGINS[@]}"
+
+# THE REGISTRY HELPER, which was the one piece of the runtime this script
+# deliberately left out.
+#
+# GStreamer builds its plugin registry by dlopen'ing every candidate in a
+# SEPARATE PROCESS — gst-plugin-scanner — so a plugin that aborts on load
+# cannot take the application down with it. The helper's path is compiled into
+# libgstreamer as the BUILDER's libexec directory, which does not exist inside
+# a relocated bundle, so every launch printed
+#
+#   GStreamer-WARNING **: External plugin loader failed. This most likely
+#   means that the plugin loader helper binary was not found ...
+#
+# and GStreamer fell back to scanning in-process. That fallback WORKS, which is
+# exactly why it survived: graceful fallback and silent absence are the same
+# observable, and the warning then sat at the top of every user's call log
+# looking like the cause of whatever else went wrong that session (it was
+# reported that way on 2026-09-09, alongside an unrelated SFU connect failure).
+#
+# It goes in Contents/MacOS, beside the main executable, for three reasons: it
+# is the executables directory, the name carries no dot (the constraint that
+# forced the plugins themselves behind a symlink — see the note at the top of
+# this file), and build-macos.sh's inside-out codesign pass finds every Mach-O
+# under the bundle, so it is ad-hoc signed with everything else. An unsigned
+# helper is SIGKILLed on Apple Silicon with no message, which looks identical
+# to a missing one.
+#
+# The app derives the path from its OWN location before gst_init and exports
+# GST_PLUGIN_SCANNER_1_0/GST_PLUGIN_SCANNER
+# (src/calls/GstBootstrap.cpp, scannerPathBesideExecutable). Neither half works
+# alone: this file without that change ships a binary nothing loads, and that
+# change without this file points at a path that is not there.
+SCANNER_SRC="$GST_PREFIX/libexec/gstreamer-1.0/gst-plugin-scanner"
+SCANNER_DEST="$CONTENTS/MacOS/gst-plugin-scanner"
+[[ -f "$SCANNER_SRC" ]] \
+    || die "gst-plugin-scanner not found in the SDK: $SCANNER_SRC"
+rm -f -- "$SCANNER_DEST"
+copy_thin "$SCANNER_SRC" "$SCANNER_DEST"
+chmod 0755 "$SCANNER_DEST"
+printf 'staged the GStreamer registry helper (gst-plugin-scanner)\n'
 
 # Breadth-first closure over @rpath dependencies, resolved against the SDK's
 # lib/. A dependency that does not resolve there is a hard failure: shipping a
@@ -219,6 +264,10 @@ printf 'staged %d GStreamer plugins\n' "${#PLUGINS[@]}"
 : >"$work/libs"
 : >"$work/queue"
 printf '%s\n' "$MAIN_BINARY" >>"$work/queue"
+# The registry helper is seeded too: it links the GStreamer core and glib in
+# its own right, and it runs as its OWN process with no Qt in it, so anything
+# it needs has to be in the bundle rather than merely reachable from the app.
+printf '%s\n' "$SCANNER_DEST" >>"$work/queue"
 for p in "${PLUGINS[@]}"; do
     printf '%s\n' "$PLUGIN_DIR/libgst${p}.dylib" >>"$work/queue"
 done
@@ -294,6 +343,16 @@ while IFS= read -r macho; do
     staged=$((staged + 1))
 done <"$work/staged"
 printf 'retargeted rpaths on %d staged binaries\n' "$staged"
+
+# gst-plugin-scanner sits in MacOS/, not in a PlugIns subdirectory, so the
+# shared `@loader_path/../gstreamer-libs` above names Contents/ for it and
+# resolves to nothing. `@executable_path/../PlugIns/gstreamer-libs` is already
+# correct when the scanner is the executable — which it is, it runs as its own
+# process — and this second form covers the case where something else execs it
+# with the app as the main executable. One extra load command on ONE binary
+# rather than on all sixty.
+install_name_tool -add_rpath "@loader_path/../$SUPPORT_REL" "$SCANNER_DEST" \
+    || die "could not point the registry helper at the bundled libraries"
 
 # The builder's SDK path arrives on the executable by default:
 # gstreamer-1.0.pc's `Libs:` line ends in -Wl,-rpath,${libdir}, so the link

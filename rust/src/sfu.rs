@@ -84,7 +84,9 @@ use serde_json::json;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use crate::rooms::{classify_room_error, public_ip, require_client};
-use crate::rtc::{public_hostname, resolve_public_host};
+use crate::rtc::{
+    public_hostname, resolve_public_host, resolve_public_hosts, HostRefusal,
+};
 use crate::{enqueue, RustClient};
 
 /// Bound on the JWT-service response body. A `{url, jwt}` object is small.
@@ -127,6 +129,168 @@ pub(crate) fn target_from_str(value: &str) -> i32 {
     match value {
         "publisher" => 0,
         _ => 1,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Why the websocket connect did not happen
+// ---------------------------------------------------------------------------
+//
+// SEVEN UNRELATED FAILURES USED TO ARRIVE AS ONE WORD.
+//
+// Everything between `authorized` and `signalling` — the DNS lookup, the TCP
+// connect, the TLS handshake, the HTTP status the SFU answers, the websocket
+// upgrade — collapsed into `connect_failed`, and `connect_failed` rendered as
+// "Couldn't connect to the call." A macOS bundle that went straight from
+// `authorized` to `failed` therefore said nothing at all about WHICH of those
+// five steps had failed, and there is no second log line to fall back on: the
+// error's own text can embed the request URL, which carries the JWT, so it is
+// never enqueued and never logged.
+//
+// This is the same split `e21dd08` made for `forbidden` (the room's power
+// levels versus the call service's authorisation), for the same reason: a
+// category the log carries verbatim is the only thing a report from another
+// machine can be diagnosed from, so a category has to name ONE cause.
+//
+// Nothing here reads an error's message. It reads the error's SHAPE, plus a
+// status code, both of which are a closed set.
+
+/// The category for one refused host resolution.
+fn resolve_refusal_category(refusal: HostRefusal) -> &'static str {
+    match refusal {
+        // A name that can only mean this machine. Distinct from the resolved
+        // case because there is nothing to look up and nothing to retry.
+        HostRefusal::PrivateName => "focus_private_name",
+        HostRefusal::Unresolved => "focus_unresolved",
+        // The one case the existing `focus_unroutable` sentence is true of,
+        // so it keeps that category and that wording.
+        HostRefusal::NonPublicAddress => "focus_unroutable",
+    }
+}
+
+/// The category for one transport-level failure reaching the SFU.
+fn classify_io_error(err: &std::io::Error) -> &'static str {
+    use std::io::ErrorKind as Kind;
+    match err.kind() {
+        // The address answered, and said no. The SFU is not listening there.
+        Kind::ConnectionRefused => "sfu_refused_connection",
+        // No route at all. THE SHAPE A MACHINE WITH AN AAAA RECORD AND NO
+        // WORKING IPv6 SEES, which is why it is worth its own word.
+        Kind::HostUnreachable | Kind::NetworkUnreachable => "sfu_unreachable",
+        Kind::TimedOut => "connect_timeout",
+        Kind::PermissionDenied => "connect_blocked",
+        Kind::ConnectionReset
+        | Kind::ConnectionAborted
+        | Kind::BrokenPipe
+        | Kind::NotConnected
+        | Kind::UnexpectedEof => "connection_lost",
+        _ => "transport_failed",
+    }
+}
+
+/// What one walk over a host's approved addresses ended in.
+///
+/// Its own type rather than a `Result`, because THREE outcomes have to stay
+/// distinguishable at the call site: a connection, a budget that ran out
+/// (`connect_timeout`), and every address having failed (whose category comes
+/// from the LAST error). Folding the last two together is how the old code
+/// reported a timeout and a dead SFU with the same word.
+enum ConnectWalk<S> {
+    Connected(S),
+    /// Every address was tried and failed. Carries the last error, or `None`
+    /// when the list was empty — which cannot happen today
+    /// (`resolve_public_hosts` refuses an empty answer) and is handled rather
+    /// than asserted.
+    Failed(Option<tokio_tungstenite::tungstenite::Error>),
+    /// The shared budget expired mid-attempt.
+    TimedOut,
+}
+
+/// Try each approved address in turn, under ONE shared deadline.
+///
+/// WHY THIS IS NOT "THE FIRST ADDRESS". `lookup_host` hands back whatever the
+/// platform resolver returns, and the platforms disagree about the order:
+/// macOS offers the AAAA record first far more readily than glibc's RFC 6724
+/// sort does. A host with an AAAA record and no working IPv6 route then gets
+/// ENETUNREACH from address one while the A record beside it would have
+/// connected — and taking only the first address turned that into a hard
+/// failure indistinguishable from a dead SFU. Browsers and LiveKit's own
+/// clients walk the list; so does this.
+///
+/// TWO PROPERTIES THAT MATTER MORE THAN THE WALK ITSELF, both tested:
+///
+///   * the budget is SHARED. `timeout_at` against one deadline computed by
+///     the caller, never `timeout` per address — N addresses must not cost N
+///     timeouts, which would let a join hang for N times as long as it can
+///     today. That is a worse failure than the one being fixed.
+///   * only a TRANSPORT failure is retried. An HTTP status, a TLS alert or a
+///     refused upgrade is the server answering, and it will answer the same
+///     way at every address it has; walking on would multiply one refusal
+///     into several and report the last one.
+///
+/// The connect step is a parameter so the walk can be driven without a
+/// network, which is the only way its ordering is testable at all.
+async fn walk_addresses<S, F, Fut>(
+    addresses: Vec<std::net::SocketAddr>,
+    deadline: tokio::time::Instant,
+    mut attempt: F,
+) -> ConnectWalk<S>
+where
+    F: FnMut(std::net::SocketAddr) -> Fut,
+    Fut: std::future::Future<
+        Output = Result<S, tokio_tungstenite::tungstenite::Error>,
+    >,
+{
+    let mut last = None;
+    for address in addresses {
+        match tokio::time::timeout_at(deadline, attempt(address)).await {
+            Ok(Ok(stream)) => return ConnectWalk::Connected(stream),
+            Ok(Err(err)) => {
+                let transport = matches!(
+                    err,
+                    tokio_tungstenite::tungstenite::Error::Io(_));
+                last = Some(err);
+                if !transport {
+                    break;
+                }
+            }
+            Err(_) => return ConnectWalk::TimedOut,
+        }
+    }
+    ConnectWalk::Failed(last)
+}
+
+/// The category for one failed websocket connect. Closed set; no error text.
+fn classify_ws_error(
+    err: &tokio_tungstenite::tungstenite::Error,
+) -> &'static str {
+    use tokio_tungstenite::tungstenite::Error as Ws;
+    match err {
+        Ws::Io(io) => classify_io_error(io),
+        // rustls could not agree with the peer, or would not trust it. The
+        // roots are compiled in (webpki-roots), so this is about the SERVER's
+        // certificate or its protocol support, never the local trust store.
+        Ws::Tls(_) => "tls_failed",
+        // The SFU answered HTTP instead of upgrading. The status is the whole
+        // diagnosis and it is not a secret; the body is never touched.
+        Ws::Http(response) => match response.status().as_u16() {
+            401 | 403 => "sfu_forbidden",
+            404 => "sfu_not_found",
+            429 => "rate_limited",
+            500..=599 => "server_error",
+            _ => "ws_rejected",
+        },
+        // It spoke, and what it said was not a websocket upgrade — a proxy or
+        // a captive portal in front of the SFU is the usual reason.
+        Ws::Protocol(_) | Ws::HttpFormat(_) | Ws::Utf8 | Ws::AttackAttempt => {
+            "ws_handshake_failed"
+        }
+        Ws::Url(_) => "focus_url_invalid",
+        Ws::Capacity(_) => "ws_frame_too_large",
+        Ws::ConnectionClosed | Ws::AlreadyClosed => "connection_lost",
+        // The enum is #[non_exhaustive]; an unmapped shape keeps the old word
+        // rather than being reported as something it is not.
+        _ => "connect_failed",
     }
 }
 
@@ -503,9 +667,14 @@ async fn run_session(
     let mut url = match url::Url::parse(&credentials.url) {
         Ok(url) => url,
         Err(_) => {
+            // Its OWN category rather than the shared `invalid`, which the
+            // credentials fetch already uses for five other things: this one
+            // says the SFU URL itself is unparseable, and it is reachable
+            // only if `normalize_sfu_url` accepted something this cannot
+            // re-parse.
             emit(json!({
                 "type": "sfu_state", "generation": generation,
-                "state": "failed", "category": "invalid",
+                "state": "failed", "category": "focus_url_invalid",
             }));
             return;
         }
@@ -539,47 +708,79 @@ async fn run_session(
     // deserves a reason that is not "the network is down".
     let host = url.host_str().unwrap_or_default().to_owned();
     let port = url.port_or_known_default().unwrap_or(443);
-    let Some(address) = tokio::time::timeout(SFU_TIMEOUT, resolve_public_host(&host, port))
-        .await
-        .ok()
-        .flatten()
-    else {
-        emit(json!({
-            "type": "sfu_state", "generation": generation,
-            "state": "failed", "category": "focus_unroutable",
-        }));
-        return;
-    };
-    let connect = async {
-        let tcp = tokio::net::TcpStream::connect(address)
-            .await
-            .map_err(tokio_tungstenite::tungstenite::Error::Io)?;
-        let mut config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default();
-        config.max_message_size = Some(MAX_SIGNAL_FRAME);
-        config.max_frame_size = Some(MAX_SIGNAL_FRAME);
-        tokio_tungstenite::client_async_tls_with_config(
-            url.as_str(),
-            tcp,
-            Some(config),
-            None,
-        )
-        .await
-    };
-    let stream = match tokio::time::timeout(SFU_TIMEOUT, connect).await {
-        Ok(Ok((stream, _))) => stream,
-        Ok(Err(_)) => {
-            // The error string can embed the URL, which carries the JWT.
-            // Only a closed-set category ever leaves this scope.
+    let addresses = match tokio::time::timeout(
+        SFU_TIMEOUT,
+        resolve_public_hosts(&host, port),
+    )
+    .await
+    {
+        Ok(Ok(addresses)) => addresses,
+        Ok(Err(refusal)) => {
             emit(json!({
                 "type": "sfu_state", "generation": generation,
-                "state": "failed", "category": "connect_failed",
+                "state": "failed",
+                "category": resolve_refusal_category(refusal),
             }));
             return;
         }
         Err(_) => {
             emit(json!({
                 "type": "sfu_state", "generation": generation,
-                "state": "failed", "category": "network",
+                "state": "failed", "category": "focus_resolve_timeout",
+            }));
+            return;
+        }
+    };
+    // EVERY approved address, in resolver order, not just the first, under
+    // one shared budget. Why, and the two properties that keep it safe, are
+    // on `walk_addresses`; the POLICY is untouched, because the list is
+    // all-or-nothing public before it gets here.
+    //
+    // `target` is a plain `&Url` so the per-address future can borrow it
+    // without cloning the URL — which carries the JWT — once per attempt.
+    let target = &url;
+    let stream = match walk_addresses(
+        addresses,
+        tokio::time::Instant::now() + SFU_TIMEOUT,
+        move |address| async move {
+            let tcp = tokio::net::TcpStream::connect(address)
+                .await
+                .map_err(tokio_tungstenite::tungstenite::Error::Io)?;
+            let mut config =
+                tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default();
+            config.max_message_size = Some(MAX_SIGNAL_FRAME);
+            config.max_frame_size = Some(MAX_SIGNAL_FRAME);
+            tokio_tungstenite::client_async_tls_with_config(
+                target.as_str(),
+                tcp,
+                Some(config),
+                None,
+            )
+            .await
+        },
+    )
+    .await
+    {
+        ConnectWalk::Connected((stream, _)) => stream,
+        ConnectWalk::TimedOut => {
+            emit(json!({
+                "type": "sfu_state", "generation": generation,
+                "state": "failed", "category": "connect_timeout",
+            }));
+            return;
+        }
+        ConnectWalk::Failed(err) => {
+            // The error STRING can embed the URL, which carries the JWT.
+            // Only a closed-set category ever leaves this scope —
+            // classify_ws_error reads the error's SHAPE and a status code,
+            // never its text.
+            let category = err
+                .as_ref()
+                .map(classify_ws_error)
+                .unwrap_or("connect_failed");
+            emit(json!({
+                "type": "sfu_state", "generation": generation,
+                "state": "failed", "category": category,
             }));
             return;
         }
@@ -1084,6 +1285,300 @@ pub(crate) fn disconnect(bridge: &RustClient) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ONE WORD FOR SEVEN FAILURES WAS THE DEFECT; THIS PINS THE SPLIT.
+    //
+    // Before 2026-09-09 every failure between `authorized` and `signalling`
+    // — the whole DNS + TCP + TLS + HTTP + websocket-upgrade sequence —
+    // emitted `connect_failed`, and the C++ side rendered that as "Couldn't
+    // connect to the call." A macOS bundle reporting exactly that pair could
+    // not be diagnosed at all, because the error's own text can embed the
+    // request URL (which carries the JWT) and is therefore never logged.
+    //
+    // Two properties, both of which the old code failed:
+    //   * distinct causes get distinct categories, and
+    //   * nothing here is derived from an error MESSAGE, so no secret can
+    //     leak through a category.
+    #[test]
+    fn every_connect_failure_shape_has_its_own_category() {
+        use tokio_tungstenite::tungstenite::Error as Ws;
+        use std::io::ErrorKind as Kind;
+
+        let io = |kind: Kind| {
+            classify_ws_error(&Ws::Io(std::io::Error::new(kind, "x")))
+        };
+        // No route is the shape a machine with an AAAA record and no working
+        // IPv6 sees, and it must not read as "the service refused us".
+        assert_eq!(io(Kind::NetworkUnreachable), "sfu_unreachable");
+        assert_eq!(io(Kind::HostUnreachable), "sfu_unreachable");
+        assert_eq!(io(Kind::ConnectionRefused), "sfu_refused_connection");
+        assert_eq!(io(Kind::TimedOut), "connect_timeout");
+        assert_eq!(io(Kind::PermissionDenied), "connect_blocked");
+        assert_eq!(io(Kind::ConnectionReset), "connection_lost");
+        // An unmapped socket error is still a transport failure, never the
+        // generic word: `connect_failed` now means "a websocket error shape
+        // this build does not know", which is a different statement.
+        assert_eq!(io(Kind::InvalidData), "transport_failed");
+
+        let http = |status: u16| {
+            let response =
+                tokio_tungstenite::tungstenite::http::Response::builder()
+                .status(status)
+                .body(None::<Vec<u8>>)
+                .expect("a status-only response");
+            classify_ws_error(&Ws::Http(response))
+        };
+        assert_eq!(http(401), "sfu_forbidden");
+        assert_eq!(http(403), "sfu_forbidden");
+        assert_eq!(http(404), "sfu_not_found");
+        assert_eq!(http(429), "rate_limited");
+        assert_eq!(http(503), "server_error");
+        assert_eq!(http(418), "ws_rejected");
+
+        // A proxy or a captive portal answering something that is not an
+        // upgrade. Its own category, because the remedy is on the network
+        // and not on the SFU.
+        assert_eq!(
+            classify_ws_error(&Ws::Protocol(
+                tokio_tungstenite::tungstenite::error::ProtocolError::
+                    WrongHttpMethod)),
+            "ws_handshake_failed");
+        assert_eq!(
+            classify_ws_error(&Ws::Capacity(
+                tokio_tungstenite::tungstenite::error::CapacityError::
+                    TooManyHeaders)),
+            "ws_frame_too_large");
+        assert_eq!(classify_ws_error(&Ws::ConnectionClosed),
+                   "connection_lost");
+
+        // And the categories are all DIFFERENT words where the causes
+        // differ: a table that collapses is the old defect wearing a test.
+        let distinct = [
+            io(Kind::NetworkUnreachable),
+            io(Kind::ConnectionRefused),
+            io(Kind::TimedOut),
+            io(Kind::PermissionDenied),
+            io(Kind::InvalidData),
+            http(403),
+            http(404),
+            http(418),
+            classify_ws_error(&Ws::Tls(
+                tokio_tungstenite::tungstenite::error::TlsError::
+                    InvalidDnsName)),
+        ];
+        let mut sorted = distinct.to_vec();
+        sorted.sort_unstable();
+        let before = sorted.len();
+        sorted.dedup();
+        assert_eq!(sorted.len(), before,
+                   "two different connect failures share one category");
+    }
+
+    // ── The address walk ─────────────────────────────────────────────────
+    //
+    // The one change in this round that is NOT macOS-guarded, so it is the
+    // one that has to be pinned hardest: it alters what Linux and Windows do
+    // too. Three properties, one case each.
+
+    // 1. AN UNREACHABLE FIRST ADDRESS IS NOT THE ANSWER FOR THE HOST.
+    //
+    // FAILS ON THE OLD CODE, which was `addresses.into_iter().next()` in
+    // rtc.rs plus a single connect: it attempts address one, gets
+    // ENETUNREACH and reports the whole host dead. Both assertions below are
+    // false on it — the second address is never tried, so `tried` holds one
+    // entry and nothing is ever connected.
+    //
+    // This is the shape a Mac with an AAAA record and no working IPv6 route
+    // sees, and macOS offers the AAAA first far more readily than glibc's
+    // RFC 6724 sort does.
+    #[tokio::test]
+    async fn an_unreachable_first_address_is_not_the_whole_host() {
+        use std::sync::{Arc, Mutex};
+
+        let v6: std::net::SocketAddr = "[2001:db8::1]:443".parse().unwrap();
+        let v4: std::net::SocketAddr = "203.0.113.7:443".parse().unwrap();
+        let tried = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&tried);
+
+        let walk = walk_addresses(
+            vec![v6, v4],
+            tokio::time::Instant::now() + Duration::from_secs(5),
+            move |address| {
+                let seen = Arc::clone(&seen);
+                async move {
+                    seen.lock().expect("the walk is single-threaded")
+                        .push(address);
+                    if address.is_ipv6() {
+                        return Err(tokio_tungstenite::tungstenite::Error::Io(
+                            std::io::Error::new(
+                                std::io::ErrorKind::NetworkUnreachable,
+                                "no route")));
+                    }
+                    Ok(address)
+                }
+            },
+        )
+        .await;
+
+        assert!(matches!(walk, ConnectWalk::Connected(address)
+                               if address == v4),
+                "the walk did not fall through to the reachable address");
+        assert_eq!(*tried.lock().expect("poisoned"), vec![v6, v4],
+                   "both addresses must be tried, in resolver order");
+    }
+
+    // 2. N ADDRESSES COST ONE BUDGET, NOT N BUDGETS.
+    //
+    // The obvious way to write the walk — a fresh `timeout(SFU_TIMEOUT, …)`
+    // per address — lets a join hang for N times as long as it can today.
+    // That is a worse failure than the one being fixed.
+    //
+    // THE CASE THAT ACTUALLY DISTINGUISHES THE TWO IS A SLOW FAILURE, and
+    // finding that out cost a wrong test first. An address that HANGS proves
+    // nothing: the walk returns `TimedOut` on the first expiry whichever
+    // timeout it uses, so a fixed-per-address mutation passed. What only a
+    // shared deadline survives is several addresses that each fail slowly
+    // and legitimately — a TCP connect that sits for seconds and then
+    // answers ECONNREFUSED. None of those trips a per-address budget, so
+    // that shape runs all six to completion and costs six times the wait,
+    // while `timeout_at` cuts the walk at the deadline.
+    #[tokio::test]
+    async fn the_whole_address_walk_shares_one_budget() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let addresses: Vec<std::net::SocketAddr> = (1..=6u8)
+            .map(|i| format!("203.0.113.{i}:443").parse().unwrap())
+            .collect();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&attempts);
+        let budget = Duration::from_millis(500);
+        let per_attempt = Duration::from_millis(200);
+
+        let started = std::time::Instant::now();
+        let walk: ConnectWalk<()> = walk_addresses(
+            addresses.clone(),
+            tokio::time::Instant::now() + budget,
+            move |_| {
+                let counter = Arc::clone(&counter);
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    // Slow, and then a RETRYABLE transport failure — so the
+                    // walk legitimately moves on, and nothing here trips a
+                    // per-address timeout of its own.
+                    tokio::time::sleep(per_attempt).await;
+                    Err(tokio_tungstenite::tungstenite::Error::Io(
+                        std::io::Error::new(
+                            std::io::ErrorKind::ConnectionRefused, "closed")))
+                }
+            },
+        )
+        .await;
+        let elapsed = started.elapsed();
+
+        // The deadline, not the address list, is what ends this.
+        assert!(matches!(walk, ConnectWalk::TimedOut),
+                "six slow addresses ran to completion instead of being cut \
+                 off at the shared deadline");
+        assert!(attempts.load(Ordering::SeqCst) < 6,
+                "every address was tried despite the budget running out");
+        // 6 x 200 ms = 1200 ms if each address gets its own budget, against
+        // ~500 ms when they share one. The margin is wide enough that a
+        // loaded machine cannot flake it and narrow enough that the broken
+        // shape cannot slip under it.
+        assert!(elapsed < budget + per_attempt * 2,
+                "the walk took {elapsed:?} against a {budget:?} budget");
+
+        // AND the hanging case, which is bounded by the early return rather
+        // than by the deadline: one attempt, then the walk gives up. Pinned
+        // here because it is the OTHER half of "a join cannot hang for N
+        // budgets", and it is a different mechanism.
+        let hangs = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&hangs);
+        let walk: ConnectWalk<()> = walk_addresses(
+            addresses,
+            tokio::time::Instant::now() + Duration::from_millis(200),
+            move |_| {
+                let counter = Arc::clone(&counter);
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    Ok(())
+                }
+            },
+        )
+        .await;
+        assert!(matches!(walk, ConnectWalk::TimedOut));
+        assert_eq!(hangs.load(Ordering::SeqCst), 1,
+                   "an address that never answers was followed by five more");
+    }
+
+    // 3. A REFUSAL FROM THE SERVER IS NOT RETRIED SOMEWHERE ELSE.
+    //
+    // An HTTP status, a TLS alert or a refused upgrade is the server
+    // answering, and it answers the same way at every address it has.
+    // Walking on would turn one 403 into four, cost the user four round
+    // trips, and report the LAST one — so a transient failure at address
+    // four would mask the real refusal at address one.
+    #[tokio::test]
+    async fn a_refusal_from_the_server_is_not_retried_at_another_address() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        for (status, expected) in
+            [(403u16, "sfu_forbidden"), (404, "sfu_not_found")]
+        {
+            let addresses: Vec<std::net::SocketAddr> = (1..=4u8)
+                .map(|i| format!("203.0.113.{i}:443").parse().unwrap())
+                .collect();
+            let attempts = Arc::new(AtomicUsize::new(0));
+            let counter = Arc::clone(&attempts);
+
+            let walk: ConnectWalk<()> = walk_addresses(
+                addresses,
+                tokio::time::Instant::now() + Duration::from_secs(5),
+                move |_| {
+                    let counter = Arc::clone(&counter);
+                    async move {
+                        counter.fetch_add(1, Ordering::SeqCst);
+                        let response =
+                            tokio_tungstenite::tungstenite::http::Response::
+                                builder()
+                                .status(status)
+                                .body(None::<Vec<u8>>)
+                                .expect("a status-only response");
+                        Err(tokio_tungstenite::tungstenite::Error::Http(
+                            response))
+                    }
+                },
+            )
+            .await;
+
+            assert_eq!(attempts.load(Ordering::SeqCst), 1,
+                       "a {status} was retried at another address");
+            let ConnectWalk::Failed(Some(err)) = walk else {
+                panic!("a {status} did not end the walk as a failure");
+            };
+            assert_eq!(classify_ws_error(&err), expected);
+        }
+    }
+
+    // A NAME THAT DOES NOT RESOLVE IS NOT A PRIVATE ADDRESS.
+    //
+    // All three used to arrive as one `None` and were reported with the
+    // private-address sentence, which sends the reader to fix a thing that
+    // is not broken.
+    #[test]
+    fn each_host_refusal_keeps_its_own_reason() {
+        assert_eq!(resolve_refusal_category(HostRefusal::PrivateName),
+                   "focus_private_name");
+        assert_eq!(resolve_refusal_category(HostRefusal::Unresolved),
+                   "focus_unresolved");
+        // The one case the existing user-facing sentence is true of, so it
+        // keeps the category that sentence is keyed on.
+        assert_eq!(resolve_refusal_category(HostRefusal::NonPublicAddress),
+                   "focus_unroutable");
+    }
 
     #[test]
     fn signal_targets_are_a_closed_set_and_round_trip() {

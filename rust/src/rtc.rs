@@ -256,25 +256,70 @@ pub(crate) fn public_hostname(name: &str) -> bool {
         || lower.ends_with(".internal"))
 }
 
+/// Why a host could not be turned into an address the policy approves.
+///
+/// THREE DIFFERENT FAILURES USED TO ARRIVE AS ONE `None`, and the sentence
+/// the SFU lane put on that `None` — "this call's service is on a private
+/// network address" — is true for exactly one of them. A name that does not
+/// resolve at all, and a name whose owner refused to answer, were both
+/// reported to the user as a private-address policy refusal, which sends
+/// them to fix a thing that is not broken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostRefusal {
+    /// The NAME itself can only ever mean this machine or this link
+    /// (`localhost`, `.local`, `.internal`), refused before any lookup.
+    PrivateName,
+    /// The resolver answered with nothing, or did not answer.
+    Unresolved,
+    /// It resolved, and at least one address is private/loopback/link-local
+    /// or otherwise not public. Policy refuses the whole name (see
+    /// docs/matrixrtc.md): one public A record beside a loopback AAAA is
+    /// exactly the rebinding shape this check exists for.
+    NonPublicAddress,
+}
+
+/// Every address `host` resolves to, in resolver order, when EVERY one of
+/// them is public.
+///
+/// Resolution is the only way to see what a name actually points at: an
+/// attacker-chosen focus name with a private A record passes every literal
+/// check and still lands on the loopback. The all-or-nothing rule is
+/// deliberate and unchanged — this returns the whole approved list rather
+/// than one address so a caller that CONNECTS can try the next one, which
+/// `resolve_public_host` (single address, unchanged) cannot.
+pub(crate) async fn resolve_public_hosts(
+    host: &str,
+    port: u16,
+) -> Result<Vec<std::net::SocketAddr>, HostRefusal> {
+    if !public_hostname(host) {
+        return Err(HostRefusal::PrivateName);
+    }
+    let addresses: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|_| HostRefusal::Unresolved)?
+        .collect();
+    if addresses.is_empty() {
+        return Err(HostRefusal::Unresolved);
+    }
+    if !addresses.iter().all(|address| public_ip(address.ip())) {
+        return Err(HostRefusal::NonPublicAddress);
+    }
+    Ok(addresses)
+}
+
 /// Resolve `host` and require EVERY address to be public, returning the
-/// first so the caller can pin it. Resolution is the only way to see what a
-/// name actually points at: an attacker-chosen focus name with a private A
-/// record passes every literal check and still lands on the loopback.
+/// first so the caller can pin it.
+///
+/// The single-address form, for callers that PIN one address into something
+/// that takes exactly one (reqwest's `.resolve()`). Behaviour is unchanged.
 pub(crate) async fn resolve_public_host(
     host: &str,
     port: u16,
 ) -> Option<std::net::SocketAddr> {
-    if !public_hostname(host) {
-        return None;
-    }
-    let addresses: Vec<std::net::SocketAddr> =
-        tokio::net::lookup_host((host, port)).await.ok()?.collect();
-    if addresses.is_empty()
-        || !addresses.iter().all(|address| public_ip(address.ip()))
-    {
-        return None;
-    }
-    addresses.into_iter().next()
+    resolve_public_hosts(host, port)
+        .await
+        .ok()
+        .and_then(|addresses| addresses.into_iter().next())
 }
 
 // ---------------------------------------------------------------------------

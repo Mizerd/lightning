@@ -1143,7 +1143,11 @@ QString SfuCallController::userFacingError(const QString &category) const
         return tr("You don't have permission to join calls in this room. "
                   "A room admin can raise your power level in it; Lightning "
                   "can't change what call membership itself requires.");
-    if (category == QLatin1String("forbidden"))
+    // `sfu_forbidden` is the SAME fact one step later: a 401/403 on the
+    // websocket upgrade rather than on `/sfu/get`. Same sentence on purpose;
+    // the log carries the category, so the two stay distinguishable there.
+    if (category == QLatin1String("forbidden")
+        || category == QLatin1String("sfu_forbidden"))
         return tr("The calling service refused to connect you to this call.");
     // `unsupported` HERE IS NOT A FACT ABOUT OUR HOMESERVER. It is a 404
     // from the SFU's own JWT service (sfu.rs, the `/sfu/get` status map),
@@ -1153,7 +1157,10 @@ QString SfuCallController::userFacingError(const QString &category) const
     // administrator. The homeserver's own "no MatrixRTC" answer arrives as
     // `unrecognized`/`not_found` below, and as the `no_transport` join
     // block before a call is ever attempted.
-    if (category == QLatin1String("unsupported"))
+    // `sfu_not_found` is a 404 on the websocket upgrade — the host is there
+    // and has no LiveKit at that path. Same fact, same sentence.
+    if (category == QLatin1String("unsupported")
+        || category == QLatin1String("sfu_not_found"))
         return tr("The calling service this call uses didn't answer. It's "
                   "chosen by whoever started the call, not by your "
                   "homeserver.");
@@ -1178,12 +1185,79 @@ QString SfuCallController::userFacingError(const QString &category) const
         return tr("This call's service is on a private network address, "
                   "which Lightning won't connect to. Whoever set up the call "
                   "needs to give it an address reachable from the internet.");
+    // ── EVERYTHING BETWEEN `authorized` AND `signalling` ────────────────
+    //
+    // Those two states used to have ONE category between them. A macOS
+    // bundle reported `authorized` and then `failed connect_failed`, and
+    // that pair is compatible with a DNS answer nobody could use, a TLS
+    // refusal, an HTTP status, a proxy that will not upgrade, a firewall
+    // and a dead SFU — six administrators, one sentence. The Rust half now
+    // classifies each (sfu.rs, `classify_ws_error`); this is where each one
+    // becomes something a person can act on. Same discipline as the
+    // `forbidden` split in `e21dd08`: one cause per category, and the log
+    // carries the category verbatim on every path below.
+
+    // THE NAME DID NOT RESOLVE. Not a policy refusal, which is what this
+    // used to be reported as — `focus_unroutable`'s sentence names a
+    // private address, and a name with no records has no address at all.
+    if (category == QLatin1String("focus_unresolved")
+        || category == QLatin1String("focus_resolve_timeout"))
+        return tr("Lightning couldn't look up this call's service. Its name "
+                  "doesn't resolve, or this network's DNS isn't answering.");
+    // The name can only ever mean this machine (`localhost`, `.local`,
+    // `.internal`). Refused before any lookup, so it is not the resolved
+    // private-address case and the remedy is different: the call's service
+    // has to be advertised under a name that means the same thing to
+    // everyone in the room.
+    if (category == QLatin1String("focus_private_name"))
+        return tr("This call's service is advertised under a name that only "
+                  "means \"this computer\", so Lightning won't connect to "
+                  "it. Whoever set up the call needs to give it a real "
+                  "address.");
+    // NO ROUTE. This is the shape a machine with an IPv6 address record and
+    // no working IPv6 sees, and calling it "couldn't connect" hides that
+    // the address itself was never reachable from here.
+    if (category == QLatin1String("sfu_unreachable"))
+        return tr("This network has no route to the call's service. If "
+                  "you're on a VPN or a restricted network, that's the "
+                  "first thing to check.");
+    // The address answered and said no: nothing is listening on the port
+    // the call service published.
+    if (category == QLatin1String("sfu_refused_connection"))
+        return tr("The call's service refused the connection — nothing is "
+                  "listening at the address it published.");
+    // Something LOCAL stopped us. A firewall, or a sandbox that was not
+    // granted outgoing network access.
+    if (category == QLatin1String("connect_blocked"))
+        return tr("Something on this computer blocked the connection to the "
+                  "call's service — a firewall or a security policy.");
+    // The connection was opened and nothing came back inside the budget.
+    if (category == QLatin1String("connect_timeout"))
+        return tr("The call's service didn't answer in time.");
+    // TLS. The trust roots are compiled into Lightning, so this is about
+    // the server's certificate or its TLS configuration, never about the
+    // certificates installed on this machine.
+    if (category == QLatin1String("tls_failed"))
+        return tr("Lightning couldn't open a secure connection to the "
+                  "call's service. Its certificate or its TLS setup was "
+                  "refused.");
+    // It answered, and what it answered was not a websocket upgrade. In
+    // practice that is something in between — a proxy, a captive portal, a
+    // filtering appliance.
+    if (category == QLatin1String("ws_rejected")
+        || category == QLatin1String("ws_handshake_failed"))
+        return tr("The call's service answered, but not as a call service. "
+                  "Something between you and it — a proxy or a sign-in "
+                  "portal — may be intercepting the connection.");
     // `send_failed` is a websocket write that did not go out: from the
     // user's side that is the connection, and it is deliberately folded in
-    // rather than given a sentence of its own.
+    // rather than given a sentence of its own. `transport_failed` is the
+    // socket error nothing above named, and `connect_failed` survives as
+    // the word for a websocket error shape this build does not know.
     if (category == QLatin1String("network")
         || category == QLatin1String("connect_failed")
         || category == QLatin1String("connection_lost")
+        || category == QLatin1String("transport_failed")
         || category == QLatin1String("send_failed"))
         return tr("Couldn't connect to the call.");
     if (category == QLatin1String("server_error"))
@@ -1197,9 +1271,14 @@ QString SfuCallController::userFacingError(const QString &category) const
     // answer went wrong, and the user's remedy is identical for all four.
     // The distinction is for the LOG, which carries the category verbatim
     // on every one of these paths.
+    // `focus_url_invalid` (the SFU's own websocket URL will not parse) and
+    // `ws_frame_too_large` (its handshake answer exceeded the signalling
+    // frame ceiling) join them: same remedy, different line in the log.
     if (category == QLatin1String("invalid")
         || category == QLatin1String("invalid_transport")
         || category == QLatin1String("invalid_request")
+        || category == QLatin1String("focus_url_invalid")
+        || category == QLatin1String("ws_frame_too_large")
         || category == QLatin1String("unknown"))
         return tr("This call's service isn't set up correctly, so Lightning "
                   "couldn't connect to it.");
@@ -1626,11 +1705,34 @@ void SfuCallController::onSfuState(const QString &state,
         return;
     }
     if (state == QLatin1String("failed")) {
-        // The OTHER `forbidden`. This one is the call service refusing the
-        // connection, not the room refusing our membership state event —
-        // see membershipRefusalCategory().
-        qCWarning(lcSfuCall)
-            << "the call SERVICE refused this call category=" << category;
+        // "REFUSED" IS A CLAIM, AND IT WAS PRINTED FOR FAILURES NOBODY
+        // REFUSED. A DNS lookup with no answer, a TLS handshake, a socket
+        // with no route — every one of them logged "the call SERVICE
+        // refused this call", which names the wrong machine and sends the
+        // reader to the wrong administrator. Only the categories that are
+        // an actual answer FROM the service say refused now.
+        //
+        // The other branch is still a WARNING: the call did not happen.
+        const bool serviceAnswered =
+            category == QLatin1String("forbidden")
+            || category == QLatin1String("sfu_forbidden")
+            || category == QLatin1String("unsupported")
+            || category == QLatin1String("sfu_not_found")
+            || category == QLatin1String("rate_limited")
+            || category == QLatin1String("server_error")
+            || category == QLatin1String("ws_rejected")
+            || category == QLatin1String("membership_forbidden");
+        if (serviceAnswered) {
+            // The OTHER `forbidden`. This one is the call service refusing
+            // the connection, not the room refusing our membership state
+            // event — see membershipRefusalCategory().
+            qCWarning(lcSfuCall)
+                << "the call SERVICE refused this call category=" << category;
+        } else {
+            qCWarning(lcSfuCall)
+                << "this call could not reach its service category="
+                << category;
+        }
         teardown(State::Failed, userFacingError(category));
         Q_EMIT callFailed(m_lastError);
         return;

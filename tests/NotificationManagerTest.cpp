@@ -4,10 +4,18 @@
 
 #include "notifications/NotificationManager.h"
 
+#include "app/TrayIcon.h"
 #include "matrix/TimelineEvent.h"
 
+#include <QColor>
+#include <QImage>
 #include <QMetaMethod>
+#include <QPixmap>
+#include <QPointF>
+#include <QRectF>
 #include <QtTest/QtTest>
+
+#include <cmath>
 
 namespace {
 TimelineEvent incomingText(const QString &body = QStringLiteral("hello"))
@@ -561,6 +569,109 @@ private Q_SLOTS:
                                   Q_ARG(quint32, 100u),
                                   Q_ARG(QString, QStringLiteral("default")));
         QCOMPARE(spy.count(), 1); // the call card survived the eviction
+    }
+
+    // ── The macOS menu-bar badge, tested off a Mac ───────────────────────
+    //
+    // The status item takes a TEMPLATE image: AppKit reads only the ALPHA
+    // channel and paints the shape itself. So the ordinary badge — a red
+    // disc with white digits on it — is invisible there twice over: the red
+    // becomes whatever the menu bar's ink is, and the white digits vanish
+    // into it entirely, leaving a solid blob that says nothing.
+    //
+    // The Apple-only part of this feature is one `#ifdef` around the CALL
+    // SITE. The rule itself is pure and compiled everywhere on purpose, so
+    // the thing that has to be right can be proven on Linux — the badge is
+    // written into the alpha channel, and the digit is KNOCKED OUT of the
+    // disc rather than drawn on top of it.
+    void theMacMenuBarBadgeIsCutIntoTheAlphaChannel()
+    {
+        // A fully opaque square standing in for the template asset. Opaque
+        // everywhere is the strongest fixture: every transparent pixel in
+        // the result was necessarily produced by this function.
+        QPixmap base(44, 44);
+        base.fill(QColor(0, 0, 0, 255));
+
+        const QImage plain =
+            TrayIcon::macTemplateBadged(base, QString{}).toImage();
+        QCOMPARE(plain.pixelColor(43, 43).alpha(), 255);
+
+        const QImage badged =
+            TrayIcon::macTemplateBadged(base, QStringLiteral("3"))
+                .toImage()
+                .convertToFormat(QImage::Format_ARGB32);
+
+        // Geometry taken from the production constants rather than
+        // guessed at, so the case moves with them instead of silently
+        // sampling the wrong pixel.
+        const qreal side = 44.0;
+        const qreal diameter = side * 0.62;
+        const QRectF disc(side - diameter, side - diameter,
+                          diameter, diameter);
+        const QPointF hub = disc.center();
+        const qreal radius = diameter / 2.0;
+        const qreal moat = qMax<qreal>(1.0, side * 0.08);
+        auto alphaAt = [&](qreal x, qreal y) {
+            return badged.pixelColor(qRound(x), qRound(y)).alpha();
+        };
+
+        // 1. The badge disc is OPAQUE. Sampled off-centre so the digit
+        //    knocked out of the middle is not what is being measured.
+        QVERIFY2(alphaAt(hub.x() + radius * 0.7, hub.y()) > 200,
+                 "the badge disc is not opaque, so the menu bar would paint "
+                 "nothing where the count should be");
+
+        // 2. The digit is CLEARED, not painted. On the old code path it was
+        //    white ink, and a template image keeps no colour — a white "3"
+        //    on a black disc IS a black disc. This is the assertion that
+        //    fails on that path.
+        int cleared = 0;
+        for (int y = 0; y < badged.height(); ++y) {
+            for (int x = 0; x < badged.width(); ++x) {
+                const QPointF from(x - hub.x(), y - hub.y());
+                if (QPointF::dotProduct(from, from)
+                    > radius * radius * 0.81)
+                    continue;
+                if (badged.pixelColor(x, y).alpha() < 40)
+                    ++cleared;
+            }
+        }
+        QVERIFY2(cleared > 0,
+                 "nothing was knocked out of the badge disc, so the count "
+                 "is a featureless blob in the menu bar");
+
+        // 3. A MOAT separates the badge from the mark beneath it, or the
+        //    two fuse into one shape the moment colour is discarded. Walked
+        //    along the diagonal between the disc's edge and the moat's,
+        //    rather than sampled at one computed pixel: that band is a few
+        //    pixels wide and antialiasing owns its edges.
+        bool gap = false;
+        for (qreal d = radius + 0.5; d < radius + moat && !gap; d += 0.5) {
+            const qreal offset = d / std::sqrt(2.0);
+            gap = alphaAt(hub.x() - offset, hub.y() - offset) < 40;
+        }
+        QVERIFY2(gap,
+                 "the badge touches the mark it sits on, which in a "
+                 "template image is one merged blob");
+
+        // 4. The dot form has no knockout at all — there is no count to
+        //    show, and a hole in it would read as a second, smaller thing.
+        const QImage dot =
+            TrayIcon::macTemplateBadged(base, QStringLiteral("\u2022"))
+                .toImage()
+                .convertToFormat(QImage::Format_ARGB32);
+        const qreal dotDiameter = side * 0.42;
+        const QPointF dotHub =
+            QRectF(side - dotDiameter, side - dotDiameter,
+                   dotDiameter, dotDiameter).center();
+        QCOMPARE(dot.pixelColor(qRound(dotHub.x()), qRound(dotHub.y()))
+                     .alpha(),
+                 255);
+
+        // 5. And an empty label changes nothing: no unread state must not
+        //    put a mark of any kind in the menu bar.
+        QCOMPARE(TrayIcon::macTemplateBadged(base, QString{}).size(),
+                 base.size());
     }
 };
 

@@ -3889,11 +3889,40 @@ private Q_SLOTS:
             { QStringLiteral("connect_failed"),    QStringLiteral("connect") },
             { QStringLiteral("connection_lost"),   QStringLiteral("connect") },
             { QStringLiteral("send_failed"),       QStringLiteral("connect") },
+            { QStringLiteral("transport_failed"),  QStringLiteral("connect") },
             { QStringLiteral("server_error"),      QStringLiteral("trouble") },
             { QStringLiteral("invalid"),           QStringLiteral("misconfigured") },
             { QStringLiteral("invalid_transport"), QStringLiteral("misconfigured") },
             { QStringLiteral("invalid_request"),   QStringLiteral("misconfigured") },
+            { QStringLiteral("focus_url_invalid"), QStringLiteral("misconfigured") },
+            { QStringLiteral("ws_frame_too_large"),
+                                                   QStringLiteral("misconfigured") },
             { QStringLiteral("unknown"),           QStringLiteral("misconfigured") },
+            // THE 2026-09-09 SPLIT OF `connect_failed`. Everything between
+            // `authorized` and `signalling` used to be that one word, so a
+            // macOS bundle that failed there said nothing about which of
+            // DNS, TLS, an HTTP status, a websocket upgrade, a firewall or
+            // a dead SFU had happened. Each now has its own category (Rust
+            // `classify_ws_error`) and its own sentence.
+            { QStringLiteral("focus_unresolved"),  QStringLiteral("dns") },
+            { QStringLiteral("focus_resolve_timeout"),
+                                                   QStringLiteral("dns") },
+            { QStringLiteral("focus_private_name"),
+                                                   QStringLiteral("local-name") },
+            { QStringLiteral("sfu_unreachable"),   QStringLiteral("no-route") },
+            { QStringLiteral("sfu_refused_connection"),
+                                                   QStringLiteral("refused-port") },
+            { QStringLiteral("connect_blocked"),   QStringLiteral("blocked") },
+            { QStringLiteral("connect_timeout"),   QStringLiteral("timeout") },
+            { QStringLiteral("tls_failed"),        QStringLiteral("tls") },
+            { QStringLiteral("ws_rejected"),       QStringLiteral("not-a-ws") },
+            { QStringLiteral("ws_handshake_failed"),
+                                                   QStringLiteral("not-a-ws") },
+            // The websocket-upgrade twins of the two categories the JWT
+            // service already had. Same fact one step later, so they share
+            // the sentence deliberately — the log keeps them apart.
+            { QStringLiteral("sfu_forbidden"),     QStringLiteral("refused") },
+            { QStringLiteral("sfu_not_found"),     QStringLiteral("no-service") },
         };
 
         QHash<QString, QString> saidForGroup;

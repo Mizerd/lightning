@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QPixmap>
 #include <QString>
 
 class QImage;
@@ -57,6 +58,31 @@ public:
     // static so the repaint rule — repaint only when this string changes —
     // is testable on a machine with no system tray at all.
     static QString badgeLabel(int count, bool anyUnread);
+
+    // ── The macOS menu bar ────────────────────────────────────────────────
+    //
+    // macOS takes a TEMPLATE image for a status item: AppKit reads only the
+    // ALPHA channel and paints the shape itself, so one asset is correct on
+    // a light menu bar, on a dark one, and inverted while a menu is pulled
+    // down. Lightning shipped the full-colour application icon there, which
+    // is wrong on macOS and right nowhere; painting it white would be wrong
+    // in exactly the opposite appearance, which is the problem a template
+    // solves and why that was refused.
+    //
+    // NO OBJECTIVE-C IS NEEDED. Qt's cocoa backend does
+    // `[nsimage setTemplate:icon.isMask()]` when it hands the icon to the
+    // NSStatusItem (qcocoasystemtrayicon.mm, unchanged from 6.8 to 6.11), so
+    // `QIcon::setIsMask(true)` reaches `setTemplate:` through supported API
+    // and a shim would only duplicate it.
+    //
+    // This is the badge half, and it is PURE and compiled on every platform
+    // precisely so it can be tested without a Mac; only the CALL SITE is
+    // Apple-guarded, so Linux and Windows keep the colour icon they have.
+    // The badge cannot be the red disc used elsewhere — a template has no
+    // colour — so it is drawn in the alpha channel instead: a moat of clear
+    // pixels, an opaque disc, and the digit KNOCKED OUT of it, which is the
+    // shape the menu bar renders as a counter.
+    static QPixmap macTemplateBadged(const QPixmap &base, const QString &label);
 
     // A desktop notification through the icon's own balloon — the ONLY
     // delivery Qt offers where there is no freedesktop daemon (Windows shows

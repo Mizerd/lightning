@@ -16,6 +16,7 @@ namespace lightning::gst {
 namespace {
 
 QString g_bundledPath;
+QString g_scannerPath;
 
 /// Point GStreamer at the plugins shipped beside the executable.
 ///
@@ -85,6 +86,17 @@ bool ensureInitialised(QString *whyNot)
         // gets an empty registry — which is exactly the defect this unit was
         // created for.
         applyBundledPluginPath();
+#ifdef Q_OS_MACOS
+        // APPLE ONLY, and the guard is on the CALL rather than on the
+        // function. Windows works today on GStreamer's in-process fallback
+        // and Linux uses a system GStreamer whose compiled-in libexec path
+        // is correct, so pointing either of them somewhere else would be a
+        // behaviour change to a lane that is not broken. Guarding the call
+        // and not the body is what lets the whole rule be compiled, type
+        // checked and TESTED on a machine with no Mac in it — the same
+        // arrangement `appImageBundledPluginPath` already uses.
+        applyBundledScannerPath(QCoreApplication::applicationDirPath());
+#endif
         GError *error = nullptr;
         ok = gst_init_check(nullptr, nullptr, &error) == TRUE;
         if (error) {
@@ -117,6 +129,47 @@ QString versionString()
 QString bundledPluginPath()
 {
     return g_bundledPath;
+}
+
+bool applyBundledScannerPath(const QString &applicationDirPath)
+{
+    // GStreamer reads the versioned name first and falls back to the plain
+    // one, so BOTH have to be checked before we decide nobody has spoken.
+    // An explicit override wins, exactly as it does for the plugin path:
+    // someone debugging a packaged build has said what they want.
+    if (!qEnvironmentVariableIsEmpty("GST_PLUGIN_SCANNER_1_0")
+        || !qEnvironmentVariableIsEmpty("GST_PLUGIN_SCANNER"))
+        return false;
+    const QString scanner = scannerPathBesideExecutable(applicationDirPath);
+    if (scanner.isEmpty())
+        return false;
+    const QFileInfo info(scanner);
+    // Executable as well as present. An unsigned or mis-signed helper is
+    // SIGKILLed by the kernel on Apple Silicon with no message at all, which
+    // reads exactly like the missing-file case — so this cannot prove the
+    // helper will run, only that there is one to try. GStreamer's own
+    // in-process fallback covers the rest, and `--call-media-status` reports
+    // what was found, so a packaging defect is visible without placing a call.
+    if (!info.isFile() || !info.isExecutable())
+        return false;
+    const QByteArray encoded = QFile::encodeName(scanner);
+    qputenv("GST_PLUGIN_SCANNER_1_0", encoded);
+    qputenv("GST_PLUGIN_SCANNER", encoded);
+    g_scannerPath = scanner;
+    return true;
+}
+
+QString scannerPathBesideExecutable(const QString &applicationDirPath)
+{
+    if (applicationDirPath.isEmpty())
+        return {};
+    return QDir(applicationDirPath)
+        .absoluteFilePath(QStringLiteral("gst-plugin-scanner"));
+}
+
+QString bundledScannerPath()
+{
+    return g_scannerPath;
 }
 
 QString appImageBundledPluginPath(const QString &appDir,

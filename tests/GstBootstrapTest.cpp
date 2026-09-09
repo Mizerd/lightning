@@ -82,6 +82,174 @@ private slots:
                      appDir, bundle + QStringLiteral("-old"), QString{}).isEmpty(),
                  "a neighbouring directory was accepted as the bundle");
     }
+
+    // THE REGISTRY HELPER IS DERIVED, NEVER WRITTEN DOWN.
+    //
+    // The macOS bundle shipped with no `gst-plugin-scanner`, so every launch
+    // printed "External plugin loader failed" and GStreamer fell back to
+    // scanning plugins in-process. That fallback works — which is exactly
+    // why nothing caught it, and why the maintainer's call log carried a
+    // GStreamer warning that had nothing to do with the failure underneath
+    // it. The fix must come from the app's OWN location: a hardcoded path is
+    // the builder's `libexec`, which is the same assumption that made
+    // GST_PLUGIN_PATH necessary in the first place.
+    //
+    // This is the pure half of that rule. It is compiled on every platform
+    // and CALLED only on Apple (GstBootstrap.cpp), so the contract the macOS
+    // packaging script has to satisfy is testable on a machine that has no
+    // Mac in it.
+    void theScannerPathIsDerivedFromTheExecutablesOwnDirectory()
+    {
+        // The real shape: Lightning.app/Contents/MacOS.
+        const QString macOsDir =
+            QStringLiteral("/Applications/Lightning.app/Contents/MacOS");
+        QCOMPARE(lightning::gst::scannerPathBesideExecutable(macOsDir),
+                 macOsDir + QStringLiteral("/gst-plugin-scanner"));
+
+        // It follows the executable wherever the bundle is, which is the
+        // whole point — a user drags the app anywhere and a signed, quoted
+        // path from the build machine would be dead.
+        const QString elsewhere =
+            QStringLiteral("/Users/someone/Downloads/Lightning.app/Contents/MacOS");
+        QCOMPARE(lightning::gst::scannerPathBesideExecutable(elsewhere),
+                 elsewhere + QStringLiteral("/gst-plugin-scanner"));
+
+        // A relative directory is still resolved to an absolute path: the
+        // value goes into an environment variable that GStreamer execs, and
+        // it must not depend on the working directory the app was started
+        // from (a Finder launch has "/" for one).
+        QVERIFY(lightning::gst::scannerPathBesideExecutable(
+                    QStringLiteral("MacOS")).startsWith(QLatin1Char('/')));
+
+        // Nothing in, nothing out — never a bare "/gst-plugin-scanner",
+        // which is a real path an attacker could plant on a system that
+        // permits it.
+        QVERIFY(lightning::gst::scannerPathBesideExecutable(QString{})
+                    .isEmpty());
+    }
+
+    // ...AND A DEVELOPMENT BUILD MUST NOT CLAIM ONE.
+    //
+    // `bundledScannerPath()` reports what this process actually applied,
+    // so that `--call-media-status` states a fact rather than a layout.
+    // This suite never calls `ensureInitialised`, so nothing was applied and
+    // the answer must be empty on every platform. Returning the path the
+    // layout WOULD use is the same silent-absence lie that made the AppImage
+    // report `bundled= false` while running on its own GStreamer.
+    void aBuildThatAppliedNoScannerReportsNone()
+    {
+        QVERIFY(lightning::gst::bundledScannerPath().isEmpty());
+    }
+
+    // ---- applyBundledScannerPath ------------------------------------------
+    //
+    // Only the CALL SITE is Apple-guarded; the body is ordinary logic, and
+    // while it stayed file-local that logic had no coverage on any platform.
+    // These run on Linux and would have run on a Mac too.
+    //
+    // Each case restores the environment itself: the function writes process
+    // env, and a leaked GST_PLUGIN_SCANNER would silently change what every
+    // later case (and the rest of this binary) sees.
+
+    void anExecutableScannerBesideTheBinaryIsApplied()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString scanner = dir.filePath(QStringLiteral("gst-plugin-scanner"));
+        QVERIFY(writeExecutable(scanner));
+        const EnvGuard guard;
+
+        QVERIFY(lightning::gst::applyBundledScannerPath(dir.path()));
+        // BOTH spellings, because GStreamer reads the versioned name first
+        // and falls back to the plain one.
+        QCOMPARE(qEnvironmentVariable("GST_PLUGIN_SCANNER_1_0"), scanner);
+        QCOMPARE(qEnvironmentVariable("GST_PLUGIN_SCANNER"), scanner);
+        QCOMPARE(lightning::gst::bundledScannerPath(), scanner);
+    }
+
+    // A file that is THERE but cannot be run is the shape a mis-signed helper
+    // takes: on Apple Silicon the kernel SIGKILLs it with no message, which
+    // reads exactly like the missing-file case. Refusing it leaves GStreamer
+    // its own working fallback instead of pointing it at something dead.
+    void aScannerThatCannotBeExecutedIsRefused()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString scanner = dir.filePath(QStringLiteral("gst-plugin-scanner"));
+        QVERIFY(writeExecutable(scanner, /*executable=*/false));
+        const EnvGuard guard;
+
+        QVERIFY(!lightning::gst::applyBundledScannerPath(dir.path()));
+        QVERIFY(qEnvironmentVariableIsEmpty("GST_PLUGIN_SCANNER_1_0"));
+        QVERIFY(qEnvironmentVariableIsEmpty("GST_PLUGIN_SCANNER"));
+    }
+
+    void aBundleCarryingNoScannerIsRefused()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const EnvGuard guard;
+
+        QVERIFY(!lightning::gst::applyBundledScannerPath(dir.path()));
+        QVERIFY(qEnvironmentVariableIsEmpty("GST_PLUGIN_SCANNER"));
+    }
+
+    // Someone debugging a packaged build has said what they want, and it
+    // wins — under EITHER spelling, or the override is honoured only half
+    // the time and which half depends on GStreamer's own lookup order.
+    void anExistingOverrideIsNeverReplaced()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QVERIFY(writeExecutable(dir.filePath(QStringLiteral("gst-plugin-scanner"))));
+
+        for (const char *name : { "GST_PLUGIN_SCANNER", "GST_PLUGIN_SCANNER_1_0" }) {
+            const EnvGuard guard;
+            const QByteArray chosen = "/somewhere/else/gst-plugin-scanner";
+            qputenv(name, chosen);
+            QVERIFY2(!lightning::gst::applyBundledScannerPath(dir.path()),
+                     name);
+            QCOMPARE(qgetenv(name), chosen);
+        }
+    }
+
+private:
+    // Saves and restores both spellings, whatever the case does to them.
+    struct EnvGuard {
+        EnvGuard()
+            : versioned(qgetenv("GST_PLUGIN_SCANNER_1_0")),
+              plain(qgetenv("GST_PLUGIN_SCANNER")),
+              hadVersioned(qEnvironmentVariableIsSet("GST_PLUGIN_SCANNER_1_0")),
+              hadPlain(qEnvironmentVariableIsSet("GST_PLUGIN_SCANNER"))
+        {
+            qunsetenv("GST_PLUGIN_SCANNER_1_0");
+            qunsetenv("GST_PLUGIN_SCANNER");
+        }
+        ~EnvGuard()
+        {
+            hadVersioned ? qputenv("GST_PLUGIN_SCANNER_1_0", versioned)
+                         : qunsetenv("GST_PLUGIN_SCANNER_1_0");
+            hadPlain ? qputenv("GST_PLUGIN_SCANNER", plain)
+                     : qunsetenv("GST_PLUGIN_SCANNER");
+        }
+        QByteArray versioned;
+        QByteArray plain;
+        bool hadVersioned;
+        bool hadPlain;
+    };
+
+    static bool writeExecutable(const QString &path, bool executable = true)
+    {
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly))
+            return false;
+        file.write("#!/bin/sh\nexit 0\n");
+        file.close();
+        QFile::Permissions perms = QFile::ReadOwner | QFile::WriteOwner;
+        if (executable)
+            perms |= QFile::ExeOwner;
+        return QFile::setPermissions(path, perms);
+    }
 };
 
 QTEST_MAIN(GstBootstrapTest)
