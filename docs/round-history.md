@@ -15,6 +15,91 @@ By THEME, not chronology, and reduced to rules, refutations, deliberate
 decisions, measured numbers and live status. Features are §7; the caps
 contract, the refutation rule and the probe rule are in the standing warnings.
 
+#### 2026-09-10, the 0.9.4 round: two user reports, five audits, and a sweep
+
+**The two user reports are the ones worth reading.** Both were reported the
+same day in the project's own Matrix room, and in both cases the report's own
+framing was wrong in a way that mattered.
+
+- **OAuth sign-in refused outright by continuwuity.** Two independent
+  reporters, one on the flake and one on the AppImage, so not a local setup.
+  The message names the rule: `invalid_client_metadata: HTTP redirect URIs for
+  native applications do not need to specify a port`. We registered the
+  loopback callback WITH the ephemeral port we were listening on. RFC 8252
+  §7.3 says a native client takes an ephemeral port at request time and the
+  server MUST accept any port, so pinning one is invalid metadata.
+  **GENERALISE: this had nothing to do with our OAuth code being wrong and
+  everything to do with WHICH SERVER we had ever tested against.**
+  continuwuity's `client_metadata.rs` refuses `uri.port().is_some()` outright;
+  MAS validates the same field in a Rego policy that checks the scheme and the
+  loopback host and NEVER LOOKS AT THE PORT. MAS is the only server this flow
+  has ever been live-validated against (§2), which is exactly why a pinned
+  port survived. Both then strip the port at authorization time, so
+  register-portless / request-with-port is the shape both accept, and
+  matrix-sdk 0.18 supports it — `OAuthAuthCodeUrlBuilder` takes the request
+  URI as its own argument and never reads it back out of the metadata. The
+  fix retries once, on the RFC 7591 error CODE and never on prose.
+- **"Clicking a notification sends me to a broken room."** Reported as a
+  regression between 0.9.2 and 0.9.3. **It was not a regression, and saying so
+  was the finding.** `qml/Main.qml` did `app.currentRoomId = roomId` — the
+  property WRITE — where every other navigation calls `openRoom()`, and
+  `openRoom()` is the only caller of `openRoomTimeline()`, which is the only
+  caller of `mx_rust_timeline_open`. So a room entered from a notification
+  never got a live SDK timeline: the navigation succeeds, the header and
+  composer switch, and the timeline shows only the bounded background sync
+  mirror with `paginationReady()` false forever. **AND IT IS STICKY** —
+  `openRoom()`'s `alreadyOpen` guard skips the SDK open for a room this path
+  has already made current, so clicking the same room in the list afterwards
+  repairs nothing. The line is unchanged since 0.6.0; what changed was
+  REACHABILITY, because a build without QtDBus had no notifications at all
+  until the tray balloon shipped in 0.9.1. GENERALISE: when a reporter dates a
+  regression, check whether the PATH is new rather than assuming the CODE is.
+
+**The §18 review earned its keep twice, and the second time is the lesson.**
+One non-author reviewer, two passes, six findings, all fixed. First pass
+found a regression *the fix itself introduced*: gating the notification emit
+on a non-empty room id killed ROOMLESS notifications on Linux, the one
+platform where that path always worked — `qml/Main.qml` calls
+`raiseIntoView()` BEFORE it checks the room id, and "wants to verify a
+session. Open Lightning to review it." has no room by design. Second pass
+found that the regression test written for the *first* correction passed on
+the very form the first pass had rejected: the composite was built from a
+room that was already open, so "reduced and reopened" and "did nothing at
+all" were the same observation. **GENERALISE: a fixture that starts in the
+state the fix produces cannot discriminate. Start from the state the DEFECT
+produces.**
+
+**Live GUI sweep, on two instances against real accounts.** Nine passes, and
+three of them are firsts:
+
+- The Home **"Your spaces" strip renders**. It could never have rendered on
+  any account: `spacesSummary()` filtered `m_rooms`, and `passesScopeFilter`'s
+  first line drops exactly `isSpace && Joined`, which is the predicate
+  spacesSummary requires. Dead since it was written.
+- The find bar's **source strip and coverage line**, both recorded in §16 as
+  never having been observed from the GUI.
+- **A redaction removes the row from the local plaintext index, and a forced
+  re-index does not bring it back.** The coverage line is the evidence and it
+  is the cleanest number this round produced: 55 messages indexed, 56 after
+  indexing the new one, 55 after the redaction, still 55 after re-indexing.
+  Before this round `SearchIndex::remove_event` had NO CALLER on the real
+  backend at all — `eventRedacted` is emitted only by the mock and the legacy
+  HTTP client — so §6's single named obligation for the search-index
+  exception was simply not met.
+- Leaving one room removes **exactly** that room, every other row intact, no
+  `malformed diff rejected` line. That is the id-checked positional removal.
+- Escape closes Settings with the room info panel open, and still closes the
+  info panel afterwards — the two-enabled-Shortcuts ambiguity fixed, and the
+  new `app.currentScreen === 1` guard proven not to over-fire.
+
+**A fixture that cannot discriminate is not a pass.** The sweep plan for this
+round explicitly marked which cases could not fail on this fixture (the
+room-list storm on a small account, the state-bound case on a two-member
+room, the account-switch stall on tiny accounts) and required them to be
+reported as "cannot discriminate" rather than PASS. The room fixture was
+built out to 38 rooms and 2 Spaces specifically so the room-list cases could
+bite.
+
 #### 2026-09-09, the membership read a call cannot trust (GitHub issue #10)
 
 Reported by an outside user, with a full call log, after two earlier rounds on

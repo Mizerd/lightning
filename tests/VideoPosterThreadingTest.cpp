@@ -18,6 +18,7 @@
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QDataStream>
 #include <QFile>
 #include <QMutex>
 #include <QSignalSpy>
@@ -101,6 +102,48 @@ private Q_SLOTS:
 
     // Both call sites (MediaBridge's cache, AttachmentQueueModel's send
     // queue) touch objects owned by their own thread inside this slot.
+    // AN AUDIO FILE HAS NO VIDEO TRACK, SO IT HAS NO POSTER — AND IT STILL
+    // HAS A LENGTH.
+    //
+    // `bf3893a` shipped "an attached audio file carries its duration" and was
+    // a no-op on the real path: the branch that reports an EMPTY poster
+    // passed a literal 0 and threw the duration away, so an attached song
+    // still went out as "0:00". The header states the contract in as many
+    // words — when `jpeg` is empty, `durationMs` IS NOT invalid.
+    //
+    // Nothing caught it because both existing C++ cases call `applyPoster`
+    // directly through the send queue's test hook, bypassing the extractor
+    // entirely, and this suite's other cases ignore the duration argument.
+    // That is CLAUDE.md §16's recorded lesson verbatim, so this drives the
+    // real extractor against a real decodable file.
+    void anAudioFileReportsItsLengthWithNoPoster()
+    {
+        const QString wav = writeSilentWav(
+            m_dir.filePath(QStringLiteral("tone.wav")), 3000);
+        QVERIFY(!wav.isEmpty());
+
+        VideoPosterExtractor extractor;
+        QSignalSpy ready(&extractor, &VideoPosterExtractor::posterReady);
+        extractor.requestPoster(QStringLiteral("audio"), wav);
+        QVERIFY2(ready.wait(20000), "the extractor never answered for a WAV");
+
+        const QList<QVariant> args = ready.takeFirst();
+        QVERIFY2(args.at(1).toByteArray().isEmpty(),
+                 "a WAV somehow produced a poster; this case no longer tests "
+                 "the empty-poster branch");
+        const qint64 duration = args.at(4).toLongLong();
+        QVERIFY2(duration > 0,
+                 qPrintable(QStringLiteral(
+                     "an audio file reported duration %1: the empty-poster "
+                     "branch is discarding the value it was given, which is "
+                     "what makes an attached song send as 0:00")
+                     .arg(duration)));
+        // Written as 3000 ms of samples. Generous bounds: decoders round.
+        QVERIFY2(duration > 2500 && duration < 3500,
+                 qPrintable(QStringLiteral("expected ~3000 ms, got %1")
+                                .arg(duration)));
+    }
+
     void posterReadyArrivesOnTheCallersThread()
     {
         VideoPosterExtractor extractor;
@@ -147,6 +190,38 @@ private Q_SLOTS:
     }
 
 private:
+    // A REAL, DECODABLE AUDIO FILE, written by hand.
+    //
+    // The repository ships no audio fixture and adding a binary one to pin a
+    // duration would be its own problem. A PCM WAV needs no encoder: a
+    // 44-byte canonical header plus silence, and Qt Multimedia decodes it.
+    // Sizing it from the sample count is what makes the expected duration a
+    // fact rather than a guess.
+    static QString writeSilentWav(const QString &path, int milliseconds)
+    {
+        const int rate = 8000;
+        const int channels = 1;
+        const int bits = 16;
+        const int frames = rate * milliseconds / 1000;
+        const int dataBytes = frames * channels * bits / 8;
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly))
+            return {};
+        QDataStream out(&file);
+        out.setByteOrder(QDataStream::LittleEndian);
+        file.write("RIFF");
+        out << quint32(36 + dataBytes);
+        file.write("WAVEfmt ");
+        out << quint32(16) << quint16(1) << quint16(channels) << quint32(rate)
+            << quint32(rate * channels * bits / 8)
+            << quint16(channels * bits / 8) << quint16(bits);
+        file.write("data");
+        out << quint32(dataBytes);
+        file.write(QByteArray(dataBytes, '\0'));
+        file.close();
+        return path;
+    }
+
     QTemporaryDir m_dir;
     QString m_path;
 };
