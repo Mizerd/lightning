@@ -1239,8 +1239,14 @@ public:
     // engine.
     virtual bool supportsMatrixRtc() const { return false; }
     // Read one room's session. Answers on rtcSessionReceived.
-    virtual quint64 rtcSession(const QString &roomId)
-    { Q_UNUSED(roomId); return 0; }
+    //
+    // `preferServer` reads the room's state from the HOMESERVER rather than
+    // the local store (and merges the two). It costs a `/state` request, so
+    // it is for a caller holding evidence that the store's answer is
+    // incomplete -- an SFU participant that no membership accounts for --
+    // never for an ordinary refresh.
+    virtual quint64 rtcSession(const QString &roomId, bool preferServer = false)
+    { Q_UNUSED(roomId); Q_UNUSED(preferServer); return 0; }
     // Discover usable transports for this account; `roomId` may be empty
     // and, when given, adds the focus the room's participants advertise.
     // Answers on rtcTransportsReceived.

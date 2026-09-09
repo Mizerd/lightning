@@ -84,6 +84,16 @@ struct RtcSessionData {
     /// Server clock, ms. Used so a stale reply cannot overwrite a newer one.
     qint64 observedAtMs = 0;
 
+    /// Where the memberships came from: "store", "server", "server-none"
+    /// (asked, and the room has no membership state at all) or
+    /// "store-fallback" (asked, and the request did not get through).
+    /// Diagnostic only, and it is the line that tells a stale local store
+    /// apart from a room where nobody is really published.
+    QString source;
+    /// How many raw membership state events the read considered, before
+    /// parsing, expiry and dedup.
+    int rawMembershipEvents = 0;
+
     /// A session is "live" when somebody is in it and nothing closed it.
     bool live() const { return !participants.isEmpty() && !slotClosed; }
 };

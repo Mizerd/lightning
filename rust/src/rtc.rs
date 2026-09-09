@@ -647,6 +647,18 @@ pub(crate) struct RtcSession {
     pub slot_closed: bool,
     /// True when a slot state event was present at all.
     pub slot_present: bool,
+    /// Where the memberships came from -- "store", "server", "server-none"
+    /// (asked, and the room has no membership state) or "store-fallback"
+    /// (asked, and the request did not get through). A
+    /// participant list that is missing somebody who is demonstrably in the
+    /// call is the single hardest thing to diagnose in this lane, and
+    /// without this the two causes -- a stale store, and a room where
+    /// nobody is actually published -- produce identical logs.
+    pub source: &'static str,
+    /// How many raw membership state events the read considered, before
+    /// parsing, expiry and dedup. Counted so `participants=0 raw=7` reads
+    /// differently from `participants=0 raw=0`.
+    pub raw_count: usize,
 }
 
 /// Aggregate parsed memberships into a session.
@@ -905,12 +917,113 @@ fn raw_state_json(raw: &RawAnySyncOrStrippedState) -> Option<serde_json::Value> 
     serde_json::from_str(json.get()).ok()
 }
 
-/// Read and parse every membership in a room from the state store.
+/// Is this raw membership event a LIVE participant right now?
 ///
-/// State-store backed, so this is cheap and needs no request. It only sees
-/// what sync has delivered, which is the same constraint every other
-/// state-driven surface in Lightning lives with.
-/// Every membership state event for a room, as raw JSON.
+/// The same parse the session read itself performs, so "the store has a
+/// usable answer" cannot disagree with "the store's answer contains
+/// somebody".
+fn membership_event_is_live(value: &serde_json::Value, now_ms: u64) -> bool {
+    let Some(object) = value.as_object() else { return false };
+    let Some(sender) = object.get("sender").and_then(|v| v.as_str()) else {
+        return false;
+    };
+    let event_ts = object
+        .get("origin_server_ts")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(now_ms);
+    let Some(content) = object.get("content") else { return false };
+    parse_session_membership(content, sender, event_ts)
+        .is_some_and(|member| member.expires_at_ms > now_ms)
+}
+
+/// Does the STORE's own answer stand on its own, or must the server be asked?
+///
+/// "Usable" means at least one membership that PARSES and has not expired.
+///
+/// It used to mean "at least one event whose content is not `{}`", which is
+/// not the same claim and made the fallback unreachable in exactly the room
+/// that needs it. A membership left behind by an unclean exit -- which this
+/// file logs as a known consequence of a homeserver without MSC4140, "an
+/// unclean exit will leave this membership until it expires" -- is non-empty
+/// and dead. One of those in the store answered "the store is fine" for as
+/// long as the ghost survived, so the network read that exists to cover a
+/// lagging store never ran, and the call addressed its media key to whoever
+/// happened to be in the store rather than to whoever is in the call.
+pub(crate) fn store_view_is_usable(
+    events: &[serde_json::Value],
+    now_ms: u64,
+) -> bool {
+    events
+        .iter()
+        .any(|value| membership_event_is_live(value, now_ms))
+}
+
+/// The slot one membership event occupies, for merging two views of the same
+/// room state.
+///
+/// The state key is the real identity (it is `{user}_{device}_{application}`),
+/// and the sender plus the claimed device id is the fallback for a source
+/// that did not carry an envelope field.
+fn membership_slot(value: &serde_json::Value) -> Option<String> {
+    let object = value.as_object()?;
+    if let Some(key) = object.get("state_key").and_then(|v| v.as_str()) {
+        if !key.is_empty() {
+            return Some(key.to_owned());
+        }
+    }
+    let sender = object.get("sender").and_then(|v| v.as_str())?;
+    let device = object
+        .get("content")
+        .and_then(|content| content.get("device_id"))
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    Some(format!("{sender}\u{1f}{device}"))
+}
+
+/// Merge two views of one room's memberships, keeping the NEWER event for
+/// each state key.
+///
+/// MERGED, not chosen, and both directions matter:
+///
+///  * the server's `/state` is a snapshot that can predate our own publish
+///    by a round trip, so taking it wholesale can erase a membership we know
+///    landed -- and the store is where our own echo arrives first;
+///  * the store can hold an event the server has already replaced, so an
+///    older stored copy must never resurrect a participant who left. A
+///    retraction is an ordinary newer event here and wins on its timestamp
+///    like anything else.
+pub(crate) fn merge_membership_events(
+    store: Vec<serde_json::Value>,
+    server: Vec<serde_json::Value>,
+) -> Vec<serde_json::Value> {
+    fn ts(value: &serde_json::Value) -> u64 {
+        value
+            .get("origin_server_ts")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0)
+    }
+    let mut best: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    let mut unkeyed: Vec<serde_json::Value> = Vec::new();
+    for value in store.into_iter().chain(server.into_iter()) {
+        let Some(slot) = membership_slot(&value) else {
+            unkeyed.push(value);
+            continue;
+        };
+        match best.get(&slot) {
+            Some(existing) if ts(existing) >= ts(&value) => {}
+            _ => {
+                best.insert(slot, value);
+            }
+        }
+    }
+    let mut out: Vec<serde_json::Value> = best.into_values().collect();
+    out.append(&mut unkeyed);
+    out.truncate(MAX_RAW_MEMBER_EVENTS);
+    out
+}
+
+/// Every membership state event for a room, as raw JSON, and where it came
+/// from.
 ///
 /// The STORE is asked first and the HOMESERVER second, and the second half is
 /// not an optimisation — it is what makes the call work at all.
@@ -930,12 +1043,19 @@ fn raw_state_json(raw: &RawAnySyncOrStrippedState) -> Option<serde_json::Value> 
 /// share all fail together, which is exactly how it was reported.
 ///
 /// The network read is therefore a FALLBACK, spent only when the store yields
-/// no usable membership, so a healthy store still costs nothing. Same trade
+/// no LIVE membership, so a healthy store still costs nothing. Same trade
 /// `banner.rs` makes, and for the same reason.
+///
+/// `prefer_server` overrides that and asks the server anyway. It is for the
+/// caller who has independent evidence that the store's answer is wrong --
+/// the SFU naming a participant no membership accounts for -- because "the
+/// store has SOMEBODY live in it" is not evidence that it has EVERYBODY, and
+/// a peer we cannot name is a peer our media key cannot reach.
 async fn read_membership_events(
     room: &Room,
     now_ms: u64,
-) -> Vec<serde_json::Value> {
+    prefer_server: bool,
+) -> (Vec<serde_json::Value>, &'static str) {
     let from_store: Vec<serde_json::Value> = room
         .get_state_events(StateEventType::from(EV_MEMBER_LEGACY))
         .await
@@ -945,17 +1065,8 @@ async fn read_membership_events(
         .filter_map(raw_state_json)
         .collect();
 
-    // "Usable" means at least one membership that is neither retracted nor
-    // expired. A room whose only memberships are retractions reads exactly
-    // like a room the store has not caught up on, so both take the fallback.
-    let store_has_live = from_store.iter().any(|value| {
-        value
-            .get("content")
-            .and_then(|content| content.as_object())
-            .is_some_and(|content| !content.is_empty())
-    });
-    if store_has_live {
-        return from_store;
+    if !prefer_server && store_view_is_usable(&from_store, now_ms) {
+        return (from_store, "store");
     }
 
     let client = room.client();
@@ -965,7 +1076,7 @@ async fn read_membership_events(
     let request = get_state_events::v3::Request::new(room.room_id().to_owned());
     let Ok(response) = client.send(request).with_request_config(config).await
     else {
-        return from_store;
+        return (from_store, "store-fallback");
     };
     let mut from_server = Vec::new();
     for raw in response.room_state.iter().take(MAX_SERVER_STATE_EVENTS) {
@@ -981,18 +1092,25 @@ async fn read_membership_events(
             break;
         }
     }
-    let _ = now_ms;
     if from_server.is_empty() {
-        from_store
-    } else {
-        from_server
+        // The server answered and this room carries no membership state at
+        // all. A real answer, not a failure -- and a different one from "the
+        // request did not get through", which is why it has its own word.
+        return (from_store, "server-none");
     }
+    (merge_membership_events(from_store, from_server), "server")
 }
 
-async fn read_session(room: &Room, now_ms: u64) -> RtcSession {
+async fn read_session(
+    room: &Room,
+    now_ms: u64,
+    prefer_server: bool,
+) -> RtcSession {
     let mut members = Vec::new();
 
-    let raw_members = read_membership_events(room, now_ms).await;
+    let (raw_members, source) =
+        read_membership_events(room, now_ms, prefer_server).await;
+    let raw_count = raw_members.len();
 
     for value in raw_members.iter() {
         // Deserialize as loose JSON: the envelope fields we need are
@@ -1052,6 +1170,8 @@ async fn read_session(room: &Room, now_ms: u64) -> RtcSession {
         members,
         slot_closed,
         slot_present,
+        source,
+        raw_count,
     }
 }
 
@@ -1157,6 +1277,10 @@ fn session_payload(room_id: &str, session: &RtcSession) -> serde_json::Value {
         "member_count": session.members.len(),
         "slot_present": session.slot_present,
         "slot_closed": session.slot_closed,
+        // Where the memberships came from, and how many raw events were
+        // considered. Counts and a fixed word only -- no ids, no names.
+        "source": session.source,
+        "raw_count": session.raw_count,
         "focus": focus.as_ref().map(LivekitTransport::to_json),
         "members": session.members.iter().map(RtcMember::to_json)
             .collect::<Vec<_>>(),
@@ -1168,9 +1292,16 @@ fn session_payload(room_id: &str, session: &RtcSession) -> serde_json::Value {
 // ---------------------------------------------------------------------------
 
 /// Report the current MatrixRTC session for one room.
+///
+/// `prefer_server` skips the state store and asks the homeserver for the
+/// room's state, then merges the two views. It is for a caller holding
+/// evidence the store is incomplete -- an SFU participant that no membership
+/// accounts for -- and costs one `/state` request, so it is rate limited by
+/// its caller rather than being the default.
 pub(crate) fn request_session(
     bridge: &RustClient,
     room_id: String,
+    prefer_server: bool,
     op_id: u64,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
@@ -1179,7 +1310,7 @@ pub(crate) fn request_session(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let session = read_session(&room, now_ms()).await;
+        let session = read_session(&room, now_ms(), prefer_server).await;
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
@@ -1230,7 +1361,7 @@ pub(crate) fn request_transports(
 
         let mut participant_focus = None;
         if let Some(room) = room.as_ref() {
-            let session = read_session(room, now_ms()).await;
+            let session = read_session(room, now_ms(), false).await;
             participant_focus = select_focus(&session.members);
         }
 
@@ -2099,7 +2230,7 @@ pub(crate) fn read_raised_hands(
     let lifecycle = timelines.lifecycle();
     let now_ms = now_ms();
     bridge.spawn_room_action(async move {
-        let session = read_session(&room, now_ms).await;
+        let session = read_session(&room, now_ms, false).await;
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
@@ -3520,6 +3651,135 @@ mod tests {
             avatar_mxc: String::new(),
             event_id: String::new(),
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Which view of the room's state a session read may trust
+    //
+    // Reported as GitHub issue #10: a two-party encrypted call in which the
+    // reporter's own participant list fell from 2 to 1 to 0 while the peer
+    // was demonstrably still in the call and still sending audio. The
+    // consequences are all one cause -- the peer drawn as a question mark
+    // (no membership, so no name and no avatar), `media key distributed
+    // index= 3 targets= 0 sfuPeers= 0`, and 1002 frames that decrypted
+    // followed by frames that could not, because the peer had rotated their
+    // key to a target set that no longer contained this device.
+    // ---------------------------------------------------------------------
+
+    fn membership_event(
+        sender: &str,
+        device: &str,
+        origin_server_ts: u64,
+        expires: u64,
+    ) -> serde_json::Value {
+        json!({
+            "type": EV_MEMBER_LEGACY,
+            "sender": sender,
+            "state_key": format!("_{sender}_{device}_m.call"),
+            "origin_server_ts": origin_server_ts,
+            "content": {
+                "application": "m.call",
+                "call_id": "",
+                "scope": "m.room",
+                "device_id": device,
+                "expires": expires,
+                "focus_active": {"type": "livekit"},
+                "foci_preferred": [],
+            },
+        })
+    }
+
+    fn retraction_event(
+        sender: &str,
+        device: &str,
+        origin_server_ts: u64,
+    ) -> serde_json::Value {
+        json!({
+            "type": EV_MEMBER_LEGACY,
+            "sender": sender,
+            "state_key": format!("_{sender}_{device}_m.call"),
+            "origin_server_ts": origin_server_ts,
+            "content": {},
+        })
+    }
+
+    #[test]
+    fn a_store_holding_one_live_membership_answers_for_itself() {
+        let store = vec![membership_event("@a:x", "D1", 1_000, 300_000)];
+        assert!(store_view_is_usable(&store, 60_000));
+    }
+
+    #[test]
+    fn a_store_holding_only_retractions_is_not_usable() {
+        let store = vec![retraction_event("@a:x", "D1", 1_000)];
+        assert!(!store_view_is_usable(&store, 60_000));
+    }
+
+    #[test]
+    fn a_ghost_membership_does_not_make_the_store_authoritative() {
+        // THE REGRESSION. The predicate used to be "any event whose content
+        // is not {}", and this event satisfies it: it is a membership left
+        // behind by an unclean exit on a homeserver without MSC4140, which
+        // this file logs as a known consequence. It is also long dead. One
+        // of these in the store answered "the store is fine" for as long as
+        // the ghost survived, so the network read that exists to cover a
+        // lagging store could never run.
+        let ghost = membership_event("@ghost:x", "D9", 1_000, 300_000);
+        assert!(!ghost["content"].as_object().unwrap().is_empty());
+        assert!(!store_view_is_usable(&[ghost], 1_000 + 300_001));
+    }
+
+    #[test]
+    fn an_unparseable_membership_does_not_make_the_store_authoritative() {
+        // Non-empty content that is not a membership at all: the old
+        // predicate accepted it, the parse does not.
+        let junk = json!({
+            "type": EV_MEMBER_LEGACY,
+            "sender": "@a:x",
+            "state_key": "_@a:x_D1_m.call",
+            "origin_server_ts": 1_000,
+            "content": {"unrelated": true},
+        });
+        assert!(!store_view_is_usable(&[junk], 2_000));
+    }
+
+    #[test]
+    fn merging_keeps_the_newer_event_for_each_state_key() {
+        // The server's /state snapshot can predate our own publish by a
+        // round trip, and the store is where our own echo lands first.
+        let store = vec![membership_event("@a:x", "D1", 90_000, 360_000)];
+        let server = vec![
+            membership_event("@a:x", "D1", 30_000, 300_000),
+            membership_event("@b:x", "D2", 30_000, 300_000),
+        ];
+        let merged = merge_membership_events(store, server);
+        assert_eq!(merged.len(), 2);
+        let ours = merged
+            .iter()
+            .find(|value| value["sender"] == "@a:x")
+            .expect("our own membership survived the merge");
+        assert_eq!(ours["origin_server_ts"], 90_000);
+    }
+
+    #[test]
+    fn a_newer_retraction_wins_over_an_older_join() {
+        // The other direction, and it must hold or a stale stored copy
+        // resurrects a participant who left.
+        let store = vec![membership_event("@b:x", "D2", 30_000, 300_000)];
+        let server = vec![retraction_event("@b:x", "D2", 90_000)];
+        let merged = merge_membership_events(store, server);
+        assert_eq!(merged.len(), 1);
+        assert!(merged[0]["content"].as_object().unwrap().is_empty());
+        assert!(!store_view_is_usable(&merged, 91_000));
+    }
+
+    #[test]
+    fn merging_does_not_collapse_two_devices_of_one_user() {
+        let merged = merge_membership_events(
+            vec![membership_event("@a:x", "D1", 10_000, 300_000)],
+            vec![membership_event("@a:x", "D2", 10_000, 300_000)],
+        );
+        assert_eq!(merged.len(), 2);
     }
 
     #[test]

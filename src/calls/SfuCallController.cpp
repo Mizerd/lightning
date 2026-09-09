@@ -2346,8 +2346,24 @@ void SfuCallController::noteParticipantIdentities()
         const QString name = mediaKeyRingName(
             person.value(QStringLiteral("userId")).toString(),
             person.value(QStringLiteral("deviceId")).toString());
-        if (!name.isEmpty())
+        if (!name.isEmpty()) {
             m_engine->noteParticipantIdentity(sid, name);
+            continue;
+        }
+        // NOBODY IN THE ROOM'S MEMBERSHIP ACCOUNTS FOR A PARTICIPANT THE SFU
+        // IS REPORTING, so ask the homeserver instead of the local store.
+        //
+        // The SFU only lists a participant that authenticated with a real
+        // Matrix identity, so this is not a "not published yet" state — it
+        // is our own view of the room's state being incomplete, which the
+        // sliding-sync store demonstrably can be for these events. Until
+        // this existed the reconcile tick re-ran the same resolution against
+        // the same wrong answer forever: the peer stayed a question mark, no
+        // media key could be addressed to their device, and every frame they
+        // sent was dropped for want of a key while the call looked
+        // connected. Rate limited inside RtcController, so a participant
+        // burst costs one request.
+        m_rtc->refreshFromServer(m_roomId);
     }
 #endif
 }
@@ -2386,10 +2402,14 @@ void SfuCallController::distributeKeyIfNeeded()
         return;
     }
     if (targets == QLatin1String("[]")) {
+        const int sfuPeers =
+            m_participants.size() > 0 ? m_participants.size() - 1 : 0;
         qCInfo(lcSfuCall) << "media key: no redistribution, nobody addressable"
-                          << "sfuPeers=" << (m_participants.size() > 0
-                                                 ? m_participants.size() - 1
-                                                 : 0);
+                          << "sfuPeers=" << sfuPeers;
+        // Peers on the SFU and nobody we can name: the same incomplete view
+        // noteParticipantIdentities() reports, reached by the other route.
+        if (sfuPeers > 0)
+            m_rtc->refreshFromServer(m_roomId);
         return;
     }
     qCInfo(lcSfuCall) << "media key: addressable set changed, redistributing";

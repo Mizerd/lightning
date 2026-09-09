@@ -125,6 +125,21 @@ public:
     /// Re-read one room's session. Safe to call repeatedly; reads for the
     /// same room coalesce.
     Q_INVOKABLE void refresh(const QString &roomId);
+    /// Re-read one room's session FROM THE HOMESERVER, bypassing the local
+    /// state store.
+    ///
+    /// For the caller that can prove the store's answer is wrong: the SFU
+    /// reports a participant and no membership accounts for them, so no
+    /// media key can be addressed to that device and none of their frames
+    /// can be decrypted. "The store has somebody live in it" is not
+    /// evidence that it has EVERYBODY, and until this existed there was no
+    /// route back from a store that was missing a peer -- the key lane
+    /// re-ran its resolution every tick against the same wrong answer.
+    ///
+    /// Costs one `/state` request, so it is rate limited per room: calls
+    /// inside the window are dropped, and the window itself grows while
+    /// forced reads keep changing nothing (see `m_serverReadStreak`).
+    Q_INVOKABLE void refreshFromServer(const QString &roomId);
     /// Run transport discovery. `roomId` may be empty.
     Q_INVOKABLE void discover(const QString &roomId);
 
@@ -322,6 +337,12 @@ public:
     {
         m_unresolvedIdentityGraceMs = ms;
     }
+    /// Test hook: the minimum gap between two server-backed reads of one
+    /// room. Production keeps the default.
+    void setServerReadCooldownMsForTest(int ms)
+    {
+        m_serverReadCooldownMs = ms;
+    }
 
 private:
     mutable QSet<QString> m_unresolvedIdentitiesLogged;
@@ -349,6 +370,26 @@ private:
     };
     QHash<quint64, PendingRead> m_pendingReads;
     QSet<QString> m_roomsBeingRead;
+
+    // Server-backed reads. `m_serverReadWanted` survives a read that is
+    // already in flight — that read was dispatched against the store and
+    // cannot answer the question that forced this one, so the request is
+    // carried to the next dispatch rather than dropped.
+    QSet<QString> m_serverReadWanted;
+    QHash<QString, qint64> m_lastServerReadMs;
+    /// Consecutive forced reads that did not change the answer, per room.
+    /// The cooldown doubles with it, so a participant this account will
+    /// NEVER be able to name — a client publishing a membership format this
+    /// build cannot parse, say — costs a handful of `/state` requests an
+    /// hour rather than one every ten seconds for the length of the call.
+    /// Reset the moment a read comes back different, so the next genuine
+    /// gap is still answered promptly.
+    QHash<QString, int> m_serverReadStreak;
+    /// Long enough that a participant burst costs one request, short enough
+    /// that a peer who cannot be named is named within one refresh cycle.
+    int m_serverReadCooldownMs = 10000;
+    /// The ceiling the doubling stops at.
+    int m_serverReadCooldownMaxMs = 300000;
 
     // Coalesced pokes.
     QSet<QString> m_pokedRooms;

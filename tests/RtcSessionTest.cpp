@@ -39,6 +39,7 @@ public:
     bool rtcSupported = true;
     bool refuseOps = false;
     QStringList sessionReads;
+    QList<bool> sessionReadPreferredServer;
     QStringList transportRooms;
     quint64 lastSessionOp = 0;
     quint64 lastTransportsOp = 0;
@@ -78,11 +79,12 @@ public:
     bool paginating(const QString &) const override { return false; }
 
     bool supportsMatrixRtc() const override { return rtcSupported; }
-    quint64 rtcSession(const QString &roomId) override
+    quint64 rtcSession(const QString &roomId, bool preferServer) override
     {
         if (!rtcSupported || refuseOps)
             return 0;
         sessionReads.append(roomId);
+        sessionReadPreferredServer.append(preferServer);
         lastSessionOp = nextOp++;
         return lastSessionOp;
     }
@@ -151,6 +153,13 @@ private Q_SLOTS:
     void anExistingSessionsFocusOutranksOurOwnHomeserver();
     void mediaKeyTargetsAddressEveryOtherDeviceAndNotOurOwn();
     void mediaKeyTargetsAreEmptyForARoomWithNoSession();
+    void anOrdinaryRefreshTrustsTheLocalStore();
+    void aForcedRefreshAsksTheHomeserver();
+    void aForcedRefreshIsRateLimitedPerRoom();
+    void aForcedRefreshDuringAnInFlightReadIsNotLost();
+    void aNewAccountMayForceAReadImmediately();
+    void aForcedReadThatChangesNothingBacksOff();
+    void aForcedReadThatFoundSomebodyRestoresFullSpeed();
 };
 
 void RtcSessionTest::reportsParticipantsFromAReplyWeAskedFor()
@@ -799,6 +808,175 @@ void RtcSessionTest::anEncryptedRoomRefusesWithoutMediaEncryption()
     fresh.setMediaAvailable(true);
     QCOMPARE(fresh.joinBlockReason(kOther),
              QStringLiteral("media_encryption_unavailable"));
+}
+
+
+// ---------------------------------------------------------------------------
+// Server-backed reads (GitHub issue #10)
+//
+// The SFU only lists a participant who authenticated as a real Matrix
+// identity, so "the SFU reports somebody no membership accounts for" is
+// evidence that OUR view of the room's state is incomplete, not that they
+// have not published. Before this existed there was no route back from that
+// state: the key lane re-ran its resolution every tick against the same
+// stale answer, the peer stayed a question mark, and every frame they sent
+// was dropped for want of a key that could not be addressed to them.
+// ---------------------------------------------------------------------------
+
+void RtcSessionTest::anOrdinaryRefreshTrustsTheLocalStore()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+
+    controller.refresh(kRoom);
+    QCOMPARE(client.sessionReadPreferredServer, QList<bool>{false});
+}
+
+void RtcSessionTest::aForcedRefreshAsksTheHomeserver()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+
+    controller.refreshFromServer(kRoom);
+    QCOMPARE(client.sessionReads, QStringList{kRoom});
+    QCOMPARE(client.sessionReadPreferredServer, QList<bool>{true});
+}
+
+void RtcSessionTest::aForcedRefreshIsRateLimitedPerRoom()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.setServerReadCooldownMsForTest(60000);
+
+    // Every participant update and every media key re-runs the resolution,
+    // so the trigger fires in bursts. One `/state` request per burst.
+    controller.refreshFromServer(kRoom);
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                     sessionFor(kRoom, {}));
+    controller.refreshFromServer(kRoom);
+    controller.refreshFromServer(kRoom);
+    QCOMPARE(client.sessionReads.count(), 1);
+
+    // ...and a different room is a different question.
+    controller.refreshFromServer(QStringLiteral("!other:example.org"));
+    QCOMPARE(client.sessionReads.count(), 2);
+    QCOMPARE(client.sessionReadPreferredServer.last(), true);
+
+    // Once the window passes, the room may be asked again.
+    controller.setServerReadCooldownMsForTest(0);
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                     sessionFor(QStringLiteral("!other:example.org"), {}));
+    controller.refreshFromServer(kRoom);
+    QCOMPARE(client.sessionReads.count(), 3);
+    QCOMPARE(client.sessionReadPreferredServer.last(), true);
+}
+
+void RtcSessionTest::aForcedRefreshDuringAnInFlightReadIsNotLost()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.setPokeCoalesceMsForTest(10);
+
+    // A store-backed read is already outstanding. Its reply will carry the
+    // very answer that prompted the forced read, so being folded into it
+    // would leave the peer unnamed for another whole cycle.
+    controller.refresh(kRoom);
+    QCOMPARE(client.sessionReads.count(), 1);
+    QCOMPARE(client.sessionReadPreferredServer.first(), false);
+
+    controller.refreshFromServer(kRoom);
+    QCOMPARE(client.sessionReads.count(), 1); // still only the first
+
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                     sessionFor(kRoom, {}));
+    QTRY_COMPARE(client.sessionReads.count(), 2);
+    QCOMPARE(client.sessionReadPreferredServer.last(), true);
+}
+
+void RtcSessionTest::aNewAccountMayForceAReadImmediately()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.setServerReadCooldownMsForTest(60000);
+
+    controller.refreshFromServer(kRoom);
+    QCOMPARE(client.sessionReads.count(), 1);
+
+    // The cooldown paced the PREVIOUS account's reads. Carrying it forward
+    // would silence the first question the new one asks.
+    client.logout();
+    controller.refreshFromServer(kRoom);
+    QCOMPARE(client.sessionReads.count(), 2);
+    QCOMPARE(client.sessionReadPreferredServer.last(), true);
+}
+
+void RtcSessionTest::aForcedReadThatChangesNothingBacksOff()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    // 1 ms base, so the doubling is what the test measures rather than the
+    // wall clock: 1, 2, 4, 8 ... and a QTest::qWait covers the early rungs.
+    controller.setServerReadCooldownMsForTest(1);
+
+    // A participant this build can never name — the SFU keeps reporting
+    // them and no membership will ever account for them — must not cost a
+    // /state request every tick for the length of the call.
+    for (int i = 0; i < 12; ++i) {
+        controller.refreshFromServer(kRoom);
+        if (client.lastSessionOp != 0) {
+            Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                             sessionFor(kRoom, {}));
+        }
+        QTest::qWait(4);
+    }
+    // Without the backoff every iteration would dispatch: the 4 ms wait is
+    // longer than the 1 ms base cooldown.
+    QVERIFY2(client.sessionReads.count() < 12,
+             qPrintable(QStringLiteral("every forced read dispatched (%1)")
+                            .arg(client.sessionReads.count())));
+    QVERIFY(client.sessionReads.count() >= 1);
+}
+
+void RtcSessionTest::aForcedReadThatFoundSomebodyRestoresFullSpeed()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    // 50 ms base, so the grown gap (200 ms after two fruitless reads) is
+    // unambiguously longer than the 80 ms this test then waits, and the
+    // reset gap (50 ms) is unambiguously shorter.
+    controller.setServerReadCooldownMsForTest(50);
+
+    // Two forced reads that changed nothing, each waited past its own
+    // cooldown, so the gap has doubled twice.
+    controller.refreshFromServer(kRoom);
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                     sessionFor(kRoom, {}));
+    QTest::qWait(120);
+    controller.refreshFromServer(kRoom);
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                     sessionFor(kRoom, {}));
+    QCOMPARE(client.sessionReads.count(), 2);
+
+    // ...and now a read comes back with the peer in it. The escalating gap
+    // is for the case where asking again cannot help; this is the proof
+    // that it can, so the next question must be asked at full speed.
+    controller.refresh(kRoom);
+    Q_EMIT client.rtcSessionReceived(
+        client.lastSessionOp,
+        sessionFor(kRoom, {person(QStringLiteral("@b:example.org"),
+                                  QStringLiteral("D2"))}));
+    QCOMPARE(client.sessionReads.count(), 3);
+
+    QTest::qWait(80);
+    controller.refreshFromServer(kRoom);
+    QCOMPARE(client.sessionReads.count(), 4);
 }
 
 QTEST_MAIN(RtcSessionTest)

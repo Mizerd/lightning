@@ -7020,14 +7020,15 @@ quint64 RustSdkMatrixClient::callRtcDecline(const QString &roomId,
     return result.isEmpty() ? opId : 0;
 }
 
-quint64 RustSdkMatrixClient::rtcSession(const QString &roomId)
+quint64 RustSdkMatrixClient::rtcSession(const QString &roomId,
+                                       bool preferServer)
 {
     if (!m_rustHandle || roomId.isEmpty())
         return 0;
     const quint64 opId = nextOpId();
     const QByteArray room = roomId.toUtf8();
-    const QString result = takeRustString(
-        mx_rust_rtc_session(m_rustHandle, room.constData(), opId));
+    const QString result = takeRustString(mx_rust_rtc_session(
+        m_rustHandle, room.constData(), preferServer ? 1 : 0, opId));
     return result.isEmpty() ? opId : 0;
 }
 
@@ -7942,6 +7943,9 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("slot_present")).toBool();
         session.slotClosed =
             event.value(QStringLiteral("slot_closed")).toBool();
+        session.source = event.value(QStringLiteral("source")).toString();
+        session.rawMembershipEvents =
+            event.value(QStringLiteral("raw_count")).toInt();
         const QJsonObject focus =
             event.value(QStringLiteral("focus")).toObject();
         session.focusServiceUrl =

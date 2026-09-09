@@ -64,6 +64,11 @@ void RtcController::clearForNewSession()
     m_pendingReads.clear();
     m_roomsBeingRead.clear();
     m_pokedRooms.clear();
+    // ...and so did every forced read and the cooldown that paces them: the
+    // new account starts able to ask immediately.
+    m_serverReadWanted.clear();
+    m_lastServerReadMs.clear();
+    m_serverReadStreak.clear();
     m_pokeTimer.stop();
     m_discovered = false;
     m_serverAnswered = false;
@@ -229,12 +234,57 @@ void RtcController::refresh(const QString &roomId)
     reapStaleReads();
     if (m_roomsBeingRead.contains(roomId))
         return;
-    const quint64 opId = m_client->rtcSession(roomId);
+    // A forced read is a request that OUTLIVES the call that made it: it is
+    // consumed here, at the moment the read is actually dispatched, so a
+    // request made while another read was in flight still reaches the wire.
+    const bool preferServer = m_serverReadWanted.contains(roomId);
+    const quint64 opId = m_client->rtcSession(roomId, preferServer);
     if (opId == 0)
         return;
+    m_serverReadWanted.remove(roomId);
     m_pendingReads.insert(
         opId, PendingRead{roomId, QDateTime::currentMSecsSinceEpoch()});
     m_roomsBeingRead.insert(roomId);
+}
+
+void RtcController::refreshFromServer(const QString &roomId)
+{
+    if (roomId.isEmpty() || !supported())
+        return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    // The gap doubles for every forced read in a row that changed nothing,
+    // because a participant this build simply cannot name is a permanent
+    // condition and asking the server about it every ten seconds for the
+    // length of a call is a request storm with no answer at the end of it.
+    const int streak = m_serverReadStreak.value(roomId);
+    qint64 cooldown = m_serverReadCooldownMs;
+    for (int i = 0; i < streak && cooldown < m_serverReadCooldownMaxMs; ++i)
+        cooldown *= 2;
+    cooldown = qMin<qint64>(cooldown, m_serverReadCooldownMaxMs);
+    const auto last = m_lastServerReadMs.constFind(roomId);
+    if (last != m_lastServerReadMs.cend() && now - *last < cooldown)
+        return;
+    // Bounded: the callers are per-room and a session's rooms are few, but
+    // this map outlives individual calls, so it may not grow without end.
+    if (m_lastServerReadMs.size() >= 64 && !m_lastServerReadMs.contains(roomId)) {
+        m_lastServerReadMs.clear();
+        m_serverReadStreak.clear();
+    }
+    m_lastServerReadMs.insert(roomId, now);
+    m_serverReadStreak.insert(roomId, streak + 1);
+    m_serverReadWanted.insert(roomId);
+    if (m_roomsBeingRead.contains(roomId)) {
+        // A store-backed read is already in flight and will answer with the
+        // very state that prompted this. Poke so the forced read follows it
+        // instead of being lost.
+        m_pokedRooms.insert(roomId);
+        if (m_pokeCoalesceMs > 0)
+            m_pokeTimer.start(m_pokeCoalesceMs);
+        else
+            flushPokes();
+        return;
+    }
+    refresh(roomId);
 }
 
 void RtcController::discover(const QString &roomId)
@@ -306,6 +356,8 @@ void RtcController::onSessionReceived(quint64 opId,
     // call" and "we cannot address anyone, so no media key goes anywhere",
     // and nothing distinguished those two before.
     qCInfo(lcRtc) << "session read room participants=" << session.participants.size()
+                  << "source=" << session.source
+                  << "rawEvents=" << session.rawMembershipEvents
                   << "slotPresent=" << session.slotPresent
                   << "slotClosed=" << session.slotClosed;
 
@@ -330,8 +382,13 @@ void RtcController::onSessionReceived(quint64 opId,
                                && a.displayName == b.displayName
                                && a.avatarMxc == b.avatarMxc;
                        });
-    if (changed)
+    if (changed) {
+        // A read that moved the answer earned the next one its full speed:
+        // the escalating gap exists for the case where asking again cannot
+        // help, and this is the proof that it can.
+        m_serverReadStreak.remove(session.roomId);
         Q_EMIT sessionChanged(session.roomId);
+    }
 }
 
 void RtcController::onTransportsReceived(quint64 opId, bool serverAnswered,

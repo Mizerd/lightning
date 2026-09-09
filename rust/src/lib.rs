@@ -8587,16 +8587,24 @@ pub unsafe extern "C" fn mx_rust_sfu_disconnect(ptr: *mut c_void) -> *mut c_char
 /// Result arrives as an `rtc_session` poll event carrying the participant
 /// list, the selected focus and the slot status. Read-only: this publishes
 /// nothing and joins nothing.
+///
+/// A non-zero `prefer_server` asks the homeserver for the room's state
+/// instead of trusting the local store, and merges the two answers. It costs
+/// one `/state` request, so it is for a caller that has evidence the store's
+/// answer is incomplete -- an SFU participant no membership accounts for --
+/// and never for an ordinary refresh.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_rtc_session(
     ptr: *mut c_void,
     room_id: *const c_char,
+    prefer_server: u8,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
-        rtc::request_session(bridge, room_id, op_id).map(|_| String::new())
+        rtc::request_session(bridge, room_id, prefer_server != 0, op_id)
+            .map(|_| String::new())
     })
 }
 

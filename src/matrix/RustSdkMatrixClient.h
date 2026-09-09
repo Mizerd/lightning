@@ -598,7 +598,7 @@ public:
     // MatrixRTC (MSC4143): observation and discovery. There is deliberately
     // no join/publish override — see MatrixClient::supportsMatrixRtc.
     bool supportsMatrixRtc() const override { return true; }
-    quint64 rtcSession(const QString &roomId) override;
+    quint64 rtcSession(const QString &roomId, bool preferServer) override;
     quint64 rtcTransports(const QString &roomId) override;
     quint64 rtcPublishMembership(const QString &roomId,
                                  const QString &focusUrl,

@@ -15,6 +15,72 @@ By THEME, not chronology, and reduced to rules, refutations, deliberate
 decisions, measured numbers and live status. Features are §7; the caps
 contract, the refutation rule and the probe rule are in the standing warnings.
 
+#### 2026-09-09, the membership read a call cannot trust (GitHub issue #10)
+
+Reported by an outside user, with a full call log, after two earlier rounds on
+the same issue had each fixed something real and not fixed the report: a
+two-party encrypted call in which the reporter's own participant list fell
+**2 -> 1 -> 0** while the peer was demonstrably still in the call. Every
+symptom is that one list: the peer drawn as a question mark (no membership, so
+no name and no avatar), `media key distributed index= 3 targets= 0
+sfuPeers= 0`, and 1002 frames that decrypted followed by frames that could
+not, because the peer had rotated their key to a target set that no longer
+contained this device.
+
+- **THE STORE-FIRST GUARD DID NOT IMPLEMENT ITS OWN DOCUMENTED CONTRACT.**
+  `read_membership_events` asks the state store first and the homeserver only
+  when the store has nothing usable, and its comment defines usable as "at
+  least one membership that is neither retracted nor expired". The code tested
+  `content != {}`. So a membership left behind by an unclean exit — which the
+  publish path logs as a known consequence of a homeserver without MSC4140,
+  "an unclean exit will leave this membership until it expires" — answered
+  "the store is fine" for as long as the ghost survived, and the network read
+  that exists to cover a lagging store could never run. It now parses the
+  event and checks the deadline, which is the same parse the session read
+  itself performs, so the two can no longer disagree.
+- **AND "THE STORE HAS SOMEBODY LIVE IN IT" IS NOT EVIDENCE THAT IT HAS
+  EVERYBODY.** That is the half the corrected predicate still cannot cover,
+  and the reporter's log shows it in the very first read of the call:
+  `sfu joined others= 1` and a media key received from the peer, against
+  `session read room participants= 1`. Our own membership echoing back
+  through sync is enough to satisfy any store-first rule, and from that moment
+  the peer's absence from the store is invisible. So the SFU is now allowed
+  to contradict the store: `RtcController::refreshFromServer()` re-reads the
+  room's state from the homeserver, and `SfuCallController` calls it when the
+  SFU reports a participant that no membership accounts for. The SFU only
+  lists a participant who authenticated as a real Matrix identity, so that
+  condition is evidence about OUR view, not about theirs. Before it existed
+  the key lane had no route back at all: `reconcileKeyLane()` re-ran the same
+  resolution every tick against the same wrong answer for the length of the
+  call. (This closes the deferred F6 item — "key reconcile never re-issues
+  the membership read".)
+- **The two views are MERGED, not chosen.** `/state` is a snapshot that can
+  predate our own publish by a round trip, and the store is where our own echo
+  lands first; equally, the store can hold an event the server has already
+  replaced. Newest `origin_server_ts` per state key wins, so a retraction is
+  an ordinary newer event and an older stored copy can never resurrect a
+  participant who left.
+- **The forced read backs off, because some participants can never be named.**
+  A client publishing a membership format this build cannot parse would
+  otherwise cost a `/state` request every ten seconds for the length of the
+  call. The gap doubles per consecutive forced read that changed nothing, to a
+  five-minute ceiling, and resets the moment a read comes back different —
+  which is the proof that asking again can help.
+- **The read now says where its answer came from.** `session read room
+  participants= N source= "store"|"server"|"server-none"|"store-fallback"
+  rawEvents= R`. Counts and one fixed word, no ids. A participant list missing
+  somebody who is demonstrably in the call is the hardest thing to diagnose in
+  this lane, and until this line existed "the store is stale" and "nobody is
+  really published in this room" produced identical logs — which is why this
+  issue took three rounds.
+- **NOT live-validated, and one thing is still unexplained.** The list reaching
+  **0**, which includes this device's own membership, cannot be produced by
+  the expiry arithmetic: a refresh writes `expires = (now - created_ts) +
+  period`, so our own deadline is always a period into the future. Whatever
+  emptied it emptied the read, not the clock. The new `source=`/`rawEvents=`
+  line is what will name it in the next report; do not guess a second fix
+  before that line exists.
+
 #### 2026-09-08, the post-0.9.3 audit round (four read-only audits, then the fixes)
 
 Four independent read-only audits — MatrixRTC join and keys, GStreamer object

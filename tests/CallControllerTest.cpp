@@ -149,9 +149,10 @@ public:
     // from the SFU's participant list — so a test that wants the late order
     // has to be able to deliver one after the other.
     bool supportsMatrixRtc() const override { return true; }
-    quint64 rtcSession(const QString &roomId) override
+    quint64 rtcSession(const QString &roomId, bool preferServer) override
     {
         sessionReads.append(roomId);
+        sessionReadPreferredServer.append(preferServer);
         lastSessionOp = ++opCounter;
         return lastSessionOp;
     }
@@ -160,6 +161,7 @@ public:
         Q_EMIT rtcSessionReceived(opId, session);
     }
     QStringList sessionReads;
+    QList<bool> sessionReadPreferredServer;
     quint64 lastSessionOp = 0;
 
     quint64 rtcRetractMembership(const QString &roomId,

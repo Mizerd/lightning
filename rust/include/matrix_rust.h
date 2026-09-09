@@ -1417,7 +1417,12 @@ char *mx_rust_calls_turn_servers(void *client, unsigned long long op_id);
  * client in the room to attempt an SFU connection that cannot complete.
  *
  * mx_rust_rtc_session   -> rtc_session {op_id, room_id, member_count,
- *                          slot_present, slot_closed, focus, members[]}
+ *                          slot_present, slot_closed, source, raw_count,
+ *                          focus, members[]}
+ *                          prefer_server != 0 reads the room's state from
+ *                          the homeserver instead of the local store and
+ *                          merges the two; one /state request, so it is for
+ *                          a caller with evidence the store is incomplete.
  * mx_rust_rtc_transports-> rtc_transports {op_id, room_id, server_answered,
  *                          category, server_transports[], participant_focus}
  * mx_rust_rtc_notify    -> rtc_send_result {op_id, ok, category, event_id}
@@ -1428,6 +1433,7 @@ char *mx_rust_calls_turn_servers(void *client, unsigned long long op_id);
  * on the existing call_rtc_notification lane with rtc=true. */
 char *mx_rust_rtc_session(void *client,
                           const char *room_id,
+                          unsigned char prefer_server,
                           unsigned long long op_id);
 char *mx_rust_rtc_transports(void *client,
                              const char *room_id_or_empty,
