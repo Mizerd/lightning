@@ -3963,7 +3963,17 @@ fn substitute_emoticons(html: &str, emoticons: &[(String, String)]) -> String {
                 if html[i..].starts_with(code.as_str()) {
                     // Not inside a URL run: look back for a scheme separator
                     // with no whitespace between it and here.
-                    let preceding = &out[out.len().saturating_sub(160)..];
+                    // BYTES, NOT CHARS: `out` is the user's own message and
+                    // 160 bytes back can land inside a multi-byte code point,
+                    // where slicing PANICS. The unwind is swallowed by the
+                    // spawn this runs under and the send is simply lost, so
+                    // it reads as "the message never sent". Falling back to
+                    // the whole string is correct as well as safe: the test
+                    // below only inspects the LAST whitespace-delimited run,
+                    // which is the same run either way.
+                    let preceding = out
+                        .get(out.len().saturating_sub(160)..)
+                        .unwrap_or(out.as_str());
                     let in_url = preceding
                         .rsplit(|c: char| c.is_whitespace() || c == '>')
                         .next()
@@ -4055,14 +4065,18 @@ fn find_img_tag(html: &str) -> Option<usize> {
     let bytes = html.as_bytes();
     let mut i = 0usize;
     while i + 4 <= bytes.len() {
-        if bytes[i] == b'<' && html[i + 1..].len() >= 3 {
-            let name = &html[i + 1..i + 4];
-            if name.eq_ignore_ascii_case("img") {
-                let after = bytes.get(i + 4).copied();
-                if matches!(after, None | Some(b' ') | Some(b'\t') | Some(b'\n')
-                                 | Some(b'\r') | Some(b'/') | Some(b'>')) {
-                    return Some(i);
-                }
+        // `get`, not a byte-length check and a slice: a length in BYTES says
+        // nothing about whether those three bytes end on a code-point
+        // boundary, and slicing across one panics.
+        if bytes[i] == b'<'
+            && html
+                .get(i + 1..i + 4)
+                .is_some_and(|name| name.eq_ignore_ascii_case("img"))
+        {
+            let after = bytes.get(i + 4).copied();
+            if matches!(after, None | Some(b' ') | Some(b'\t') | Some(b'\n')
+                             | Some(b'\r') | Some(b'/') | Some(b'>')) {
+                return Some(i);
             }
         }
         i += 1;
@@ -4571,7 +4585,8 @@ pub fn sessions_by_room_from_import(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_rtc_membership_event, sessions_by_room_from_import, state_row_text, TimelineRegistry,
+        find_img_tag, is_rtc_membership_event, sessions_by_room_from_import, state_row_text,
+        substitute_emoticons, TimelineRegistry,
     };
     use matrix_sdk::ruma::events::AnySyncTimelineEvent;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -4582,6 +4597,32 @@ mod tests {
     // each other into an add/remove storm. Exactly one toggle per
     // (room, event, key) may be in flight; the rest are dropped, and the
     // slot is reusable as soon as the first one finishes.
+
+    // Both of these PANICKED on a multi-byte code point, and the unwind is
+    // swallowed by the spawn the send runs under: "it never sent" and "we
+    // threw it away" looked identical to the user.
+    #[test]
+    fn an_img_scan_does_not_panic_across_a_code_point() {
+        // The three bytes after `<` span a code-point boundary here: `a`
+        // plus the first two bytes of a three-byte character.
+        assert_eq!(find_img_tag("<a\u{65e5}b"), None);
+        assert_eq!(find_img_tag("x<img src=y>"), Some(1));
+        assert_eq!(find_img_tag("<image>"), None);
+        assert_eq!(find_img_tag("<IMG/>"), Some(0));
+        // A truncated tail must not read past the end either.
+        assert_eq!(find_img_tag("<im"), None);
+    }
+
+    #[test]
+    fn an_emoticon_scan_does_not_panic_on_a_long_multibyte_body() {
+        // 160 bytes back from the end lands mid code point for a body of
+        // 3-byte characters, which is the exact reported shape.
+        let body = "\u{65e5}".repeat(54);
+        let emoticons = vec![(":tada:".to_owned(), "mxc://x/y".to_owned())];
+        let out = substitute_emoticons(&format!("{body}:tada:"), &emoticons);
+        assert!(out.contains("mxc://x/y"), "the emoticon was not substituted");
+    }
+
     #[test]
     fn only_one_reaction_toggle_per_target_is_in_flight() {
         let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));

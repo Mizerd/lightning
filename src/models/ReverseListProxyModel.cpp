@@ -306,9 +306,19 @@ void ReverseListProxyModel::setSourceModel(QAbstractItemModel *model)
                    const QList<int> &roles) {
                 if (topLeft.parent().isValid() || bottomRight.parent().isValid())
                     return;
+                // MINUS THE WINDOW SKIP, exactly like mapFromSource. Every
+                // other mapping in this file subtracts it; this one did not,
+                // so with a window held (a live capture recorded skip=380) a
+                // change to the row the reader is looking at was announced
+                // 380 rows away. The wrong row repaints and re-reads
+                // correctly, so nothing LOOKS broken, while the row that
+                // actually changed is never told to re-read: an edit, a
+                // redaction or a late decryption never lands. That is the
+                // recorded "a skip change renumbers every view row" class,
+                // and the first instance of it inside the proxy itself.
                 const int total = sourceRowTotal();
-                int proxyFirst = total - 1 - bottomRight.row();
-                int proxyLast = total - 1 - topLeft.row();
+                int proxyFirst = total - 1 - m_windowSkip - bottomRight.row();
+                int proxyLast = total - 1 - m_windowSkip - topLeft.row();
                 // Clamp to what the view has actually been given; a change to
                 // a still-unreleased row needs no signal, because the row will
                 // be read fresh when it is released.

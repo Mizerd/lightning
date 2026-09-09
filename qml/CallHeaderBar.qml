@@ -401,6 +401,13 @@ Rectangle {
                     // that collision three times (§16) — the emoji picker was
                     // made modal for exactly this reason.
                     modal: true
+                    // WITHOUT THIS, CloseOnEscape IS DEAD. Qt routes Escape
+                    // only to a popup holding active focus, and this one is
+                    // modal — so a keyboard user who opens it has no way out
+                    // at all, and the focus ring the choices below draw on
+                    // activeFocus can never appear. Every sibling popup in
+                    // the call UI sets it.
+                    focus: true
                     dim: false
                     closePolicy: Popup.CloseOnEscape
                                  | Popup.CloseOnPressOutside

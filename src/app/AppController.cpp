@@ -3150,6 +3150,15 @@ void AppController::showLogin()
     // Back never strands the user on a dead client.
     if (m_client->isLoggedIn())
         m_addAccountReturnTo = m_settings->activeAccountUserId();
+    // A LIVE CALL MUST BE LEFT WHILE ITS OWN CLIENT IS STILL ATTACHED.
+    // switchToAccount() does this for the same reason and records it: the
+    // retraction cannot be dispatched once the Rust client has been
+    // released, and an unretracted membership is a ghost participant every
+    // other client in the room sees until it expires. Here, rather than at
+    // the accountChanged branch in onLoginSucceeded(), because by the time a
+    // login has SUCCEEDED the outgoing client is already gone.
+    if (m_groupCall && m_client->isLoggedIn())
+        m_groupCall->leave();
     m_composer->setRoomId({});
     setCurrentScreen(LoginScreen);
 }
@@ -4384,8 +4393,33 @@ void AppController::onLoginSucceeded()
     const bool accountChanged =
         !m_lastSessionUserId.isEmpty() && m_lastSessionUserId != uid;
     m_lastSessionUserId = uid;
-    if (accountChanged)
+    if (accountChanged) {
         clearCrossAccountCaches();
+        // ...AND THE FOUR THINGS A SWITCH ANNOUNCES THAT A CLEAR CANNOT
+        // DISCOVER. The comment above says "exactly like a switch"; it was
+        // not. switchToAccount() does all of these and this path did none,
+        // because add-account never signs the previous account out, so
+        // `loggedOut` never fires and nothing downstream learns anything
+        // changed.
+        //
+        // The consequences were not cosmetic. MediaVisibilityStore keeps the
+        // previous account's hidden-image list in memory, and the first hide
+        // under the new account persists the whole of it — writing account
+        // A's list into account B's record and losing B's. ModerationController
+        // keeps A's ignore list AND never loads B's, because its load guard
+        // is cleared only on sign-out; that list gates notification
+        // suppression and the incoming-call ring, so someone B ignored still
+        // rings and someone A ignored is silently suppressed for B.
+        setCurrentRoomId(QString{});
+        if (m_roomInfo)
+            m_roomInfo->setRoomId(QString{});
+        if (m_shortcuts)
+            m_shortcuts->reload();
+        if (m_mediaVisibility)
+            m_mediaVisibility->reloadForAccount();
+        if (m_moderation)
+            m_moderation->resetForAccountChange();
+    }
     // Every notification raised from now on is stamped with THIS account, so
     // a reply or mark-as-read taken after the next switch can be refused
     // instead of acting under the wrong identity. Set after the cache clear,

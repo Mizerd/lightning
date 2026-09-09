@@ -168,9 +168,6 @@ const MAX_MEMBERS: usize = 128;
 /// cap applies after aggregation, so without this a room carrying tens of
 /// thousands of stale membership events would do all that work first.
 const MAX_RAW_MEMBER_EVENTS: usize = 512;
-/// Bound on the server's `/state` answer when the membership fallback runs.
-/// A room's full state can be large; only membership events are wanted.
-const MAX_SERVER_STATE_EVENTS: usize = 4096;
 /// The membership fallback must not stall a call's key distribution.
 const MEMBERSHIP_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_TRANSPORTS: usize = 8;
@@ -958,6 +955,29 @@ pub(crate) fn store_view_is_usable(
         .any(|value| membership_event_is_live(value, now_ms))
 }
 
+/// Bound a membership list to `cap`, keeping LIVE memberships in preference
+/// to dead ones.
+///
+/// The bound used to be applied BEFORE anything knew which events were live —
+/// `take(512)` over an unordered store query, `truncate(512)` over a map
+/// ordered by state key, i.e. alphabetically. In a room this file's own
+/// comments describe as "carrying tens of thousands of stale membership
+/// events", an alphabetical or arbitrary 512 can be entirely ghosts while the
+/// two people actually in the call sit past the cut. The cap exists to bound
+/// work, not to choose participants, so it must cut the dead ones first.
+fn bound_membership_events(
+    mut events: Vec<serde_json::Value>,
+    now_ms: u64,
+    cap: usize,
+) -> Vec<serde_json::Value> {
+    if events.len() <= cap {
+        return events;
+    }
+    events.sort_by_key(|value| !membership_event_is_live(value, now_ms));
+    events.truncate(cap);
+    events
+}
+
 /// The slot one membership event occupies, for merging two views of the same
 /// room state.
 ///
@@ -995,6 +1015,7 @@ fn membership_slot(value: &serde_json::Value) -> Option<String> {
 pub(crate) fn merge_membership_events(
     store: Vec<serde_json::Value>,
     server: Vec<serde_json::Value>,
+    now_ms: u64,
 ) -> Vec<serde_json::Value> {
     fn ts(value: &serde_json::Value) -> u64 {
         value
@@ -1018,8 +1039,7 @@ pub(crate) fn merge_membership_events(
     }
     let mut out: Vec<serde_json::Value> = best.into_values().collect();
     out.append(&mut unkeyed);
-    out.truncate(MAX_RAW_MEMBER_EVENTS);
-    out
+    bound_membership_events(out, now_ms, MAX_RAW_MEMBER_EVENTS)
 }
 
 /// Every membership state event for a room, as raw JSON, and where it came
@@ -1056,14 +1076,19 @@ async fn read_membership_events(
     now_ms: u64,
     prefer_server: bool,
 ) -> (Vec<serde_json::Value>, &'static str) {
-    let from_store: Vec<serde_json::Value> = room
-        .get_state_events(StateEventType::from(EV_MEMBER_LEGACY))
-        .await
-        .unwrap_or_default()
-        .iter()
-        .take(MAX_RAW_MEMBER_EVENTS)
-        .filter_map(raw_state_json)
-        .collect();
+    // PARSE FIRST, BOUND SECOND. The store query has no ORDER BY, so a
+    // `take` before the parse cuts an arbitrary 512 of what may be thousands
+    // of stale memberships and can miss every live one.
+    let from_store = bound_membership_events(
+        room.get_state_events(StateEventType::from(EV_MEMBER_LEGACY))
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter_map(raw_state_json)
+            .collect(),
+        now_ms,
+        MAX_RAW_MEMBER_EVENTS,
+    );
 
     if !prefer_server && store_view_is_usable(&from_store, now_ms) {
         return (from_store, "store");
@@ -1078,8 +1103,14 @@ async fn read_membership_events(
     else {
         return (from_store, "store-fallback");
     };
+    // NO BOUND BEFORE THE FILTER. `/state` returns the WHOLE room state,
+    // dominated by `m.room.member`, so bounding the raw response first put
+    // every `m.call.member` past that position out of reach and reported the
+    // room as having no memberships at all. ruma has already deserialized the
+    // vector, so walking it costs nothing the request did not already pay;
+    // the bound that matters is on what is KEPT, below.
     let mut from_server = Vec::new();
-    for raw in response.room_state.iter().take(MAX_SERVER_STATE_EVENTS) {
+    for raw in response.room_state.iter() {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(raw.json().get())
         else {
             continue;
@@ -1098,7 +1129,7 @@ async fn read_membership_events(
         // request did not get through", which is why it has its own word.
         return (from_store, "server-none");
     }
-    (merge_membership_events(from_store, from_server), "server")
+    (merge_membership_events(from_store, from_server, now_ms), "server")
 }
 
 async fn read_session(
@@ -1554,6 +1585,35 @@ fn expires_for_refresh(period_ms: u64, created_ts: Option<u64>, now_ms: u64)
     }
 }
 
+/// The `expires` the no-MSC4140 fallback write must carry.
+///
+/// The fallback is the second write of a publish that ASSUMED the server
+/// would arm a delayed retraction and found that it did not. It replaces our
+/// own state event under the same state key, keeping `created_ts` — and
+/// `created_ts` is the PRESERVED ORIGINAL JOIN, which is the whole trap.
+///
+/// This used to pass `MEMBERSHIP_EXPIRY_NO_DELAYED_MS` directly. On a fresh
+/// join that is harmless, because `created_ts` is `None` and peers date the
+/// membership from the event's own `origin_server_ts`. On anything else it is
+/// a membership BORN EXPIRED: twenty minutes into a call, or on a rejoin that
+/// inherited a still-live membership from a previous session, the deadline it
+/// writes is `created_ts + 5 minutes`, which is already in the past. Every
+/// reader drops it, including our own `read_session`, so the local
+/// participant list can fall to zero WITH OUR OWN DEVICE IN THE CALL, and
+/// peers rotate media keys to a set that no longer contains us.
+///
+/// Reachable on a server that DOES support MSC4140, because
+/// `schedule_delayed_leave` reports every failure the same way — a timeout, a
+/// 429 and a 5xx all arrive as an empty delay id, not just "this server has
+/// no MSC4140". One blip mid-call is enough.
+///
+/// It is the same rule the first write already applies; the two call sites
+/// had drifted apart. See `expires_for_refresh` for why a constant cannot
+/// extend anything.
+fn fallback_expires_ms(created_ts: Option<u64>, now_ms: u64) -> u64 {
+    expires_for_refresh(MEMBERSHIP_EXPIRY_NO_DELAYED_MS, created_ts, now_ms)
+}
+
 /// Delayed-event (MSC4140) timeout — the server retracts our membership for
 /// us if we stop restarting it. This is the ONLY cleanup that survives a
 /// crash, a kill, or a lost network.
@@ -1803,9 +1863,15 @@ pub(crate) fn publish_membership(
             // previous state event under the same state key, so the room sees
             // one membership, not two — and created_ts is unchanged, so
             // oldest-membership focus selection does not move.
+            //
+            // MEASURED FROM created_ts, exactly like the first write. This
+            // line used to pass the bare constant, and because created_ts is
+            // the PRESERVED original join it published a membership that was
+            // already dead whenever this branch ran on anything but a fresh
+            // join — see fallback_expires_ms.
             let short = own_membership_content(
                 &device_id, &user_id, focus.as_ref(), intent, created_ts,
-                MEMBERSHIP_EXPIRY_NO_DELAYED_MS);
+                fallback_expires_ms(created_ts, now_ms()));
             let retry = tokio::time::timeout(
                 DISCOVERY_TIMEOUT,
                 room.send_state_event_raw(EV_MEMBER_LEGACY, &state_key, short),
@@ -3703,6 +3769,61 @@ mod tests {
         })
     }
 
+    // The no-MSC4140 fallback write. See fallback_expires_ms: this branch
+    // used to pass the bare constant against a PRESERVED created_ts, which
+    // publishes a membership that is already dead.
+    #[test]
+    fn the_fallback_write_is_measured_from_created_ts_not_from_zero() {
+        let join = 1_000_000u64;
+        let now = join + 20 * 60 * 1000; // twenty minutes into the call
+        let expires = fallback_expires_ms(Some(join), now);
+        // What every reader computes, this file's own parser included.
+        let deadline = join + expires;
+        assert!(
+            deadline > now,
+            "the fallback write published a membership that was already dead: \
+             deadline {deadline} is not after now {now}"
+        );
+        // ...and it is a full period out, not merely non-negative.
+        assert_eq!(deadline, now + MEMBERSHIP_EXPIRY_NO_DELAYED_MS);
+    }
+
+    #[test]
+    fn a_fresh_join_still_gets_the_plain_period() {
+        // No created_ts means peers date the membership from the event's own
+        // origin_server_ts, so the duration IS the period. This is the case
+        // the old constant got right, and it must not regress.
+        assert_eq!(
+            fallback_expires_ms(None, 5_000_000),
+            MEMBERSHIP_EXPIRY_NO_DELAYED_MS
+        );
+    }
+
+    #[test]
+    fn a_membership_the_fallback_wrote_survives_its_own_parser() {
+        // End to end through the real parser, which is what actually decides
+        // whether this device stays in its own participant list.
+        let join = 1_000_000u64;
+        let now = join + 20 * 60 * 1000;
+        let event_ts = now;
+        let content = json!({
+            "application": "m.call",
+            "call_id": "",
+            "scope": "m.room",
+            "device_id": "DEVICE",
+            "created_ts": join,
+            "expires": fallback_expires_ms(Some(join), now),
+            "focus_active": {"type": "livekit"},
+            "foci_preferred": [],
+        });
+        let member = parse_session_membership(&content, "@a:x", event_ts)
+            .expect("the fallback wrote a parseable membership");
+        assert!(
+            member.expires_at_ms > now,
+            "the fallback write is dropped by our own liveness filter"
+        );
+    }
+
     #[test]
     fn a_store_holding_one_live_membership_answers_for_itself() {
         let store = vec![membership_event("@a:x", "D1", 1_000, 300_000)];
@@ -3744,6 +3865,39 @@ mod tests {
     }
 
     #[test]
+    fn a_bound_cuts_the_dead_memberships_before_the_live_ones() {
+        // The room this file's own comments describe: thousands of stale
+        // memberships, two live ones. An arbitrary or alphabetical cut can
+        // be entirely ghosts, and the read then reports an empty call.
+        let now = 10_000_000u64;
+        let mut events: Vec<serde_json::Value> = (0..600)
+            .map(|i| membership_event(&format!("@ghost{i}:x"), "D", 1_000, 300_000))
+            .collect();
+        events.push(membership_event("@live:x", "D1", now - 1_000, 300_000));
+        events.push(membership_event("@live2:x", "D2", now - 1_000, 300_000));
+
+        let bounded = bound_membership_events(events, now, MAX_RAW_MEMBER_EVENTS);
+        assert_eq!(bounded.len(), MAX_RAW_MEMBER_EVENTS);
+        let live: Vec<&str> = bounded
+            .iter()
+            .filter(|value| membership_event_is_live(value, now))
+            .map(|value| value["sender"].as_str().unwrap())
+            .collect();
+        assert_eq!(live.len(), 2, "a live membership was cut before a ghost");
+        assert!(live.contains(&"@live:x") && live.contains(&"@live2:x"));
+    }
+
+    #[test]
+    fn a_list_within_the_bound_is_left_exactly_as_it_was() {
+        let events = vec![
+            membership_event("@a:x", "D1", 1_000, 300_000),
+            retraction_event("@b:x", "D2", 2_000),
+        ];
+        let bounded = bound_membership_events(events.clone(), 60_000, 8);
+        assert_eq!(bounded, events);
+    }
+
+    #[test]
     fn merging_keeps_the_newer_event_for_each_state_key() {
         // The server's /state snapshot can predate our own publish by a
         // round trip, and the store is where our own echo lands first.
@@ -3752,7 +3906,7 @@ mod tests {
             membership_event("@a:x", "D1", 30_000, 300_000),
             membership_event("@b:x", "D2", 30_000, 300_000),
         ];
-        let merged = merge_membership_events(store, server);
+        let merged = merge_membership_events(store, server, 60_000);
         assert_eq!(merged.len(), 2);
         let ours = merged
             .iter()
@@ -3767,7 +3921,7 @@ mod tests {
         // resurrects a participant who left.
         let store = vec![membership_event("@b:x", "D2", 30_000, 300_000)];
         let server = vec![retraction_event("@b:x", "D2", 90_000)];
-        let merged = merge_membership_events(store, server);
+        let merged = merge_membership_events(store, server, 60_000);
         assert_eq!(merged.len(), 1);
         assert!(merged[0]["content"].as_object().unwrap().is_empty());
         assert!(!store_view_is_usable(&merged, 91_000));
@@ -3778,6 +3932,7 @@ mod tests {
         let merged = merge_membership_events(
             vec![membership_event("@a:x", "D1", 10_000, 300_000)],
             vec![membership_event("@a:x", "D2", 10_000, 300_000)],
+            60_000,
         );
         assert_eq!(merged.len(), 2);
     }

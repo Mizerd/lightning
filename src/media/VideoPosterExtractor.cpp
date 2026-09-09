@@ -321,8 +321,13 @@ void VideoPosterWorker::finishActive(const QByteArray &jpeg,
     m_activeTag.clear();
     m_durationMs = 0;
     teardownPlayer();
+    // THE DURATION SURVIVES AN EMPTY POSTER, and that is the whole point of
+    // the argument. An AUDIO file always lands here (no video track, so no
+    // frame), and dropping the value on the floor made the "an attached audio
+    // file carries its duration" fix a no-op on the real path: the send still
+    // went out as "0:00". The header states this contract explicitly.
     if (jpeg.isEmpty())
-        Q_EMIT posterReady(tag, {}, {}, {}, 0);
+        Q_EMIT posterReady(tag, {}, {}, {}, durationMs);
     else
         Q_EMIT posterReady(tag, jpeg, posterSize, sourceSize, durationMs);
     startNext();

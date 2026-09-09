@@ -472,6 +472,20 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
     if raw.get("type")?.as_str()? != "m.room.message" {
         return None;
     }
+    // A REDACTED EVENT IS NEVER INDEXABLE, however it reaches us. The live
+    // handler removes the row when the redaction arrives; this is the other
+    // half, because a sweep re-reads the event cache and would otherwise put
+    // the row straight back. The cache applies the redaction in place and
+    // stamps `unsigned.redacted_because`, so this is the reliable marker —
+    // the emptied `content` alone is not (a message legitimately carrying no
+    // body is simply not indexable for other reasons).
+    if raw
+        .get("unsigned")
+        .and_then(|unsigned| unsigned.get("redacted_because"))
+        .is_some()
+    {
+        return None;
+    }
     let content = raw.get("content")?;
 
     // An EDIT carries the replacement under `m.new_content` and leaves a
@@ -722,6 +736,49 @@ pub(crate) fn write_batch(index: &SearchIndex, room_id: &str, batch: &RoomBatch)
     }
     let _ = index.prune();
     written
+}
+
+/// Remove a redacted message's row as the redaction arrives.
+///
+/// Registered for the sync loop's lifetime, exactly like the RTC and call
+/// observers, so it can never fire into a later account's index. Best effort
+/// by design: a redaction we cannot act on right now is caught by
+/// `indexable_from` refusing to re-add the event on the next sweep, and the
+/// row is unreachable to search either way once the body is gone from the
+/// cache. What must not happen is the row surviving BOTH, which is what
+/// shipped.
+pub(crate) fn register_redaction_handler(
+    client: &matrix_sdk::Client,
+    index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
+) -> matrix_sdk::event_handler::EventHandlerDropGuard {
+    let index = std::sync::Arc::clone(index);
+    let handle = client.add_event_handler(
+        move |ev: matrix_sdk::ruma::events::room::redaction::SyncRoomRedactionEvent| {
+            let index = std::sync::Arc::clone(&index);
+            async move {
+                // `redacts` moved from the event to its content between room
+                // versions; both spellings are read for the same reason the
+                // RTC handler reads both.
+                let Some(redacts) = ev
+                    .as_original()
+                    .and_then(|original| original.redacts.as_ref())
+                    .or_else(|| {
+                        ev.as_original()
+                            .and_then(|original| original.content.redacts.as_ref())
+                    })
+                else {
+                    return;
+                };
+                let target = redacts.to_string();
+                if let Ok(guard) = index.lock() {
+                    if let Some(index) = guard.as_ref() {
+                        let _ = index.remove_event(&target);
+                    }
+                }
+            }
+        },
+    );
+    client.event_handler_drop_guard(handle)
 }
 
 #[cfg(test)]

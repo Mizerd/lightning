@@ -57,6 +57,14 @@ public:
         m_rows.append(id);
         endInsertRows();
     }
+    // Announce that one source row's DATA changed, nothing structural.
+    // An edit, a redaction and a late decryption all reach the proxy this
+    // way.
+    void touch(int row)
+    {
+        const QModelIndex ix = index(row, 0);
+        Q_EMIT dataChanged(ix, ix, { Qt::DisplayRole });
+    }
     void removeAt(int row, int n = 1)
     {
         beginRemoveRows({}, row, row + n - 1);
@@ -894,6 +902,40 @@ private Q_SLOTS:
         QCOMPARE(proxy.rowCount(), 20);
         QCOMPARE(proxyText(proxy, 0), QStringLiteral("e59"));
         verifyMappingIsConsistent(proxy, source);
+    }
+
+    // A CHANGE MUST REACH THE ROW THAT CHANGED, with a window held.
+    //
+    // Every other mapping in the proxy subtracts the window skip; the
+    // dataChanged forwarder did not, so with a live-captured skip of 380 an
+    // edit to the reader's own message was announced 380 rows away. The
+    // wrong row repaints and re-reads correctly, so nothing looks broken,
+    // while the changed row is never told to re-read: §9's "the same stable
+    // event updates in place" fails in exactly the state the window creates.
+    void aDataChangeUnderAWindowNamesTheRowThatChanged()
+    {
+        FakeSource source;
+        source.seed(100);
+        ReverseListProxyModel proxy;
+        proxy.setSourceModel(&source);
+        proxy.setWindow(40, 20);
+        QCOMPARE(proxy.rowCount(), 20);
+        // Proxy row 0 is source row 100 - 1 - 40.
+        QCOMPARE(proxyText(proxy, 0), QStringLiteral("e59"));
+
+        QSignalSpy changed(&proxy, &ReverseListProxyModel::dataChanged);
+        source.touch(59);
+
+        QCOMPARE(changed.count(), 1);
+        const auto args = changed.takeFirst();
+        QCOMPARE(args.at(0).toModelIndex().row(), 0);
+        QCOMPARE(args.at(1).toModelIndex().row(), 0);
+
+        // ...and the far end of the window maps too.
+        source.touch(40);
+        QCOMPARE(changed.count(), 1);
+        const auto last = changed.takeFirst();
+        QCOMPARE(last.at(0).toModelIndex().row(), 19);
     }
 
     // Re-pointing the proxy at another model drops the window with it. Same

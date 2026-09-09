@@ -437,7 +437,22 @@ Rectangle {
         // own shortcut for it). Two enabled Shortcuts on one sequence make Qt
         // report an ambiguous overload and fire NEITHER, so the exclusion has
         // to be explicit here rather than relying on ordering.
-        enabled: !timeline.emojiPickerOpen && !middleClickScroller.active
+        // ONLY WHILE THIS SCREEN IS THE ONE ON SCREEN. Settings (2) keeps
+        // MainScreen LOADED but hidden, and a Shortcut is matched by WINDOW,
+        // never by its item's visibility — SettingsScreen's own Escape says
+        // so and carries `root.visible` for exactly this reason. Without the
+        // same gate here, opening a thread (or the find bar, or the pinned
+        // toolbar) and then Settings leaves TWO enabled Escapes in one
+        // window, and Qt fires NEITHER: Escape stops closing Settings.
+        // onCurrentScreenChanged cannot cover it, because threadSurfaceOpen
+        // is a binding on app.thread.active and is not ours to clear.
+        //
+        // ...and a forward selection owns Escape too (its own Shortcut is
+        // below), which is the same exclusion middleClickScroller already
+        // has. Both are ambiguity, not ordering.
+        enabled: app.currentScreen === 1
+                 && !timeline.emojiPickerOpen && !middleClickScroller.active
+                 && !app.forward.selecting
                  && (root.findOpen || root.infoOpen || root.searchOpen
                      || root.threadSurfaceOpen
                      || timeline.pinnedActionsKey !== "")
@@ -6243,7 +6258,12 @@ Rectangle {
             }
             Shortcut {
                 sequence: "Escape"
+                // Same window, same key: the autoscroll and the screen gate
+                // have to be honoured here too, or a forward selection made
+                // while a scroller is running silently disables both.
                 enabled: app.forward.selecting === true
+                         && app.currentScreen === 1
+                         && !middleClickScroller.active
                 onActivated: app.forward.cancelSelecting()
             }
         }

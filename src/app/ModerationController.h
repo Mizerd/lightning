@@ -52,6 +52,17 @@ public:
     Q_INVOKABLE void submitReport(const QString &reason);
     Q_INVOKABLE void cancelReport();
 
+    /// Forget everything account-scoped, without a sign-out.
+    ///
+    /// The ignore list gates notification suppression and the incoming-call
+    /// ring, so carrying the previous account's list into the next one
+    /// silently suppresses people the new account never ignored and rings
+    /// for people it did. `onLoggedOut()` already does exactly this and is
+    /// the only thing that clears `m_initialListLoaded` — but the
+    /// ADD-ACCOUNT path never signs the previous account out, so it never
+    /// fires, and the load guard then short-circuits forever.
+    void resetForAccountChange() { onLoggedOut(); }
+
 Q_SIGNALS:
     void stateChanged();
     void reportPromptChanged();

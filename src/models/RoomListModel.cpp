@@ -320,8 +320,16 @@ QVariantList RoomListModel::spacesSummary(int max) const
     // Home's Spaces strip: joined Spaces in list order, presentation
     // fields only. The rail remains the authoritative Space navigation;
     // this is a shortcut surface.
+    //
+    // ITERATES THE CLIENT, NOT `m_rooms`, for the same reason recentRooms()
+    // does. `m_rooms` is the FILTERED list, and passesScopeFilter()'s very
+    // first line drops exactly `isSpace && Joined` — Spaces belong to the
+    // rail, not the conversation list. So the predicate below could never
+    // match anything and this strip has never rendered on any account.
     QVariantList out;
-    for (const auto &r : m_rooms) {
+    if (!m_client)
+        return out;
+    for (const auto &r : m_client->rooms()) {
         if (out.size() >= max)
             break;
         if (!r.isSpace || r.membership != RoomInfo::Joined)

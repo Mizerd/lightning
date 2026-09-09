@@ -1478,12 +1478,13 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         // teardown this thread is really gone. See SYNC_TASK_JOIN_BUDGET_MS.
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
         let sync_client = client.clone();
+        let sync_search_index = Arc::clone(&bridge.search_index);
         let thread = std::thread::spawn(move || {
             let _done = done_tx;
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "sync", async move {
                 run_authoritative_sync(
-                    sync_client, events, sync_mode, room_list_slot,
+                    sync_client, events, sync_search_index, sync_mode, room_list_slot,
                     entries_slot, active_subscription, sync_timelines,
                     sync_media_capable, cancel_rx,
                 ).await;
@@ -10162,6 +10163,7 @@ fn install_event_handlers(
 async fn run_authoritative_sync(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
+    search_index: Arc<Mutex<Option<localsearch::SearchIndex>>>,
     sync_mode: Arc<Mutex<SyncMode>>,
     room_list_slot: Arc<Mutex<Option<Arc<RoomListService>>>>,
     entries_slot: Arc<Mutex<Option<Arc<RoomListDynamicEntriesController>>>>,
@@ -10179,6 +10181,18 @@ async fn run_authoritative_sync(
     // separate from the legacy lane because it answers a different question:
     // who is in a room's call right now, versus who is inviting whom.
     let _rtc_guards = rtc::register_rtc_handlers(&client, &events, &timelines);
+    // THE LOCAL SEARCH INDEX'S ONE NAMED OBLIGATION (§6). The index holds
+    // decrypted plaintext by deliberate exception, and the single duty that
+    // exception carries is that a redaction removes the row — "a message
+    // somebody asked to be unsayable stays findable by its own text" is the
+    // consumer's own wording. `SearchIndex::remove_event` was written for it
+    // and had no caller on this backend at all: redaction reaches C++ only as
+    // a per-row `redacted` flag, and `eventRedacted` is emitted by the mock
+    // and the legacy HTTP client only. It is answered here, at the source,
+    // rather than routed through C++ — the sweep re-reads the event cache, so
+    // the removal has to hold on the Rust side or the next sweep undoes it.
+    let _redaction_guard = localsearch::register_redaction_handler(
+        &client, &search_index);
 
     set_sync_mode(&sync_mode, &events, SyncMode::Probing, None);
 
