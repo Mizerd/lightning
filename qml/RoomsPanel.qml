@@ -839,7 +839,13 @@ Rectangle {
             Layout.margins: visible ? AppTheme.spacing8 : 0
             onReturnToCallRequested: {
                 if (app.groupCall.roomId.length > 0)
-                    app.currentRoomId = app.groupCall.roomId
+                    // openRoom(), NOT a currentRoomId write: the property
+                    // write only SELECTS the room, and openRoom() is the only
+                    // caller of openRoomTimeline(). Writing it directly is
+                    // what made a room entered from a notification load
+                    // nothing, and it is sticky — openRoom()'s alreadyOpen
+                    // guard then skips the real open for good.
+                    app.openRoom(app.groupCall.roomId)
             }
         }
 

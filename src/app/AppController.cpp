@@ -647,7 +647,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_notifications.get(), &NotificationManager::openRequested, this,
             [this](const QString &roomId, const QString &eventId,
                    const QString &threadRootId) {
-        Q_EMIT notificationOpenRequested(roomId, eventId, threadRootId);
+        routeNotificationOpen(roomId, eventId, threadRootId);
     });
     // ── Notification actions, and the account check they both need ──────
     //
@@ -1160,11 +1160,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     });
     m_activity->setClient(m_client.get());
     // An Activity row click is exactly a notification click: same window
-    // raise, same room, same thread, same exact-event landing.
+    // raise, same room, same thread, same exact-event landing — and the same
+    // routing, which is why both go through routeNotificationOpen().
     connect(m_activity.get(), &ActivityModel::openRequested, this,
             [this](const QString &roomId, const QString &eventId,
                    const QString &threadRootId) {
-        Q_EMIT notificationOpenRequested(roomId, eventId, threadRootId);
+        routeNotificationOpen(roomId, eventId, threadRootId);
     });
     connect(m_client.get(), &MatrixClient::reactionEventReceived, this,
             [this](const QString &roomId, const QString &reactionEventId,
@@ -3425,6 +3426,76 @@ void AppController::applyControlPalette(const QVariantMap &roles)
     setDisabled(QPalette::ButtonText, "disabledButtonText");
     setDisabled(QPalette::WindowText, "disabledWindowText");
     QGuiApplication::setPalette(pal);
+}
+
+// ── A NOTIFICATION CLICK MUST *OPEN* THE ROOM, NOT MERELY SELECT IT ──────
+//
+// This handler used to re-emit and nothing else, and `qml/Main.qml`'s
+// notification handler then did `app.currentRoomId = roomId` — the property
+// WRITE, i.e. setCurrentRoomId(). It was one of only two places in the whole
+// application that wrote currentRoomId directly (the other was the Voice
+// Connected bar's "return to call", RoomsPanel.qml, which had the identical
+// defect and now calls openRoom() too); every other navigation
+// (room list, quick switcher, search, links, the Spaces rail, Home) calls
+// app.openRoom(). And openRoom() is the only caller of
+// RustSdkMatrixClient::openRoomTimeline(), which is the only caller of
+// mx_rust_timeline_open.
+//
+// So a room entered from a notification never got a live SDK timeline. The
+// navigation SUCCEEDS — header, composer, room info all switch — and the
+// timeline shows only whatever the bounded background sync mirror happens to
+// hold, with `paginationReady()` false forever (timelineActiveFor() consults
+// the timeline tracker, which openRoomTimeline is what arms), so no history
+// can ever load and the jump to the notification's own event fails. Reported
+// from Windows, where the tray balloon is the only delivery and therefore the
+// only way most users ever met this path: "it sends me to the room and just
+// doesn't load anything".
+//
+// AND IT IS STICKY, which is the part that makes it look like a broken room
+// rather than a slow one: openRoom() skips the SDK open when
+// `m_currentRoomId == roomId` (its `alreadyOpen` guard, below), and this path
+// has already set that. So clicking the same room in the LIST afterwards
+// repairs nothing — the user has to open a different room and come back.
+//
+// Navigation is C++'s (CLAUDE.md §5), so the open belongs here rather than in
+// the QML handler: it then covers the Activity Center row as well, which
+// routes through the same signal, and the QML assignment that follows becomes
+// a no-op (same value, setCurrentRoomId early-returns).
+void AppController::routeNotificationOpen(const QString &roomId,
+                                          const QString &eventId,
+                                          const QString &threadRootId)
+{
+    // REDUCE A COMPOSITE, NEVER MERELY REFUSE IT.
+    //
+    // Two callers reach here and only one of them arrives pre-reduced.
+    // NotificationManager normalises its payload before it emits, but the
+    // ACTIVITY CENTRE does not: AppController hands `ingest()` the unreduced
+    // event, ActivityModel stores that composite as the row's room, and the
+    // row emits it back here. Skipping the open and then emitting the
+    // composite anyway would leave §8 broken by a different door — QML
+    // assigns it to `currentRoomId`, and `setCurrentRoomId` calls
+    // `m_rtc->refresh()`, which falls back to a full `/state` for an idle
+    // room. That is a composite in a protocol call.
+    //
+    // Reducing here fixes the Activity Centre's thread rows as well, and it
+    // is what makes the guard testable end to end rather than only up to the
+    // signal.
+    //
+    // The open must not see a composite for a second reason:
+    // openRoomTimeline() has no guard of its own, and the Rust side CLOSES
+    // the previous room's timeline before it discovers the id will not parse
+    // — so opening one would tear down the live subscription of the room the
+    // reader is actually in.
+    const bool composite = MatrixClient::isThreadTimelineId(roomId);
+    const QString target =
+        composite ? MatrixClient::threadTimelineRoomId(roomId) : roomId;
+    const QString root =
+        (composite && threadRootId.isEmpty())
+            ? MatrixClient::threadTimelineRootId(roomId)
+            : threadRootId;
+    if (!target.isEmpty())
+        openRoom(target);
+    Q_EMIT notificationOpenRequested(target, eventId, root);
 }
 
 void AppController::openRoom(const QString &roomId)

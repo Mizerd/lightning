@@ -16,6 +16,7 @@
 #include "calls/CallController.h"
 #include "calls/SfuCallController.h"
 #include "matrix/CallSignal.h"
+#include "matrix/MatrixClient.h"
 #include "matrix/MockMatrixClient.h"
 #include "notifications/NotificationManager.h"
 
@@ -402,6 +403,135 @@ private Q_SLOTS:
                  "the withdrawal arrived carrying text, which would replace "
                  "one stale sentence with another instead of clearing it");
     }
+
+    // ── A NOTIFICATION CLICK MUST *OPEN* THE ROOM, NOT MERELY SELECT IT ──
+    //
+    // Reported from Windows on 0.9.3, where the tray balloon is the only
+    // delivery and therefore the only way most people ever reach this path:
+    // "when i click it, it sends me to this. and just doesnt load anything
+    // on that room", and yes, "from notification only".
+    //
+    // `qml/Main.qml`'s notification handler did `app.currentRoomId = roomId`
+    // — the property WRITE, i.e. setCurrentRoomId(). It is the ONLY place in
+    // the application that writes currentRoomId directly; every other way
+    // into a room (room list, quick switcher, search, links, the rail, Home)
+    // calls app.openRoom(). And openRoom() is the sole caller of
+    // RustSdkMatrixClient::openRoomTimeline(), the sole caller of
+    // mx_rust_timeline_open. So a room entered from a notification never got
+    // a live SDK timeline: the navigation succeeds, and the room shows only
+    // what the bounded background sync mirror happens to hold, with
+    // paginationReady() false forever so no history can ever arrive.
+    //
+    // WHAT THIS ASSERTS, AND WHY IT IS THE RIGHT PROXY. The SDK open itself
+    // is behind ENABLE_RUST_SDK_BACKEND and a qobject_cast to the Rust
+    // client, so no mock-backend test can observe it directly. What CAN be
+    // observed is the one other thing openRoom() does and setCurrentRoomId()
+    // does not: return from the Settings screen to the chat. Since openRoom()
+    // is the only caller of openRoomTimeline(), proving openRoom() is on the
+    // path IS proving the timeline is opened on a Rust build.
+    //
+    // Both routes are covered because both land on the same C++ handler: the
+    // desktop notification, and an Activity Center ("bell") row.
+    void aNotificationClickOpensTheRoomRatherThanJustSelectingIt()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        NotificationManager *notifications = controller.notificationsForTest();
+        QVERIFY(notifications);
+
+        // Somewhere that is NOT the room, and on a screen only openRoom()
+        // leaves. (Main.qml calls showMain() before the assignment, but that
+        // is the QML half; this case is about the C++ routing.)
+        controller.setCurrentRoomId(QString());
+        controller.showSettings();
+        QCOMPARE(controller.currentScreen(), AppController::SettingsScreen);
+
+        Q_EMIT notifications->openRequested(kRoom, QStringLiteral("$ev:mock"),
+                                            QString());
+
+        QCOMPARE(controller.currentRoomId(), kRoom);
+        QVERIFY2(controller.currentScreen() == AppController::MainScreen,
+                 "a notification click did not go through openRoom(), so the "
+                 "room was SELECTED and never OPENED: on the Rust backend no "
+                 "SDK timeline is subscribed for it, the room shows only the "
+                 "background sync mirror and can never paginate");
+
+        // ...and the Activity Center row is the same click by another name.
+        controller.setCurrentRoomId(QString());
+        controller.showSettings();
+        auto *activity = controller.activity();
+        QVERIFY(activity);
+        QVERIFY(QMetaObject::invokeMethod(
+            activity, "openRequested", Qt::DirectConnection,
+            Q_ARG(QString, kRoom), Q_ARG(QString, QStringLiteral("$ev:mock")),
+            Q_ARG(QString, QString{})));
+        QCOMPARE(controller.currentRoomId(), kRoom);
+        QVERIFY2(controller.currentScreen() == AppController::MainScreen,
+                 "an Activity Center row selects the room without opening it, "
+                 "which is the same broken half-state a notification click "
+                 "produced");
+    }
+
+    // A THREAD NOTIFICATION MUST NOT HAND A TIMELINE ID TO openRoom().
+    //
+    // CLAUDE.md §8: the composite `room + US + thread + US + root` must never
+    // leave the app layer. NotificationManager reduces it before it emits, so
+    // this should be unreachable — and it is asserted anyway because the cost
+    // of it getting through is not "nothing happens".
+    //
+    // Adding the room open is exactly what turns a composite from inert into
+    // destructive, which is why the reduction and the open landed together.
+    // openRoomTimeline() has
+    // no composite guard and the Rust side CLOSES the previous room's
+    // timeline BEFORE it discovers the id will not parse, so routing a
+    // composite here would tear down the live subscription of the room the
+    // reader is actually sitting in.
+    //
+    // This case fails on all three broken forms: the pre-fix tree (nothing
+    // opens, currentRoomId stays empty), the skip-and-re-emit form (same,
+    // plus the composite arrives at the signal), and an unguarded open
+    // (currentRoomId becomes the composite).
+    void aTimelineIdIsNeverHandedToTheRoomOpener()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        NotificationManager *notifications = controller.notificationsForTest();
+        QVERIFY(notifications);
+
+        // START WITH NO ROOM OPEN. Raised in review: with kRoom already
+        // open, "reduced the composite and reopened kRoom" and "did nothing
+        // at all" are the same observation, so the case passed on a version
+        // that skipped the open and re-emitted the composite — which is the
+        // very form this reduction replaced. Starting empty makes the
+        // reduction positively observable instead of merely non-destructive.
+        controller.setCurrentRoomId(QString{});
+        QVERIFY(controller.currentRoomId().isEmpty());
+
+        QSignalSpy routed(&controller,
+                          &AppController::notificationOpenRequested);
+        const QString root = QStringLiteral("$root:mock.local");
+        const QString composite = MatrixClient::threadTimelineId(kRoom, root);
+        QVERIFY(MatrixClient::isThreadTimelineId(composite));
+        // No root argument: the composite is the only place it exists. That
+        // is routeNotificationOpen()'s recovery branch, which nothing else
+        // drives at either layer.
+        Q_EMIT notifications->openRequested(composite, QStringLiteral("$ev:mock"),
+                                            QString{});
+
+        QVERIFY2(controller.currentRoomId() == kRoom,
+                 qPrintable(QStringLiteral(
+                     "a notification for a thread opened \"%1\" instead of "
+                     "its room: an empty result means the composite was "
+                     "refused and nothing opened, and the composite itself "
+                     "means it reached the opener — which on the Rust backend "
+                     "closes the reader's live timeline and then fails to "
+                     "parse")
+                     .arg(controller.currentRoomId())));
+        QCOMPARE(routed.count(), 1);
+        QCOMPARE(routed.at(0).at(0).toString(), kRoom);
+        QCOMPARE(routed.at(0).at(2).toString(), root);
+    }
+
 
 private:
     QTemporaryDir m_configHome;

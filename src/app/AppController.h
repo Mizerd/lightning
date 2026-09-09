@@ -1302,6 +1302,13 @@ Q_SIGNALS:
     void roomKeyImportCompleted(int imported, int total, int affectedRooms);
 
 private:
+    // The single landing for a notification click and an Activity Center row.
+    // OPENS the room (openRoom, so the SDK timeline is actually subscribed)
+    // and then re-emits notificationOpenRequested for the QML half — the
+    // window raise, the thread panel and the jump to the event. See the
+    // definition for what selecting-without-opening did.
+    void routeNotificationOpen(const QString &roomId, const QString &eventId,
+                               const QString &threadRootId);
     void setCurrentScreen(Screen s);
     void setConnectionStatus(const QString &s);
     // Applies the persisted icon choice to QGuiApplication::setWindowIcon —

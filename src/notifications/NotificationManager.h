@@ -187,6 +187,26 @@ public:
     // them through the payload map — this is how a test sees that a read
     // room's pending popup was dropped rather than shown a second later.
     int avatarWaitCountForTest() const { return m_avatarWaits.size(); }
+    // ...and the payload one of them is carrying, which is what proves the
+    // click identity a notification was BUILT with, before any delivery
+    // path has had a chance to touch it.
+    QVariantMap avatarWaitPayloadForTest(int index) const
+    {
+        return index >= 0 && index < m_avatarWaits.size()
+            ? m_avatarWaits.at(index).payload : QVariantMap{};
+    }
+
+    // ── §8: the composite thread-timeline id must never leave this class ──
+    //
+    // A thread reply reaches processEvent() with the COMPOSITE timeline id
+    // in TimelineEvent::roomId (see the definitions for the full account),
+    // and a composite assigned to app.currentRoomId opens nothing. These
+    // reduce one to the identity a click can actually route with. Public so
+    // the property can be asserted directly as well as through the payload;
+    // both are no-ops for every real room id.
+    static QString routableRoomId(const QString &roomId);
+    static QString routableThreadRootId(const QString &roomId,
+                                        const QString &threadRootId);
 
 Q_SIGNALS:
     // The user activated a notification. Identity only — no tokens.
@@ -255,6 +275,9 @@ public:
     void closeRoomNotifications(const QString &roomId);
 private:
     void forgetPayload(quint32 id);
+    /// The one place openRequested is emitted. Normalises the payload's
+    /// identity so no producer can route a click to a timeline id.
+    void emitOpenFor(const QVariantMap &payload);
     /// The balloon delivery, for builds and sessions with no freedesktop
     /// daemon. True when the tray showed it.
     bool deliverThroughTray(const QString &title, const QString &body,

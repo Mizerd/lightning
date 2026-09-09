@@ -6,6 +6,11 @@
 #include "notifications/FallbackAvatar.h"
 
 #include "matrix/EventPreview.h"
+// For the composite thread-timeline id helpers ONLY (they are static inline
+// in the header, so this adds no link dependency): CLAUDE.md §8 forbids the
+// composite from reaching a notification, and this is the boundary that has
+// to hold it back. See routableRoomId() below.
+#include "matrix/MatrixClient.h"
 #include "matrix/TimelineEvent.h"
 #include "models/UserLookup.h"
 
@@ -343,6 +348,51 @@ bool NotificationManager::shouldNotifyInvite(bool initialSyncComplete,
     return notificationsEnabled && initialSyncComplete && !alreadyKnown;
 }
 
+// ── §8: THE COMPOSITE TIMELINE ID STOPS HERE ────────────────────────────
+//
+// A thread reply does not arrive carrying its room id. `handleThreadDiff`
+// feeds the whole thread timeline through the SAME diff pipeline as a room,
+// addressed by the composite id `room + US + "thread" + US + root`
+// (MatrixClient.h), and `applyTimelineDiff` stamps that composite into
+// `TimelineEvent::roomId` for every item it builds
+// (RustTimelineIngest.cpp: `e.roomId = roomId`). So an event reaching this
+// class from a thread has a `roomId` that is NOT a room id.
+//
+// CLAUDE.md §8 says the composite "must never leak into permalinks, details,
+// notifications or protocol calls", and the click payload is a notification.
+// A composite that gets through routes a click to
+// `AppController::setCurrentRoomId()`, which hands it to the timeline, the
+// composer and the pagination controller as though it were a room: the
+// navigation SUCCEEDS, the room header changes, and nothing loads, because
+// no such room exists. The same value would also be handed to
+// `sendThreadReply()` by an inline reply, and compared against a real room
+// id by `closeRoomNotifications()`, which is why reading the room could not
+// withdraw the card either.
+//
+// This is a NO-OP for every ordinary notification. A Matrix room id can
+// never contain a unit separator (MatrixClient.h says so where the id is
+// built), so `isThreadTimelineId` is false for every real room and both
+// helpers return their argument unchanged. Nothing on the freedesktop path
+// changes shape.
+QString NotificationManager::routableRoomId(const QString &roomId)
+{
+    return MatrixClient::isThreadTimelineId(roomId)
+        ? MatrixClient::threadTimelineRoomId(roomId)
+        : roomId;
+}
+
+// The root the click needs to open the thread panel. A thread copy usually
+// carries `threadRootId` already; when it does not, the composite itself
+// holds it, and that is strictly better than dropping the reader into the
+// room with no thread open.
+QString NotificationManager::routableThreadRootId(const QString &roomId,
+                                                  const QString &threadRootId)
+{
+    if (!threadRootId.isEmpty() || !MatrixClient::isThreadTimelineId(roomId))
+        return threadRootId;
+    return MatrixClient::threadTimelineRootId(roomId);
+}
+
 void NotificationManager::processEvent(const TimelineEvent &event,
                                        const Context &context)
 {
@@ -350,9 +400,13 @@ void NotificationManager::processEvent(const TimelineEvent &event,
     if (!decision.notify)
         return;
     QVariantMap payload;
-    payload.insert(QStringLiteral("roomId"), event.roomId);
+    // Normalised HERE, where the payload is built, so every consumer of it
+    // — the click, Mark as read, the inline reply, and the withdrawal scan
+    // — sees one real room id. See routableRoomId() above.
+    payload.insert(QStringLiteral("roomId"), routableRoomId(event.roomId));
     payload.insert(QStringLiteral("eventId"), event.eventId);
-    payload.insert(QStringLiteral("threadRootId"), event.threadRootId);
+    payload.insert(QStringLiteral("threadRootId"),
+                   routableThreadRootId(event.roomId, event.threadRootId));
     // WHICH ACCOUNT this notification belongs to. A card outlives the
     // account that raised it — the user can switch or sign out while it is
     // still on screen — so every action taken on it is checked against this
@@ -752,12 +806,39 @@ void NotificationManager::onFallbackMessageClicked()
 {
     const QVariantMap payload = m_lastFallbackPayload;
     m_lastFallbackPayload.clear();
-    const QString roomId = payload.value(QStringLiteral("roomId")).toString();
-    if (roomId.isEmpty())
+    emitOpenFor(payload);
+}
+
+// EVERY openRequested GOES THROUGH HERE, and it normalises again.
+//
+// processEvent() already builds a routable payload, but it is not the only
+// producer: showGeneric() and showIncomingCall() build their own, and a
+// future one will too. This class's whole contract with QML is "the room id
+// in this signal can be assigned to app.currentRoomId", so the guarantee
+// belongs at the one place the signal is emitted rather than at each
+// producer. Idempotent: a normalised id normalises to itself.
+void NotificationManager::emitOpenFor(const QVariantMap &payload)
+{
+    // GATE ON THE PAYLOAD, NOT ON THE ROOM ID. A notification with no room is
+    // a real thing and its whole purpose is to bring the window forward —
+    // "%1 wants to verify a session. Open Lightning to review it." is the
+    // one people will actually click, and the account-mismatch notice is
+    // another. qml/Main.qml raises the window BEFORE it looks at the room id,
+    // so refusing to emit here would silently make those notices do nothing.
+    //
+    // The tray path always had an empty-payload check and the D-Bus path
+    // emitted whenever the payload was non-empty; the payload test is what
+    // both of them actually meant, and it is what sign-out clears
+    // (clearPending() empties the whole map, not just its room).
+    if (payload.isEmpty())
         return;
-    Q_EMIT openRequested(roomId,
-                         payload.value(QStringLiteral("eventId")).toString(),
-                         payload.value(QStringLiteral("threadRootId")).toString());
+    const QString roomId =
+        routableRoomId(payload.value(QStringLiteral("roomId")).toString());
+    Q_EMIT openRequested(
+        roomId, payload.value(QStringLiteral("eventId")).toString(),
+        routableThreadRootId(
+            payload.value(QStringLiteral("roomId")).toString(),
+            payload.value(QStringLiteral("threadRootId")).toString()));
 }
 
 void NotificationManager::onActionInvoked(quint32 id, const QString &action)
@@ -776,9 +857,11 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
         forgetPayload(id);
         if (payload.isEmpty())
             return;
+        // A room id, never a timeline id: the reader marks the ROOM read,
+        // and RoomListModel::markRoomRead has no entry for a composite.
         Q_EMIT markReadRequested(
             payload.value(QStringLiteral("accountUserId")).toString(),
-            payload.value(QStringLiteral("roomId")).toString(),
+            routableRoomId(payload.value(QStringLiteral("roomId")).toString()),
             payload.value(QStringLiteral("eventId")).toString());
         return;
     }
@@ -795,10 +878,7 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
     forgetPayload(id);
     if (payload.isEmpty())
         return;
-    Q_EMIT openRequested(payload.value(QStringLiteral("roomId")).toString(),
-                         payload.value(QStringLiteral("eventId")).toString(),
-                         payload.value(QStringLiteral("threadRootId"))
-                             .toString());
+    emitOpenFor(payload);
 }
 
 void NotificationManager::onNotificationReplied(quint32 id, const QString &text)
@@ -812,10 +892,15 @@ void NotificationManager::onNotificationReplied(quint32 id, const QString &text)
     const QString body = text.trimmed();
     if (body.isEmpty())
         return;
+    // sendThreadReply() takes a ROOM id and a root; a composite would be
+    // refused as an unknown room and the reply would go nowhere.
     Q_EMIT replyRequested(
         payload.value(QStringLiteral("accountUserId")).toString(),
-        payload.value(QStringLiteral("roomId")).toString(),
-        payload.value(QStringLiteral("threadRootId")).toString(), body);
+        routableRoomId(payload.value(QStringLiteral("roomId")).toString()),
+        routableThreadRootId(
+            payload.value(QStringLiteral("roomId")).toString(),
+            payload.value(QStringLiteral("threadRootId")).toString()),
+        body);
 }
 
 void NotificationManager::onNotificationClosed(quint32 id, quint32 reason)

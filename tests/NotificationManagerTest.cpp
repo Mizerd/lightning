@@ -5,6 +5,10 @@
 #include "notifications/NotificationManager.h"
 
 #include "app/TrayIcon.h"
+// threadTimelineId() and friends are static inline in this header, so the
+// cases below build a REAL composite timeline id rather than hard-coding a
+// separator that could drift away from the one the app uses.
+#include "matrix/MatrixClient.h"
 #include "matrix/TimelineEvent.h"
 
 #include <QColor>
@@ -57,6 +61,9 @@ private Q_SLOTS:
     void aTrayBalloonClickOpensTheRoomItWasRaisedFor();
     void signingOutForgetsTheTrayBalloonsClick();
     void readingARoomDropsAPopupStillWaitingForItsAvatar();
+    void aThreadReplyNotifiesForItsRoomNotItsTimelineId();
+    void aTrayBalloonClickNeverRoutesToATimelineId();
+    void aNotificationWithNoRoomStillBringsTheWindowForward();
     void everySlotTheseCasesDriveByNameStillExists();
     void directMessageNotifiesWithSenderOnlyDefault()
     {
@@ -950,6 +957,165 @@ void NotificationManagerTest::readingARoomDropsAPopupStillWaitingForItsAvatar()
     QCOMPARE(manager.avatarWaitCountForTest(), 0);
 }
 
+
+// ── §8: A NOTIFICATION MUST NOT CARRY THE COMPOSITE TIMELINE ID ──────────
+//
+// A thread reply does not reach this class with its room id. The SDK's
+// thread timeline is addressed by the composite `room + US + "thread" + US +
+// root` and runs through the SAME diff pipeline as a room, so
+// applyTimelineDiff() stamps that composite into TimelineEvent::roomId for
+// every item it builds. AppController maps it for the notification CONTEXT
+// and hands the event through untouched, so the payload was built from it.
+//
+// The click then assigns that value to app.currentRoomId. Navigation
+// succeeds, the header changes, and the room loads NOTHING, because there is
+// no such room — reported from Windows, where the tray balloon is the only
+// delivery, as "it sends me to the room and it just doesn't load anything".
+// The same value would reach sendThreadReply() from an inline reply and
+// markRoomRead() from Mark as read, and it is why closeRoomNotifications()
+// could not withdraw the card when the room was read: it compares against a
+// real room id.
+//
+// Driven through processEvent(), the production entry point, and observed on
+// the payload the delivery actually carries — asserting the helper alone
+// would prove only that the helper works, not that anything calls it.
+void NotificationManagerTest::aThreadReplyNotifiesForItsRoomNotItsTimelineId()
+{
+    const QString room = QStringLiteral("!room:example.org");
+    const QString root = QStringLiteral("$root:example.org");
+    const QString timelineId = MatrixClient::threadTimelineId(room, root);
+    QVERIFY2(MatrixClient::isThreadTimelineId(timelineId),
+             "the fixture did not build a composite timeline id, so this "
+             "case cannot see the defect it exists for");
+
+    NotificationManager manager;
+    // An avatar that never arrives parks the delivery, which is the only
+    // way to read a built payload without a live notification daemon.
+    manager.setAvatarProvider([](const QString &, bool) { return QImage(); },
+                              [](const QString &) { return false; });
+
+    auto context = baseContext();
+    context.avatarMxc = QStringLiteral("mxc://example.org/roomavatar");
+
+    TimelineEvent reply = incomingText();
+    reply.roomId = timelineId;          // exactly what the thread diff emits
+    reply.threadRootId = root;
+    manager.processEvent(reply, context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+
+    const QVariantMap payload = manager.avatarWaitPayloadForTest(0);
+    QVERIFY2(payload.value(QStringLiteral("roomId")).toString() == room,
+             qPrintable(QStringLiteral(
+                 "the notification's click payload carries the composite "
+                 "timeline id (%1) instead of the room id: clicking it sets "
+                 "app.currentRoomId to something that is not a room, so the "
+                 "room opens and never loads")
+                 .arg(payload.value(QStringLiteral("roomId")).toString())));
+    QCOMPARE(payload.value(QStringLiteral("threadRootId")).toString(), root);
+
+    // ...and because the payload names the real room, reading it withdraws
+    // the card. On the unfixed code this scan compared a room id against a
+    // composite and matched nothing.
+    manager.closeRoomNotifications(room);
+    QVERIFY2(manager.avatarWaitCountForTest() == 0,
+             "reading the room did not withdraw its thread notification, "
+             "because the payload's room id is not the room's id");
+
+    // A thread copy that arrives without its root still opens the thread:
+    // the composite carries the root, and dropping the reader into the room
+    // with no thread open is strictly worse.
+    TimelineEvent rootless = incomingText(QStringLiteral("second"));
+    rootless.eventId = QStringLiteral("$ev2:example.org");
+    rootless.roomId = timelineId;
+    rootless.threadRootId.clear();
+    manager.processEvent(rootless, context);
+    QCOMPARE(manager.avatarWaitCountForTest(), 1);
+    QCOMPARE(manager.avatarWaitPayloadForTest(0)
+                 .value(QStringLiteral("threadRootId")).toString(), root);
+
+    // AND THE ORDINARY CASE IS UNTOUCHED, which is the whole safety claim:
+    // a real room id contains no unit separator, so nothing about a normal
+    // notification changes shape.
+    manager.closeRoomNotifications(room);
+    TimelineEvent plain = incomingText();
+    plain.eventId = QStringLiteral("$ev3:example.org");
+    manager.processEvent(plain, context);
+    QCOMPARE(manager.avatarWaitPayloadForTest(0)
+                 .value(QStringLiteral("roomId")).toString(), room);
+    QVERIFY(manager.avatarWaitPayloadForTest(0)
+                .value(QStringLiteral("threadRootId")).toString().isEmpty());
+}
+
+// The same property at the DELIVERY the reporter is actually using. On
+// Windows and macOS there is no freedesktop daemon: the tray balloon is the
+// notification, and its one retained payload is what a click resolves to.
+// openRequested is this class's contract with QML — Main.qml assigns its
+// first argument straight to app.currentRoomId — so no producer may put a
+// timeline id into it, including one this class does not own.
+void NotificationManagerTest::aTrayBalloonClickNeverRoutesToATimelineId()
+{
+    const QString room = QStringLiteral("!tray:example.org");
+    const QString root = QStringLiteral("$root:example.org");
+
+    NotificationManager manager;
+    QSignalSpy opened(&manager, &NotificationManager::openRequested);
+    QVariantMap p;
+    p.insert(QStringLiteral("roomId"),
+             MatrixClient::threadTimelineId(room, root));
+    p.insert(QStringLiteral("eventId"), QStringLiteral("$t:example.org"));
+    p.insert(QStringLiteral("threadRootId"), QString{});
+    manager.deliverThroughTrayForTest(p);
+
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    QCOMPARE(opened.count(), 1);
+    QVERIFY2(opened.at(0).at(0).toString() == room,
+             qPrintable(QStringLiteral(
+                 "a tray balloon click asked QML to open \"%1\", which is a "
+                 "timeline id and not a room: the room view switches and "
+                 "loads nothing")
+                 .arg(opened.at(0).at(0).toString())));
+    QCOMPARE(opened.at(0).at(2).toString(), root);
+}
+
+// A NOTIFICATION WITH NO ROOM MUST STILL REACH QML.
+//
+// Raised in review, against a first cut of the click-routing fix that gated
+// the emit on a non-empty room id. Roomless notifications are real and their
+// whole purpose is to bring the window forward: "%1 wants to verify a session.
+// Open Lightning to review it." is the one people actually click, and the
+// account-mismatch notice is another. qml/Main.qml calls raiseIntoView()
+// BEFORE it looks at the room id, so swallowing the signal here makes those
+// notices do nothing at all, on the one platform where this path has always
+// worked, with no log line to say why.
+//
+// The gate is the PAYLOAD, which is what both delivery paths always meant and
+// what sign-out clears.
+void NotificationManagerTest::aNotificationWithNoRoomStillBringsTheWindowForward()
+{
+    NotificationManager manager;
+    QSignalSpy opened(&manager, &NotificationManager::openRequested);
+
+    // Shaped like showGeneric()'s payload: it DOES insert roomId, empty,
+    // alongside accountUserId. The branch under test is the empty ROOM, not
+    // an absent key, and an absent key would take the same path anyway.
+    QVariantMap p;
+    p.insert(QStringLiteral("roomId"), QString{});
+    p.insert(QStringLiteral("eventId"), QString{});
+    p.insert(QStringLiteral("threadRootId"), QString{});
+    manager.deliverThroughTrayForTest(p);
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+
+    QCOMPARE(opened.count(), 1);
+    QVERIFY2(opened.at(0).at(0).toString().isEmpty(),
+             "a roomless notification invented a room to open");
+
+    // ...and an EMPTY payload is still refused, which is what sign-out leaves
+    // behind and the reason a check exists here at all.
+    QSignalSpy afterClear(&manager, &NotificationManager::openRequested);
+    manager.clearPending();
+    QMetaObject::invokeMethod(&manager, "onFallbackMessageClicked");
+    QCOMPARE(afterClear.count(), 0);
+}
 
 // EVERY SLOT THESE CASES DRIVE BY NAME MUST STILL EXIST.
 //
