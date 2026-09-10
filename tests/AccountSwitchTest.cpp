@@ -47,7 +47,34 @@ public:
     QString readSecret(const QString &userId,
                        const QString &key) const override
     {
+        if (m_locked) {
+            m_lastReadFailed = true;
+            return {};
+        }
+        m_lastReadFailed = false;
         return m_values.value(userId + QLatin1Char('/') + key);
+    }
+
+    // A keyring that LOCKS AFTER STARTUP, which is the state §6 is about:
+    // every read comes back empty and the backend can say so. isAvailable()
+    // deliberately stays true — it is a construction-time probe and cannot
+    // see a collection that locked later, which is the entire reason
+    // lastReadFailed() exists. Off by default, so every other case in this
+    // file behaves exactly as before.
+    void setLocked(bool locked) { m_locked = locked; }
+
+    // THE SUBSTITUTED-FALLBACK SHAPE, which is a different thing entirely.
+    // When a native backend is compiled in but probes unavailable at startup,
+    // SecretStore substitutes InsecureFallbackSecretStore, whose
+    // lastReadFailed() is `m_substitutedForNative || m_lastReadFailed` — so it
+    // is PERMANENTLY true while every read still succeeds from the INI. A
+    // classifier that infers "usable" from "the backend seems fine" locks such
+    // a machine out of every account it has. Off by default.
+    void setPermanentlyUnvouched(bool unvouched) { m_unvouched = unvouched; }
+
+    bool lastReadFailed() const override
+    {
+        return m_unvouched || m_lastReadFailed;
     }
 
     bool deleteSecret(const QString &userId, const QString &key) override
@@ -72,6 +99,9 @@ public:
 
 private:
     QHash<QString, QString> m_values;
+    bool m_locked = false;
+    mutable bool m_lastReadFailed = false;
+    bool m_unvouched = false;
 };
 
 namespace {
@@ -805,6 +835,169 @@ private Q_SLOTS:
         }
         QFile::remove(path);
         QCoreApplication::setApplicationName(appName);
+    }
+
+    // ---- an unreadable credential store is not a signed-out account ------
+    //
+    // §6: "no readable access token" is NOT "no account". A locked keyring or
+    // an unavailable session bus makes EVERY lookup come back empty, and the
+    // switcher used to answer that with "your sign-in has expired" — advice
+    // that is a CLOSED LOOP, because the fresh password login it asks for is
+    // refused by matrix::rust_session::passwordLoginBlockReason as
+    // ExistingStoreNeedsRestore ("login redirected to switch"), which sends
+    // the user straight back to the switch that just refused.
+    //
+    // HttpBackend rather than MockBackend throughout this block: the mock
+    // holds no real credentials and the classifier exempts it, so a mock
+    // fixture cannot reach the branch under test at all.
+    void aLockedKeyringIsNotAnExpiredSignIn()
+    {
+        AppController app(AppController::HttpBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.settings()->setActiveAccountUserId(kAlice);
+
+        const QString expired = QCoreApplication::translate(
+            "AppController",
+            "That account's sign-in has expired. Sign in to it again.");
+
+        secrets.setLocked(true);
+
+        QSignalSpy errors(&app, &AppController::errorReported);
+        app.switchToAccount(kBob);
+
+        QCOMPARE(errors.count(), 1);
+        const QString said = errors.first().first().toString();
+        QVERIFY2(!said.isEmpty(), "the refusal said nothing at all");
+        QVERIFY2(said != expired,
+                 "a locked keyring was reported as an expired sign-in; the "
+                 "one action that advice asks for is refused as "
+                 "ExistingStoreNeedsRestore and lands the user back here");
+
+        // And the session the user already had is untouched. Switching
+        // DETACHES before it restores, so proceeding on a token that cannot
+        // be read would have cost them the account they were using.
+        QVERIFY(!app.accountSwitching());
+        QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
+    }
+
+    // A MACHINE WITH NO KEYRING AT ALL MUST STILL SWITCH ACCOUNTS.
+    //
+    // Raised in review against a first cut that classified an account by
+    // "not signed out AND the backend seems fine" rather than by a
+    // successful read. When a native backend is compiled in but probes
+    // unavailable, SecretStore substitutes the insecure fallback, whose
+    // lastReadFailed() is permanently true while every read succeeds from
+    // the INI. That first cut therefore classified EVERY account Unreadable
+    // and refused EVERY switch, on exactly the no-session-bus Linux
+    // configuration §16 records real users running — advising them to unlock
+    // a keyring that does not exist. The fallback's own header promises
+    // twice that it keeps working; this case holds us to that.
+    void aMachineWithNoKeyringStillSwitchesAccounts()
+    {
+        AppController app(AppController::HttpBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.settings()->setActiveAccountUserId(kAlice);
+
+        // Reads keep working; the backend simply cannot vouch for them.
+        secrets.setPermanentlyUnvouched(true);
+        QVERIFY2(!app.settings()->accessTokenFor(kBob).isEmpty(),
+                 "the fixture is wrong: the substituted fallback must still "
+                 "read the token back");
+
+        QSignalSpy errors(&app, &AppController::errorReported);
+        app.switchToAccount(kBob);
+
+        QVERIFY2(errors.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "a machine with no keyring was refused its own account: "
+                     "\"%1\"")
+                     .arg(errors.isEmpty()
+                              ? QString()
+                              : errors.first().first().toString())));
+    }
+
+    // The other half, so the fix cannot have simply made the classifier
+    // blind: with a backend that CAN answer, an account whose token is
+    // genuinely gone is still refused with exactly that message. This case
+    // passes on the unfixed tree too — it is the non-regression guard, not
+    // the regression test.
+    void anAccountWithNoTokenAndAReadableBackendIsStillExpired()
+    {
+        AppController app(AppController::HttpBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.settings()->setActiveAccountUserId(kAlice);
+        // Bob's token really is gone, and the store is healthy enough to
+        // say so.
+        QVERIFY(secrets.clearAccountSecrets(kBob));
+        QVERIFY(!app.settings()->secretBackendUnavailable());
+
+        QSignalSpy errors(&app, &AppController::errorReported);
+        app.switchToAccount(kBob);
+
+        QCOMPARE(errors.count(), 1);
+        QCOMPARE(errors.first().first().toString(),
+                 QCoreApplication::translate(
+                     "AppController",
+                     "That account's sign-in has expired. Sign in to it "
+                     "again."));
+        QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
+    }
+
+    // The sign-out fallback made the same conflation SILENTLY. With the
+    // keyring locked every remaining account reads tokenless, so all of them
+    // were skipped as signed-out and the user landed on a login form for
+    // accounts that are perfectly intact — where a password login is then
+    // refused as ExistingStoreNeedsRestore.
+    //
+    // The login screen is still where they land, because nothing can be
+    // restored while the credential store cannot be read. What must change
+    // is that they are told WHICH failure this is, instead of being shown a
+    // login form with no explanation at all.
+    void aSignOutIntoALockedKeyringSaysWhichFailureItIs()
+    {
+        AppController app(AppController::HttpBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.settings()->setActiveAccountUserId(kAlice);
+
+        secrets.setLocked(true);
+
+        QSignalSpy errors(&app, &AppController::errorReported);
+        app.auth()->logout();
+
+        QCOMPARE(app.currentScreen(), AppController::LoginScreen);
+        QVERIFY(errors.count() >= 1);
+        QVERIFY2(!errors.last().first().toString().isEmpty(),
+                 "the sign-out fallback dropped to the login screen without "
+                 "saying that the credential store, not the accounts, is "
+                 "what failed");
     }
 
 private:

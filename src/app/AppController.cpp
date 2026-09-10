@@ -4762,12 +4762,36 @@ void AppController::onLoggedOut()
     // v0.7: when other accounts remain signed in, continue with the most
     // recently added one instead of dropping to the login screen.
     const QStringList remaining = m_settings->savedAccountUserIds();
+    // §6 again: an EMPTY token read is not evidence an account is gone. With
+    // a locked keyring every remaining account reads tokenless, and the old
+    // test excluded all of them — dropping the user to a login form for
+    // accounts that are perfectly intact, where a password login is then
+    // refused as ExistingStoreNeedsRestore.
+    bool anyUnreadable = false;
     for (auto it = remaining.crbegin(); it != remaining.crend(); ++it) {
-        if (m_backend == MockBackend
-            || !m_settings->accessTokenFor(*it).isEmpty()) {
+        switch (signInStateFor(*it)) {
+        case SignInState::Usable:
             switchToAccount(*it);
             return;
+        case SignInState::Unreadable:
+            // NOT skipped as signed-out, and deliberately not switched to
+            // either: restoreSession() needs the token that cannot be read,
+            // so every outcome here ends on the login screen. What changes is
+            // that the user is told which one this is.
+            anyUnreadable = true;
+            break;
+        case SignInState::Gone:
+            break;
         }
+    }
+    if (anyUnreadable) {
+        // Said once, after the blanket clear above, so it survives to the
+        // screen the user actually lands on.
+        Q_EMIT errorReported(
+            tr("Lightning can't read this device's saved sign-ins right now — "
+               "the system keyring is locked or unavailable. Your other "
+               "accounts are still on this device; unlock the keyring and "
+               "restart Lightning to continue with them."));
     }
     setCurrentScreen(LoginScreen);
     Q_EMIT loggedInChanged();
@@ -5067,10 +5091,26 @@ void AppController::switchToAccount(const QString &userId)
         Q_EMIT errorReported(tr("That account is not signed in on this device."));
         return;
     }
-    if (m_backend != MockBackend
-        && m_settings->accessTokenFor(target).isEmpty()) {
+    switch (signInStateFor(target)) {
+    case SignInState::Usable:
+        break;
+    case SignInState::Gone:
         Q_EMIT errorReported(
             tr("That account's sign-in has expired. Sign in to it again."));
+        return;
+    case SignInState::Unreadable:
+        // REFUSED, but for the true reason and with the action that can
+        // actually work. Proceeding would be worse than useless: the switch
+        // detaches the running session first, and the restore that follows
+        // needs the very token that cannot be read — so an unlockable
+        // keyring would cost the user the session they already had. And
+        // "sign in to it again" is the one instruction that cannot help,
+        // because the password login it asks for is bounced straight back
+        // here as ExistingStoreNeedsRestore.
+        Q_EMIT errorReported(
+            tr("Lightning can't read this device's saved sign-ins right now — "
+               "the system keyring is locked or unavailable. Unlock it and "
+               "try again."));
         return;
     }
 
@@ -5146,6 +5186,41 @@ void AppController::switchToAccount(const QString &userId)
     }
     // Outcome arrives asynchronously: loginSucceeded clears the switching
     // state; loginFailed falls back through failAccountSwitch.
+}
+
+AppController::SignInState
+AppController::signInStateFor(const QString &userId) const
+{
+    // The mock backend holds no real credentials — its accounts restore from
+    // the registry — so classifying one by a token read would report every
+    // mock account as signed out.
+    if (m_backend == MockBackend)
+        return SignInState::Usable;
+    // A SUCCESSFUL READ IS THE ONLY EVIDENCE OF `Usable`, and it must be
+    // tested FIRST. Inferring it from "not signed out and the backend seems
+    // fine" locks out an entire shipped configuration: when a native backend
+    // is compiled in but probes unavailable, SecretStore substitutes the
+    // insecure fallback, whose lastReadFailed() is `m_substitutedForNative
+    // || m_lastReadFailed` — PERMANENTLY true. secretBackendUnavailable() is
+    // then always true, needsSignIn() always false, and every account would
+    // classify Unreadable: every switch refused, on a machine whose tokens
+    // read back perfectly from the fallback INI, with advice ("unlock the
+    // keyring") that cannot be followed because there is no keyring. That is
+    // the no-session-bus Linux case §16 records real users running, and the
+    // fallback's own header promises twice that it "still READS AND WRITES
+    // normally, so the user is not locked out". Raised in review.
+    if (m_settings && !m_settings->accessTokenFor(userId).isEmpty())
+        return SignInState::Usable;
+    // No token in hand. AccountManager::needsSignIn() is the ONE
+    // implementation of §6's ordering in this tree — it reads and only then
+    // asks whether the backend could answer, because secretBackendUnavailable()
+    // reports the outcome of the most recent read — so delegate the "is this
+    // account genuinely signed out?" half rather than keeping a second copy.
+    if (m_accounts && m_accounts->needsSignIn(userId))
+        return SignInState::Gone;
+    // Empty read AND the backend cannot vouch for it: this is the honest
+    // "cannot tell", which is the whole reason this enum has three states.
+    return SignInState::Unreadable;
 }
 
 void AppController::failAccountSwitch(const QString &message)

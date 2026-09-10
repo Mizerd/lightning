@@ -1322,6 +1322,26 @@ private:
     // Failure path of switchToAccount: falls back to the previous account
     // once; if that is impossible, lands on the login screen.
     void failAccountSwitch(const QString &message);
+
+    // How one saved account's stored credential reads RIGHT NOW.
+    //
+    // Three states, not two, and that is the whole point. §6: "no readable
+    // access token" is NOT "no account" — a locked keyring or an unavailable
+    // session bus makes every lookup come back empty, and collapsing that
+    // into "the sign-in is gone" is the conflation that once let a transient
+    // credential-backend failure become a destructive verdict about a user's
+    // data. Here it produced a closed loop with a wrong explanation at both
+    // ends: the switcher refused with "sign in again", and the fresh password
+    // login that advice asks for is bounced by
+    // matrix::rust_session::passwordLoginBlockReason as
+    // ExistingStoreNeedsRestore ("login redirected to switch") — back to the
+    // switch that just refused.
+    enum class SignInState {
+        Usable,      // a token was read
+        Gone,        // no token AND the backend could answer: really signed out
+        Unreadable,  // the backend could not answer; says nothing about the account
+    };
+    SignInState signInStateFor(const QString &userId) const;
     // Clears every cache that must not leak across accounts (media bytes,
     // pending notifications, invite memory, verification/security state,
     // session devices, room-list profile lookups). Used on account change;
