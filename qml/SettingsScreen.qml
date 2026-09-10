@@ -1472,21 +1472,32 @@ Item {
                                     id: themeCard
                                     required property var modelData
                                     objectName: "featuredThemeCard_" + modelData.id
-                                    // typeof-GUARDED, the pattern 30ee39b
-                                    // established. This Repeater's model is a
-                                    // literal, so it is built during ordinary
-                                    // creation and is NOT one of the exposed
-                                    // ones — but a binding that throws sticks
-                                    // at its last value, and this is the
-                                    // binding that decides whether a card
-                                    // shows the selected ring. A wrong ring
-                                    // that never corrects itself is a silent
-                                    // failure; the guard costs one typeof.
+                                    // DELIBERATELY UNGUARDED. A typeof guard
+                                    // was added here on 2026-09-10 and taken
+                                    // straight back out in review, because it
+                                    // does not dominate the bug it was aimed
+                                    // at: if `app` really were undefined at
+                                    // first evaluation, the false branch
+                                    // registers NO dependency on
+                                    // app.settings.theme, so the binding never
+                                    // re-evaluates and the ring is wrong
+                                    // FOREVER rather than transiently — a
+                                    // quieter failure, not a smaller one.
+                                    //
+                                    // This Repeater's model is a literal and
+                                    // its delegates are built during ordinary
+                                    // creation, so it is NOT in the exposed
+                                    // class 30ee39b describes (a delegate
+                                    // instantiated from inside a
+                                    // property-change handler). The guard
+                                    // there works because it pairs with
+                                    // resolveBridge(), an explicit recovery
+                                    // that re-triggers the binding; there is
+                                    // no such recovery here, and adding one
+                                    // for a failure never observed on this
+                                    // path is machinery without evidence.
                                     readonly property bool selectedTheme:
-                                        (typeof app !== "undefined" && app
-                                         && app.settings)
-                                        ? app.settings.theme === modelData.id
-                                        : false
+                                        app.settings.theme === modelData.id
                                     // SPEC 1v: three 150px preview cards.
                                     implicitWidth: 150
                                     // Integral height keeps the card edge on
@@ -1695,21 +1706,32 @@ Item {
                                     objectName: "miniThemeCard_" + modelData.id
                                     readonly property var pal:
                                         AppTheme.paletteForTheme(modelData.id)
-                                    // typeof-GUARDED, the pattern 30ee39b
-                                    // established. This Repeater's model is a
-                                    // literal, so it is built during ordinary
-                                    // creation and is NOT one of the exposed
-                                    // ones — but a binding that throws sticks
-                                    // at its last value, and this is the
-                                    // binding that decides whether a card
-                                    // shows the selected ring. A wrong ring
-                                    // that never corrects itself is a silent
-                                    // failure; the guard costs one typeof.
+                                    // DELIBERATELY UNGUARDED. A typeof guard
+                                    // was added here on 2026-09-10 and taken
+                                    // straight back out in review, because it
+                                    // does not dominate the bug it was aimed
+                                    // at: if `app` really were undefined at
+                                    // first evaluation, the false branch
+                                    // registers NO dependency on
+                                    // app.settings.theme, so the binding never
+                                    // re-evaluates and the ring is wrong
+                                    // FOREVER rather than transiently — a
+                                    // quieter failure, not a smaller one.
+                                    //
+                                    // This Repeater's model is a literal and
+                                    // its delegates are built during ordinary
+                                    // creation, so it is NOT in the exposed
+                                    // class 30ee39b describes (a delegate
+                                    // instantiated from inside a
+                                    // property-change handler). The guard
+                                    // there works because it pairs with
+                                    // resolveBridge(), an explicit recovery
+                                    // that re-triggers the binding; there is
+                                    // no such recovery here, and adding one
+                                    // for a failure never observed on this
+                                    // path is machinery without evidence.
                                     readonly property bool selectedTheme:
-                                        (typeof app !== "undefined" && app
-                                         && app.settings)
-                                        ? app.settings.theme === modelData.id
-                                        : false
+                                        app.settings.theme === modelData.id
                                     implicitWidth: miniRow.implicitWidth + 24
                                     implicitHeight: 34
                                     radius: AppTheme.radiusTile
