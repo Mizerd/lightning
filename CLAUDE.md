@@ -1352,10 +1352,21 @@ that repeat across calls. `--call-media-status` now names the loaded
 version so a tester's output identifies their runtime without a round
 trip.
 
-**Three QML/CTest suites are LOAD-SENSITIVE and will flake a full run.**
+**Four CTest suites are LOAD-SENSITIVE and will flake a full run.**
 `timeline-pane-qml`, `timeline-hydration-qml` and `media-bridge` all pass
-alone and fail intermittently under `-j14`/`-j18`. Measured 2026-08-27 on a diff that
-touched none of them: `timeline-pane-qml` failed a full `-j14` run and failed
+alone and fail intermittently; `message-html` joined them on 2026-09-10, when
+the quadratic-scan fix added two WALL-CLOCK assertions (complexity is the
+property under test and there is no branch to assert on; the headroom is 24x
+and documented in-source).
+
+**AND IT IS NOT ONLY `-j14`/`-j18`.** Measured 2026-09-10 with a game running:
+`timeline-pane-qml` failed at `-j4` and again at `-j2`, in BOTH trees, on two
+DIFFERENT cases — and passed alone at 229-230 s each time. Different cases
+failing on different runs is the signature of timing, not of a defect; a
+regression fails the same case every time. Before reading one as a regression,
+check `ps -eo pcpu,comm --sort=-pcpu | head` and see
+[[timeline-neartop-anchor-flake]] for the three-grep proof that beats a rate
+comparison. Measured 2026-08-27 on a diff that touched none of them: `timeline-pane-qml` failed a full `-j14` run and failed
 once more when re-run alone, then passed three isolated runs in a row; a
 `build-rust` run at `-j14` that failed BOTH timeline suites passed each of
 them alone and then went 157/157 at `-j8`.
