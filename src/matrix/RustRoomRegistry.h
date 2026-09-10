@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -65,5 +66,20 @@ void applySnapshot(Registry registry, const QJsonArray &rooms);
 // does not match, so the caller can ask the index space's owner to re-emit
 // rather than corrupting the registry.
 bool applyRoomListDiff(Registry registry, const QJsonObject &event);
+
+// Apply the removal half of a `space_list_reset`: `present` is the COMPLETE
+// set of Space ids the account is joined to, so a Space entry the map holds
+// and `present` does not is one the user has LEFT. Returns how many entries
+// were erased.
+//
+// The counterpart to the two Space exemptions above, and the reason they do
+// not conflict: `applyIndexReset` and `applySnapshot` carry Spaces over
+// because the ROOM LIST producer never mentions them, so absence from ITS
+// payload is not evidence of anything. This is the Space producer's own
+// payload, and here absence IS the fact.
+//
+// A Space the INDEX SPACE still names is blanked, never erased — see the
+// implementation.
+int retireAbsentSpaces(Registry registry, const QSet<QString> &present);
 
 } // namespace matrix::rust_rooms

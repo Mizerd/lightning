@@ -999,6 +999,19 @@ private:
     void handleThreadClosed(const QJsonObject &event);
     bool threadTimelineActiveFor(const QString &timelineId) const;
     void clearThreadTimelineState();
+    /// Retire the C++ event mirror of a room whose live SDK timeline is gone.
+    ///
+    /// The room analogue of clearThreadTimelineState(): the thread mirrors are
+    /// removed outright when their timeline closes, and until 2026-09-10 the
+    /// ROOM mirrors were not removed at all. Reduces the mirror back to
+    /// matrix::rust_timeline::kBackgroundMirrorCap — which is the bound a
+    /// never-opened room's mirror already lives under, and the whole reason
+    /// that bound exists (RustTimelineMirror.h) — and drops the pagination
+    /// state, which every open re-creates.
+    ///
+    /// A no-op for the room the tracker currently wants, so a re-open of the
+    /// SAME room keeps its rows until its own reset replaces them.
+    void retireRoomTimelineMirror(const QString &roomId);
     void handleThreadListReset(const QJsonObject &event);
     void handleThreadSubscriptionEvent(const QString &type,
                                        const QJsonObject &event);

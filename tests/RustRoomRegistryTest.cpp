@@ -17,12 +17,14 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QSet>
 #include <QtTest/QtTest>
 
 using matrix::rust_rooms::Registry;
 using matrix::rust_rooms::applyIndexReset;
 using matrix::rust_rooms::applyRoomListDiff;
 using matrix::rust_rooms::applySnapshot;
+using matrix::rust_rooms::retireAbsentSpaces;
 
 namespace {
 
@@ -44,6 +46,17 @@ QJsonObject spaceJson(const QString &id)
 {
     QJsonObject obj = roomJson(id);
     obj.insert(QStringLiteral("is_space"), true);
+    return obj;
+}
+
+// A Space the user has been INVITED to but has not joined. It reaches
+// `m_rooms` from the room payload (which carries Joined | Invited | Knocked)
+// and is absent from the space list, which Rust builds from
+// `joined_space_rooms()`.
+QJsonObject invitedSpaceJson(const QString &id)
+{
+    QJsonObject obj = spaceJson(id);
+    obj.insert(QStringLiteral("membership"), QStringLiteral("invited"));
     return obj;
 }
 
@@ -398,6 +411,233 @@ private Q_SLOTS:
         QVERIFY2(matrix::rust_timeline::kBackgroundMirrorCap <= 200,
                  "the background mirror bound has grown into a memory and "
                  "per-event-scan cost again");
+    }
+
+    // ── An OPENED room's mirror goes back under the bound ────────────────
+    //
+    // The half that was missing: opening a room replaces the ring above with
+    // the SDK snapshot and grows it per diff (600-900 rows after the
+    // viewport fill), and nothing reduced it again. Fifty rooms in a sitting
+    // kept every event of all fifty, while matrix-sdk's shrink_to_last_chunk
+    // had already released Rust's own copy.
+    void anOpenedMirrorIsTrimmedToTheBoundKeepingTheNewestRows()
+    {
+        const int cap = matrix::rust_timeline::kBackgroundMirrorCap;
+        QList<TimelineEvent> mirror;
+        for (int i = 0; i < cap * 15; ++i) {   // ~900 rows, the measured fill
+            TimelineEvent event;
+            event.eventId = QStringLiteral("$e%1:example.org").arg(i);
+            mirror.append(event);              // NOT appendBounded: an open
+        }                                      // writes the snapshot whole
+        QCOMPARE(matrix::rust_timeline::trimToBackgroundBound(mirror),
+                 qsizetype(cap * 15 - cap));
+        QCOMPARE(mirror.size(), cap);
+        // The NEWEST rows survive, contiguous and in order — the same end
+        // appendBounded() keeps, because a preview and a pre-snapshot render
+        // both want the tail.
+        QCOMPARE(mirror.first().eventId,
+                 QStringLiteral("$e%1:example.org").arg(cap * 15 - cap));
+        QCOMPARE(mirror.last().eventId,
+                 QStringLiteral("$e%1:example.org").arg(cap * 15 - 1));
+        for (int i = 0; i < cap; ++i) {
+            QCOMPARE(mirror.at(i).eventId,
+                     QStringLiteral("$e%1:example.org").arg(cap * 15 - cap + i));
+        }
+    }
+
+    void aMirrorAtOrUnderTheBoundIsLeftExactlyAsItIs()
+    {
+        const int cap = matrix::rust_timeline::kBackgroundMirrorCap;
+        for (int size : { cap, cap - 1, 1 }) {
+            QList<TimelineEvent> mirror;
+            for (int i = 0; i < size; ++i) {
+                TimelineEvent event;
+                event.eventId = QStringLiteral("$e%1:example.org").arg(i);
+                mirror.append(event);
+            }
+            QCOMPARE(matrix::rust_timeline::trimToBackgroundBound(mirror),
+                     qsizetype(0));
+            QCOMPARE(mirror.size(), size);
+            QCOMPARE(mirror.first().eventId,
+                     QStringLiteral("$e0:example.org"));
+            QCOMPARE(mirror.last().eventId,
+                     QStringLiteral("$e%1:example.org").arg(size - 1));
+        }
+    }
+
+    void trimmingAnEmptyMirrorIsANoOp()
+    {
+        // Every room the user has never opened has one of these, and the
+        // retirement path runs over whatever it finds.
+        QList<TimelineEvent> mirror;
+        QCOMPARE(matrix::rust_timeline::trimToBackgroundBound(mirror),
+                 qsizetype(0));
+        QVERIFY(mirror.isEmpty());
+    }
+
+    // ── Leaving a Space ─────────────────────────────────────────────────
+    //
+    // `space_list_reset` is complete, so a Space missing from it is one the
+    // user has left. Blanking its children left the ENTRY, which still read
+    // isSpace + Joined — the exact pair SpaceManager::rebuild turns into a
+    // rail tile — so a left Space stayed on the rail for the session.
+    void aSpaceAbsentFromACompleteSpaceListIsErasedNotBlanked()
+    {
+        const QString spaceId = QStringLiteral("!space:example.org");
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        QJsonArray withSpace = rooms(2);
+        withSpace.append(spaceJson(spaceId));
+        applySnapshot(registry, withSpace);
+        map[spaceId].childRoomIds = { roomId(0), roomId(1) };
+        QVERIFY(map.value(spaceId).isSpace);
+        // isSpace + Joined is the exact pair SpaceManager::rebuild turns
+        // into a rail tile, and blanking the children left both standing.
+        QVERIFY(map.value(spaceId).membership == RoomInfo::Joined);
+
+        // The user leaves it: the next complete list simply does not name it.
+        QCOMPARE(retireAbsentSpaces(registry, QSet<QString>{}), 1);
+
+        // GONE. Not "present with no children" — that entry is still a tile.
+        QVERIFY2(!map.contains(spaceId),
+                 "a Space the user has left survived a complete space list");
+        // The rooms it contained are not Spaces and are not its property.
+        QVERIFY(map.contains(roomId(0)));
+        QVERIFY(map.contains(roomId(1)));
+    }
+
+    // AN INVITED SPACE IS ABSENT FROM THE SPACE LIST BY CONSTRUCTION.
+    //
+    // Raised in review. `present` comes from `joined_space_rooms()`, so an
+    // invite can never appear in it — and it is not in the index space
+    // either, so the guard below is vacuous for it. Erasing on absence alone
+    // therefore created the invite row from the room payload and destroyed it
+    // again on the very next space list, which lands after it on every sync:
+    // a Space invitation could never be seen, let alone accepted. The room
+    // list shows these rows today (passesScopeFilter drops only
+    // isSpace && Joined) and sorts them first.
+    void anInvitedSpaceSurvivesASpaceListThatCannotMentionIt()
+    {
+        const QString invited = QStringLiteral("!invited-space:example.org");
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        QJsonArray payload = rooms(1);
+        payload.append(invitedSpaceJson(invited));
+        applySnapshot(registry, payload);
+        QVERIFY(map.value(invited).isSpace);
+        QVERIFY2(map.value(invited).membership == RoomInfo::Invited,
+                 "the fixture is wrong: this case needs an INVITED space");
+        QVERIFY2(!order.contains(invited),
+                 "the fixture is wrong: an unindexed space is the whole "
+                 "point, or the index guard would mask the defect");
+
+        // The space list cannot name it, because the user has not joined it.
+        QCOMPARE(retireAbsentSpaces(registry, QSet<QString>{}), 0);
+
+        QVERIFY2(map.contains(invited),
+                 "a Space invitation was erased by a space list that lists "
+                 "only JOINED spaces; the invite can never be accepted");
+        QVERIFY(map.value(invited).membership == RoomInfo::Invited);
+    }
+
+    void aStillJoinedSpaceIsUntouchedByItsOwnSpaceList()
+    {
+        const QString spaceId = QStringLiteral("!space:example.org");
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        QJsonArray withSpace = rooms(2);
+        withSpace.append(spaceJson(spaceId));
+        applySnapshot(registry, withSpace);
+        map[spaceId].childRoomIds = { roomId(0) };
+        map[spaceId].parentSpaceIds = { QStringLiteral("!parent:example.org") };
+
+        QCOMPARE(retireAbsentSpaces(registry, QSet<QString>{ spaceId }), 0);
+        QVERIFY(map.contains(spaceId));
+        // The hierarchy the caller just wrote is not disturbed either: this
+        // function is the REMOVAL half and nothing else.
+        QCOMPARE(map.value(spaceId).childRoomIds, QStringList{ roomId(0) });
+        QCOMPARE(map.value(spaceId).parentSpaceIds,
+                 QStringList{ QStringLiteral("!parent:example.org") });
+    }
+
+    // THE CASE THAT MATTERS MOST. Nothing may leave `rooms` while `order`
+    // still names it: `order` is addressed BY INDEX, so dropping an indexed
+    // entry from the map alone leaves a position pointing at nothing — the
+    // shape of the wrong-room deletion this project has already shipped
+    // once. Spaces are deliberately never appended to `order`, so this is
+    // normally unreachable; the guard is what keeps it that way if a
+    // producer ever does index one.
+    void aSpaceTheIndexSpaceStillNamesIsBlankedAndNeverErased()
+    {
+        const QString spaceId = QStringLiteral("!space:example.org");
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        applyIndexReset(registry, rooms(2));
+        // A producer that DOES put a Space in the index space.
+        QJsonObject push = diff(QStringLiteral("room_list_push_back"));
+        push.insert(QStringLiteral("room"), spaceJson(spaceId));
+        QVERIFY(applyRoomListDiff(registry, push));
+        QVERIFY(map.value(spaceId).isSpace);
+        QCOMPARE(order.size(), 3);
+        QCOMPARE(order.at(2), spaceId);
+        map[spaceId].childRoomIds = { roomId(0) };
+        map[spaceId].parentSpaceIds = { QStringLiteral("!parent:example.org") };
+
+        const int erased = retireAbsentSpaces(registry, QSet<QString>{});
+
+        // The CONSEQUENCE is asserted before the count, so a regression here
+        // reports the harm rather than an arithmetic mismatch.
+        QVERIFY2(map.contains(spaceId),
+                 "an indexed entry was erased from the room map; the index "
+                 "space now names a room that does not exist");
+        QCOMPARE(erased, 0);
+        QCOMPARE(order.size(), 3);
+        QCOMPARE(order.at(2), spaceId);
+        // Blanked exactly as the old code blanked every Space — the entry's
+        // lifetime belongs to the diffs that own the index space.
+        QVERIFY(map.value(spaceId).childRoomIds.isEmpty());
+        QVERIFY(map.value(spaceId).parentSpaceIds.isEmpty());
+
+        // The index space is still intact and addressable, which is the
+        // property the guard exists to protect.
+        QVERIFY2(applyRoomListDiff(registry,
+                                   setDiff(1, roomId(1), QStringLiteral("new"))),
+                 "the index space stopped resolving after a space list");
+        QCOMPARE(map.value(roomId(1)).name, QStringLiteral("new"));
+        // And the diffs that DO own it can still retire it.
+        QVERIFY(applyRoomListDiff(registry, removeDiff(2, spaceId)));
+        QVERIFY(!map.contains(spaceId));
+        QCOMPARE(order.size(), 2);
+    }
+
+    void retiringSpacesNeverTouchesAnOrdinaryRoom()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        applyIndexReset(registry, rooms(3));
+        // A room the snapshot lane knows and the index space does not — the
+        // other population that lives in `rooms` alone, and the one a broad
+        // "erase what the payload does not name" would have taken with it.
+        applySnapshot(registry, QJsonArray{ roomJson(roomId(9)) });
+        QVERIFY(map.contains(roomId(9)));
+
+        // An empty joined-Space set says nothing whatever about rooms.
+        QCOMPARE(retireAbsentSpaces(registry, QSet<QString>{}), 0);
+        QCOMPARE(map.size(), 4);
+        for (int i = 0; i < 3; ++i)
+            QVERIFY(map.contains(roomId(i)));
+        QVERIFY(map.contains(roomId(9)));
+        QCOMPARE(order.size(), 3);
     }
 };
 

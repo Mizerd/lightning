@@ -3297,7 +3297,15 @@ void RustSdkMatrixClient::openRoomTimeline(const QString &roomId)
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
         return;
     clearThreadTimelineState();
+    // request() forgets the previous room without touching anything keyed by
+    // it, so the room being left is retired HERE — Rust's own timeline_closed
+    // is the backstop, not the only path (a rejected generation or a released
+    // handle never delivers it).
+    const QString leavingRequested = m_timelineTracker.requestedRoom();
+    const QString leavingActive = m_timelineTracker.activeRoom();
     m_timelineTracker.request(roomId);
+    retireRoomTimelineMirror(leavingRequested);
+    retireRoomTimelineMirror(leavingActive);
     m_pagination.insert(roomId, PaginationState{});
     qCInfo(lcRust) << "timeline open room=" << roomId.right(12);
     const QByteArray roomBytes = roomId.toUtf8();
@@ -3322,7 +3330,14 @@ bool RustSdkMatrixClient::reloadRoomTimelineAtLive(const QString &roomId)
     // start clean or a stale "reached start" would suppress the backfill the
     // reader gets when they scroll up again.
     clearThreadTimelineState();
+    // Same retirement an open does. A reload names the room it is already on,
+    // so retireRoomTimelineMirror() refuses it and the rows stay until the
+    // reset lands — this only matters if a reload ever targets another room.
+    const QString leavingRequested = m_timelineTracker.requestedRoom();
+    const QString leavingActive = m_timelineTracker.activeRoom();
     m_timelineTracker.request(roomId);
+    retireRoomTimelineMirror(leavingRequested);
+    retireRoomTimelineMirror(leavingActive);
     m_pagination.insert(roomId, PaginationState{});
     qCInfo(lcRust) << "timeline reload at live room=" << roomId.right(12);
     const QByteArray roomBytes = roomId.toUtf8();
@@ -3634,6 +3649,43 @@ void RustSdkMatrixClient::clearThreadTimelineState()
     m_threadTracker.reset();
 }
 
+// THE ROOM MIRROR IS RETIRED THE WAY THE THREAD MIRRORS ALREADY WERE.
+//
+// Why an opened room's mirror has to come back under the background bound at
+// all — and why it is TRIMMED rather than dropped — is with
+// matrix::rust_timeline::trimToBackgroundBound in RustTimelineMirror.h.
+//
+// What belongs here is WHERE it is called from, because the reported defect
+// was not that a close forgot to do it: closeRoomTimeline() has only two
+// callers (roomLeft and openSpaceHome) and a room-to-room SWITCH reaches
+// neither. openRoomTimeline() calls TimelineGenerationTracker::request(),
+// which forgets the previous room without touching anything keyed by it, so
+// that path — the ordinary one — leaked every mirror it ever built. All four
+// transition points call this, and it is idempotent: the two C++ ones, the
+// close, and Rust's own `timeline_closed`, which arrives for the old room on
+// every open as well as on an explicit close.
+void RustSdkMatrixClient::retireRoomTimelineMirror(const QString &roomId)
+{
+    if (roomId.isEmpty())
+        return;
+    // Never the room the reader is on or heading to. A re-open of the SAME
+    // room — the jump-to-live history trim's reloadRoomTimelineAtLive(), and
+    // Rust's own close-then-open inside timeline open — must keep its rows
+    // until the arriving timeline_reset replaces them wholesale.
+    if (roomId == m_timelineTracker.requestedRoom()
+        || roomId == m_timelineTracker.activeRoom())
+        return;
+    m_pagination.remove(roomId);
+    const auto it = m_timelines.find(roomId);
+    if (it == m_timelines.end())
+        return;
+    const qsizetype before = it->size();
+    if (matrix::rust_timeline::trimToBackgroundBound(*it) > 0) {
+        qCDebug(lcRust) << "timeline mirror retired room=" << roomId.right(12)
+                        << "rows=" << before << "->" << it->size();
+    }
+}
+
 void RustSdkMatrixClient::handleThreadReset(const QJsonObject &event)
 {
     const QString roomId = event.value(QStringLiteral("room_id")).toString();
@@ -3789,12 +3841,17 @@ void RustSdkMatrixClient::closeRoomTimeline()
     clearThreadTimelineState();
     m_threadListRoom.clear();
     m_threadListGeneration = 0;
+    const QString closingRequested = m_timelineTracker.requestedRoom();
+    const QString closingActive = m_timelineTracker.activeRoom();
     if (m_rustHandle && m_timelineTracker.hasActiveTimeline()) {
-        const QString room = m_timelineTracker.activeRoom();
         takeRustString(mx_rust_timeline_close(m_rustHandle));
-        qCInfo(lcRust) << "timeline close room=" << room.right(12);
+        qCInfo(lcRust) << "timeline close room=" << closingActive.right(12);
     }
+    // AFTER reset(), not before: retireRoomTimelineMirror() refuses the room
+    // the tracker still names, which is exactly the room being closed.
     m_timelineTracker.reset();
+    retireRoomTimelineMirror(closingRequested);
+    retireRoomTimelineMirror(closingActive);
 }
 
 void RustSdkMatrixClient::refuseSend(const char *op)
@@ -4716,6 +4773,16 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         || type == QLatin1String("timeline_shutdown")) {
         qCInfo(lcRust) << "timeline subscription stopped"
                        << "kind=" << type;
+        // Rust closes the previous room's timeline on EVERY open as well as
+        // on an explicit close, and says which room in `room_id` (a
+        // timeline_shutdown carries none, so this is a no-op for it). That
+        // makes this the authoritative retirement point for the room's C++
+        // event mirror; the C++ transition points retire it too, and both
+        // are idempotent. It refuses the room the tracker currently wants,
+        // so the close half of a close-then-open of the SAME room cannot
+        // strip the rows the reader is looking at.
+        retireRoomTimelineMirror(
+            event.value(QStringLiteral("room_id")).toString());
         return;
     }
 
@@ -5095,10 +5162,16 @@ void RustSdkMatrixClient::handleSpacesEvent(const QJsonArray &spaces)
         // Nothing is lost by leaving them out: rooms() returns every m_rooms
         // entry that is not in the order list, after the ordered ones.
     }
-    for (auto it = m_rooms.begin(); it != m_rooms.end(); ++it) {
-        if (it->isSpace && !present.contains(it.key())) {
-            it->childRoomIds.clear(); it->parentSpaceIds.clear();
-        }
+    // A SPACE THE USER HAS LEFT IS ERASED, NOT BLANKED — `present` is the
+    // complete joined-Space set, so absence from it is the fact. The rule,
+    // why it does not weaken the room-list producer's Space exemptions, and
+    // the index-space guard that keeps it from becoming a wrong-room
+    // deletion all live with the function, in RustRoomRegistry.cpp.
+    const int retiredSpaces =
+        matrix::rust_rooms::retireAbsentSpaces({m_rooms, m_roomOrder}, present);
+    if (retiredSpaces > 0) {
+        qCInfo(lcRust) << "spaces retired count=" << retiredSpaces
+                       << "joined=" << present.size();
     }
     Q_EMIT roomsChanged();
 }

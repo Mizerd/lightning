@@ -260,4 +260,70 @@ bool applyRoomListDiff(Registry registry, const QJsonObject &event)
     return false;
 }
 
+// A SPACE THE USER HAS LEFT IS ERASED, NOT BLANKED.
+//
+// `space_list_reset` is a COMPLETE list — Rust builds it from
+// client.joined_space_rooms() (rust/src/lib.rs, enqueue_spaces) — so a Space
+// the map holds and the payload does not is one this account is no longer
+// joined to. Until 2026-09-10 this only cleared the entry's child and parent
+// lists, and every other field the rail reads is written unconditionally by
+// the loop above it, so the entry kept `isSpace = true` and
+// `membership = Joined`. SpaceManager::rebuild lists a tile for exactly that
+// pair, so a Space the user had left stayed on the rail until the next
+// sign-in.
+//
+// It does NOT weaken the Space exemptions in applyIndexReset() and
+// applySnapshot() (pinned by spacesSurviveBothAResetAndASnapshot): those
+// exist because the ROOM LIST producer never mentions Spaces, so absence
+// from its reset or snapshot is not evidence and must not delete one. This
+// is the Space producer's own payload; absence here is the fact.
+// AN EMPTY `present` IS EVIDENCE, NOT NOISE — do not add a guard for it.
+// Review proposed skipping retirement while `present` is empty and the map
+// still holds Joined Spaces, against a transient short list. Refused, with a
+// counter-case: a user who leaves their ONLY Space produces a legitimately
+// empty payload, and that guard would skip exactly the retirement this
+// function exists to perform. enqueue_spaces() does emit an empty array
+// (rust/src/lib.rs), so the shape is reachable — but the transient it would
+// protect against has never been observed, and an entry erased by one is
+// re-created by the next space list or by room_snapshot's walk of
+// client.rooms(). Blanking was cheaper to be wrong about than erasing; being
+// wrong in the other direction is what left the tile on the rail.
+int retireAbsentSpaces(Registry registry, const QSet<QString> &present)
+{
+    // THE INDEX-SPACE GUARD, and it is the whole reason this is not a plain
+    // erase. `order` is addressed BY INDEX by every room-list diff, so
+    // nothing may leave `rooms` while `order` still names it — removing an
+    // indexed entry from the map alone leaves a position pointing at nothing
+    // and is the shape of the wrong-room deletion this project has already
+    // shipped once. Spaces are deliberately never appended to `order`, so
+    // the guard is NORMALLY VACUOUS; it is here so that if a producer ever
+    // does index one, its retirement stays with the diffs that own it
+    // (room_list_remove / pop / truncate), and such an entry is blanked
+    // exactly as the old code blanked every one of them.
+    QSet<QString> indexed(registry.order.cbegin(), registry.order.cend());
+    int erased = 0;
+    for (auto it = registry.rooms.begin(); it != registry.rooms.end();) {
+        // JOINED ONLY. `present` is built from the Rust side's
+        // `joined_space_rooms()`, so an INVITED Space is absent from it by
+        // construction — erasing on absence alone would create the invite row
+        // from the room payload and destroy it again on the very next space
+        // list, so a Space invitation could never be seen or accepted. It is
+        // not in `m_roomOrder` either, so the index guard below is vacuous for
+        // it. The left-Space entry this function exists for is still recorded
+        // as Joined, so the fix costs the feature nothing. Raised in review.
+        if (it->isSpace && it->membership == RoomInfo::Joined
+            && !present.contains(it.key())) {
+            if (!indexed.contains(it.key())) {
+                it = registry.rooms.erase(it);
+                ++erased;
+                continue;
+            }
+            it->childRoomIds.clear();
+            it->parentSpaceIds.clear();
+        }
+        ++it;
+    }
+    return erased;
+}
+
 } // namespace matrix::rust_rooms
