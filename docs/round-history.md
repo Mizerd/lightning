@@ -15,6 +15,59 @@ By THEME, not chronology, and reduced to rules, refutations, deliberate
 decisions, measured numbers and live status. Features are §7; the caps
 contract, the refutation rule and the probe rule are in the standing warnings.
 
+#### 2026-09-10 (night), live GUI validation above 0.9.4
+
+**2026-09-10, the first GUI validation of anything above 0.9.4.** Driven by
+automation on a throwaway fixture account (`@lightningtest2`, isolated XDG
+profile; the maintainer's own account, store and crypto were never touched —
+every launch was checked against `/proc/<pid>/environ` first).
+
+- **PASS — the room mirror is retired, and only for the room you LEFT.**
+  `timeline mirror retired room=… rows= 107 -> 60`, once per switch away from
+  a 107-row room, never for the room being entered. This is the half of
+  `fe2160f` that had NO coverage at any layer: `RustRoomRegistryTest` proves
+  `trimToBackgroundBound` as a pure function, and the whole risk was the call
+  sites' ordering against `m_timelineTracker.request()`. It needed a room with
+  more than 60 rows, so the first attempt on the untouched fixture logged
+  nothing at all — an inconclusive run, not a pass.
+- **PASS — local search, driven from the GUI for the first time ever.** §16 had
+  recorded the surface as unreached. It is the find bar's **History** scope
+  (Ctrl+F), which offers `Indexed` and `Server`; Indexed reported "Searching 89
+  messages Lightning has indexed, including encrypted ones". Scrolling the
+  result list ran CONTINUOUSLY from the newest match to the oldest with no
+  snap-back, so `103ab1f`'s "load more" extended the page and then stopped
+  offering more. Under the old code each redundant page reset `contentY` to 0,
+  so reaching the last row by scrolling was impossible — the scroll itself is
+  the assertion.
+- **PASS — the Appearance theme cards** render and the selection ring sits on
+  the active theme (all four featured cards, plus the eight in More themes).
+- **PASS, with a behavioural note — 70 rapid sends all landed.** They drained
+  over ~3 MINUTES and the UI showed "sending…" on the tail the whole time. Not
+  a defect and not the tracked-task change failing: Synapse rate-limits at
+  `rc_message` 0.2/s by default and the burst went out at ~1.5/s. What DID
+  change in `5d52126` is that sends now serialize through matrix-sdk's
+  per-room send queue on the shared runtime, where before each send got its
+  own throwaway current-thread runtime and they raced. Correct — the old shape
+  hammered a rate-limited server — but slower, and the long "sending…" tail is
+  now the honest observable. **The evidence that settled it was the ROOM LIST
+  preview reading `zqxjfixture message 70`**: the echoes were accurate, the
+  messages were genuinely still in flight.
+
+NOT covered by any of that: two-account behaviour (the custom-theme leak of
+`13a3afc`, the credential states of `e478d6f`/`efd2009`/`69dc232`), thread-panel
+identities (`1297856`), the sticker grid (`73aa50e`), and leaving a Space
+(`fe2160f`'s rail half). Do not promote those.
+
+**Harness note.** `scratchpad/ui.sh` was rebuilt this session and two things
+had changed under it. `gdbus` is not installed on this host — KWin scripting
+goes through `qdbus`. And `ydotool mousemove -a` is UNUSABLE here: it put
+(400,300) at (2000,0) and then parked every later request at (1,1), because
+its absolute axis range does not correspond to this 5120x1440 logical desktop.
+RELATIVE moves are exact, so `moveto` aims by delta from `workspace.cursorPos`
+and VERIFIES, correcting up to three times. ydotool 1.0.4 also has no wheel
+command at all, so a Flickable is scrolled by a real press-move-release drag
+with intermediate points (`pdrag`) — a single jump reads as a click.
+
 #### 2026-09-10 (later), four items that were degrading every session
 
 Small round, four unrelated fixes, and three of them turned on the same kind

@@ -1612,6 +1612,17 @@ same claim.
 
 ### Live validation: what Rokas has actually confirmed
 
+**2026-09-10 — the first GUI validation of anything above 0.9.4, and it was
+AUTOMATION-driven on a throwaway fixture account, not Rokas.** Four PASSes,
+detailed in `docs/round-history.md` under 2026-09-10 (night): the room mirror
+is retired only for the room you LEFT (`rows= 107 -> 60`); local search was
+driven from the GUI for the FIRST TIME (it is the find bar's History scope,
+Ctrl+F) and its "load more" now walks to the last row instead of spinning; the
+Appearance theme cards render with the ring on the active theme; and 70 rapid
+sends all landed, drained over ~3 minutes by Synapse's `rc_message` limit
+rather than by any defect. Two-account behaviour, thread-panel identities, the
+sticker grid and leaving a Space remain NOT TESTED — do not promote them.
+
 **2026-08-30 — THE GPU SCREEN-SHARE SCALE PATH WORKS ON FOUR ENVIRONMENTS,
 AND TWO GPU VENDORS.** `screen share scaling on the GPU` confirmed on: NixOS
 from source (NVIDIA), a packaged Windows portable build (NVIDIA), the Fedora
