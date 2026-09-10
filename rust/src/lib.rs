@@ -9995,19 +9995,17 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
         .build()
         .await
         .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))?;
-    // PICK UP WHAT THE LAST SESSION LEFT QUEUED, and report how far an upload
-    // has actually got. Both are opt-in and both were missing.
+    // REPORT HOW FAR AN UPLOAD HAS ACTUALLY GOT. Opt-in, and it was missing.
     //
-    // matrix-sdk's own module doc says respawn "is recommended to call during
-    // initialization of a client, otherwise persisted unsent events will only
-    // be re-sent after the send queue for the given room has been reopened for
-    // the first time" (send_queue/mod.rs:41). Lightning never called it, so a
-    // message composed just before the last exit sat in the store until the
-    // user happened to open that exact room again. The sync lanes' recovery
-    // edges cannot stand in for this: the classic lane's is gated on a
-    // FAILURE having been seen, and a clean start has none.
+    // The sibling opt-in, respawn_tasks_for_rooms_with_unsent_requests(), is
+    // NOT here and must not be: it resolves each stored room id through
+    // `client.get_room()`, and no room is in that map until
+    // `BaseClient::activate()` runs `load_rooms()` — which only login or
+    // restore_session triggers, both of which happen AFTER this function
+    // returns. Called here it walks the store and then drops every id on the
+    // floor. It lives at the top of each sync lane instead.
     //
-    // And `report_media_upload_progress` defaults to FALSE (:419), which gates
+    // `report_media_upload_progress` defaults to FALSE (:419), which gates
     // the progress observable at :742 — so EventSendState::NotSentYet carries
     // no progress, UploadProgressRole stays -1, and every piece of UI built on
     // it is unreachable: MessageDelegate's bar is permanently indeterminate,
@@ -10016,7 +10014,6 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     // values on both sides, which is why nothing caught that the SDK was never
     // asked to produce them.
     client.send_queue().enable_upload_progress(true);
-    client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
     // 0600 ON THE DATABASES THAT WERE JUST CREATED, from the ONE place all
     // three login paths (password, restore, OAuth-with-a-store) pass through.
     //
@@ -10781,6 +10778,12 @@ async fn run_modern_sync(
     active_subscription: Arc<Mutex<Option<OwnedRoomId>>>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> Option<tokio::sync::oneshot::Receiver<()>> {
+    // PICK UP WHAT THE LAST SESSION LEFT QUEUED — same call and same reason as
+    // the classic lane's. The first `State::Running` re-enables the send queue
+    // and that itself respawns, so on this lane it is belt and braces; doing
+    // it here covers the window BEFORE the room list reaches Running, and it
+    // costs one store query per session.
+    client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
     // Withdraws the published RoomListService on EVERY exit path of this
     // function — a handle outliving its sync loop would accept subscription
     // calls that can never reach a server again.
@@ -11103,6 +11106,15 @@ async fn run_classic_sync(
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) {
     enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
+    // PICK UP WHAT THE LAST SESSION LEFT QUEUED. matrix-sdk's module doc says
+    // this "is recommended to call during initialization of a client,
+    // otherwise persisted unsent events will only be re-sent after the send
+    // queue for the given room has been reopened for the first time"
+    // (send_queue/mod.rs:41). HERE rather than in build_client, because it
+    // resolves room ids through `client.get_room()` and the room map is empty
+    // until login or restore_session has run — see the note there.
+    client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
+
     let first_response = Arc::new(AtomicBool::new(true));
     // Consecutive failed attempts, shared with the callback: it drives the
     // backoff and decides when silence becomes a visible error. Reset by any

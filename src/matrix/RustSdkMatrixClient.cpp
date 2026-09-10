@@ -4755,6 +4755,22 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             Q_EMIT errorOccurred(tr("The message could not be deleted."));
             return;
         }
+        // THE CANCEL CATEGORIES ARE NOT SEND FAILURES, and the fallback below
+        // is actively wrong for them. `cancel_too_late` in particular means
+        // the message DID reach the server — telling that user their message
+        // "could not be sent" and pointing them at Retry is wrong twice over.
+        // Same class as the defect the thread Retry/Cancel fix addressed: a
+        // sentence that names a control which cannot help.
+        if (category == QLatin1String("cancel_too_late")) {
+            Q_EMIT errorOccurred(tr("That message had already been sent, so it "
+                                    "could not be cancelled."));
+            return;
+        }
+        if (category == QLatin1String("cancel_failed")
+            || category == QLatin1String("cancel_target_missing")) {
+            Q_EMIT errorOccurred(tr("That message could not be cancelled."));
+            return;
+        }
         Q_EMIT errorOccurred(tr("Message could not be sent. You can retry "
                                 "from the message's Retry action."));
         return;

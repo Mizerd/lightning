@@ -983,6 +983,27 @@ impl TimelineRegistry {
         content: AnyMessageLikeEventContent,
         failure_category: &'static str,
     ) -> Result<(), String> {
+        // COMPOSING A MESSAGE UNWEDGES THE ROOM, and this is the only recovery
+        // that covers a SEND-ONLY failure.
+        //
+        // matrix-sdk disables a room's queue after any send error
+        // (send_queue/mod.rs:1012). The two sync-lane recovery edges added
+        // alongside this only fire when SYNC itself recovers, so a 429 or 5xx
+        // on /send, an upload timeout, or a ConcurrentRequestFailed leaves the
+        // room wedged while sync stays perfectly healthy — and the SDK's own
+        // `send_raw` doc says the caller has to re-enable manually.
+        //
+        // Cheap enough to do unconditionally: RoomSendQueue::set_enabled is an
+        // atomic store plus notify_one (:1223), with no store access — unlike
+        // the client-wide SendQueue::set_enabled, which walks every room and
+        // then queries SQLite. And it is safe, because an unrecoverable
+        // failure is marked WEDGED and `peek_next_to_send` skips wedged items
+        // (:1468), so this can never resend something the server rejected.
+        if let Ok(parsed) = RoomId::parse(&room_id) {
+            if let Some(room) = client.get_room(&parsed) {
+                room.send_queue().set_enabled(true);
+            }
+        }
         if thread_root_id.trim().is_empty() {
             let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id)
             else {

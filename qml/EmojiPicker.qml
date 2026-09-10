@@ -448,13 +448,24 @@ AnchoredPopup {
                             // destroy the binding.
                             property int resolveTick: 0
                             // RESOLVED DEFENSIVELY, the pattern 30ee39b
-                            // established for receipt chips. A Repeater
-                            // delegate built synchronously from inside a
-                            // property-change handler — and this Repeater's
-                            // model is rebuilt from `app.stickers.revision`,
-                            // which is exactly such a handler — can have its
-                            // FIRST unqualified `app` lookup resolve to
-                            // undefined. A binding that THROWS there sticks
+                            // established for receipt chips. A delegate built
+                            // synchronously from inside a property-change
+                            // handler — and this LISTVIEW's model is rebuilt
+                            // from `app.stickers.revision`, which is exactly
+                            // such a handler — can have its FIRST unqualified
+                            // `app` lookup resolve to undefined.
+                            //
+                            // THE ASSUMPTION THIS RESTS ON, named because it
+                            // is load-bearing: resolveBridge() at
+                            // Component.onCompleted recovers only because
+                            // 30ee39b characterized the poisoning as hitting
+                            // the FIRST lookup in an object and no later one.
+                            // The false branch registers no dependency on
+                            // `app`, so were that ever wider this binding
+                            // would never re-evaluate — the same objection
+                            // that got the theme-card guard reverted. The
+                            // difference is that the theme card had NO
+                            // recovery; here Component.onCompleted is it. A binding that THROWS there sticks
                             // at its last value forever, because its only
                             // other dependency is the per-cell constant url:
                             // the sticker would never load and nothing would

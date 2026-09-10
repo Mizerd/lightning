@@ -464,7 +464,9 @@ private Q_SLOTS:
                 .split(QRegularExpression(QStringLiteral("\\s+")),
                        Qt::SkipEmptyParts);
         // MUTATION GUARD: a scan that matches nothing passes vacuously, and
-        // this project has shipped exactly that. Seven names today.
+        // this project has shipped exactly that. Eight names today — the
+        // count is deliberately NOT asserted exactly, because the point of
+        // deriving the list is that adding a name needs no edit here.
         QVERIFY2(preserved.size() >= 5,
                  qPrintable(QStringLiteral("only %1 names parsed out of the "
                                            "hook; the parse is wrong")
