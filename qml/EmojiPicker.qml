@@ -447,15 +447,48 @@ AnchoredPopup {
                             // imperative source assignment, which would
                             // destroy the binding.
                             property int resolveTick: 0
+                            // RESOLVED DEFENSIVELY, the pattern 30ee39b
+                            // established for receipt chips. A Repeater
+                            // delegate built synchronously from inside a
+                            // property-change handler — and this Repeater's
+                            // model is rebuilt from `app.stickers.revision`,
+                            // which is exactly such a handler — can have its
+                            // FIRST unqualified `app` lookup resolve to
+                            // undefined. A binding that THROWS there sticks
+                            // at its last value forever, because its only
+                            // other dependency is the per-cell constant url:
+                            // the sticker would never load and nothing would
+                            // say why. Behavioural characterization, not a
+                            // mechanism claim (see that commit).
+                            //
+                            // KEEP THIS THE FIRST `app` REFERENCE IN THE
+                            // DELEGATE: it is the canary that absorbs the one
+                            // poisoned lookup. Moving another `app` binding
+                            // above it makes THAT one take the hit.
+                            property var bridge: (typeof app !== "undefined" && app)
+                                                 ? app.mediaBridge : null
+                            // Idempotent, and never overwrites a resolved
+                            // value; app.mediaBridge is a CONSTANT property,
+                            // so replacing the original binding loses nothing.
+                            function resolveBridge() {
+                                if (!bridge && typeof app !== "undefined"
+                                    && app && app.mediaBridge)
+                                    bridge = app.mediaBridge
+                            }
+                            Component.onCompleted: resolveBridge()
                             source: {
                                 var _tick = resolveTick
-                                return app.mediaBridge.supported
-                                    ? app.mediaBridge.mxcImageSource(
-                                          customCell.modelData.url, 64)
-                                    : ""
+                                if (!bridge || !bridge.supported)
+                                    return ""
+                                return bridge.mxcImageSource(
+                                    customCell.modelData.url, 64)
                             }
                             Connections {
-                                target: app.mediaBridge
+                                // The same lookup, and the same hazard: a
+                                // null target silently connects to nothing,
+                                // so a late-cached sticker would never
+                                // re-tick even once the bridge resolved.
+                                target: customCellImage.bridge
                                 function onMediaCached(cacheKey) {
                                     if (cacheKey.endsWith(
                                             ":" + customCell.modelData.url))

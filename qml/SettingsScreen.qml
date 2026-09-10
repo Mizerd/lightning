@@ -1472,8 +1472,21 @@ Item {
                                     id: themeCard
                                     required property var modelData
                                     objectName: "featuredThemeCard_" + modelData.id
+                                    // typeof-GUARDED, the pattern 30ee39b
+                                    // established. This Repeater's model is a
+                                    // literal, so it is built during ordinary
+                                    // creation and is NOT one of the exposed
+                                    // ones — but a binding that throws sticks
+                                    // at its last value, and this is the
+                                    // binding that decides whether a card
+                                    // shows the selected ring. A wrong ring
+                                    // that never corrects itself is a silent
+                                    // failure; the guard costs one typeof.
                                     readonly property bool selectedTheme:
-                                        app.settings.theme === modelData.id
+                                        (typeof app !== "undefined" && app
+                                         && app.settings)
+                                        ? app.settings.theme === modelData.id
+                                        : false
                                     // SPEC 1v: three 150px preview cards.
                                     implicitWidth: 150
                                     // Integral height keeps the card edge on
@@ -1682,8 +1695,21 @@ Item {
                                     objectName: "miniThemeCard_" + modelData.id
                                     readonly property var pal:
                                         AppTheme.paletteForTheme(modelData.id)
+                                    // typeof-GUARDED, the pattern 30ee39b
+                                    // established. This Repeater's model is a
+                                    // literal, so it is built during ordinary
+                                    // creation and is NOT one of the exposed
+                                    // ones — but a binding that throws sticks
+                                    // at its last value, and this is the
+                                    // binding that decides whether a card
+                                    // shows the selected ring. A wrong ring
+                                    // that never corrects itself is a silent
+                                    // failure; the guard costs one typeof.
                                     readonly property bool selectedTheme:
-                                        app.settings.theme === modelData.id
+                                        (typeof app !== "undefined" && app
+                                         && app.settings)
+                                        ? app.settings.theme === modelData.id
+                                        : false
                                     implicitWidth: miniRow.implicitWidth + 24
                                     implicitHeight: 34
                                     radius: AppTheme.radiusTile
