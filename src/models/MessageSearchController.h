@@ -169,6 +169,16 @@ private:
     quint64 m_totalCount = 0;
     quint64 m_pendingOp = 0;
     bool m_pendingIsNextPage = false;
+    /// The LIMIT the in-flight local request asked for. Local paging grows
+    /// the limit instead of carrying a cursor, so "was the page full?" — the
+    /// only evidence that more exists — has to be answered against this, not
+    /// against kLocalPage. 0 when nothing is in flight.
+    int m_pendingLocalLimit = 0;
+    /// The RAW result count of the last completed local page, before
+    /// matchesFilters(). The next page's limit grows from THIS, never from
+    /// m_rows: the two are different populations, and deriving the limit from
+    /// the filtered count lets a fully-filtered page freeze it forever.
+    int m_lastLocalRawCount = 0;
     QVariantMap m_filters;
     QSet<QString> m_fromUsers;
     QSet<QString> m_mentionUsers;

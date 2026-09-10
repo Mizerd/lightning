@@ -193,6 +193,14 @@ void MessageSearchController::onLocalSearchFinished(
     if (opId != m_pendingOp)
         return;   // stale: the query moved on while this was in flight
     m_pendingOp = 0;
+    // What THIS page asked for. Local paging has no cursor: "load more"
+    // re-runs the query with a BIGGER limit and replaces the rows, so the
+    // page size is not a constant and the exhaustion test cannot be one.
+    const int requested = m_pendingLocalLimit > 0 ? m_pendingLocalLimit
+                                                  : kLocalPage;
+    m_pendingLocalLimit = 0;
+    // The RAW size of this page, kept for the next request's limit.
+    m_lastLocalRawCount = static_cast<int>(results.size());
     if (minChars > 0 && minChars != m_minLocalChars)
         m_minLocalChars = minChars;
 
@@ -232,8 +240,20 @@ void MessageSearchController::onLocalSearchFinished(
     endResetModel();
     m_totalCount = static_cast<quint64>(m_rows.size());
     // A local page has no server cursor. "More" exists when the page came
-    // back full, which is the only evidence available that there is more.
-    m_nextBatch = results.size() >= kLocalPage
+    // back full, which is the only evidence available that there is more —
+    // and FULL means "as many rows as this request asked for", not
+    // kLocalPage. Comparing against the constant made every page after the
+    // first test 100 (or 150, or 200) rows against 50: once the index held
+    // 50 matches the short page that PROVES exhaustion read as a full one,
+    // canLoadMore stayed true forever, and the list's onAtYEndChanged kept
+    // firing loadMore — each redundant page replacing the rows inside
+    // begin/endResetModel, which drops contentY to 0 and re-satisfies
+    // atYEnd. A spin, not a stall.
+    //
+    // Counted in RAW results, before matchesFilters(): the filters run
+    // here, so the filtered row count says nothing about whether the index
+    // had more to give.
+    m_nextBatch = results.size() >= requested
         ? QStringLiteral("local") : QString();
     setState(m_rows.isEmpty() ? QStringLiteral("no_results")
                               : QStringLiteral("results"));
@@ -369,13 +389,23 @@ void MessageSearchController::requestPage(bool append)
         // against a live index would drop or repeat rows whenever indexing
         // wrote a newer message between two pages, and this index is written
         // to while a search is on screen.
-        const int limit = append ? m_rows.size() + kLocalPage : kLocalPage;
+        // GROWN FROM THE LAST RAW PAGE, not from m_rows. m_rows is what
+        // survived matchesFilters(), and the exhaustion test below compares
+        // RAW results against this limit — so deriving it from the filtered
+        // count mixes two populations. With filters that drop a whole page
+        // (raw 50, filtered 0) the limit would never grow, results.size() >=
+        // requested would stay true, and canLoadMore() could never clear.
+        const int limit = append ? m_lastLocalRawCount + kLocalPage : kLocalPage;
         const quint64 opId = m_client->localSearch(m_query.trimmed(), m_roomId,
                                                    limit, 0);
         if (opId == 0) {
             setState(QStringLiteral("error"));
             return;
         }
+        // Remembered beside the op: the completion decides whether the
+        // index is exhausted by comparing what came back against what THIS
+        // request asked for.
+        m_pendingLocalLimit = limit;
         m_pendingOp = opId;
         m_pendingIsNextPage = append;
         setState(append ? QStringLiteral("loading_more")
@@ -390,6 +420,7 @@ void MessageSearchController::requestPage(bool append)
         setState(QStringLiteral("error"));
         return;
     }
+    m_pendingLocalLimit = 0; // server paging carries a cursor, not a limit
     m_pendingOp = opId;
     m_pendingIsNextPage = append;
     ++m_scanPages;
@@ -476,6 +507,8 @@ void MessageSearchController::invalidatePending()
 {
     m_pendingOp = 0;
     m_pendingIsNextPage = false;
+    m_pendingLocalLimit = 0;
+    m_lastLocalRawCount = 0;
     m_nextBatch.clear();
 }
 

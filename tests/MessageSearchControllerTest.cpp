@@ -9,6 +9,7 @@
 #include "models/MessageSearchController.h"
 
 #include <QSignalSpy>
+#include <QTimer>
 #include <algorithm>
 #include <QtTest/QtTest>
 
@@ -29,6 +30,44 @@ QVariantMap resultRow(const QString &roomId, const QString &eventId,
     row.insert(QStringLiteral("body"), body);
     return row;
 }
+
+// A local-search backend whose corpus size and page size the test controls.
+// MockMatrixClient::localSearch answers from its seeded timeline, and the
+// paging defect below only appears once the index holds at least one full
+// page — so this records every LIMIT the controller asks for and answers
+// with exactly as many rows as an index of `available` matches would.
+class PagedLocalSearchClient final : public MockMatrixClient
+{
+    Q_OBJECT
+public:
+    QList<int> limits;   // every LIMIT asked for, in order
+    int available = 0;   // how many matches the index holds
+
+    quint64 localSearch(const QString &query, const QString &roomId,
+                        int limit, int offset) override
+    {
+        Q_UNUSED(query);
+        Q_UNUSED(roomId);
+        Q_UNUSED(offset);
+        limits.append(limit);
+        const quint64 op = ++m_fakeOp;
+        QVariantList rows;
+        for (int i = 0; i < qMin(limit, available); ++i) {
+            rows.append(resultRow(QStringLiteral("!general:mock.local"),
+                                  QStringLiteral("$e%1").arg(i),
+                                  QStringLiteral("needle %1").arg(i)));
+        }
+        QTimer::singleShot(0, this, [this, op, rows] {
+            Q_EMIT localSearchFinished(op, true, QString(), 3, rows);
+        });
+        return op;
+    }
+
+private:
+    // The mock's own op counter is private and nothing here runs the base
+    // implementation; any distinct non-zero id serves.
+    quint64 m_fakeOp = 1000000;
+};
 } // namespace
 
 class MessageSearchControllerTest : public QObject
@@ -347,6 +386,104 @@ private Q_SLOTS:
         // Lower bound INCLUSIVE, upper bound EXCLUSIVE.
         QCOMPARE(kept, (QStringList{ QStringLiteral("$atLowerBound"),
                                      QStringLiteral("$inside") }));
+    }
+
+    // A LOCAL PAGE IS FULL RELATIVE TO WHAT IT ASKED FOR, NOT TO kLocalPage.
+    //
+    // Local search has no cursor, so "load more" re-runs the query with a
+    // BIGGER limit (rows + 50) and replaces the model. The completion tested
+    // `results.size() >= kLocalPage` — the constant — so from the second
+    // page on it compared a 100-row request against 50. Once the index held
+    // 50 matches, the short page that PROVES exhaustion read as a full one:
+    // canLoadMore stayed true, and the results list auto-fires loadMore on
+    // onAtYEndChanged. Each redundant page replaces the rows inside
+    // begin/endResetModel, which drops contentY to 0 and re-satisfies
+    // atYEnd — so it spins rather than stalls, re-running the query against
+    // a live FTS5 index for as long as the panel is open.
+    //
+    // FAIL-ON-OLD: the unfixed tree fails the "index is exhausted" QVERIFY2
+    // below (50 >= 50 says there is more).
+    void aLocalPageIsFullOnlyRelativeToWhatItAskedFor()
+    {
+        PagedLocalSearchClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        QCOMPARE(model.source(), QStringLiteral("local"));
+
+        // The index holds EXACTLY one page: the first page comes back full,
+        // which is the only evidence there is and it does say "maybe more".
+        client.available = 50;
+        model.setQuery(QStringLiteral("needle"));
+        QTRY_COMPARE(model.state(), QStringLiteral("results"));
+        QCOMPARE(model.rowCount(), 50);
+        QCOMPARE(client.limits, (QList<int>{ 50 }));
+        QVERIFY(model.canLoadMore());
+
+        // "More" asks for 100 and gets 50 — the index has no more to give.
+        model.loadMore();
+        QCOMPARE(model.state(), QStringLiteral("loading_more"));
+        QCOMPARE(client.limits, (QList<int>{ 50, 100 }));
+        QTRY_COMPARE(model.state(), QStringLiteral("results"));
+        QCOMPARE(model.rowCount(), 50);
+        QVERIFY2(!model.canLoadMore(),
+                 "a 50-row answer to a 100-row request is an exhausted "
+                 "index, and offering More again is the paging spin");
+
+        // ...and a page that genuinely IS full still offers more, so the
+        // fix cannot have been "always stop after the second page".
+        client.available = 500;
+        model.setQuery(QStringLiteral("needle2"));
+        QTRY_VERIFY(client.limits.size() == 3);
+        QTRY_VERIFY(model.canLoadMore());
+        QCOMPARE(model.rowCount(), 50);
+        model.loadMore();
+        QCOMPARE(client.limits.last(), 100);
+        QTRY_COMPARE(model.rowCount(), 100);
+        QVERIFY(model.canLoadMore());
+    }
+
+    // THE NEXT LIMIT GROWS FROM THE RAW PAGE, NOT FROM THE FILTERED ROWS.
+    //
+    // The sibling of the case above, and the half it does not reach. The
+    // exhaustion test counts RAW results (the filters run on this side, so a
+    // filtered count says nothing about what the index had left) — but the
+    // next request's limit was `m_rows.size() + kLocalPage`, and m_rows is
+    // what SURVIVED matchesFilters(). Mix the two populations and a filter
+    // that drops a whole page freezes the limit: 0 + 50 forever, every page
+    // answering `50 >= 50`, canLoadMore() never clearing.
+    //
+    // Every row the mock produces carries timestampMs 1700000000000, so an
+    // afterMs one millisecond later drops all of them and leaves the raw
+    // count untouched — exactly the shape.
+    //
+    // FAIL-ON-OLD: the unfixed tree asks for 50 twice and never clears
+    // canLoadMore; both QCOMPAREs below fail.
+    void aFullyFilteredPageStillGrowsTheNextRequestsLimit()
+    {
+        PagedLocalSearchClient client;
+        QVERIFY(login(client));
+        client.available = 60;          // more than one page, fewer than two
+        MessageSearchController model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        QCOMPARE(model.source(), QStringLiteral("local"));
+        model.setFilters(QVariantMap{
+            { QStringLiteral("afterMs"), qint64(1700000000001) },
+        });
+        model.setQuery(QStringLiteral("needle"));
+        QTRY_COMPARE(model.state(), QStringLiteral("no_results"));
+        QCOMPARE(model.rowCount(), 0);
+        // 50 raw rows came back against a limit of 50: full, so there may be
+        // more even though the reader sees nothing.
+        QVERIFY(model.canLoadMore());
+
+        model.loadMore();
+        QTRY_VERIFY(!model.canLoadMore());
+        // The second request asked for 100 — 50 RAW rows plus a page — and
+        // the index answered 60, which is short and therefore exhaustion.
+        QCOMPARE(client.limits, (QList<int>{ 50, 100 }));
     }
 
     // ── The two producers must spell the sender the same way ─────────────
