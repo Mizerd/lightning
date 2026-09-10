@@ -506,11 +506,31 @@ async fn fetch_sfu_credentials(
 /// How long `disconnect` lets the session task drain its queued Leave and
 /// close the websocket before the abort backstop fires.
 ///
-/// Comfortably inside `timeline::SHUTDOWN_JOIN_TIMEOUT_SECS` (15 s), which is
-/// the budget that joins this task on quit: the graceful close must finish
-/// well before the budget it rides, or quitting would abort it anyway and we
-/// would be back to leaking a participant.
-const LEAVE_FLUSH_TIMEOUT: Duration = Duration::from_secs(3);
+/// DERIVED FROM THE BUDGET IT RIDES, never written as a literal.
+///
+/// `disconnect` puts this drain on the tracked room-action pool, so the
+/// budget that joins it on quit is `crate::SHUTDOWN_ACTION_JOIN_MS`. The
+/// graceful close must finish INSIDE that, or the teardown aborts the waiter
+/// before its own window closes — taking the `abort()` backstop with it — and
+/// the `Leave` never goes out. Peers then keep a stale participant, age the
+/// membership out and rotate media keys without that user, which is the ghost
+/// this drain exists to prevent.
+///
+/// It was 3 s against a hand-copied "15 s" that named
+/// `timeline::SHUTDOWN_JOIN_TIMEOUT_SECS`. When the teardown chain was
+/// bounded, that budget became 1500 ms and this silently became twice its own
+/// window — caught in review, and the reason it is now an expression. The
+/// margin leaves the pool time to notice and abort rather than racing it.
+const LEAVE_FLUSH_MARGIN_MS: u64 = 250;
+const LEAVE_FLUSH_TIMEOUT: Duration =
+    Duration::from_millis(crate::SHUTDOWN_ACTION_JOIN_MS - LEAVE_FLUSH_MARGIN_MS);
+
+const _: () = assert!(
+    LEAVE_FLUSH_MARGIN_MS < crate::SHUTDOWN_ACTION_JOIN_MS,
+    "SHUTDOWN_ACTION_JOIN_MS no longer leaves room for the SFU leave drain; \
+     a graceful LiveKit Leave would be aborted before it is sent, stranding \
+     a participant in every call the user quits out of."
+);
 
 /// Commands the C++ side sends into a running signalling session.
 #[derive(Debug)]

@@ -146,10 +146,38 @@ pub(crate) fn is_rtc_membership_event(event: &AnySyncTimelineEvent) -> bool {
     )
 }
 
-/// Bound for joining timeline/import tasks during shutdown. Only a
-/// last-resort error boundary — tasks are cancelled/joined deterministically
-/// first and normally finish in milliseconds.
+/// RETIRED, and deliberately left as a tombstone rather than deleted.
+///
+/// This was the shutdown join bound for timeline and import tasks. It has no
+/// code reference left: every user now sizes against a budget derived from
+/// `RustSdkMatrixClient::kStoreCloseBudgetMs` instead (see
+/// `SHUTDOWN_WORST_CASE_MS` in lib.rs and `SHUTDOWN_ABORTED_JOIN_MS` below).
+///
+/// It is kept because two separate places once sized real timeouts against it
+/// — `sfu.rs`'s leave drain and this file's own shutdown legs — and both
+/// silently became wrong when the real budget changed, which is the whole
+/// reason that budget is now a compile-time assertion. DO NOT SIZE ANYTHING
+/// AGAINST THIS. If you are reaching for it, you want `SHUTDOWN_WORST_CASE_MS`
+/// and the assert beside it.
+#[deprecated(note = "size against SHUTDOWN_WORST_CASE_MS in lib.rs instead")]
+#[allow(dead_code)]
 pub const SHUTDOWN_JOIN_TIMEOUT_SECS: u64 = 15;
+
+/// How long `shutdown` waits on a timeline task it has ALREADY ABORTED.
+///
+/// Not a cooperative join. `take_active` and `take_active_thread` both call
+/// `task.abort()` before they hand the handle back, so by the time `shutdown`
+/// awaits it the task is cancelled and cannot do further work — the wait
+/// exists only so one wedged in a synchronous stretch cannot hold teardown.
+///
+/// It used to be `SHUTDOWN_JOIN_TIMEOUT_SECS`, twice, which declared 30 s of
+/// worst case in the middle of a chain the C++ side gives 15 s in total
+/// (`RustSdkMatrixClient::kStoreCloseBudgetMs`). It cost under a millisecond
+/// in practice, but a budget that is only safe in practice is what let the
+/// whole chain declare 61 s against that 15 s wait. Both legs are folded into
+/// `SHUTDOWN_WORST_CASE_MS` in lib.rs, whose compile-time assert is what now
+/// keeps the total honest.
+pub const SHUTDOWN_ABORTED_JOIN_MS: u64 = 250;
 
 type EventQueue = Arc<Mutex<VecDeque<String>>>;
 
@@ -1147,7 +1175,7 @@ impl TimelineRegistry {
             if let Some(task) = task {
                 let _ = runtime.block_on(async {
                     tokio::time::timeout(
-                        std::time::Duration::from_secs(SHUTDOWN_JOIN_TIMEOUT_SECS),
+                        std::time::Duration::from_millis(SHUTDOWN_ABORTED_JOIN_MS),
                         task,
                     )
                     .await
@@ -1158,7 +1186,7 @@ impl TimelineRegistry {
             if let Some(task) = task {
                 let _ = runtime.block_on(async {
                     tokio::time::timeout(
-                        std::time::Duration::from_secs(SHUTDOWN_JOIN_TIMEOUT_SECS),
+                        std::time::Duration::from_millis(SHUTDOWN_ABORTED_JOIN_MS),
                         task,
                     )
                     .await

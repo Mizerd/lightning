@@ -449,11 +449,16 @@ impl RustClient {
     /// for `Stage::Consumed`), and the first `JoinAll` — the only record of
     /// which handles had already completed — was dropped by the `timeout`.
     /// So every task that finished inside the budget was polled a second
-    /// time and hit `panic!("JoinHandle polled after completion")`. With
-    /// `panic = "abort"` in both profiles that is an immediate SIGABRT of
-    /// the whole process: no unwind, nothing for `ffi_string`'s
-    /// `catch_unwind` to catch, and no line in any log. A coredump of
-    /// exactly this (2026-08-25) has the account switch in its stack.
+    /// time and hit `panic!("JoinHandle polled after completion")`. AT THE
+    /// TIME `rust/Cargo.toml` set `panic = "abort"` in both profiles, so that
+    /// was an immediate SIGABRT of the whole process: no unwind, nothing for
+    /// `ffi_string`'s `catch_unwind` to catch, and no line in any log. A
+    /// coredump of exactly this (2026-08-25) has the account switch in its
+    /// stack. The profiles are UNWIND since 2026-09-05 (see Cargo.toml, and
+    /// `CatchPanic` below, which only works because of it), so the same
+    /// double-poll today would unwind into a `catch_unwind` instead of
+    /// killing the process. The defect and the fix are unchanged; only how
+    /// loudly it ends is.
     ///
     /// It needed TWO conditions in one batch, which is why it fired once
     /// and not reliably: something had to MISS the budget, or round two
@@ -467,9 +472,13 @@ impl RustClient {
     /// joined); that is the better long-term shape and a larger change,
     /// because `spawn_media_fetch` must keep its own `AbortHandle` registry
     /// for `mx_rust_media_cancel`.
+    ///
+    /// MILLISECONDS, not seconds: every budget in the teardown chain is
+    /// declared in ms now so `SHUTDOWN_WORST_CASE_MS` can add them up and the
+    /// compiler can check the total against `kStoreCloseBudgetMs`.
     async fn join_or_abort(
         handles: Vec<tokio::task::JoinHandle<()>>,
-        budget_secs: u64,
+        budget_ms: u64,
     ) -> usize {
         if handles.is_empty() {
             return 0;
@@ -483,7 +492,7 @@ impl RustClient {
             .collect();
         let mut all = std::pin::pin!(futures_util::future::join_all(handles));
         if tokio::time::timeout(
-            std::time::Duration::from_secs(budget_secs),
+            std::time::Duration::from_millis(budget_ms),
             all.as_mut(),
         )
         .await
@@ -498,7 +507,7 @@ impl RustClient {
         // The SAME future, so a handle joined in round one is never polled
         // again. This is the entire fix.
         let _ = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
+            std::time::Duration::from_millis(SHUTDOWN_ABORT_DRAIN_MS),
             all.as_mut(),
         )
         .await;
@@ -558,7 +567,7 @@ impl RustClient {
         let t_verifications = std::time::Instant::now();
         let verifications_missed = self.runtime.block_on(Self::join_or_abort(
             verifications,
-            timeline::SHUTDOWN_JOIN_TIMEOUT_SECS,
+            SHUTDOWN_VERIFICATION_JOIN_MS,
         ));
         let verifications_ms = t_verifications.elapsed().as_millis() as u64;
         // Every driver has stopped, so whatever is still parked in the slots
@@ -577,11 +586,22 @@ impl RustClient {
             &self.active_request, &self.active_sas, &self.active_qr,
         );
         if pending_sas.is_some() || pending_qr.is_some() || pending_request.is_some() {
-            self.runtime.block_on(cancel_flow_best_effort(
-                pending_sas.as_ref(),
-                pending_qr.as_ref(),
-                pending_request.as_ref(),
-            ));
+            // ONE outer cap over the whole sweep. Without it three pending
+            // slots cost three per-flow budgets end to end, and this step is
+            // on the critical path to the store being closed — see the
+            // shutdown-budget block just below SYNC_TASK_JOIN_BUDGET_MS.
+            self.runtime.block_on(async {
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_millis(SHUTDOWN_FLOW_SWEEP_MS),
+                    cancel_flow_best_effort(
+                        pending_sas.as_ref(),
+                        pending_qr.as_ref(),
+                        pending_request.as_ref(),
+                        std::time::Duration::from_millis(SHUTDOWN_FLOW_CANCEL_MS),
+                    ),
+                )
+                .await;
+            });
         }
 
         self.timelines.shutdown(&self.runtime);
@@ -606,7 +626,7 @@ impl RustClient {
         let t_actions = std::time::Instant::now();
         let actions_missed = self.runtime.block_on(Self::join_or_abort(
             actions,
-            timeline::SHUTDOWN_JOIN_TIMEOUT_SECS,
+            SHUTDOWN_ACTION_JOIN_MS,
         ));
         let actions_ms = t_actions.elapsed().as_millis() as u64;
 
@@ -616,8 +636,8 @@ impl RustClient {
             if !handle.is_finished() {
                 let joined = self.runtime.block_on(async {
                     tokio::time::timeout(
-                        std::time::Duration::from_secs(
-                            timeline::SHUTDOWN_JOIN_TIMEOUT_SECS,
+                        std::time::Duration::from_millis(
+                            SHUTDOWN_IMPORT_JOIN_MS,
                         ),
                         handle,
                     )
@@ -718,6 +738,144 @@ impl RustClient {
             tasks.push(self.runtime.spawn(future));
         }
     }
+
+    /// Run a detached FFI action on the TRACKED room-action pool, keeping the
+    /// panic report `run_async` used to produce.
+    ///
+    /// WHY THIS EXISTS. Seven FFI entry points — `mx_rust_send_text`,
+    /// `mx_rust_probe_encrypted_send`, `mx_rust_recover_from_backup`,
+    /// `mx_rust_reload_room_timeline`, `mx_rust_rename_device`,
+    /// `mx_rust_backup_action` and `mx_rust_request_backup_progress` — were
+    /// raw `std::thread::spawn` plus `run_async`'s throwaway current-thread
+    /// runtime. That is exactly the shape `spawn_verification_task` above was
+    /// written to retire in v0.7.3, and for exactly the same reason: such a
+    /// thread owns a `Client` clone, appears in NONE of the registries
+    /// `shutdown_managed_tasks` drains, and nothing joins or aborts it, so
+    /// `mx_rust_destroy` returns while it is still running.
+    ///
+    /// It is a data-at-rest hazard, not a tidiness one. "Recover from backup"
+    /// followed by removing the account had `AppController` calling
+    /// `removeRecursively()` on the store directory while `Recovery::recover()`
+    /// was still importing Megolm sessions into the SQLite database inside it
+    /// (on Windows that delete FAILS rather than being tidied up later), and
+    /// `mx_rust_backup_action`'s `wait_for_backups_to_upload()` can hold the
+    /// same handle for minutes. The lifecycle guards those sites carry do not
+    /// help: they gate the REPORT, they run after the SDK call has already
+    /// completed, and they say nothing about the store handle.
+    ///
+    /// The panic wrapper is not decoration. `run_async` reported a panicking
+    /// action as `{"type":"error"}`, which `RustSdkMatrixClient` turns into a
+    /// user-visible banner (`errorOccurred`); a bare `spawn` hands the panic to
+    /// tokio's `JoinHandle` instead, where `join_or_abort` discards it — so a
+    /// panicking send would become a silent no-op with no `send_failed` either.
+    /// Keeping the event is what makes this change lifecycle-only.
+    fn spawn_reported_action<F>(&self, label: &'static str, future: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let events = Arc::clone(&self.events);
+        // A DROPPED ACTION MUST NOT BE SILENT EITHER. `spawn_room_action` is
+        // `if let Ok(..) = lock()`, so a poisoned mutex drops the future with
+        // no event at all — for `send_text` that is a composer echo that
+        // never resolves and no `send_failed`, which is the exact silence the
+        // panic wrapper below exists to prevent. Report it the same way.
+        // Raised in review.
+        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let claimed = std::sync::Arc::clone(&dropped);
+        let report = Arc::clone(&events);
+        self.spawn_room_action(async move {
+            claimed.store(false, std::sync::atomic::Ordering::SeqCst);
+            if CatchPanic::new(future).await.is_err() {
+                enqueue(
+                    &report,
+                    json!({
+                        "type": "error",
+                        "message": format!("Rust SDK {label} task panicked."),
+                    }),
+                );
+            }
+        });
+        if dropped.load(std::sync::atomic::Ordering::SeqCst)
+            && self.room_action_tasks.lock().is_err()
+        {
+            enqueue(
+                &events,
+                json!({
+                    "type": "error",
+                    "message": format!("Rust SDK {label} task could not start."),
+                }),
+            );
+        }
+    }
+}
+
+/// A future that CONTAINS a panic raised by the future it wraps, so the caller
+/// can report it instead of losing it.
+///
+/// `futures_util::FutureExt::catch_unwind` is the obvious one-liner and is
+/// deliberately not used: it is gated on futures-util's `std` feature, and
+/// `rust/Cargo.toml` takes that dependency with `default-features = false`.
+/// `std` reaches this build only through feature unification with matrix-sdk,
+/// and a lifecycle guarantee must not rest on another crate's feature
+/// selection.
+///
+/// The wrapped future is boxed so this type is unconditionally `Unpin` (the
+/// poll below needs `get_mut`), and it is DROPPED the moment it panics or
+/// completes — a future that unwound out of its own `poll` must never be
+/// polled again.
+struct CatchPanic<F> {
+    inner: Option<std::pin::Pin<Box<F>>>,
+}
+
+impl<F> CatchPanic<F> {
+    fn new(future: F) -> Self {
+        Self { inner: Some(Box::pin(future)) }
+    }
+}
+
+impl<F: std::future::Future<Output = ()>> std::future::Future for CatchPanic<F> {
+    /// `Err(())` means the wrapped future panicked. The payload is dropped
+    /// rather than reported: it is an arbitrary `Box<dyn Any>` that may carry a
+    /// formatted message with room ids or message bodies in it, and §6 keeps
+    /// that out of the event this raises and out of every line Lightning logs.
+    ///
+    /// PRECISELY THAT, AND NO WIDER — raised in review. Rust's DEFAULT panic
+    /// hook still writes the payload and location to stderr before any of this
+    /// runs, and no `std::panic::set_hook` is installed anywhere in this crate.
+    /// That matters because a `str` slice panic prints the string it was
+    /// slicing, and the two such panics fixed in 0.9.4 were slicing message
+    /// BODIES. It does not reach `--log-file` (that mirrors Qt's message
+    /// handler, not the process's stderr), but it does reach a terminal or the
+    /// journal. Closing it means installing a hook that keeps the location and
+    /// drops the payload, which changes crash diagnostics process-wide and is
+    /// its own round.
+    type Output = Result<(), ()>;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        use std::task::Poll;
+        let this = self.get_mut();
+        let Some(future) = this.inner.as_mut() else {
+            // Already resolved. Unreachable through `spawn`, which never
+            // re-polls a finished task; here so a stray poll can never reach a
+            // future that has unwound.
+            return Poll::Ready(Err(()));
+        };
+        let polled = catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(cx)));
+        match polled {
+            Ok(Poll::Pending) => Poll::Pending,
+            Ok(Poll::Ready(())) => {
+                this.inner = None;
+                Poll::Ready(Ok(()))
+            }
+            Err(_) => {
+                this.inner = None;
+                Poll::Ready(Err(()))
+            }
+        }
+    }
 }
 
 /// Wait for a cancelled task's thread, but never longer than the budget.
@@ -794,6 +952,156 @@ struct SyncTask {
 /// the same budgeted shape `shutdown_managed_tasks` uses for its tokio tasks;
 /// these two were the only waits in the teardown with no budget at all.
 const SYNC_TASK_JOIN_BUDGET_MS: u64 = 1500;
+
+// ── THE SHUTDOWN BUDGET, AND WHY IT IS COUPLED TO A NUMBER IN C++ ─────────
+//
+// `mx_rust_shutdown_tasks` (this file's `shutdown_managed_tasks`) is a chain
+// of SEQUENTIAL waits, and nothing used to bound their SUM. Every one of them
+// was `timeline::SHUTDOWN_JOIN_TIMEOUT_SECS` (15 s), so the declared worst
+// case for the steps this file owns was:
+//
+//     verification join 15 + abort drain 2   = 17 s
+//     verification slot-sweep cancel 3 x 3   =  9 s
+//     room-action join  15 + abort drain 2   = 17 s
+//     import join                            = 15 s
+//     stop_sync_and_wait  2 x 1.5            =  3 s
+//                                            ------
+//                                              61 s
+//
+// The C++ side waits for ALL of it — plus `mx_rust_destroy` — with ONE flat
+// `RustSdkMatrixClient::waitForRustRetirement(kStoreCloseBudgetMs)`, and
+// `kStoreCloseBudgetMs` is **15 000 ms** (src/matrix/RustSdkMatrixClient.h).
+// Exceeding it is not a freeze: `resetRustStore` logs `deleting anyway` and
+// `removeAccountLocalState` proceeds regardless, so the store directory is
+// unlinked while a writer may still be live — the data-at-rest defect §6 has
+// a rule against, and exactly the one this lane was fixing. Moving
+// `mx_rust_backup_action` onto the tracked pool (`spawn_reported_action`)
+// made hitting that ceiling plausible rather than rare, because
+// `wait_for_backups_to_upload()` legitimately runs for minutes.
+//
+// So the budgets below are chosen so the WORST CASE of everything this file
+// owns, plus a reserve for the runtime drop, fits inside `kStoreCloseBudgetMs`
+// with margin — and `SHUTDOWN_WORST_CASE_MS` asserts it AT COMPILE TIME, so
+// raising any one of them fails the build instead of silently re-opening the
+// race. A constant whose safety depends on a number in another language, in
+// another file, with no comment, is how this class of bug survives.
+//
+//     | step                                  |    ms | note                 |
+//     |---------------------------------------|-------|----------------------|
+//     | verification join                     |  2500 | one poll tick + two  |
+//     |                                       |       | flow cancels         |
+//     | verification abort drain              |   250 |                      |
+//     | verification slot-sweep cancel (cap)  |  2000 | ONE outer timeout    |
+//     | room-action join                      |  1500 | media pre-aborted    |
+//     | room-action abort drain               |   250 |                      |
+//     | import join                           |   500 | partial import is    |
+//     |                                       |       | safe and retryable   |
+//     | stop_sync_and_wait (2 x 1500)         |  3000 | UNCHANGED, see       |
+//     |                                       |       | SYNC_TASK_JOIN_BUDGET_MS |
+//     |---------------------------------------|-------|
+//     | TimelineRegistry::shutdown (2 x 250)  |   500 | already aborted; error  |
+//     |                                       |       | boundary, not a join    |
+//     | SHUTDOWN_WORST_CASE_MS                | 10500 |
+//     | reserve for mx_rust_destroy           |  3000 |
+//     |---------------------------------------|-------|
+//     | total vs kStoreCloseBudgetMs = 15000  | 13500 | 1500 ms spare        |
+//
+// `TimelineRegistry::shutdown` USED TO BE THE LARGEST UNCOVERED CONTRIBUTOR:
+// two sequential `timeout(SHUTDOWN_JOIN_TIMEOUT_SECS)` waits, 30 s declared,
+// in the middle of this chain. Each resolved in well under a millisecond,
+// because `take_active`/`take_active_thread` call `task.abort()` BEFORE the
+// await — they are error boundaries on an already-cancelled task, not
+// cooperative joins — but "safe in practice" is exactly what let this chain
+// declare 61 s against a 15 s wait in the first place. Both legs now use
+// `timeline::SHUTDOWN_ABORTED_JOIN_MS` and are counted below.
+
+/// After `abort()`, how long a cancelled task may take to reach its next
+/// await point and resolve. Not a cooperative join — the task is already
+/// cancelled and cannot do more work — so this is three orders of magnitude
+/// more than it costs, and exists only so a task wedged in a synchronous
+/// stretch cannot hold the teardown.
+const SHUTDOWN_ABORT_DRAIN_MS: u64 = 250;
+
+/// The wire budget for ONE courtesy `m.key.verification.cancel` sent while
+/// the session is being torn down.
+///
+/// Deliberately shorter than `VERIFICATION_CANCEL_TIMEOUT_SECS`, which the
+/// non-teardown callers keep: telling the peer saves it from waiting out
+/// matrix-sdk-crypto's 10-minute VERIFICATION_TIMEOUT and is worth a short
+/// wait, but it is a single small to-device PUT and it is NOT worth the store
+/// being deleted underneath an open SQLite connection. If it misses, the peer
+/// degrades to that 10-minute timeout — which is what happened before any of
+/// these flows were cancelled at all.
+const SHUTDOWN_FLOW_CANCEL_MS: u64 = 1000;
+
+/// How long the SAS/QR drivers get to notice `verification_shutdown` and
+/// finish telling their peer, before they are aborted.
+///
+/// DERIVED, not picked: a driver checks the flag once per poll tick and the
+/// worst branch (`drive_sas_flow`) then cancels TWO flows — the SAS and the
+/// request — before returning. Expressed as the sum so it stays true if
+/// either input moves, and so the compile-time assertion below catches it.
+const SHUTDOWN_VERIFICATION_JOIN_MS: u64 =
+    VERIFICATION_POLL_MS + 2 * SHUTDOWN_FLOW_CANCEL_MS;
+
+/// One outer cap over the whole slot sweep, rather than one budget per flow.
+/// The sweep cancels flows no driver owns, of which there are at most three
+/// and realistically one; capping the sweep instead of each flow keeps the
+/// arithmetic additive-free.
+const SHUTDOWN_FLOW_SWEEP_MS: u64 = 2 * SHUTDOWN_FLOW_CANCEL_MS;
+
+/// The polite window before the room-action pool is force-aborted.
+///
+/// Short on purpose. Live media downloads are aborted BEFORE this join, so
+/// what remains is ordinary actions — sends, `/messages`, the device list,
+/// the courtesy typing-stop that `retireRustHandleAsync` dispatches into this
+/// very pool moments earlier — which resolve in milliseconds. The one member
+/// that can legitimately run for minutes is `mx_rust_backup_action`, and
+/// waiting for it is precisely what must not happen here.
+pub(crate) const SHUTDOWN_ACTION_JOIN_MS: u64 = 1500;
+
+/// The polite window for the key-import task. Aborting it mid-way is safe:
+/// matrix-sdk commits imported sessions in batches, so a cancelled import is
+/// partial and retryable, never corrupt.
+const SHUTDOWN_IMPORT_JOIN_MS: u64 = 500;
+
+/// `RustSdkMatrixClient::kStoreCloseBudgetMs`, mirrored so the arithmetic
+/// above can be checked by the compiler.
+///
+/// SOURCE OF TRUTH IS THE C++ CONSTANT (src/matrix/RustSdkMatrixClient.h).
+/// If it moves, move this one with it — and if it moves DOWN, the assertion
+/// below will say so.
+const STORE_CLOSE_BUDGET_MS: u64 = 15_000;
+
+/// What `waitForRustRetirement` must still have left for `mx_rust_destroy`
+/// after `mx_rust_shutdown_tasks` returns. Dropping the shared runtime waits
+/// for whatever `spawn_blocking` has already started, which by then is at
+/// most a few in-flight SQLite statements — generous on purpose, because
+/// being generous here makes the assertion stricter.
+const SHUTDOWN_DESTROY_RESERVE_MS: u64 = 3_000;
+
+/// The declared worst case of every sequential wait `shutdown_managed_tasks`
+/// owns, INCLUDING `TimelineRegistry::shutdown`'s two legs — the chain is
+/// bounded end to end now, so nothing here is "safe in practice" only.
+const SHUTDOWN_WORST_CASE_MS: u64 = SHUTDOWN_VERIFICATION_JOIN_MS
+    + SHUTDOWN_ABORT_DRAIN_MS
+    + SHUTDOWN_FLOW_SWEEP_MS
+    + SHUTDOWN_ACTION_JOIN_MS
+    + SHUTDOWN_ABORT_DRAIN_MS
+    + SHUTDOWN_IMPORT_JOIN_MS
+    + 2 * SYNC_TASK_JOIN_BUDGET_MS
+    // TimelineRegistry::shutdown: the live timeline and the thread timeline,
+    // each already aborted before the wait.
+    + 2 * timeline::SHUTDOWN_ABORTED_JOIN_MS;
+
+const _: () = assert!(
+    SHUTDOWN_WORST_CASE_MS + SHUTDOWN_DESTROY_RESERVE_MS <= STORE_CLOSE_BUDGET_MS,
+    "shutdown_managed_tasks can now outlast RustSdkMatrixClient::\
+     kStoreCloseBudgetMs, so the C++ side will delete the store while a Rust \
+     writer may still hold it open. Lower a budget above, or raise \
+     kStoreCloseBudgetMs in src/matrix/RustSdkMatrixClient.h and this file's \
+     STORE_CLOSE_BUDGET_MS with it."
+);
 
 /// The authoritative sync path selection. This is deliberately distinct from
 /// transient connectivity: a temporary network loss keeps the selected mode
@@ -3094,65 +3402,62 @@ pub unsafe extern "C" fn mx_rust_send_text(
         };
 
         let events = Arc::clone(&bridge.events);
-        std::thread::spawn(move || {
-            let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "send_text", async move {
-                let Some(room_id_ref) = RoomId::parse(&room_id).ok() else {
-                    enqueue(
-                        &events,
-                        json!({
-                            "type": "send_failed",
-                            "room_id": room_id,
-                            "transaction_id": transaction_id,
-                            "message": "Invalid Matrix room id.",
-                        }),
-                    );
-                    return;
-                };
-                let Some(room) = client.get_room(&room_id_ref) else {
-                    enqueue(
-                        &events,
-                        json!({
-                            "type": "send_failed",
-                            "room_id": room_id,
-                            "transaction_id": transaction_id,
-                            "message": "Rust SDK does not know that room yet.",
-                        }),
-                    );
-                    return;
-                };
+        bridge.spawn_reported_action("send_text", async move {
+            let Some(room_id_ref) = RoomId::parse(&room_id).ok() else {
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "send_failed",
+                        "room_id": room_id,
+                        "transaction_id": transaction_id,
+                        "message": "Invalid Matrix room id.",
+                    }),
+                );
+                return;
+            };
+            let Some(room) = client.get_room(&room_id_ref) else {
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "send_failed",
+                        "room_id": room_id,
+                        "transaction_id": transaction_id,
+                        "message": "Rust SDK does not know that room yet.",
+                    }),
+                );
+                return;
+            };
 
-                // v0.5.0-prep+9: encrypted rooms are now allowed on the
-                // interactive UI send path. matrix-sdk auto-encrypts via
-                // its `e2e-encryption` feature when the room's
-                // encryption state says so; if it can't (missing keys,
-                // untrusted target device, etc.) the SDK returns an
-                // error that flows back through send_failed. The C++
-                // side still refuses when CryptoManager::supportsE2ee()
-                // is false — see RustSdkMatrixClient::sendTextMessage.
-                let content = RoomMessageEventContent::text_markdown(body);
-                let txn: OwnedTransactionId = transaction_id.clone().into();
-                match room.send(content).with_transaction_id(txn).await {
-                    Ok(result) => enqueue(
-                        &events,
-                        json!({
-                            "type": "send_ok",
-                            "room_id": room_id,
-                            "transaction_id": transaction_id,
-                            "event_id": result.response.event_id.to_string(),
-                        }),
-                    ),
-                    Err(err) => enqueue(
-                        &events,
-                        json!({
-                            "type": "send_failed",
-                            "room_id": room_id,
-                            "transaction_id": transaction_id,
-                            "message": format_matrix_error("Matrix Rust SDK send failed", err),
-                        }),
-                    ),
-                }
-            });
+            // v0.5.0-prep+9: encrypted rooms are now allowed on the
+            // interactive UI send path. matrix-sdk auto-encrypts via
+            // its `e2e-encryption` feature when the room's
+            // encryption state says so; if it can't (missing keys,
+            // untrusted target device, etc.) the SDK returns an
+            // error that flows back through send_failed. The C++
+            // side still refuses when CryptoManager::supportsE2ee()
+            // is false — see RustSdkMatrixClient::sendTextMessage.
+            let content = RoomMessageEventContent::text_markdown(body);
+            let txn: OwnedTransactionId = transaction_id.clone().into();
+            match room.send(content).with_transaction_id(txn).await {
+                Ok(result) => enqueue(
+                    &events,
+                    json!({
+                        "type": "send_ok",
+                        "room_id": room_id,
+                        "transaction_id": transaction_id,
+                        "event_id": result.response.event_id.to_string(),
+                    }),
+                ),
+                Err(err) => enqueue(
+                    &events,
+                    json!({
+                        "type": "send_failed",
+                        "room_id": room_id,
+                        "transaction_id": transaction_id,
+                        "message": format_matrix_error("Matrix Rust SDK send failed", err),
+                    }),
+                ),
+            }
         });
 
         Ok(String::new())
@@ -3186,70 +3491,67 @@ pub unsafe extern "C" fn mx_rust_probe_encrypted_send(
         };
 
         let events = Arc::clone(&bridge.events);
-        std::thread::spawn(move || {
-            let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "probe_encrypted_send", async move {
-                let Some(room_id_ref) = RoomId::parse(&room_id).ok() else {
-                    enqueue(
-                        &events,
-                        json!({
-                            "type": "encrypted_send_failed",
-                            "room_id": room_id,
-                            "transaction_id": transaction_id,
-                            "message": "Invalid Matrix room id.",
-                        }),
-                    );
-                    return;
-                };
-                let Some(room) = client.get_room(&room_id_ref) else {
-                    enqueue(
-                        &events,
-                        json!({
-                            "type": "encrypted_send_failed",
-                            "room_id": room_id,
-                            "transaction_id": transaction_id,
-                            "message": "Rust SDK does not know that room yet.",
-                        }),
-                    );
-                    return;
-                };
-                if !room.encryption_state().is_encrypted() {
-                    enqueue(
-                        &events,
-                        json!({
-                            "type": "encrypted_send_failed",
-                            "room_id": room_id,
-                            "transaction_id": transaction_id,
-                            "message": "Probe refused: target room is not encrypted.",
-                        }),
-                    );
-                    return;
-                }
+        bridge.spawn_reported_action("probe_encrypted_send", async move {
+            let Some(room_id_ref) = RoomId::parse(&room_id).ok() else {
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "encrypted_send_failed",
+                        "room_id": room_id,
+                        "transaction_id": transaction_id,
+                        "message": "Invalid Matrix room id.",
+                    }),
+                );
+                return;
+            };
+            let Some(room) = client.get_room(&room_id_ref) else {
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "encrypted_send_failed",
+                        "room_id": room_id,
+                        "transaction_id": transaction_id,
+                        "message": "Rust SDK does not know that room yet.",
+                    }),
+                );
+                return;
+            };
+            if !room.encryption_state().is_encrypted() {
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "encrypted_send_failed",
+                        "room_id": room_id,
+                        "transaction_id": transaction_id,
+                        "message": "Probe refused: target room is not encrypted.",
+                    }),
+                );
+                return;
+            }
 
-                let content = RoomMessageEventContent::text_plain(body);
-                let txn: OwnedTransactionId = transaction_id.clone().into();
-                match room.send(content).with_transaction_id(txn).await {
-                    Ok(result) => enqueue(
-                        &events,
-                        json!({
-                            "type": "encrypted_send_ok",
-                            "room_id": room_id,
-                            "transaction_id": transaction_id,
-                            "event_id": result.response.event_id.to_string(),
-                        }),
-                    ),
-                    Err(err) => enqueue(
-                        &events,
-                        json!({
-                            "type": "encrypted_send_failed",
-                            "room_id": room_id,
-                            "transaction_id": transaction_id,
-                            "message": format_matrix_error(
-                                "Matrix Rust SDK encrypted send failed", err),
-                        }),
-                    ),
-                }
-            });
+            let content = RoomMessageEventContent::text_plain(body);
+            let txn: OwnedTransactionId = transaction_id.clone().into();
+            match room.send(content).with_transaction_id(txn).await {
+                Ok(result) => enqueue(
+                    &events,
+                    json!({
+                        "type": "encrypted_send_ok",
+                        "room_id": room_id,
+                        "transaction_id": transaction_id,
+                        "event_id": result.response.event_id.to_string(),
+                    }),
+                ),
+                Err(err) => enqueue(
+                    &events,
+                    json!({
+                        "type": "encrypted_send_failed",
+                        "room_id": room_id,
+                        "transaction_id": transaction_id,
+                        "message": format_matrix_error(
+                            "Matrix Rust SDK encrypted send failed", err),
+                    }),
+                ),
+            }
         });
 
         Ok(String::new())
@@ -3289,45 +3591,42 @@ pub unsafe extern "C" fn mx_rust_recover_from_backup(
         };
         let events = Arc::clone(&bridge.events);
         let timelines = Arc::clone(&bridge.timelines);
-        std::thread::spawn(move || {
-            let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "recover_backup", async move {
-                enqueue(
-                    &events,
-                    json!({ "type": "key_backup_status", "state": "attempted" }),
-                );
-                let recovery = client.encryption().recovery();
-                match recovery.recover(&recovery_key).await {
-                    Ok(_) => {
-                        // Deterministic post-recover download for the open
-                        // room (forced once), then re-run decryption for its
-                        // visible undecryptable rows. Uses only public SDK
-                        // APIs; imported keys propagate to timelines through
-                        // the SDK's own redecryption path.
-                        if let Some(room_id) = timelines.active_room_id() {
-                            timelines.clear_backup_attempt(&room_id);
-                            timelines
-                                .download_backup_keys_for_room(
-                                    &client, &room_id,
-                                )
-                                .await;
-                        }
-                        enqueue(
-                            &events,
-                            json!({ "type": "key_backup_status", "state": "ok" }),
-                        );
+        bridge.spawn_reported_action("recover_backup", async move {
+            enqueue(
+                &events,
+                json!({ "type": "key_backup_status", "state": "attempted" }),
+            );
+            let recovery = client.encryption().recovery();
+            match recovery.recover(&recovery_key).await {
+                Ok(_) => {
+                    // Deterministic post-recover download for the open
+                    // room (forced once), then re-run decryption for its
+                    // visible undecryptable rows. Uses only public SDK
+                    // APIs; imported keys propagate to timelines through
+                    // the SDK's own redecryption path.
+                    if let Some(room_id) = timelines.active_room_id() {
+                        timelines.clear_backup_attempt(&room_id);
+                        timelines
+                            .download_backup_keys_for_room(
+                                &client, &room_id,
+                            )
+                            .await;
                     }
-                    Err(err) => enqueue(
+                    enqueue(
                         &events,
-                        json!({
-                            "type": "key_backup_status",
-                            "state": "failed",
-                            "message": format_matrix_error(
-                                "Matrix Rust SDK key backup recover failed", err),
-                        }),
-                    ),
+                        json!({ "type": "key_backup_status", "state": "ok" }),
+                    );
                 }
-            });
+                Err(err) => enqueue(
+                    &events,
+                    json!({
+                        "type": "key_backup_status",
+                        "state": "failed",
+                        "message": format_matrix_error(
+                            "Matrix Rust SDK key backup recover failed", err),
+                    }),
+                ),
+            }
         });
         Ok(String::new())
     })
@@ -3358,136 +3657,133 @@ pub unsafe extern "C" fn mx_rust_reload_room_timeline(
         };
 
         let events = Arc::clone(&bridge.events);
-        std::thread::spawn(move || {
-            let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "reload_timeline", async move {
-                let Ok(room_ref) = RoomId::parse(&room_id) else {
-                    enqueue(&events, json!({
-                        "type": "reload_timeline_failed",
-                        "room_id": room_id,
-                        "message": "Invalid Matrix room id.",
-                    }));
-                    return;
-                };
-                let Some(room) = client.get_room(&room_ref) else {
-                    enqueue(&events, json!({
-                        "type": "reload_timeline_failed",
-                        "room_id": room_id,
-                        "message": "Rust SDK does not know that room yet.",
-                    }));
-                    return;
-                };
+        bridge.spawn_reported_action("reload_timeline", async move {
+            let Ok(room_ref) = RoomId::parse(&room_id) else {
+                enqueue(&events, json!({
+                    "type": "reload_timeline_failed",
+                    "room_id": room_id,
+                    "message": "Invalid Matrix room id.",
+                }));
+                return;
+            };
+            let Some(room) = client.get_room(&room_ref) else {
+                enqueue(&events, json!({
+                    "type": "reload_timeline_failed",
+                    "room_id": room_id,
+                    "message": "Rust SDK does not know that room yet.",
+                }));
+                return;
+            };
 
-                let mut opts = MessagesOptions::backward();
-                // Clamp limit to a sane range; matrix-sdk's default is 10.
-                let clamped: u64 = if limit == 0 { 30 } else {
-                    std::cmp::min(limit as u64, 200)
-                };
-                opts.limit = UInt::new(clamped).unwrap_or(uint!(30));
+            let mut opts = MessagesOptions::backward();
+            // Clamp limit to a sane range; matrix-sdk's default is 10.
+            let clamped: u64 = if limit == 0 { 30 } else {
+                std::cmp::min(limit as u64, 200)
+            };
+            opts.limit = UInt::new(clamped).unwrap_or(uint!(30));
 
-                match room.messages(opts).await {
-                    Ok(messages) => {
-                        let mut total = 0u32;
-                        let mut decrypted = 0u32;
-                        let mut undecryptable_count = 0u32;
-                        // messages.chunk is newest-first for backward();
-                        // reverse so C++ inserts oldest-first, matching
-                        // the live sync ordering.
-                        for ev in messages.chunk.into_iter().rev() {
-                            total += 1;
-                            let event_id = ev
-                                .event_id()
-                                .map(|i| i.to_string())
-                                .unwrap_or_default();
-                            let sender = ev
-                                .sender()
-                                .map(|i| i.to_string())
-                                .unwrap_or_default();
-                            if event_id.is_empty() {
-                                continue;
-                            }
-                            let is_decrypted = ev.encryption_info().is_some();
-
-                            let raw = ev.raw();
-                            let value: serde_json::Value = match serde_json::from_str(
-                                raw.json().get(),
-                            ) {
-                                Ok(v) => v,
-                                Err(_) => continue,
-                            };
-                            let ts_ms = value
-                                .get("origin_server_ts")
-                                .and_then(|v| v.as_u64())
-                                .unwrap_or(0);
-                            let type_str = value
-                                .get("type")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("");
-                            let content = value.get("content");
-
-                            let (is_encrypted, undecryptable, msgtype, body) =
-                                if type_str == "m.room.encrypted" {
-                                    undecryptable_count += 1;
-                                    (true, true, "encrypted".to_owned(), String::new())
-                                } else if type_str == "m.room.message" {
-                                    let mt = content
-                                        .and_then(|c| c.get("msgtype"))
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("m.text");
-                                    let bd = content
-                                        .and_then(|c| c.get("body"))
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .to_owned();
-                                    let kind = match mt {
-                                        "m.notice" => "notice",
-                                        "m.emote" => "emote",
-                                        _ => "text",
-                                    }
-                                    .to_owned();
-                                    if is_decrypted {
-                                        decrypted += 1;
-                                    }
-                                    (is_decrypted, false, kind, bd)
-                                } else {
-                                    // Skip state / other event types on
-                                    // this path — the live sync handles
-                                    // room state separately.
-                                    continue;
-                                };
-
-                            enqueue(&events, json!({
-                                "type": "timeline_event",
-                                "room_id": room_id.clone(),
-                                "event": {
-                                    "event_id": event_id,
-                                    "sender": sender,
-                                    "body": body,
-                                    "msgtype": msgtype,
-                                    "timestamp_ms": ts_ms,
-                                    "is_encrypted": is_encrypted,
-                                    "is_decrypted": is_decrypted,
-                                    "undecryptable": undecryptable,
-                                    "decrypted": is_decrypted,
-                                }
-                            }));
+            match room.messages(opts).await {
+                Ok(messages) => {
+                    let mut total = 0u32;
+                    let mut decrypted = 0u32;
+                    let mut undecryptable_count = 0u32;
+                    // messages.chunk is newest-first for backward();
+                    // reverse so C++ inserts oldest-first, matching
+                    // the live sync ordering.
+                    for ev in messages.chunk.into_iter().rev() {
+                        total += 1;
+                        let event_id = ev
+                            .event_id()
+                            .map(|i| i.to_string())
+                            .unwrap_or_default();
+                        let sender = ev
+                            .sender()
+                            .map(|i| i.to_string())
+                            .unwrap_or_default();
+                        if event_id.is_empty() {
+                            continue;
                         }
+                        let is_decrypted = ev.encryption_info().is_some();
+
+                        let raw = ev.raw();
+                        let value: serde_json::Value = match serde_json::from_str(
+                            raw.json().get(),
+                        ) {
+                            Ok(v) => v,
+                            Err(_) => continue,
+                        };
+                        let ts_ms = value
+                            .get("origin_server_ts")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        let type_str = value
+                            .get("type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let content = value.get("content");
+
+                        let (is_encrypted, undecryptable, msgtype, body) =
+                            if type_str == "m.room.encrypted" {
+                                undecryptable_count += 1;
+                                (true, true, "encrypted".to_owned(), String::new())
+                            } else if type_str == "m.room.message" {
+                                let mt = content
+                                    .and_then(|c| c.get("msgtype"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("m.text");
+                                let bd = content
+                                    .and_then(|c| c.get("body"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_owned();
+                                let kind = match mt {
+                                    "m.notice" => "notice",
+                                    "m.emote" => "emote",
+                                    _ => "text",
+                                }
+                                .to_owned();
+                                if is_decrypted {
+                                    decrypted += 1;
+                                }
+                                (is_decrypted, false, kind, bd)
+                            } else {
+                                // Skip state / other event types on
+                                // this path — the live sync handles
+                                // room state separately.
+                                continue;
+                            };
+
                         enqueue(&events, json!({
-                            "type": "reload_timeline_done",
-                            "room_id": room_id,
-                            "events": total,
-                            "decrypted": decrypted,
-                            "undecryptable": undecryptable_count,
+                            "type": "timeline_event",
+                            "room_id": room_id.clone(),
+                            "event": {
+                                "event_id": event_id,
+                                "sender": sender,
+                                "body": body,
+                                "msgtype": msgtype,
+                                "timestamp_ms": ts_ms,
+                                "is_encrypted": is_encrypted,
+                                "is_decrypted": is_decrypted,
+                                "undecryptable": undecryptable,
+                                "decrypted": is_decrypted,
+                            }
                         }));
                     }
-                    Err(err) => enqueue(&events, json!({
-                        "type": "reload_timeline_failed",
+                    enqueue(&events, json!({
+                        "type": "reload_timeline_done",
                         "room_id": room_id,
-                        "message": format_matrix_error(
-                            "Matrix Rust SDK Room::messages failed", err),
-                    })),
+                        "events": total,
+                        "decrypted": decrypted,
+                        "undecryptable": undecryptable_count,
+                    }));
                 }
-            });
+                Err(err) => enqueue(&events, json!({
+                    "type": "reload_timeline_failed",
+                    "room_id": room_id,
+                    "message": format_matrix_error(
+                        "Matrix Rust SDK Room::messages failed", err),
+                })),
+            }
         });
         Ok(String::new())
     })
@@ -3520,10 +3816,16 @@ const SAS_COMPLETION_TICKS: u32 = 240;
 /// than matrix-sdk-crypto's own 10-minute VERIFICATION_TIMEOUT so the user
 /// gets an answer rather than a hang.
 const VERIFICATION_PEER_TICKS: u32 = 600;
-/// How long a teardown-time cancellation may spend on the wire. Kept well
-/// under `timeline::SHUTDOWN_JOIN_TIMEOUT_SECS` so cancelling and joining
-/// together stay inside the existing shutdown budget: telling the peer is
-/// worth a short wait, never a stalled sign-out.
+/// How long a cancellation sent OUTSIDE a teardown may spend on the wire —
+/// today that is `drive_qr_flow`'s completion timeout, where the peer has
+/// already scanned and is owed a message, and nothing is waiting on us.
+///
+/// A cancel sent DURING a teardown uses `SHUTDOWN_FLOW_CANCEL_MS` instead,
+/// which is shorter: there, telling the peer competes with closing the store
+/// before the C++ side deletes it. The two are separate on purpose — this one
+/// used to serve both, and its "kept well under
+/// `timeline::SHUTDOWN_JOIN_TIMEOUT_SECS`" reasoning silently stopped holding
+/// once that 15 s was no longer the shutdown's real budget.
 const VERIFICATION_CANCEL_TIMEOUT_SECS: u64 = 3;
 /// How long a displayed QR code waits to be scanned before the flow falls
 /// back to SAS (120 s). Bounded on purpose: see `drive_qr_flow`.
@@ -3754,7 +4056,11 @@ async fn drive_qr_flow(
 
     loop {
         if shutdown.load(Ordering::SeqCst) {
-            cancel_flow_best_effort(None, Some(qr), Some(request)).await;
+            cancel_flow_best_effort(
+                None, Some(qr), Some(request),
+                std::time::Duration::from_millis(SHUTDOWN_FLOW_CANCEL_MS),
+            )
+            .await;
             return QrOutcome::ShuttingDown;
         }
         tokio::time::sleep(poll).await;
@@ -3902,7 +4208,11 @@ async fn drive_qr_flow(
             // FOLLOW-UP (pre-existing, deliberately not changed here):
             // `drive_sas_flow`'s own completion timeout still returns
             // without a cancel and has the same effect on its peer.
-            cancel_flow_best_effort(None, Some(qr), Some(request)).await;
+            cancel_flow_best_effort(
+                None, Some(qr), Some(request),
+                std::time::Duration::from_secs(VERIFICATION_CANCEL_TIMEOUT_SECS),
+            )
+            .await;
             enqueue(events, json!({
                 "type": "verification_failed",
                 "flow_id": flow_id,
@@ -3950,12 +4260,19 @@ async fn drive_ready_request(
 /// that cannot complete in the budget is dropped rather than allowed to
 /// stall sign-out. Both levels are attempted because each SDK cancel is
 /// idempotent and either one may be the live half of the flow.
+///
+/// THE BUDGET IS THE CALLER'S, and that is the point. A teardown caller runs
+/// inside `shutdown_managed_tasks`'s join window and passes
+/// `SHUTDOWN_FLOW_CANCEL_MS`; a caller that is merely giving up on a peer has
+/// nobody waiting and passes `VERIFICATION_CANCEL_TIMEOUT_SECS`. One shared
+/// constant could not express both, and the teardown half is the one whose
+/// overrun ends with the store deleted underneath an open connection.
 async fn cancel_flow_best_effort(
     sas: Option<&SasVerification>,
     qr: Option<&QrVerification>,
     request: Option<&VerificationRequest>,
+    budget: std::time::Duration,
 ) {
-    let budget = std::time::Duration::from_secs(VERIFICATION_CANCEL_TIMEOUT_SECS);
     if let Some(sas) = sas {
         if !sas.is_cancelled() && !sas.is_done() {
             let _ = tokio::time::timeout(budget, sas.cancel()).await;
@@ -4235,7 +4552,11 @@ async fn drive_sas_flow(
                     if shutdown.load(Ordering::SeqCst) {
                         // No SAS exists yet, but the request does, and the
                         // peer is waiting on it.
-                        cancel_flow_best_effort(None, None, Some(request)).await;
+                        cancel_flow_best_effort(
+                            None, None, Some(request),
+                            std::time::Duration::from_millis(SHUTDOWN_FLOW_CANCEL_MS),
+                        )
+                        .await;
                         return;
                     }
                     tokio::time::sleep(poll).await;
@@ -4298,7 +4619,11 @@ async fn drive_sas_flow(
             // what stops the peer sitting on an emoji screen for ten
             // minutes; the slot sweep in shutdown_managed_tasks only covers
             // flows this driver no longer owns.
-            cancel_flow_best_effort(Some(&sas), None, Some(request)).await;
+            cancel_flow_best_effort(
+                Some(&sas), None, Some(request),
+                std::time::Duration::from_millis(SHUTDOWN_FLOW_CANCEL_MS),
+            )
+            .await;
             return;
         }
         tokio::time::sleep(poll).await;
@@ -4801,7 +5126,11 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                 if shutdown.load(Ordering::SeqCst) {
                     // We asked the peer to verify and are now walking away;
                     // withdraw the request instead of leaving it pending.
-                    cancel_flow_best_effort(None, None, Some(&request)).await;
+                    cancel_flow_best_effort(
+                        None, None, Some(&request),
+                        std::time::Duration::from_millis(SHUTDOWN_FLOW_CANCEL_MS),
+                    )
+                    .await;
                     return;
                 }
                 tokio::time::sleep(
@@ -5629,33 +5958,30 @@ pub unsafe extern "C" fn mx_rust_rename_device(
         let events = Arc::clone(&bridge.events);
         let lifecycle = bridge.timelines.lifecycle();
         let timelines = Arc::clone(&bridge.timelines);
-        std::thread::spawn(move || {
-            let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "rename_device", async move {
-                use matrix_sdk::ruma::api::client::device::update_device;
-                use matrix_sdk::ruma::OwnedDeviceId;
-                let id: OwnedDeviceId = device_id.clone().into();
-                let mut request = update_device::v3::Request::new(id);
-                request.display_name = Some(display_name);
-                let result = client.send(request).await;
-                if !timelines.lifecycle_current(lifecycle) {
-                    return;
-                }
-                enqueue(
-                    &events,
-                    match result {
-                        Ok(_) => json!({
-                            "type": "device_renamed", "op_id": op_id,
-                            "lifecycle": lifecycle, "ok": true,
-                        }),
-                        Err(err) => json!({
-                            "type": "device_renamed", "op_id": op_id,
-                            "lifecycle": lifecycle, "ok": false,
-                            "category": rooms::classify_room_error(&err.to_string()),
-                        }),
-                    },
-                );
-            });
+        bridge.spawn_reported_action("rename_device", async move {
+            use matrix_sdk::ruma::api::client::device::update_device;
+            use matrix_sdk::ruma::OwnedDeviceId;
+            let id: OwnedDeviceId = device_id.clone().into();
+            let mut request = update_device::v3::Request::new(id);
+            request.display_name = Some(display_name);
+            let result = client.send(request).await;
+            if !timelines.lifecycle_current(lifecycle) {
+                return;
+            }
+            enqueue(
+                &events,
+                match result {
+                    Ok(_) => json!({
+                        "type": "device_renamed", "op_id": op_id,
+                        "lifecycle": lifecycle, "ok": true,
+                    }),
+                    Err(err) => json!({
+                        "type": "device_renamed", "op_id": op_id,
+                        "lifecycle": lifecycle, "ok": false,
+                        "category": rooms::classify_room_error(&err.to_string()),
+                    }),
+                },
+            );
         });
         Ok(String::new())
     })
@@ -5697,66 +6023,92 @@ pub unsafe extern "C" fn mx_rust_backup_action(
         let events = Arc::clone(&bridge.events);
         let lifecycle = bridge.timelines.lifecycle();
         let timelines = Arc::clone(&bridge.timelines);
-        std::thread::spawn(move || {
-            let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "backup_action", async move {
-                let encryption = client.encryption();
-                let recovery = encryption.recovery();
-                let backups = encryption.backups();
-                // Ok(Some(key)) when a fresh recovery key was minted.
-                let result: Result<Option<String>, String> = match action.as_str() {
-                    "enable" => recovery
-                        .enable()
-                        .wait_for_backups_to_upload()
-                        .await
-                        .map(Some)
-                        .map_err(|e| e.to_string()),
-                    "create_backup" => recovery
-                        .enable_backup()
-                        .await
-                        .map(|_| None)
-                        .map_err(|e| e.to_string()),
-                    "reset_key" => recovery
-                        .reset_key()
-                        .await
-                        .map(Some)
-                        .map_err(|e| e.to_string()),
-                    "disable_and_delete" => backups
-                        .disable_and_delete()
-                        .await
-                        .map(|_| None)
-                        .map_err(|e| e.to_string()),
-                    "disable_recovery" => recovery
-                        .disable()
-                        .await
-                        .map(|_| None)
-                        .map_err(|e| e.to_string()),
-                    _ => Err("unknown backup action".to_owned()),
-                };
-                if !timelines.lifecycle_current(lifecycle) {
-                    return;
-                }
-                match result {
-                    Ok(key) => enqueue(
-                        &events,
-                        json!({
-                            "type": "backup_action_result", "op_id": op_id,
-                            "lifecycle": lifecycle, "action": action, "ok": true,
-                            "recovery_key": key.unwrap_or_default(),
-                        }),
-                    ),
-                    Err(message) => enqueue(
-                        &events,
-                        json!({
-                            "type": "backup_action_result", "op_id": op_id,
-                            "lifecycle": lifecycle, "action": action, "ok": false,
-                            // Category only — an SDK/server message could carry
-                            // account detail.
-                            "category": rooms::classify_room_error(&message),
-                        }),
-                    ),
-                }
-            });
+        // NO INNER TIMEOUT, DELIBERATELY. `wait_for_backups_to_upload()` is
+        // unbounded by nature — on a large account the room-key upload takes
+        // minutes — and it is the longest-running member of the room-action
+        // pool, so an inner bound looks like the obvious safety valve. It is
+        // the wrong one: `Recovery::enable()` resolves to the NEW RECOVERY
+        // KEY only after that upload settles, so a timeout abandons the
+        // future AFTER secret storage and the backup exist on the server and
+        // BEFORE the key crosses the FFI. The user would be left with
+        // recovery enabled and no key — irrecoverable, and strictly worse
+        // than a slow shutdown.
+        //
+        // BUT THE TEARDOWN ABORT PRODUCES THAT SAME STATE, and it is honest
+        // to say so: the room-action join is `SHUTDOWN_ACTION_JOIN_MS`, so a
+        // user who enables recovery and then switches account — an ordinary
+        // thing to do while a multi-minute upload runs — has the task aborted
+        // at 1500 ms with secret storage created and the key never delivered.
+        // That is not a regression (the old detached thread finished and
+        // enqueued the key into a queue nobody was reading any more), but it
+        // is now a deterministic window rather than an unlikely one, and this
+        // comment used to call it "correct". It is not correct; it is the
+        // least-bad teardown behaviour available while the upload is awaited
+        // at all. Raised in review.
+        //
+        // THE REAL FIX IS NOT A TIMEOUT (follow-up, not made here because it
+        // changes what `backup_action_result` means to QML): await
+        // `Recovery::enable()` WITHOUT `wait_for_backups_to_upload()` so the
+        // key is reported the moment it exists, and let the already-existing
+        // `backup_progress` event carry the upload. That removes the
+        // multi-minute future instead of truncating it.
+        bridge.spawn_reported_action("backup_action", async move {
+            let encryption = client.encryption();
+            let recovery = encryption.recovery();
+            let backups = encryption.backups();
+            // Ok(Some(key)) when a fresh recovery key was minted.
+            let result: Result<Option<String>, String> = match action.as_str() {
+                "enable" => recovery
+                    .enable()
+                    .wait_for_backups_to_upload()
+                    .await
+                    .map(Some)
+                    .map_err(|e| e.to_string()),
+                "create_backup" => recovery
+                    .enable_backup()
+                    .await
+                    .map(|_| None)
+                    .map_err(|e| e.to_string()),
+                "reset_key" => recovery
+                    .reset_key()
+                    .await
+                    .map(Some)
+                    .map_err(|e| e.to_string()),
+                "disable_and_delete" => backups
+                    .disable_and_delete()
+                    .await
+                    .map(|_| None)
+                    .map_err(|e| e.to_string()),
+                "disable_recovery" => recovery
+                    .disable()
+                    .await
+                    .map(|_| None)
+                    .map_err(|e| e.to_string()),
+                _ => Err("unknown backup action".to_owned()),
+            };
+            if !timelines.lifecycle_current(lifecycle) {
+                return;
+            }
+            match result {
+                Ok(key) => enqueue(
+                    &events,
+                    json!({
+                        "type": "backup_action_result", "op_id": op_id,
+                        "lifecycle": lifecycle, "action": action, "ok": true,
+                        "recovery_key": key.unwrap_or_default(),
+                    }),
+                ),
+                Err(message) => enqueue(
+                    &events,
+                    json!({
+                        "type": "backup_action_result", "op_id": op_id,
+                        "lifecycle": lifecycle, "action": action, "ok": false,
+                        // Category only — an SDK/server message could carry
+                        // account detail.
+                        "category": rooms::classify_room_error(&message),
+                    }),
+                ),
+            }
         });
         Ok(String::new())
     })
@@ -5774,42 +6126,39 @@ pub unsafe extern "C" fn mx_rust_request_backup_progress(ptr: *mut c_void) -> *m
         let events = Arc::clone(&bridge.events);
         let lifecycle = bridge.timelines.lifecycle();
         let timelines = Arc::clone(&bridge.timelines);
-        std::thread::spawn(move || {
-            let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "backup_progress", async move {
-                use matrix_sdk::encryption::backups::UploadState;
-                let backups = client.encryption().backups();
-                let state = format!("{:?}", backups.state()).to_lowercase();
-                let steady = backups.wait_for_steady_state();
-                let mut progress = steady.subscribe_to_progress();
-                // One bounded observation: the current upload state, if any
-                // is reported promptly; otherwise the backup state alone.
-                let (backed_up, total, upload) = match tokio::time::timeout(
-                    std::time::Duration::from_millis(500),
-                    futures_util::StreamExt::next(&mut progress),
-                )
-                .await
-                {
-                    Ok(Some(Ok(UploadState::Uploading(counts)))) => {
-                        (counts.backed_up as u64, counts.total as u64, "uploading")
-                    }
-                    Ok(Some(Ok(UploadState::Done))) => (0, 0, "done"),
-                    Ok(Some(Ok(UploadState::Error))) => (0, 0, "error"),
-                    Ok(Some(Ok(UploadState::Idle))) => (0, 0, "idle"),
-                    _ => (0, 0, "unknown"),
-                };
-                if !timelines.lifecycle_current(lifecycle) {
-                    return;
+        bridge.spawn_reported_action("backup_progress", async move {
+            use matrix_sdk::encryption::backups::UploadState;
+            let backups = client.encryption().backups();
+            let state = format!("{:?}", backups.state()).to_lowercase();
+            let steady = backups.wait_for_steady_state();
+            let mut progress = steady.subscribe_to_progress();
+            // One bounded observation: the current upload state, if any
+            // is reported promptly; otherwise the backup state alone.
+            let (backed_up, total, upload) = match tokio::time::timeout(
+                std::time::Duration::from_millis(500),
+                futures_util::StreamExt::next(&mut progress),
+            )
+            .await
+            {
+                Ok(Some(Ok(UploadState::Uploading(counts)))) => {
+                    (counts.backed_up as u64, counts.total as u64, "uploading")
                 }
-                enqueue(
-                    &events,
-                    json!({
-                        "type": "backup_progress", "lifecycle": lifecycle,
-                        "backup_state": state, "upload_state": upload,
-                        "backed_up": backed_up, "total": total,
-                    }),
-                );
-            });
+                Ok(Some(Ok(UploadState::Done))) => (0, 0, "done"),
+                Ok(Some(Ok(UploadState::Error))) => (0, 0, "error"),
+                Ok(Some(Ok(UploadState::Idle))) => (0, 0, "idle"),
+                _ => (0, 0, "unknown"),
+            };
+            if !timelines.lifecycle_current(lifecycle) {
+                return;
+            }
+            enqueue(
+                &events,
+                json!({
+                    "type": "backup_progress", "lifecycle": lifecycle,
+                    "backup_state": state, "upload_state": upload,
+                    "backed_up": backed_up, "total": total,
+                }),
+            );
         });
         Ok(String::new())
     })
@@ -11933,14 +12282,20 @@ mod tests {
     // the first `JoinAll`, the only record of which handles had already
     // completed, was dropped by the `timeout`. So every task that finished
     // inside the budget was polled again and hit
-    // `panic!("JoinHandle polled after completion")`. `rust/Cargo.toml` sets
-    // `panic = "abort"` in BOTH profiles, so that is an immediate SIGABRT of
-    // the whole process: no unwind, nothing for `ffi_string`'s `catch_unwind`
-    // to catch, and no line in any log.
+    // `panic!("JoinHandle polled after completion")`. `rust/Cargo.toml` set
+    // `panic = "abort"` in BOTH profiles AT THE TIME, so that was an immediate
+    // SIGABRT of the whole process: no unwind, nothing for `ffi_string`'s
+    // `catch_unwind` to catch, and no line in any log. Those profiles are
+    // UNWIND since 2026-09-05; the double-poll is still the defect, it just no
+    // longer takes the desktop app down with it.
     //
-    // Cargo deliberately IGNORES the `panic` setting for the test profile, so
-    // `#[should_panic]` still works here. `panicIsCatchableInTheTestProfile`
-    // asserts exactly that, because every case below rests on it.
+    // `panicIsCatchableInTheTestProfile` asserts that a panic here UNWINDS
+    // rather than aborting, because every case below rests on it. It was
+    // written when the release profiles said `abort` and Cargo's "the panic
+    // setting is ignored for the test profile" rule was the only reason it
+    // held; with the profiles on `unwind` it now holds for two reasons instead
+    // of one. Keep it either way — it is asserting the property the cases
+    // need, not the setting that happens to provide it.
     //
     // Reported as "lighting crashed once when switching accounts", and ONCE is
     // the whole shape of it: it needs something to MISS the budget (or round
@@ -12013,8 +12368,9 @@ mod tests {
             let slow = tokio::spawn(async {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             });
-            // 0 seconds so the budget is already spent: the slow task cannot
-            // possibly make it, and the quick one has.
+            // A zero budget is already spent: the slow task cannot possibly
+            // make it, and the quick one has. (Milliseconds since the
+            // teardown budgets moved to ms; zero means zero either way.)
             super::RustClient::join_or_abort(vec![quick, slow], 0).await
         });
         assert_eq!(missed, 1, "the task that outlived the budget was not counted");
@@ -12030,7 +12386,10 @@ mod tests {
         let missed = rt.block_on(async {
             let a = tokio::spawn(async {});
             let b = tokio::spawn(async {});
-            super::RustClient::join_or_abort(vec![a, b], 30).await
+            // 2000 MILLISECONDS. This argument used to be seconds, so the
+            // literal 30 meant half a minute; keep it generous rather than
+            // letting a loaded machine turn it into a flake.
+            super::RustClient::join_or_abort(vec![a, b], 2000).await
         });
         assert_eq!(missed, 0);
     }
@@ -12081,6 +12440,251 @@ mod tests {
             // legal.
             join_or_abort_the_old_broken_way(vec![a, b], 50).await;
         });
+    }
+
+    // ── Untracked FFI threads (2026-09-10) ───────────────────────────────
+    //
+    // Seven FFI entry points ran their SDK work on a raw
+    // `std::thread::spawn` plus `run_async`'s throwaway current-thread
+    // runtime. Nothing tracked or joined those threads, so `mx_rust_destroy`
+    // returned while one still owned this account's `Client` — and the
+    // account-removal path then deleted the store directory out from under
+    // an open SQLite connection.
+    //
+    // WHAT THESE CAN AND CANNOT PROVE. The property that matters — "a
+    // `Recovery::recover()` import cannot outlive `mx_rust_destroy`" — needs
+    // a logged-in `Client`, and there is no mock-client harness in this
+    // crate, so it is NOT asserted here and remains live-validation work.
+    // What is asserted is the mechanism under it: that a reported action is
+    // REGISTERED in the one pool `shutdown_managed_tasks` drains, that
+    // shutdown does not return until such an action has finished, and that
+    // the panic report `run_async` produced survives the move. The first two
+    // are unwritable against the unfixed tree — it registered nothing.
+
+    fn test_bridge() -> super::RustClient {
+        // The path is recorded and never touched: `RustClient::new` only
+        // builds the shared runtime and the empty registries.
+        super::RustClient::new(
+            std::env::temp_dir().join("lightning-spawn-reported-action-test"),
+        )
+        .expect("bridge")
+    }
+
+    /// Released only when the future that owns it is dropped — the fixture's
+    /// stand-in for the `Client` clone every one of the seven actions holds.
+    struct ReleaseFlag(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+    impl Drop for ReleaseFlag {
+        fn drop(&mut self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn a_reported_action_is_registered_in_the_pool_shutdown_drains() {
+        let bridge = test_bridge();
+        let (release, released) = tokio::sync::oneshot::channel::<()>();
+        bridge.spawn_reported_action("test_action", async move {
+            let _ = released.await;
+        });
+        assert_eq!(
+            bridge.room_action_tasks.lock().expect("pool").len(),
+            1,
+            "the action was not tracked; on the unfixed tree it ran on a \
+             detached OS thread that no registry knew about"
+        );
+        let _ = release.send(());
+    }
+
+    #[test]
+    fn shutdown_does_not_return_while_a_reported_action_still_holds_its_handles() {
+        let bridge = test_bridge();
+        let released =
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = ReleaseFlag(std::sync::Arc::clone(&released));
+        let (release, hold) = tokio::sync::oneshot::channel::<()>();
+        bridge.spawn_reported_action("test_action", async move {
+            let _flag = flag;
+            let _ = hold.await;
+        });
+        // The releaser starts its wait immediately before the shutdown does,
+        // so the elapsed assertion below cannot be satisfied by scheduling
+        // noise ahead of the call: whatever delays the releaser delays the
+        // completion by at least as much.
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let _ = release.send(());
+        });
+        let began = std::time::Instant::now();
+        bridge.shutdown_managed_tasks();
+        assert!(
+            released.load(std::sync::atomic::Ordering::SeqCst),
+            "shutdown_managed_tasks returned while the action still owned \
+             its handles"
+        );
+        assert!(
+            began.elapsed() >= std::time::Duration::from_millis(200),
+            "shutdown_managed_tasks returned before the action could have \
+             finished, so it did not join it"
+        );
+        releaser.join().expect("releaser");
+    }
+
+    #[test]
+    fn a_panicking_action_still_reports_itself_the_way_run_async_did() {
+        // A panicking action used to enqueue `{"type":"error"}`, which
+        // RustSdkMatrixClient turns into a user-visible banner. A bare
+        // `runtime.spawn` would hand the panic to tokio's JoinHandle, where
+        // `join_or_abort` discards it, and a panicking send would become a
+        // silent no-op with no `send_failed` either.
+        let bridge = test_bridge();
+        bridge.spawn_reported_action("test_action", async {
+            panic!("deliberate test panic");
+        });
+        bridge.shutdown_managed_tasks();
+        let reported = bridge
+            .events
+            .lock()
+            .expect("events")
+            .iter()
+            .filter_map(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .any(|event| {
+                event["type"] == "error"
+                    && event["message"] == "Rust SDK test_action task panicked."
+            });
+        assert!(reported, "a panicking action produced no error event");
+    }
+
+    #[test]
+    fn catch_panic_passes_a_future_that_does_not_panic_straight_through() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        assert_eq!(rt.block_on(super::CatchPanic::new(async {})), Ok(()));
+    }
+
+    #[test]
+    fn catch_panic_never_polls_a_future_that_has_already_unwound() {
+        // The wrapped future is dropped the moment it panics, so the second
+        // await takes the "already resolved" branch instead of re-entering a
+        // generator that unwound out of its own poll.
+        let polls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&polls);
+        let mut caught = super::CatchPanic::new(async move {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            panic!("deliberate test panic");
+        });
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        assert_eq!(rt.block_on(&mut caught), Err(()));
+        assert_eq!(rt.block_on(&mut caught), Err(()));
+        assert_eq!(
+            polls.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the future was polled again after it unwound"
+        );
+    }
+
+    // ── The teardown budget vs the C++ store-close wait ──────────────────
+    //
+    // `shutdown_managed_tasks` is a chain of sequential waits and the C++
+    // side covers ALL of them, plus `mx_rust_destroy`, with ONE flat
+    // `waitForRustRetirement(kStoreCloseBudgetMs)`. Overrunning it is not a
+    // freeze: `resetRustStore` logs `deleting anyway` and
+    // `removeAccountLocalState` proceeds regardless, so the store is unlinked
+    // while a writer may still hold it open.
+
+    #[test]
+    fn the_shutdown_budget_leaves_the_cpp_store_close_wait_room_to_finish() {
+        // The compile-time assertion beside the constants is the real gate;
+        // this case exists to state the arithmetic in a form that PRINTS the
+        // numbers when someone breaks it, and to pin the reserve as a
+        // deliberate figure rather than slack that can be spent.
+        assert_eq!(
+            super::SHUTDOWN_WORST_CASE_MS,
+            10_500,
+            "the declared worst case moved; re-derive it against \
+             kStoreCloseBudgetMs (src/matrix/RustSdkMatrixClient.h) and \
+             update the table just below SYNC_TASK_JOIN_BUDGET_MS"
+        );
+        assert!(
+            super::SHUTDOWN_WORST_CASE_MS + super::SHUTDOWN_DESTROY_RESERVE_MS
+                <= super::STORE_CLOSE_BUDGET_MS,
+            "shutdown {} ms + destroy reserve {} ms exceeds the C++ store-close \
+             budget of {} ms",
+            super::SHUTDOWN_WORST_CASE_MS,
+            super::SHUTDOWN_DESTROY_RESERVE_MS,
+            super::STORE_CLOSE_BUDGET_MS
+        );
+        // The verification join must actually cover what a driver does after
+        // it sees the flag: one poll tick, then the worst branch's TWO flow
+        // cancels. A budget shorter than that aborts a driver mid-cancel and
+        // leaves the peer waiting out matrix-sdk-crypto's 10-minute timeout.
+        assert!(
+            super::SHUTDOWN_VERIFICATION_JOIN_MS
+                >= super::VERIFICATION_POLL_MS + 2 * super::SHUTDOWN_FLOW_CANCEL_MS,
+            "a SAS driver cannot notice the shutdown flag and cancel both \
+             levels inside its join budget"
+        );
+    }
+
+    #[test]
+    fn the_timeline_shutdown_legs_are_bounded_like_an_abort_drain() {
+        // These two legs used to be `SHUTDOWN_JOIN_TIMEOUT_SECS` each — 30 s
+        // declared, in the middle of a chain the C++ side gives 15 s in
+        // total. They resolved in well under a millisecond, because
+        // `take_active`/`take_active_thread` call `task.abort()` BEFORE the
+        // await, so they are error boundaries on an already-cancelled task
+        // rather than cooperative joins. "Safe in practice" is precisely how
+        // this chain came to declare 61 s against that 15 s wait, so they are
+        // bounded and counted now.
+        //
+        // If this fails, someone raised the leg back to a cooperative join:
+        // re-derive SHUTDOWN_WORST_CASE_MS, because the compile-time
+        // assertion below it is what stops the store being deleted under a
+        // live SQLite writer.
+        assert_eq!(crate::timeline::SHUTDOWN_ABORTED_JOIN_MS, 250);
+        // AND NOTHING ELSE HERE. A "the legs are a small part of the total"
+        // assertion was tried and removed in review: SHUTDOWN_WORST_CASE_MS is
+        // DEFINED as a sum containing `2 * SHUTDOWN_ABORTED_JOIN_MS`, so with
+        // the value pinned above such a comparison cannot fail — decoration,
+        // by this project's own rule. The bound that can fail is the
+        // compile-time assert beside that constant, and it fails the BUILD.
+    }
+
+    #[test]
+    fn no_ffi_entry_point_falls_back_to_an_untracked_thread_plus_a_throwaway_runtime() {
+        // A source scan, so a NEW copy of the old shape at one of these seven
+        // entry points fails here rather than in a live account switch. It is
+        // guarded both ways: each label must be present on the tracked pool
+        // AND absent from the raw shape, so neither a rename nor a deletion
+        // can make it pass vacuously.
+        let source = include_str!("lib.rs");
+        assert!(
+            source.contains("fn spawn_reported_action"),
+            "the scan is not reading the file it thinks it is"
+        );
+        for label in [
+            "send_text",
+            "probe_encrypted_send",
+            "recover_backup",
+            "reload_timeline",
+            "rename_device",
+            "backup_action",
+            "backup_progress",
+        ] {
+            assert!(
+                source.contains(&format!("spawn_reported_action(\"{label}\"")),
+                "{label} no longer rides the tracked room-action pool"
+            );
+            assert!(
+                !source.contains(&format!("run_async(runtime_events, \"{label}\"")),
+                "{label} went back to a detached thread and a throwaway runtime"
+            );
+        }
     }
 
     // The HTTP user agent is the one string third parties see. It must be a
