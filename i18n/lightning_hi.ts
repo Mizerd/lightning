@@ -543,24 +543,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1948"/>
+        <location line="+1972"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning चुनी गई फ़ाइल पढ़ नहीं सका।</translation>
     </message>
     <message>
-        <location line="-1954"/>
+        <location line="-1978"/>
         <source>A room-key import is already in progress.</source>
         <translation>रूम-कुंजी आयात पहले से चल रहा है।</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2651"/>
+        <location line="+2699"/>
         <source>Not signed in.</source>
         <translation>साइन इन नहीं है।</translation>
     </message>
     <message>
-        <location line="-2649"/>
+        <location line="-2697"/>
         <source>Room-key import failed.</source>
         <translation>रूम-कुंजी आयात विफल रहा।</translation>
     </message>
@@ -631,14 +631,14 @@
     </message>
     <message>
         <location line="+11"/>
-        <location line="+1187"/>
+        <location line="+1211"/>
         <location line="+46"/>
         <location line="+68"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>इस बिल्ड में Rust SDK बैकएंड नहीं है।</translation>
     </message>
     <message>
-        <location line="-1070"/>
+        <location line="-1094"/>
         <source>Choose a local image file.</source>
         <translation>कोई स्थानीय इमेज फ़ाइल चुनें।</translation>
     </message>
@@ -682,7 +682,7 @@
         <translation>आइकन सहेजा नहीं जा सका।</translation>
     </message>
     <message>
-        <location line="+348"/>
+        <location line="+372"/>
         <source>No room is open.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -770,7 +770,12 @@
         <translation>इस डिवाइस का स्थानीय डेटा मिटाने से यह ठीक नहीं होगा, और वे एन्क्रिप्शन कुंजियाँ नष्ट हो जाएँगी जिनकी आपको अब भी ज़रूरत है।</translation>
     </message>
     <message>
-        <location line="+559"/>
+        <location line="+459"/>
+        <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+124"/>
         <source>This backend cannot change your display name.</source>
         <translation>यह बैकएंड आपका प्रदर्शित नाम नहीं बदल सकता।</translation>
     </message>
@@ -801,12 +806,17 @@
         <translation>वह खाता इस डिवाइस पर साइन इन नहीं है।</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>उस खाते का साइन-इन समाप्त हो चुका है। उसमें दोबारा साइन इन करें।</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+12"/>
+        <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+51"/>
         <source>Could not switch accounts right now. If a sign-out is in progress, try again in a moment.</source>
         <translation>अभी खाता नहीं बदला जा सका। अगर कोई साइन आउट चल रहा है, तो थोड़ी देर बाद कोशिश करें।</translation>
     </message>
@@ -2610,7 +2620,7 @@
         <translation>फ़ील्ड रूपरेखा और स्क्रॉलबार हैंडल</translation>
     </message>
     <message>
-        <location line="+275"/>
+        <location line="+302"/>
         <location line="+108"/>
         <location line="+29"/>
         <source>My theme</source>
@@ -4781,7 +4791,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaBridge</name>
     <message>
-        <location filename="../src/media/MediaBridge.cpp" line="+1270"/>
+        <location filename="../src/media/MediaBridge.cpp" line="+1295"/>
         <location line="+594"/>
         <source>The file could not be downloaded.</source>
         <translation>फ़ाइल डाउनलोड नहीं हो सकी।</translation>
@@ -6968,12 +6978,12 @@ Signing out and signing in again is the only fix.</source>
     <name>NotificationManager</name>
     <message>
         <location filename="../src/notifications/NotificationManager.cpp" line="+732"/>
-        <location line="+243"/>
+        <location line="+254"/>
         <source>Open</source>
         <translation>खोलें</translation>
     </message>
     <message>
-        <location line="-238"/>
+        <location line="-249"/>
         <source>Mark as read</source>
         <translation type="unfinished">पढ़ा हुआ चिह्नित करें</translation>
     </message>
@@ -6988,7 +6998,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+233"/>
+        <location line="+244"/>
         <source>Decline</source>
         <translation>अस्वीकार करें</translation>
     </message>
@@ -6996,7 +7006,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-707"/>
+        <location line="-718"/>
         <source>Matrix room</source>
         <translation>Matrix रूम</translation>
     </message>
@@ -9286,14 +9296,14 @@ Signing out and signing in again is the only fix.</source>
         <location line="+53"/>
         <location line="+174"/>
         <location line="+106"/>
-        <location line="+383"/>
+        <location line="+398"/>
         <location line="+111"/>
         <location line="+86"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Rust SDK बैकएंड शुरू नहीं किया जा सका।</translation>
     </message>
     <message>
-        <location line="-695"/>
+        <location line="-710"/>
         <location line="+105"/>
         <source>A homeserver is required.</source>
         <translation>होमसर्वर ज़रूरी है।</translation>
@@ -9307,13 +9317,13 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-89"/>
         <location line="+111"/>
-        <location line="+141"/>
+        <location line="+156"/>
         <location line="+67"/>
         <source>The sign-in could not be completed.</source>
         <translation>साइन-इन पूरा नहीं हो सका।</translation>
     </message>
     <message>
-        <location line="-305"/>
+        <location line="-320"/>
         <location line="+39"/>
         <location line="+71"/>
         <location line="+42"/>
@@ -9337,7 +9347,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>साइन-इन प्रतिक्रिया अधूरी थी. कृपया पुन: प्रयास करें।</translation>
     </message>
     <message>
-        <location line="+284"/>
+        <location line="+299"/>
         <source>The server completed sign-in without returning a usable session.</source>
         <translation>सर्वर ने साइन-इन तो पूरा किया, पर कोई उपयोगी सेशन नहीं लौटाया।</translation>
     </message>
@@ -9350,12 +9360,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2148"/>
+        <location line="+2205"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning इस खाते का स्थानीय सेशन पूरी तरह रीसेट नहीं कर सका। ऐप्लिकेशन लॉग और फ़ाइल सिस्टम की अनुमतियाँ जाँचें, फिर दोबारा कोशिश करें।</translation>
     </message>
     <message>
-        <location line="-2164"/>
+        <location line="-2221"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>स्थानीय Lightning सेशन फिर से बना दिया गया। पिछला एन्क्रिप्शन स्टोर हटाया नहीं गया, सिर्फ़ अलग रख दिया गया है और अब भी इस खाते की डेटा डायरेक्टरी में है। आप दोबारा साइन इन कर सकते हैं।</translation>
     </message>
@@ -9368,7 +9378,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3380"/>
+        <location line="+3453"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+51"/>
@@ -9377,15 +9387,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>साइन इन नहीं हैं।</translation>
     </message>
     <message>
-        <location line="-3774"/>
+        <location line="-3847"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3576"/>
+        <location line="+3649"/>
         <source>Unknown room: %1</source>
         <translation>अज्ञात रूम: %1</translation>
     </message>
     <message>
-        <location line="-3776"/>
+        <location line="-3849"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9397,7 +9407,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>स्टीकर नहीं भेजा जा सका.</translation>
     </message>
     <message>
-        <location line="+956"/>
+        <location line="+1013"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9458,7 +9468,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>रूम की टाइमलाइन खोली नहीं जा सकी।</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+58"/>
         <source>Reload timeline failed: %1</source>
         <translation>टाइमलाइन दोबारा लोड नहीं हो सकी: %1</translation>
     </message>
@@ -9488,7 +9498,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Rust SDK की इवेंट क्यू भर गई।</translation>
     </message>
     <message>
-        <location line="+239"/>
+        <location line="+245"/>
         <source>[unable to decrypt yet]</source>
         <translation>[अभी डिक्रिप्ट नहीं हो सका]</translation>
     </message>
@@ -15635,7 +15645,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+903"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+933"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 ने अपना प्रदर्शित नाम “%2” से बदलकर “%3” किया और अवतार बदला।</translation>
     </message>
@@ -15685,7 +15695,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 ने कॉल प्रारंभ की.</translation>
     </message>
     <message>
-        <location line="+1247"/>
+        <location line="+1260"/>
         <source>%1 is typing…</source>
         <translation>%1 लिख रहे हैं…</translation>
     </message>
@@ -17473,7 +17483,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2115"/>
+        <location filename="../src/main.cpp" line="+2149"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>नेटिव Qt/QML Matrix क्लाइंट। बैकएंड: --backend={mock,http,rust}। डिफ़ॉल्ट: rust (Rust SDK रहित बिल्ड में http)।</translation>
     </message>

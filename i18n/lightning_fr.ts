@@ -543,24 +543,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1948"/>
+        <location line="+1972"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning n&apos;a pas pu lire le fichier sélectionné.</translation>
     </message>
     <message>
-        <location line="-1954"/>
+        <location line="-1978"/>
         <source>A room-key import is already in progress.</source>
         <translation>Un import de clés de salon est déjà en cours.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2651"/>
+        <location line="+2699"/>
         <source>Not signed in.</source>
         <translation>Non connecté.</translation>
     </message>
     <message>
-        <location line="-2649"/>
+        <location line="-2697"/>
         <source>Room-key import failed.</source>
         <translation>L&apos;import des clés de salon a échoué.</translation>
     </message>
@@ -631,14 +631,14 @@
     </message>
     <message>
         <location line="+11"/>
-        <location line="+1187"/>
+        <location line="+1211"/>
         <location line="+46"/>
         <location line="+68"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Cette version ne comporte pas de backend Rust SDK.</translation>
     </message>
     <message>
-        <location line="-1070"/>
+        <location line="-1094"/>
         <source>Choose a local image file.</source>
         <translation>Choisissez un fichier image local.</translation>
     </message>
@@ -682,7 +682,7 @@
         <translation>L&apos;icône n&apos;a pas pu être enregistrée.</translation>
     </message>
     <message>
-        <location line="+348"/>
+        <location line="+372"/>
         <source>No room is open.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -770,7 +770,12 @@
         <translation>Effacer les données locales de cet appareil ne résoudrait pas ce problème et détruirait des clés de chiffrement dont vous avez encore besoin.</translation>
     </message>
     <message>
-        <location line="+559"/>
+        <location line="+459"/>
+        <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+124"/>
         <source>This backend cannot change your display name.</source>
         <translation>Ce backend ne peut pas modifier votre nom affiché.</translation>
     </message>
@@ -801,12 +806,17 @@
         <translation>Ce compte n&apos;est pas connecté sur cet appareil.</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>La connexion de ce compte a expiré. Reconnectez-vous.</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+12"/>
+        <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+51"/>
         <source>Could not switch accounts right now. If a sign-out is in progress, try again in a moment.</source>
         <translation>Impossible de changer de compte pour le moment. Si une déconnexion est en cours, réessayez dans un instant.</translation>
     </message>
@@ -2610,7 +2620,7 @@
         <translation>Contours des champs et poignée de la barre de défilement</translation>
     </message>
     <message>
-        <location line="+275"/>
+        <location line="+302"/>
         <location line="+108"/>
         <location line="+29"/>
         <source>My theme</source>
@@ -4781,7 +4791,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaBridge</name>
     <message>
-        <location filename="../src/media/MediaBridge.cpp" line="+1270"/>
+        <location filename="../src/media/MediaBridge.cpp" line="+1295"/>
         <location line="+594"/>
         <source>The file could not be downloaded.</source>
         <translation>Le fichier n&apos;a pas pu être téléchargé.</translation>
@@ -6968,12 +6978,12 @@ Signing out and signing in again is the only fix.</source>
     <name>NotificationManager</name>
     <message>
         <location filename="../src/notifications/NotificationManager.cpp" line="+732"/>
-        <location line="+243"/>
+        <location line="+254"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
     <message>
-        <location line="-238"/>
+        <location line="-249"/>
         <source>Mark as read</source>
         <translation type="unfinished">Marquer comme lu</translation>
     </message>
@@ -6988,7 +6998,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+233"/>
+        <location line="+244"/>
         <source>Decline</source>
         <translation>Refuser</translation>
     </message>
@@ -6996,7 +7006,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-707"/>
+        <location line="-718"/>
         <source>Matrix room</source>
         <translation>Salon Matrix</translation>
     </message>
@@ -9286,14 +9296,14 @@ Signing out and signing in again is the only fix.</source>
         <location line="+53"/>
         <location line="+174"/>
         <location line="+106"/>
-        <location line="+383"/>
+        <location line="+398"/>
         <location line="+111"/>
         <location line="+86"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Le backend Rust SDK n&apos;a pas pu être initialisé.</translation>
     </message>
     <message>
-        <location line="-695"/>
+        <location line="-710"/>
         <location line="+105"/>
         <source>A homeserver is required.</source>
         <translation>Un serveur d&apos;accueil est requis.</translation>
@@ -9307,13 +9317,13 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-89"/>
         <location line="+111"/>
-        <location line="+141"/>
+        <location line="+156"/>
         <location line="+67"/>
         <source>The sign-in could not be completed.</source>
         <translation>La connexion n&apos;a pas pu être finalisée.</translation>
     </message>
     <message>
-        <location line="-305"/>
+        <location line="-320"/>
         <location line="+39"/>
         <location line="+71"/>
         <location line="+42"/>
@@ -9337,7 +9347,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>La réponse de connexion était incomplète. Veuillez réessayer.</translation>
     </message>
     <message>
-        <location line="+284"/>
+        <location line="+299"/>
         <source>The server completed sign-in without returning a usable session.</source>
         <translation>Le serveur a terminé la connexion sans renvoyer de session utilisable.</translation>
     </message>
@@ -9350,12 +9360,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2148"/>
+        <location line="+2205"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning n&apos;a pas pu réinitialiser complètement la session locale de ce compte. Vérifiez les journaux de l&apos;application et les permissions du système de fichiers, puis réessayez.</translation>
     </message>
     <message>
-        <location line="-2164"/>
+        <location line="-2221"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Session Lightning locale reconstruite. Le magasin de chiffrement précédent a été mis de côté, pas supprimé, et se trouve toujours dans le dossier de données de ce compte. Vous pouvez vous reconnecter.</translation>
     </message>
@@ -9368,7 +9378,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3380"/>
+        <location line="+3453"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+51"/>
@@ -9377,15 +9387,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>Non connecté.</translation>
     </message>
     <message>
-        <location line="-3774"/>
+        <location line="-3847"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3576"/>
+        <location line="+3649"/>
         <source>Unknown room: %1</source>
         <translation>Salon inconnu : %1</translation>
     </message>
     <message>
-        <location line="-3776"/>
+        <location line="-3849"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9397,7 +9407,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>L&apos;autocollant n&apos;a pas pu être envoyé.</translation>
     </message>
     <message>
-        <location line="+956"/>
+        <location line="+1013"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9458,7 +9468,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>La conversation du salon n&apos;a pas pu être ouverte.</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+58"/>
         <source>Reload timeline failed: %1</source>
         <translation>Échec du rechargement de la conversation : %1</translation>
     </message>
@@ -9488,7 +9498,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>La file d&apos;événements du Rust SDK a débordé.</translation>
     </message>
     <message>
-        <location line="+239"/>
+        <location line="+245"/>
         <source>[unable to decrypt yet]</source>
         <translation>[déchiffrement impossible pour l&apos;instant]</translation>
     </message>
@@ -15635,7 +15645,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+903"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+933"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 a changé son nom affiché de « %2 » en « %3 » et a changé son avatar.</translation>
     </message>
@@ -15685,7 +15695,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>%1 a démarré un appel.</translation>
     </message>
     <message>
-        <location line="+1247"/>
+        <location line="+1260"/>
         <source>%1 is typing…</source>
         <translation>%1 est en train d&apos;écrire…</translation>
     </message>
@@ -17473,7 +17483,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2115"/>
+        <location filename="../src/main.cpp" line="+2149"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Client Matrix natif Qt/QML. Backend : --backend={mock,http,rust}. Par défaut : rust (http dans les versions sans le Rust SDK).</translation>
     </message>

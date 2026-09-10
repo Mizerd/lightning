@@ -541,24 +541,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1948"/>
+        <location line="+1972"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning 无法读取所选文件。</translation>
     </message>
     <message>
-        <location line="-1954"/>
+        <location line="-1978"/>
         <source>A room-key import is already in progress.</source>
         <translation>已有房间密钥导入正在进行中。</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2651"/>
+        <location line="+2699"/>
         <source>Not signed in.</source>
         <translation>尚未登录。</translation>
     </message>
     <message>
-        <location line="-2649"/>
+        <location line="-2697"/>
         <source>Room-key import failed.</source>
         <translation>房间密钥导入失败。</translation>
     </message>
@@ -629,14 +629,14 @@
     </message>
     <message>
         <location line="+11"/>
-        <location line="+1187"/>
+        <location line="+1211"/>
         <location line="+46"/>
         <location line="+68"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>此版本不包含 Rust SDK 后端。</translation>
     </message>
     <message>
-        <location line="-1070"/>
+        <location line="-1094"/>
         <source>Choose a local image file.</source>
         <translation>请选择一个本地图片文件。</translation>
     </message>
@@ -680,7 +680,7 @@
         <translation>无法保存该图标。</translation>
     </message>
     <message>
-        <location line="+348"/>
+        <location line="+372"/>
         <source>No room is open.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -768,7 +768,12 @@
         <translation>清除此设备的本地数据无法解决该问题，反而会销毁你仍然需要的加密密钥。</translation>
     </message>
     <message>
-        <location line="+559"/>
+        <location line="+459"/>
+        <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+124"/>
         <source>This backend cannot change your display name.</source>
         <translation>此后端无法更改你的显示名称。</translation>
     </message>
@@ -799,12 +804,17 @@
         <translation>该账号未在此设备上登录。</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <source>That account&apos;s sign-in has expired. Sign in to it again.</source>
         <translation>该账号的登录已过期，请重新登录。</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+12"/>
+        <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+51"/>
         <source>Could not switch accounts right now. If a sign-out is in progress, try again in a moment.</source>
         <translation>目前无法切换账号。如果正在退出登录，请稍后再试。</translation>
     </message>
@@ -2605,7 +2615,7 @@
         <translation>字段轮廓和滚动条手柄</translation>
     </message>
     <message>
-        <location line="+275"/>
+        <location line="+302"/>
         <location line="+108"/>
         <location line="+29"/>
         <source>My theme</source>
@@ -4771,7 +4781,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaBridge</name>
     <message>
-        <location filename="../src/media/MediaBridge.cpp" line="+1270"/>
+        <location filename="../src/media/MediaBridge.cpp" line="+1295"/>
         <location line="+594"/>
         <source>The file could not be downloaded.</source>
         <translation>无法下载该文件。</translation>
@@ -6951,12 +6961,12 @@ Signing out and signing in again is the only fix.</source>
     <name>NotificationManager</name>
     <message>
         <location filename="../src/notifications/NotificationManager.cpp" line="+732"/>
-        <location line="+243"/>
+        <location line="+254"/>
         <source>Open</source>
         <translation>打开</translation>
     </message>
     <message>
-        <location line="-238"/>
+        <location line="-249"/>
         <source>Mark as read</source>
         <translation type="unfinished">标记为已读</translation>
     </message>
@@ -6971,7 +6981,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+233"/>
+        <location line="+244"/>
         <source>Decline</source>
         <translation>拒绝</translation>
     </message>
@@ -6979,7 +6989,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-707"/>
+        <location line="-718"/>
         <source>Matrix room</source>
         <translation>Matrix 房间</translation>
     </message>
@@ -9264,14 +9274,14 @@ Signing out and signing in again is the only fix.</source>
         <location line="+53"/>
         <location line="+174"/>
         <location line="+106"/>
-        <location line="+383"/>
+        <location line="+398"/>
         <location line="+111"/>
         <location line="+86"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>无法初始化 Rust SDK 后端。</translation>
     </message>
     <message>
-        <location line="-695"/>
+        <location line="-710"/>
         <location line="+105"/>
         <source>A homeserver is required.</source>
         <translation>必须填写主服务器。</translation>
@@ -9285,13 +9295,13 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-89"/>
         <location line="+111"/>
-        <location line="+141"/>
+        <location line="+156"/>
         <location line="+67"/>
         <source>The sign-in could not be completed.</source>
         <translation>登录未能完成。</translation>
     </message>
     <message>
-        <location line="-305"/>
+        <location line="-320"/>
         <location line="+39"/>
         <location line="+71"/>
         <location line="+42"/>
@@ -9315,7 +9325,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>登录响应不完整。请再试一次。</translation>
     </message>
     <message>
-        <location line="+284"/>
+        <location line="+299"/>
         <source>The server completed sign-in without returning a usable session.</source>
         <translation>服务器完成了登录，但没有返回可用的会话。</translation>
     </message>
@@ -9328,12 +9338,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2148"/>
+        <location line="+2205"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning 无法完全重置此账号的本地会话。请检查应用日志和文件系统权限后重试。</translation>
     </message>
     <message>
-        <location line="-2164"/>
+        <location line="-2221"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>本地 Lightning 会话已重建。之前的加密存储只是被移开，并未删除，仍保留在此账号的数据目录中。你可以重新登录。</translation>
     </message>
@@ -9346,7 +9356,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3380"/>
+        <location line="+3453"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+51"/>
@@ -9355,15 +9365,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>未登录。</translation>
     </message>
     <message>
-        <location line="-3774"/>
+        <location line="-3847"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3576"/>
+        <location line="+3649"/>
         <source>Unknown room: %1</source>
         <translation>未知房间：%1</translation>
     </message>
     <message>
-        <location line="-3776"/>
+        <location line="-3849"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9375,7 +9385,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>无法发送贴纸。</translation>
     </message>
     <message>
-        <location line="+956"/>
+        <location line="+1013"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9436,7 +9446,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>无法打开房间时间线。</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+58"/>
         <source>Reload timeline failed: %1</source>
         <translation>重新加载时间线失败：%1</translation>
     </message>
@@ -9466,7 +9476,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Rust SDK 事件队列已溢出。</translation>
     </message>
     <message>
-        <location line="+239"/>
+        <location line="+245"/>
         <source>[unable to decrypt yet]</source>
         <translation>[暂时无法解密]</translation>
     </message>
@@ -15604,7 +15614,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+903"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+933"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 将显示名称从“%2”改为“%3”，并更换了头像。</translation>
     </message>
@@ -15654,7 +15664,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 started a call.</translation>
     </message>
     <message>
-        <location line="+1247"/>
+        <location line="+1260"/>
         <source>%1 is typing…</source>
         <translation>%1 正在输入…</translation>
     </message>
@@ -17433,7 +17443,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2115"/>
+        <location filename="../src/main.cpp" line="+2149"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>原生 Qt/QML Matrix 客户端。后端：--backend={mock,http,rust}。默认：rust（在没有 Rust SDK 的构建中为 http）。</translation>
     </message>
