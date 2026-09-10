@@ -22,10 +22,21 @@
 // removed nothing.
 //
 // In substituted mode this store still READS AND WRITES normally, so the user
-// is not locked out; it only stops claiming its answers are authoritative. It
-// says a read could not be trusted, which is the honest answer when the store
-// the secrets are actually in could not be opened, and it is what keeps the
-// destructive path shut.
+// is not locked out; it only declines to vouch for what it CANNOT know. Three
+// outcomes, not one — see lastReadFailed(): a value it just returned is
+// trusted, a miss for an account it already holds secrets for is a fact about
+// that account, and only a miss for an account it has never held anything for
+// is reported as untrustworthy. That last case is the honest answer when the
+// store the secrets are actually in could not be opened, and it is what keeps
+// the destructive path shut.
+//
+// THE PRECONDITION THAT MAKES THE MIDDLE CASE SOUND, stated because nothing
+// asserts it: an account's group is written and removed as a WHOLE.
+// SettingsManager::saveSession writes all of its keys together (empty values
+// included, and QSettings creates a key for an empty value), and
+// clearAccountSecrets() removes the entire group. If a future caller ever
+// deletes ONE key of a live account, a miss for that key would become
+// "conclusive" while the account is still signed in.
 class InsecureFallbackSecretStore final : public SecretStore
 {
     Q_OBJECT

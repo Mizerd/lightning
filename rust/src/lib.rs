@@ -1219,32 +1219,6 @@ fn restrict_store_permissions(path: &std::path::Path) {
 #[cfg(not(unix))]
 fn restrict_store_permissions(_path: &std::path::Path) {}
 
-/// Forward matrix-sdk's own `tracing` diagnostics to stderr, ONCE, and only
-/// when asked.
-///
-/// WHY THIS EXISTS. The SDK reports everything it knows about to-device
-/// decryption, Olm sessions and key gossip through `tracing`, and this
-/// application installed no subscriber at all, so every one of those lines
-/// was discarded before it could be read. That is not a small gap: a live
-/// encrypted call on 2026-09-07 had one participant distribute its media key
-/// with `targets= 1 unresolved= 0 delivered= 1` while the other logged NO key
-/// receive and NO discard, dropping a thousand frames for want of it. Our own
-/// handler proved the key never reached it; nothing could say why, because
-/// the layer that knows was mute.
-///
-/// OFF BY DEFAULT AND OPT-IN BY ITS OWN VARIABLE, not `RUST_LOG`, so it
-/// cannot be switched on by an unrelated environment. `LIGHTNING_RUST_LOG=1`
-/// selects a conservative default aimed at exactly this fault; any other
-/// value is taken as a full `EnvFilter` directive for a developer who knows
-/// what they want.
-///
-/// PRIVACY. The default filter asks for matrix-sdk's crypto at `debug`, which
-/// is its state-transition and failure reporting, not key material: §6's rule
-/// against logging session keys, recovery material and raw crypto state binds
-/// what WE write, and this forwards the SDK's own sanitized output rather
-/// than adding anything. It is still opt-in and still a local log, and a
-/// developer who raises the filter to `trace` is choosing a verbosity this
-/// code does not select for them.
 /// The one line a panic is allowed to print, built from metadata alone.
 ///
 /// PURE, AND IT TAKES NO PAYLOAD — that is the whole design, not an omission.
@@ -1333,6 +1307,32 @@ fn install_panic_hook() {
     });
 }
 
+/// Forward matrix-sdk's own `tracing` diagnostics to stderr, ONCE, and only
+/// when asked.
+///
+/// WHY THIS EXISTS. The SDK reports everything it knows about to-device
+/// decryption, Olm sessions and key gossip through `tracing`, and this
+/// application installed no subscriber at all, so every one of those lines
+/// was discarded before it could be read. That is not a small gap: a live
+/// encrypted call on 2026-09-07 had one participant distribute its media key
+/// with `targets= 1 unresolved= 0 delivered= 1` while the other logged NO key
+/// receive and NO discard, dropping a thousand frames for want of it. Our own
+/// handler proved the key never reached it; nothing could say why, because
+/// the layer that knows was mute.
+///
+/// OFF BY DEFAULT AND OPT-IN BY ITS OWN VARIABLE, not `RUST_LOG`, so it
+/// cannot be switched on by an unrelated environment. `LIGHTNING_RUST_LOG=1`
+/// selects a conservative default aimed at exactly this fault; any other
+/// value is taken as a full `EnvFilter` directive for a developer who knows
+/// what they want.
+///
+/// PRIVACY. The default filter asks for matrix-sdk's crypto at `debug`, which
+/// is its state-transition and failure reporting, not key material: §6's rule
+/// against logging session keys, recovery material and raw crypto state binds
+/// what WE write, and this forwards the SDK's own sanitized output rather
+/// than adding anything. It is still opt-in and still a local log, and a
+/// developer who raises the filter to `trace` is choosing a verbosity this
+/// code does not select for them.
 fn install_sdk_tracing() {
     use std::sync::Once;
     static ONCE: Once = Once::new();
@@ -9876,6 +9876,42 @@ pub unsafe extern "C" fn mx_rust_set_strict_device_trust(enabled: c_int) -> *mut
     })
 }
 
+/// Pick up whatever the LAST session left queued but unsent.
+///
+/// matrix-sdk's module doc: this "is recommended to call during initialization
+/// of a client, otherwise persisted unsent events will only be re-sent after
+/// the send queue for the given room has been reopened for the first time"
+/// (send_queue/mod.rs:41). Lightning never called it, so a message composed
+/// just before the last exit waited until the user happened to reopen that
+/// exact room.
+///
+/// WHERE THIS IS CALLED FROM IS TWO SEPARATE CONSTRAINTS, and the first
+/// attempt satisfied neither.
+///
+/// It cannot go in `build_client`: it resolves each stored room id through
+/// `client.get_room()` (send_queue/mod.rs:225) and the room map is empty until
+/// `BaseClient::activate()` runs `load_rooms()`, which only login or
+/// `restore_session` triggers — all of which happen after `build_client`
+/// returns. There it walked the store and dropped every id.
+///
+/// And it must NOT run on the sync lanes. `for_room` spawns an INFINITE task
+/// per room (send_queue/mod.rs:479) on the AMBIENT runtime, and the sync
+/// entry points are driven by `run_async`, which builds a throwaway
+/// `new_current_thread` runtime per call. That would pin every room's send
+/// task to the single-threaded sync executor — sharing one thread with the
+/// sliding-sync loop, media uploads and their store I/O — and `for_room`
+/// MEMOISES, so a dropped runtime would leave a cached queue whose task is
+/// dead and that room could never send again. Which is the exact wedge this
+/// round exists to remove. `lib.rs`'s own `run_async_on` note already states
+/// this rule for `restore_session`'s spawned tasks; these are the same class.
+///
+/// So: here, immediately after the restore that loads the rooms, on the
+/// SHARED runtime. The two sync-lane `set_enabled(true)` recovery edges then
+/// find the queues already built and simply return the cached ones.
+pub(crate) async fn resume_unsent_requests(client: &Client) {
+    client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
+}
+
 async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, String> {
     // v0.7: OneShot backup download — the Element-like verified-session
     // bootstrap. When this device completes SAS verification, the SDK's
@@ -10108,6 +10144,7 @@ async fn restore_client_with_session(
         .restore_session(session, RoomLoadSettings::default())
         .await
         .map_err(|err| format_matrix_error("Matrix Rust SDK session restore failed", err))?;
+    resume_unsent_requests(&client).await;
     Ok(client)
 }
 
@@ -10778,12 +10815,6 @@ async fn run_modern_sync(
     active_subscription: Arc<Mutex<Option<OwnedRoomId>>>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> Option<tokio::sync::oneshot::Receiver<()>> {
-    // PICK UP WHAT THE LAST SESSION LEFT QUEUED — same call and same reason as
-    // the classic lane's. The first `State::Running` re-enables the send queue
-    // and that itself respawns, so on this lane it is belt and braces; doing
-    // it here covers the window BEFORE the room list reaches Running, and it
-    // costs one store query per session.
-    client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
     // Withdraws the published RoomListService on EVERY exit path of this
     // function — a handle outliving its sync loop would accept subscription
     // calls that can never reach a server again.
@@ -11106,14 +11137,6 @@ async fn run_classic_sync(
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) {
     enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
-    // PICK UP WHAT THE LAST SESSION LEFT QUEUED. matrix-sdk's module doc says
-    // this "is recommended to call during initialization of a client,
-    // otherwise persisted unsent events will only be re-sent after the send
-    // queue for the given room has been reopened for the first time"
-    // (send_queue/mod.rs:41). HERE rather than in build_client, because it
-    // resolves room ids through `client.get_room()` and the room map is empty
-    // until login or restore_session has run — see the note there.
-    client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
 
     let first_response = Arc::new(AtomicBool::new(true));
     // Consecutive failed attempts, shared with the callback: it drives the

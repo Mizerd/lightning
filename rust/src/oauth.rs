@@ -726,6 +726,10 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
                     .await
                 {
                     Ok(()) => {
+                        // The rooms exist now, and this runs on the SHARED
+                        // runtime — both conditions the send-queue respawn
+                        // needs. See resume_unsent_requests in lib.rs.
+                        crate::resume_unsent_requests(&client).await;
                         install_event_handlers(
                             &client,
                             Arc::clone(&events),

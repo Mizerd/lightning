@@ -5198,17 +5198,22 @@ AppController::signInStateFor(const QString &userId) const
         return SignInState::Usable;
     // A SUCCESSFUL READ IS THE ONLY EVIDENCE OF `Usable`, and it must be
     // tested FIRST. Inferring it from "not signed out and the backend seems
-    // fine" locks out an entire shipped configuration: when a native backend
-    // is compiled in but probes unavailable, SecretStore substitutes the
-    // insecure fallback, whose lastReadFailed() is `m_substitutedForNative
-    // || m_lastReadFailed` — PERMANENTLY true. secretBackendUnavailable() is
-    // then always true, needsSignIn() always false, and every account would
-    // classify Unreadable: every switch refused, on a machine whose tokens
-    // read back perfectly from the fallback INI, with advice ("unlock the
-    // keyring") that cannot be followed because there is no keyring. That is
-    // the no-session-bus Linux case §16 records real users running, and the
-    // fallback's own header promises twice that it "still READS AND WRITES
-    // normally, so the user is not locked out". Raised in review.
+    // fine" would lock out an entire shipped configuration: a machine where a
+    // native backend is compiled in but unavailable, so SecretStore
+    // substitutes the insecure fallback — the no-session-bus Linux case §16
+    // records real users running, whose tokens read back perfectly from the
+    // fallback INI and who must not be told to unlock a keyring that does not
+    // exist.
+    //
+    // HISTORICAL NOTE, because this ordering was written against a bug that
+    // has since been fixed and the reason must not read as still-true: the
+    // fallback's lastReadFailed() USED to be
+    // `m_substitutedForNative || m_lastReadFailed`, permanently true in
+    // substituted mode. It answers in three states now (a hit is vouched for;
+    // a miss is a fact for an account it already holds; only a miss for a
+    // stranger is unknowable). The ordering here is still correct and still
+    // the one to keep — a read that succeeded is evidence and nothing else
+    // is — but it no longer depends on that defect.
     if (m_settings && !m_settings->accessTokenFor(userId).isEmpty())
         return SignInState::Usable;
     // No token in hand. AccountManager::needsSignIn() is the ONE

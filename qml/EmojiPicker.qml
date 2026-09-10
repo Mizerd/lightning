@@ -465,7 +465,9 @@ AnchoredPopup {
                             // would never re-evaluate — the same objection
                             // that got the theme-card guard reverted. The
                             // difference is that the theme card had NO
-                            // recovery; here Component.onCompleted is it. A binding that THROWS there sticks
+                            // recovery; here Component.onCompleted is it.
+                            //
+                            // A binding that THROWS there sticks
                             // at its last value forever, because its only
                             // other dependency is the per-cell constant url:
                             // the sticker would never load and nothing would

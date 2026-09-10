@@ -3010,7 +3010,7 @@ Dydis: %3</translation>
         <translation>Pasirinktinis jaustukas</translation>
     </message>
     <message>
-        <location line="+296"/>
+        <location line="+298"/>
         <source>No recently used emoji</source>
         <translation>Nėra neseniai naudotų jaustukų</translation>
     </message>
@@ -9400,7 +9400,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3469"/>
+        <location line="+3494"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+51"/>
@@ -9409,15 +9409,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-3863"/>
+        <location line="-3888"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3665"/>
+        <location line="+3690"/>
         <source>Unknown room: %1</source>
         <translation>Nežinomas kambarys: %1</translation>
     </message>
     <message>
-        <location line="-3865"/>
+        <location line="-3890"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9425,11 +9425,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+542"/>
+        <location line="+1943"/>
         <source>The sticker could not be sent.</source>
         <translation>Nepavyko išsiųsti lipduko.</translation>
     </message>
     <message>
-        <location line="+1013"/>
+        <location line="-930"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9487,6 +9488,21 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+6"/>
         <source>That message could not be cancelled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>That message is no longer available to retry.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>The edit could not be applied.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>The poll action could not be completed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

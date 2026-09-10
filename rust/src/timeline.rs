@@ -163,6 +163,30 @@ pub(crate) fn is_rtc_membership_event(event: &AnySyncTimelineEvent) -> bool {
 #[allow(dead_code)]
 pub const SHUTDOWN_JOIN_TIMEOUT_SECS: u64 = 15;
 
+/// Re-enable a room's send queue before handing it anything new.
+///
+/// COMPOSING A MESSAGE UNWEDGES THE ROOM, and this is the only recovery that
+/// covers a SEND-ONLY failure. matrix-sdk disables a room's queue after any
+/// send error (send_queue/mod.rs:1012), and the two sync-lane recovery edges
+/// only fire when SYNC recovers — so a 429 or 5xx on /send, an upload
+/// timeout, or a ConcurrentRequestFailed leaves the room wedged while sync
+/// stays perfectly healthy. The SDK's own `send_raw` doc says the caller has
+/// to re-enable manually.
+///
+/// Taken from the TIMELINE rather than from a room id, so it works on every
+/// send path including the two attachment ones, which have no `Client` in
+/// hand. Cheap enough to do unconditionally: `RoomSendQueue::set_enabled` is
+/// an atomic store plus `notify_one` (:1223) with no store access, unlike the
+/// client-wide `SendQueue::set_enabled`, which walks every room and then
+/// queries SQLite.
+///
+/// Safe: an unrecoverable failure is marked WEDGED and persisted, and
+/// `peek_next_to_send` skips wedged items (:1468), so this can never resend
+/// something the server already rejected.
+fn unwedge_send_queue(timeline: &Timeline) {
+    timeline.room().send_queue().set_enabled(true);
+}
+
 /// How long `shutdown` waits on a timeline task it has ALREADY ABORTED.
 ///
 /// Not a cooperative join. `take_active` and `take_active_thread` both call
@@ -905,6 +929,7 @@ impl TimelineRegistry {
                             if let Some(mentions) = mentions {
                                 content = content.add_mentions(mentions);
                             }
+                            unwedge_send_queue(&timeline);
                             timeline.send_reply(content, reply_to).await.is_ok()
                         }
                         None => {
@@ -912,6 +937,7 @@ impl TimelineRegistry {
                             if let Some(mentions) = mentions {
                                 message = message.add_mentions(mentions);
                             }
+                            unwedge_send_queue(&timeline);
                             timeline
                                 .send(AnyMessageLikeEventContent::RoomMessage(
                                     message,
@@ -983,27 +1009,6 @@ impl TimelineRegistry {
         content: AnyMessageLikeEventContent,
         failure_category: &'static str,
     ) -> Result<(), String> {
-        // COMPOSING A MESSAGE UNWEDGES THE ROOM, and this is the only recovery
-        // that covers a SEND-ONLY failure.
-        //
-        // matrix-sdk disables a room's queue after any send error
-        // (send_queue/mod.rs:1012). The two sync-lane recovery edges added
-        // alongside this only fire when SYNC itself recovers, so a 429 or 5xx
-        // on /send, an upload timeout, or a ConcurrentRequestFailed leaves the
-        // room wedged while sync stays perfectly healthy — and the SDK's own
-        // `send_raw` doc says the caller has to re-enable manually.
-        //
-        // Cheap enough to do unconditionally: RoomSendQueue::set_enabled is an
-        // atomic store plus notify_one (:1223), with no store access — unlike
-        // the client-wide SendQueue::set_enabled, which walks every room and
-        // then queries SQLite. And it is safe, because an unrecoverable
-        // failure is marked WEDGED and `peek_next_to_send` skips wedged items
-        // (:1468), so this can never resend something the server rejected.
-        if let Ok(parsed) = RoomId::parse(&room_id) {
-            if let Some(room) = client.get_room(&parsed) {
-                room.send_queue().set_enabled(true);
-            }
-        }
         if thread_root_id.trim().is_empty() {
             let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id)
             else {
@@ -1012,6 +1017,7 @@ impl TimelineRegistry {
             let registry = Arc::clone(self);
             let events = Arc::clone(&self.events);
             runtime.spawn(async move {
+                unwedge_send_queue(&timeline);
                 if timeline.send(content).await.is_err()
                     && registry.is_current(room_gen, lifecycle)
                 {
@@ -1037,6 +1043,7 @@ impl TimelineRegistry {
         let open_thread = self.thread_timeline_for(&room_id, &thread_root_id);
         runtime.spawn(async move {
             let sent = if let Some((timeline, _gen, _lc)) = open_thread {
+                unwedge_send_queue(&timeline);
                 timeline.send(content).await.is_ok()
             } else {
                 match build_transient_thread_timeline(
@@ -1044,7 +1051,10 @@ impl TimelineRegistry {
                 )
                 .await
                 {
-                    Some(timeline) => timeline.send(content).await.is_ok(),
+                    Some(timeline) => {
+                        unwedge_send_queue(&timeline);
+                        timeline.send(content).await.is_ok()
+                    }
                     None => false,
                 }
             };
@@ -1356,6 +1366,7 @@ impl TimelineRegistry {
                 message = message.add_mentions(mentions);
             }
             let content = AnyMessageLikeEventContent::RoomMessage(message);
+            unwedge_send_queue(&timeline);
             if timeline.send(content).await.is_err()
                 && registry.is_current(room_gen, lifecycle)
             {
@@ -1420,6 +1431,7 @@ impl TimelineRegistry {
                 mentions: None,
                 in_reply_to: None,
             };
+            unwedge_send_queue(&timeline);
             let result = timeline
                 .send_attachment(source, mime, config)
                 .use_send_queue()
@@ -1468,6 +1480,7 @@ impl TimelineRegistry {
             if let Some(mentions) = mentions {
                 content = content.add_mentions(mentions);
             }
+            unwedge_send_queue(&timeline);
             if timeline.send_reply(content, reply_to).await.is_err()
                 && registry.is_current(room_gen, lifecycle)
             {
@@ -1539,6 +1552,7 @@ impl TimelineRegistry {
                     // ordinary room message.
                     in_reply_to: None,
                 };
+                unwedge_send_queue(&timeline);
                 timeline
                     .send_attachment(source, mime, config)
                     .use_send_queue()
@@ -1594,6 +1608,7 @@ impl TimelineRegistry {
                 message = message.add_mentions(mentions);
             }
             let content = EditedContent::RoomMessage(message);
+            unwedge_send_queue(&timeline);
             if timeline.edit(&item_id, content).await.is_err()
                 && registry.is_current(room_gen, lifecycle)
             {
@@ -1701,6 +1716,7 @@ impl TimelineRegistry {
                     // Anything else (an HTTP refusal, a rejected send) is a
                     // real failure and is reported.
                     Some(timeline) => {
+                        unwedge_send_queue(&timeline);
                         match timeline.toggle_reaction(&item_id, &key).await {
                             Ok(_) => true,
                             Err(matrix_sdk_ui::timeline::Error::FailedToToggleReaction) => {

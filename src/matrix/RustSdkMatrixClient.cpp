@@ -4771,6 +4771,31 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             Q_EMIT errorOccurred(tr("That message could not be cancelled."));
             return;
         }
+        // AND retry_target_missing, which is the category the thread-timeline
+        // fix's own comment names. Telling someone whose Retry just failed to
+        // "retry from the message's Retry action" is the exact sentence that
+        // defect was about; it must not survive here either. No affordance
+        // beyond Retry exists for it, so the message says what is true and
+        // nothing more.
+        if (category == QLatin1String("retry_target_missing")) {
+            Q_EMIT errorOccurred(tr("That message is no longer available to "
+                                    "retry."));
+            return;
+        }
+        // Neither of these has a Retry affordance at all, so the fallback's
+        // advice cannot help them either.
+        if (category == QLatin1String("edit_rejected")) {
+            Q_EMIT errorOccurred(tr("The edit could not be applied."));
+            return;
+        }
+        if (category == QLatin1String("sticker_send_failed")) {
+            Q_EMIT errorOccurred(tr("The sticker could not be sent."));
+            return;
+        }
+        if (category.startsWith(QLatin1String("poll_"))) {
+            Q_EMIT errorOccurred(tr("The poll action could not be completed."));
+            return;
+        }
         Q_EMIT errorOccurred(tr("Message could not be sent. You can retry "
                                 "from the message's Retry action."));
         return;
