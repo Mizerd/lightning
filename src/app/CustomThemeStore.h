@@ -124,6 +124,25 @@ Q_SIGNALS:
     void rolesChanged();
 
 private:
+    // Drops the parsed cache so the next read consults whichever account is
+    // active NOW.
+    //
+    // THIS IS A DATA-LOSS GUARD, not a freshness nicety. The collection is
+    // ACCOUNT-SCOPED storage (SettingsManager::appearanceValue), and the
+    // cache below is filled once and returned forever. Without this, account
+    // B's Appearance page lists account A's themes — and the first write B
+    // makes (setName, setBaseTheme, deleteTheme, importTheme, a colour) calls
+    // save() with that CACHED list, which persists A's themes over B's
+    // record. B's themes are then gone, permanently and silently.
+    //
+    // Wired to SettingsManager::sessionChanged for the reason RailLayoutStore
+    // records at its own connect(): that signal fires AFTER the active
+    // account id has moved, so a re-read triggered by it resolves the
+    // INCOMING account. It covers every way the answer can change — the
+    // switch (setActiveAccountUserId), a new account being added
+    // (saveSession), and the sign-out of the active one.
+    void invalidate();
+
     struct Theme {
         QString id;
         QString name;

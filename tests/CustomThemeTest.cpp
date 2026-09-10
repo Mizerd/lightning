@@ -48,6 +48,10 @@ QSet<QString> paletteKeys(const QString &qml)
     return keys;
 }
 
+const QString kAlice = QStringLiteral("@alice:one.example");
+const QString kBob = QStringLiteral("@bob:one.example");
+const QString kHs = QStringLiteral("https://one.example");
+
 } // namespace
 
 class CustomThemeTest : public QObject
@@ -492,7 +496,136 @@ private Q_SLOTS:
                  "the custom palette must be classified by its own background");
     }
 
+    // ---- the cache is account-scoped ------------------------------------
+
+    // DATA LOSS, not a stale list. The collection lives in
+    // SettingsManager::appearanceValue, which is ACCOUNT-SCOPED, and load()
+    // fills its cache exactly once per instance. Without an invalidation the
+    // store keeps serving the outgoing account's themes after a switch — and
+    // the incoming account's FIRST write (a rename here; setBaseTheme,
+    // deleteTheme, importTheme and any colour are the same call) hands that
+    // cached list to save(), which persists it over the incoming account's
+    // own record. Their themes are gone, silently and permanently.
+    //
+    // Both halves are asserted: what the switched-to account is SHOWN, and
+    // what its first write PERSISTS.
+    void aSwitchDropsTheOutgoingAccountsThemesInsteadOfSavingThemOverTheNext()
+    {
+        SettingsManager settings;
+        settings.saveSession(kHs, kBob, QStringLiteral("BDEV"), QString());
+        settings.saveSession(kHs, kAlice, QStringLiteral("ADEV"), QString());
+
+        // Seeded through SHORT-LIVED stores, one per account: a fixture built
+        // with a single long-lived store would itself be corrupted by the
+        // defect under test and could not distinguish anything.
+        //
+        // discard() first because appearanceValue mirrors every write into a
+        // device-global fallback that an account with no record of its own
+        // reads — deliberate for a theme, but it would make both accounts
+        // start from the same list and hide the difference this case needs.
+        settings.setActiveAccountUserId(kBob);
+        {
+            CustomThemeStore seed(&settings);
+            seed.discard();
+            QVERIFY(!seed.createTheme(QStringLiteral("Bob only")).isEmpty());
+        }
+        settings.setActiveAccountUserId(kAlice);
+        {
+            CustomThemeStore seed(&settings);
+            seed.discard();
+            QVERIFY(!seed.createTheme(QStringLiteral("Alice one")).isEmpty());
+            QVERIFY(!seed.createTheme(QStringLiteral("Alice two")).isEmpty());
+        }
+
+        CustomThemeStore store(&settings);
+        QCOMPARE(themeNames(store), QStringList({ QStringLiteral("Alice one"),
+                                                  QStringLiteral("Alice two") }));
+
+        // THE SWITCH.
+        settings.setActiveAccountUserId(kBob);
+
+        // (a) what Bob is shown.
+        QCOMPARE(themeNames(store), QStringList({ QStringLiteral("Bob only") }));
+
+        // (b) what Bob's first write persists. On the unfixed store this call
+        // renames a theme belonging to Alice and writes her whole list into
+        // Bob's record.
+        store.setName(QStringLiteral("Bob renamed"));
+
+        CustomThemeStore reread(&settings);
+        QCOMPARE(themeNames(reread),
+                 QStringList({ QStringLiteral("Bob renamed") }));
+
+        // And Alice keeps hers. Her record is only reachable through her own
+        // account key, so a write made under Bob must not have touched it.
+        settings.setActiveAccountUserId(kAlice);
+        CustomThemeStore aliceAgain(&settings);
+        QCOMPARE(themeNames(aliceAgain),
+                 QStringList({ QStringLiteral("Alice one"),
+                               QStringLiteral("Alice two") }));
+    }
+
+    // The same cache survives the OTHER way an account becomes active, which
+    // is why the fix hangs off sessionChanged rather than off a switch: a
+    // sign-in writes the active-account pointer directly (saveSession), so
+    // nothing "switched" and no switch-specific hook would fire. That is the
+    // shape 0.9.4's e131aae fixed for a different store.
+    void signingAnAccountInMakesTheNextReadConsultIt()
+    {
+        SettingsManager settings;
+        settings.saveSession(kHs, kBob, QStringLiteral("BDEV"), QString());
+        {
+            CustomThemeStore seed(&settings);
+            seed.discard();
+            QVERIFY(!seed.createTheme(QStringLiteral("Bob only")).isEmpty());
+        }
+        settings.saveSession(kHs, kAlice, QStringLiteral("ADEV"), QString());
+        {
+            CustomThemeStore seed(&settings);
+            seed.discard();
+            QVERIFY(!seed.createTheme(QStringLiteral("Alice one")).isEmpty());
+            QVERIFY(!seed.createTheme(QStringLiteral("Alice two")).isEmpty());
+        }
+
+        CustomThemeStore store(&settings);
+        QCOMPARE(themeNames(store).size(), 2);
+
+        // Bob signs in again: active NOW, with no switchToAccount involved.
+        settings.saveSession(kHs, kBob, QStringLiteral("BDEV"), QString());
+        QCOMPARE(themeNames(store), QStringList({ QStringLiteral("Bob only") }));
+    }
+
+    // The invalidation announces itself, because nothing polls this store:
+    // the Appearance page and AppTheme.qml both re-read on customThemeChanged
+    // and would otherwise keep painting the previous account's palette until
+    // some unrelated edit happened to notify.
+    void anAccountChangeNotifiesSoTheShellRepaints()
+    {
+        SettingsManager settings;
+        settings.saveSession(kHs, kAlice, QStringLiteral("ADEV"), QString());
+        CustomThemeStore store(&settings);
+        store.discard();
+        QVERIFY(!store.createTheme(QStringLiteral("Alice one")).isEmpty());
+
+        QSignalSpy changed(&store, &CustomThemeStore::customThemeChanged);
+        settings.saveSession(kHs, kBob, QStringLiteral("BDEV"), QString());
+        QVERIFY2(changed.count() >= 1,
+                 "an account change must announce that the theme list moved");
+    }
+
 private:
+    // Names in stored order. Comparing the whole list rather than a size and
+    // one name: the defect's signature is the WRONG ACCOUNT'S list, and two
+    // lists can share a length.
+    static QStringList themeNames(const CustomThemeStore &store)
+    {
+        QStringList out;
+        const QVariantList themes = store.themes();
+        for (const QVariant &entry : themes)
+            out << entry.toMap().value(QStringLiteral("name")).toString();
+        return out;
+    }
+
     QTemporaryDir m_configHome;
 };
 

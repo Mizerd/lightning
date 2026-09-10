@@ -150,6 +150,33 @@ CustomThemeStore::CustomThemeStore(SettingsManager *settings, QObject *parent)
     : QObject(parent)
     , m_settings(settings)
 {
+    if (m_settings) {
+        // See the header: the cache is account-scoped and load() fills it
+        // exactly once, so nothing but this connection stops one account's
+        // themes being listed under the next one and then WRITTEN over it.
+        // sessionChanged is the right signal because it fires after the
+        // active account id has already moved (RailLayoutStore's constructor
+        // records the same reasoning, and why the earlier loggedOut is not
+        // enough on its own).
+        connect(m_settings, &SettingsManager::sessionChanged, this,
+                &CustomThemeStore::invalidate);
+    }
+}
+
+void CustomThemeStore::invalidate()
+{
+    // Unconditional, not "only when it changed": the point is that the next
+    // read consults the account that is active NOW, and comparing against a
+    // cache belonging to the previous account would be answering with it.
+    m_loaded = false;
+    m_cache.clear();
+    m_activeId.clear();
+    // The Appearance page and AppTheme both follow this signal, so the
+    // incoming account's themes are what gets listed and painted. Re-entry is
+    // bounded: a read from here runs load(), and the only write load() can
+    // make is the one-time legacy migration, whose save() sets m_loaded and
+    // emits once more without touching the session.
+    Q_EMIT customThemeChanged();
 }
 
 QStringList CustomThemeStore::editableRoles()
