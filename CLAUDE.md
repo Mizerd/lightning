@@ -86,28 +86,22 @@ it (`6149337`), with a mock that serves stale-but-200 reads so both halves are
 covered. Its sibling failure shape, a 404 while the API says `state=uploaded`,
 is the one recorded below.
 
-**ON `main` ABOVE 0.9.3 (2026-09-08/09, 15 commits, `5d9fa37..820d368`): a
-four-audit hardening round, NOT a release.** Nothing was tagged and no
-version was bumped. Fixed: the room-list index-base clobber and its silent
-wrong-room deletion; classic sync dying permanently on one network error;
-`full_state` on every incremental sync; no first-response watchdog on the
-sliding lane; a promise context read after its own free (seven handlers);
-two undrained SFU buses; a deferred teardown outliving the engine; a stale
-teardown renegotiating the next call; receive bins never retired; the
-credential migration writing under a mangled key and deleting the refresh
-token; "remove account" on the ACTIVE account degrading to a sign-out; the
-Spaces rail leaking between accounts; store files created at the umask;
-eight SFU error categories collapsed into one sentence; a 404 well-known
-reported as "couldn't check"; a ghost membership from leaving during
-`Preparing`; the device picker being decoration on the MatrixRTC lane; and
-audio attachments going out with no duration. Added: transient call
-reactions in element-call's own verified format, and a pre-click join gate
-for a user whose power level forbids the call membership. Full detail and
-the lessons that generalise are in `docs/round-history.md` under
-2026-09-08. Validation: build-rust 203/203, build 201/201, Rust 370 passed,
-the `-DLIGHTNING_ENABLE_WEBRTC=OFF` build over every target, and project 6
-pipeline **184 green (22 jobs)** on the round's midpoint. NOTHING in it is
-live-validated — every claim is code plus the headless suites.
+**ON `main` ABOVE 0.9.4 (2026-09-10, 11 commits, `30d86a8..196c761`): the
+post-0.9.4 audit debt, NOT a release.** Nothing tagged, no version bumped.
+Nine defects the audits had found and 0.9.4 shipped without — themes, HTML
+scan, `--log-file`, FFI task tracking, Spaces rail, timeline mirror,
+MediaBridge, local search paging, thread identity, and §6's "no readable token
+is not no account" twice more. The defects, the accepted follow-ups and one
+recorded refutation are in `docs/round-history.md` under 2026-09-10.
+Validation: Rust 411 passed, build-rust 202/203, build 200/201 (both failures
+the recorded `timeline-pane-qml` flake), `WEBRTC=OFF` over all 1341 targets.
+NOTHING in it is live-validated.
+
+**The 2026-09-08/09 four-audit hardening round (`5d9fa37..820d368`, 15
+commits) SHIPPED IN 0.9.4** — `820d368` is an ancestor of `bcea599`, so it is
+no longer "on `main` above a release". Its fifteen fixes, and the lessons that
+generalise, are in `docs/round-history.md` under 2026-09-08. Nothing in it was
+live-validated; every claim is code plus the headless suites.
 
 **THE PIPELINE NOW LIVES IN THIS REPOSITORY.** 0.9.2 is the first release cut
 from project 6: the packaging project was folded in under `packaging-ci/` on

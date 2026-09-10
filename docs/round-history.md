@@ -15,6 +15,202 @@ By THEME, not chronology, and reduced to rules, refutations, deliberate
 decisions, measured numbers and live status. Features are §7; the caps
 contract, the refutation rule and the probe rule are in the standing warnings.
 
+#### 2026-09-10, the post-0.9.4 audit debt: nine defects the audits found and the release did not take
+
+Nothing in this round was reported by a user. Every item is an audit finding
+that 0.9.4 shipped without, and the ones worth keeping are the ones where the
+SHAPE repeats.
+
+**A PER-ACCOUNT CACHE THAT OUTLIVES ITS ACCOUNT IS A DATA-LOSS GUARD, NOT A
+FRESHNESS NICETY — third occurrence.** 0.9.4 fixed the hidden-image list and
+the ignore list; `CustomThemeStore` is the same defect a third time. The cache
+is filled once and returned forever, and a save writes the whole CACHED list
+back — so account B's Appearance page listed A's themes, and B's first edit
+persisted A's themes over B's record. Permanently, silently. The signal to
+invalidate on is `SettingsManager::sessionChanged`, not `loggedOut`: it fires
+AFTER the active account id has moved, so a read triggered by it resolves the
+INCOMING account, and it covers the switch, an account being ADDED, and the
+sign-out of the active one. `RailLayoutStore` had already recorded that
+reasoning at its own `connect()`. **GENERALISE: grep for every cache keyed by
+nothing whose data is account-scoped; the bug is not that it goes stale, it is
+that a write-back persists the wrong account's data.**
+
+**§6's "no readable access token is not no account" had TWO more violations,
+and they formed a closed loop with wrong advice at both ends.** With the
+keyring locked or the session bus unavailable, every credential read comes
+back empty: `switchToAccount` refused with "That account's sign-in has
+expired. Sign in to it again.", and `onLoggedOut` skipped every remaining
+account and dropped the user to a login form. The advice cannot be followed —
+the password login it asks for is bounced by `passwordLoginBlockReason` as
+`ExistingStoreNeedsRestore`, back to the switch that just refused.
+`signInStateFor()` answers in three states. **The ordering is the whole
+finding, and review caught it:** a SUCCESSFUL READ must be tested FIRST and is
+the only evidence of `Usable`. Inferring it from "not signed out and the
+backend seems fine" locks out an entire shipped configuration — when a native
+backend is compiled in but probes unavailable, `SecretStore` substitutes the
+insecure fallback, whose `lastReadFailed()` is `m_substitutedForNative ||
+m_lastReadFailed` and therefore PERMANENTLY true; every account would classify
+`Unreadable` and every switch would be refused on a machine whose tokens read
+back perfectly, with advice to unlock a keyring that does not exist. That is
+the no-session-bus Linux case §16 already records real users running.
+`Unreadable` still REFUSES the switch, deliberately — the switch detaches the
+running session first and the restore needs the token that cannot be read — but
+it now names the failure and gives the action that can work.
+
+**AN INTEREST SET RECORDS AN OUTSTANDING FETCH, SO NOTHING MAY ENTER IT ON A
+PATH THAT DISPATCHES NONE.** `MediaBridge::animatedSource` filled
+`m_animatedWanted` and `m_animatedDemanded` ABOVE two early exits — the failure
+block and the cache hit that writes the file itself — and neither exit drains
+them, because only `onMediaReady` drains and no completion was coming. A key
+stranded in `m_animatedWanted` makes `cancelPlayable()` early-return FOREVER:
+the queue purge, the in-flight abort and the playable writer's cancel never
+run, which is the multi-hundred-MB transfer for a card that is gone that the
+cancel exists to stop. `playableSource`'s failure branch had the rule written
+down already. Two invariants survive the move: a DEMANDING caller is still
+owed a terminal answer when cached bytes turn out not to be an animation, and
+`mxcAnimatedSource` still demands nothing.
+
+**"WAS THE PAGE FULL?" MUST BE ASKED AGAINST WHAT THIS REQUEST ASKED FOR.**
+Local search paging has no cursor: "load more" re-runs the query with a BIGGER
+limit and replaces the rows. The exhaustion test compared against the constant
+`kLocalPage`, so every page after the first tested 100 (or 150, or 200) rows
+against 50. Once the index held 50 matches, the short page that PROVES
+exhaustion read as a full one, `canLoadMore` stayed true forever, and the
+list's `onAtYEndChanged` kept firing `loadMore` — each redundant page replacing
+the rows inside `begin/endResetModel`, which drops `contentY` to 0 and
+re-satisfies `atYEnd`. A spin, not a stall. Count RAW results, before the
+filters: they run on this side, so a filtered count says nothing about what
+the index had left.
+
+**THE §8 COMPOSITE TIMELINE ID SILENTLY MISSES EVERY ROOM-KEYED LOOKUP.** A
+thread model's `m_roomId` is `room ␟ thread ␟ root`, because that is what
+addresses the timeline in the backend's diff stream. Nothing keyed by a ROOM is
+keyed by it — not the member cache behind `displayNameFor()`/`avatarMxcFor()`,
+not `membersChanged` — and `displayNameFor()` answers the bare user id for an
+id it cannot find, which every caller reads as "unresolved". So a thread panel
+showed localparts and letter avatars for everyone whose name was not already
+carried on the event; mention pills fell back to the localpart AND asked
+`UserProfileResolver` for a `/profile` they did not need; and
+`onMembersChanged` had NEVER ONCE RUN for a thread panel in the whole life of
+the feature. **The failure mode is the lesson: the composite is a valid
+QString and every lookup returns a plausible-looking answer, so nothing throws
+and nothing logs.** `m_realRoomId` is resolved once beside `m_roomId`;
+`typingUsersFor()` deliberately keeps the composite so that it and
+`onTypingChanged`'s guard still agree.
+
+**A Qt MESSAGE HANDLER IS CALLED FROM ARBITRARY THREADS, AND THIS ONE OWNS A
+QFile.** Two writers are unconditional and already shipped — the GUI-stall
+watchdog logs from a raw `std::thread`, `PlayableWriteWorker` from its own
+`QThread`, both at default-on levels — and neither `QFile` nor `QTextStream` is
+thread-safe. So the capture recipe this project ASKS TESTERS TO RUN
+(`LIGHTNING_GUI_STALL_TRACE` together with `--log-file`) was precisely the
+racing configuration, and the one artifact we ask for could come back
+interleaved. The `g_logFile` pointer is now published AND read under the same
+mutex; the previous handler is chained OUTSIDE it, because it is arbitrary code
+and holding ours across it would invent a lock ordering for no gain.
+
+**A TAG SCANNER THAT SEARCHES FORWARD FROM EVERY `<` IS QUADRATIC ON REMOTE
+INPUT — and the first two fixes proposed for it were not fixes.** Message
+bodies arrive from any room. Measured on a hostile-shaped body: 24,626 ms of
+GUI thread. My first proposal handled a `</` run with no `>` present; the
+reviewing agent showed a `</` run WITH a distant `>` is equally quadratic, so
+the fix has to be a cursor that never moves backwards, not a special case.
+Both shapes are now pinned by tests, and the malformed shapes are pinned by
+their exact text output so a "faster" rewrite cannot quietly change what the
+reader sees.
+
+**SEVEN FFI ENTRY POINTS SPAWNED UNTRACKED THREADS HOLDING AN `Arc<Client>`.**
+`send_text`, `probe_encrypted_send`, `recover_backup`, `reload_timeline`,
+`rename_device`, `backup_action`, `backup_progress`. `shutdown_managed_tasks`
+could neither wait for them nor report one that died: a send in flight at
+logout kept the client alive past the point the store was closed, and a panic
+inside any of them was swallowed with no event. They are tracked now, and the
+shutdown budget is stated ONCE and bound at COMPILE TIME — `const _: () =
+assert!(SHUTDOWN_WORST_CASE_MS + SHUTDOWN_DESTROY_RESERVE_MS <=
+STORE_CLOSE_BUDGET_MS, ...)` — so an edit that makes the declared worst case
+unreachable fails the build with an explanation instead of timing out in the
+field. `rust/src/sfu.rs`'s leave-flush timeout is derived from
+`SHUTDOWN_ACTION_JOIN_MS` the same way rather than being a second independent
+number.
+
+**A SPACE THE USER HAS LEFT STAYED ON THE RAIL UNTIL THE NEXT SIGN-IN**, and
+the fix had to be narrowed twice. `space_list_reset` is a COMPLETE list built
+from `joined_space_rooms()`, so absence IS the fact — but only for a JOINED
+space: an INVITED one is absent by construction, and erasing on absence alone
+would create the invite row from the room payload and destroy it again on the
+next space list, so a Space invitation could never be seen or accepted. (My
+own fixture caught that one, with the wrong membership string: the parser
+wants `"invited"`, not `"invite"`.) And nothing may leave `rooms` while
+`order` still names it — `order` is addressed BY INDEX by every room-list diff,
+and removing an indexed entry from the map alone is the shape of the
+wrong-room deletion this project has already shipped once. Spaces are never
+appended to `order`, so that guard is normally vacuous; it is there so a
+future producer that indexes one keeps its retirement with the diffs that own
+it. The Space exemptions in `applyIndexReset()`/`applySnapshot()` are
+untouched and must stay: the ROOM LIST producer never mentions Spaces, so
+absence from ITS reset is not evidence.
+
+**THE C++ EVENT MIRROR OF AN OPENED ROOM WAS NEVER REDUCED AGAIN.**
+`appendBounded()` bounds the ring for a room the user has never opened; opening
+one REPLACES that ring with the SDK snapshot and grows it with every diff — the
+viewport fill alone reaches 600-900 rows — and closing the room did not shrink
+it, switching rooms did not (the generation tracker forgets the old room
+without touching anything keyed by it), and only a sign-out's wholesale clear
+ever freed any of it. A session that visited fifty rooms kept every event of
+all fifty, while matrix-sdk's own `shrink_to_last_chunk` had already released
+Rust's copy. Trimming back to the background cap rather than discarding is the
+point: that cap is exactly what the room would hold had it never been opened,
+so it restores the documented invariant instead of inventing a second one, and
+it keeps the instant pre-snapshot render on re-open.
+
+**HARNESS LESSON, and it cost two hours of measurement.** `timeline-pane-qml`
+failed once in a full run and twice in three re-runs, on two DIFFERENT anchor
+cases (`topEdgePrependKeepsReaderOnTheSameRowMidGesture` and
+`nearTopControllerDrivenBatchesCompensateImmediatelyNotChained`). Different
+cases failing on different runs is the signature of timing, not of a defect —
+a regression fails the same case every time. The cheap decisive check is not a
+rate comparison but a proof that the diff CANNOT REACH the case: `qml/` was
+byte-identical to `main` (the anchor logic under test), the fixture sets
+`formattedBody` ZERO times (so the tokenizer rewrite cannot move a row
+height), and it contains no U+001F (so every `m_realRoomId` reduction is a
+literal identity operation there). Also: running a single test FUNCTION
+directly is NOT a smaller version of the suite — one QML engine is shared
+across cases, and the same function failed 6 of 8 times alone on a tree whose
+full-suite runs were 1 pass and 2 single-case failures. And every one of these
+numbers was taken with a game at 222% CPU on one of the three recorded
+load-sensitive suites.
+
+**Accepted follow-ups from this round's review, none blocking.** (1) On a
+machine where a native secret backend is compiled in but unavailable,
+`SecretStore` substitutes the insecure fallback and `lastReadFailed()` is
+permanently true — so an account whose token really IS gone classifies
+`Unreadable` and is told to unlock a keyring that does not exist. Fixing it
+means splitting "read failed" from "substituted and therefore unvouched" at
+the `SecretStore` level. (2) `MessageHtmlTest` now carries two wall-clock
+assertions (complexity is the property under test and there is no branch to
+assert on; the headroom is 24x and documented in-source) — so a
+`message-html` failure in a full run should be re-run alone before it is read
+as a regression, exactly like the three suites §16 already tracks. (3)
+**Rust's DEFAULT panic hook still writes the payload to stderr**, and no
+`std::panic::set_hook` is installed anywhere in the crate. That matters
+because a `str` slice panic prints the string it was slicing, and the two such
+panics fixed in 0.9.4 were slicing message BODIES. It does NOT reach
+`--log-file` (that mirrors Qt's message handler, not the process's stderr),
+but it reaches a terminal or the journal. `CatchPanic` keeps the payload out
+of the event and out of every line Lightning logs, which is the half this
+round owns; closing the other half means a hook that keeps the location and
+drops the payload, and that changes crash diagnostics process-wide.
+
+**One refutation to keep.** Review proposed guarding `retireAbsentSpaces()`
+against an EMPTY `present`, on the theory that a transiently short space list
+would now erase where it used to blank. Refused with a counter-case: a user
+who leaves their ONLY Space produces a legitimately empty payload, so that
+guard would skip exactly the retirement the function exists for.
+`enqueue_spaces()` does emit an empty array, so the shape is reachable — but
+the transient has never been observed and an entry erased by one is re-created
+by the next space list or by `room_snapshot`'s walk of `client.rooms()`. The
+reasoning is recorded at the function so it is not re-proposed.
+
 #### 2026-09-10, the 0.9.4 round: two user reports, five audits, and a sweep
 
 **The two user reports are the ones worth reading.** Both were reported the
