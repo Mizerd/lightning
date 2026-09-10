@@ -642,6 +642,18 @@ private:
 
     MatrixClient *m_client = nullptr;
     QString m_roomId;
+    // THE ROOM ID EVERY ROOM-KEYED LOOKUP MUST USE.
+    //
+    // A thread model's m_roomId is the composite `room ␟ thread ␟ root`
+    // (ThreadController::open binds the model to timelineId()), because that
+    // is what addresses this timeline in the backend's diff stream. Nothing
+    // keyed by a ROOM is keyed by it — not the member cache behind
+    // displayNameFor()/avatarMxcFor(), not membersChanged — so a lookup made
+    // with m_roomId silently missed for the whole life of a thread panel.
+    // Identical to m_roomId for an ordinary room (threadTimelineRoomId()
+    // returns its input unchanged with no separator present). Cached because
+    // it is read on every identity resolution; written ONLY beside m_roomId.
+    QString m_realRoomId;
     mutable QHash<QString, int> m_rowIndex;
     mutable bool m_rowIndexDirty = true;
     // Memoized MessageHtml::sanitize output per event id (FormattedBodyRole

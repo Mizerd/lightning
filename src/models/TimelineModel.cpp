@@ -15,6 +15,25 @@ namespace {
 // Element/Discord-style visual grouping window. Five minutes is short enough
 // to keep conversations scannable while suppressing repetitive identity.
 constexpr qint64 kSenderGroupThresholdSeconds = 5 * 60;
+
+// THE ROOM ID A MEMBER LOOKUP MAY USE, taken from an event.
+//
+// Every TimelineEvent of a thread timeline carries the COMPOSITE timeline id
+// in `roomId` (RustTimelineIngest's eventFromItemJson stamps whatever id the
+// timeline was opened under), because that is what the model's own diff
+// routing compares against. No member cache, receipt set or typing set is
+// keyed by it, and RustSdkMatrixClient::displayNameFor() answers the bare
+// user id for an id it cannot find — which is exactly the "unresolved"
+// sentinel every caller here then falls back on. So a thread panel showed
+// localparts and letter avatars for everyone whose name was not already
+// carried on the event.
+//
+// Identical to `id` for an ordinary room: threadTimelineRoomId() returns its
+// input unchanged when there is no unit separator in it.
+inline QString memberLookupRoomId(const QString &id)
+{
+    return MatrixClient::threadTimelineRoomId(id);
+}
 }
 
 TimelineModel::TimelineModel(QObject *parent)
@@ -49,7 +68,8 @@ QString TimelineModel::senderDisplayName(const TimelineEvent &event) const
     if (!event.senderDisplayName.isEmpty())
         return event.senderDisplayName;
     if (m_client) {
-        const QString display = m_client->displayNameFor(event.roomId, event.sender);
+        const QString display = m_client->displayNameFor(
+            memberLookupRoomId(event.roomId), event.sender);
         // Backends return the raw user id when nothing is known — that is
         // "unresolved", not a display name.
         if (!display.isEmpty() && display != event.sender)
@@ -189,14 +209,14 @@ void TimelineModel::setClient(MatrixClient *client)
         connect(m_client, &MatrixClient::editHistoryReceived, this,
                 [this](const QString &roomId, const QString &eventId, bool ok,
                        bool partial, const QVariantList &revisions) {
-            if (roomId != MatrixClient::threadTimelineRoomId(m_roomId))
+            if (roomId != m_realRoomId)
                 return;
             Q_EMIT editHistoryReceived(eventId, ok, partial, revisions);
         });
         connect(m_client, &MatrixClient::eventSourceReceived, this,
                 [this](const QString &roomId, const QString &eventId, bool ok,
                        const QString &json, const QVariantMap &encryption) {
-            if (roomId != MatrixClient::threadTimelineRoomId(m_roomId))
+            if (roomId != m_realRoomId)
                 return;
             Q_EMIT eventSourceReceived(eventId, ok, json, encryption);
         });
@@ -257,7 +277,10 @@ void TimelineModel::setProfileResolver(UserProfileResolver *resolver)
 
 QString TimelineModel::mentionNameFor(const QString &userId, bool ask) const
 {
-    QString name = m_client ? m_client->displayNameFor(m_roomId, userId)
+    // m_realRoomId, never m_roomId: a mention pill in a thread reply resolved
+    // against the composite always missed, so every pill fell back to the
+    // localpart AND asked UserProfileResolver for a /profile it did not need.
+    QString name = m_client ? m_client->displayNameFor(m_realRoomId, userId)
                             : QString();
     // Backends answer the raw id when the member snapshot has nothing —
     // that is "unresolved", not a display name.
@@ -278,6 +301,11 @@ void TimelineModel::setRoomId(const QString &roomId)
     if (m_roomId == roomId)
         return;
     m_roomId = roomId;
+    // Resolved ONCE per binding, beside the id it is derived from. In a
+    // thread model m_roomId is the composite `room ␟ thread ␟ root` and no
+    // room-keyed lookup can ever match it (§8); this is the id every one of
+    // them must use, and it equals m_roomId for an ordinary room.
+    m_realRoomId = MatrixClient::threadTimelineRoomId(roomId);
     Q_EMIT roomIdChanged();
     // A room/thread switch clears search state — never carry a query or its
     // plaintext matches across timelines.
@@ -417,6 +445,7 @@ QString TimelineModel::memberDisplayName(const QString &roomId,
 
 QVariantList TimelineModel::reactionsVariant(const TimelineEvent &e) const
 {
+    const QString lookupRoom = memberLookupRoomId(e.roomId);
     QVariantList out;
     out.reserve(e.reactions.size());
     for (const auto &r : e.reactions) {
@@ -434,7 +463,7 @@ QVariantList TimelineModel::reactionsVariant(const TimelineEvent &e) const
         QStringList names;
         names.reserve(r.senders.size());
         for (const QString &userId : r.senders) {
-            const QString name = memberDisplayName(e.roomId, userId);
+            const QString name = memberDisplayName(lookupRoom, userId);
             if (!name.isEmpty())
                 names.append(name);
         }
@@ -485,12 +514,13 @@ QVariantList TimelineModel::readReceiptsVariant(const TimelineEvent &e) const
                      [](const ReadReceipt &a, const ReadReceipt &b) {
                          return a.tsMs > b.tsMs;
                      });
+    const QString lookupRoom = memberLookupRoomId(e.roomId);
     QVariantList out;
     out.reserve(receipts.size());
     for (const auto &r : receipts) {
-        const QString display = memberDisplayName(e.roomId, r.userId);
+        const QString display = memberDisplayName(lookupRoom, r.userId);
         QString avatar =
-            m_client ? m_client->avatarMxcFor(e.roomId, r.userId) : QString{};
+            m_client ? m_client->avatarMxcFor(lookupRoom, r.userId) : QString{};
         // Member-cache miss (hydration pending, failed, or a reader beyond
         // the roster snapshot): fall back to the avatar this timeline has
         // itself seen on the reader's own messages. Without this the chip
@@ -1204,7 +1234,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         const auto memo = m_messageSegmentsCache.constFind(e.eventId);
         if (memo != m_messageSegmentsCache.constEnd())
             return memo.value();
-        const QString roomId = m_roomId;
+        const QString roomId = m_realRoomId;
         MatrixClient *client = m_client;
         const QList<MessageHtml::Segment> parsed = MessageHtml::segments(
             e.formattedBody,
@@ -1268,8 +1298,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
                 && e.replyToSender != e.replyToSenderId)
                 return e.replyToSender;
             if (m_client) {
-                const QString display =
-                    m_client->displayNameFor(e.roomId, e.replyToSenderId);
+                const QString display = m_client->displayNameFor(
+                    memberLookupRoomId(e.roomId), e.replyToSenderId);
                 if (!display.isEmpty() && display != e.replyToSenderId)
                     return display;
             }
@@ -1279,8 +1309,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         if (e.replyToSender.isEmpty())
             return QString();
         if (m_client) {
-            const QString display =
-                m_client->displayNameFor(e.roomId, e.replyToSender);
+            const QString display = m_client->displayNameFor(
+                memberLookupRoomId(e.roomId), e.replyToSender);
             // Backends return the raw user id when nothing is known — that
             // is "unresolved", not a display name.
             if (!display.isEmpty() && display != e.replyToSender)
@@ -1404,8 +1434,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         if (e.threadLatestSender.isEmpty())
             return QString();
         if (m_client) {
-            const QString display =
-                m_client->displayNameFor(e.roomId, e.threadLatestSender);
+            const QString display = m_client->displayNameFor(
+                memberLookupRoomId(e.roomId), e.threadLatestSender);
             if (!display.isEmpty() && display != e.threadLatestSender)
                 return display;
         }
@@ -1456,7 +1486,9 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case SenderAvatarMxcRole: {
         if (!e.senderAvatarUrl.isEmpty())
             return e.senderAvatarUrl;
-        return m_client ? m_client->avatarMxcFor(e.roomId, e.sender) : QString{};
+        return m_client ? m_client->avatarMxcFor(memberLookupRoomId(e.roomId),
+                                                 e.sender)
+                        : QString{};
     }
     case SenderInitialsRole: return senderInitials(e);
     case StableEventIdRole: return e.itemId.isEmpty() ? e.eventId : e.itemId;
@@ -2094,6 +2126,7 @@ void TimelineModel::onLoggedOut()
     // account A must not linger into account B's session.
     m_senderAvatarIndex.clear();
     m_roomId.clear();
+    m_realRoomId.clear();
     endResetModel();
     Q_EMIT roomIdChanged();
     Q_EMIT countChanged();
@@ -2110,7 +2143,12 @@ void TimelineModel::onTypingChanged(const QString &roomId)
 
 void TimelineModel::onMembersChanged(const QString &roomId)
 {
-    if (roomId != m_roomId) return;
+    // m_realRoomId, NOT m_roomId. membersChanged always names the REAL room
+    // (RustSdkMatrixClient emits it with the room_id of the roster fetch), so
+    // a thread model — whose m_roomId is the composite — never matched and
+    // this handler had never once run for a thread panel. Every identity it
+    // re-announces stayed on its localpart fallback for the session.
+    if (roomId != m_realRoomId) return;
     // PRECISE, since 2026-09-05. This used to clearRenderedHtml() and
     // announce FormattedBodyRole + MessageSegmentsRole for EVERY row, so the
     // member fetch that follows each first room open rebuilt every message
@@ -2187,11 +2225,16 @@ void TimelineModel::refreshTypingText()
 {
     QString next;
     if (m_client && !m_roomId.isEmpty()) {
+        // typingUsersFor() keeps m_roomId DELIBERATELY: typing is a room-wide
+        // notice and a thread panel shows none today (onTypingChanged's guard
+        // is against the composite, so the composite is what must be asked
+        // here for the two to agree). The NAME lookup is a member lookup and
+        // takes the real room, so this stays correct if that ever changes.
         const auto users = m_client->typingUsersFor(m_roomId);
         QStringList names;
         for (const auto &u : users) {
             if (u == m_selfUserId) continue;
-            names.append(m_client->displayNameFor(m_roomId, u));
+            names.append(m_client->displayNameFor(m_realRoomId, u));
             if (names.size() >= 2) break;
         }
         if (users.size() == 1 && names.size() == 1)
@@ -2218,12 +2261,22 @@ void TimelineModel::markVisibleAsRead(int firstVisibleRow, int lastVisibleRow)
     Q_UNUSED(firstVisibleRow);
     Q_UNUSED(lastVisibleRow);
     if (!m_client || m_roomId.isEmpty()) return;
+    // ROOM TIMELINES ONLY, and that is a §8 requirement rather than caution.
+    // Until m_realRoomId existed this line passed the COMPOSITE, which
+    // RoomId::parse rejects on the Rust side — so for a thread model it was a
+    // guaranteed no-op that logged "read receipt command rejected". Reducing
+    // the id would silently turn it into a real send: an UNTHREADED m.read
+    // naming a thread reply's event id, which is the wrong receipt for a
+    // thread panel (a thread owes an MSC3771 threaded receipt, and the SDK
+    // exposes a different call for it). There is no caller today; the guard
+    // is here so wiring one cannot quietly ship the wrong protocol call.
+    if (MatrixClient::isThreadTimelineId(m_roomId)) return;
     // v0.5.11: the scan is shared with ReadReceiptCoordinator. This direct
     // path remains for explicit user gestures; the automatic policy
     // (focus/visibility/debounce) lives in the coordinator.
     const QString eventId = latestReadableEventId();
     if (!eventId.isEmpty())
-        m_client->sendReadReceipt(m_roomId, eventId); // deduped downstream
+        m_client->sendReadReceipt(m_realRoomId, eventId); // deduped downstream
 }
 
 QString TimelineModel::latestReadableEventId(qint64 *timestampMs) const
@@ -2409,7 +2462,7 @@ QString TimelineModel::sanitizedHtmlForEvent(const QString &eventId) const
     if (!event || event->isVirtual() || event->redacted
         || event->formattedBody.isEmpty())
         return {};
-    const QString roomId = m_roomId;
+    const QString roomId = m_realRoomId;
     MatrixClient *client = m_client;
     return MessageHtml::sanitize(
         event->formattedBody,
@@ -2716,7 +2769,7 @@ QString TimelineModel::sanitizeHtml(const QString &html) const
 {
     if (html.isEmpty())
         return {};
-    const QString roomId = MatrixClient::threadTimelineRoomId(m_roomId);
+    const QString roomId = m_realRoomId;   // was: the same reduction, inline
     MatrixClient *client = m_client;
     return MessageHtml::sanitize(
         html,

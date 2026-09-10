@@ -64,15 +64,50 @@ public:
     QList<RoomInfo> rooms() const override { return {}; }
     QList<TimelineEvent> timeline(const QString &roomId) const override
     {
-        return roomId == kRoom ? mirror : QList<TimelineEvent>{};
+        return (roomId == kRoom || (!mirrorAlias.isEmpty()
+                                    && roomId == mirrorAlias))
+            ? mirror : QList<TimelineEvent>{};
     }
-    QString displayNameFor(const QString &, const QString &userId) const override
+    // A second id the same `mirror` answers to, so a thread model can be
+    // driven by the composite timeline id it is really bound to.
+    QString mirrorAlias;
+    // ROOM-KEYED LOOKUPS, deliberately. A real member cache is a per-room map
+    // and answers the bare user id for a room it does not hold — which is the
+    // "unresolved" sentinel every caller in TimelineModel falls back on. A
+    // fake that IGNORES its roomId argument cannot see a caller passing the
+    // wrong id, and this one did until 2026-09-10: it is what let a thread
+    // model resolve every identity against the composite timeline id and
+    // still pass every case here. `displayNames`/`avatarMxc` stay the
+    // room-agnostic maps the existing cases use; these take precedence, and
+    // once a test scopes one a miss is a miss.
+    QHash<QString, QHash<QString, QString>> roomDisplayNames;
+    QHash<QString, QHash<QString, QString>> roomAvatarMxc;
+    // Every roomId a lookup was made with, so a test can assert on the ID
+    // rather than only on the answer.
+    mutable QStringList displayNameRoomsAsked;
+    QString displayNameFor(const QString &roomId,
+                           const QString &userId) const override
     {
         ++displayNameLookups;
+        displayNameRoomsAsked.append(roomId);
+        const auto scoped = roomDisplayNames.constFind(roomId);
+        if (scoped != roomDisplayNames.constEnd()) {
+            const auto name = scoped->constFind(userId);
+            if (name != scoped->constEnd())
+                return name.value();
+        }
+        if (!roomDisplayNames.isEmpty())
+            return userId;   // scoped fixture: a miss is a miss
         return displayNames.value(userId, userId);
     }
-    QString avatarMxcFor(const QString &, const QString &userId) const override
+    QString avatarMxcFor(const QString &roomId,
+                         const QString &userId) const override
     {
+        const auto scoped = roomAvatarMxc.constFind(roomId);
+        if (scoped != roomAvatarMxc.constEnd())
+            return scoped->value(userId);
+        if (!roomAvatarMxc.isEmpty())
+            return {};
         return avatarMxc.value(userId);
     }
     QStringList typingUsersFor(const QString &) const override { return typingUsers; }
@@ -87,7 +122,13 @@ public:
     void redactEvent(const QString &, const QString &, const QString &) override {}
     void toggleReaction(const QString &, const QString &, const QString &) override {}
     void sendTyping(const QString &, bool, int) override {}
-    void sendReadReceipt(const QString &, const QString &) override {}
+    // RECORDED, not swallowed: markVisibleAsRead's whole contract is which
+    // room id it names and whether it fires at all.
+    QList<QPair<QString, QString>> readReceipts;
+    void sendReadReceipt(const QString &roomId, const QString &eventId) override
+    {
+        readReceipts.append({ roomId, eventId });
+    }
     void sendImage(const QString &, const QString &) override {}
     void sendFile(const QString &, const QString &) override {}
     void loadOlderMessages(const QString &) override {}
@@ -176,8 +217,18 @@ private Q_SLOTS:
     void messageSegmentsStayEmptyAndFreeForOrdinaryBodies();
     // v0.7.4 (C2): who reacted, resolved like every other identity.
     void reactionRolesNameTheReactorsAndKeepTheUncappedTotal();
+    // §8: a thread model's roomId is the COMPOSITE `room ␟ thread ␟ root`,
+    // and no room-keyed lookup may ever be made with it.
+    void threadModelResolvesEveryIdentityAgainstTheRealRoom();
+    void memberHydrationReachesAThreadModel();
+    void anOrdinaryRoomModelStillAsksWithItsOwnRoomId();
+    void markVisibleAsReadNeverSendsARoomReceiptForAThread();
 
 private:
+    // Bind the model to the composite id ThreadController really gives it,
+    // with `mirror` reachable under that id and every event stamped with it —
+    // which is what RustTimelineIngest does for a thread timeline.
+    QString openThreadModel();
     FakeClient *m_client = nullptr;
     TimelineModel *m_model = nullptr;
 };
@@ -1988,6 +2039,171 @@ void TimelineModelDiffTest::receiptsOnBodilessRowsLandOnTheRowAbove()
     QCOMPARE(readers(callRow), QStringList{ QStringLiteral("@erin:example.org") });
     QCOMPARE(readers(msgRow), (QStringList{ QStringLiteral("@bob:example.org"),
                                            QStringLiteral("@carol:example.org") }));
+}
+
+// ── §8: the composite thread-timeline id is not a room id ─────────────────
+//
+// ThreadController::open() does `m_model.setRoomId(timelineId())`, so a
+// thread panel's TimelineModel carries `room ␟ thread ␟ root` as its roomId
+// and every event it holds is stamped with the same composite (that is what
+// RustTimelineIngest writes into TimelineEvent::roomId, and what the model's
+// own diff routing compares against). NOTHING keyed by a room is keyed by it.
+// Before 2026-09-10 the member lookups were made with it anyway, so in the
+// thread panel every identity that was not already carried on the event fell
+// back to the localpart with no avatar, for the whole session — and the
+// hydration that would have corrected it could not fire, because
+// membersChanged names the REAL room and the guard compared it against the
+// composite.
+//
+// These cases fail on the unfixed model: the fixture holds names and avatars
+// under the REAL room only, exactly like a real member cache.
+
+QString TimelineModelDiffTest::openThreadModel()
+{
+    const QString threadId = MatrixClient::threadTimelineId(
+        kRoom, QStringLiteral("$root"));
+    m_client->mirrorAlias = threadId;
+    for (auto &event : m_client->mirror)
+        event.roomId = threadId;
+    m_model->setRoomId(threadId);
+    return threadId;
+}
+
+void TimelineModelDiffTest::threadModelResolvesEveryIdentityAgainstTheRealRoom()
+{
+    const QString alice = QStringLiteral("@alice:example.org");
+    const QString bob = QStringLiteral("@bob:example.org");
+    // A member cache that holds the ROOM, and nothing under the composite.
+    m_client->roomDisplayNames[kRoom] = { { alice, QStringLiteral("Alice A") },
+                                          { bob, QStringLiteral("Bob B") } };
+    m_client->roomAvatarMxc[kRoom] = { { alice, QStringLiteral("mxc://s/av") } };
+
+    TimelineEvent reply = makeEvent(QStringLiteral("$r1"), QStringLiteral("hi"));
+    reply.sender = alice;               // no senderDisplayName on the event:
+    reply.senderDisplayName.clear();    // the member lookup is the only source
+    reply.replyToSenderId = bob;
+    reply.readBy = { { bob, Q_INT64_C(1700000004000) } };
+    reply.readByTotal = 1;
+    Reaction reaction;
+    reaction.key = QString::fromUtf8("\U0001F44D");
+    reaction.count = 1;
+    reaction.senders = { bob };
+    reply.reactions = { reaction };
+    m_client->mirror.append(reply);
+
+    const QString threadId = openThreadModel();
+    QCOMPARE(m_model->roomId(), threadId);
+    const int row = m_model->rowCount() - 1;
+    const QModelIndex idx = m_model->index(row);
+
+    QCOMPARE(m_model->data(idx, TimelineModel::SenderDisplayNameRole).toString(),
+             QStringLiteral("Alice A"));
+    QCOMPARE(m_model->data(idx, TimelineModel::SenderAvatarMxcRole).toString(),
+             QStringLiteral("mxc://s/av"));
+    QCOMPARE(m_model->data(idx, TimelineModel::ReplyToSenderRole).toString(),
+             QStringLiteral("Bob B"));
+
+    const QVariantList receipts =
+        m_model->data(idx, TimelineModel::ReadReceiptsRole).toList();
+    QCOMPARE(receipts.size(), 1);
+    QCOMPARE(receipts.first().toMap()
+                 .value(QStringLiteral("displayName")).toString(),
+             QStringLiteral("Bob B"));
+
+    const QVariantList reactions =
+        m_model->data(idx, TimelineModel::ReactionsRole).toList();
+    QCOMPARE(reactions.size(), 1);
+    QCOMPARE(reactions.first().toMap()
+                 .value(QStringLiteral("reactorNames")).toStringList(),
+             QStringList{ QStringLiteral("Bob B") });
+
+    // And the composite never reached the member cache at all: a lookup made
+    // with it is the defect, whatever it happened to answer.
+    QVERIFY2(!m_client->displayNameRoomsAsked.contains(threadId),
+             "a member lookup was made with the composite timeline id");
+    QVERIFY(m_client->displayNameRoomsAsked.contains(kRoom));
+}
+
+void TimelineModelDiffTest::memberHydrationReachesAThreadModel()
+{
+    const QString alice = QStringLiteral("@alice:example.org");
+    TimelineEvent reply = makeEvent(QStringLiteral("$r1"), QStringLiteral("hi"));
+    reply.sender = alice;
+    reply.senderDisplayName.clear();
+    m_client->mirror.append(reply);
+    openThreadModel();
+    const int row = m_model->rowCount() - 1;
+    const QModelIndex idx = m_model->index(row);
+    // Nothing known yet: the localpart, which is the state the report
+    // described as permanent.
+    QCOMPARE(m_model->data(idx, TimelineModel::SenderDisplayNameRole).toString(),
+             QStringLiteral("alice"));
+
+    // The roster lands. membersChanged carries the REAL room id — that is
+    // what RustSdkMatrixClient emits, and it is why the composite guard meant
+    // this handler had never once run for a thread panel.
+    m_client->roomDisplayNames[kRoom] = { { alice, QStringLiteral("Alice A") } };
+    QSignalSpy changed(m_model, &TimelineModel::dataChanged);
+    Q_EMIT m_client->membersChanged(kRoom);
+    QVERIFY2(!changed.isEmpty(),
+             "member hydration never reached the thread model");
+    QCOMPARE(m_model->data(idx, TimelineModel::SenderDisplayNameRole).toString(),
+             QStringLiteral("Alice A"));
+
+    // A DIFFERENT room's hydration still must not touch this model.
+    QSignalSpy other(m_model, &TimelineModel::dataChanged);
+    Q_EMIT m_client->membersChanged(QStringLiteral("!elsewhere:example.org"));
+    QVERIFY(other.isEmpty());
+}
+
+void TimelineModelDiffTest::anOrdinaryRoomModelStillAsksWithItsOwnRoomId()
+{
+    // The reduction is identity for a room id with no separator in it, so the
+    // ordinary path is unchanged — including the hydration guard.
+    const QString alice = QStringLiteral("@alice:example.org");
+    m_client->roomDisplayNames[kRoom] = { { alice, QStringLiteral("Alice A") } };
+    TimelineEvent m = makeEvent(QStringLiteral("$r1"), QStringLiteral("hi"));
+    m.sender = alice;
+    m.senderDisplayName.clear();
+    m_client->mirror.append(m);
+    Q_EMIT m_client->eventAppended(kRoom, m);
+    const QModelIndex idx = m_model->index(m_model->rowCount() - 1);
+    QCOMPARE(m_model->data(idx, TimelineModel::SenderDisplayNameRole).toString(),
+             QStringLiteral("Alice A"));
+    for (const QString &asked : m_client->displayNameRoomsAsked)
+        QCOMPARE(asked, kRoom);
+
+    QSignalSpy changed(m_model, &TimelineModel::dataChanged);
+    Q_EMIT m_client->membersChanged(kRoom);
+    QVERIFY(!changed.isEmpty());
+}
+
+// A THREAD PANEL OWES A THREADED RECEIPT, SO IT MUST SEND NO ROOM ONE.
+//
+// Before m_realRoomId this path handed the COMPOSITE to sendReadReceipt, and
+// the Rust side's RoomId::parse rejected it — a guaranteed no-op that merely
+// logged. Reducing the id for every other lookup would have turned it into a
+// real, WRONG send: an unthreaded m.read naming a thread reply's event id.
+// There is no caller today; this pins the guard so that wiring one cannot
+// quietly ship the wrong protocol call.
+//
+// FAIL-ON-OLD: against the reduction without the guard, the thread half sends
+// one receipt naming the real room and the first QCOMPARE fails.
+void TimelineModelDiffTest::markVisibleAsReadNeverSendsARoomReceiptForAThread()
+{
+    openThreadModel();
+    m_model->markVisibleAsRead(0, m_model->rowCount() - 1);
+    QCOMPARE(m_client->readReceipts.size(), 0);
+
+    // The ordinary room still sends, and names the room it is bound to.
+    m_client->readReceipts.clear();
+    m_client->mirrorAlias.clear();
+    for (auto &event : m_client->mirror)
+        event.roomId = kRoom;
+    m_model->setRoomId(kRoom);
+    m_model->markVisibleAsRead(0, m_model->rowCount() - 1);
+    QCOMPARE(m_client->readReceipts.size(), 1);
+    QCOMPARE(m_client->readReceipts.first().first, kRoom);
 }
 
 QTEST_GUILESS_MAIN(TimelineModelDiffTest)
