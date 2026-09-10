@@ -26,7 +26,38 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.9.3** (`v0.9.3` -> `7306dde`), tagged
+Latest published release: **Lightning 0.9.4** (`v0.9.4` -> `bcea599`), tagged
+2026-09-10 by **project 6** pipeline **186, 20/20 GREEN ON THE FIRST
+ATTEMPT** — the first fully clean release run since 0.7.6's pipeline 111.
+Notes in `docs/releases/v0.9.4.md`. The synchronized version reads **0.9.4**
+in `CMakeLists.txt` (both `project()` and `APP_VERSION_LABEL`),
+`rust/Cargo.toml` and `rust/Cargo.lock`.
+
+The anonymous verification bar (§14) was run for **0.9.4** on 2026-09-10 and
+PASSED IN FULL: ten package links 200; the manifest reads 0.9.4 / `v0.9.4`
+with six artifacts all carrying `mirror_url` and macOS correctly ABSENT; the
+Ed25519 signature VERIFIED against the key extracted from the shipped `.deb`
+(`pnNX0yQ…`, key id `lightning-release-2026a`) with a one-field-changed copy
+REJECTED; the GitHub tag peels to `bcea599`; 10 mirror assets; and the
+AppImage fetched FROM THE MIRROR matches the GitLab-signed SHA-256 exactly.
+
+**AppImage validated as an artifact, not just as a job.** It runs, reports
+`Lightning 0.9.4`, its media engine is built in, both call engines are
+available, and the recorded 0.9.0 gaps stay closed — Qt's TLS backends
+(`libqopensslbackend.so`) and the Wayland shell integration
+(`libxdg-shell.so`) are both in the payload. TWO THINGS TO KNOW. It cannot be
+launched BARE on this NixOS host (`libEGL.so.1: cannot open shared object
+file`) because graphics libraries must come from the host and NixOS does not
+put them on the standard path — that is the host, not the package, and
+`nix-shell -p appimage-run` runs it correctly. And **`gst-plugin-scanner` is
+NOT staged in the AppImage**, so it prints `External plugin loader failed` at
+every launch and falls back to scanning in-process. Same defect the macOS
+bundle had and the same fix shape (stage the helper, derive its path);
+`applyBundledScannerPath()` is already exported and tested, so only the
+packaging half plus dropping the `Q_OS_MACOS` guard is missing. Log noise and
+lost crash isolation, NOT a call failure — the engine reports available.
+
+Previous release: **Lightning 0.9.3** (`v0.9.3` -> `7306dde`), tagged
 2026-09-08 by **project 6** pipeline **183, 21/22** (the one red job is
 `mirror-update-manifest-to-github`, `allow_failure`, and it was a false
 negative: see below); notes in `docs/releases/v0.9.3.md`. The synchronized
@@ -123,6 +154,7 @@ the same round; both were already in the lock file, so the build stays
 
 | Version | Commit | Deploy pipeline | Notes file |
 |---|---|---|---|
+| 0.9.4 | `bcea599` | **project 6** 186, **20/20 green first attempt** | `docs/releases/v0.9.4.md` |
 | 0.9.3 | `7306dde` | **project 6** 183, 21/22 (the red one is the allow_failure manifest mirror, a CDN race, not the release) | `docs/releases/v0.9.3.md` |
 | 0.9.2 | `2545391` | **project 6** 180, 22/22 (177/178/179 lost to runner memory; 176 to the migration's own path bug) | `docs/releases/v0.9.2.md` |
 | 0.9.1 | `d2e343b` | 175, 22/22 (174 failed validate-appimage) | `docs/releases/v0.9.1.md` |
