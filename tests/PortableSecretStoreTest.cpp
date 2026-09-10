@@ -54,6 +54,7 @@ private Q_SLOTS:
     void aSubstitutedFallbackVouchesForAReadThatFoundSomething();
     void aSubstitutedFallbackStillRefusesToVouchForAMiss();
     void anUnsubstitutedFallbackTreatsAMissAsAFact();
+    void aSubstitutedFallbackTrustsAMissForAnAccountItAlreadyHolds();
 
 private:
     static QString secretsDirIn(const QTemporaryDir &root);
@@ -721,6 +722,42 @@ void PortableSecretStoreTest::anUnsubstitutedFallbackTreatsAMissAsAFact()
                               QStringLiteral("access_token")),
              QStringLiteral("syt_real_token"));
     QVERIFY(!store.lastReadFailed());
+}
+
+void PortableSecretStoreTest::aSubstitutedFallbackTrustsAMissForAnAccountItAlreadyHolds()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    useTemporarySettings(root, QStringLiteral("fallback-known-account"));
+    InsecureFallbackSecretStore store(nullptr, /*substitutedForNative=*/true);
+
+    // This account's record demonstrably lives HERE: the store holds its
+    // device id. A native store it stood in for is not where this account is
+    // being kept, so a missing access token is a fact about the account and
+    // not a blind spot — which is what lets a genuinely expired sign-in be
+    // reported as expired instead of as "unlock the keyring", advice that
+    // cannot be followed on a machine that has no keyring.
+    const QString known = QStringLiteral("@known:example.org");
+    QVERIFY(store.storeSecret(known, QStringLiteral("device_id"),
+                              QStringLiteral("ABCDEF")));
+    QVERIFY(store.readSecret(known, QStringLiteral("access_token")).isEmpty());
+    QVERIFY2(!store.lastReadFailed(),
+             "a miss was called unknowable for an account this store already "
+             "holds secrets for, so an expired sign-in could never be reported");
+
+    // ...and a STRANGER is still unknowable, which is the §6 half. Same store,
+    // same substituted mode, one different user id.
+    QVERIFY(store.readSecret(QStringLiteral("@stranger:example.org"),
+                             QStringLiteral("access_token")).isEmpty());
+    QVERIFY2(store.lastReadFailed(),
+             "a miss for an account this store has never held anything for was "
+             "treated as authoritative; the native store may hold it");
+
+    // The wipe takes the record with it, so the account becomes a stranger
+    // again rather than staying permanently 'known'.
+    QVERIFY(store.clearAccountSecrets(known));
+    QVERIFY(store.readSecret(known, QStringLiteral("access_token")).isEmpty());
+    QVERIFY(store.lastReadFailed());
 }
 
 QTEST_MAIN(PortableSecretStoreTest)

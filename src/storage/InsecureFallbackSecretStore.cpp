@@ -31,14 +31,29 @@ QString InsecureFallbackSecretStore::backendName() const
     return QStringLiteral("insecure fallback (QSettings)");
 }
 
-QString InsecureFallbackSecretStore::settingsKey(const QString &userId,
-                                                 const QString &key) const
+QString InsecureFallbackSecretStore::accountGroup(const QString &userId)
 {
-    // Escape the ':' in Matrix user ids so QSettings groups don't break.
+    // Escape the separators in Matrix user ids so QSettings groups don't break.
     QString safeUser = userId;
     safeUser.replace(QLatin1Char('/'), QLatin1Char('_'));
     safeUser.replace(QLatin1Char('\\'), QLatin1Char('_'));
-    return QStringLiteral("%1/%2/%3").arg(QLatin1String(kGroup), safeUser, key);
+    return QStringLiteral("%1/%2").arg(QLatin1String(kGroup), safeUser);
+}
+
+QString InsecureFallbackSecretStore::settingsKey(const QString &userId,
+                                                 const QString &key) const
+{
+    return QStringLiteral("%1/%2").arg(accountGroup(userId), key);
+}
+
+bool InsecureFallbackSecretStore::hasAnySecretFor(const QString &userId) const
+{
+    // WHETHER THIS ACCOUNT'S RECORD LIVES HERE, which is the only thing that
+    // can make a miss under substitution conclusive. See lastReadFailed().
+    m_store->beginGroup(accountGroup(userId));
+    const bool any = !m_store->childKeys().isEmpty();
+    m_store->endGroup();
+    return any;
 }
 
 bool InsecureFallbackSecretStore::storeSecret(const QString &userId,
@@ -57,6 +72,7 @@ QString InsecureFallbackSecretStore::readSecret(const QString &userId,
     m_lastError.clear();
     m_lastReadFailed = false;
     m_lastReadFound = false;
+    m_lastReadUserHasRecord = false;
     const QVariant value = m_store->value(settingsKey(userId, key));
     // ASK, do not assume. QSettings reports an unreadable or unparsable
     // backing file only through status(); value() itself answers an empty
@@ -74,10 +90,12 @@ QString InsecureFallbackSecretStore::readSecret(const QString &userId,
         return {};
     }
     // A VALUE IN HAND is what lets a substituted store vouch for this read.
-    // Empty is a MISS, not a failure — and under substitution a miss is
-    // exactly the case this store cannot speak to (see lastReadFailed()).
+    // Empty is a MISS — not a failure, and not automatically unknowable
+    // either: see lastReadFailed() for what makes a miss conclusive.
     const QString secret = value.toString();
     m_lastReadFound = !secret.isEmpty();
+    // Only worth asking on a miss, and only the miss consults it.
+    m_lastReadUserHasRecord = m_lastReadFound || hasAnySecretFor(userId);
     return secret;
 }
 
@@ -93,10 +111,7 @@ bool InsecureFallbackSecretStore::deleteSecret(const QString &userId,
 bool InsecureFallbackSecretStore::clearAccountSecrets(const QString &userId)
 {
     m_lastError.clear();
-    QString safeUser = userId;
-    safeUser.replace(QLatin1Char('/'), QLatin1Char('_'));
-    safeUser.replace(QLatin1Char('\\'), QLatin1Char('_'));
-    m_store->beginGroup(QStringLiteral("%1/%2").arg(QLatin1String(kGroup), safeUser));
+    m_store->beginGroup(accountGroup(userId));
     m_store->remove(QString{}); // remove all keys in this group
     m_store->endGroup();
     m_store->sync();

@@ -57,22 +57,34 @@ public:
     // circuits on it, so a genuinely EXPIRED sign-in could never be reported
     // as needing one.
     //
-    // A MISS UNDER SUBSTITUTION STAYS INCONCLUSIVE, deliberately. The native
-    // store may hold the secret this one cannot see, and §6 is explicit that
-    // "no readable access token" is not "no account" — that conflation is
-    // what once armed `requireLocalReset` against a real crypto store.
+    // A MISS UNDER SUBSTITUTION IS INCONCLUSIVE ONLY WHILE THIS ACCOUNT IS A
+    // STRANGER HERE. §6 is explicit that "no readable access token" is not
+    // "no account" — that conflation is what once armed `requireLocalReset`
+    // against a real crypto store — so a miss for a user this store has never
+    // held anything for stays unknowable: the native store it stood in for
+    // may well hold the secret.
+    //
+    // But if the INI already holds ANY other secret for that same user, this
+    // store IS where that account's record lives, and a missing key is then a
+    // FACT about it rather than a blind spot. Without that distinction a
+    // genuinely expired sign-in on a keyring-less machine could never be
+    // reported as expired — the user was told "unlock the keyring" forever,
+    // advice that cannot be followed because there is no keyring, and the
+    // password login it points at is bounced back as ExistingStoreNeedsRestore.
     //
     // AND THE BACKING FILE CAN BE BROKEN whatever the mode. A truncated INI,
     // a permissions change or a half-written config makes QSettings answer
     // every value() with an empty QVariant and report it only through
-    // status(), which readSecret() asks. That outcome outranks both.
+    // status(), which readSecret() asks. That outcome outranks everything.
     bool lastReadFailed() const override
     {
         if (m_lastReadFailed)
             return true;              // the file itself could not be read
         if (!m_substitutedForNative)
             return false;             // this store IS the store; a miss is a fact
-        return !m_lastReadFound;      // substituted: only a MISS is ambiguous
+        if (m_lastReadFound)
+            return false;             // a value in hand is never ambiguous
+        return !m_lastReadUserHasRecord;   // a miss: conclusive only if we know the account
     }
     QString backendName() const override;
 
@@ -87,7 +99,13 @@ public:
     QString lastError() const override { return m_lastError; }
 
 private:
+    /// `secrets/<escaped user id>` — the QSettings group one account's secrets
+    /// live under. Shared by the key builder, the record probe and the account
+    /// wipe, which each had their own copy of the escaping.
+    static QString accountGroup(const QString &userId);
     QString settingsKey(const QString &userId, const QString &key) const;
+    /// True when this store holds at least one secret for `userId`.
+    bool hasAnySecretFor(const QString &userId) const;
 
     std::unique_ptr<QSettings> m_store;
     mutable QString m_lastError;
@@ -99,6 +117,11 @@ private:
     /// proven yet, which is the honest default for a store standing in for
     /// one that failed.
     mutable bool m_lastReadFound = false;
+    /// Whether the account of the most recent readSecret() has ANY secret in
+    /// this store. Only a MISS consults it, and only in substituted mode: it
+    /// is what separates "this store has never served that account" from
+    /// "this store serves that account and does not have that key".
+    mutable bool m_lastReadUserHasRecord = false;
     // The outcome of the most recent readSecret(), taken from the backing
     // QSettings' own status rather than assumed. Mutable because reading is
     // const and the outcome of a read is exactly what this records.
