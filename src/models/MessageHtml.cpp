@@ -55,43 +55,102 @@ struct ParsedTag {
     QString raw; // inside of <...>, sans the surrounding brackets
 };
 
-// Parse a tag beginning at html[pos] == '<'. endOut receives the index just
-// past the closing '>'. valid is false for a stray '<' that is not a tag.
-ParsedTag parseTag(const QString &html, qsizetype pos, qsizetype &endOut)
+// One left-to-right pass over one string, and the ONLY way to parse a tag.
+//
+// WHY THIS IS A CLASS AND NOT A FREE FUNCTION. Parsing used to be
+// "indexOf('>') from HERE", which is linear in the REST of the input — and
+// every loop below advances by ONE character when a '<' turns out not to be
+// a tag. A `formatted_body` of "<a" repeated 32k times therefore cost ~10^9
+// QChar reads inside TimelineModel::data(), on the GUI thread, from a
+// message any user can send in any room. The free function DID discover
+// "there is no '>' left" and set endOut to the end of the input; all four
+// callers threw that conclusion away and advanced one character, and a flag
+// they could equally forget to read would have been the same design. A
+// scanner that OWNS the cursor cannot be bypassed: the '>' search always
+// RESUMES where the last one stopped, so the whole pass is linear, and no
+// future caller can reintroduce the cost by forgetting to check something.
+class TagScanner
 {
-    ParsedTag t;
-    endOut = pos + 1;
-    // A '<' only starts a tag when immediately followed by a letter or '/'
-    // (HTML rule). "a < b" is literal text, not a broken tag.
-    if (pos + 1 >= html.size())
-        return t;
-    const QChar after = html[pos + 1];
-    if (!after.isLetter() && after != QLatin1Char('/'))
-        return t;
-    const qsizetype gt = html.indexOf(QLatin1Char('>'), pos + 1);
-    if (gt < 0) {
-        endOut = html.size();
+public:
+    explicit TagScanner(const QString &s) : m_s(s) {}
+    TagScanner(QString &&) = delete; // the scanner does not own the string
+
+    // Parse a tag beginning at m_s[pos] == '<'. endOut receives the index
+    // just past the closing '>'. valid is false for a stray '<' that is not
+    // a tag. `pos` must not move backwards between calls (every caller is a
+    // single forward pass); if it ever does the memo is simply rebuilt.
+    ParsedTag tagAt(qsizetype pos, qsizetype &endOut)
+    {
+        ParsedTag t;
+        endOut = pos + 1;
+        const qsizetype n = m_s.size();
+        // A '<' only starts a tag when immediately followed by a letter or
+        // '/' (HTML rule). "a < b" is literal text, not a broken tag.
+        if (pos + 1 >= n)
+            return t;
+        const QChar after = m_s[pos + 1];
+        if (!after.isLetter() && after != QLatin1Char('/'))
+            return t;
+        const qsizetype gt = gtAtOrAfter(pos + 1);
+        if (gt < 0) {
+            endOut = n;
+            return t;
+        }
+        endOut = gt + 1;
+        // VIEWS, not copies. An interior is materialized only for a tag that
+        // actually parses, because "</" repeated with a single '>' far away
+        // is a '<' that is never a tag — and copying the whole remainder
+        // twice (mid(), then mid(1)) to discover that was the second half of
+        // the quadratic cost, in memcpy rather than in comparisons.
+        const QStringView raw =
+            QStringView(m_s).mid(pos + 1, gt - pos - 1).trimmed();
+        if (raw.isEmpty())
+            return t;
+        QStringView inside = raw;
+        if (inside.startsWith(QLatin1Char('/'))) {
+            t.closing = true;
+            inside = inside.mid(1).trimmed();
+        }
+        qsizetype i = 0;
+        while (i < inside.size()
+               && (inside[i].isLetterOrNumber() || inside[i] == QLatin1Char('-')))
+            ++i;
+        if (i == 0)
+            return t; // "< " or "</ " — not a real tag
+        t.name = inside.left(i).toString().toLower();
+        t.raw = raw.toString();
+        t.valid = true;
         return t;
     }
-    endOut = gt + 1;
-    QString inside = html.mid(pos + 1, gt - pos - 1).trimmed();
-    if (inside.isEmpty())
-        return t;
-    t.raw = inside;
-    if (inside.startsWith(QLatin1Char('/'))) {
-        t.closing = true;
-        inside = inside.mid(1).trimmed();
+
+private:
+    // Index of the first '>' at or after `from`, or -1 when there is none.
+    //
+    // The memo is what makes the pass linear. m_gt is the first '>' at or
+    // after m_from, so for any later `from` <= m_gt there is no '>' in
+    // [from, m_gt) and m_gt is still the answer — O(1). A rescan only ever
+    // starts PAST the previous answer, so the scanned ranges are disjoint
+    // and their total is the length of the input. "None left" is remembered
+    // rather than rediscovered at every remaining position.
+    qsizetype gtAtOrAfter(qsizetype from)
+    {
+        if (from >= m_from) {
+            if (m_gt >= from)
+                return m_gt;
+            if (m_exhausted)
+                return -1;
+        }
+        m_from = from;
+        m_gt = m_s.indexOf(QLatin1Char('>'), from);
+        m_exhausted = (m_gt < 0);
+        return m_gt;
     }
-    qsizetype i = 0;
-    while (i < inside.size()
-           && (inside[i].isLetterOrNumber() || inside[i] == QLatin1Char('-')))
-        ++i;
-    if (i == 0)
-        return t; // "< " or "</ " — not a real tag
-    t.name = inside.left(i).toLower();
-    t.valid = true;
-    return t;
-}
+
+    const QString &m_s;
+    qsizetype m_from = 0;
+    qsizetype m_gt = -1;
+    bool m_exhausted = false;
+};
 
 QString extractHref(const QString &rawInside)
 {
@@ -299,6 +358,7 @@ bool isLayoutOnlyTag(const QString &name)
 bool richTextCarriesContent(const QString &rich)
 {
     const qsizetype n = rich.size();
+    TagScanner scanner(rich);
     qsizetype i = 0;
     while (i < n) {
         if (rich[i] != QLatin1Char('<')) {
@@ -313,7 +373,7 @@ bool richTextCarriesContent(const QString &rich)
             continue;
         }
         qsizetype end = 0;
-        const ParsedTag t = parseTag(rich, i, end);
+        const ParsedTag t = scanner.tagAt(i, end);
         if (!t.valid) {
             // A stray '<' the sanitizer escaped is text, so this can only be
             // malformed output; treat it as content rather than silently
@@ -351,6 +411,7 @@ bool containsCodeBlock(const QString &html)
         return false;
     int dropDepth = 0;
     const qsizetype n = html.size();
+    TagScanner scanner(html);
     qsizetype i = 0;
     while (i < n) {
         if (html[i] != QLatin1Char('<')) {
@@ -361,7 +422,7 @@ bool containsCodeBlock(const QString &html)
             continue;
         }
         qsizetype end = 0;
-        const ParsedTag t = parseTag(html, i, end);
+        const ParsedTag t = scanner.tagAt(i, end);
         if (!t.valid) {
             i += 1;
             continue;
@@ -531,10 +592,21 @@ bool mayHoldEmoji(const QString &html)
 // manufacture a tag.
 qsizetype entityEnd(const QString &html, qsizetype i)
 {
-    const qsizetype semi = html.indexOf(QLatin1Char(';'), i + 1);
-    if (semi < 0 || semi - i > 10)
+    // BOUND THE SEARCH, do not search the whole body and reject afterwards.
+    //
+    // This is the same shape as the tag scan above and the same magnitude:
+    // `indexOf(';', i + 1)` is linear in the REST of the string, markEmoji
+    // calls it once per `&` in every text run, and the `semi - i > 10` reject
+    // happens only after the scan has already run. A body of "&" repeated —
+    // remote input, from any user in any room — is O(n²) on the GUI thread.
+    // The reject already says no entity is longer than ten characters, so
+    // that is how far the search may look. Raised in review.
+    const qsizetype limit = qMin(i + 11, html.size());
+    const qsizetype semi = QStringView(html).mid(i + 1, limit - (i + 1))
+                               .indexOf(QLatin1Char(';'));
+    if (semi < 0)
         return -1;
-    return semi + 1;
+    return i + 1 + semi + 1;
 }
 
 } // namespace
@@ -561,6 +633,7 @@ QString MessageHtml::sanitize(
     QList<bool> spanIsSpoiler;
 
     const qsizetype n = in.size();
+    TagScanner scanner(in);
     qsizetype i = 0;
     while (i < n) {
         if (in[i] != QLatin1Char('<')) {
@@ -575,7 +648,7 @@ QString MessageHtml::sanitize(
 
         const qsizetype ltPos = i;
         qsizetype end = 0;
-        const ParsedTag t = parseTag(in, ltPos, end);
+        const ParsedTag t = scanner.tagAt(ltPos, end);
         if (!t.valid) {
             // Literal '<' (stray, or unterminated tag): escape only this
             // character and keep scanning the rest of the text.
@@ -961,12 +1034,28 @@ QList<MessageHtml::Segment> MessageHtml::segments(
     const MentionStyle &mentionStyle,
     bool revealSpoilers)
 {
+    // Bounds. A Matrix event is capped at 65536 bytes by the spec, so none of
+    // these is reachable from a well-formed server; they exist so a hostile or
+    // broken body degrades into "fewer segments" rather than into unbounded
+    // work. The input bound is deliberately ABOVE the code-text bound so the
+    // code-text bound is the binding one and can actually be proven.
+    //
+    // It is applied BEFORE containsCodeBlock() on purpose. `formatted_body`
+    // reaches this uncapped from the Rust bridge, and the cheap-reject scan
+    // that runs for EVERY message in the timeline was the one piece of work
+    // in here that no bound covered — the constants below bound the OUTPUT,
+    // not the scan. A body whose only <pre> sits past this cut could not have
+    // become a code segment anyway: the loop below never reads that far.
+    static constexpr qsizetype kMaxSegmentInput = 1024 * 1024;
+    const QString in = html.size() > kMaxSegmentInput
+        ? html.left(kMaxSegmentInput) : html;
+
     // The ordinary message: exactly one RichText segment whose text IS
     // sanitize()'s output. It is the SAME call, on the untouched input —
     // reproducing the sanitizer's bound or its scan here would make the two
     // free to drift, and the drift would be invisible until a body rendered
     // differently depending on which entry point read it.
-    if (!containsCodeBlock(html)) {
+    if (!containsCodeBlock(in)) {
         return QList<Segment>{
             Segment{SegmentKind::RichText,
                     sanitize(html, resolveDisplayName, ownUserId, mentionStyle,
@@ -974,19 +1063,10 @@ QList<MessageHtml::Segment> MessageHtml::segments(
                     QString()}};
     }
 
-    // Bounds. A Matrix event is capped at 65536 bytes by the spec, so none of
-    // these is reachable from a well-formed server; they exist so a hostile or
-    // broken body degrades into "fewer segments" rather than into unbounded
-    // work. The input bound is deliberately ABOVE the code-text bound so the
-    // code-text bound is the binding one and can actually be proven.
-    static constexpr qsizetype kMaxSegmentInput = 1024 * 1024;
     static constexpr qsizetype kMaxSegments = 64;
     // Counted in QChar (UTF-16) units, which is what bounds the memory the
     // renderer will hold.
     static constexpr qsizetype kMaxCodeChars = 256 * 1024;
-
-    const QString in = html.size() > kMaxSegmentInput
-        ? html.left(kMaxSegmentInput) : html;
 
     QList<Segment> out;
     QString richSource;   // raw source of the current RichText run
@@ -1034,6 +1114,7 @@ QList<MessageHtml::Segment> MessageHtml::segments(
     };
 
     const qsizetype n = in.size();
+    TagScanner scanner(in);
     qsizetype i = 0;
     while (i < n && !exhausted) {
         if (in[i] != QLatin1Char('<')) {
@@ -1053,7 +1134,7 @@ QList<MessageHtml::Segment> MessageHtml::segments(
 
         const qsizetype ltPos = i;
         qsizetype end = 0;
-        const ParsedTag t = parseTag(in, ltPos, end);
+        const ParsedTag t = scanner.tagAt(ltPos, end);
         if (!t.valid) {
             if (dropDepth == 0) {
                 // Inside a code block a stray '<' is a literal character of

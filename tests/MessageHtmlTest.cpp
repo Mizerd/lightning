@@ -16,6 +16,7 @@
 
 #include "models/MessageHtml.h"
 
+#include <QElapsedTimer>
 #include <QtTest/QtTest>
 
 namespace {
@@ -855,6 +856,97 @@ private Q_SLOTS:
         // An empty block emits nothing at all.
         QCOMPARE(segments(QStringLiteral("<pre><code>  </code></pre>")).size(),
                  0);
+    }
+
+    // ── The scan is LINEAR, and that is a security property ────────────
+    //
+    // Tag parsing used to answer "where does this tag end?" with an
+    // indexOf('>') from the current position — linear in the REST of the
+    // body — while every loop advances by ONE character when a '<' turns
+    // out not to be a tag. A formatted_body of "<a" repeated is therefore
+    // N^2/4 QChar reads on the GUI thread, inside TimelineModel::data(), from
+    // a message any user can send in any room. containsCodeBlock() made it
+    // worse by running on the UNTRUNCATED body.
+    //
+    // WHY A CLOCK AND NOT A COUNTER. There is no branch to assert on: the
+    // old code produced exactly the same OUTPUT, byte for byte, it just took
+    // half a minute over it. Complexity IS the defect, so complexity is what
+    // the case has to measure, and a fixture that merely finishes proves
+    // nothing.
+    //
+    // THE MARGIN, MEASURED rather than estimated (both payloads run against
+    // the pre-fix and post-fix parser, standalone, on this machine):
+    //
+    //     payload   unfixed -O2   fixed -O2   fixed -O0(=this build)
+    //     storm A     24742 ms       6 ms          56 ms
+    //     storm B     24626 ms       7 ms          63 ms
+    //
+    // The budget is 1500 ms. That is ~24x above the cost this build actually
+    // pays — a whole -j18 CTest run cannot stretch a single-threaded 60 ms
+    // of QChar scanning by twenty-four times — and ~16x below the unfixed
+    // cost, which the optimizer FAVOURS (a Debug build of the old parser is
+    // slower still). A tighter budget would buy nothing: the two costs differ
+    // by three orders of magnitude, not by a factor.
+    void aTagStormWithNoClosingBracketIsScannedInLinearTime()
+    {
+        // "<pre" gets past containsCodeBlock's cheap `contains("<pre")`
+        // reject so the real scan runs; with no '>' anywhere it is never a
+        // tag, so every '<' after it is a literal the loop steps over.
+        const QString hostile =
+            QStringLiteral("<pre") + QStringLiteral("<a").repeated(600000);
+        QElapsedTimer clock;
+        clock.start();
+        const auto segs = segments(hostile);
+        const qint64 ms = clock.elapsed();
+        QVERIFY2(ms < 1500,
+                 qPrintable(QStringLiteral("tag storm took %1 ms — the scan "
+                                           "is quadratic again").arg(ms)));
+        // And it is still a message: one RichText segment, no code block.
+        QCOMPARE(countOf(segs, MessageHtml::SegmentKind::CodeBlock), 0);
+    }
+
+    // The same defect wearing its other costume, and the one a bare "is
+    // there any '>' left?" check does NOT fix: a '>' that EXISTS but is far
+    // away. "</" is a '<' that passes the tag-start rule and then fails to
+    // parse, so the loop advances one character and the next one searches to
+    // that same distant '>' again — and, before the rewrite, copied the
+    // whole remainder twice per attempt (mid(), then mid(1)) to find out.
+    // Fails on any tree that only remembers "no '>' remains".
+    void aTagStormWithADistantClosingBracketIsAlsoLinear()
+    {
+        const QString hostile = QStringLiteral("<script><pre></script>")
+            + QStringLiteral("</").repeated(300000) + QStringLiteral(">");
+        QElapsedTimer clock;
+        clock.start();
+        const auto segs = segments(hostile);
+        const qint64 ms = clock.elapsed();
+        QVERIFY2(ms < 1500,
+                 qPrintable(QStringLiteral("closing-tag storm took %1 ms — "
+                                           "the scan is quadratic again")
+                                .arg(ms)));
+        // The only <pre> is inside dropped content, so there is no block.
+        QCOMPARE(countOf(segs, MessageHtml::SegmentKind::CodeBlock), 0);
+    }
+
+    // The rewrite must not have changed what any of these shapes RENDER as.
+    // Every '<' below is a literal character, and the sanitizer escapes
+    // exactly that character and keeps scanning the rest of the text.
+    void malformedTagShapesKeepTheirExactTextOutput()
+    {
+        QCOMPARE(sanitize(QStringLiteral("<a<a<a")),
+                 QStringLiteral("&lt;a&lt;a&lt;a"));
+        QCOMPARE(sanitize(QStringLiteral("</ >")), QStringLiteral("&lt;/ >"));
+        QCOMPARE(sanitize(QStringLiteral("</></>")),
+                 QStringLiteral("&lt;/>&lt;/>"));
+        // A '>' further along does not retroactively make the earlier '<'
+        // a tag; the whole run is one tag once one exists.
+        QCOMPARE(sanitize(QStringLiteral("<a<b>x")), QStringLiteral("x"));
+        // "< " is text, not a broken tag, and never was.
+        QCOMPARE(sanitize(QStringLiteral("a < b > c")),
+                 QStringLiteral("a &lt; b > c"));
+        // A real tag after a storm of literals is still parsed.
+        QCOMPARE(sanitize(QStringLiteral("</</<b>hi</b>")),
+                 QStringLiteral("&lt;/&lt;/<b>hi</b>"));
     }
 
     // A NUMBERED LIST THAT CONTINUES MUST KEEP ITS NUMBERS.
