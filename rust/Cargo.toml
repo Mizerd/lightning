@@ -127,6 +127,27 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 # `ffi_*` helpers), so no panic ever unwinds across the C boundary; tokio
 # tasks and our own threads are contained the same way. Abort bought nothing
 # and cost the session.
+
+# DEBUG INFO STAYS IN ITS OWN FILES, and this is a disk fix with a measured
+# number behind it. Every test binary LINKS the debug staticlib, and with
+# packed debug info each one gets its own copy of that crate's DWARF.
+#
+# Measured 2026-09-10 on this machine: `build` holds 199 test binaries at
+# 10.3 GB; `build-rust` holds 202 of the SAME C++ tests at 59.8 GB. Identical
+# (empty) CMAKE_BUILD_TYPE, so the ~49.5 GB difference is Rust debug info
+# copied 202 times. `readelf -S build-rust/trust-card-test` said 0.79 GB of
+# its 1.1 GB was `.debug_*`.
+#
+# "unpacked" leaves the DWARF beside the objects in target/ instead of copying
+# it into every consumer. Debugging is unaffected — gdb and lldb follow the
+# split files as long as the target directory is still there, which for a
+# local development build it is.
+#
+# ONLY the dev profile. [profile.release] below is what the packaging jobs
+# build, it already strips symbols, and nothing here touches it.
+[profile.dev]
+split-debuginfo = "unpacked"
+
 [profile.release]
 lto = true
 codegen-units = 1
