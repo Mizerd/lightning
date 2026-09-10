@@ -194,3 +194,32 @@ pdrag() {
     ydotool click 0x80 2>/dev/null            # left button UP
     sleep 0.5
 }
+
+# pidclick_nf — click WITHOUT re-activating the window first.
+#
+# pidclick calls focus_pid, and activating a window that already has an open
+# popup DISMISSES the popup, so every attempt to click a context-menu item
+# landed on whatever was underneath. Use this for anything inside a menu,
+# combo or other transient popup; the window is already active by definition,
+# because the popup is open.
+pidclick_nf() {
+    local pid="$1" rx="$2" ry="$3"
+    local g gx gy; g=$(geom_pid "$pid") || return 1; read -r gx gy _ _ <<<"$g"
+    moveto $((gx + rx)) $((gy + ry)) || return 1
+    ydotool click 0xC0
+    sleep 0.4
+}
+
+# TWO POPUP RULES, both learned the hard way on 2026-09-10.
+#
+# 1. NEVER shot_pid BETWEEN opening a menu and clicking an item in it.
+#    spectacle takes a capture that DISMISSES transient popups, so the click
+#    then lands on whatever was underneath — which for a message context menu
+#    is another message's row, and it looks exactly like a mis-aimed click.
+#    Measure the item's offset from the opening click ONCE, then replay
+#    open-then-click with no capture in between.
+# 2. Use pidclick_nf inside a popup. pidclick calls focus_pid, and activating
+#    a window that already has an open popup closes the popup.
+#
+# A file dialog is a WINDOW, not a popup, and is exempt from both — it shows
+# up in the window list under the same pid and can be typed into directly.
