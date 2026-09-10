@@ -83,6 +83,77 @@ private slots:
                  "a neighbouring directory was accepted as the bundle");
     }
 
+    // THE APPIMAGE'S HELPER IS REPORTED, AND NEVER SET FROM HERE.
+    //
+    // 0.9.4 shipped an AppImage that printed "External plugin loader failed"
+    // at every launch: it bundles its own GStreamer, whose compiled-in libexec
+    // path names the BUILD IMAGE. The AppRun hook now stages and exports the
+    // helper, exactly as it already does for the plugin path — the helper sits
+    // at usr/libexec/gstreamer-1.0/, not beside the binary at usr/bin/, so the
+    // macOS "beside the executable" rule cannot reach it — and this is the
+    // half that NOTICES, so --call-media-status names the helper instead of
+    // reporting GStreamer's own.
+    void theAppImagesOwnPluginScannerIsReported()
+    {
+        const QString appDir = QStringLiteral("/tmp/appimage_extracted_abc");
+        const QString scanner =
+            appDir + QStringLiteral("/usr/libexec/gstreamer-1.0/gst-plugin-scanner");
+
+        QCOMPARE(lightning::gst::appImageBundledScannerPath(appDir, scanner,
+                                                            QString{}),
+                 scanner);
+        // The hook sets both spellings; either one naming it is enough.
+        QCOMPARE(lightning::gst::appImageBundledScannerPath(appDir, QString{},
+                                                            scanner),
+                 scanner);
+        // Written the long way round, which is what $APPDIR expansion in a
+        // shell hook can legitimately produce.
+        QCOMPARE(lightning::gst::appImageBundledScannerPath(
+                     appDir,
+                     appDir + QStringLiteral("/usr/bin/../libexec/gstreamer-1.0/gst-plugin-scanner"),
+                     QString{}),
+                 scanner);
+    }
+
+    // ...AND IT MUST NOT CLAIM ONE THAT IS NOT IN USE.
+    //
+    // Same rule as the plugin path, and it is load-bearing for the same
+    // reason: graceful fallback and silent absence are the same observable,
+    // and a status line that says "there is a helper" when GStreamer is
+    // scanning in-process would hide the next packaging regression rather
+    // than expose it.
+    void aScannerTheHookNeverPointedAtIsNotReported()
+    {
+        const QString appDir = QStringLiteral("/tmp/appimage_extracted_abc");
+        const QString scanner =
+            appDir + QStringLiteral("/usr/libexec/gstreamer-1.0/gst-plugin-scanner");
+
+        // The hook did not run: the variables still name the host's helper.
+        QVERIFY2(lightning::gst::appImageBundledScannerPath(
+                     appDir,
+                     QStringLiteral("/usr/libexec/gstreamer-1.0/gst-plugin-scanner"),
+                     QString{}).isEmpty(),
+                 "a helper GStreamer was never pointed at was reported as the "
+                 "one in use");
+        // Not an AppImage at all.
+        QVERIFY(lightning::gst::appImageBundledScannerPath(
+                    QString{}, scanner, scanner).isEmpty());
+        // Neither variable set: the ordinary development case.
+        QVERIFY(lightning::gst::appImageBundledScannerPath(
+                    appDir, QString{}, QString{}).isEmpty());
+        // A COLON-JOINED LIST IS REFUSED, and this is the one place the rule
+        // differs from its plugin-path sibling. GST_PLUGIN_SCANNER names one
+        // EXECUTABLE; GStreamer would try to run the joined string verbatim,
+        // so accepting a list here would report a path that cannot run.
+        QVERIFY2(lightning::gst::appImageBundledScannerPath(
+                     appDir,
+                     QStringLiteral("/usr/libexec/gstreamer-1.0/gst-plugin-scanner:")
+                         + scanner,
+                     QString{}).isEmpty(),
+                 "a path LIST was accepted for a variable that names a single "
+                 "executable");
+    }
+
     // THE REGISTRY HELPER IS DERIVED, NEVER WRITTEN DOWN.
     //
     // The macOS bundle shipped with no `gst-plugin-scanner`, so every launch

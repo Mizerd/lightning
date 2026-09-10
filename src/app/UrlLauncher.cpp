@@ -35,8 +35,15 @@ QProcessEnvironment childEnvironment()
     // GST_PLUGIN_PATH_1_0 keeps its codecs -- and otherwise the variable is
     // REMOVED, never set to "" (an empty path entry means the current
     // directory to most of these loaders).
+    // BOTH SPELLINGS OF THE SCANNER. The AppRun hook exports the versioned
+    // GST_PLUGIN_SCANNER_1_0 as well as the plain one -- GStreamer reads the
+    // versioned name FIRST -- and a child that inherited only half of that
+    // would be pointed at a helper inside a mount that may already be gone.
+    // The hook's preserve list and this restore list are one contract in two
+    // files; changing either alone is the bug.
     for (const char *key : { "GST_PLUGIN_SYSTEM_PATH_1_0", "GST_PLUGIN_PATH_1_0",
-                             "GST_PLUGIN_SCANNER", "GST_REGISTRY_1_0",
+                             "GST_PLUGIN_SCANNER_1_0", "GST_PLUGIN_SCANNER",
+                             "GST_REGISTRY_1_0",
                              "SPA_PLUGIN_DIR", "PIPEWIRE_MODULE_DIR",
                              "PIPEWIRE_CONFIG_DIR", "QT_PLUGIN_PATH",
                              "QML2_IMPORT_PATH", "QML_IMPORT_PATH",

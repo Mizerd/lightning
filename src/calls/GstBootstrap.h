@@ -125,5 +125,42 @@ QString appImageBundledPluginPath(const QString &appDir,
                                   const QString &systemPath,
                                   const QString &pluginPath);
 
+/// Which bundled plugin SCANNER an AppImage is already using, or empty.
+///
+/// The sibling of `appImageBundledPluginPath`, and it exists for the same
+/// reason: the AppImage bundles its own GStreamer, so the libexec path
+/// compiled into that copy names the BUILD IMAGE and does not exist on a
+/// user's machine. GStreamer then prints
+///
+///   GStreamer-WARNING: External plugin loader failed.
+///
+/// at every launch and scans in-process, losing the crash isolation that
+/// running each candidate in a separate process buys.
+///
+/// THE APPIMAGE IS THE HOOK'S LANE, NOT OURS. `applyBundledScannerPath()`
+/// SETS the variables for macOS, where the helper sits beside the executable
+/// in a directory nothing else can write. Here the AppRun hook exports
+/// `GST_PLUGIN_SCANNER_1_0` before this process starts — the same arrangement
+/// the plugin path already uses, and necessary rather than stylistic: the
+/// helper is staged at `usr/libexec/gstreamer-1.0/`, not beside the binary at
+/// `usr/bin/`, and GStreamer reads the variable during `gst_init` on a copy of
+/// the environment that the hook has already fixed up. So there is nothing to
+/// set, and what was missing is that nothing NOTICED — `--call-media-status`
+/// reported "GStreamer's own" on the one Linux package that ships a helper.
+///
+/// AND EVERY OTHER LINUX PACKAGE MUST BE LEFT ALONE. The deb, the rpm and the
+/// Flatpak use a system or runtime GStreamer whose compiled-in libexec path is
+/// correct; repointing those would be a behaviour change to a lane that is not
+/// broken. That is why this answers what is TRUE — one of the two variables
+/// must actually name the expected location under `appDir` — rather than what
+/// the layout suggests.
+///
+/// Pure, and deliberately does NOT touch the filesystem, so the rule is
+/// testable without an AppImage; the caller checks the file exists and can be
+/// executed.
+QString appImageBundledScannerPath(const QString &appDir,
+                                   const QString &scannerVersioned,
+                                   const QString &scannerPlain);
+
 } // namespace lightning::gst
 

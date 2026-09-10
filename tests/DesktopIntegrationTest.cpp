@@ -433,6 +433,55 @@ private Q_SLOTS:
                                            "different lock than %1")
                                 .arg(mutexName)));
     }
+
+    // THE APPRUN HOOK AND UrlLauncher ARE ONE CONTRACT IN TWO FILES.
+    //
+    // The hook overrides loader variables for the bundle and preserves each
+    // one's session value as APPIMAGE_ORIGINAL_<NAME>; UrlLauncher hands them
+    // back to anything Lightning spawns -- the browser for OAuth, a media
+    // player -- because a child that keeps them looks inside an AppImage mount
+    // that may already be gone. A name added to ONE list and not the other is
+    // silent both ways, and it happened immediately: the scanner fix added
+    // GST_PLUGIN_SCANNER_1_0 to the hook while UrlLauncher carried only the
+    // unversioned spelling, which is the one GStreamer consults SECOND.
+    //
+    // Derived from both sources rather than written down here, so a name added
+    // to the hook is covered without editing this test.
+    void everyVariableTheAppRunHookOverridesIsRestoredForChildren()
+    {
+        const QString hook = readAll(
+            QStringLiteral(SOURCE_DIR "/packaging-ci/scripts/build-appimage.sh"));
+        QVERIFY2(!hook.isEmpty(), "packaging-ci/scripts/build-appimage.sh missing");
+        const int listAt = hook.indexOf(QStringLiteral("for _lightning_var in"));
+        QVERIFY2(listAt > 0, "the hook's preserve loop was not found; the "
+                             "derivation is broken, not the code");
+        const int endAt = hook.indexOf(QStringLiteral("; do"), listAt);
+        QVERIFY(endAt > listAt);
+        const QStringList preserved =
+            hook.mid(listAt, endAt - listAt)
+                .remove(QStringLiteral("for _lightning_var in"))
+                .remove(QLatin1Char('\\'))
+                .split(QRegularExpression(QStringLiteral("\\s+")),
+                       Qt::SkipEmptyParts);
+        // MUTATION GUARD: a scan that matches nothing passes vacuously, and
+        // this project has shipped exactly that. Seven names today.
+        QVERIFY2(preserved.size() >= 5,
+                 qPrintable(QStringLiteral("only %1 names parsed out of the "
+                                           "hook; the parse is wrong")
+                                .arg(preserved.size())));
+
+        const QString launcher =
+            readAll(QStringLiteral(SOURCE_DIR "/src/app/UrlLauncher.cpp"));
+        QVERIFY2(!launcher.isEmpty(), "src/app/UrlLauncher.cpp missing");
+        for (const QString &name : preserved) {
+            QVERIFY2(launcher.contains(QLatin1Char('"') + name + QLatin1Char('"')),
+                     qPrintable(QStringLiteral(
+                         "the AppRun hook overrides %1 but UrlLauncher never "
+                         "restores it, so a spawned child keeps the bundle's "
+                         "value and looks inside a mount that may be gone")
+                                    .arg(name)));
+        }
+    }
 };
 
 QTEST_GUILESS_MAIN(DesktopIntegrationTest)

@@ -48,6 +48,30 @@ QString appImageBundle()
     return named;
 }
 
+/// The AppImage's scanner, checked against what the AppRun hook exported.
+/// Filesystem side of the pure rule in the header — RECORDED, never set: the
+/// hook has already exported it, and by the time this runs GStreamer will read
+/// the same value. What this adds is that `--call-media-status` can name it.
+QString appImageScanner()
+{
+    const QByteArray appDir = qgetenv("APPDIR");
+    if (appDir.isEmpty())
+        return {};
+    const QString named = appImageBundledScannerPath(
+        QFile::decodeName(appDir),
+        QFile::decodeName(qgetenv("GST_PLUGIN_SCANNER_1_0")),
+        QFile::decodeName(qgetenv("GST_PLUGIN_SCANNER")));
+    if (named.isEmpty())
+        return {};
+    // Executable as well as present, exactly as applyBundledScannerPath()
+    // requires: a helper that cannot be run is the in-process fallback again,
+    // and reporting a path that will not execute is worse than reporting none.
+    const QFileInfo info(named);
+    if (!info.isFile() || !info.isExecutable())
+        return {};
+    return named;
+}
+
 void applyBundledPluginPath()
 {
     const QString bundled = QDir(QCoreApplication::applicationDirPath())
@@ -59,6 +83,7 @@ void applyBundledPluginPath()
         // recording it is the difference between a diagnostic that names the
         // runtime and one that names the wrong one.
         g_bundledPath = appImageBundle();
+        g_scannerPath = appImageScanner();
         return;   // otherwise a development build: leave the system alone.
     }
     // An explicit override wins. Someone debugging a plugin against a packaged
@@ -186,6 +211,24 @@ QString appImageBundledPluginPath(const QString &appDir,
             if (QDir::cleanPath(part) == wanted)
                 return wanted;
         }
+    }
+    return {};
+}
+
+QString appImageBundledScannerPath(const QString &appDir,
+                                   const QString &scannerVersioned,
+                                   const QString &scannerPlain)
+{
+    if (appDir.isEmpty())
+        return {};
+    const QString wanted = QDir::cleanPath(QDir(appDir).absoluteFilePath(
+        QStringLiteral("usr/libexec/gstreamer-1.0/gst-plugin-scanner")));
+    // A PATH, not a path LIST, and that is a real difference from the plugin
+    // variables above: GStreamer treats GST_PLUGIN_SCANNER as one executable
+    // and would try to run a colon-joined string verbatim. Compared whole.
+    for (const QString &value : { scannerVersioned, scannerPlain }) {
+        if (!value.isEmpty() && QDir::cleanPath(value) == wanted)
+            return wanted;
     }
     return {};
 }

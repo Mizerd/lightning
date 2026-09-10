@@ -175,6 +175,18 @@ for host_lib in libwayland-client.so libwayland-cursor.so libwayland-egl.so; do
 done
 test -f "$tree/apprun-hooks/gstreamer.sh" \
     || die "the AppRun hook that points GStreamer at the bundled plugins is missing"
+# THE REGISTRY HELPER, and BOTH halves of it: the file, and the hook line that
+# points GStreamer at it. Either alone is a silent no-op — an unexported helper
+# is never found, and an exported path with nothing behind it is the same
+# "External plugin loader failed" the fix exists to remove. 0.9.4 shipped
+# without it and nothing in this validator could tell, because GStreamer falls
+# back to scanning in-process and carries on. Executable as well as present: a
+# helper that cannot be exec'd is indistinguishable at runtime from an absent
+# one.
+test -x "$tree/usr/libexec/gstreamer-1.0/gst-plugin-scanner" \
+    || die "gst-plugin-scanner is missing or not executable in the AppImage payload: GStreamer would print 'External plugin loader failed' at every launch and scan in-process"
+grep -q 'GST_PLUGIN_SCANNER_1_0=' "$tree/apprun-hooks/gstreamer.sh" \
+    || die "the AppRun hook stages gst-plugin-scanner but never exports GST_PLUGIN_SCANNER_1_0, so GStreamer still looks at the build image's compiled-in path"
 
 # ...and staging a plugin that cannot LOAD is staging nothing. ximagesrc links
 # libX11/libXext/libXfixes/libXdamage/libXtst, which linuxdeploy's excludelist

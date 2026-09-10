@@ -211,6 +211,46 @@ for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
     cp "$GST_PLUGIN_SRC/$plugin.so" "$GST_PLUGIN_DEST/"
 done
 
+# THE REGISTRY HELPER, which is not a plugin and is not found like one.
+#
+# GStreamer builds its registry by dlopen'ing each candidate in a SEPARATE
+# `gst-plugin-scanner` process, so one plugin that crashes on load cannot take
+# the app down with it. The path to that helper is compiled into libgstreamer
+# and names the BUILD IMAGE, so a bundle that does not carry it prints
+#
+#   GStreamer-WARNING: External plugin loader failed. This most likely means
+#   that the plugin loader helper binary was not found or could not be run.
+#
+# at every launch and scans in-process instead. 0.9.4 shipped exactly that --
+# the same defect the macOS bundle had, found by RUNNING the AppImage rather
+# than by any job, because the fallback works and the warning is the only
+# symptom. Log noise plus lost crash isolation, not a call failure.
+#
+# Debian moved this helper between releases (it was under
+# /usr/lib/<triplet>/gstreamer1.0/gstreamer-1.0/ before trixie), so the
+# candidates are searched rather than assumed -- and absence is FATAL, because
+# on this image libgstreamer1.0-0 is installed and the helper missing can only
+# mean the layout moved again.
+GST_SCANNER_DEST="$APPDIR/usr/libexec/gstreamer-1.0"
+gst_scanner_src=""
+for candidate in \
+    "/usr/libexec/gstreamer-1.0/gst-plugin-scanner" \
+    "/usr/lib/x86_64-linux-gnu/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner" \
+    "/usr/lib/x86_64-linux-gnu/gstreamer-1.0/gst-plugin-scanner"; do
+    if [[ -x "$candidate" ]]; then
+        gst_scanner_src="$candidate"
+        break
+    fi
+done
+[[ -n "$gst_scanner_src" ]] || \
+    die "gst-plugin-scanner is not in any known location in the build image: GStreamer would print 'External plugin loader failed' at every launch and scan in-process"
+mkdir -p "$GST_SCANNER_DEST"
+cp "$gst_scanner_src" "$GST_SCANNER_DEST/gst-plugin-scanner"
+# Explicitly, not inherited from the source file's mode: it is exec'd, and a
+# non-executable helper is indistinguishable at runtime from an absent one.
+chmod 0755 "$GST_SCANNER_DEST/gst-plugin-scanner"
+printf 'Staged gst-plugin-scanner from %s\n' "$gst_scanner_src"
+
 # libgstpipewire IS NOT ENOUGH: libpipewire LOADS ITS OWN PLUGINS.
 #
 # Staging the GStreamer plugin and bundling libpipewire-0.3.so.0 gets you an
@@ -578,6 +618,7 @@ cat >"$APPDIR/apprun-hooks/gstreamer.sh" <<'HOOK'
 # see only the 28 plugins bundled here and lose every system codec. The
 # client's UrlLauncher restores or removes each one from these.
 for _lightning_var in GST_PLUGIN_SYSTEM_PATH_1_0 GST_PLUGIN_PATH_1_0 GST_REGISTRY_1_0 \
+                      GST_PLUGIN_SCANNER_1_0 GST_PLUGIN_SCANNER \
                       SPA_PLUGIN_DIR PIPEWIRE_MODULE_DIR PIPEWIRE_CONFIG_DIR; do
     eval "export APPIMAGE_ORIGINAL_${_lightning_var}=\"\${${_lightning_var}:-}\""
 done
@@ -585,6 +626,15 @@ unset _lightning_var
 # Point GStreamer at the plugins bundled beside the binary.
 export GST_PLUGIN_SYSTEM_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
 export GST_PLUGIN_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
+# AND AT THE REGISTRY HELPER THAT SCANS THEM. Without this GStreamer looks for
+# it at the path compiled into libgstreamer -- the build image's -- prints
+# "External plugin loader failed" and scans in-process, losing the crash
+# isolation that a separate process buys. BOTH spellings, because GStreamer
+# reads the versioned one first and falls back to the plain one, and a host
+# value left in the unversioned variable would otherwise win the fallback.
+# These name ONE EXECUTABLE, never a colon-joined list.
+export GST_PLUGIN_SCANNER_1_0="$APPDIR/usr/libexec/gstreamer-1.0/gst-plugin-scanner"
+export GST_PLUGIN_SCANNER="$APPDIR/usr/libexec/gstreamer-1.0/gst-plugin-scanner"
 # AND MAKE THE PLUGINS' OWN DEPENDENCIES RESOLVABLE. linuxdeploy's AppRun sets
 # no LD_LIBRARY_PATH at all -- it relies entirely on rewriting RUNPATH to
 # $ORIGIN on the files it deploys itself. The plugins here, and the libraries
