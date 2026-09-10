@@ -39,21 +39,40 @@ public:
 
     bool isSecure() const override { return false; }
     bool isAvailable() const override { return true; }
-    // Two independent reasons a read here cannot be trusted, and returning
-    // only the first was a constant wearing a predicate's clothes.
+    // Three states, and the middle one is the whole correction.
     //
-    // A substituted store cannot see what the native one holds, so every miss
-    // is inconclusive rather than a fact. AND this store's own backing file
-    // can be unreadable or malformed — a truncated INI, a permissions
-    // change, a half-written config — in which case QSettings answers every
-    // value() with an empty QVariant and says so only through status(),
-    // which readSecret() never asked. An empty token then read as "no saved
-    // sign-in", which is precisely the conflation SecretStore.h's own
-    // comment exists to prevent, and it routes the user to a destructive
-    // reset prompt for what is a config-file problem.
+    // A HIT IS NEVER INCONCLUSIVE. Substitution says the native store may
+    // hold something this one cannot see — which makes a MISS ambiguous, and
+    // says nothing whatever about a value already in hand. Returning
+    // `m_substitutedForNative || m_lastReadFailed` made this store report
+    // failure PERMANENTLY on any build with a native backend compiled in
+    // whose daemon is not running: the Linux packages all carry
+    // HAVE_LIBSECRET, so a machine with no session bus or no keyring — a
+    // server, a minimal WM, a container — reads every token back perfectly
+    // from this INI and was told, forever, that its sign-ins could not be
+    // read. Two consequences, both live: SettingsManager::
+    // secretBackendUnavailable() was stuck true, so anything reporting "we
+    // can't read your saved sign-ins" said so on every launch of a machine
+    // where everything worked; and AccountManager::needsSignIn() short-
+    // circuits on it, so a genuinely EXPIRED sign-in could never be reported
+    // as needing one.
+    //
+    // A MISS UNDER SUBSTITUTION STAYS INCONCLUSIVE, deliberately. The native
+    // store may hold the secret this one cannot see, and §6 is explicit that
+    // "no readable access token" is not "no account" — that conflation is
+    // what once armed `requireLocalReset` against a real crypto store.
+    //
+    // AND THE BACKING FILE CAN BE BROKEN whatever the mode. A truncated INI,
+    // a permissions change or a half-written config makes QSettings answer
+    // every value() with an empty QVariant and report it only through
+    // status(), which readSecret() asks. That outcome outranks both.
     bool lastReadFailed() const override
     {
-        return m_substitutedForNative || m_lastReadFailed;
+        if (m_lastReadFailed)
+            return true;              // the file itself could not be read
+        if (!m_substitutedForNative)
+            return false;             // this store IS the store; a miss is a fact
+        return !m_lastReadFound;      // substituted: only a MISS is ambiguous
     }
     QString backendName() const override;
 
@@ -72,6 +91,14 @@ private:
 
     std::unique_ptr<QSettings> m_store;
     mutable QString m_lastError;
+    /// Whether the most recent readSecret() actually returned a value.
+    ///
+    /// Only consulted in substituted mode, where it is what separates "this
+    /// store cannot see what the native one holds" from "this store just
+    /// handed you the secret". False before any read: nothing has been
+    /// proven yet, which is the honest default for a store standing in for
+    /// one that failed.
+    mutable bool m_lastReadFound = false;
     // The outcome of the most recent readSecret(), taken from the backing
     // QSettings' own status rather than assumed. Mutable because reading is
     // const and the outcome of a read is exactly what this records.

@@ -1486,6 +1486,11 @@ if(BUILD_TESTING)
         src/storage/PortableSecretStore.h
         src/storage/PortableSecretStore.cpp
         src/storage/SecretStore.h
+        # The INSECURE FALLBACK belongs in this suite for the same reason the
+        # portable store does: both answer lastReadFailed(), and that one
+        # predicate is what every destructive decision in the app keys on.
+        src/storage/InsecureFallbackSecretStore.h
+        src/storage/InsecureFallbackSecretStore.cpp
     )
     target_include_directories(portable-secret-store-test PRIVATE src)
     target_link_libraries(portable-secret-store-test

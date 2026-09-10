@@ -56,6 +56,7 @@ QString InsecureFallbackSecretStore::readSecret(const QString &userId,
 {
     m_lastError.clear();
     m_lastReadFailed = false;
+    m_lastReadFound = false;
     const QVariant value = m_store->value(settingsKey(userId, key));
     // ASK, do not assume. QSettings reports an unreadable or unparsable
     // backing file only through status(); value() itself answers an empty
@@ -72,7 +73,12 @@ QString InsecureFallbackSecretStore::readSecret(const QString &userId,
             : QStringLiteral("the settings file is malformed");
         return {};
     }
-    return value.toString();
+    // A VALUE IN HAND is what lets a substituted store vouch for this read.
+    // Empty is a MISS, not a failure — and under substitution a miss is
+    // exactly the case this store cannot speak to (see lastReadFailed()).
+    const QString secret = value.toString();
+    m_lastReadFound = !secret.isEmpty();
+    return secret;
 }
 
 bool InsecureFallbackSecretStore::deleteSecret(const QString &userId,

@@ -1,12 +1,15 @@
+#include "storage/InsecureFallbackSecretStore.h"
 #include "storage/PortableSecretStore.h"
 
 #include <QByteArray>
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSet>
+#include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -48,6 +51,9 @@ private Q_SLOTS:
     void everyWriteUsesAFreshNonce();
     void ownerOnlyPermissionsWhereTheFilesystemSupportsThem();
     void neverClaimsToBeSecure();
+    void aSubstitutedFallbackVouchesForAReadThatFoundSomething();
+    void aSubstitutedFallbackStillRefusesToVouchForAMiss();
+    void anUnsubstitutedFallbackTreatsAMissAsAFact();
 
 private:
     static QString secretsDirIn(const QTemporaryDir &root);
@@ -56,7 +62,24 @@ private:
     static QByteArray readAll(const QString &path);
     static bool writeAll(const QString &path, const QByteArray &bytes);
     static bool copyFile(const QString &from, const QString &to);
+    // InsecureFallbackSecretStore default-constructs QSettings, which resolves
+    // its file from the ORGANIZATION and APPLICATION names plus the format's
+    // path. A test binary has none of those set, so every read comes back with
+    // a status error and the store reports failure for a reason that has
+    // nothing to do with the property under test — which is exactly what the
+    // first draft of these three cases measured.
+    static void useTemporarySettings(const QTemporaryDir &root,
+                                     const QString &appName);
 };
+
+void PortableSecretStoreTest::useTemporarySettings(const QTemporaryDir &root,
+                                                   const QString &appName)
+{
+    QCoreApplication::setOrganizationName(QStringLiteral("LightningTest"));
+    QCoreApplication::setApplicationName(appName);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, root.path());
+}
 
 QString PortableSecretStoreTest::secretsDirIn(const QTemporaryDir &root)
 {
@@ -626,6 +649,78 @@ void PortableSecretStoreTest::neverClaimsToBeSecure()
     const QString name = store.backendName();
     QVERIFY(!name.isEmpty());
     QVERIFY(name.contains(QStringLiteral("folder")));
+}
+
+// ── The insecure fallback's one predicate ───────────────────────────────
+//
+// Every destructive decision in the app keys on lastReadFailed(), so what it
+// means in SUBSTITUTED mode — a native backend compiled in but unavailable,
+// which is every Linux package on a machine with no keyring daemon — decides
+// whether a working install is told forever that it cannot read its own
+// sign-ins.
+
+void PortableSecretStoreTest::aSubstitutedFallbackVouchesForAReadThatFoundSomething()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    useTemporarySettings(root, QStringLiteral("fallback-vouches"));
+    InsecureFallbackSecretStore store(nullptr, /*substitutedForNative=*/true);
+    QVERIFY(store.isAvailable());
+    QVERIFY(!store.isSecure());
+
+    QVERIFY(store.storeSecret(QStringLiteral("@a:example.org"),
+                              QStringLiteral("access_token"),
+                              QStringLiteral("syt_real_token")));
+    QCOMPARE(store.readSecret(QStringLiteral("@a:example.org"),
+                              QStringLiteral("access_token")),
+             QStringLiteral("syt_real_token"));
+    // FAIL-ON-OLD: `m_substitutedForNative || m_lastReadFailed` returned true
+    // here, so a machine whose tokens read back perfectly reported that its
+    // sign-ins could not be read — on every launch, forever, and it stopped
+    // AccountManager::needsSignIn() from ever reporting a real expiry.
+    QVERIFY2(!store.lastReadFailed(),
+             "a substituted store refused to vouch for a secret it had just "
+             "returned; substitution makes a MISS ambiguous, never a hit");
+}
+
+void PortableSecretStoreTest::aSubstitutedFallbackStillRefusesToVouchForAMiss()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    useTemporarySettings(root, QStringLiteral("fallback-miss"));
+    InsecureFallbackSecretStore store(nullptr, /*substitutedForNative=*/true);
+
+    // Nothing read yet: nothing proven yet.
+    QVERIFY(store.lastReadFailed());
+    // A miss is exactly what this store cannot speak to — the native store it
+    // stood in for may hold the secret. §6: "no readable access token" is not
+    // "no account", and this is the predicate that keeps it so.
+    QVERIFY(store.readSecret(QStringLiteral("@gone:example.org"),
+                             QStringLiteral("access_token")).isEmpty());
+    QVERIFY2(store.lastReadFailed(),
+             "a substituted store claimed a miss was authoritative, which is "
+             "the conflation that once armed a destructive reset");
+}
+
+void PortableSecretStoreTest::anUnsubstitutedFallbackTreatsAMissAsAFact()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    useTemporarySettings(root, QStringLiteral("fallback-plain"));
+    // No native backend was compiled in: this store IS the store, so its
+    // misses are facts and it must not report a permanent failure.
+    InsecureFallbackSecretStore store(nullptr);
+
+    QVERIFY(store.readSecret(QStringLiteral("@gone:example.org"),
+                             QStringLiteral("access_token")).isEmpty());
+    QVERIFY(!store.lastReadFailed());
+    QVERIFY(store.storeSecret(QStringLiteral("@a:example.org"),
+                              QStringLiteral("access_token"),
+                              QStringLiteral("syt_real_token")));
+    QCOMPARE(store.readSecret(QStringLiteral("@a:example.org"),
+                              QStringLiteral("access_token")),
+             QStringLiteral("syt_real_token"));
+    QVERIFY(!store.lastReadFailed());
 }
 
 QTEST_MAIN(PortableSecretStoreTest)
