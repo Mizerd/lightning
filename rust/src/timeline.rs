@@ -1826,6 +1826,27 @@ impl TimelineRegistry {
                 }
                 return;
             };
+            // RE-ENABLE THE ROOM'S QUEUE FIRST, or this whole function is a
+            // no-op — which is what it was until 2026-09-10.
+            //
+            // matrix-sdk disables a room's send queue after ANY send error,
+            // recoverable or not: `locally_enabled.store(false)` at
+            // send_queue/mod.rs:1012, whose own comment reads "Disable the
+            // queue for this room after any kind of error happened". The
+            // sending task then parks on `notifier.notified()` and re-checks
+            // that flag before doing anything (:691). NOTHING inside the SDK
+            // ever sets it back — only RoomSendQueue::set_enabled(true) does,
+            // and Lightning called it nowhere.
+            //
+            // `unwedge()` does not touch it. It marks the request unwedged and
+            // notifies, so it wakes a loop that immediately goes back to
+            // sleep. The Retry link in MessageDelegate.qml therefore did
+            // nothing, for the life of the process, every time.
+            //
+            // Safe by construction: an UNRECOVERABLE failure is marked wedged,
+            // and `peek_next_to_send` skips wedged items — so re-enabling
+            // cannot resend something the server already rejected.
+            timeline.room().send_queue().set_enabled(true);
             let _ = handle.unwedge().await;
         });
         Ok(())

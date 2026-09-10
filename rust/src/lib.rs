@@ -10939,6 +10939,10 @@ async fn run_modern_sync(
                         enqueue(&events, json!({
                             "type": "room_list_sync_state", "state": "running"
                         }));
+                        // See the classic lane's reset for why. This is a
+                        // TRANSITION into Running rather than a per-response
+                        // callback, so it needs no extra gate.
+                        client.send_queue().set_enabled(true).await;
                         if first_sync {
                             first_sync = false;
                             first_response.store(false, Ordering::SeqCst);
@@ -11185,7 +11189,23 @@ async fn run_classic_sync(
                         return Ok(LoopCtrl::Continue);
                     }
                 };
-                failures.store(0, Ordering::SeqCst);
+                // A RECOVERY EDGE, and the only place this lane has one: the
+                // counter was non-zero, so the previous attempt failed and
+                // this one did not. Re-enable the send queue here, because
+                // matrix-sdk disables a room's queue after ANY send error
+                // (send_queue/mod.rs:1012) and nothing in the SDK ever turns
+                // it back on. Without this a single wifi switch or suspend
+                // leaves that room unable to send for the life of the
+                // process, with every message stuck on "sending…".
+                //
+                // GATED, not unconditional: this callback runs on EVERY sync
+                // response, and set_enabled(true) walks the known rooms and
+                // then hits the STORE through
+                // respawn_tasks_for_rooms_with_unsent_requests(). Paying that
+                // per response would be a real cost for nothing.
+                if failures.swap(0, Ordering::SeqCst) > 0 {
+                    client.send_queue().set_enabled(true).await;
+                }
                 {
                     let mut stamps = stamps.lock().await;
                     for (room_id, update) in &response.rooms.joined {
