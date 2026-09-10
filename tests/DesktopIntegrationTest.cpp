@@ -336,6 +336,103 @@ private Q_SLOTS:
                          "will reject it as an unknown option").arg(flag)));
         }
     }
+
+    // --log-file's message handler must SERIALIZE its write.
+    //
+    // Qt calls message handlers from ARBITRARY THREADS, and two writers are
+    // shipped and unconditional: the GUI-stall watchdog logs from a raw
+    // std::thread (src/app/GuiStallTracer.cpp) and PlayableWriteWorker from
+    // its own QThread (src/media/PlayableFileWriter.cpp). The handler owns a
+    // QFile, and neither QFile nor QTextStream is thread-safe. CLAUDE.md's
+    // own capture recipe pairs LIGHTNING_GUI_STALL_TRACE with --log-file, so
+    // the documented diagnostic procedure IS the concurrent configuration.
+    //
+    // WHAT THIS CASE IS: a source scan. It says the lock is written and that
+    // it covers the write, the flush and the publish — nothing about
+    // behaviour under contention. src/main.cpp defines main() and cannot be
+    // linked into a test (CMakeLists.txt records the same limitation), which
+    // is why the preflight-flag case above is a scan too. Every step is
+    // derived from the source and self-checked against its own needles, so
+    // it cannot pass by matching nothing.
+    void theLogFileHandlerSerializesItsWrite()
+    {
+        const QString main =
+            readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
+        QVERIFY(!main.isEmpty());
+
+        // The brace-matched body of one free function.
+        auto bodyOf = [&main](const QString &signature) -> QString {
+            const int at = main.indexOf(signature);
+            if (at < 0)
+                return {};
+            const int open = main.indexOf(QLatin1Char('{'), at);
+            if (open < 0)
+                return {};
+            int depth = 0;
+            for (int j = open; j < main.size(); ++j) {
+                if (main.at(j) == QLatin1Char('{')) {
+                    ++depth;
+                } else if (main.at(j) == QLatin1Char('}')) {
+                    --depth;
+                    if (depth == 0)
+                        return main.mid(open, j - open + 1);
+                }
+            }
+            return {};
+        };
+
+        const QString handler = bodyOf(QStringLiteral("void logFileHandler("));
+        // Self-check: if these needles are gone the handler was renamed or
+        // rewritten, and every assertion below would be measuring nothing.
+        QVERIFY2(handler.contains(QStringLiteral("QTextStream(g_logFile)")),
+                 "the scan did not find the log-file stream write; the "
+                 "derivation is broken, not the code");
+        QVERIFY2(handler.contains(QStringLiteral("g_logFile->flush()")),
+                 "the scan did not find the log-file flush; the derivation "
+                 "is broken, not the code");
+
+        static const QRegularExpression locker(
+            QStringLiteral("QMutexLocker\\s+\\w+\\(&(\\w+)\\)"));
+        const QRegularExpressionMatch held = locker.match(handler);
+        QVERIFY2(held.hasMatch(),
+                 "src/main.cpp's --log-file handler writes a shared QFile "
+                 "with no lock. Qt calls message handlers from arbitrary "
+                 "threads and this app logs from at least two non-GUI ones.");
+
+        const QString mutexName = held.captured(1);
+        QVERIFY2(main.contains(QStringLiteral("QMutex %1;").arg(mutexName)),
+                 qPrintable(QStringLiteral("the handler locks %1, which is "
+                                           "not declared as a file-scope "
+                                           "QMutex").arg(mutexName)));
+
+        // The lock must cover BOTH the stream write and the flush. One
+        // without the other still interleaves.
+        const int lockAt = held.capturedStart(0);
+        const int writeAt = handler.indexOf(QStringLiteral("QTextStream(g_logFile)"));
+        const int flushAt = handler.indexOf(QStringLiteral("g_logFile->flush()"));
+        QVERIFY2(lockAt < writeAt && lockAt < flushAt,
+                 "the --log-file lock is taken after part of the write; it "
+                 "must be held across the stream AND the flush");
+
+        // And the pointer must be PUBLISHED under the same lock, or the
+        // first line a thread that was already running logs is an
+        // unsynchronized read of it.
+        const QString install = bodyOf(QStringLiteral("void installLogFile("));
+        const int assignAt = install.indexOf(QStringLiteral("g_logFile = file;"));
+        QVERIFY2(assignAt > 0,
+                 "the scan did not find where g_logFile is published; the "
+                 "derivation is broken, not the code");
+        const int publishLockAt = install.lastIndexOf(
+            QStringLiteral("QMutexLocker"), assignAt);
+        QVERIFY2(publishLockAt >= 0,
+                 "g_logFile is published without taking the lock that guards "
+                 "every read of it");
+        QVERIFY2(install.mid(publishLockAt, assignAt - publishLockAt)
+                     .contains(mutexName),
+                 qPrintable(QStringLiteral("g_logFile is published under a "
+                                           "different lock than %1")
+                                .arg(mutexName)));
+    }
 };
 
 QTEST_GUILESS_MAIN(DesktopIntegrationTest)

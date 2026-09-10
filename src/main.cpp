@@ -60,8 +60,11 @@
 #include <QStringList>
 #include <QDateTime>
 #include <QFile>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QTextStream>
 
+#include <atomic>
 #include <cstdlib>
 #include <string>
 
@@ -115,16 +118,44 @@ void configureWindowsConsole(bool forceAlloc)
 // and a path that cannot be opened is reported once rather than silently
 // dropping the option on the floor.
 namespace {
-QFile *g_logFile = nullptr;
-QtMessageHandler g_previousHandler = nullptr;
+// SERIALIZED, because Qt calls message handlers FROM ARBITRARY THREADS and
+// this one owns a QFile. Two writers are real, unconditional, and shipped:
+// the GUI-stall watchdog logs from a raw std::thread
+// (src/app/GuiStallTracer.cpp) and PlayableWriteWorker logs from its own
+// QThread (src/media/PlayableFileWriter.cpp), both at levels that are on by
+// default. Neither QFile nor QTextStream is thread-safe, so without this the
+// documented capture recipe — LIGHTNING_GUI_STALL_TRACE together with
+// --log-file — is precisely the racing configuration, and the one artifact
+// we ask a tester to produce is the one that can come back interleaved.
+//
+// The lock covers the WHOLE write: the QTextStream that formats into the
+// QFile, its destructor's flush into the file, and the QFile::flush that
+// makes a crash keep the lines explaining it. Splitting any of those out
+// would leave the interleaving it exists to prevent.
+//
+// A plain non-recursive QMutex on purpose: nothing under it logs or calls
+// back into Qt's message machinery, so recursion here would be a mistake to
+// surface rather than to absorb. The previous handler is called OUTSIDE the
+// lock — it is arbitrary code (Qt's own default handler does its own
+// locking; the VAAPI gate below chains through it), and holding ours across
+// it would invent a lock ordering for no gain. The only cost paid per line
+// is one uncontended mutex.
+QMutex g_logMutex;
+QFile *g_logFile = nullptr;             // guarded by g_logMutex
+// ATOMIC rather than mutex-guarded, and not for symmetry with g_logFile.
+// qInstallMessageHandler() RETURNS the handler it displaced, so this can only
+// be written after logFileHandler is already live and being called from other
+// threads — there is no window in which a plain store would be safe. It is
+// deliberately NOT read under g_logMutex: the previous handler is invoked
+// outside that lock on purpose (see below), so taking the lock to read the
+// pointer and dropping it to call through would buy nothing.
+std::atomic<QtMessageHandler> g_previousHandler{nullptr};
 
 void logFileHandler(QtMsgType type, const QMessageLogContext &context,
                     const QString &message)
 {
-    if (g_previousHandler)
-        g_previousHandler(type, context, message);
-    if (!g_logFile)
-        return;
+    if (const QtMessageHandler previous = g_previousHandler.load())
+        previous(type, context, message);
     const char *level = "info";
     switch (type) {
     case QtDebugMsg:    level = "debug"; break;
@@ -133,6 +164,12 @@ void logFileHandler(QtMsgType type, const QMessageLogContext &context,
     case QtCriticalMsg: level = "critical"; break;
     case QtFatalMsg:    level = "fatal"; break;
     }
+    // Read the pointer under the lock too: publishing it is what makes the
+    // file visible to a thread that was already running when --log-file was
+    // installed, and an unsynchronized read of it is a race in its own right.
+    QMutexLocker locker(&g_logMutex);
+    if (!g_logFile)
+        return;
     QTextStream(g_logFile)
         << QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs) << ' '
         << level << ' '
@@ -170,8 +207,13 @@ void installLogFile(const QString &path)
            "paths; never message content, keys or tokens. Review before "
            "sharing.\n";
     file->flush();
-    g_logFile = file;
-    g_previousHandler = qInstallMessageHandler(logFileHandler);
+    {
+        // Published under the same lock that guards every write, so the store
+        // is ordered against the first line any other thread logs.
+        QMutexLocker locker(&g_logMutex);
+        g_logFile = file;
+    }
+    g_previousHandler.store(qInstallMessageHandler(logFileHandler));
 }
 
 #ifndef LIGHTNING_BUILD_TYPE
