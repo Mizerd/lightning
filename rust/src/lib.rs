@@ -839,16 +839,13 @@ impl<F: std::future::Future<Output = ()>> std::future::Future for CatchPanic<F> 
     /// formatted message with room ids or message bodies in it, and §6 keeps
     /// that out of the event this raises and out of every line Lightning logs.
     ///
-    /// PRECISELY THAT, AND NO WIDER — raised in review. Rust's DEFAULT panic
-    /// hook still writes the payload and location to stderr before any of this
-    /// runs, and no `std::panic::set_hook` is installed anywhere in this crate.
-    /// That matters because a `str` slice panic prints the string it was
-    /// slicing, and the two such panics fixed in 0.9.4 were slicing message
-    /// BODIES. It does not reach `--log-file` (that mirrors Qt's message
-    /// handler, not the process's stderr), but it does reach a terminal or the
-    /// journal. Closing it means installing a hook that keeps the location and
-    /// drops the payload, which changes crash diagnostics process-wide and is
-    /// its own round.
+    /// AND THE OTHER HALF IS CLOSED TOO, since 2026-09-10. Rust's DEFAULT
+    /// panic hook writes the payload to stderr BEFORE any of this runs, and a
+    /// `str` slice panic prints the string it was slicing — the two such
+    /// panics fixed in 0.9.4 were slicing message BODIES. `install_panic_hook`
+    /// (above) replaces it with one that prints location and thread only.
+    /// Between them the payload reaches no log this process writes and no
+    /// stream it inherits.
     type Output = Result<(), ()>;
 
     fn poll(
@@ -1248,6 +1245,94 @@ fn restrict_store_permissions(_path: &std::path::Path) {}
 /// than adding anything. It is still opt-in and still a local log, and a
 /// developer who raises the filter to `trace` is choosing a verbosity this
 /// code does not select for them.
+/// The one line a panic is allowed to print, built from metadata alone.
+///
+/// PURE, AND IT TAKES NO PAYLOAD — that is the whole design, not an omission.
+/// A function that cannot see the message cannot leak it, so this property is
+/// held by the signature rather than by a filter someone has to keep correct.
+///
+/// §6 forbids logging decrypted message bodies, and Rust's DEFAULT panic hook
+/// prints the payload to stderr before `catch_unwind` ever runs. That is not a
+/// theoretical carrier: a `str` slice panic reads
+///
+///     byte index 5 is not a char boundary; it is inside 'e' (bytes 4..6) of
+///     `<the whole string>`
+///
+/// and 0.9.4 fixed TWO byte-offset slices that were slicing message bodies. It
+/// does not reach `--log-file` (that mirrors Qt's message handler, not this
+/// process's stderr), but it reaches a terminal, a journal, and any log a user
+/// is asked to attach to a report.
+///
+/// The location is kept because it is what makes a panic actionable — for a
+/// slice panic it names the exact expression — and it cannot carry content.
+fn panic_report_line(location: Option<(&str, u32)>, thread: Option<&str>) -> String {
+    let where_ = match location {
+        Some((file, line)) => format!("{file}:{line}"),
+        None => "<unknown location>".to_owned(),
+    };
+    let who = thread.unwrap_or("<unnamed>");
+    format!(
+        "Rust panic at {where_} on thread {who} \
+         (message withheld: a panic message can quote message content; \
+         set LIGHTNING_PANIC_PAYLOAD=1 to print it while debugging)"
+    )
+}
+
+/// True when the developer has asked for the stock hook back.
+///
+/// An explicit override wins, exactly as it does for `GST_PLUGIN_PATH` and the
+/// scanner: someone debugging has said what they want, and silently ignoring
+/// it would make the escape hatch look broken. An EMPTY value is not a
+/// request — `FOO=` is how a shell unsets an inherited variable in place.
+fn panic_payload_requested(value: Option<&str>) -> bool {
+    matches!(value, Some(v) if !v.trim().is_empty())
+}
+
+/// Replace the default panic hook with one that prints metadata only.
+///
+/// Idempotent, and deliberately does NOT chain to the previous hook: the
+/// previous hook is the one printing the payload, so calling it would undo the
+/// entire point. `catch_unwind` is unaffected — a hook runs BEFORE unwinding
+/// and changes what is printed, never what happens — so `CatchPanic` still
+/// reports its sanitized event and `#[should_panic]` still passes.
+///
+/// A backtrace is still printed when `RUST_BACKTRACE` asks for one:
+/// `Backtrace::capture()` is `Disabled` unless it is set, and a backtrace
+/// carries symbols and addresses, never the payload.
+fn install_panic_hook() {
+    // NEVER IN THE TEST PROFILE. `assert_eq!` reports through the panic hook,
+    // and several cases below call `mx_rust_create` — so installing it here
+    // would withhold the message of every ASSERTION FAILURE in the rest of the
+    // binary, turning a readable diff into "Rust panic at lib.rs:9001". The
+    // leak this guards against is a leak to a USER's terminal and journal;
+    // `cargo test` output is a developer's own screen and contains no real
+    // account's messages. `cfg!` rather than `#[cfg]` so the body stays
+    // compiled and type-checked in both profiles, the same arrangement the
+    // Apple-only scanner call uses.
+    if cfg!(test) {
+        return;
+    }
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let requested = std::env::var("LIGHTNING_PANIC_PAYLOAD").ok();
+        if panic_payload_requested(requested.as_deref()) {
+            return;
+        }
+        std::panic::set_hook(Box::new(|info| {
+            let location = info.location().map(|l| (l.file(), l.line()));
+            // Bound, not chained: `current()` returns a guard the name borrows
+            // from, and inlining it would drop the guard while the name lives.
+            let current = std::thread::current();
+            eprintln!("{}", panic_report_line(location, current.name()));
+            let trace = std::backtrace::Backtrace::capture();
+            if trace.status() == std::backtrace::BacktraceStatus::Captured {
+                eprintln!("{trace}");
+            }
+        }));
+    });
+}
+
 fn install_sdk_tracing() {
     use std::sync::Once;
     static ONCE: Once = Once::new();
@@ -1288,6 +1373,10 @@ fn install_sdk_tracing() {
 
 #[no_mangle]
 pub extern "C" fn mx_rust_create(store_path: *const c_char) -> *mut c_void {
+    // Before anything that could panic, and before tracing: this is the entry
+    // point every session goes through, and the hook decides what a panic
+    // anywhere in the Rust side is allowed to print.
+    install_panic_hook();
     // Before anything the SDK might want to report on.
     install_sdk_tracing();
     match catch_unwind(AssertUnwindSafe(|| {
@@ -12653,6 +12742,43 @@ mod tests {
         // the value pinned above such a comparison cannot fail — decoration,
         // by this project's own rule. The bound that can fail is the
         // compile-time assert beside that constant, and it fails the BUILD.
+    }
+
+    // A PANIC MAY PRINT WHERE, NEVER WHAT.
+    //
+    // §6 forbids logging decrypted message bodies. Rust's default hook prints
+    // the panic payload to stderr, and a `str` slice panic's payload QUOTES
+    // the string it was slicing — 0.9.4 fixed two byte-offset slices that were
+    // slicing message bodies, so this is a carrier that has existed in this
+    // crate, not a hypothetical one.
+    //
+    // The property is held by the SIGNATURE: `panic_report_line` takes no
+    // payload, so no filter has to stay correct for it to hold. What is worth
+    // asserting is that it still says enough to act on.
+    #[test]
+    fn a_panic_report_names_where_it_happened_and_nothing_else() {
+        let line = super::panic_report_line(Some(("rust/src/timeline.rs", 412)), Some("tokio-1"));
+        assert!(line.contains("rust/src/timeline.rs:412"), "{line}");
+        assert!(line.contains("tokio-1"), "{line}");
+        // The escape hatch has to be discoverable from the line itself, or a
+        // developer hits a panic with no message and no way to get one.
+        assert!(line.contains("LIGHTNING_PANIC_PAYLOAD"), "{line}");
+        // Metadata this crate cannot supply must degrade, never panic.
+        let bare = super::panic_report_line(None, None);
+        assert!(bare.contains("<unknown location>"), "{bare}");
+        assert!(bare.contains("<unnamed>"), "{bare}");
+    }
+
+    // AN EMPTY VALUE IS NOT A REQUEST. `LIGHTNING_PANIC_PAYLOAD=` is how a
+    // shell unsets an inherited variable in place, and reading it as "print
+    // the payload" would re-open the leak for anyone who did that.
+    #[test]
+    fn only_a_non_empty_override_asks_for_the_stock_panic_hook() {
+        assert!(super::panic_payload_requested(Some("1")));
+        assert!(super::panic_payload_requested(Some("yes")));
+        assert!(!super::panic_payload_requested(None));
+        assert!(!super::panic_payload_requested(Some("")));
+        assert!(!super::panic_payload_requested(Some("   ")));
     }
 
     #[test]
