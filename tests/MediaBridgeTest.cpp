@@ -2167,6 +2167,92 @@ private Q_SLOTS:
         QCOMPARE(bridge.inflightCountForTest(), 0);
     }
 
+    // AN INTEREST SET RECORDS AN OUTSTANDING FETCH, AND A CACHE HIT HAS
+    // NONE.
+    //
+    // animatedSource() used to insert into m_animatedWanted (and
+    // m_animatedDemanded) BEFORE the failure-mark and RAM-cache checks, and
+    // the cached branch returns the file it just wrote without draining
+    // either. Only onMediaReady drains them, and for a cache hit no
+    // completion is ever coming — so the key stayed "wanted" for the life of
+    // the session. cancelPlayable() reads exactly that set to decide whether
+    // another consumer still needs the bytes, so from then on every cancel
+    // for that key returned at its first branch: no queue purge, no backend
+    // abort, no writer cancel. The transfer the user just dismissed keeps
+    // running, which is the whole thing the cancel exists to stop.
+    //
+    // FAIL-ON-OLD: on the unfixed tree cancels is empty and inflight is 1.
+    void aCachedAnimationLeavesNoInterestBehindToVetoACancel()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QByteArray gif("GIF89a");
+        gif.append(QByteArray(64, '\0'));
+        // The still image path fetched these bytes first, which is how the
+        // GIF row below finds them in RAM with no animated file on disk.
+        bridge.mediaSource(QStringLiteral("$gif"), QStringLiteral("full"));
+        client.succeed(client.fetches.first().opId, gif,
+                       QStringLiteral("image/gif"));
+        QCOMPARE(client.fetches.size(), 1);
+
+        // Served straight from the cache: no fetch, so no interest either.
+        QVERIFY(bridge.animatedSource(QStringLiteral("$gif"))
+                    .startsWith(QStringLiteral("file://")));
+        QCOMPARE(client.fetches.size(), 1);
+
+        // The user presses Play on the same media (a GIF is not a playable
+        // container, so the cached bytes cannot satisfy it and a real
+        // transfer starts) and then closes the card.
+        bridge.playableSource(QStringLiteral("$gif"));
+        QCOMPARE(bridge.inflightCountForTest(), 1);
+        const quint64 opId = client.fetches.last().opId;
+        bridge.cancelPlayable(QStringLiteral("$gif"));
+        QCOMPARE(client.cancels, QList<quint64>{opId});
+        QCOMPARE(bridge.inflightCountForTest(), 0);
+    }
+
+    // The other half of the same branch: a DEMANDING caller whose cached
+    // bytes turn out not to be an animation renders nothing else, so it is
+    // owed the terminal answer onMediaReady would have given it. The cached
+    // branch returned a null string and emitted nothing at all, leaving the
+    // card waiting on a fetch that was never going to run.
+    //
+    // FAIL-ON-OLD: on the unfixed tree failed.count() is 0.
+    void aCachedPayloadThatIsNotAnAnimationAnswersTheDemandingCaller()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        QByteArray png("\x89PNG\r\n\x1a\n", 8);
+        png.append(QByteArray(64, '\0'));
+        bridge.mediaSource(QStringLiteral("$png"), QStringLiteral("full"));
+        client.succeed(client.fetches.first().opId, png, QString());
+        QCOMPARE(failed.count(), 0);
+
+        QCOMPARE(bridge.animatedSource(QStringLiteral("$png")), QString());
+        QCOMPARE(ready.count(), 0);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().at(0).toString(),
+                 QStringLiteral("full:$png"));
+        QCOMPARE(failed.first().at(1).toString(),
+                 QStringLiteral("invalid_gif"));
+        // No failure mark: the bytes are fine, they are simply not an
+        // animation, and the still Image is drawing them.
+        QVERIFY(bridge.failureCategory(QStringLiteral("full:$png")).isEmpty());
+
+        // A SPECULATIVE asker on the same branch still gets silence — the
+        // sticker's still frame must not be replaced by a retry card.
+        bridge.mediaSource(QStringLiteral("$sticker"), QStringLiteral("full"));
+        client.succeed(client.fetches.last().opId, png, QString());
+        QCOMPARE(bridge.animatedSource(QStringLiteral("$sticker"),
+                                       /*speculative=*/true),
+                 QString());
+        QCOMPARE(failed.count(), 1);
+    }
+
     // review M3: a terminal failure voids every interest class for the key
     // — a later cancel finds nothing to veto it, and the sets stay bounded.
     void terminalFailureClearsInterestSets()

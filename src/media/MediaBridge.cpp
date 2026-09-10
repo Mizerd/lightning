@@ -593,6 +593,31 @@ QString MediaBridge::animatedSource(const QString &mediaKey, bool speculative)
         m_animatedLru.prepend(cacheKey);
         return QUrl::fromLocalFile(path).toString();
     }
+    // THE INTEREST SETS RECORD AN OUTSTANDING FETCH, so nothing is entered
+    // into them on a path that dispatches none (playableSource's failure
+    // branch is explicit about the same rule). Both used to be filled in
+    // ABOVE the two early exits below, and neither exit drained them: only
+    // onMediaReady does, and no completion was coming. A key stranded in
+    // m_animatedWanted then makes cancelPlayable() early-return FOREVER —
+    // the queue purge, the in-flight abort and the playable writer's cancel
+    // never run, which is the multi-hundred-MB transfer for a card that is
+    // gone that the cancel exists to stop.
+    if (failureBlocks(cacheKey))
+        return {};
+    const QByteArray cached = cachedBytes(cacheKey);
+    if (!cached.isEmpty()) {
+        const QString written = writeAnimatedFile(cacheKey, cached);
+        if (written.isEmpty()) {
+            // Terminal, exactly as in onMediaReady: a DEMANDING caller (the
+            // timeline's confirmed-GIF image path) renders nothing else and
+            // is owed the answer. The bytes were already here, so silence
+            // left that card waiting on a fetch that would never run.
+            if (!speculative)
+                Q_EMIT mediaFetchFailed(cacheKey, QStringLiteral("invalid_gif"));
+            return {};
+        }
+        return QUrl::fromLocalFile(written).toString();
+    }
     m_animatedWanted.insert(cacheKey);
     // A DEMANDING caller (the timeline's confirmed-GIF image path) is owed a
     // terminal answer when the bytes turn out not to be an animation, because
@@ -602,13 +627,6 @@ QString MediaBridge::animatedSource(const QString &mediaKey, bool speculative)
     // is drawing the same bytes and would be replaced by an error card.
     if (!speculative)
         m_animatedDemanded.insert(cacheKey);
-    if (failureBlocks(cacheKey))
-        return {};
-    const QByteArray cached = cachedBytes(cacheKey);
-    if (!cached.isEmpty()) {
-        const QString written = writeAnimatedFile(cacheKey, cached);
-        return written.isEmpty() ? QString{} : QUrl::fromLocalFile(written).toString();
-    }
     if (!alreadyPending(cacheKey)) {
         Pending request;
         request.cacheKey = cacheKey;
@@ -640,17 +658,24 @@ QString MediaBridge::mxcAnimatedSource(const QString &mxcUri)
         m_animatedLru.prepend(cacheKey);
         return QUrl::fromLocalFile(path).toString();
     }
-    // Deliberately NOT inserted into m_animatedDemanded: this caller is
-    // asking, never demanding, so the completion path answers a non-animation
-    // with silence and the tile keeps the still frame it is already drawing.
-    m_animatedWanted.insert(cacheKey);
     if (failureBlocks(cacheKey))
         return {};
     const QByteArray cached = cachedBytes(cacheKey);
     if (!cached.isEmpty()) {
+        // No signal on a refusal: this caller is asking, never demanding
+        // (see below), and the tile keeps the still frame it is drawing.
         const QString written = writeAnimatedFile(cacheKey, cached);
         return written.isEmpty() ? QString{} : QUrl::fromLocalFile(written).toString();
     }
+    // Registered only now that a fetch is outstanding — the set is what a
+    // completion drains and what a cancel consults, and an entry with no
+    // fetch behind it is a permanent veto on cancelPlayable(). See the
+    // matching note in animatedSource().
+    //
+    // Deliberately NOT inserted into m_animatedDemanded: this caller is
+    // asking, never demanding, so the completion path answers a non-animation
+    // with silence and the tile keeps the still frame it is already drawing.
+    m_animatedWanted.insert(cacheKey);
     if (!alreadyPending(cacheKey)) {
         Pending request;
         request.cacheKey = cacheKey;
