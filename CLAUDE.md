@@ -86,16 +86,19 @@ it (`6149337`), with a mock that serves stale-but-200 reads so both halves are
 covered. Its sibling failure shape, a 404 while the API says `state=uploaded`,
 is the one recorded below.
 
-**ON `main` ABOVE 0.9.4 (2026-09-10, 11 commits, `30d86a8..196c761`): the
-post-0.9.4 audit debt, NOT a release.** Nothing tagged, no version bumped.
-Nine defects the audits had found and 0.9.4 shipped without — themes, HTML
+**ON `main` ABOVE 0.9.4 (2026-09-10, NOT a release).** Nothing tagged, no
+version bumped. Two batches, both recorded in `docs/round-history.md` under
+2026-09-10, with their accepted follow-ups and one recorded refutation. First,
+the post-0.9.4 audit debt: nine defects 0.9.4 shipped without — themes, HTML
 scan, `--log-file`, FFI task tracking, Spaces rail, timeline mirror,
 MediaBridge, local search paging, thread identity, and §6's "no readable token
-is not no account" twice more. The defects, the accepted follow-ups and one
-recorded refutation are in `docs/round-history.md` under 2026-09-10.
-Validation: Rust 411 passed, build-rust 202/203, build 200/201 (both failures
-the recorded `timeline-pane-qml` flake), `WEBRTC=OFF` over all 1341 targets.
-NOTHING in it is live-validated.
+is not no account" twice more. Then four items that were degrading every
+session: this file's own size limit, the AppImage's missing
+`gst-plugin-scanner`, a panic hook so a panic payload can no longer quote a
+message body to stderr, and the fallback secret store refusing to vouch for a
+secret it had just returned. Validation: Rust 413 passed, `WEBRTC=OFF` over
+every target, and both CTest trees green but for the recorded
+`timeline-pane-qml` anchor flake. NOTHING in it is live-validated.
 
 **The 2026-09-08/09 four-audit hardening round (`5d9fa37..820d368`, 15
 commits) SHIPPED IN 0.9.4** — `820d368` is an ancestor of `bcea599`, so it is

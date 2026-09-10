@@ -15,6 +15,97 @@ By THEME, not chronology, and reduced to rules, refutations, deliberate
 decisions, measured numbers and live status. Features are §7; the caps
 contract, the refutation rule and the probe rule are in the standing warnings.
 
+#### 2026-09-10 (later), four items that were degrading every session
+
+Small round, four unrelated fixes, and three of them turned on the same kind
+of mistake: a value that was really a STATE being written as a CONSTANT.
+
+**CLAUDE.md HIT ITS LIMIT AGAIN, AND THE RULE NOW BINDS THE ROUND IN HAND.**
+Writing the previous round's entry into §2 the old way took the file to
+148,643 characters against a hard 150,000 that truncates SILENTLY, dropping
+§§17-19 — the completion-report requirements and the multi-agent protocol —
+out of every agent's context. The file's own rule (past ~140,000, move a
+section to `docs/` and leave a pointer) had been sitting there being read as
+advice for some future editor. Third move: §2's release inventory and its
+operational traps are now `docs/release-operations.md`, chosen because they
+are needed ONLY during release, packaging or pipeline work — the same
+criterion that moved §7 and the round history. 137,759 after. **GENERALISE:
+a round's own record belongs in `docs/round-history.md` with a pointer of
+three or four lines; if adding yours crosses 140,000, move a section out in
+the SAME commit rather than leaving the next session to find the tail gone.**
+
+**THE APPIMAGE'S MISSING `gst-plugin-scanner`, AND WHY "DROP THE Q_OS_MACOS
+GUARD" WAS THE WRONG FIX.** 0.9.4 printed `External plugin loader failed` at
+every launch: GStreamer builds its registry by dlopen'ing candidates in a
+separate helper process, the path to that helper is compiled into
+libgstreamer, and it names the BUILD IMAGE. The obvious repair — un-guard the
+macOS call to `applyBundledScannerPath()` — would have repointed the deb, the
+rpm and the Flatpak too, and those use a system or runtime GStreamer whose
+compiled-in path is CORRECT. The AppImage is a third lane and already has a
+shape: the AppRun hook exports the variables and the app merely NOTICES them,
+exactly as it does for the plugin path. It has to be that way here for a
+structural reason as well as a stylistic one — the helper is staged at
+`usr/libexec/gstreamer-1.0/`, not beside the binary at `usr/bin/`, so the
+macOS "beside the executable" rule cannot reach it. **The scanner variable
+also differs from its plugin-path sibling in one way that matters: it names
+ONE EXECUTABLE, not a colon-joined list, so the rule refuses a list.**
+
+**AND ITS TWIN GUARD ALMOST DID NOT LEARN.** The hook preserves every variable
+it overrides as `APPIMAGE_ORIGINAL_<NAME>` and `UrlLauncher` hands them back
+to anything Lightning spawns, because a child that keeps them looks inside an
+AppImage mount that may already be gone. `UrlLauncher` carried
+`GST_PLUGIN_SCANNER` but not the versioned `GST_PLUGIN_SCANNER_1_0` — the one
+GStreamer consults FIRST. Fifth occurrence of "twin guards must learn
+together" in this project, so the two lists are now bound by a test that
+DERIVES the names from the hook's own source: adding a variable to the hook
+covers itself. `validate-appimage.sh` asserts both halves, the executable file
+AND the hook line that exports it, because either alone is a silent no-op.
+
+**A PANIC MAY PRINT WHERE, NEVER WHAT.** §6 forbids logging decrypted message
+bodies, and Rust's DEFAULT panic hook prints the payload to stderr before
+`catch_unwind` ever runs. That is a carrier this crate has actually had: a
+`str` slice panic's payload QUOTES the string it was slicing, and 0.9.4 fixed
+two byte-offset slices that were slicing message BODIES. It does not reach
+`--log-file` (which mirrors Qt's message handler, not the process's stderr),
+but it reaches a terminal, a journal, and any log a user is asked to attach.
+`install_panic_hook()` prints location and thread only, and **the property is
+held by the SIGNATURE — `panic_report_line()` takes no payload, so it cannot
+leak one and no filter has to stay correct.** It deliberately does not chain
+to the previous hook, because the previous hook is the one printing the
+payload.
+
+**AND IT MUST NEVER BE INSTALLED IN THE TEST PROFILE.** `assert_eq!` reports
+through the panic hook, and four cases in this crate call `mx_rust_create` —
+so installing it there would withhold the message of every ASSERTION FAILURE
+in the rest of the binary, turning a readable diff into "Rust panic at
+lib.rs:9001". The leak being guarded is a leak to a USER's terminal; `cargo
+test` output is a developer's own screen. `cfg!` rather than `#[cfg]`, so the
+body stays compiled and type-checked in both profiles.
+
+**A CONSTANT WEARING A PREDICATE'S CLOTHES, ONE LAYER DOWN.**
+`InsecureFallbackSecretStore::lastReadFailed()` returned
+`m_substitutedForNative || m_lastReadFailed`, and the first term is set at
+construction and never cleared — so on any build with a native backend
+compiled in whose daemon is not running it was PERMANENTLY true. Every Linux
+package carries `HAVE_LIBSECRET`, so that is an ordinary machine with no
+keyring daemon or no session bus: every token reads back perfectly from the
+fallback INI and the app was told, forever, that it could not read its own
+sign-ins. `secretBackendUnavailable()` was stuck true, and
+`AccountManager::needsSignIn()` short-circuits on it, so a genuinely EXPIRED
+sign-in could never be reported as needing one. **The distinction is one line:
+substitution means the native store may hold something this one cannot see,
+which makes a MISS ambiguous and says nothing about a value already in hand.**
+A miss under substitution stays inconclusive on purpose (§6), and a backing
+file that cannot be read outranks both.
+
+**HARNESS NOTE.** The first draft of the three store cases failed for a reason
+that had nothing to do with the code: `InsecureFallbackSecretStore`
+default-constructs `QSettings`, which resolves its file from the ORGANIZATION
+and APPLICATION names, and a test binary has neither — so every read returned
+a status error and the store reported failure. Same family as every other
+entry under "harness bugs masquerade as findings": before believing a new
+fixture, ask what would make it fail for the wrong reason.
+
 #### 2026-09-10, the post-0.9.4 audit debt: nine defects the audits found and the release did not take
 
 Nothing in this round was reported by a user. Every item is an audit finding
