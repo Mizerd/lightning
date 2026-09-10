@@ -15,6 +15,16 @@
 # /dev/uinput (an ACL entry is enough, no group needed), and ImageMagick for
 # shot_pid's crop.
 #
+# SCROLLING IS scripts/gui-wheel.py, NOT ydotool. ydotool 1.0.4 has no wheel
+# command at all — its `click` takes buttons 0x00-0x07 and a wheel is
+# REL_WHEEL, an axis. `pdrag` below scrolls a Flickable that is `interactive`,
+# but a desktop ScrollView is not, and that made whole panels unreachable
+# (the Space Home settings' "Leave Space" among them). gui-wheel.py creates
+# its own uinput mouse and emits REL_WHEEL directly:
+#     python3 scripts/gui-wheel.py -8 80    # 8 clicks DOWN, 80ms apart
+# Position the pointer over the target pane first (moveto), because a wheel
+# event goes to whatever is under the cursor.
+#
 # ALWAYS drive a throwaway fixture account on an ISOLATED XDG profile, and
 # confirm it from /proc/<pid>/environ before terminating anything. The
 # maintainer's own account, store and crypto are off limits.
