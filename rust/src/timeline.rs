@@ -760,6 +760,23 @@ impl TimelineRegistry {
     }
 
     /// Snapshot of the open thread timeline when it matches, and its stamps.
+    /// The open thread timeline in `room_id`, WITHOUT needing its root id.
+    ///
+    /// `thread_timeline_for` is the right lookup when the caller names a
+    /// root — reactions and redactions both do. Retry and Cancel do not:
+    /// they identify a message by TRANSACTION ID, and the FFI carries no
+    /// thread notion at all, so there is no root to match on. Only one
+    /// thread is open at a time, so "the open thread in this room" is
+    /// unambiguous.
+    fn open_thread_timeline_in_room(&self, room_id: &str) -> Option<Arc<Timeline>> {
+        let guard = self.active_thread.lock().ok()?;
+        let thread = guard.as_ref()?;
+        if thread.room_id != room_id {
+            return None;
+        }
+        thread.timeline.clone()
+    }
+
     fn thread_timeline_for(
         &self,
         room_id: &str,
@@ -1799,18 +1816,58 @@ impl TimelineRegistry {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
             return Err("No live timeline is open for that room.".to_owned());
         };
+        // THE ECHO OF A THREAD REPLY IS NOT IN THE ROOM TIMELINE, so looking
+        // only there made this a no-op for every thread reply ever sent.
+        //
+        // The live room timeline is built with
+        // `TimelineFocus::Live { hide_threaded_events: true }` (below), and
+        // matrix-sdk-ui refuses to add a threaded LOCAL ECHO to such a
+        // timeline: `should_add_new_items` is `thread_root.is_none()` at
+        // timeline/controller/state.rs:171. The handle simply is not in that
+        // item list. Meanwhile the routing sends every retry and cancel here
+        // with the plain room id — the FFI has no thread notion — and the
+        // thread panel renders the SAME MessageDelegate, so its Retry and
+        // Cancel links called this and got `*_target_missing`, which C++
+        // reports as "You can retry from the message's Retry action": the
+        // button that had just failed.
+        //
+        // THIS IS THE THIRD TIME THIS SHAPE HAS BEEN FIXED IN THIS FILE.
+        // `toggle_reaction` and the redaction path above both had it and both
+        // were corrected; these two sit immediately below and were missed.
+        let thread_timeline = self.open_thread_timeline_in_room(&room_id);
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            let items = timeline.items().await;
-            let handle = items.iter().rev().find_map(|item| {
-                let event = item.as_event()?;
-                if event.transaction_id().map(|t| t.to_string()) == Some(transaction_id.clone()) {
-                    event.local_echo_send_handle()
-                } else {
-                    None
+            // Generic over the item container so the SDK's concrete vector
+            // type does not have to be named here — it is an imbl Vector, not
+            // a slice, and it is not otherwise imported in this file.
+            let find_handle = |items: &_| -> Option<_> {
+                fn scan<'a, I: IntoIterator<Item = &'a Arc<TimelineItem>>>(
+                    items: I,
+                    txn: &str,
+                ) -> Option<matrix_sdk::send_queue::SendHandle>
+                where
+                    I::IntoIter: DoubleEndedIterator,
+                {
+                    items.into_iter().rev().find_map(|item| {
+                        let event = item.as_event()?;
+                        if event.transaction_id().map(|t| t.to_string())
+                            == Some(txn.to_owned())
+                        {
+                            event.local_echo_send_handle()
+                        } else {
+                            None
+                        }
+                    })
                 }
-            });
+                scan(items, &transaction_id)
+            };
+            let mut handle = find_handle(&timeline.items().await);
+            if handle.is_none() {
+                if let Some(thread) = thread_timeline.as_ref() {
+                    handle = find_handle(&thread.items().await);
+                }
+            }
             let Some(handle) = handle else {
                 if registry.is_current(room_gen, lifecycle) {
                     enqueue(
@@ -1873,18 +1930,58 @@ impl TimelineRegistry {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
             return Err("No live timeline is open for that room.".to_owned());
         };
+        // THE ECHO OF A THREAD REPLY IS NOT IN THE ROOM TIMELINE, so looking
+        // only there made this a no-op for every thread reply ever sent.
+        //
+        // The live room timeline is built with
+        // `TimelineFocus::Live { hide_threaded_events: true }` (below), and
+        // matrix-sdk-ui refuses to add a threaded LOCAL ECHO to such a
+        // timeline: `should_add_new_items` is `thread_root.is_none()` at
+        // timeline/controller/state.rs:171. The handle simply is not in that
+        // item list. Meanwhile the routing sends every retry and cancel here
+        // with the plain room id — the FFI has no thread notion — and the
+        // thread panel renders the SAME MessageDelegate, so its Retry and
+        // Cancel links called this and got `*_target_missing`, which C++
+        // reports as "You can retry from the message's Retry action": the
+        // button that had just failed.
+        //
+        // THIS IS THE THIRD TIME THIS SHAPE HAS BEEN FIXED IN THIS FILE.
+        // `toggle_reaction` and the redaction path above both had it and both
+        // were corrected; these two sit immediately below and were missed.
+        let thread_timeline = self.open_thread_timeline_in_room(&room_id);
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            let items = timeline.items().await;
-            let handle = items.iter().rev().find_map(|item| {
-                let event = item.as_event()?;
-                if event.transaction_id().map(|t| t.to_string()) == Some(transaction_id.clone()) {
-                    event.local_echo_send_handle()
-                } else {
-                    None
+            // Generic over the item container so the SDK's concrete vector
+            // type does not have to be named here — it is an imbl Vector, not
+            // a slice, and it is not otherwise imported in this file.
+            let find_handle = |items: &_| -> Option<_> {
+                fn scan<'a, I: IntoIterator<Item = &'a Arc<TimelineItem>>>(
+                    items: I,
+                    txn: &str,
+                ) -> Option<matrix_sdk::send_queue::SendHandle>
+                where
+                    I::IntoIter: DoubleEndedIterator,
+                {
+                    items.into_iter().rev().find_map(|item| {
+                        let event = item.as_event()?;
+                        if event.transaction_id().map(|t| t.to_string())
+                            == Some(txn.to_owned())
+                        {
+                            event.local_echo_send_handle()
+                        } else {
+                            None
+                        }
+                    })
                 }
-            });
+                scan(items, &transaction_id)
+            };
+            let mut handle = find_handle(&timeline.items().await);
+            if handle.is_none() {
+                if let Some(thread) = thread_timeline.as_ref() {
+                    handle = find_handle(&thread.items().await);
+                }
+            }
             let category = match handle {
                 None => Some("cancel_target_missing"),
                 Some(handle) => match handle.abort().await {

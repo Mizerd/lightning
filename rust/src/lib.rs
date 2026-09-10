@@ -9995,6 +9995,28 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
         .build()
         .await
         .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))?;
+    // PICK UP WHAT THE LAST SESSION LEFT QUEUED, and report how far an upload
+    // has actually got. Both are opt-in and both were missing.
+    //
+    // matrix-sdk's own module doc says respawn "is recommended to call during
+    // initialization of a client, otherwise persisted unsent events will only
+    // be re-sent after the send queue for the given room has been reopened for
+    // the first time" (send_queue/mod.rs:41). Lightning never called it, so a
+    // message composed just before the last exit sat in the store until the
+    // user happened to open that exact room again. The sync lanes' recovery
+    // edges cannot stand in for this: the classic lane's is gated on a
+    // FAILURE having been seen, and a clean start has none.
+    //
+    // And `report_media_upload_progress` defaults to FALSE (:419), which gates
+    // the progress observable at :742 — so EventSendState::NotSentYet carries
+    // no progress, UploadProgressRole stays -1, and every piece of UI built on
+    // it is unreachable: MessageDelegate's bar is permanently indeterminate,
+    // its "sending… %2%" string never renders, and the "Uploading, %1%"
+    // accessible name never fires. The seam is unit-tested with synthetic
+    // values on both sides, which is why nothing caught that the SDK was never
+    // asked to produce them.
+    client.send_queue().enable_upload_progress(true);
+    client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
     // 0600 ON THE DATABASES THAT WERE JUST CREATED, from the ONE place all
     // three login paths (password, restore, OAuth-with-a-store) pass through.
     //
@@ -10881,6 +10903,12 @@ async fn run_modern_sync(
         let space_service = SpaceService::new(client.clone()).await;
         let mut unified_state = service.state();
         let mut list_state = room_list_service.state();
+        // Whether the room list is CURRENTLY in Running. `list_state` re-emits
+        // Running on every sync response (see the arm below), so this is what
+        // turns that stream into the edge the send-queue recovery wants. The
+        // offline/error arms clear it, which is what makes a reconnect count
+        // as a new edge.
+        let mut list_running = false;
         // v0.7.x ignored users: the SDK diffs m.ignored_user_list on every
         // sync and publishes only real changes, so this stream is safe to
         // forward directly. Local ignores and remote ones (another client)
@@ -10939,10 +10967,29 @@ async fn run_modern_sync(
                         enqueue(&events, json!({
                             "type": "room_list_sync_state", "state": "running"
                         }));
-                        // See the classic lane's reset for why. This is a
-                        // TRANSITION into Running rather than a per-response
-                        // callback, so it needs no extra gate.
-                        client.send_queue().set_enabled(true).await;
+                        // GATED ON THE EDGE, and the first revision of this
+                        // was wrong to think it did not need to be. This
+                        // stream is `room_list_service.state()`, and the
+                        // room-list loop calls `state_machine.set(next_state)`
+                        // on EVERY successful sync iteration
+                        // (room_list_service/mod.rs:313); eyeball's `set()`
+                        // notifies unconditionally — `set_if_not_eq` is the
+                        // other method and is not the one used. So this arm
+                        // fires per RESPONSE, not per transition.
+                        //
+                        // That matters because set_enabled(true) is not free:
+                        // it walks every known room notifying its task, then
+                        // runs respawn_tasks_for_rooms_with_unsent_requests(),
+                        // an SQLite query, and each woken task then does a
+                        // store write and a store read. Per response, on the
+                        // same database the timeline, event cache and search
+                        // index use — and while the list is still loading the
+                        // loop spins with a zero poll timeout. Exactly the
+                        // cost the classic lane was gated to avoid.
+                        if !list_running {
+                            list_running = true;
+                            client.send_queue().set_enabled(true).await;
+                        }
                         if first_sync {
                             first_sync = false;
                             first_response.store(false, Ordering::SeqCst);
@@ -10957,11 +11004,13 @@ async fn run_modern_sync(
                         // connection indicator reports offline. The supervisor
                         // reconnects on its own.
                         Some(UnifiedSyncState::Offline) => {
+                            list_running = false;
                             enqueue(&events, json!({
                                 "type": "room_list_sync_state", "state": "offline"
                             }));
                         }
                         Some(UnifiedSyncState::Error(error)) => {
+                            list_running = false;
                             service.stop().await;
                             // The ONLY path allowed to start classic sync: a
                             // positively-classified unsupported endpoint.
