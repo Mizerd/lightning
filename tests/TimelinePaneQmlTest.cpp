@@ -76,6 +76,13 @@ namespace {
 // of a load-sensitive suite. Do not read a failure of it as a scroll
 // regression without a LIGHTNING_SCROLL_TRACE capture naming one.
 constexpr int kSignalTimeoutMs = 4000;
+// How long the anchor's row may take to be BUILT — nothing else. It is
+// generous on purpose and costs nothing when the row is already there,
+// because the wait ends the moment it is. Deliberately not the signal
+// timeout: this covers ReverseListProxyModel's paced reveal on a machine
+// that may be doing something else, and a slow machine must not be able to
+// report a compensation defect.
+constexpr int kAnchorRowRevealTimeoutMs = 30000;
 }
 
 namespace {
@@ -245,6 +252,86 @@ private:
                                        Q_ARG(QVariant, QVariant(sourceRow))))
             return -1;
         return out.toInt();
+    }
+
+    // WAIT FOR THE ANCHOR TO SETTLE — AND SAY WHY WHEN IT DOES NOT.
+    //
+    // Three cases assert the same invariant, that a prepend must not move
+    // the reader's own row within the viewport, and all three used ONE QTRY
+    // whose lambda returned false for two unrelated reasons: the anchor's
+    // new row had not been BUILT yet (ReverseListProxyModel paces its
+    // reveal, so on a loaded machine twenty tall wrapped rows legitimately
+    // take a while), or it had been built and the reader HAD moved. Only
+    // the second is the defect this suite is about.
+    //
+    // And a failing QTRY_VERIFY RETURNS from the test function, so the
+    // carefully worded QVERIFY2 beneath each one — the only place the
+    // offsets were ever printed — could never run. Every failure these three
+    // have ever produced read "returned FALSE ()" and named nothing. That
+    // does not by itself explain the flake §16 records against this suite;
+    // it explains why nobody could tell what the flake WAS.
+    //
+    // So the two are now waited for SEPARATELY, and the split makes the
+    // assertion STRICTER rather than more forgiving: only the row's
+    // construction is waited for, and the offset is then read ONCE, with no
+    // grace period at all. These cases are named for compensation being
+    // IMMEDIATE; a loop that re-reads the offset until it converges is the
+    // one thing that could let a DEFERRED correction pass them.
+    //
+    // Measured before making the change: with the combined wait's budget cut
+    // to 1 ms all three still passed, so the predicate was already true on
+    // its first evaluation and no case was ever relying on the grace.
+    //
+    // AND READ THIS BEFORE TREATING A FAILURE OF THE THREE AS A COMPENSATION
+    // DEFECT. Measured 2026-09-11 by disabling maintainViewAnchor() outright
+    // (an `if (true) return` at its top, module rebuilt): EIGHT other cases in
+    // this suite failed and these three PASSED. They do not exercise
+    // compensation, and they never did. §16's positive-only guard says why,
+    // and this is the direct evidence for it: on the rotated Flickable the
+    // newest message is view row 0 at content y 0 and older rows sit at
+    // HIGHER y, so a backfill prepend lands BEYOND the reader and moves
+    // neither their row's y nor contentY. There is nothing to correct.
+    //
+    // What they DO guard is that geometric identity — that a prepend stays
+    // beyond the reader — which is worth having, because the row window, the
+    // proxy's view-row numbering and the reveal pacing could each break it.
+    // Compensation itself is covered by the eight cases above (the diag*
+    // family, displacedBranchDoesNotFireWhileAnchorDelegateAlive and
+    // anchorDelegateSurvivesDistantScrollNeverEvictedFallback); those are the
+    // ones that fail when the mechanism goes.
+    struct AnchorSettle {
+        bool sawRow = false;
+        double offset = 0;
+        bool moved(double offsetBefore) const
+        {
+            return !sawRow || qAbs(offset - offsetBefore) >= 2.0;
+        }
+        QString detail(double offsetBefore) const
+        {
+            return sawRow
+                ? QStringLiteral("viewport offset %1 -> %2")
+                      .arg(offsetBefore).arg(offset)
+                : QStringLiteral("the anchor's row was never built within "
+                                 "%1 ms — a paced-reveal timeout, NOT a "
+                                 "compensation failure")
+                      .arg(kAnchorRowRevealTimeoutMs);
+        }
+    };
+    static AnchorSettle anchorOffsetOnceItsRowExists(QQuickItem *timeline,
+                                                     int rowAfter)
+    {
+        AnchorSettle settle;
+        QQuickItem *item = nullptr;
+        settle.sawRow = QTest::qWaitFor(
+            [&] {
+                item = itemForSourceRow(timeline, rowAfter);
+                return item != nullptr;
+            },
+            kAnchorRowRevealTimeoutMs);
+        if (settle.sawRow)
+            settle.offset =
+                item->y() - timeline->property("contentY").toDouble();
+        return settle;
     }
 
     // The instantiated delegate for a SOURCE row, or nullptr.
@@ -5210,23 +5297,13 @@ private Q_SLOTS:
         const int rowAfter = controller.timeline()->rowForStableId(anchorId);
         QVERIFY2(rowAfter > rowBefore,
                  "fixture assumption: the prepend must shift the row index");
-        double offsetAfter = 0;
-        QTRY_VERIFY_WITH_TIMEOUT(
-            ([&] {
-                QQuickItem *itemAfter = nullptr;
-                ((itemAfter = itemForSourceRow(timeline, rowAfter)) != nullptr);
-                if (!itemAfter)
-                    return false;
-                offsetAfter = itemAfter->y()
-                    - timeline->property("contentY").toDouble();
-                return qAbs(offsetAfter - offsetBefore) < 2.0;
-            }()),
-            kSignalTimeoutMs);
-        QVERIFY2(qAbs(offsetAfter - offsetBefore) < 2.0,
+        const AnchorSettle settle =
+            anchorOffsetOnceItsRowExists(timeline, rowAfter);
+        QVERIFY2(!settle.moved(offsetBefore),
                  qPrintable(QStringLiteral(
                      "a top-edge prepend moved the reader off their row "
-                     "mid-gesture: viewport offset %1 -> %2 (the teleport "
-                     "cascade)").arg(offsetBefore).arg(offsetAfter)));
+                     "mid-gesture (the teleport cascade): %1")
+                     .arg(settle.detail(offsetBefore))));
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
@@ -5411,25 +5488,15 @@ private Q_SLOTS:
             // Sample the offset RIGHT AFTER this single batch settles its own
             // onContentHeightChanged reaction — before the next batch is even
             // requested. Compensation must be IMMEDIATE, never deferred.
-            double offsetAfter = 0;
-            QTRY_VERIFY_WITH_TIMEOUT(
-                ([&] {
-                    QQuickItem *itemAfter = nullptr;
-                    ((itemAfter = itemForSourceRow(timeline, rowAfter)) != nullptr);
-                    if (!itemAfter)
-                        return false;
-                    offsetAfter = itemAfter->y()
-                        - timeline->property("contentY").toDouble();
-                    return qAbs(offsetAfter - offsetBefore) < 2.0;
-                }()),
-                kSignalTimeoutMs);
-            QVERIFY2(qAbs(offsetAfter - offsetBefore) < 2.0,
+            const AnchorSettle settle =
+                anchorOffsetOnceItsRowExists(timeline, rowAfter);
+            QVERIFY2(!settle.moved(offsetBefore),
                      qPrintable(QStringLiteral(
                          "batch %1 of %2: a near-top prepend during a held "
-                         "gesture moved the reader off their row: viewport "
-                         "offset %3 -> %4")
+                         "gesture moved the reader off their row: %3")
                          .arg(batch + 1).arg(kBatches)
-                         .arg(offsetBefore).arg(offsetAfter)));
+                         .arg(settle.detail(offsetBefore))));
+            const double offsetAfter = settle.offset;
 
             rowBefore = rowAfter;
             offsetBefore = offsetAfter;
@@ -5618,25 +5685,16 @@ private Q_SLOTS:
             // Sample the offset RIGHT AFTER this single batch settles its
             // own onContentHeightChanged reaction — before the next batch
             // is even requested. This must be IMMEDIATE.
-            double offsetAfter = 0;
-            QTRY_VERIFY_WITH_TIMEOUT(
-                ([&] {
-                    QQuickItem *itemAfter = nullptr;
-                    ((itemAfter = itemForSourceRow(timeline, rowAfter)) != nullptr);
-                    if (!itemAfter)
-                        return false;
-                    offsetAfter = itemAfter->y()
-                        - timeline->property("contentY").toDouble();
-                    return qAbs(offsetAfter - offsetBefore) < 2.0;
-                }()),
-                kSignalTimeoutMs);
-            QVERIFY2(qAbs(offsetAfter - offsetBefore) < 2.0,
+            const AnchorSettle settle =
+                anchorOffsetOnceItsRowExists(timeline, rowAfter);
+            QVERIFY2(!settle.moved(offsetBefore),
                      qPrintable(QStringLiteral(
                          "batch %1 of %2: a prepend during a held gesture "
                          "moved the reader off their row before the next "
-                         "batch was even requested: viewport offset %3 -> %4")
+                         "batch was even requested: %3")
                          .arg(batch + 1).arg(kBatches)
-                         .arg(offsetBefore).arg(offsetAfter)));
+                         .arg(settle.detail(offsetBefore))));
+            const double offsetAfter = settle.offset;
 
             rowBefore = rowAfter;
             offsetBefore = offsetAfter;
