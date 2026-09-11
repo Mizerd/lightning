@@ -126,6 +126,28 @@ public:
     /// the point at which this client has told the server the user read up to
     /// a specific event, which is exactly the claim being mirrored here.
     void markRoomReadUpTo(const QString &roomId, qint64 timestampMs);
+    /// The room's own unread state says everything in it has been read, so
+    /// its rows are seen here too — WHOEVER read it.
+    ///
+    /// markRoomReadUpTo() above is driven by receiptSent, which fires only
+    /// when THIS client sends a receipt. Read the message on a phone and
+    /// Lightning never sends one, so the bell kept counting a mention the
+    /// user had already answered while the room's own badge was clear:
+    /// "the bell shows unread messages, even though there are zero
+    /// notifications on the rooms themselves".
+    ///
+    /// The signal is the SDK's own unread state, which is computed from the
+    /// user's read receipt whichever device published it, so this is the
+    /// same claim as a receipt rather than a new heuristic. EVERY unread
+    /// signal must be clear — num_unread_messages, the notification and
+    /// highlight counts, and the manual mark-as-unread flag — so a room with
+    /// anything at all still outstanding keeps its rows.
+    ///
+    /// INVITE ROWS ARE EXEMPT. An invited room has nothing to read by
+    /// construction, so every unread signal is trivially clear and the
+    /// invite would be marked seen the moment it arrived. They are cleared
+    /// by inviteResolved() or by the user, never by this.
+    void reconcileRoomAgainstItsReadState(const QString &roomId);
     // Navigate: emits openRequested with the exact target and marks seen.
     Q_INVOKABLE void open(const QString &id);
     Q_INVOKABLE void clear();

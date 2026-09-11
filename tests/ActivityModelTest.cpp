@@ -151,6 +151,127 @@ private Q_SLOTS:
         QCOMPARE(h.row(0).value(QStringLiteral("seen")).toBool(), true);
     }
 
+    // READ IT ON YOUR PHONE AND THE BELL STILL COUNTED IT.
+    //
+    // markRoomReadUpTo() above is driven by ReadReceiptCoordinator's
+    // receiptSent, which fires only when THIS client sends a receipt. Read
+    // the message somewhere else and Lightning never sends one, so the bell
+    // went on counting a mention that had already been answered while the
+    // room's own badge was clear — "the bell shows unread messages, even
+    // though there are zero notifications on the rooms themselves".
+    //
+    // The cross-device signal is the room's own unread state, which the SDK
+    // computes from the user's read receipt whichever device published it.
+    void anotherDevicesReadClearsTheBell()
+    {
+        Harness h;
+        TimelineEvent one = text(QStringLiteral("$p1"),
+                                 QStringLiteral("@bob:mock.local"),
+                                 QStringLiteral("hey @me one"), 1000);
+        one.mentionsMe = true;
+        TimelineEvent two = text(QStringLiteral("$p2"),
+                                 QStringLiteral("@bob:mock.local"),
+                                 QStringLiteral("hey @me two"), 3000);
+        two.mentionsMe = true;
+        QVERIFY(h.model.ingest(one, QStringLiteral("Lounge")));
+        QVERIFY(h.model.ingest(two, QStringLiteral("Lounge")));
+        QCOMPARE(h.model.unseenCount(), 2);
+
+        // STILL UNREAD: one highlight outstanding. Nothing may clear.
+        RoomInfo busy;
+        busy.id = kRoom;
+        busy.name = QStringLiteral("Lounge");
+        busy.raiseActivity(QDateTime::fromMSecsSinceEpoch(3000));
+        busy.highlightCount = 1;
+        busy.hasUnreadMessages = true;
+        h.client.roomSet = { busy };
+        Q_EMIT h.client.roomUpdated(kRoom);
+        QCOMPARE(h.model.unseenCount(), 2);
+
+        // A count can go to zero while the SDK still says there are unread
+        // MESSAGES; that is not "read" either (§16: notification_count 0 is
+        // not the same claim as read).
+        RoomInfo half = busy;
+        half.highlightCount = 0;
+        h.client.roomSet = { half };
+        Q_EMIT h.client.roomUpdated(kRoom);
+        QCOMPARE(h.model.unseenCount(), 2);
+
+        // The phone reads it. Lightning sent no receipt of its own.
+        RoomInfo read = half;
+        read.hasUnreadMessages = false;
+        read.unreadCount = 0;
+        h.client.roomSet = { read };
+        Q_EMIT h.client.roomUpdated(kRoom);
+        QCOMPARE(h.model.unseenCount(), 0);
+        // History, not a queue: the rows survive, marked seen.
+        QCOMPARE(h.model.count(), 2);
+        QCOMPARE(h.row(0).value(QStringLiteral("seen")).toBool(), true);
+    }
+
+    // The three refusals that keep the cross-device path from over-claiming.
+    void aClearRoomNeverClearsWhatItCannotSpeakFor()
+    {
+        Harness h;
+        // An entry NEWER than anything the room is known to hold. A room
+        // whose latest activity is older than a row cannot have been read
+        // past it.
+        TimelineEvent future = text(QStringLiteral("$f1"),
+                                    QStringLiteral("@bob:mock.local"),
+                                    QStringLiteral("hey @me later"), 9000);
+        future.mentionsMe = true;
+        QVERIFY(h.model.ingest(future, QStringLiteral("Lounge")));
+
+        RoomInfo read;
+        read.id = kRoom;
+        read.name = QStringLiteral("Lounge");
+        read.raiseActivity(QDateTime::fromMSecsSinceEpoch(3000));
+        h.client.roomSet = { read };
+        Q_EMIT h.client.roomUpdated(kRoom);
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        // Manually marked unread by the user: their word beats the receipt.
+        RoomInfo flagged = read;
+        flagged.raiseActivity(QDateTime::fromMSecsSinceEpoch(9000));
+        flagged.markedUnread = true;
+        h.client.roomSet = { flagged };
+        Q_EMIT h.client.roomUpdated(kRoom);
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        // And the room really being read does clear it, so the case above
+        // is a refusal rather than a fixture that could never pass.
+        RoomInfo clear = flagged;
+        clear.markedUnread = false;
+        h.client.roomSet = { clear };
+        Q_EMIT h.client.roomUpdated(kRoom);
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
+    // AN INVITE IS NOT A MESSAGE, so a room with nothing to read must not
+    // clear it. Every unread signal on an invited room is trivially zero,
+    // which would have marked the invite seen the instant it arrived.
+    void aClearRoomNeverClearsAnInvite()
+    {
+        Harness h;
+        RoomInfo invited;
+        invited.id = QStringLiteral("!invited:mock.local");
+        invited.name = QStringLiteral("Secret Club");
+        invited.membership = RoomInfo::Invited;
+        invited.raiseActivity(QDateTime::currentDateTime());
+        QVERIFY(h.model.noteInvite(invited));
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        h.client.roomSet = { invited };
+        Q_EMIT h.client.roomUpdated(invited.id);
+        QCOMPARE(h.model.unseenCount(), 1);
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        // Answering it is what removes it.
+        h.model.inviteResolved(invited.id);
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
     // Guards the two refusals that keep this from over-claiming.
     void readingARoomNeverMarksAnEntryItCannotCompare()
     {

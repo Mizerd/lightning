@@ -54,6 +54,22 @@ void ActivityModel::setClient(MatrixClient *client)
         if (state == MatrixClient::Syncing)
             loadStore();
     });
+    // A room whose unread state has gone clear has been read — on THIS
+    // device or on another one. See reconcileRoomAgainstItsReadState().
+    connect(m_client, &MatrixClient::roomUpdated, this,
+            &ActivityModel::reconcileRoomAgainstItsReadState);
+    // A batch update names no room, so ask about the rooms this model
+    // actually holds rows for. Bounded by kMaxEntries and in practice a
+    // handful; the per-room function rejects the rest in one pass.
+    connect(m_client, &MatrixClient::roomsChanged, this, [this] {
+        QSet<QString> rooms;
+        for (const Entry &e : m_entries) {
+            if (!e.seenMark && e.kind != QLatin1String("invite"))
+                rooms.insert(e.roomId);
+        }
+        for (const QString &id : std::as_const(rooms))
+            reconcileRoomAgainstItsReadState(id);
+    });
 }
 
 void ActivityModel::loadStore()
@@ -231,6 +247,60 @@ void ActivityModel::markRoomReadUpTo(const QString &roomId, qint64 timestampMs)
     // makes this stick now — a room the user read reports no unread
     // highlights, and its rows are marked seen whatever the per-row flag
     // claims.
+    rebuildVisible();
+    Q_EMIT unseenCountChanged();
+}
+
+void ActivityModel::reconcileRoomAgainstItsReadState(const QString &roomId)
+{
+    if (!m_client || roomId.isEmpty())
+        return;
+    // Cheap rejection first: this runs on every room update, and most of
+    // them are for rooms the bell holds nothing for.
+    bool holds = false;
+    for (const Entry &e : m_entries) {
+        if (!e.seenMark && e.roomId == roomId
+            && e.kind != QLatin1String("invite")) {
+            holds = true;
+            break;
+        }
+    }
+    if (!holds)
+        return;
+    const RoomInfo info = m_client->roomInfo(roomId);
+    if (info.id != roomId)
+        return;
+    // ALL of them, not any of them. num_unread_messages is the receipt-
+    // derived one and the reason this works across devices; the counts and
+    // the manual flag are what keep a partially-read room's rows.
+    if (info.markedUnread || info.hasUnreadMessages || info.unreadCount > 0
+        || info.highlightCount > 0) {
+        return;
+    }
+    // The newest thing the room is known to hold is the furthest the user
+    // can have read to. Nothing newer is ever marked.
+    if (!info.lastActivity.isValid())
+        return;
+    const qint64 readUpToMs = info.lastActivity.toMSecsSinceEpoch();
+    if (readUpToMs <= 0)
+        return;
+    bool changed = false;
+    for (Entry &e : m_entries) {
+        if (e.seenMark || e.roomId != roomId)
+            continue;
+        if (e.kind == QLatin1String("invite"))
+            continue;
+        if (e.timestampMs <= 0 || e.timestampMs > readUpToMs)
+            continue;
+        e.seenMark = true;
+        changed = true;
+    }
+    if (!changed)
+        return;
+    // Per-entry marks only, exactly as markRoomReadUpTo: one room's read
+    // state says nothing about any other room's rows, so m_seenUpToMs does
+    // not move. Durability across a restart comes from seed() and
+    // reconcileSeedAgainstRoomCounts(), which read the same server state.
     rebuildVisible();
     Q_EMIT unseenCountChanged();
 }
