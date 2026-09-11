@@ -1126,6 +1126,14 @@ private slots:
         // same grouping twice.
         const QString presenter = withoutComments(
             read(QStringLiteral("RoomChannelsPresenter.qml")));
+        // read() answers an EMPTY string when the file cannot be opened, and
+        // the only assertion here is a NEGATIVE one — so without this the
+        // case goes green the moment the file is renamed or moved, which is
+        // the one change most likely to break the contract it pins. Its
+        // neighbour below already guards this way.
+        QVERIFY2(!presenter.isEmpty(),
+                 "RoomChannelsPresenter.qml could not be read — this contract "
+                 "would otherwise pass vacuously");
         QVERIFY2(!presenter.contains(QStringLiteral("section.property")),
                  "the Channels list adds a second grouping mechanism");
     }

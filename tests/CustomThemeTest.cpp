@@ -59,6 +59,32 @@ class CustomThemeTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+
+    // A NOTIFY NOTHING EMITS IS A CONSTANT WEARING A SIGNAL'S CLOTHES.
+    //
+    // `roles` is declared NOTIFY rolesChanged, and its header says the
+    // property is "re-read on a language change rather than being CONSTANT".
+    // Nothing emitted rolesChanged anywhere in the tree, so that described an
+    // intention and not the code: roles() builds its labels and group names
+    // with tr(), QML's engine.retranslate() does not reach strings a C++
+    // model has already turned into data, and the theme editor's labels kept
+    // the old language until it was reopened.
+    void roleLabelsAreAnnouncedOnALanguageChange()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        QVERIFY2(!store.roles().isEmpty(),
+                 "fixture assumption: the store exposes editable roles");
+
+        QSignalSpy spy(&store, &CustomThemeStore::rolesChanged);
+        const QString before = settings.language();
+        settings.setLanguage(before == QLatin1String("lt")
+                                 ? QStringLiteral("en")
+                                 : QStringLiteral("lt"));
+        QCOMPARE(spy.count(), 1);
+        settings.setLanguage(before);
+    }
+
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());

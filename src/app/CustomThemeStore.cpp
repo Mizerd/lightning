@@ -160,6 +160,15 @@ CustomThemeStore::CustomThemeStore(SettingsManager *settings, QObject *parent)
         // enough on its own).
         connect(m_settings, &SettingsManager::sessionChanged, this,
                 &CustomThemeStore::invalidate);
+        // roles() builds its labels and group names with tr(), and QML's
+        // engine.retranslate() does NOT reach strings a C++ model has already
+        // turned into data (main.cpp records that). The `roles` property has
+        // always DECLARED NOTIFY rolesChanged and nothing ever emitted it, so
+        // the theme editor's role labels kept the old language until it was
+        // reopened — the header's claim that it is "re-read on a language
+        // change" described an intention, not the code.
+        connect(m_settings, &SettingsManager::languageChanged, this,
+                &CustomThemeStore::rolesChanged);
     }
 }
 
