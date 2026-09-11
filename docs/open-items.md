@@ -264,6 +264,124 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   centres inside one screen and VALIDATES the result, falling back to platform
   placement; `window-placement` covers it.
 
+**THE WINDOWS CAMERA'S 10-FPS DEFECT IS REPRODUCED LIVE, AND THE CAUSE IS
+NAMED: THE SHIPPED PACKAGE HAS NO JPEG ELEMENTS (2026-09-12, Windows 11 guest,
+released 0.9.4 portable, the laptop's own USB webcam passed through).**
+
+    camera MJPG chain unavailable, cameras will use the raw entry:
+        no element "jpegenc"
+    camera chain= raw (jpeg elements absent )
+    capture negotiated caps= video/x-raw, format=(string)YUY2,
+        width=(int)1920, height=(int)1080, framerate=(fraction)5/1
+
+The camera WORKS — `capture delivered frames count= 5500`, a real published
+track — it is simply starved: raw YUY2 at 1080p is ~62 MB/s, far past USB 2.0,
+so the device negotiates **5 fps**. Worse than the 720p@10 this item was
+recorded at, because the guest's camera offers 1080p.
+
+**THIS SETTLES THE OPEN OPERATOR STEP, AND THE ANSWER IS THAT IT NEVER
+HAPPENED.** §16 records the packaging half as done on 2026-09-02 —
+`libgstjpeg.dll` added to BOTH Windows lists — and immediately beside it:
+"THE WINDOWS BUILDER IMAGE IS BUILT BY HAND UNDER A FIXED TAG, AND A
+DOCKERFILE CHANGE ALONE CHANGES NOTHING… OPEN OPERATOR STEP: rebuild the image
+under a new tag." The app asking for `jpegenc` and being told no element
+exists is that step's absence, measured on the artifact rather than argued
+from the Dockerfile.
+
+So the app half of this defect can now be worked on with a rig that can SEE
+it, which it never could before — but it cannot be FIXED until the builder
+image is rebuilt, because the element the fix needs is not in the package.
+
+Note what the app did right: it probed for the MJPG chain, found no `jpegenc`,
+said so by name, and fell back to the raw entry rather than failing. That is
+the documented "build the camera chain for image/jpeg explicitly and FALL BACK
+to today's raw chain" design working as intended — the fallback is correct and
+the missing element is the defect.
+
+ALSO MEASURED IN THE SAME SESSION, and NOT a defect: `screen share falling
+back to the CPU: the GL chain is present but cannot run on this machine`.
+§16 says `gpuShareChainUsable()` "has never been observed declining" — this is
+the first observation, and it declined correctly and said why, on a guest with
+no GPU. The maintainer confirms the GPU share path works on real Windows
+hardware, so this is the pre-flight doing its job, not a regression.
+
+**WINDOWS FALLS BACK TO THE SOFTWARE RENDERER WHEREVER THERE IS NO GL DRIVER,
+BECAUSE `opengl32sw.dll` IS NOT IN THE PACKAGE (measured 2026-09-12 on a real
+Windows 11 guest, released 0.9.4 portable).** From the app's own log:
+
+    Failed to load opengl32sw (The specified module could not be found.)
+    Failed to load and resolve WGL/OpenGL functions
+    lightning: no usable OpenGL context on the "windows" platform - falling
+    back to the software renderer. Video and screen sharing will be slower.
+
+`opengl32sw.dll` is **Qt's own bundled software OpenGL** (Mesa llvmpipe), which
+Qt ships precisely so an application keeps a working GL implementation on a
+machine whose driver is missing or unusable. It appears **nowhere in
+`packaging-ci/`** — `grep -rn opengl32sw` returns nothing. The `opengl32.dll`
+in `stage-windows-runtime.py:29` is the SYSTEM_DLLS exclude list, i.e. the
+real driver-backed one Windows provides, correctly not bundled; the software
+twin is a different file and was never staged.
+
+So the fallback chain loses its middle rung. With `opengl32sw.dll` present Qt
+would use a software GL implementation and Qt Quick would still run its OpenGL
+scene graph; without it the probe fails outright and the app drops to
+`QSGRendererInterface::Software`, Qt Quick's own rasteriser.
+
+**AND "MATERIALLY SLOWER" IS WRONG. RE-RANKED 2026-09-12: THIS IS A
+CALL-BREAKING DEFECT.** On the software renderer, call and screen-share video
+is not slow — **it is not drawn at all**. Measured twice, and the two agree:
+
+* LIVE, on the Windows guest: winA received 1000+ video frames from a Linux
+  screen share, `frames in the clear in ... video= true count= 1000` climbing,
+  and the tile on screen was an EMPTY bordered rectangle. Maximising the
+  window ruled out clipping.
+* LIVE, on Linux, where the backend could be changed as the ONLY variable:
+  one client, one call, `QT_QUICK_BACKEND=software` — the counter passed 500
+  against an empty rectangle, where the same client on the default backend
+  rendered the remote desktop perfectly.
+
+The mechanism is in Qt's own headers. `QSGSoftwareRenderableNode::NodeType`
+is a closed list — `SimpleRect, SimpleTexture, Image, Painter, Rectangle,
+Glyph, NinePatch, SimpleRectangle, SimpleImage, SpriteNode, RenderNode` — and
+Qt Multimedia's `QSGVideoNode` is a `QSGGeometryNode` with a
+`QSGVideoMaterial`, which is none of them and is not a `QSGRenderNode` either.
+It therefore never gets a renderable node and is never painted, while every
+type on that list IS the tile's chrome. The path is RHI-only besides
+(`QQuickVideoOutput::initRhiForSink`, `QSGVideoMaterial(..., QRhi*)`), and the
+software adaptation has no RHI at all.
+
+So on any Windows host with no usable GL a user joins a call, is heard, hears
+everyone, and sees blank rectangles — with the app's own warning telling them
+it will merely be "slower". That wording is corrected in `src/main.cpp`.
+
+**WHO THIS BITES**, stated carefully: a Windows machine with a working GPU
+driver is unaffected — it gets hardware GL and never reaches this branch. It
+bites VMs, RDP sessions, servers, and machines whose driver is missing or
+broken. This guest is a VM with no GPU, which is why it showed up here and has
+never shown up on a developer's desktop.
+
+**POSSIBLY RELATED, NOT ESTABLISHED:** the open "Lightning is sometimes
+bouncing up to 9999 fps" report is from Windows, and a software-rendered Qt
+Quick window does not present the way a vsynced GL one does. That is a
+HYPOTHESIS. The `lightning: scene graph backend=…` line added in `74ddf08`
+names the backend and the panel refresh rate in one line and is the instrument
+for it — but it postdates 0.9.4, so it is not in any released Windows build
+yet. The next Windows package carries it.
+
+FIX: stage `opengl32sw.dll` alongside the Qt DLLs in
+`packaging-ci/scripts/stage-windows-runtime.py`, and assert it, since its
+absence is invisible until a host with no driver meets it — the recorded
+"graceful fallback and silent absence are the same observable" shape, now for
+the sixth time.
+
+NOT DONE, and the blocker is not the code: the Windows builder image is
+hand-built under a fixed tag (§16), so the file has to BE in that image before
+any staging line can copy it. Check whether the image's Qt carries
+`bin/opengl32sw.dll` — the official Qt binaries do, an MSYS2/mingw Qt does
+not — and if it does not, the software-GL rung has to be sourced deliberately
+rather than by editing a list. Until then the call UI should say why the
+picture is missing instead of showing an empty frame.
+
 **THE SNAP HAS NEVER WORKED. IT INSTALLS AND CANNOT START (found 2026-09-11,
 first execution under a real snapd).**
 
@@ -525,3 +643,98 @@ send path, provider networking, thread summaries/attachments,
 notification sounds, or E2EE generation isolation as unfinished. Do not
 turn possible future ideas into commitments.
 
+---
+
+**THE SNAP STARTS NOW AND ITS GUI DID NOT, AND BOTH HALVES ARE MEASURED
+(2026-09-12, a real `snap install --dangerous` in an Ubuntu 24.04 guest under
+snapd 2.76.3 — the only place either question can be answered).**
+
+Artifact: project 6 pipeline 198's `build-snap`,
+`lightning_0.9.4+git20260911.84a3294_amd64.snap`.
+
+PASS, and it is new: the snap installs and RUNS. `lightning --version` answers
+`Lightning 0.9.4`; `--call-media-status` reports the media engine built in,
+GStreamer 1.26.2 and both call engines available. `84a3294`'s excludelist-family
+staging is what fixed the never-starts defect this file used to record.
+
+FAIL on the shipped artifact: **it cannot open a window.**
+
+    cannot load: /snap/lightning/x2/usr/plugins/platforms/libqxcb.so:
+    libSM.so.6: cannot open shared object file: No such file or directory
+    qt.qpa.plugin: Could not load the Qt platform plugin "xcb" ... even
+    though it was found.
+
+`libSM.so.6` (X session management) and its own dependency `libICE.so.6` were
+not staged. Qt's advice on that failure path names `xcb-cursor0`, which IS in
+the payload — so the message points at the wrong library and cost a detour.
+
+PROVEN, not predicted: unsquashing the snap, copying the guest's `libSM.so.6`
+and `libICE.so.6` into `usr/lib`, repacking and installing gives a **rendered
+sign-in window**. Those two libraries were the whole distance between the
+shipped snap and a working GUI.
+
+WHY NOTHING CAUGHT IT, and this is the reusable part. A Qt platform plugin is
+**dlopened**, so its dependencies are not the binary's: `build-snap.sh`'s
+"nothing unresolved" guard asked the BINARY, which was perfectly satisfied.
+And no CI job can reach it either — `validate-snap.sh` runs with
+`QT_QPA_PLATFORM=offscreen`, which never loads xcb, so a snap whose windowing
+is entirely broken passes every check and installs cleanly. Fourth appearance
+of "a library loads its own plugins" in this project.
+
+FIXED in `packaging-ci/scripts/build-snap.sh`: `libSM.so.*|libICE.so.*` join
+the staged families; `libSM.so.6`/`libICE.so.6` join the named assertion; the
+staging PROBE set widens from the two platform-plugin directories to every
+`usr/plugins` and `usr/lib/gstreamer-1.0` plugin; and a new guard runs `ldd`
+over every plugin against the payload — fatal for a Qt plugin, fatal for
+`libgstopengl.so`/`libgstwebrtc.so`, a warning otherwise. **The fixed build has
+NOT been run** (it needs a pipeline), so the guard itself is NOT TESTED.
+
+STILL MISSING in the same run, and found only because the window came up:
+
+    Failed to load plugin '.../libgstalsa.so':   libasound.so.2: ...
+    Failed to load plugin '.../libgstopengl.so': libGL.so.1: ...
+
+`libGL.so.1` is why that snap logged `no usable OpenGL context on the "xcb"
+platform - falling back to the software renderer` — which, per the opengl32sw
+entry above, means **the snap would show no call video at all**. Both families
+were already in the staged list and neither was staged, because the probe set
+did not include the plugins that load them; the widened probe set above is
+aimed squarely at this.
+
+NOT TESTED on the snap, and not reachable without a display in the guest that
+is more than Xvfb: Wayland (the payload still bundles `libwayland-client.so.0`,
+which the AppImage deliberately DELETES over GitHub issue #9 — under
+confinement the calculus differs, but it has never been exercised), GPU
+acceleration, audio, and any call.
+
+
+---
+
+**ACCEPTED FOLLOW-UP, not done: the camera-portal state machine has no
+coverage, and the one suite that could reach it is built without the media
+engine.** Raised in review 2026-09-12 and recorded rather than fixed, because
+restructuring call code deserves a round where it can be iterated on.
+
+`SfuCallController::startCameraCapture()` and `publishCameraTrack()` have their
+entire bodies inside `#ifdef HAVE_LIGHTNING_WEBRTC`. `call-controller-test` is
+the only target that constructs a `SfuCallController`, and it links
+`Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test` only — so it never receives that macro
+and `startCameraCapture()` is an empty function there. `m_cameraAwaitingPortal`
+can therefore never become true in a test, and the four camera cases added with
+`21f4a1a` can only call the pure `linuxCameraRoute` predicate, which is exactly
+what they do.
+
+Untested as a result, and these are the paths that leak a file descriptor or
+wedge the camera: the three fd-ownership exits in the `ready` lambda, the
+leave-during-dialog unwind, the second-press unwind, and the call-end cancel.
+The lambdas themselves are already OUTSIDE the guard, along with
+`setCameraPortal()` and `abandonPendingCamera()`, so a test could wire a real
+`CameraPortal` and emit `ready`/`cancelled`/`failed` today — only those two
+guarded bodies stand in the way.
+
+THE SHAPE IS ALREADY IN THIS FILE'S NEIGHBOUR: `SfuCallController.h` keeps
+`m_engineParticipantVolume`/`m_engineShareVolume` shadow records outside the
+media guard, with a comment saying why, and that is what makes
+`aStoredVolumeReachesTheEngineWhenTheStreamIdArrivesLate` a real test. Mirror
+it — a `cameraAwaitingPortalForTest()` and a publish counter kept outside the
+guard — and the state machine becomes drivable without a media engine.

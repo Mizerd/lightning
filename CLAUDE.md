@@ -1113,17 +1113,26 @@ currently blocked here by the mingw-w64 UCRT/msvcrt break recorded above).
 That is a hypothesis, NOT a measurement — the numbers in this block are Linux
 `videotestsrc` and say nothing about either capture element.
 
-**THE LINUX PACKAGE JOBS BUILD WITHOUT THE MEDIA ENGINE, and no local tree
-does.** Every machine here has GStreamer, so `HAVE_LIGHTNING_WEBRTC` is ON in
-`build` and in `build-rust` alike. The deb/rpm/flatpak/appimage jobs build
-WITHOUT it on purpose — a distribution with no GStreamer gets the honest
-refusal rather than a hard dependency — so anything behind that guard is
-compiled in that configuration for the first time thirty minutes into a
-release pipeline. 0.8.0 lost `build-deb` to exactly that, twice over in one
-job: an `#include` inside the guard whose REGISTRATION was outside it, and an
-INLINE accessor in a header calling into a source file the build does not
-compile (the `QPointer` lesson below, in a second costume — an inline accessor
-in a header creates a link dependency in EVERY target that includes it).
+**THE WEBRTC=OFF BUILD IS SOURCE HYGIENE, NOT A RELEASE GATE — CORRECTED
+2026-09-12, and this block said the opposite for months.** It used to read
+"the Linux package jobs build WITHOUT the media engine, and no local tree
+does". That is **no longer true of any lane**, verified by reading them:
+`packaging-ci/scripts/configure-build.sh` passes
+`-DLIGHTNING_ENABLE_WEBRTC=ON -DLIGHTNING_REQUIRE_WEBRTC=ON`; `.gitlab-ci.yml`
+installs the GStreamer dev packages in `build-deb`, `build-deb-ubuntu`, rpm and
+appimage; both Flatpak manifests pass `=ON`; `build-snap` compiles nothing at
+all (it repacks the AppImage); and `configure-build.sh` asserts
+`call media engine built in: yes` **against the staged binary**. So the failure
+mode moved from "silently compiled out, discovered in CI" to "configure fails
+fast". Do not quote the old claim at a release.
+
+It is still worth running — `SfuCallController.cpp` alone carries ~40 `#ifdef`s
+and nothing else compiles that half — and the 0.8.0 lesson it was written for
+stands on its own: that release lost `build-deb` twice over in one job: an
+`#include` inside the guard whose REGISTRATION was outside it, and an INLINE
+accessor in a header calling into a source file the build does not compile
+(the `QPointer` lesson below, in a second costume — an inline accessor in a
+header creates a link dependency in EVERY target that includes it).
 
 Three minutes locally instead of thirty in CI:
 
@@ -1570,14 +1579,33 @@ same claim.
 
 ### Live validation: what Rokas has actually confirmed
 
-**2026-09-11 (evening) — CALLS, SCREEN SHARE AND PER-PARTICIPANT VOLUME, LIVE
-ON TWO CLIENTS: PASS.** A two-party call with clear-frame counters advancing
-both ways on both; a screen share the other client RENDERS; 0% muting; 200%
-amplifying; and the value surviving a `systemctl --user restart`. Driven by
+**2026-09-11 (evening) — CALLS AND PER-PARTICIPANT VOLUME, LIVE ON TWO
+CLIENTS: PASS — AND TWO OF THIS ENTRY'S ORIGINAL CLAIMS WERE WITHDRAWN ON
+2026-09-12.** What stands: a two-party call with clear-frame counters
+advancing both ways on both clients; 0% muting; 200% amplifying. Driven by
 `scripts/gui-suite-calls.sh`, which is now the tracked form of those checks —
 every assertion on an engine log line or a value on disk, never on a picture.
 **NOT TESTED: audibility** (nobody listened; what is proven is that the value
-reaches a real GStreamer `volume` element). The round also fixed a bell that
+reaches a real GStreamer `volume` element).
+
+WITHDRAWN 1 — "a screen share the other client RENDERS". The suite asserts
+`frames in the clear in`, and `SfuMediaEngine.cpp` says in its own comment
+that the crypto counters climb either way, so a tile that never attached its
+sink is indistinguishable from working video. It is worse than insufficient:
+MEASURED 2026-09-12 on one Linux client, one call, `QT_QUICK_BACKEND=software`
+the only change, that counter climbed past 500 **against an empty rectangle**.
+Qt Quick's software adaptation has no node type for video at all
+(`QSGSoftwareRenderableNode::NodeType` lists rectangles, glyphs, images and
+nine-patches; `QSGVideoNode` is none of them, and the path is RHI-only while
+the software context has no RHI). The honest claim is: frames reach the other
+client's decryptor in the clear. **That a picture was drawn is NOT asserted by
+any automated check we have**, and on a host with no usable GL it is false.
+
+WITHDRAWN 2 — "the value surviving a `systemctl --user restart`". The restart
+persistence was proven ON DISK ONLY. `21f4a1a`, a later commit, records that
+THE STORED VOLUME NEVER REACHED THE ENGINE — "the slider read 200% and nothing
+had reached the audio graph" — so the restarted client could not have applied
+it at the time of that run. Fixed in `21f4a1a`; **NOT TESTED since**. The round also fixed a bell that
 HID REAL UNREADS and carries the generalised lesson — a consumer of derived
 state must listen to the writer of that state, not to the signal named after
 the same noun. Detail in `docs/round-history.md`, 2026-09-11 (evening).

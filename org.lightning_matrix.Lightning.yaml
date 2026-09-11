@@ -154,6 +154,24 @@ modules:
       # Pinned to a published release tag AND to the commit that tag resolves
       # to, so the build is reproducible even if the tag were ever moved.
       # x-checker-data lets Flathub's bot open version-bump pull requests.
+      #
+      # THIS CANNOT BE SUBMITTED FROM v0.9.4 OR ANYTHING BELOW IT, and the
+      # reason is not tidiness — a submission from this pin fails review.
+      # Measured at bcea599 on 2026-09-12:
+      #
+      #   * the metainfo in that tree is 17 lines with NO <releases> and NO
+      #     <screenshots>. update-metainfo-release.sh says in its own text that
+      #     Flathub rejects a metainfo without a release entry, and the listing
+      #     would carry no changelog, no screenshots and no brand colours;
+      #   * the four screenshot URLs the current metainfo points at are
+      #     raw.githubusercontent.com/.../v0.9.4/docs/screenshots/flathub/...,
+      #     and that directory does not exist at that tag — four 404s;
+      #   * CameraPortal landed AFTER 0.9.4, so a build from this pin ships the
+      #     very camera blocker the Flatpak work was done to remove.
+      #
+      # So: re-pin to the release that carries all three before submitting, and
+      # regenerate cargo-sources.json in the same change whenever the pin moves
+      # (it matches Cargo.lock at bcea599 today, and Cargo.lock moves with it).
       - type: git
         url: https://github.com/Mizerd/lightning.git
         tag: v0.9.4
