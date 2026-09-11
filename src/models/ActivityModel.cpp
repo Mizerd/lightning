@@ -6,6 +6,7 @@
 #include <QRegularExpression>
 
 #include <algorithm>
+#include <utility>
 
 namespace {
 // Every kind a row may claim. "highlight" is the one the SERVER gives us
@@ -56,20 +57,22 @@ void ActivityModel::setClient(MatrixClient *client)
     });
     // A room whose unread state has gone clear has been read — on THIS
     // device or on another one. See reconcileRoomAgainstItsReadState().
-    connect(m_client, &MatrixClient::roomUpdated, this,
-            &ActivityModel::reconcileRoomAgainstItsReadState);
-    // A batch update names no room, so ask about the rooms this model
-    // actually holds rows for. Bounded by kMaxEntries and in practice a
-    // handful; the per-room function rejects the rest in one pass.
-    connect(m_client, &MatrixClient::roomsChanged, this, [this] {
-        QSet<QString> rooms;
-        for (const Entry &e : m_entries) {
-            if (!e.seenMark && e.kind != QLatin1String("invite"))
-                rooms.insert(e.roomId);
-        }
-        for (const QString &id : std::as_const(rooms))
-            reconcileRoomAgainstItsReadState(id);
-    });
+    //
+    // roomsChanged AND NOT roomUpdated, and that distinction is the whole
+    // correctness of this. The four unread fields are written in exactly one
+    // place, `rust_rooms::roomInfoFromJson`, reached only from the room
+    // PAYLOAD handlers — and every one of those emits roomsChanged.
+    // roomUpdated is emitted from the timeline-event path, which raises
+    // `lastActivity` to the new event's own timestamp and touches no unread
+    // field at all. Listening to it marked a brand-new mention seen the
+    // instant it arrived: the counters still read clear from before the
+    // message, and lastActivity had just been raised to that very message, so
+    // the "nothing newer than lastActivity" bound protected nothing. The bell
+    // would have hidden the first mention in every already-read room — the
+    // exact failure this whole change exists to avoid, in the opposite
+    // direction and worse.
+    connect(m_client, &MatrixClient::roomsChanged, this,
+            &ActivityModel::reconcileRoomsAgainstTheirReadState);
 }
 
 void ActivityModel::loadStore()
@@ -251,39 +254,83 @@ void ActivityModel::markRoomReadUpTo(const QString &roomId, qint64 timestampMs)
     Q_EMIT unseenCountChanged();
 }
 
+// One pass over the rooms this model actually holds unseen rows for, so a
+// batch costs one rebuild rather than one per room.
+void ActivityModel::reconcileRoomsAgainstTheirReadState()
+{
+    if (!m_client || !m_client->tracksRoomReadState())
+        return;
+    QSet<QString> rooms;
+    for (const Entry &e : m_entries) {
+        // isSeen(), not seenMark: after a restart the marker carries the
+        // seen state and seenMark is false on every row, so keying on the
+        // raw flag reconciles (and resets the model for) every room the bell
+        // has ever held.
+        if (!isSeen(e) && e.kind != QLatin1String("invite"))
+            rooms.insert(e.roomId);
+    }
+    bool changed = false;
+    for (const QString &id : std::as_const(rooms))
+        changed = markRoomReadIfClear(id) || changed;
+    if (!changed)
+        return;
+    rebuildVisible();
+    Q_EMIT unseenCountChanged();
+}
+
 void ActivityModel::reconcileRoomAgainstItsReadState(const QString &roomId)
 {
-    if (!m_client || roomId.isEmpty())
+    if (!markRoomReadIfClear(roomId))
         return;
-    // Cheap rejection first: this runs on every room update, and most of
+    rebuildVisible();
+    Q_EMIT unseenCountChanged();
+}
+
+// The marking half, with no signalling: the batch above emits once.
+bool ActivityModel::markRoomReadIfClear(const QString &roomId)
+{
+    if (!m_client || roomId.isEmpty())
+        return false;
+    // A BACKEND THAT DOES NOT ANSWER MUST NOT BE READ AS ANSWERING "read".
+    // hasUnreadMessages and markedUnread are never written by the mock or
+    // the HTTP backend, so the predicate below would collapse onto
+    // notification_count alone there — which §16 records is not a read
+    // signal. See MatrixClient::tracksRoomReadState.
+    if (!m_client->tracksRoomReadState())
+        return false;
+    // Cheap rejection first: this runs on every room payload, and most of
     // them are for rooms the bell holds nothing for.
     bool holds = false;
     for (const Entry &e : m_entries) {
-        if (!e.seenMark && e.roomId == roomId
+        if (!isSeen(e) && e.roomId == roomId
             && e.kind != QLatin1String("invite")) {
             holds = true;
             break;
         }
     }
     if (!holds)
-        return;
+        return false;
     const RoomInfo info = m_client->roomInfo(roomId);
     if (info.id != roomId)
-        return;
+        return false;
     // ALL of them, not any of them. num_unread_messages is the receipt-
     // derived one and the reason this works across devices; the counts and
     // the manual flag are what keep a partially-read room's rows.
     if (info.markedUnread || info.hasUnreadMessages || info.unreadCount > 0
         || info.highlightCount > 0) {
-        return;
+        return false;
     }
     // The newest thing the room is known to hold is the furthest the user
     // can have read to. Nothing newer is ever marked.
     if (!info.lastActivity.isValid())
-        return;
+        return false;
     const qint64 readUpToMs = info.lastActivity.toMSecsSinceEpoch();
     if (readUpToMs <= 0)
-        return;
+        return false;
+    // Per-entry marks only, exactly as markRoomReadUpTo: one room's read
+    // state says nothing about any other room's rows, so m_seenUpToMs does
+    // not move. Durability across a restart comes from seed() and
+    // reconcileSeedAgainstRoomCounts(), which read the same server state.
     bool changed = false;
     for (Entry &e : m_entries) {
         if (e.seenMark || e.roomId != roomId)
@@ -295,14 +342,7 @@ void ActivityModel::reconcileRoomAgainstItsReadState(const QString &roomId)
         e.seenMark = true;
         changed = true;
     }
-    if (!changed)
-        return;
-    // Per-entry marks only, exactly as markRoomReadUpTo: one room's read
-    // state says nothing about any other room's rows, so m_seenUpToMs does
-    // not move. Durability across a restart comes from seed() and
-    // reconcileSeedAgainstRoomCounts(), which read the same server state.
-    rebuildVisible();
-    Q_EMIT unseenCountChanged();
+    return changed;
 }
 
 void ActivityModel::markSeen(const QString &id)

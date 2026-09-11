@@ -337,6 +337,10 @@ public:
     // presence events) + own-state publication. Policy lives in
     // PresenceManager; these are thin command wrappers.
     bool supportsPresence() const override { return true; }
+    // The SDK derives num_unread_messages/mentions/notifications from
+    // the user's own read receipt, whichever device published it, and
+    // roomInfoFromJson writes all four fields on every room payload.
+    bool tracksRoomReadState() const override { return true; }
     void requestPresence(const QStringList &userIds, quint64 opId) override;
     bool supportsProfileBanners() const override { return true; }
     void fetchProfileBanner(const QString &userId, quint64 opId) override;

@@ -422,6 +422,18 @@ private Q_SLOTS:
         QVERIFY2(body.contains(QStringLiteral("jumpToEvent(eventId)")),
                  "an ordinary notification no longer jumps to the message it "
                  "was raised for");
+        // A TEXT SCAN CANNOT SEE BRANCH STRUCTURE, so pin the shape as well
+        // as the calls: `jumpToEvent(eventId)` placed UNCONDITIONALLY after
+        // the thread branch satisfies every assertion above and re-creates
+        // B023 exactly. It has to be the else of `if (inThread)`.
+        const int thread = body.indexOf(QStringLiteral("if (inThread)"));
+        QVERIFY2(thread >= 0, "the thread branch is gone");
+        const int otherwise = body.indexOf(QStringLiteral("} else if ("), thread);
+        QVERIFY2(otherwise > thread,
+                 "the room-timeline jump is no longer the ELSE of the thread "
+                 "branch, so a thread reply can reach it again");
+        QVERIFY2(body.indexOf(QStringLiteral("jumpToEvent(eventId)")) > otherwise,
+                 "jumpToEvent(eventId) is not inside that else branch");
     }
 
     // A SUBMITTED REPORT MUST TELL THE USER WHAT HAPPENED.

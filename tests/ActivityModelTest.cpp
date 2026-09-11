@@ -33,6 +33,12 @@ public:
     using MatrixClient::MatrixClient;
     QString self = QStringLiteral("@me:mock.local");
     QList<RoomInfo> roomSet;
+    // This fake stands in for the Rust backend, which is the only one
+    // that keeps all four unread fields current. Without this the
+    // read-state cases below would exercise nothing — and one case turns
+    // it OFF to prove the refusal is real.
+    bool tracksRead = true;
+    bool tracksRoomReadState() const override { return tracksRead; }
 
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
@@ -185,7 +191,7 @@ private Q_SLOTS:
         busy.highlightCount = 1;
         busy.hasUnreadMessages = true;
         h.client.roomSet = { busy };
-        Q_EMIT h.client.roomUpdated(kRoom);
+        Q_EMIT h.client.roomsChanged();
         QCOMPARE(h.model.unseenCount(), 2);
 
         // A count can go to zero while the SDK still says there are unread
@@ -194,7 +200,7 @@ private Q_SLOTS:
         RoomInfo half = busy;
         half.highlightCount = 0;
         h.client.roomSet = { half };
-        Q_EMIT h.client.roomUpdated(kRoom);
+        Q_EMIT h.client.roomsChanged();
         QCOMPARE(h.model.unseenCount(), 2);
 
         // The phone reads it. Lightning sent no receipt of its own.
@@ -202,11 +208,88 @@ private Q_SLOTS:
         read.hasUnreadMessages = false;
         read.unreadCount = 0;
         h.client.roomSet = { read };
-        Q_EMIT h.client.roomUpdated(kRoom);
+        Q_EMIT h.client.roomsChanged();
         QCOMPARE(h.model.unseenCount(), 0);
         // History, not a queue: the rows survive, marked seen.
         QCOMPARE(h.model.count(), 2);
         QCOMPARE(h.row(0).value(QStringLiteral("seen")).toBool(), true);
+    }
+
+    // A FRESH MENTION IN AN ALREADY-READ ROOM MUST SURVIVE ITS OWN ARRIVAL.
+    //
+    // This is production's exact ordering and it is why roomUpdated is not a
+    // trigger. RustSdkMatrixClient emits eventAppended — which creates the
+    // row — and then, 36 lines later in the SAME function, raises the room's
+    // lastActivity to that event's timestamp and emits roomUpdated, with
+    // every unread field still holding the values from BEFORE the message.
+    // So the predicate saw a clear room, the "nothing newer than
+    // lastActivity" bound was satisfied to the millisecond by the row's own
+    // timestamp, and the bell dropped the first mention in every room the
+    // user had previously read. Found in review; the three cases around this
+    // one could not see it because each handed the model an already-updated
+    // RoomInfo.
+    void aMentionIsNotClearedByTheUpdateThatAnnouncesIt()
+    {
+        Harness h;
+        // The room as it stood BEFORE the mention: read, and its activity
+        // already at the mention's own timestamp, exactly as the timeline
+        // path leaves it.
+        RoomInfo stale;
+        stale.id = kRoom;
+        stale.name = QStringLiteral("Lounge");
+        stale.raiseActivity(QDateTime::fromMSecsSinceEpoch(5000));
+        h.client.roomSet = { stale };
+
+        TimelineEvent fresh = text(QStringLiteral("$fresh"),
+                                   QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("hey @me"), 5000);
+        fresh.mentionsMe = true;
+        QVERIFY(h.model.ingest(fresh, QStringLiteral("Lounge")));
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        // Both signals the timeline path can produce. Neither carries an
+        // unread field, so neither may clear the row.
+        Q_EMIT h.client.roomUpdated(kRoom);
+        QCOMPARE(h.model.unseenCount(), 1);
+        // And a room-payload update that HAS caught up says unread, so the
+        // batch path must not clear it either.
+        RoomInfo caughtUp = stale;
+        caughtUp.highlightCount = 1;
+        caughtUp.hasUnreadMessages = true;
+        h.client.roomSet = { caughtUp };
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.unseenCount(), 1);
+    }
+
+    // A BACKEND THAT NEVER WRITES THE FIELDS IS NOT SAYING "READ".
+    //
+    // hasUnreadMessages and markedUnread are simply never assigned by the
+    // mock or the experimental HTTP backend, so "every unread signal is
+    // clear" is true there by omission and collapses onto notification_count
+    // alone — which §16 records is not a read signal.
+    void aBackendThatDoesNotTrackReadStateClearsNothing()
+    {
+        Harness h;
+        h.client.tracksRead = false;
+        TimelineEvent e = text(QStringLiteral("$q1"),
+                               QStringLiteral("@bob:mock.local"),
+                               QStringLiteral("hey @me"), 1000);
+        e.mentionsMe = true;
+        QVERIFY(h.model.ingest(e, QStringLiteral("Lounge")));
+
+        RoomInfo silent;
+        silent.id = kRoom;
+        silent.name = QStringLiteral("Lounge");
+        silent.raiseActivity(QDateTime::fromMSecsSinceEpoch(9000));
+        h.client.roomSet = { silent };
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        // The same state on a backend that DOES answer clears it, so the
+        // case above is a refusal and not a fixture that could never pass.
+        h.client.tracksRead = true;
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.unseenCount(), 0);
     }
 
     // The three refusals that keep the cross-device path from over-claiming.
@@ -227,7 +310,7 @@ private Q_SLOTS:
         read.name = QStringLiteral("Lounge");
         read.raiseActivity(QDateTime::fromMSecsSinceEpoch(3000));
         h.client.roomSet = { read };
-        Q_EMIT h.client.roomUpdated(kRoom);
+        Q_EMIT h.client.roomsChanged();
         QCOMPARE(h.model.unseenCount(), 1);
 
         // Manually marked unread by the user: their word beats the receipt.
@@ -235,7 +318,7 @@ private Q_SLOTS:
         flagged.raiseActivity(QDateTime::fromMSecsSinceEpoch(9000));
         flagged.markedUnread = true;
         h.client.roomSet = { flagged };
-        Q_EMIT h.client.roomUpdated(kRoom);
+        Q_EMIT h.client.roomsChanged();
         QCOMPARE(h.model.unseenCount(), 1);
 
         // And the room really being read does clear it, so the case above
@@ -243,32 +326,54 @@ private Q_SLOTS:
         RoomInfo clear = flagged;
         clear.markedUnread = false;
         h.client.roomSet = { clear };
-        Q_EMIT h.client.roomUpdated(kRoom);
+        Q_EMIT h.client.roomsChanged();
         QCOMPARE(h.model.unseenCount(), 0);
     }
 
     // AN INVITE IS NOT A MESSAGE, so a room with nothing to read must not
     // clear it. Every unread signal on an invited room is trivially zero,
     // which would have marked the invite seen the instant it arrived.
+    //
+    // The room carries an ordinary unseen row TOO, so the cheap rejection
+    // cannot be what saves the invite, and its lastActivity is a minute
+    // later than both rows so the timestamp bound cannot be either. What is
+    // left is the marking loop's own invite skip, which is the point.
     void aClearRoomNeverClearsAnInvite()
     {
         Harness h;
+        const QString roomId = QStringLiteral("!invited:mock.local");
         RoomInfo invited;
-        invited.id = QStringLiteral("!invited:mock.local");
+        invited.id = roomId;
         invited.name = QStringLiteral("Secret Club");
         invited.membership = RoomInfo::Invited;
-        invited.raiseActivity(QDateTime::currentDateTime());
         QVERIFY(h.model.noteInvite(invited));
-        QCOMPARE(h.model.unseenCount(), 1);
 
+        TimelineEvent mention = text(QStringLiteral("$i1"),
+                                     QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("hey @me"), 1000);
+        mention.roomId = roomId;
+        mention.mentionsMe = true;
+        QVERIFY(h.model.ingest(mention, QStringLiteral("Secret Club")));
+        QCOMPARE(h.model.unseenCount(), 2);
+
+        invited.raiseActivity(QDateTime::currentDateTime().addSecs(60));
         h.client.roomSet = { invited };
-        Q_EMIT h.client.roomUpdated(invited.id);
-        QCOMPARE(h.model.unseenCount(), 1);
         Q_EMIT h.client.roomsChanged();
+        // The ordinary row cleared; the invite did not.
         QCOMPARE(h.model.unseenCount(), 1);
+        // And it is the INVITE that survived, not the mention. Row order is
+        // newest-first and noteInvite stamps "now", so name the row by what
+        // is unseen rather than by its index.
+        QString unseenKind;
+        for (int i = 0; i < h.model.count(); ++i) {
+            const QVariantMap row = h.model.entryAt(i);
+            if (!row.value(QStringLiteral("seen")).toBool())
+                unseenKind = row.value(QStringLiteral("kind")).toString();
+        }
+        QCOMPARE(unseenKind, QStringLiteral("invite"));
 
         // Answering it is what removes it.
-        h.model.inviteResolved(invited.id);
+        h.model.inviteResolved(roomId);
         QCOMPARE(h.model.unseenCount(), 0);
     }
 

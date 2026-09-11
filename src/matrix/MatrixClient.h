@@ -479,6 +479,21 @@ public:
     // presence keep the false default and never answer — indicators simply
     // stay absent, exactly like the thread facepile on a non-Rust backend.
     virtual bool supportsPresence() const { return false; }
+    // Whether this backend keeps a room's READ state current — the four
+    // fields RoomInfo carries for it (unreadCount, highlightCount,
+    // hasUnreadMessages, markedUnread), refreshed from the server as the
+    // user reads on ANY device.
+    //
+    // False is the honest default and the reason this exists.
+    // `hasUnreadMessages` and `markedUnread` are simply never written by the
+    // mock or the experimental HTTP backend, so a predicate asking "is every
+    // unread signal clear" reads TRUE there by omission, and collapses onto
+    // notification_count alone — which §16 records is NOT a read signal
+    // (Matrix reports 0 for genuinely unread rooms). A consumer that acts on
+    // "this room has been read" must therefore ask whether anyone is
+    // answering before believing the answer. See
+    // ActivityModel::reconcileRoomAgainstItsReadState.
+    virtual bool tracksRoomReadState() const { return false; }
     virtual void requestPresence(const QStringList &userIds, quint64 opId)
     {
         Q_UNUSED(userIds); Q_UNUSED(opId);

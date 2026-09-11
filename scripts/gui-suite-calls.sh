@@ -80,7 +80,10 @@ bad()  { FAIL=$((FAIL+1)); RESULTS+=("FAIL  $1 — $2"); echo "FAIL  $1 — $2" 
 note() { echo "      $*"; }
 
 # lines_since <log> <mark> <regex> — the log's new lines matching <regex>
-lines_since() { tail -n +"$2" "$1" 2>/dev/null | grep -E "$3"; }
+# STRICTLY after the mark: tail -n +N starts AT line N, so the un-incremented
+# form includes the last pre-existing line — and a second run of the same
+# check could then pass on the first run's evidence.
+lines_since() { tail -n +"$(( $2 + 1 ))" "$1" 2>/dev/null | grep -E "$3"; }
 mark_of()     { wc -l < "$1" 2>/dev/null || echo 0; }
 
 # counter_of <log> <direction> <video> — the newest `frames in the clear`
@@ -167,14 +170,32 @@ check_call() {
     ok call
 }
 
-stored_volume() {  # the newest per-participant volume on A's disk
-    grep -oE 'callVolumes\\[a-f0-9]+=[0-9]+' "$LT_A_CONF" 2>/dev/null \
-        | tail -1 | grep -oE '[0-9]+$'
+# The per-participant volume on A's disk. QSettings' INI backend joins
+# sub-keys with a backslash, so the key reads `<slug>\callVolumes\<hex>`.
+#
+# EXACTLY ONE, never `tail -1`. A stale entry for a participant from an
+# earlier session sorts arbitrarily against this one, so taking the last
+# match can assert the wrong person's number — a false FAIL at best and a
+# silent wrong PASS at worst. More than one is a fixture problem the operator
+# has to clear, and the suite says so rather than guessing.
+stored_volume() {
+    local all n
+    all=$(grep -oE 'callVolumes\\[a-f0-9]+=[0-9]+' "$LT_A_CONF" 2>/dev/null \
+          | grep -oE '[0-9]+$')
+    n=$(printf '%s\n' "$all" | grep -c '[0-9]' )
+    if [[ "$n" != "1" ]]; then
+        STORED_WHY="expected exactly one stored participant volume, found $n"
+        return 1
+    fi
+    STORED_WHY=""
+    printf '%s\n' "$all"
 }
+STORED_WHY=""
 
-# open_volume_popup — the call bar's participants button, then the row.
-# pidclick_nf inside it: activating a window that owns an open popup closes
-# the popup, and pidclick activates.
+# open_volume_popup — ONE click, the call bar's participants button. The
+# volume control is a Popup drawn inside the same window, so pidclick's
+# focus-and-activate is safe here; the harness's pidclick_nf rule is for
+# transient popups that activating a window would dismiss.
 open_volume_popup() {
     pidclick "$A" "$PEOPLE_BTN_X" "$PEOPLE_BTN_Y" >/dev/null 2>&1
     sleep 2
@@ -209,7 +230,7 @@ _volume_case() {  # _volume_case <name> <from> <to> <expected-percent>
     grep -q "percent= $want" <<<"$applied" \
         || { bad "$name" "the engine applied a different percentage: $applied"; return 1; }
     [[ "$stored" == "$want" ]] \
-        || { bad "$name" "on disk it reads '${stored:-<none>}', not $want"; return 1; }
+        || { bad "$name" "on disk it reads '${stored:-<none>}', not $want${STORED_WHY:+ ($STORED_WHY)}"; return 1; }
     ok "$name"
 }
 
@@ -223,7 +244,20 @@ check_volume_boost()   { _volume_case volume-200%-boosts "$VOL_MIN_X" "$VOL_MAX_
 check_volume_persists() {
     local before after mark
     before=$(stored_volume)
-    [[ -n "$before" ]] || { bad volume-persists "nothing stored to survive; run the volume checks first"; return 1; }
+    [[ -n "$before" ]] || { bad volume-persists "nothing stored to survive; run the volume checks first${STORED_WHY:+ ($STORED_WHY)}"; return 1; }
+    # THE ONE ACTION HERE THAT REACHES PAST THE PID WE PROVED.
+    #
+    # Every click goes through pid_for, which refuses a process that is not
+    # on an isolated throwaway profile. A `systemctl --user restart` does
+    # not: it acts on a NAME, and on a host where that name happens to be a
+    # real client this would kill it. So require the unit to own exactly the
+    # pid the suite has been driving before touching it.
+    local unit_pid
+    unit_pid=$(systemctl --user show -p MainPID --value "$LT_A_UNIT" 2>/dev/null)
+    if [[ "$unit_pid" != "$A" ]]; then
+        bad volume-persists "$LT_A_UNIT's MainPID is '${unit_pid:-<none>}', not the profile-A pid $A — refusing to restart a unit this suite has not proven it owns"
+        return 1
+    fi
     systemctl --user restart "$LT_A_UNIT" >/dev/null 2>&1 \
         || { bad volume-persists "could not restart $LT_A_UNIT"; return 1; }
     sleep 60
@@ -265,7 +299,12 @@ check_share() {
     pidclick_nf "$portal" "$rx" "$ry" >/dev/null 2>&1 \
         || { bad share "could not click the first source tile"; return 1; }
     sleep 1
-    ydotool key 28:1 28:0     # Enter — this dialog has no button row
+    # keypid, not a bare `ydotool key`. The harness's focus guard exists
+    # because an unguarded synthetic keystroke once went into a browser
+    # window instead of the client, and a global key lands wherever the
+    # compositor says focus is. The picker is a WINDOW, so the guard applies.
+    keypid "$portal" 28:1 28:0 \
+        || { bad share "the picker was not focused, so Enter would have gone elsewhere"; return 1; }
     sleep 12
     local publishing encoded received
     publishing=$(lines_since "$LT_A_LOG" "$marka" 'screen share publishing' | tail -1)

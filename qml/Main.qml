@@ -510,10 +510,10 @@ ApplicationWindow {
             // screen the whole time. revealIfLoaded() takes the context when
             // it is free and leaves the room timeline alone when it is not.
             if (inThread) {
-                if (threadRootId && threadRootId.length > 0)
-                    Qt.callLater(function() {
-                        app.pagination.revealIfLoaded(threadRootId)
-                    })
+                // `inThread` IS the non-empty test, above.
+                Qt.callLater(function() {
+                    app.pagination.revealIfLoaded(threadRootId)
+                })
             } else if (eventId && eventId.length > 0) {
                 Qt.callLater(function() {
                     app.pagination.jumpToEvent(eventId)

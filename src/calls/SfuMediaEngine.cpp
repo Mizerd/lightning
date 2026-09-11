@@ -4273,13 +4273,21 @@ void SfuMediaEngine::setTrackVolume(const QString &streamId,
     // dragging a slider cannot reproduce the hundreds-of-lines flood that
     // the warning below was rate-limited for.
     const auto announce = [&](const QString &key, int elements) {
+        // ABOVE the rate limit, deliberately. A miss on this key was a story
+        // about a control that did nothing; it works now, so a LATER outage
+        // deserves to be reported again — and that has to be true even when
+        // the value that landed happens to equal the last one, or a
+        // torn-down-and-rebuilt bin silences the next genuine outage forever.
+        m_volumeMissWarned.remove(key);
         if (m_volumeAppliedLog.value(key, -1) == percent)
             return;
         m_volumeAppliedLog.insert(key, percent);
-        // A miss on this key was a story about a control that did nothing.
-        // It works now, so a LATER outage deserves to be reported again.
-        m_volumeMissWarned.remove(key);
-        qCDebug(lcSfuMedia)
+        // qCInfo, not qCDebug. This is the ONE positive observable the live
+        // GUI suite has for "the slider is not cosmetic", and a tester
+        // running with `*.debug=false` would turn its absence into a
+        // confident false FAIL. Every other line that suite reads
+        // (`frames in the clear`, `screen share publishing`) is info too.
+        qCInfo(lcSfuMedia)
             << "participant volume applied: wanted=" << outputVolumeElementName(key)
             << "percent=" << percent << "gst=" << volume
             << "elements=" << elements;
@@ -4430,13 +4438,22 @@ void SfuMediaEngine::applyPendingTrackVolume(const QString &streamId,
     // Both shapes a caller can have asked for: the whole participant, and
     // this one track. The participant-level value is applied first so a
     // per-track choice, when there is one, wins.
+    //
+    // The applied-log is forgotten for these keys as well as the warned
+    // flag. This runs when a receive bin is BUILT, so the element being set
+    // is a new one — and a participant who left and rejoined inside one call
+    // gets their stored volume re-applied at the same percentage. Keeping
+    // the old entry would rate-limit away the one line that says it landed,
+    // which is exactly the silence this diagnostic exists to remove.
     if (m_pendingTrackVolume.contains(streamId)) {
         m_volumeMissWarned.remove(streamId);
+        m_volumeAppliedLog.remove(streamId);
         setTrackVolume(streamId, QString(), m_pendingTrackVolume.value(streamId));
     }
     const QString key = volumeKeyFor(streamId, trackKey);
     if (m_pendingTrackVolume.contains(key)) {
         m_volumeMissWarned.remove(key);
+        m_volumeAppliedLog.remove(key);
         setTrackVolume(streamId, trackKey, m_pendingTrackVolume.value(key));
     }
 }

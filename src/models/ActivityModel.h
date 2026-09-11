@@ -148,6 +148,10 @@ public:
     /// invite would be marked seen the moment it arrived. They are cleared
     /// by inviteResolved() or by the user, never by this.
     void reconcileRoomAgainstItsReadState(const QString &roomId);
+    /// The same, over every room this model holds an unseen row for, with
+    /// one rebuild for the batch. This is what the client's roomsChanged is
+    /// wired to — see the note there for why NOT roomUpdated.
+    void reconcileRoomsAgainstTheirReadState();
     // Navigate: emits openRequested with the exact target and marks seen.
     Q_INVOKABLE void open(const QString &id);
     Q_INVOKABLE void clear();
@@ -187,6 +191,9 @@ private:
     };
 
     bool isSeen(const Entry &e) const;
+    /// Marking half of reconcileRoomAgainstItsReadState, without the
+    /// signalling, so a batch emits once. True when a row changed.
+    bool markRoomReadIfClear(const QString &roomId);
     bool passesFilter(const Entry &e) const;
     void rebuildVisible();
     bool addEntry(Entry entry); // false = already listed
