@@ -723,18 +723,68 @@ Rectangle {
             // instance still stands down while the stage is on screen
             // (CallHeaderBar.stageOwnsControls), so they are never drawn twice.
             Loader {
+                id: controlsHost
                 active: true
                 visible: true
                 Layout.preferredHeight: implicitHeight
-                // A FLOOR, so the squeeze lands on the title and the bubbles
-                // rather than on the controls. A RowLayout too narrow for
-                // its children shrinks them in proportion to their preferred
-                // widths, and this cell's contents cannot elide: the bar's
-                // control row is centred in whatever box it is given and
-                // simply draws outside a box too small for it. The title
-                // beside it elides and the bubble strip scrolls.
-                Layout.minimumWidth: implicitWidth
+                // THE FLOOR USED TO BE `implicitWidth`, AND IT PUT LEAVE CALL
+                // OFF THE EDGE OF THE WINDOW. The reasoning behind it was
+                // sound as far as it went — this cell's contents cannot
+                // elide, so the squeeze has to land on the title and the
+                // bubbles, which can — but a floor does not create room. Once
+                // the row's minimums exceeded the panel width the RowLayout
+                // handed every child its minimum and overflowed to the RIGHT,
+                // and what fell off the right is the end of the control row:
+                // the mic and headset chevrons, the collapse button, and the
+                // red hang-up. MEASURED 2026-09-12 on a live three-party call
+                // at 1280 maximised (everything present), ~1098 (hang-up and
+                // collapse gone) and 640 (three controls of about twelve).
+                // A user in a call in a non-maximised window could not see or
+                // click the button that leaves it.
+                //
+                // So the cell may now be squeezed, and the bar answers a
+                // squeeze by going compact — which is what `compact` is FOR
+                // (smaller controls, and the share, raise-hand and device
+                // chevrons stood down), and what `root.collapsed` was until
+                // now the only thing allowed to ask for.
+                Layout.minimumWidth: 0
                 Layout.alignment: Qt.AlignVCenter
+
+                // WHY THIS IS A LATCH AND NOT A BINDING.
+                //
+                // `compact` CHANGES implicitWidth — 32 px controls instead of
+                // 48, and five fewer of them — so the obvious
+                // `compact: width < implicitWidth` is a loop: it fires, the
+                // bar shrinks, the condition is false again, it expands, and
+                // it no longer fits. A fixed ratio between the two widths
+                // would be a guess that oscillates for some participant
+                // counts and not others.
+                //
+                // Instead, LEARN the expanded requirement while expanded —
+                // when it is exactly what implicitWidth reports — and freeze
+                // that value on the way into compact. Coming back out then
+                // asks a question whose answer cannot change underneath it:
+                // is there now room for the bar we actually measured? No
+                // constants, and nothing to drift.
+                property bool cramped: false
+                property real expandedNeed: 0
+                function reassessControlRoom() {
+                    if (!item)
+                        return;
+                    if (!cramped) {
+                        // Live measurement is trustworthy only out here.
+                        expandedNeed = implicitWidth;
+                        // Sub-pixel slack: a fractional layout width must not
+                        // read as a shortfall.
+                        if (width + 0.5 < implicitWidth)
+                            cramped = true;
+                    } else if (expandedNeed > 0 && width >= expandedNeed) {
+                        cramped = false;
+                    }
+                }
+                onWidthChanged: reassessControlRoom()
+                onImplicitWidthChanged: reassessControlRoom()
+                Component.onCompleted: reassessControlRoom()
                 sourceComponent: CallHeaderBar {
                     objectName: "callStageControls"
                     placement: "dock"
@@ -746,7 +796,13 @@ Rectangle {
                     // the set — an expanded call that had lost Share and
                     // Raise hand would be a worse bug than the one being
                     // fixed. Expanded gets the full bar, in the same place.
-                    compact: root.collapsed
+                    //
+                    // ...WHEREVER IT FITS. A window too narrow for the full
+                    // set used to keep asking for it and lose the end of the
+                    // row off the edge, hang-up included, which is strictly
+                    // worse than standing Share and Raise hand down: those
+                    // two have other routes, and leaving a call does not.
+                    compact: root.collapsed || controlsHost.cramped
                     onParticipantsRequested: root.participantsRequested()
                 }
             }
