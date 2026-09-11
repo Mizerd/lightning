@@ -88,7 +88,11 @@ public:
     /// NOT BINDABLE — there is no change signal. `visible: view.revealIdle()`
     /// compiles, evaluates once and never updates again. Call it; do not
     /// bind to it.
-    Q_INVOKABLE bool revealIdle() const { return m_revealedRows >= revealTarget(); }
+    /// DEFINED IN THE .cpp ON PURPOSE, not inline here. `revealTarget()` is
+    /// a private member defined in the source file, so an inline body would
+    /// create a link dependency in EVERY target that includes this header —
+    /// the shape that cost 0.8.0 its `build-deb` job twice (CLAUDE.md §16).
+    Q_INVOKABLE bool revealIdle() const;
     Q_INVOKABLE int oldestExposedSourceRow() const;
     // Move to the window (skipNewest, rows). Clamped to what the source
     // holds; performs at most one structural op per end, oldest end first.

@@ -62,6 +62,11 @@ int ReverseListProxyModel::sourceRowTotal() const
 // would immediately undo a window the pane just set — pacing is a delivery
 // schedule for rows the reader has not reached, and the window is a statement
 // about which rows those are.
+bool ReverseListProxyModel::revealIdle() const
+{
+    return m_revealedRows >= revealTarget();
+}
+
 int ReverseListProxyModel::revealTarget() const
 {
     const int available = std::max(0, sourceRowTotal() - m_windowSkip);
