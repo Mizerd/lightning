@@ -74,6 +74,18 @@ public:
     Q_PROPERTY(int windowSkip READ windowSkip NOTIFY windowChanged)
     int windowSkip() const { return m_windowSkip; }
     // The oldest source row currently exposed (-1 when nothing is).
+    /// True when the paced reveal has nothing left to hand over.
+    ///
+    /// This is the EXACT condition scheduleReveal() and revealNextChunk()
+    /// use to stop the timer, exposed so a caller can wait on the producer
+    /// instead of guessing from the outside. A test that waits for
+    /// contentHeight to "look stable" is timing the POLLER, not the reveal:
+    /// the tick interval here is 16-250 ms and ADAPTIVE (kRevealBudgetMs is
+    /// a per-tick work budget, not the interval), so a quiet window shorter
+    /// than the current interval proves nothing — and the interval grows
+    /// precisely when rows are expensive, which is the loaded machine a
+    /// flake shows up on.
+    Q_INVOKABLE bool revealIdle() const { return m_revealedRows >= revealTarget(); }
     Q_INVOKABLE int oldestExposedSourceRow() const;
     // Move to the window (skipNewest, rows). Clamped to what the source
     // holds; performs at most one structural op per end, oldest end first.

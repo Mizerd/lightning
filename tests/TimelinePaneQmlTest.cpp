@@ -33,6 +33,7 @@
 #include "auth/AuthManager.h"
 #include "media/MediaImageProvider.h"
 #include "models/PaginationController.h"
+#include "models/ReverseListProxyModel.h"
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
 #include "models/TimelineScrollController.h"
@@ -257,32 +258,35 @@ private:
     // THE FIXTURE MUST STOP GROWING BEFORE THE ANCHOR IS CAPTURED.
     //
     // `!pagination()->busy()` is not that guarantee: ReverseListProxyModel
-    // paces its reveal (3 ms per tick), so rows keep arriving and
-    // contentHeight keeps growing after the controller reports idle. Parking
-    // at the top edge and capturing an anchor during that window picks a
-    // DIFFERENT row from one run to the next, which is what made the three
-    // prepend cases flake.
+    // paces its reveal, so rows keep arriving and contentHeight keeps
+    // growing after the controller reports idle. Parking at the top edge and
+    // capturing an anchor during that window picks a DIFFERENT row from one
+    // run to the next, which is what made the three prepend cases flake.
     //
     // Measured, same case, same build — the divergence is present in
     // `offsetBefore`, i.e. BEFORE the prepend under test runs:
     //     pass  offsetBefore=+334  item y=723  contentHeight=2231
     //     fail  offsetBefore=-389  item y=0    contentHeight=2115
     // One row short, and the anchor lands at content y 0 instead.
-    static bool waitForContentHeightToSettle(QQuickItem *timeline)
+    //
+    // ASK THE PRODUCER, DO NOT TIME THE POLLER. A first version of this
+    // waited for contentHeight to read the same three polls running, on the
+    // belief that the reveal ticks every 3 ms. It does not: kRevealBudgetMs
+    // is a per-tick WORK budget and the interval is 16-250 ms, ADAPTIVE
+    // (ReverseListProxyModel.cpp) — while qWaitFor polls about every 10 ms,
+    // so "three reads" is ~30 ms of quiet. That clears a 16 ms floor and
+    // stops clearing anything the moment rows get expensive enough to push
+    // the interval past 30 ms, which is exactly the loaded machine this
+    // suite is recorded as flaking on. `revealIdle()` is the same condition
+    // the proxy stops its own timer on, so there is nothing left to guess.
+    static bool waitForRowsToStopArriving(AppController &controller)
     {
-        double last = -1;
-        int stable = 0;
-        return QTest::qWaitFor(
-            [&] {
-                const double now =
-                    timeline->property("contentHeight").toDouble();
-                stable = (now == last) ? stable + 1 : 0;
-                last = now;
-                // Three consecutive identical reads, so one paced tick
-                // landing between two polls cannot look like a settle.
-                return stable >= 3;
-            },
-            kAnchorRowRevealTimeoutMs);
+        auto *view = qobject_cast<ReverseListProxyModel *>(
+            controller.timelineView());
+        if (!view)
+            return false;
+        return QTest::qWaitFor([view] { return view->revealIdle(); },
+                               kAnchorRowRevealTimeoutMs);
     }
 
     // WAIT FOR THE ANCHOR TO SETTLE — AND SAY WHY WHEN IT DOES NOT.
@@ -5412,8 +5416,8 @@ private Q_SLOTS:
         // Put the reader AT THE TOP EDGE, which is where near-top backfill
         // fires and where an upward glide parks against StopAtBounds.
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY2(waitForContentHeightToSettle(timeline),
-                 "the fixture never stopped growing, so the anchor would be "
+        QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing, so the anchor would be "
                  "captured on whichever row happened to be there");
         QVERIFY(positionAtTopEdge(timeline));
         QCoreApplication::processEvents();
@@ -5616,8 +5620,8 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY2(waitForContentHeightToSettle(timeline),
-                 "the fixture never stopped growing, so the anchor would be "
+        QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing, so the anchor would be "
                  "captured on whichever row happened to be there");
         QVERIFY(positionAtTopEdge(timeline));
         QCoreApplication::processEvents();
@@ -5838,8 +5842,8 @@ private Q_SLOTS:
         // test's own room primes a full extra page via
         // setPaginationChunkForTest — count is 60, not 30, before this
         // call), so headroom is measured against that larger total.
-        QVERIFY2(waitForContentHeightToSettle(timeline),
-                 "the fixture never stopped growing, so the anchor would be "
+        QVERIFY2(waitForRowsToStopArriving(controller),
+                 "the proxy never finished revealing, so the anchor would be "
                  "captured on whichever row happened to be there");
         QVERIFY(positionAtSourceRow(timeline, 8));
         QCoreApplication::processEvents();
