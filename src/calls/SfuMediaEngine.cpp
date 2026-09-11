@@ -710,6 +710,7 @@ void SfuMediaEngine::stop()
     m_publishWatch.clear();
     m_pendingTrackVolume.clear();
     m_volumeMissWarned.clear();
+    m_volumeAppliedLog.clear();
     // destroyPeer tears the pipelines down; the descriptors those bins were
     // using are ours to close and would otherwise leak one per screen share
     // per call.
@@ -4256,14 +4257,45 @@ void SfuMediaEngine::setTrackVolume(const QString &streamId,
         }
         return false;
     };
-    if (!trackKey.isEmpty()) {
-        if (apply(volumeKeyFor(streamId, trackKey)))
+    // A LANDING IS ANNOUNCED, because an absence is not a proof.
+    //
+    // Until this line the only observable was the WARNING below, so "the
+    // slider is not cosmetic" could only ever be argued from silence — and
+    // silence is also what a control that is never called at all produces.
+    // §16's standing lesson (graceful fallback and silent absence are the
+    // same observable) applies to a diagnostic exactly as it applies to a
+    // packaged plugin: something has to assert the positive. A live GUI run
+    // can now require this line rather than the absence of the other one.
+    //
+    // Names and counts only: the element name is the same class of
+    // identifier this file already logs as `trackKey=`, and no participant,
+    // track content or capture is named. Logged on a real CHANGE per key, so
+    // dragging a slider cannot reproduce the hundreds-of-lines flood that
+    // the warning below was rate-limited for.
+    const auto announce = [&](const QString &key, int elements) {
+        if (m_volumeAppliedLog.value(key, -1) == percent)
             return;
+        m_volumeAppliedLog.insert(key, percent);
+        // A miss on this key was a story about a control that did nothing.
+        // It works now, so a LATER outage deserves to be reported again.
+        m_volumeMissWarned.remove(key);
+        qCDebug(lcSfuMedia)
+            << "participant volume applied: wanted=" << outputVolumeElementName(key)
+            << "percent=" << percent << "gst=" << volume
+            << "elements=" << elements;
+    };
+    if (!trackKey.isEmpty()) {
+        const QString key = volumeKeyFor(streamId, trackKey);
+        if (apply(key)) {
+            announce(key, 1);
+            return;
+        }
     } else {
         // Every bin whose name starts with this participant's prefix. An
         // iteration rather than one lookup, because gst_bin_get_by_name
         // returns only the FIRST match and a sharer has two.
         bool any = false;
+        int applied = 0;
         const QString prefix =
             outputVolumeElementName(streamId);
         GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_subscriber.pipeline));
@@ -4285,6 +4317,7 @@ void SfuMediaEngine::setTrackVolume(const QString &streamId,
                 if (name.startsWith(prefix)) {
                     g_object_set(element, "volume", volume, nullptr);
                     any = true;
+                    ++applied;
                 }
                 g_value_reset(&item);
                 break;
@@ -4293,6 +4326,7 @@ void SfuMediaEngine::setTrackVolume(const QString &streamId,
                 // The sweep starts over, so what it had found does too;
                 // setting the same volume twice is idempotent.
                 any = false;
+                applied = 0;
                 if (resyncsLeft-- <= 0) {
                     done = true;
                     break;
@@ -4307,8 +4341,10 @@ void SfuMediaEngine::setTrackVolume(const QString &streamId,
         }
         g_value_unset(&item);
         gst_iterator_free(it);
-        if (any)
+        if (any) {
+            announce(streamId, applied);
             return;
+        }
     }
 
     // A MISS HERE IS A CONTROL THAT SILENTLY DOES NOTHING, so it says so.

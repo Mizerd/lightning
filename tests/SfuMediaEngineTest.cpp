@@ -1185,6 +1185,7 @@ private slots:
     // remembered and lands when the bin is built; the diagnostic fires once.
     void aVolumeChosenBeforeTheTrackArrivesLandsWhenItDoes()
     {
+        LogCapture log;
         SfuMediaEngine sender;
         SfuMediaEngine receiver;
         sender.setTestSourceMode(true);
@@ -1265,8 +1266,30 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(receiver.receiveVolumeForTest(arrivedStream),
                                   0.0, 5000);
         // A later change goes straight to the element.
+        log.clear();
         receiver.setParticipantVolume(arrivedStream, 100);
         QVERIFY(receiver.receiveVolumeForTest(arrivedStream) > 0.0);
+        // AND IT SAYS SO. The only observable this path used to have was the
+        // "nowhere to land" warning, so a landing could be argued only from
+        // silence — which is also what a control nobody calls produces. A
+        // live GUI run reads this line; without it, that run is asserting on
+        // an absence.
+        QVERIFY2(log.contains("participant volume applied"),
+                 qPrintable(QStringLiteral("no landing line; log was:\n%1")
+                                .arg(log.text())));
+        QVERIFY2(log.contains("elements= 1"),
+                 qPrintable(QStringLiteral("the landing named no element "
+                                           "count; log was:\n%1")
+                                .arg(log.text())));
+        QCOMPARE(log.count("participant volume applied"), 1);
+        // The same value again is not news: a slider drag re-sends one
+        // percentage many times, and the rate limit is what keeps this from
+        // becoming the flood the warning above had to be limited for.
+        receiver.setParticipantVolume(arrivedStream, 100);
+        QCOMPARE(log.count("participant volume applied"), 1);
+        // A real change is.
+        receiver.setParticipantVolume(arrivedStream, 60);
+        QCOMPARE(log.count("participant volume applied"), 2);
         sender.stop();
         receiver.stop();
         QCOMPARE(receiver.receiveVolumeForTest(arrivedStream), -1.0);

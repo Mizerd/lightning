@@ -804,6 +804,10 @@ private:
     QHash<QString, int> m_pendingTrackVolume;
     /// Keys whose "nowhere to land" diagnostic has been logged once.
     QSet<QString> m_volumeMissWarned;
+    /// The last percentage each key's volume was actually APPLIED at, so the
+    /// "landed" line fires on a real change and stays quiet while a drag
+    /// re-sends the same value. See setTrackVolume.
+    QHash<QString, int> m_volumeAppliedLog;
     void applyPendingTrackVolume(const QString &streamId,
                                  const QString &trackKey, quint64 generation);
 
