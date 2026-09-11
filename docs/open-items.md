@@ -738,3 +738,31 @@ media guard, with a comment saying why, and that is what makes
 `aStoredVolumeReachesTheEngineWhenTheStreamIdArrivesLate` a real test. Mirror
 it — a `cameraAwaitingPortalForTest()` and a publish counter kept outside the
 guard — and the state machine becomes drivable without a media engine.
+
+---
+
+**`DELAYED_EVENTS_REFUSED` IS PROCESS-GLOBAL, SO ONE ACCOUNT'S OLD HOMESERVER
+DISABLES MSC4140 FOR EVERY OTHER ACCOUNT UNTIL RESTART.** Raised in review
+2026-09-12, recorded rather than fixed: the behaviour is correct for a single
+account and the fix is a scoping change that deserves its own round.
+
+`rust/src/rtc.rs` keeps it as a `static AtomicBool`. It latches when a
+homeserver proves it will not arm a delayed retraction, and that is a real,
+permanent property OF THAT SERVER — for one account it is exactly right, and
+the one-way behaviour is deliberate (once latched, the gate stops arming, so
+nothing calls `schedule_delayed_leave` again and the clearing write is
+effectively unreachable).
+
+Across accounts it is wrong. Sign in to an account on a Synapse that ignores
+`?org.matrix.msc4140.delay=`, latch it, then switch to an account on a server
+that implements MSC4140, and for the rest of the process the second account:
+
+* gets no server-side retraction, so an unclean exit strands its membership for
+  the full expiry — the five-minute ghost participant this round fixed the
+  OTHER cause of; and
+* is told scheduled send is unsupported (`rust/src/rooms.rs` reads the same
+  flag), so it silently falls back to the local queue.
+
+FIX: scope the latch per homeserver rather than per process. That also makes
+the two recoveries the old doc comment claimed — a server that GAINS support,
+and a mis-latch — genuinely true, which they are not today.

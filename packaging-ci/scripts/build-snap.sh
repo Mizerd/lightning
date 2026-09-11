@@ -203,6 +203,10 @@ plugin_needs_missing() {   # object -> names no payload library can satisfy
         while IFS= read -r need; do
             [ -n "$need" ] || continue
             case " $BASE_SNAP_LIBS " in *" $need "*) continue ;; esac
+            # ONE DIRECTORY, deliberately: linuxdeploy flattens everything
+            # into usr/lib, so a payload library in a subdirectory would read
+            # as missing and fail LOUD rather than pass quietly. That is the
+            # safe direction for a guard whose whole job is catching absence.
             resolved="$TREE/usr/lib/$need"
             if [ -e "$resolved" ]; then
                 case " $seen " in *" $resolved "*) ;; *) queue="$queue $resolved" ;; esac
@@ -230,10 +234,23 @@ while IFS= read -r plugin; do
     [ -n "$missing" ] || continue
     case "$plugin" in
         # FATAL: the binary (which used to have its own `ldd` check with the
-        # same build-host flaw — one sweep, one method) and the PLATFORM
-        # plugins. Without a platform plugin the app exits with "no Qt platform
-        # plugin could be initialized" and there is no window at all.
-        "$TREE"/usr/bin/*|"$TREE"/usr/plugins/platforms/*)
+        # same build-host flaw — one sweep, one method), the PLATFORM plugins,
+        # and two directories that are not "features" in this application's
+        # terms. `validate-appimage.sh` already treats the PRESENCE of these
+        # two as fatal; their LOADABILITY deserves the same:
+        #
+        #   * tls/ — without libqopensslbackend every QNetworkAccessManager
+        #     https request fails, which includes the update check and the
+        #     download. §16 records the 0.9.0 AppImage consequence exactly: it
+        #     "will never offer the next release by itself". An updater going
+        #     permanently dark is not a degraded feature.
+        #   * wayland-shell-integration/ — without libxdg-shell Qt refuses its
+        #     Wayland plugin and runs under XWayland, where a screen share
+        #     captures a BLACK ROOT WINDOW. `platforms/*` covers
+        #     libqwayland-generic.so and does not cover this directory.
+        "$TREE"/usr/bin/*|"$TREE"/usr/plugins/platforms/*|\
+        "$TREE"/usr/plugins/tls/*|\
+        "$TREE"/usr/plugins/wayland-shell-integration/*)
             qt_unresolved="$qt_unresolved
     $(basename "$plugin"):$missing" ;;
         # Every other Qt plugin is a FEATURE, not the app: an image format, a

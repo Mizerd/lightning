@@ -1682,9 +1682,24 @@ const DELAYED_LEAVE_TIMEOUT_MS: u64 = 8_000;
 ///     permanently disable MSC4140 cleanup — process-wide — because of a
 ///     single blip. That is a crash-safety mechanism, so losing it silently
 ///     strands memberships on every unclean exit thereafter.
-///   * A SUCCESSFUL arm clears it, so a server that gains support, a
-///     mis-latch, or an account switch to a server that has it all recover
-///     without a restart.
+///   * A successful arm clears it — but DO NOT READ THAT AS A RECOVERY PATH,
+///     because it is very nearly unreachable and an earlier version of this
+///     comment wrongly claimed three. Once the latch is set,
+///     `assumed_no_delayed` is true, `delayed_retraction_is_repairable(true)`
+///     is false, the gate blocks the arm, and `schedule_delayed_leave` is
+///     never called — so the `store(false)` only ever runs when the latch was
+///     already false. **The latch is one-way for the life of the process.**
+///
+/// THAT IS CORRECT FOR A GENUINE SERVER PROPERTY AND WRONG ACROSS ACCOUNTS,
+/// and the second half is an open defect rather than a subtlety. This is a
+/// process-global `static`: sign in to an account on an old Synapse, latch it,
+/// then switch to an account on a server that DOES implement MSC4140, and for
+/// the rest of the process the second account gets no delayed cleanup — a
+/// five-minute ghost participant on every unclean exit — while
+/// `rooms.rs`'s scheduled-send probe reports the feature unsupported and
+/// silently falls back to the local queue. The fix is to scope the latch PER
+/// HOMESERVER, which would also make "a server that gains support" and "a
+/// mis-latch" genuinely recoverable. See `docs/open-items.md`.
 static DELAYED_EVENTS_REFUSED: AtomicBool = AtomicBool::new(false);
 
 /// Does this refusal category mean the homeserver simply does not implement
