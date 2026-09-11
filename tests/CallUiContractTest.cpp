@@ -1245,6 +1245,49 @@ ApplicationWindow {
     // exist on the QML font value type) was assigned. qmlformat cannot see it
     // either: it parses syntax and does not check that a property exists.
     // This case is the gate for any edit to CallStage.qml.
+    // LEAVE CALL MUST NOT RUN OFF THE EDGE OF A NARROW WINDOW.
+    //
+    // Measured on a live three-party call in a Windows guest: below about
+    // 1100 px the red hang-up and the collapse button were not drawn at all,
+    // and at 640 px three controls of twelve survived. A user in a call in a
+    // normal window could not see or click the control that leaves it.
+    //
+    // THIS IS A SOURCE SCAN, AND THAT IS A KNOWN SECOND-BEST. I wrote the
+    // behavioural version first — drive CallStage through a width sweep and
+    // assert the control row stays inside the stage — and withdrew it,
+    // because its own harness guard caught it measuring nothing: a standalone
+    // CallStage in an offscreen fixture does not lay out (the bar reported
+    // 231 px at x=40 at EVERY root width, with or without a live call), and
+    // mutation-testing it against the unfixed code passed. A test that cannot
+    // fail is worse than none. This one does fail on the unfixed code, which
+    // is the bar CLAUDE.md sets, and it is honest about what it cannot see:
+    // it pins the two lines the fix turns on, not the geometry they produce.
+    void theCallControlsMayShrinkRatherThanOverflow()
+    {
+        const QString stage = read(QStringLiteral(QML_DIR "/CallStage.qml"));
+        QVERIFY2(!stage.isEmpty(), "CallStage.qml is missing");
+        const QString code = normalized(stage);
+
+        // THE FLOOR IS GONE. `Layout.minimumWidth: implicitWidth` on the
+        // controls host does not create room: once the row's minimums exceed
+        // the panel, a RowLayout hands every child its minimum and overflows
+        // to the RIGHT, and the right end of that row is the hang-up button.
+        QVERIFY2(!code.contains(QStringLiteral(
+                     "Layout.minimumWidth: implicitWidth")),
+                 "the controls host has a floor at its implicit width again, "
+                 "so a row too narrow for it overflows instead of shrinking "
+                 "and the end of the control row leaves the window");
+
+        // AND `compact` IS DRIVEN BY AVAILABLE WIDTH, not only by the
+        // collapsed state. `compact` is precisely the reduced control set for
+        // this case; bound to `root.collapsed` alone, an expanded stage in a
+        // narrow window keeps asking for the full set.
+        QVERIFY2(code.contains(QStringLiteral(
+                     "compact: root.collapsed || controlsHost.cramped")),
+                 "the control bar no longer goes compact when the room it is "
+                 "given is too small for it");
+    }
+
     void theCallStageComponentActuallyLoads()
     {
         AppController controller(AppController::MockBackend);
