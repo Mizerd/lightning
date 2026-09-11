@@ -116,6 +116,7 @@ private Q_SLOTS:
     void asciiOnlyCaseFoldingForAdoptionCandidates();
     void repairQuarantinesTheStoreInsteadOfDeletingIt();
     void unreadableSecretBackendIsNeverADestructiveVerdict();
+    void anUnreadableSecretBlocksTheLoginThatWouldDeleteTheStore();
     void codeKeyedResetPolicyMatchesTheEnum();
 
     // Reset honesty.
@@ -867,6 +868,45 @@ void SessionStoreIdentityTest::unreadableSecretBackendIsNeverADestructiveVerdict
     SettingsManager bare;
     QVERIFY(bare.secretBackendUnavailable());
     QVERIFY(!m_settings->secretBackendUnavailable());   // fake store answers
+}
+
+void SessionStoreIdentityTest::
+    anUnreadableSecretBlocksTheLoginThatWouldDeleteTheStore()
+{
+    using matrix::rust_session::unreadableSecretBlocksLogin;
+
+    // THE BRANCH THIS GUARDS ARMS A REPAIR THAT DELETES A CRYPTO STORE, and
+    // until this test it had NO coverage at any layer: its only call site
+    // (RustSdkMatrixClient::openOrRestore) needs a live Rust client, so
+    // deleting either predicate from the condition left every suite green.
+    //
+    // A record + a store + a token we could not READ is not evidence of an
+    // orphan. §6: destructive cleanup keys on the RECORD being absent, never
+    // on a secret being unreadable.
+
+    // Both routes to "we could not ask" must block, and they answer different
+    // questions — a keyring that locked after startup, and a fallback store
+    // standing in for a native backend that would not open.
+    QVERIFY2(unreadableSecretBlocksLogin(true, true, false, true, false),
+             "a locked keyring let a store-deleting repair through");
+    QVERIFY2(unreadableSecretBlocksLogin(true, true, false, false, true),
+             "an inconclusive fallback store let a store-deleting repair "
+             "through — this is the one the 2026-09-10 correction exposed");
+    QVERIFY(unreadableSecretBlocksLogin(true, true, false, true, true));
+
+    // A token we DID read answers the question, so the block does not apply
+    // however unhappy the secret backend is. Without this the guard would
+    // swallow every ordinary sign-in.
+    QVERIFY(!unreadableSecretBlocksLogin(true, true, true, true, true));
+
+    // And nothing is blocked when there is nothing at risk: no store to
+    // delete, or no record claiming this account.
+    QVERIFY(!unreadableSecretBlocksLogin(false, true, false, true, true));
+    QVERIFY(!unreadableSecretBlocksLogin(true, false, false, true, true));
+
+    // A readable-but-absent secret on an account we hold a record for is the
+    // ordinary expired sign-in, and it must stay reachable.
+    QVERIFY(!unreadableSecretBlocksLogin(true, true, false, false, false));
 }
 
 void SessionStoreIdentityTest::codeKeyedResetPolicyMatchesTheEnum()

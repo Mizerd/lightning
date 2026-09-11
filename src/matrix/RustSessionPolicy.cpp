@@ -4,6 +4,17 @@
 
 namespace matrix::rust_session {
 
+bool unreadableSecretBlocksLogin(bool storeExists,
+                                 bool targetHasRecord,
+                                 bool targetTokenReadable,
+                                 bool secretBackendUnavailable,
+                                 bool secretMissesAreInconclusive)
+{
+    if (!storeExists || !targetHasRecord || targetTokenReadable)
+        return false;
+    return secretBackendUnavailable || secretMissesAreInconclusive;
+}
+
 StoreBlockReason passwordLoginBlockReason(
     const app_data::AccountIdentity &target,
     bool storeExists,

@@ -40,6 +40,35 @@ StoreBlockReason passwordLoginBlockReason(
     bool targetHasSavedSession,
     const QString &targetSavedDeviceId);
 
+// Does an UNREADABLE secret have to block the login rather than let a repair
+// proceed? Pure, so the decision can be tested without a keyring, an FFI
+// client or a homeserver — which is the whole reason it lives here: its one
+// call site (RustSdkMatrixClient::openOrRestore) needs a live Rust client, so
+// nothing could reach it, and deleting either predicate from the condition
+// left every suite green.
+//
+// WHAT IT PROTECTS. The branch it guards arms a repair that DELETES A REAL
+// CRYPTO STORE. A record plus a store plus an unreadable token is not evidence
+// of an orphan — it is a question we could not ask — and §6 is explicit that
+// destructive cleanup keys on the RECORD being absent, never on a secret being
+// unreadable.
+//
+// WHY BOTH PREDICATES, since they look redundant and are not:
+//   * `secretBackendUnavailable` catches a keyring that LOCKED after startup.
+//   * `secretMissesAreInconclusive` catches a fallback store standing in for a
+//     native backend it could not open. That used to be covered by the first
+//     one only because such a store reported every read as failed — a
+//     behaviour deliberately corrected on 2026-09-10 so the account switcher
+//     could tell an expired sign-in from an unreadable one. That correction is
+//     right, and it must not reach this decision: a repair that deletes keys
+//     is not allowed to become reachable because a read happened to be
+//     conclusive.
+bool unreadableSecretBlocksLogin(bool storeExists,
+                                 bool targetHasRecord,
+                                 bool targetTokenReadable,
+                                 bool secretBackendUnavailable,
+                                 bool secretMissesAreInconclusive);
+
 // The OAuth counterpart of passwordLoginBlockReason, applied in PHASE B —
 // after the browser flow has completed and the homeserver has told us the
 // canonical user id and the device id it created.

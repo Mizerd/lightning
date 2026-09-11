@@ -688,19 +688,15 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     // problem deletion cannot fix, and costs them their room keys. This is
     // the same "unreadable token is not a missing account" rule the orphan
     // branch above follows, applied to the classification.
-    // OR missesAreInconclusive(): the two answer different questions and this
-    // gate needs both. secretBackendUnavailable() catches a keyring that
-    // locked after startup. The structural one catches a fallback standing in
-    // for a native backend it could not open — which USED to be covered here
-    // only because that store reported every read as failed, a behaviour
-    // corrected on 2026-09-10 so the account switcher could tell an expired
-    // sign-in from an unreadable one. That correction is right, and it must
-    // not reach this decision: the branch below arms a repair that deletes a
-    // real crypto store, and it is not allowed to become reachable because a
-    // read happened to be conclusive.
-    if (storeExists && targetHasRecord && !targetTokenReadable
-        && (m_settings->secretBackendUnavailable()
-            || m_settings->secretMissesAreInconclusive())) {
+    // THE CONDITION ITSELF LIVES IN RustSessionPolicy, and why it needs BOTH
+    // of those predicates is documented there. Reaching this line needs a live
+    // Rust client, so nothing could drive it and deleting either predicate
+    // left every suite green — which is precisely why it is pure and pinned
+    // rather than spelled out inline here.
+    if (matrix::rust_session::unreadableSecretBlocksLogin(
+            storeExists, targetHasRecord, targetTokenReadable,
+            m_settings->secretBackendUnavailable(),
+            m_settings->secretMissesAreInconclusive())) {
         failWithBlockReason(
             matrix::rust_session::StoreBlockReason::SecretBackendUnavailable,
             identity);
