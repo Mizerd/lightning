@@ -176,6 +176,56 @@ private Q_SLOTS:
         QCOMPARE(controller.replyCount(), repliesInRoom);
     }
 
+    // THE SDK'S NUMBER WINS, AND ITS ARRIVAL MUST BE ANNOUNCED.
+    //
+    // A loaded count cannot agree with the room's summary card for a thread
+    // longer than its first page: the thread timeline is windowed and
+    // paginates lazily, so the card (which reads num_replies) and a loaded
+    // count diverge by LENGTH. And the summary arrives as an in-place Set on
+    // the root row, which does NOT reach countChanged — onEventChangedAt
+    // emits that only when a row's virtualness flips — so without a
+    // dataChanged path the divider would keep showing the loaded count
+    // forever. Both halves are the point of this case.
+    void theSdkSummaryWinsAndItsArrivalIsAnnounced()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+
+        const int loaded = controller.replyCount();
+        QVERIFY2(loaded > 0, "fixture assumption: the thread has loaded replies");
+
+        // A windowed thread: the server knows about far more than are here.
+        const int serverSays = loaded + 40;
+        QSignalSpy spy(&controller, &ThreadController::replyCountChanged);
+        const QString composite =
+            MatrixClient::threadTimelineId(kGeneral, rootId);
+        const auto thread = client.timeline(composite);
+        const int rootIndex = static_cast<int>(std::distance(
+            thread.cbegin(),
+            std::find_if(thread.cbegin(), thread.cend(),
+                         [&](const TimelineEvent &e) {
+                             return e.eventId == rootId;
+                         })));
+        QVERIFY2(rootIndex < thread.size(),
+                 "fixture assumption: the root is a row of the thread");
+        TimelineEvent updated = thread.at(rootIndex);
+        QCOMPARE(updated.threadReplyCount, -1);   // the unknown sentinel
+        updated.threadReplyCount = serverSays;
+        client.changeEventAtForTest(composite, rootIndex, updated);
+
+        QCOMPARE(controller.replyCount(), serverSays);
+        QCOMPARE(spy.count(), 1);
+
+        // A second identical Set must NOT re-announce: the ANSWER is the
+        // signal, not the write.
+        client.changeEventAtForTest(composite, rootIndex, updated);
+        QCOMPARE(spy.count(), 1);
+    }
+
     void mockBackendSupportsThreadTimelines()
     {
         MockMatrixClient client;

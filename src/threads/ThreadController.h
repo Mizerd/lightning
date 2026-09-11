@@ -47,7 +47,8 @@ class ThreadController : public QObject
     // display; never carries server detail or message content.
     Q_PROPERTY(QString failureCategory READ failureCategory NOTIFY stateChanged)
     Q_PROPERTY(TimelineModel *model READ model CONSTANT)
-    /// How many REPLIES this thread has, or -1 when nothing can say.
+    /// How many REPLIES this thread has. Never negative: with no SDK
+    /// summary and nothing loaded it is 0.
     ///
     /// The room's own summary card reads the SDK's `num_replies`, and the
     /// panel used to derive its "N replies" divider from
@@ -242,6 +243,7 @@ public:
     // honest "original message unavailable" state. Safe fields only.
     Q_INVOKABLE QVariantMap rootInfo() const;
     int replyCount() const;
+    void notifyReplyCountIfChanged();
 
     // Reply navigation WITHIN the open thread (contract C5). Resolves the
     // target in the thread's own timeline, paginating this thread's history a
@@ -312,6 +314,7 @@ private:
 
     MatrixClient *m_client = nullptr;
     TimelineModel m_model;
+    mutable int m_lastReplyCount = -1;
     AttachmentQueueModel *m_attachments = nullptr;
     State m_state = Closed;
     QString m_roomId;

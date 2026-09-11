@@ -74,12 +74,33 @@ ThreadController::ThreadController(QObject *parent)
         if (row >= 0)
             locateNavigationTarget(row);
     });
-    // realCount moves with every row change, and the SDK summary arrives as
-    // a Set on the root row — both reach countChanged.
+    // THE SDK SUMMARY DOES NOT REACH countChanged, WHICH IS THE ONE
+    // TRANSITION THIS PROPERTY EXISTS FOR. It arrives as an in-place Set on
+    // the root row, and onEventChangedAt emits countChanged only when a
+    // row's virtualness flips — correctly, since a Set cannot change the row
+    // count. So dataChanged has to be listened to as well, and every source
+    // goes through notifyReplyCountIfChanged() rather than the signal
+    // directly: the count is recomputed and announced only when the ANSWER
+    // moves, so a busy timeline cannot turn one Set per receipt into a
+    // re-render per receipt.
     connect(&m_model, &TimelineModel::countChanged, this,
-            &ThreadController::replyCountChanged);
+            &ThreadController::notifyReplyCountIfChanged);
     connect(this, &ThreadController::stateChanged, this,
-            &ThreadController::replyCountChanged);
+            &ThreadController::notifyReplyCountIfChanged);
+    connect(&m_model, &TimelineModel::dataChanged, this,
+            [this](const QModelIndex &topLeft, const QModelIndex &bottomRight,
+                   const QList<int> &roles) {
+                // onEventChangedAt announces ALL roles (an empty list), so
+                // the role filter must treat empty as "might be it".
+                if (!roles.isEmpty()
+                    && !roles.contains(TimelineModel::ThreadReplyCountRole))
+                    return;
+                const int rootRow = m_model.rowForStableId(m_rootEventId);
+                if (rootRow < 0 || rootRow < topLeft.row()
+                    || rootRow > bottomRight.row())
+                    return;
+                notifyReplyCountIfChanged();
+            });
     connect(&m_model, &TimelineModel::paginationChanged, this, [this] {
         const bool wasPaginating = m_modelPaginating;
         m_modelPaginating = m_model.paginating();
@@ -855,21 +876,47 @@ QStringList ThreadController::participants() const
 
 int ThreadController::replyCount() const
 {
+    // READ THE EVENT, NOT THE ROLE. ThreadReplyCountRole answers 0 — never
+    // -1 — when the SDK summary is absent, because it falls back to a local
+    // index, so through the role "the server says none", "no summary yet"
+    // and "nothing indexed" are one value. TimelineEvent::threadReplyCount
+    // is -1 in exactly the unknown case, which makes the preference
+    // expressible instead of approximated: an earlier revision took
+    // qMax(role, loaded) to dodge the ambiguity, and that would have pinned
+    // the count high when replies are redacted and a stale num_replies
+    // outlives them.
+    const auto summaryFor = [](const QList<TimelineEvent> &events,
+                               const QString &rootId) {
+        for (const auto &e : events)
+            if (e.eventId == rootId)
+                return e.threadReplyCount;   // -1 when the SDK has not said
+        return -1;
+    };
+
     const int rootRow = m_model.rowForStableId(m_rootEventId);
-    // ThreadReplyCountRole answers 0, never -1, when the SDK summary is
-    // absent — it falls back to a local index — so 0 cannot be read as an
-    // authoritative zero. Take the larger of the two instead: the SDK's
-    // number wins for a windowed thread (which is the case a loaded count
-    // can never get right), the loaded count wins before the summary
-    // arrives, and a thread with genuinely no replies reports 0 either way.
-    const int known =
-        rootRow >= 0 ? m_model.data(m_model.index(rootRow, 0),
-                                    TimelineModel::ThreadReplyCountRole)
-                           .toInt()
-                     : 0;
-    // Subtract the root only when the root is actually one of the rows.
-    const int loaded = m_model.realEventCount() - (rootRow >= 0 ? 1 : 0);
-    return qMax(0, qMax(known, loaded));
+    int known = summaryFor(m_model.events(), m_rootEventId);
+    // The root is not always a row of the THREAD model — rootInfo() has the
+    // same fallback, for the window while the thread snapshot is still
+    // arriving — and that is precisely the case the SDK's number exists for,
+    // so consulting it only when the root is loaded would miss it.
+    if (known < 0 && m_client)
+        known = summaryFor(m_client->timeline(m_roomId), m_rootEventId);
+    if (known >= 0)
+        return known;
+
+    // Nothing authoritative: count the REAL events loaded — virtual rows are
+    // rows and are not replies — and subtract the root only when the root is
+    // actually one of them.
+    return qMax(0, m_model.realEventCount() - (rootRow >= 0 ? 1 : 0));
+}
+
+void ThreadController::notifyReplyCountIfChanged()
+{
+    const int now = replyCount();
+    if (now == m_lastReplyCount)
+        return;
+    m_lastReplyCount = now;
+    Q_EMIT replyCountChanged();
 }
 
 QVariantMap ThreadController::rootInfo() const
