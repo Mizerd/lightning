@@ -73,6 +73,7 @@ VOL_MAX_X=1303                       # slider groove, right end -> 200%
 PORTAL_TILE_FX=0.256 PORTAL_TILE_FY=0.304
 
 PASS=0 FAIL=0
+HAVE_MAGICK=""
 declare -a RESULTS=()
 
 ok()   { PASS=$((PASS+1)); RESULTS+=("PASS  $1"); echo "PASS  $1"; }
@@ -103,10 +104,25 @@ pid_for() {
     return 1
 }
 
+# A CAPTURE IS AN ARTIFACT FOR THE OPERATOR, NEVER AN ASSERTION.
+#
+# Every check in this suite reads a log line or a value on disk, precisely so
+# that none of it depends on what a picture looks like. So a missing crop tool
+# must not be able to fail a run: shot_pid needs ImageMagick to convert
+# KWin's LOGICAL geometry into spectacle's NATIVE pixels, and without it this
+# falls back to the whole screen, which is still perfectly readable by a human
+# and still shows both clients.
 shot() {  # shot <pid> <name>
     mkdir -p "$LT_OUT"
-    shot_pid "$1" "$LT_OUT/$2.png" >/dev/null 2>&1 \
-        && note "capture: $LT_OUT/$2.png"
+    if [[ -n "$HAVE_MAGICK" ]] \
+       && shot_pid "$1" "$LT_OUT/$2.png" >/dev/null 2>&1; then
+        note "capture: $LT_OUT/$2.png"
+        return 0
+    fi
+    spectacle -b -n -f -o "$LT_OUT/$2.png" >/dev/null 2>&1
+    sleep 0.6
+    [[ -s "$LT_OUT/$2.png" ]] \
+        && note "capture (full screen, uncropped): $LT_OUT/$2.png"
 }
 
 # ---------------------------------------------------------------- preflight
@@ -115,8 +131,14 @@ check_preflight() {
     local why=""
     command -v ydotool >/dev/null 2>&1 || why="no ydotool on PATH"
     pgrep -x ydotoold >/dev/null 2>&1   || why="${why:-ydotoold is not running}"
-    command -v magick  >/dev/null 2>&1 || why="${why:-no ImageMagick}"
+    command -v spectacle >/dev/null 2>&1 || why="${why:-no spectacle}"
     [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]] || why="${why:-no DBUS_SESSION_BUS_ADDRESS}"
+    # OPTIONAL, and deliberately not a precondition — see shot(). The GUI host
+    # this suite was written against has spectacle and no ImageMagick.
+    HAVE_MAGICK=""
+    command -v magick >/dev/null 2>&1 && HAVE_MAGICK=1
+    [[ -n "$HAVE_MAGICK" ]] \
+        || note "no ImageMagick: captures will be full-screen, not cropped"
     A=$(pid_for profile-A) || why="${why:-no Lightning on profile-A}"
     B=$(pid_for profile-B) || why="${why:-no Lightning on profile-B}"
     [[ -r "$LT_A_LOG" && -r "$LT_B_LOG" ]] || why="${why:-logs unreadable: $LT_A_LOG $LT_B_LOG}"
@@ -184,13 +206,13 @@ stored_volume() {
           | grep -oE '[0-9]+$')
     n=$(printf '%s\n' "$all" | grep -c '[0-9]' )
     if [[ "$n" != "1" ]]; then
-        STORED_WHY="expected exactly one stored participant volume, found $n"
+        # STDERR, not a variable: every caller reads this through $( ), which
+        # is a subshell, so an assignment here could never reach them.
+        echo "      stored_volume: expected exactly one stored participant volume, found $n" >&2
         return 1
     fi
-    STORED_WHY=""
     printf '%s\n' "$all"
 }
-STORED_WHY=""
 
 # open_volume_popup — ONE click, the call bar's participants button. The
 # volume control is a Popup drawn inside the same window, so pidclick's
@@ -230,7 +252,7 @@ _volume_case() {  # _volume_case <name> <from> <to> <expected-percent>
     grep -q "percent= $want" <<<"$applied" \
         || { bad "$name" "the engine applied a different percentage: $applied"; return 1; }
     [[ "$stored" == "$want" ]] \
-        || { bad "$name" "on disk it reads '${stored:-<none>}', not $want${STORED_WHY:+ ($STORED_WHY)}"; return 1; }
+        || { bad "$name" "on disk it reads '${stored:-<none>}', not $want"; return 1; }
     ok "$name"
 }
 
@@ -244,7 +266,7 @@ check_volume_boost()   { _volume_case volume-200%-boosts "$VOL_MIN_X" "$VOL_MAX_
 check_volume_persists() {
     local before after mark
     before=$(stored_volume)
-    [[ -n "$before" ]] || { bad volume-persists "nothing stored to survive; run the volume checks first${STORED_WHY:+ ($STORED_WHY)}"; return 1; }
+    [[ -n "$before" ]] || { bad volume-persists "nothing stored to survive; run the volume checks first"; return 1; }
     # THE ONE ACTION HERE THAT REACHES PAST THE PID WE PROVED.
     #
     # Every click goes through pid_for, which refuses a process that is not
@@ -252,10 +274,14 @@ check_volume_persists() {
     # not: it acts on a NAME, and on a host where that name happens to be a
     # real client this would kill it. So require the unit to own exactly the
     # pid the suite has been driving before touching it.
-    local unit_pid
-    unit_pid=$(systemctl --user show -p MainPID --value "$LT_A_UNIT" 2>/dev/null)
-    if [[ "$unit_pid" != "$A" ]]; then
-        bad volume-persists "$LT_A_UNIT's MainPID is '${unit_pid:-<none>}', not the profile-A pid $A — refusing to restart a unit this suite has not proven it owns"
+    #
+    # The CGROUP, not MainPID. The fixture may be an AppImage, whose unit
+    # MainPID is the AppRun wrapper while the Qt process is its child — so a
+    # MainPID test fails in the safe direction but can never let the check
+    # run at all. Membership of the unit's cgroup proves the same ownership
+    # and is immune to wrappers and to Type=forking.
+    if ! grep -q "$LT_A_UNIT" "/proc/$A/cgroup" 2>/dev/null; then
+        bad volume-persists "pid $A is not in $LT_A_UNIT's cgroup — refusing to restart a unit this suite has not proven it owns"
         return 1
     fi
     systemctl --user restart "$LT_A_UNIT" >/dev/null 2>&1 \
@@ -296,15 +322,18 @@ check_share() {
     local rx ry
     rx=$(awk -v w="${pw%%.*}" -v f="$PORTAL_TILE_FX" 'BEGIN{printf "%d", w*f}')
     ry=$(awk -v h="${ph%%.*}" -v f="$PORTAL_TILE_FY" 'BEGIN{printf "%d", h*f}')
-    pidclick_nf "$portal" "$rx" "$ry" >/dev/null 2>&1 \
-        || { bad share "could not click the first source tile"; return 1; }
+    # NOTE: the harness's pidclick_nf/keypid both END in `sleep`, so their
+    # exit status is the sleep's and `|| bad ...` on them is dead code. The
+    # guard has to be explicit.
+    pidclick_nf "$portal" "$rx" "$ry" >/dev/null 2>&1
     sleep 1
+    guard_pid "$portal" \
+        || { bad share "the picker is not the active window; Enter would have gone elsewhere"; return 1; }
     # keypid, not a bare `ydotool key`. The harness's focus guard exists
     # because an unguarded synthetic keystroke once went into a browser
     # window instead of the client, and a global key lands wherever the
     # compositor says focus is. The picker is a WINDOW, so the guard applies.
-    keypid "$portal" 28:1 28:0 \
-        || { bad share "the picker was not focused, so Enter would have gone elsewhere"; return 1; }
+    keypid "$portal" 28:1 28:0
     sleep 12
     local publishing encoded received
     publishing=$(lines_since "$LT_A_LOG" "$marka" 'screen share publishing' | tail -1)

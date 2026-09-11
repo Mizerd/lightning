@@ -492,7 +492,7 @@ public:
     // (Matrix reports 0 for genuinely unread rooms). A consumer that acts on
     // "this room has been read" must therefore ask whether anyone is
     // answering before believing the answer. See
-    // ActivityModel::reconcileRoomAgainstItsReadState.
+    // ActivityModel::reconcileRoomsAgainstTheirReadState.
     virtual bool tracksRoomReadState() const { return false; }
     virtual void requestPresence(const QStringList &userIds, quint64 opId)
     {

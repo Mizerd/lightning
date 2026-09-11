@@ -56,7 +56,7 @@ void ActivityModel::setClient(MatrixClient *client)
             loadStore();
     });
     // A room whose unread state has gone clear has been read — on THIS
-    // device or on another one. See reconcileRoomAgainstItsReadState().
+    // device or on another one. See reconcileRoomsAgainstTheirReadState().
     //
     // roomsChanged AND NOT roomUpdated, and that distinction is the whole
     // correctness of this. The four unread fields are written in exactly one
@@ -273,14 +273,6 @@ void ActivityModel::reconcileRoomsAgainstTheirReadState()
     for (const QString &id : std::as_const(rooms))
         changed = markRoomReadIfClear(id) || changed;
     if (!changed)
-        return;
-    rebuildVisible();
-    Q_EMIT unseenCountChanged();
-}
-
-void ActivityModel::reconcileRoomAgainstItsReadState(const QString &roomId)
-{
-    if (!markRoomReadIfClear(roomId))
         return;
     rebuildVisible();
     Q_EMIT unseenCountChanged();

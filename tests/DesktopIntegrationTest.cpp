@@ -80,9 +80,19 @@ private Q_SLOTS:
         // Every backend Qt can hand back is named. A new one added to
         // QSGRendererInterface reports as "unknown", which is honest, but
         // these five must never silently become it.
-        for (const char *api : { "Software", "OpenGL", "Vulkan", "Metal",
-                                 "Direct3D11" }) {
-            QVERIFY2(main.contains(QLatin1String(api)),
+        //
+        // Qualified, and required AFTER the anchor: bare "Software" and
+        // "OpenGL" also appear in the probe higher up the file, so an
+        // unqualified search would have been satisfied by code this case is
+        // not about — two of the five assertions could not have failed.
+        const int at = main.indexOf(QStringLiteral("sceneGraphInitialized"));
+        QVERIFY2(at > 0, "no anchor to measure the backend names against");
+        for (const char *api : { "QSGRendererInterface::Software",
+                                 "QSGRendererInterface::OpenGL",
+                                 "QSGRendererInterface::Vulkan",
+                                 "QSGRendererInterface::Metal",
+                                 "QSGRendererInterface::Direct3D11" }) {
+            QVERIFY2(main.indexOf(QLatin1String(api), at) > at,
                      qPrintable(QStringLiteral("the backend line does not "
                                                "name %1").arg(QLatin1String(api))));
         }

@@ -426,7 +426,11 @@ private Q_SLOTS:
         // as the calls: `jumpToEvent(eventId)` placed UNCONDITIONALLY after
         // the thread branch satisfies every assertion above and re-creates
         // B023 exactly. It has to be the else of `if (inThread)`.
-        const int thread = body.indexOf(QStringLiteral("if (inThread)"));
+        // lastIndexOf: the handler opens the thread panel from an EARLIER
+        // `if (inThread)`, and anchoring on that one would prove ordering
+        // rather than nesting — an unrelated `} else if (` between the two
+        // would let an unconditional jump pass again.
+        const int thread = body.lastIndexOf(QStringLiteral("if (inThread)"));
         QVERIFY2(thread >= 0, "the thread branch is gone");
         const int otherwise = body.indexOf(QStringLiteral("} else if ("), thread);
         QVERIFY2(otherwise > thread,
