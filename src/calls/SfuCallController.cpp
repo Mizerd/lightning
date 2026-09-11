@@ -437,7 +437,13 @@ void SfuCallController::setSettings(SettingsManager *settings)
     // another surface, another window, a settings page — and the engine has
     // to hear about it or the slider and the sound disagree.
     connect(m_settings, &SettingsManager::callParticipantVolumeChanged, this,
-            [this](const QString &, int) { applyStoredVolumes(); });
+            [this](const QString &, int) { applyStoredVolumes();
+    // Its share sibling, for symmetry and for the same reason: a level
+    // changed in settings must reach the live call without a rejoin. It had
+    // no consumer at all when it was added, which is the shape this tree
+    // shipped three commits ago and fixed.
+    connect(m_settings, &SettingsManager::callShareVolumeChanged, this,
+            [this](const QString &, int) { applyStoredShareVolumes(); }); });
     connect(m_settings, &SettingsManager::microphoneGainChanged, this,
             [this] { applyAudioState(); });
 }
@@ -1426,12 +1432,13 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     if (m_stageState)
         m_stageState->clear();
     m_publishedTrackIds.clear();
-    // A share's level belongs to the CALL it was set in. Share ids never
-    // repeat (m_localShareEpoch only ever increments and SFU track sids are
-    // unique), so keeping them could not apply a stale level to the wrong
-    // share — but it would accumulate one entry per share ever seen, and a
-    // level the user chose for a game two calls ago is not a preference
-    // about the next one.
+    // The per-call MAP is dropped; the PREFERENCE is not. Share ids never
+    // repeat, so this map would only accumulate one dead entry per share ever
+    // seen. What the user chose now lives under the OWNER in settings
+    // (setCallShareVolume), so it survives this clear, the call, and the
+    // process — which is what "set someone's volume and restart" asked for.
+    // This comment used to say a level two calls ago is not a preference
+    // about the next one; that was the behaviour, and it was the defect.
     m_shareVolumes.clear();
     m_audioCid.clear();
     m_cameraCid.clear();
@@ -2847,12 +2854,13 @@ void SfuCallController::teardown(State finalState, const QString &error)
     if (m_stageState)
         m_stageState->clear();
     m_publishedTrackIds.clear();
-    // A share's level belongs to the CALL it was set in. Share ids never
-    // repeat (m_localShareEpoch only ever increments and SFU track sids are
-    // unique), so keeping them could not apply a stale level to the wrong
-    // share — but it would accumulate one entry per share ever seen, and a
-    // level the user chose for a game two calls ago is not a preference
-    // about the next one.
+    // The per-call MAP is dropped; the PREFERENCE is not. Share ids never
+    // repeat, so this map would only accumulate one dead entry per share ever
+    // seen. What the user chose now lives under the OWNER in settings
+    // (setCallShareVolume), so it survives this clear, the call, and the
+    // process — which is what "set someone's volume and restart" asked for.
+    // This comment used to say a level two calls ago is not a preference
+    // about the next one; that was the behaviour, and it was the defect.
     m_shareVolumes.clear();
     m_audioCid.clear();
     m_cameraCid.clear();
@@ -3758,9 +3766,10 @@ int SfuCallController::shareVolume(const QString &shareId) const
 
 /// Carry each sharer's stored level onto a share whose audio has appeared.
 ///
-/// Deliberately mirrors applyStoredVolumes(): a share that starts, or stops
-/// and restarts, comes back under a NEW share id, so without this the level
-/// the user chose applies to exactly one share and then evaporates.
+/// Mirrors applyStoredVolumes() — including, load-bearingly, that it runs
+/// AFTER the model it iterates has been rebuilt. A share that starts, or
+/// stops and restarts, comes back under a NEW share id, so without this the
+/// level the user chose applies to exactly one share and then evaporates.
 void SfuCallController::applyStoredShareVolumes()
 {
     if (!m_settings || !m_shareModel)
@@ -4016,12 +4025,21 @@ void SfuCallController::rebuildModels()
     // turned down in a previous call — possibly in a different room — must
     // come back at the volume they chose, which is the whole of the request.
     applyStoredVolumes();
-    applyStoredShareVolumes();
     // Hand raise has no wire representation (see CallParticipantModel), so
     // the only row it can be true for is ours.
     if (!m_ownIdentity.isEmpty())
         m_participantModel->setHandRaised(m_ownIdentity, m_handRaised);
     rebuildShareModel();
+    // AFTER rebuildShareModel(), and that ordering is the whole of it.
+    //
+    // applyStoredVolumes() above works because applyParticipants() has
+    // already run; its share sibling was placed beside it and therefore ran
+    // against the PREVIOUS share set, so a share that had just appeared was
+    // never visited. That is not a missed optimisation — shareVolume() falls
+    // back to the store, so the slider showed the remembered level while the
+    // engine had never been told, and the UI lied about the audio in exactly
+    // the case the feature exists for.
+    applyStoredShareVolumes();
 }
 
 void SfuCallController::rebuildShareModel()

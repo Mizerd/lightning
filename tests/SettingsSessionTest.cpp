@@ -206,14 +206,24 @@ void SettingsSessionTest::aParticipantVolumeReachesTheDiskImmediately()
                          QStringLiteral("ALICEDEVICE"),
                          QStringLiteral("alice-token-fixture"));
 
+    QFile file(QSettings().fileName());   // path resolved BEFORE the write
+
     const QString other = QStringLiteral("@bob:matrix.example");
     settings.setCallParticipantVolume(other, 47);
     QCOMPARE(settings.callParticipantVolume(other), 47);
 
-    QFile file(QSettings().fileName());
+    // RESOLVE THE PATH BEFORE THE WRITE, never after. Constructing a
+    // QSettings runs initAccess(), which syncs — and Qt shares one
+    // ref-counted QConfFile per absolute path — so asking for the filename
+    // AFTERWARDS flushes the very write this test is trying to observe, and
+    // the case would pass on a build where the value only ever reached the
+    // cache. That is how the first version of this test could not fail.
     QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
     const QString onDisk = QString::fromUtf8(file.readAll());
-    qInfo().noquote() << "ON DISK >>>\n" << onDisk;
+    // The VALUE, under the right account, not merely the group name.
+    QVERIFY2(onDisk.contains(QStringLiteral("=47")),
+             qPrintable(QStringLiteral("volume not on disk; file said:\n%1")
+                            .arg(onDisk)));
     QVERIFY(onDisk.contains(QStringLiteral("callVolumes")));
 }
 

@@ -2451,9 +2451,10 @@ async fn open_room_task(
     //     queued non-empty -> the send really is outstanding. Not a defect.
     //     queued empty     -> the terminal update never arrived. Defect.
     //
-    // Counts and ids only, never a body. Opt-in because it polls the state
-    // store, and guarded on the room generation so it cannot outlive the
-    // room that started it.
+    // Counts always, and transaction ids only when something looks orphaned
+    // — never a body (§6). Opt-in because it polls the state store, and
+    // guarded on the room generation so it cannot outlive the room that
+    // started it by more than one tick.
     if std::env::var_os("LIGHTNING_SEND_TRACE").is_some() {
         let watch_timeline = Arc::clone(&timeline);
         let watch_client = client.clone();
@@ -2490,7 +2491,16 @@ async fn open_room_task(
                             echoes.iter().map(|echo| echo.transaction_id.to_string())
                         })
                         .collect(),
-                    Err(_) => continue,
+                    Err(err) => {
+                        // SAY SO. A silent `continue` here is indistinguishable
+                        // from "nothing in flight", and this whole instrument
+                        // exists so that silence is never ambiguous.
+                        eprintln!(
+                            "lightning.send_trace: room={watch_room} \
+queue read FAILED ({err}) — this tick says nothing either way"
+                        );
+                        continue;
+                    }
                 };
                 let orphaned = in_flight.iter().filter(|id| !queued.contains(id)).count();
                 // eprintln! rather than tracing: `tracing` is not a direct
@@ -2507,10 +2517,19 @@ orphaned={}{}",
                     queued.len(),
                     orphaned,
                     if orphaned > 0 {
-                        "  <-- ORPHANED: the timeline says in flight, the send \
-queue owes nothing. A terminal update was lost."
+                        // The OBSERVATION, not the diagnosis. A lost terminal
+                        // update produces this, and so would a state-store
+                        // read that came back short — `local_echoes()` turns a
+                        // load failure into an empty list rather than an Err
+                        // (matrix-sdk send_queue/mod.rs), so the reading is
+                        // not by itself proof of the mechanism. The ids are
+                        // printed because a bare count cannot be chased.
+                        format!(
+                            "  <-- the timeline calls these in flight and the \
+send queue owes nothing for them: {in_flight:?}"
+                        )
                     } else {
-                        ""
+                        String::new()
                     }
                 );
             }

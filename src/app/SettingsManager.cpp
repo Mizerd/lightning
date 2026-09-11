@@ -993,6 +993,12 @@ void SettingsManager::setCallParticipantVolume(const QString &userId,
     } else {
         m_store->setValue(key, clamped);
     }
+    // FLUSHED, for the reason this file's other sync() sites give: it must
+    // not be the thing that is lost in a crash. QSettings writes lazily and
+    // flushes on destruction, and a CALL is precisely when this client is
+    // least likely to exit cleanly — which is how a volume came to be
+    // reported as not surviving a restart.
+    m_store->sync();
     Q_EMIT callParticipantVolumeChanged(userId, clamped);
 }
 
@@ -1022,6 +1028,12 @@ void SettingsManager::setCallShareVolume(const QString &userId, int percent)
         m_store->remove(key);
     else
         m_store->setValue(key, clamped);
+    // FLUSHED, for the reason this file's other sync() sites give: it must
+    // not be the thing that is lost in a crash. QSettings writes lazily and
+    // flushes on destruction, and a CALL is precisely when this client is
+    // least likely to exit cleanly — which is how a volume came to be
+    // reported as not surviving a restart.
+    m_store->sync();
     Q_EMIT callShareVolumeChanged(userId, clamped);
 }
 

@@ -18,6 +18,8 @@
 #include "calls/CallStageState.h"
 #include "calls/SdpStore.h"
 #include "calls/RtcController.h"
+#include <QSettings>
+#include <QTemporaryDir>
 #include "app/SettingsManager.h"
 #include "calls/SfuCallController.h"
 #include "matrix/CallSignal.h"
@@ -541,6 +543,33 @@ private:
     }
 
 private Q_SLOTS:
+    // THIS SUITE WRITES SETTINGS, SO IT MUST NOT WRITE THE USER'S.
+    //
+    // It had no isolation at all, and the volume tests below made that
+    // visible: they left `~/.config/Unknown Organization/
+    // call-controller-test.conf` on the maintainer's machine, carrying a
+    // session record and a fixture token. Worse for correctness, a store that
+    // outlives the process is shared mutable state between test RUNS — a
+    // value written by an earlier green run let a later MUTATED build read it
+    // back and pass. The per-test resets below are belt-and-braces; this is
+    // the actual fix, and it is what SettingsSessionTest has always done.
+    void initTestCase()
+    {
+        QVERIFY(m_configHome.isValid());
+        qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
+        QCoreApplication::setOrganizationName(
+            QStringLiteral("MatrixClientTests"));
+        QCoreApplication::setApplicationName(
+            QStringLiteral("call-controller-test"));
+    }
+
+    void init()
+    {
+        QSettings settings;
+        settings.clear();
+        settings.sync();
+    }
+
     void inboundInviteRingsAndLocalRejectSendsOurParty()
     {
         RecordingCallClient client;
@@ -3475,11 +3504,27 @@ private Q_SLOTS:
 
         // The same person shares again under a NEW id. The old map cannot
         // help; only a store keyed by the OWNER can.
+        //
+        // ASSERT ON THE APPLIER, NOT ON THE GETTER. shareVolume() falls back
+        // to the store, so a bare QCOMPARE here goes green through that
+        // fallback while applyStoredShareVolumes() — the part that actually
+        // carries the level onto the live track — is never reached. The
+        // first version of this test did exactly that and passed with the
+        // applier running against a stale model. The signal only fires from
+        // setShareVolume(), which only the applier calls on this path.
+        QSignalSpy applied(&call, &SfuCallController::shareVolumeChanged);
         call.ingestParticipantsForTest({
             sfuParticipant(identity, QStringLiteral("PA_ONE"),
                            { sfuTrack(QStringLiteral("screen_share"),
                                       QStringLiteral("TR_share_b"), false) }),
         });
+        QVERIFY2(!applied.isEmpty(),
+                 "applyStoredShareVolumes() never ran for the new share, so "
+                 "the engine was never told and only the getter's store "
+                 "fallback would make this look right");
+        QCOMPARE(applied.constFirst().at(0).toString(),
+                 QStringLiteral("TR_share_b"));
+        QCOMPARE(applied.constFirst().at(1).toInt(), 35);
         QCOMPARE(call.shareVolume(QStringLiteral("TR_share_b")), 35);
     }
 
@@ -4827,6 +4872,9 @@ private Q_SLOTS:
                  kPartyEmoji);
     }
 
+
+private:
+    QTemporaryDir m_configHome;
 };
 
 
