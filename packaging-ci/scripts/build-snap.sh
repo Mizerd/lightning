@@ -70,12 +70,20 @@ cp -a "$SNAP_WORK/appdir/usr" "$TREE/usr"
 # of the confinement — so the same omission that keeps the AppImage portable
 # makes the snap unlaunchable.
 #
-# COMPUTED, NOT LISTED. The set is derived from what the shipped binary and
-# its Qt platform plugins actually fail to resolve against the payload, so a
-# Qt or plugin change that needs a seventh library is staged without anyone
-# remembering to add it. libEGL/libGLX/libGLdispatch are libglvnd DISPATCH
-# libraries: they are vendor-neutral and load the real driver through the
-# snap's `opengl` interface at runtime, so staging them does not pin a GPU.
+# COMPUTED FROM THE EXCLUDELIST, NOT FROM `ldd` ALONE — and the first version
+# of this got it wrong in a way worth recording. It staged whatever the binary
+# could not RESOLVE on the build host, which is nothing: the build host HAS
+# libEGL, so ldd is perfectly satisfied there. The absence only exists inside
+# the confinement. `snap: staged 0 base libraries` was the result, and the
+# guard below caught it, which is the only reason this is a build failure and
+# not another snap that installs and will not start.
+#
+# So the rule is the one that actually created the gap: stage every dependency
+# the AppDir does NOT carry that falls in the families linuxdeploy's
+# excludelist deliberately leaves on the host. That set auto-covers a seventh
+# library in the same families without anyone remembering, while never
+# touching the loader or the C/C++ runtime, which come from the base snap
+# exactly as they come from the host for an AppImage.
 stage_unresolved_libs() {
     local probe want src staged=0
     local -a probes=("$TREE/usr/bin/lightning-matrix")
@@ -84,21 +92,22 @@ stage_unresolved_libs() {
              -name '*.so' 2>/dev/null)
     for probe in "${probes[@]}"; do
         [ -e "$probe" ] || continue
-        while IFS= read -r want; do
-            [ -n "$want" ] || continue
-            # Already in the payload, or provided by core24's own runtime.
+        while IFS= read -r src; do
+            [ -n "$src" ] && [ -e "$src" ] || continue
+            want="$(basename "$src")"
+            # Already bundled by linuxdeploy: leave it, it has been rewritten.
             [ -e "$TREE/usr/lib/$want" ] && continue
             case "$want" in
-                # NEVER: the loader and the C/C++ runtime come from the base
-                # snap, exactly as they come from the host for an AppImage.
-                ld-linux*|libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|\
-                librt.so.*|libgcc_s.so.*|libstdc++.so.*|libresolv.so.*) continue ;;
+                # The base-system families linuxdeploy excludes. An AppImage
+                # can see the host's; a confined snap cannot see anything.
+                libX*.so.*|libxcb*.so.*|libGL*.so.*|libEGL*.so.*|\
+                libGLdispatch.so.*|libGLX*.so.*|libOpenGL.so.*|\
+                libxkbcommon*.so.*|libwayland-*.so.*|libdrm.so.*|libgbm.so.*|\
+                libasound.so.*) ;;
+                *) continue ;;
             esac
-            src=$(ldconfig -p 2>/dev/null | awk -v n="$want" '$1==n {print $NF; exit}')
-            [ -n "$src" ] && [ -e "$src" ] || continue
             cp -Ln "$src" "$TREE/usr/lib/$want" 2>/dev/null && staged=$((staged+1))
-        done < <(LD_LIBRARY_PATH="$TREE/usr/lib" ldd "$probe" 2>/dev/null \
-                 | awk '/not found/ { print $1 }')
+        done < <(ldd "$probe" 2>/dev/null | awk '/=> \// { print $3 }')
     done
     echo "$staged"
 }
