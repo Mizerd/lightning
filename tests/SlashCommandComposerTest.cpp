@@ -455,6 +455,44 @@ private Q_SLOTS:
         QVERIFY(comps.first().toMap().value(QStringLiteral("enabled")).toBool());
     }
 
+    // AN EDIT GOES TO THE TIMELINE THAT HOLDS THE EVENT, not to the
+    // composer's own room.
+    //
+    // The thread panel's Edit routes through THIS composer, whose roomId is
+    // the room. matrix-sdk resolves an edit against the timeline's own item
+    // list, and the live room timeline is built `hide_threaded_events: true`,
+    // so a thread reply edited with the room id was looked up in a list it is
+    // not in and failed every single time with "The edit could not be
+    // applied." Redact, retry/cancel and react each had exactly this defect
+    // and each was fixed by carrying the thread's identity; edit was the last
+    // one, because its caller had none to carry.
+    //
+    // FAIL-ON-OLD: before beginEdit took a timeline id, the recorded room was
+    // kRoom for both halves and the first QCOMPARE fails.
+    void anEditIsSentToTheTimelineThatHoldsTheEvent()
+    {
+        const QString composite =
+            MatrixClient::threadTimelineId(kRoom, QStringLiteral("$root"));
+        m_composer->beginEdit(QStringLiteral("$reply"),
+                              QStringLiteral("before"), QString(), composite);
+        m_composer->setText(QStringLiteral("after"));
+        m_composer->send();
+        QVERIFY(!m_client->sends.isEmpty());
+        const auto edit = m_client->sends.last();
+        QCOMPARE(edit.kind, QStringLiteral("edit"));
+        QCOMPARE(edit.roomId, composite);
+
+        // ...and an ordinary edit still goes to the composer's own room, so
+        // the fix cannot have been made by always sending somewhere else.
+        m_client->sends.clear();
+        m_composer->beginEdit(QStringLiteral("$plain"),
+                              QStringLiteral("before"));
+        m_composer->setText(QStringLiteral("after"));
+        m_composer->send();
+        QVERIFY(!m_client->sends.isEmpty());
+        QCOMPARE(m_client->sends.last().roomId, kRoom);
+    }
+
 private:
     RecordingClient *m_client = nullptr;
     MessageComposer *m_composer = nullptr;

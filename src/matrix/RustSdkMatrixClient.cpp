@@ -2254,12 +2254,20 @@ void RustSdkMatrixClient::editMessage(const QString &roomId,
         refuseUntilTimelineReady("editMessage");
         return;
     }
-    const QByteArray roomBytes = roomId.toUtf8();
+    // The composite is decomposed HERE and never crosses the FFI (§8), the
+    // same rule toggleReaction follows. The thread root selects the timeline
+    // that actually holds the event: the live room timeline hides threaded
+    // events, so editing a thread reply through it failed every time.
+    const bool inThread = isThreadTimelineId(roomId);
+    const QString realRoom = inThread ? threadTimelineRoomId(roomId) : roomId;
+    const QString threadRoot = inThread ? threadTimelineRootId(roomId) : QString();
+    const QByteArray rootBytes = threadRoot.toUtf8();
+    const QByteArray roomBytes = realRoom.toUtf8();
     const QByteArray targetBytes = targetEventId.toUtf8();
     const QByteArray bodyBytes = newBody.toUtf8();
     const QString result = takeRustString(mx_rust_timeline_edit(
-        m_rustHandle, roomBytes.constData(), targetBytes.constData(),
-        bodyBytes.constData(), nullptr, nullptr));
+        m_rustHandle, roomBytes.constData(), rootBytes.constData(),
+        targetBytes.constData(), bodyBytes.constData(), nullptr, nullptr));
     if (!result.isEmpty()) {
         Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)
@@ -2276,14 +2284,23 @@ void RustSdkMatrixClient::editMessage(const QString &roomId,
         editMessage(roomId, targetEventId, newBody);
         return;
     }
-    const QByteArray roomBytes = roomId.toUtf8();
+    // The composite is decomposed HERE and never crosses the FFI (§8), the
+    // same rule toggleReaction follows. The thread root selects the timeline
+    // that actually holds the event: the live room timeline hides threaded
+    // events, so editing a thread reply through it failed every time.
+    const bool inThread = isThreadTimelineId(roomId);
+    const QString realRoom = inThread ? threadTimelineRoomId(roomId) : roomId;
+    const QString threadRoot = inThread ? threadTimelineRootId(roomId) : QString();
+    const QByteArray rootBytes = threadRoot.toUtf8();
+    const QByteArray roomBytes = realRoom.toUtf8();
     const QByteArray targetBytes = targetEventId.toUtf8();
     const QByteArray bodyBytes = newBody.toUtf8();
     const QByteArray mentionBytes =
         mentionUserIds.join(QLatin1Char('\n')).toUtf8();
     const QString result = takeRustString(mx_rust_timeline_edit(
-        m_rustHandle, roomBytes.constData(), targetBytes.constData(),
-        bodyBytes.constData(), mentionBytes.constData(), nullptr));
+        m_rustHandle, roomBytes.constData(), rootBytes.constData(),
+        targetBytes.constData(), bodyBytes.constData(),
+        mentionBytes.constData(), nullptr));
     if (!result.isEmpty()) {
         Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)
@@ -2403,15 +2420,21 @@ void RustSdkMatrixClient::editMessage(const QString &roomId,
         refuseUntilTimelineReady("editMessage(formatted)");
         return;
     }
-    const QByteArray roomBytes = roomId.toUtf8();
+    // Decomposed here and never across the FFI (§8), as in the two overloads
+    // above and in toggleReaction.
+    const bool inThread = isThreadTimelineId(roomId);
+    const QString realRoom = inThread ? threadTimelineRoomId(roomId) : roomId;
+    const QString threadRoot = inThread ? threadTimelineRootId(roomId) : QString();
+    const QByteArray rootBytes = threadRoot.toUtf8();
+    const QByteArray roomBytes = realRoom.toUtf8();
     const QByteArray targetBytes = targetEventId.toUtf8();
     const QByteArray bodyBytes = newBody.toUtf8();
     const QByteArray mentionBytes =
         mentionUserIds.join(QLatin1Char('\n')).toUtf8();
     const QByteArray specBytes = bodySpecJson(bodySpec);
     const QString result = takeRustString(mx_rust_timeline_edit(
-        m_rustHandle, roomBytes.constData(), targetBytes.constData(),
-        bodyBytes.constData(),
+        m_rustHandle, roomBytes.constData(), rootBytes.constData(),
+        targetBytes.constData(), bodyBytes.constData(),
         mentionUserIds.isEmpty() ? nullptr : mentionBytes.constData(),
         specBytes.constData()));
     if (!result.isEmpty()) {

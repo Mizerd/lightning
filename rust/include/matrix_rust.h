@@ -553,8 +553,13 @@ char *mx_rust_thread_set_subscribed(void *client,
                                     const char *room_id,
                                     const char *root_event_id,
                                     int subscribed);
+/* `thread_root_id` selects the timeline that HOLDS the event, exactly as it
+ * does for toggle_reaction below: empty for the main timeline, the thread's
+ * root event id for a thread reply. The live room timeline hides threaded
+ * events, so editing a thread reply through it failed every time. */
 char *mx_rust_timeline_edit(void *client,
                             const char *room_id,
+                            const char *thread_root_id,
                             const char *target_event_id,
                             const char *new_body,
                             const char *mention_user_ids,

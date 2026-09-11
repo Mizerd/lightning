@@ -2934,7 +2934,10 @@ Item {
                             app.composer.beginEdit(
                                 id,
                                 root.timelineModel.visibleTextForEvent(id),
-                                root.timelineModel.sanitizedHtmlForEvent(id))
+                                root.timelineModel.sanitizedHtmlForEvent(id),
+                                // The timeline that HOLDS it: the composite
+                                // in a thread panel, the room id otherwise.
+                                root.timelineModel.roomId)
                         }
                     }
                     IconButton {
@@ -3861,7 +3864,8 @@ Item {
                             root.timelineModel.visibleTextForEvent(
                                 root.menuEventId),
                             root.timelineModel.sanitizedHtmlForEvent(
-                                root.menuEventId))
+                                root.menuEventId),
+                            root.timelineModel.roomId)
                         moreMenu.close()
                     }
                 }
@@ -4239,7 +4243,8 @@ Item {
                 onTriggered: app.composer.beginEdit(
                     root.menuEventId,
                     root.timelineModel.visibleTextForEvent(root.menuEventId),
-                    root.timelineModel.sanitizedHtmlForEvent(root.menuEventId))
+                    root.timelineModel.sanitizedHtmlForEvent(root.menuEventId),
+                    root.timelineModel.roomId)
             }
             // 2026-08-18 tester request ("add function remove all edits").
             // Matrix has no unedit: the edits are separate m.replace events

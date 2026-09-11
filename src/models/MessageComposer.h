@@ -186,9 +186,20 @@ public:
     // sanitizedHtml (optional): the event's sanitized formatted body, used
     // to recover mention refs when the plain body carries display text
     // (sends after the plain-body reduction have no markdown to parse).
+    // `timelineId` names the timeline that HOLDS the event being edited: the
+    // plain room id from the main timeline, the §8 composite from a thread
+    // panel. Empty keeps the composer's own room, which is the historical
+    // behaviour and correct for every main-timeline edit.
+    //
+    // It exists because the thread panel's Edit routes through THIS composer,
+    // whose m_roomId is the room — and matrix-sdk resolves an edit against
+    // the timeline's own items, so a thread reply edited with the room id
+    // failed every time. The other three members of that family (redact,
+    // retry/cancel, react) each carry the thread root for the same reason.
     Q_INVOKABLE void beginEdit(const QString &eventId,
                                const QString &currentBody,
-                               const QString &sanitizedHtml = QString());
+                               const QString &sanitizedHtml = QString(),
+                               const QString &timelineId = QString());
     // v0.4.1: enter thread-reply mode. `preview` is a short body preview of
     // the thread root, used to render the composer chip. Cleared by
     // cancelReplyOrEdit() or by the next successful send().
@@ -349,6 +360,15 @@ private:
     QString m_replyingToPreview;
     QString m_replyingToMediaKey;
     QString m_editingEventId;
+    /// The timeline that holds `m_editingEventId` — a composite when the edit
+    /// began in a thread panel. Empty means "this composer's own room".
+    QString m_editingTimelineId;
+    /// Where an edit must be sent: the recorded timeline, or this composer's
+    /// room when none was recorded.
+    QString editTargetTimelineId() const
+    {
+        return m_editingTimelineId.isEmpty() ? m_roomId : m_editingTimelineId;
+    }
     QString m_threadRootId;
     QString m_threadPreview;
     QList<mention::MentionRef> m_mentionRefs;

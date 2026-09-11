@@ -6520,6 +6520,11 @@ pub unsafe extern "C" fn mx_rust_thread_set_subscribed(
 pub unsafe extern "C" fn mx_rust_timeline_edit(
     ptr: *mut c_void,
     room_id: *const c_char,
+    // EMPTY FOR A ROOM MESSAGE, the thread's root event id for a thread
+    // reply — the same shape `mx_rust_timeline_toggle_reaction` takes, and
+    // for the same reason: the edit has to be issued on the timeline that
+    // actually holds the event.
+    thread_root_id: *const c_char,
     target_event_id: *const c_char,
     new_body: *const c_char,
     mention_user_ids: *const c_char,
@@ -6528,13 +6533,22 @@ pub unsafe extern "C" fn mx_rust_timeline_edit(
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
+        let thread_root_id = unsafe { cstr_arg(thread_root_id) }?;
         let target = unsafe { cstr_arg(target_event_id) }?;
         let new_body = unsafe { cstr_arg(new_body) }?;
         let mentions = unsafe { cstr_list_arg(mention_user_ids) }?;
         let spec = timeline::parse_body_spec(&unsafe { cstr_opt_arg(body_spec) }?)?;
         bridge
             .timelines
-            .edit(&bridge.runtime, room_id, target, new_body, mentions, spec)
+            .edit(
+                &bridge.runtime,
+                room_id,
+                thread_root_id,
+                target,
+                new_body,
+                mentions,
+                spec,
+            )
             .map(|_| String::new())
     })
 }

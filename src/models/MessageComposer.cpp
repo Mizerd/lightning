@@ -567,7 +567,8 @@ void MessageComposer::sendInternal(bool allowCommands)
     if (!m_editingEventId.isEmpty()) {
         // Edit mode edits text only; attachments stay queued.
         if (body.isEmpty()) return;
-        m_client->editMessage(m_roomId, m_editingEventId, body, mentionIds);
+        m_client->editMessage(editTargetTimelineId(), m_editingEventId, body,
+                              mentionIds);
     } else {
         // v0.5.9: attachments go first (each becomes its own SDK local
         // echo), then the text as a separate message — matching how other
@@ -599,7 +600,7 @@ void MessageComposer::sendPrepared(const QString &body, const QString &html,
         : QVariantMap{ { QStringLiteral("format"), QStringLiteral("html") },
                        { QStringLiteral("html"), html } };
     if (!m_editingEventId.isEmpty()) {
-        m_client->editMessage(m_roomId, m_editingEventId, body,
+        m_client->editMessage(editTargetTimelineId(), m_editingEventId, body,
                               mentionUserIds, spec);
     } else {
         dispatchAttachments();
@@ -975,6 +976,7 @@ void MessageComposer::beginReply(const QString &eventId,
                                   const QString &mediaKey)
 {
     m_editingEventId.clear();
+    m_editingTimelineId.clear();
     Q_EMIT editStateChanged();
     m_replyingToEventId = eventId;
     m_replyingToSender  = sender;
@@ -988,8 +990,10 @@ void MessageComposer::beginReply(const QString &eventId,
 
 void MessageComposer::beginEdit(const QString &eventId,
                                  const QString &currentBody,
-                                 const QString &sanitizedHtml)
+                                 const QString &sanitizedHtml,
+                                 const QString &timelineId)
 {
+    m_editingTimelineId = timelineId;
     m_replyingToEventId.clear();
     m_replyingToSender.clear();
     m_replyingToPreview.clear();
@@ -1021,6 +1025,7 @@ void MessageComposer::beginThreadReply(const QString &rootEventId,
                                         const QString &preview)
 {
     m_editingEventId.clear();
+    m_editingTimelineId.clear();
     Q_EMIT editStateChanged();
     m_replyingToEventId.clear();
     m_replyingToSender.clear();
@@ -1042,6 +1047,7 @@ void MessageComposer::cancelReplyOrEdit()
     m_replyingToPreview.clear();
     m_replyingToMediaKey.clear();
     m_editingEventId.clear();
+    m_editingTimelineId.clear();
     m_threadRootId.clear();
     m_threadPreview.clear();
     m_mentionRefs.clear();

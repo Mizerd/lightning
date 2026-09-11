@@ -1591,13 +1591,42 @@ impl TimelineRegistry {
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
         room_id: String,
+        thread_root_id: String,
         target_event_id: String,
         new_body: String,
         mention_user_ids: Vec<String>,
         spec: SendBodySpec,
     ) -> Result<(), String> {
-        let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
-            return Err("No live timeline is open for that room.".to_owned());
+        // THE TIMELINE MUST BE THE ONE THAT HOLDS THE EVENT — the fourth
+        // member of this family, and the last.
+        //
+        // `Timeline::edit` resolves its target with `rfind_event_by_item_id`
+        // over that timeline's OWN items and returns `EventNotInTimeline`
+        // when it is absent (matrix-sdk-ui timeline/mod.rs:475). The live room
+        // timeline is built `hide_threaded_events: true`, and
+        // `should_add_new_items` for that focus is `thread_root.is_none()`
+        // (controller/state.rs:171) — so a thread reply is never in it, and
+        // editing one failed every single time with "The edit could not be
+        // applied."
+        //
+        // Redaction, retry/cancel and reactions each had exactly this defect
+        // and each was fixed by selecting the thread timeline when the caller
+        // names a root. Edit was the one left, because it is the one whose
+        // caller had no root to pass: the thread panel's Edit routes through
+        // the ROOM composer. That is now plumbed, so this can follow the same
+        // rule the other three do.
+        let in_thread = !thread_root_id.trim().is_empty();
+        let resolved = if in_thread {
+            self.thread_timeline_for(&room_id, &thread_root_id)
+        } else {
+            self.timeline_for(&room_id)
+        };
+        let Some((timeline, room_gen, lifecycle)) = resolved else {
+            return Err(if in_thread {
+                "No live timeline is open for that thread.".to_owned()
+            } else {
+                "No live timeline is open for that room.".to_owned()
+            });
         };
         let event_id = EventId::parse(&target_event_id)
             .map_err(|_| "Invalid edit target event id.".to_owned())?;
