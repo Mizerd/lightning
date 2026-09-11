@@ -1666,13 +1666,40 @@ const DELAYED_LEAVE_TIMEOUT_MS: u64 = 8_000;
 
 /// Has this process seen a homeserver REFUSE to arm a delayed retraction?
 ///
-/// Purely an optimisation, and deliberately one-directional in effect: it
-/// decides only which `expires` the FIRST write of a publish carries, so that
-/// a server known to lack MSC4140 does not cost two state events on every
-/// single refresh. Every publish still verifies the assumption against what
-/// the server actually does and corrects it, so a wrong value here costs one
-/// extra request, never a wrong membership.
+/// It decides which `expires` the FIRST write of a publish carries, so that a
+/// server known to lack MSC4140 does not cost two state events on every single
+/// refresh. It is also read by the scheduled-send probe.
+///
+/// THE OLD COMMENT HERE — "purely an optimisation … every publish still
+/// verifies the assumption and corrects it" — WAS MADE FALSE BY `b146b22`,
+/// which removed the correcting branch, and this is a `static`: one value for
+/// every room and every account in the process, with no route back. So the two
+/// properties below are what keeps it honest, and both are load-bearing:
+///
+///   * It latches ONLY on a category that means THE ENDPOINT IS NOT THERE
+///     (`delayed_refusal_is_permanent`). A timeout, a 429 and a 5xx all arrive
+///     here as an empty delay id too, and latching on one of those would
+///     permanently disable MSC4140 cleanup — process-wide — because of a
+///     single blip. That is a crash-safety mechanism, so losing it silently
+///     strands memberships on every unclean exit thereafter.
+///   * A SUCCESSFUL arm clears it, so a server that gains support, a
+///     mis-latch, or an account switch to a server that has it all recover
+///     without a restart.
 static DELAYED_EVENTS_REFUSED: AtomicBool = AtomicBool::new(false);
+
+/// Does this refusal category mean the homeserver simply does not implement
+/// MSC4140, as opposed to something that may work on the next try?
+///
+/// Pure, so it can be tested without a homeserver. `unrecognized` is Synapse's
+/// answer for an endpoint it does not implement (404 with M_UNRECOGNIZED) and
+/// `not_found` the plain 404; everything else — `network` (which is also where
+/// a TIMEOUT lands), `rate_limited`, `forbidden`, `invalid` — is either
+/// transient or specific to one room, and neither justifies a process-global
+/// latch. `forbidden` in particular is how a room's own power levels refuse a
+/// state write, which says nothing about the server's MSC4140 support.
+pub(crate) fn delayed_refusal_is_permanent(category: &str) -> bool {
+    matches!(category, "unrecognized" | "not_found")
+}
 
 /// v0.9 (phase 11): whether this process has seen the homeserver refuse a
 /// delayed event. Read by the scheduled-send probe so a server that
@@ -1911,7 +1938,14 @@ pub(crate) fn publish_membership(
             match schedule_delayed_leave(&client, room.room_id().as_str(),
                                          &state_key).await
             {
-                Ok(id) => delay_id = id,
+                Ok(id) => {
+                    // THE ONLY ROUTE BACK. Without this the latch is
+                    // one-way for the life of the process.
+                    if !id.is_empty() {
+                        DELAYED_EVENTS_REFUSED.store(false, Ordering::Relaxed);
+                    }
+                    delay_id = id;
+                }
                 Err(category) => delayed_category = category,
             }
         }
@@ -1937,16 +1971,24 @@ pub(crate) fn publish_membership(
         //     retraction. No state event is rewritten under an armed event.
         // The "assumed they do NOT work, they DO" branch is GONE with the
         // gate above, because we no longer arm while assuming refusal — so
-        // `delay_id` cannot be non-empty there. The re-probe it provided is
-        // not lost, it is rarer: DELAYED_EVENTS_REFUSED is a process-global
-        // latch that nothing clears, so a server that gains MSC4140 support
-        // is re-probed on the next launch rather than on the next publish.
-        // That is the trade this fix makes, and it is the right way round —
-        // the old re-probe cost a NAKED, UNREPAIRED retraction every single
-        // refresh on every server that ignores the parameter, which is the
-        // defect itself.
+        // `delay_id` cannot be non-empty there. The old re-probe cost a NAKED,
+        // UNREPAIRED retraction on every refresh against a server that ignores
+        // the parameter, which is the defect `b146b22` fixed.
+        //
+        // WHAT REPLACES IT is not "wait for the next launch", which is what
+        // this comment claimed while the latch had no way back at all: a
+        // successful arm CLEARS `DELAYED_EVENTS_REFUSED` (see the `Ok` arm
+        // above), and the latch is only set for a category that means the
+        // endpoint is absent. So a server that gains MSC4140 support is
+        // re-probed on the next publish that is allowed to try, and a
+        // transient failure never latches in the first place.
         if ok && !assumed_no_delayed && delay_id.is_empty() {
-            DELAYED_EVENTS_REFUSED.store(true, Ordering::Relaxed);
+            // NOT on every empty delay id — see `delayed_refusal_is_permanent`.
+            // The short re-publish below still happens either way, because the
+            // membership must not claim four hours nothing will cut short.
+            if delayed_refusal_is_permanent(&delayed_category) {
+                DELAYED_EVENTS_REFUSED.store(true, Ordering::Relaxed);
+            }
             // A SECOND write, with the short expiry. It replaces our own
             // previous state event under the same state key, so the room sees
             // one membership, not two — and created_ts is unchanged, so
@@ -4514,6 +4556,32 @@ mod tests {
         // an unclean exit strands a phantom participant for four hours.
         assert!(delayed_retraction_is_repairable(false),
                 "nothing arms a delayed retraction at all any more");
+    }
+
+    #[test]
+    fn only_an_absent_endpoint_disables_msc4140_for_the_process() {
+        // DELAYED_EVENTS_REFUSED is a `static`: one value for every room and
+        // every account, and MSC4140 is the ONLY cleanup that survives a
+        // crash. So the bar for setting it is "this server does not implement
+        // the endpoint", not "a request failed".
+        //
+        // Every one of these reaches the latch as the same observable — an
+        // empty delay id — which is why the category has to be consulted.
+        // `classify_room_error` maps a TIMEOUT and a 5xx alike to "network".
+        for transient in ["network", "rate_limited", "forbidden", "invalid"] {
+            assert!(
+                !delayed_refusal_is_permanent(transient),
+                "a '{transient}' refusal would permanently disable delayed                  retractions for every room in the process, so an unclean                  exit would strand a phantom participant from then on"
+            );
+        }
+        // Synapse answers 404 M_UNRECOGNIZED for an endpoint it does not
+        // implement; a plain 404 is the other spelling.
+        for absent in ["unrecognized", "not_found"] {
+            assert!(
+                delayed_refusal_is_permanent(absent),
+                "'{absent}' means the endpoint is not there, and re-probing                  it on every refresh costs a second state event each time"
+            );
+        }
     }
 
     #[test]
