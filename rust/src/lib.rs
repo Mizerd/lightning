@@ -1345,9 +1345,25 @@ fn install_sdk_tracing() {
             _ => return,
         };
         let directives = if requested.trim() == "1" {
-            // The lanes that answer "why did this key never arrive".
-            "matrix_sdk_crypto=debug,matrix_sdk_base=info,matrix_sdk=info"
-                .to_owned()
+            // The lanes that answer "why did this key never arrive" — plus
+            // matrix_sdk_ui at WARN, which answers a different question the
+            // preset could not previously reach at all.
+            //
+            // An EnvFilter built from target directives leaves every unlisted
+            // target OFF, and matrix_sdk_ui was unlisted. That silenced the
+            // one line that distinguishes a stuck local echo from a slow one:
+            // `room_send_queue_update_task` logs
+            // "missed {n} local echoes, ignoring those missed" on
+            // RecvError::Lagged and then CONTINUES — no resync, unlike every
+            // event-cache stream in the same crate — so a missed terminal
+            // update leaves the item at NotSentYet until the timeline is
+            // rebuilt. That is exactly the shape of the open "sending… until
+            // a room switch" defect, and §16's capture recipe for it could
+            // never have printed the evidence. WARN only: matrix_sdk_ui at
+            // info is extremely chatty on a real account.
+            "matrix_sdk_crypto=debug,matrix_sdk_base=info,matrix_sdk=info,\
+             matrix_sdk_ui=warn"
+                .replace(char::is_whitespace, "")
         } else {
             requested
         };
