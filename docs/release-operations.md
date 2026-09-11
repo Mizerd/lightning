@@ -100,6 +100,17 @@ the lightning-deploy pipeline only after packages publish and verify
   Its API reports `state=uploaded` with the right size while an anonymous GET
   answers 404 BlobNotFound for minutes. Any read-back check must POLL, not
   ask once — this failed 0.9.2's manifest mirror twice with correct bytes.
+- **AND ITS SIBLING IS WORSE, BECAUSE IT ANSWERS 200.** A read-back can fetch
+  the PREVIOUS release's object at a 200 from an edge that has not been
+  invalidated, while the stored bytes are correct throughout (the API serves
+  the new one immediately) and the public URL catches up in about two
+  minutes. That is what made 0.9.3's `mirror-update-manifest-to-github` the
+  one red job in pipeline 183, and a 200 carrying the wrong content reads as
+  a bad upload rather than a stale cache — which is the whole reason to write
+  the signature down. Fixed in `6149337` by comparing the DIGEST inside the
+  retry loop rather than once after it, with a mock that serves
+  stale-but-200 reads so both halves are covered. Diagnose it by asking the
+  API and the public URL separately: if they disagree, it is the edge.
 
 - **Trigger variables must be a JSON body.** `glab api --input` without
   an explicit `-H "Content-Type: application/json"` returns **HTTP 415**.
@@ -176,3 +187,30 @@ the lightning-deploy pipeline only after packages publish and verify
   `org.lightning_matrix.Lightning` (was `net.smetonis.Lightning`;
   lightning-deploy `7e84170`). A 0.7.2 Flatpak **bundle is not upgraded
   in place and must be reinstalled**.
+
+## Update / upgrade live-validation truth
+
+Moved out of `CLAUDE.md` §2 on 2026-09-11, unchanged, to keep that
+file under its own 140,000-character threshold.
+
+0.7.1 was the first release that could be updated **FROM**; 0.7.2 the
+first that could be installed **AS** an update. The procedure is in
+`docs/updates.md`.
+
+- **Exercised for real** (the 0.7.2 -> 0.7.3 round): the upgrade found
+  the Windows MSI failing with **1619** because msiexec has its own
+  argument parser and rejects Qt's forward-slash path (proven by hand:
+  `/` errored, `\` installed), and the Windows portable swap failing
+  because it renamed the install DIRECTORY while the running helper and
+  its mapped Qt DLLs lived inside it. Both fixed in 0.7.3.
+- **NOT live-validated:** those two Windows fixes cannot be reached by
+  updating *from* 0.7.2, because the updater that performs an install is
+  the one already on disk. Their first genuine proof is the upgrade
+  **INTO 0.7.4**, and there is no record here that it was performed. The
+  Setup EXE path was never affected and updates normally.
+- **NOT TESTED:** any real AppImage / DEB / RPM / MSI / portable upgrade
+  beyond the above; Element interoperability of anything in the 0.7.2,
+  0.7.3 or 0.7.4 rounds.
+- Windows packages remain **unsigned**; the signed update manifest is
+  the integrity guarantee on every platform. Do not describe the
+  packages as signed.

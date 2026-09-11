@@ -45,11 +45,10 @@ AppImage fetched FROM THE MIRROR matches the GitLab-signed SHA-256 exactly.
 `Lightning 0.9.4`, its media engine is built in, both call engines are
 available, and the recorded 0.9.0 gaps stay closed — Qt's TLS backends
 (`libqopensslbackend.so`) and the Wayland shell integration
-(`libxdg-shell.so`) are both in the payload. TWO THINGS TO KNOW. It cannot be
-launched BARE on this NixOS host (`libEGL.so.1: cannot open shared object
-file`) because graphics libraries must come from the host and NixOS does not
-put them on the standard path — that is the host, not the package, and
-`nix-shell -p appimage-run` runs it correctly. And the `gst-plugin-scanner`
+(`libxdg-shell.so`) are both in the payload. It cannot be launched BARE on
+this NixOS host (`libEGL.so.1`: graphics libraries come from the host and
+NixOS does not put them on the standard path — the host, not the package);
+`nix-shell -p appimage-run` runs it. And the `gst-plugin-scanner`
 gap this section used to record is **CLOSED, and proven on the artifact**:
 project 6 pipeline **187** builds and validates an AppImage that stages the
 helper, reports its path at launch and logs zero plugin-loader warnings.
@@ -64,20 +63,15 @@ version reads **0.9.3** in
 `CARGO_PKG_VERSION`). Any bump after it is a new release checkpoint and only on
 Rokas's explicit request (§14).
 
-The anonymous verification bar (§14) was run for **0.9.3** on 2026-09-08 and
-PASSED in full: release at `7306dde`, nine package links 200, manifest 0.9.3 /
-`v0.9.3` with six artifacts all carrying `mirror_url` and macOS absent, the
-Ed25519 signature VERIFIED against the key extracted from the shipped `.deb`
-with a one-field-changed copy REJECTED, the GitHub tag peeling to the same
-commit, 10 mirror assets, and a `.deb` from GitHub matching the GitLab-signed
-digest. The website (third repo, §14) is at 0.9.3 and both of its checks pass
-against the real release.
+The same bar PASSED in full for **0.9.3** on 2026-09-08 (release at
+`7306dde`, nine package links, 10 mirror assets), and the website (third repo,
+§14) passed both of its checks against it. 0.9.4's run above is the current
+one; the shape of the bar is in §14.
 
 **0.9.3's ONE red job was a verification racing GitHub's CDN, not a bad
 upload** — a stale-but-200 read-back of its own upload, fixed in `6149337` by
-comparing the digest INSIDE the retry loop. The generalised trap, and its
-sibling (a 404 while the API says `state=uploaded`), are in the trap list
-below.
+comparing the digest INSIDE the retry loop. Both it and its sibling (a 404
+while the API says `state=uploaded`) are in `docs/release-operations.md`.
 
 **ON `main` ABOVE 0.9.4 (2026-09-10, NOT a release).** Nothing tagged, no
 version bumped. Two batches, both recorded in `docs/round-history.md` under
@@ -154,27 +148,10 @@ POLICY stays in §14.
 
 ### Update / upgrade live-validation truth
 
-0.7.1 was the first release that could be updated **FROM**; 0.7.2 the
-first that could be installed **AS** an update. The procedure is in
-`docs/updates.md`.
-
-- **Exercised for real** (the 0.7.2 -> 0.7.3 round): the upgrade found
-  the Windows MSI failing with **1619** because msiexec has its own
-  argument parser and rejects Qt's forward-slash path (proven by hand:
-  `/` errored, `\` installed), and the Windows portable swap failing
-  because it renamed the install DIRECTORY while the running helper and
-  its mapped Qt DLLs lived inside it. Both fixed in 0.7.3.
-- **NOT live-validated:** those two Windows fixes cannot be reached by
-  updating *from* 0.7.2, because the updater that performs an install is
-  the one already on disk. Their first genuine proof is the upgrade
-  **INTO 0.7.4**, and there is no record here that it was performed. The
-  Setup EXE path was never affected and updates normally.
-- **NOT TESTED:** any real AppImage / DEB / RPM / MSI / portable upgrade
-  beyond the above; Element interoperability of anything in the 0.7.2,
-  0.7.3 or 0.7.4 rounds.
-- Windows packages remain **unsigned**; the signed update manifest is
-  the integrity guarantee on every platform. Do not describe the
-  packages as signed.
+**MOVED: the full text is `docs/release-operations.md`,** beside the release
+inventory and traps it belongs with. It records which update paths have been
+exercised for real, which are structurally unreachable from the release
+before them, and that Windows packages remain unsigned.
 
 ## 3. User and response preferences
 
@@ -1040,10 +1017,17 @@ the staging/freeze window `225c7b3` shipped, regressed and was removed
 in `263268b`). A fourth needs a `LIGHTNING_SCROLL_TRACE=1` capture
 naming a failure: a non-zero `displacedApplied`, `anchorCorrections` or
 `materializedMaxAbsDelta`. All-zero lines are not evidence.
-**THERE IS NOW A DIRECT MEASUREMENT OF THAT CLAIM** (2026-09-11): disabling
-`maintainViewAnchor()` outright fails EIGHT cases in `timeline-pane-qml`,
-and the three prepend/anchor cases — `topEdgePrepend…MidGesture` among
-them — all PASS. A backfill prepend has nothing to correct.
+**THE CAPTURE EXISTS NOW, AND IT ACQUITS THE ANCHOR MACHINERY TWICE OVER**
+(2026-09-11, `timeline-pane-qml`). Disabling `maintainViewAnchor()` fails
+EIGHT cases while the three prepend/anchor ones PASS, so a MISSING correction
+is not what fails them; and a reproduced failure reports every counter ZERO
+(`AnchorCorrections=0 DisplacedFirings=0 MaterializedFirings=0
+ActiveDeferrals=0 …`), so a WRONG one is not it either — the machinery never
+ran. What it does NOT explain: something moved the reader's row 839 px
+(`offset -389 -> 450`, `contentY` unchanged at 389, the measured row
+confirmed to be the anchor's own). Cause NOT established;
+`docs/round-history.md`, 2026-09-11. This is evidence AGAINST a fourth anchor
+fix, not for one.
 
 *Element (classic) was read for this and does NOT animate.*
 `ScrollPanel.scrollToBottom()` is a bare `scrollTop = scrollHeight`;
@@ -1370,11 +1354,11 @@ The usual offender is
 so before reading a failure as a scroll regression, re-run it alone and at
 lower parallelism. §16's scrolling block is explicit that a fourth anchor fix
 needs a `LIGHTNING_SCROLL_TRACE=1` capture naming a failure, and a flake is
-not that capture. **It cannot BE a compensation regression** (the measurement
-in that block), and since 2026-09-11 its failure text names which of two
-things ran out of time instead of the bare `returned FALSE ()` that named
-nothing — the wait is on the anchor row's construction alone now, so a loaded
-machine cannot produce the failure and the 2 px bound is read once.
+not that capture. Since 2026-09-11 it reproduces on demand (about one run in
+five of the three cases together; ALONE it passed 10/10) and its failure text
+carries the offsets, the anchor counters, and which of three things went
+wrong — row never built, wrong row measured, or the reader moved. Read that
+line before theorising.
 
 **A PIPELINE'S CAPS ARE A CONTRACT BOTH ENDS MUST HONOUR, and three ways
 this lane has broken it.** All three were live defects, all three were
@@ -1620,6 +1604,18 @@ recovers a room whose send queue matrix-sdk had disabled. STILL OPEN and now
 reproducible: a local echo can sit at "sending…" after the server has the
 event, resolving only on a timeline reload — cause NOT established. Detail in
 `docs/round-history.md`, 2026-09-11.
+
+**2026-09-11 — THE THREAD EDIT IS LIVE-VALIDATED: PASS.** The fourth and last
+of the "address the event on the timeline that HOLDS it" family, driven
+through a real thread panel against a real homeserver: the edit applies, the
+row carries the `edited` marker and the room's summary card follows. Found in
+the same session and FIXED: the panel's "N replies" divider read the ROW
+count, so date dividers inflated it — it said 3 beside two replies while the
+room card correctly said 2. Two harness facts worth keeping: the message
+context menu survives a `shot_pid` capture (the no-capture-mid-menu rule is
+about spectacle's interactive mode), and it publishes its own shortcuts, `T`
+for Reply in thread and `E` for Edit. `ydotool key` needs KEYCODES — `28:1
+28:0` for Return; a key NAME types nothing and reports success.
 
 **2026-09-10 — the first GUI validation of anything above 0.9.4, and it was
 AUTOMATION-driven on a throwaway fixture account, not Rokas.** Four PASSes,

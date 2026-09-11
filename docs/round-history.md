@@ -15,6 +15,45 @@ By THEME, not chronology, and reduced to rules, refutations, deliberate
 decisions, measured numbers and live status. Features are §7; the caps
 contract, the refutation rule and the probe rule are in the standing warnings.
 
+#### 2026-09-11, the thread edit live, and a reply count that counted rows
+
+**THE FOURTH THREAD DEFECT IS LIVE-VALIDATED: PASS.** Driven through the GUI
+on a real homeserver with the fixture account, on a build carrying the fix.
+Sent a root, opened its thread, sent a reply, then right-clicked that reply IN
+THE THREAD PANEL and chose Edit. The edit loads into the ROOM composer — which
+is the whole reason this defect existed, and the screenshot shows it plainly:
+"Editing message" sits in the room's composer at the bottom left while the
+message being edited lives in the thread panel on the right. Submitting it
+applied the edit: the thread panel row reads the new body with the `edited`
+marker, and the room's own thread summary card updated to match. No error, and
+no `edit_rejected` anywhere in the session log. Before the fix this path
+failed every time with "The edit could not be applied."
+
+Worth keeping for the next GUI round: the message context menu SURVIVES a
+`shot_pid` capture, so the earlier "never screenshot between opening a menu
+and clicking it" rule is about spectacle's interactive mode, not about every
+capture. And the menu publishes its own shortcuts — `T` for Reply in thread,
+`E` for Edit — which are a steadier target than a measured offset. `ydotool
+key` takes KEYCODES (`28:1 28:0` for Return), not key names; `keypid $PID
+Return` types nothing and reports success.
+
+**AND THE SAME WINDOW SHOWED TWO DIFFERENT REPLY COUNTS.** Found while doing
+the above, not reported: the thread panel's "N replies" divider said **3**
+beside a thread holding **2** replies, while the room's summary card for the
+same thread said **2**. The card is right — it reads the SDK's `num_replies`.
+The panel computed `app.thread.model.count - 1`, subtracting the thread ROOT
+and nothing else, and `count` is the ROW count: date dividers, the read marker
+and the timeline-start row are all rows. One date divider was the whole
+discrepancy, and a thread spanning several days drifts by one per day. The
+divider's own visibility gate (`count > 1`) had the same flaw, so a thread
+with no replies at all could show the divider once it crossed a day boundary.
+`TimelineModel::realCount` now states the distinction where it can be stated
+once — `count` counts rows, `realCount` counts events — and the panel reads
+it. Mutation-proven at the model.
+GENERALISE: a label that says how many MESSAGES there are must never be
+derived from a row count, in any view that synthesises rows. Lightning
+synthesises three kinds.
+
 #### 2026-09-11, review round 6, and three anchor tests that proved nothing
 
 **A GENERATION GUARD IS ONLY A GUARD IF IT NAMES THE RIGHT COUNTER.** The
@@ -38,7 +77,11 @@ of `thread_current` call sites, so the scan would have passed on an `edit()`
 that had none. Its other assertion, `body.contains("if in_thread {")`, was
 already satisfied twice over by branches `edit()` had before this round. Both
 replaced: the bound is asserted before use, and the assertions name the exact
-pairing. Mutation-proven in both directions.
+pairing — ARM BY ARM, because two independent `contains` checks survive the
+likeliest mutation of all, swapping the two arms, which restores the defect
+verbatim with both substrings still present. Review round 7 found that hole;
+the scan now isolates each arm and fails on the swap, on a negated condition,
+and on a collapse to one lane.
 
 **THREE ANCHOR TESTS PASS WITH `maintainViewAnchor()` DISABLED OUTRIGHT.**
 Measured, module rebuilt: an `if (true) return` at the top of that function
@@ -47,14 +90,22 @@ fails EIGHT cases in `timeline-pane-qml` — the `diag*` family,
 `anchorDelegateSurvivesDistantScrollNeverEvictedFallback` — and
 `topEdgePrependKeepsReaderOnTheSameRowMidGesture`,
 `nearTopControllerDrivenBatchesCompensateImmediatelyNotChained` and
-`viewportFillRunCompensatesEveryBatchImmediately` all PASS. They never
-exercised compensation. This is not a defect in the product: it is the direct
-measurement of §16's positive-only anchor guard, which has always said a
-backfill prepend lands BEYOND the reader and has nothing to correct. It does
-mean the suite's best-known flake cannot be a compensation regression, and
-the three cases' names oversell what they guard (the geometric identity —
-worth keeping, since the row window, the view-row numbering and the reveal
-pacing could each break it).
+`viewportFillRunCompensatesEveryBatchImmediately` all PASS. Read that
+narrowly, as review round 7 insisted: disabling the function models a MISSING
+correction, never a WRONG one, so what it rules out is only that these three
+fail for want of a correction. An OVER-firing `maintainViewAnchor()` — one
+that corrects a prepend the positive-only guard says needs none — would move
+exactly the quantity they measure, so they do guard something real.
+
+**AND THE SECOND HALF OF THAT CAPTURE RULES THE OVER-FIRING OUT TOO.** The
+three cases now print the anchor counters when they fail, and the flake
+reproduces at roughly one run in five: `AnchorCorrections=0
+GrowthCorrections=0 DisplacedFirings=0 MaterializedFirings=0
+ActiveDeferrals=0 UnresolvedIdFallbacks=0 EvictedNoInsertFallbacks=0`. Every
+one zero, at the moment of failure. So the compensation machinery is not what
+fails these — it never runs. §16 has asked for years that a fourth anchor fix
+produce a capture naming a failure; this is that capture, and it argues
+AGAINST a fourth fix.
 
 **AND THEIR FAILURE TEXT COULD NEVER PRINT.** All three used one QTRY whose
 lambda returned false for two unrelated reasons — the anchor's row not BUILT
@@ -71,12 +122,52 @@ all three still passed, so no case was relying on the grace.
 GENERALISE: a wait whose predicate can be false for two reasons reports
 neither. Wait for the precondition, assert the invariant.
 
-**A MOCK BACKEND MUST UNDERSTAND THE COMPOSITE TOO.** `MockMatrixClient::
-findEvent` keyed `m_timelines` by the raw argument, so every §8 composite
-handed to it missed — edit, redact and react were all broken on the mock
-backend, and redact and react had been since threads landed. One reduction
-through `MatrixClient::threadTimelineRoomId` fixes all three (identity for an
-ordinary room id).
+Round 7 found the other half of that: reading the offset the instant the row
+appears races QQuickBasePositioner, which assigns `y` in a POLISH pass, so a
+correct build could fail. Exactly ONE layout flush is allowed now and the
+report says whether it was needed — a single pass inside one batch is not the
+chaining these cases are named against, and `!nearTopRunActive()` beside each
+call is what guards that. The identity of the measured row is checked too,
+because a view row is `count - 1 - sourceRow` MINUS `rowWindowSkip` and any
+momentary disagreement resolves to somebody else's delegate; reporting "the
+reader moved" for that would accuse the anchor machinery of the mapping's
+mistake.
+
+**OPEN, WITH NUMBERS AND NO CAUSE.** With all of the above in place the flake
+still reproduces, and every capture is identical: `viewport offset -389 ->
+450`, `contentY` unchanged at 389, the measured row CONFIRMED to be the
+anchor's own, a layout flush that does not settle it, and every anchor
+counter zero. So the anchor row's own `y` went 0 -> 839 while contentY stood
+still and nothing in the anchor machinery fired. Identical numbers in two
+DIFFERENT cases (`topEdgePrepend…` and `nearTopControllerDriven…`) say this
+is a deterministic state reached intermittently, not noise. It is not the
+anchor machinery, it is not a missing correction, and it is not the row
+mapping. What is left — the reveal pacing, the fixture's own anchor capture,
+or the end at which the mock inserts a pagination chunk — is UNTESTED
+guessing, and §16's standing rule is that a fourth wrong fix costs more than
+another round of not knowing. Reproduce with the three cases run TOGETHER;
+alone they pass 10/10.
+
+**A "FIX" TO THE MOCK'S COMPOSITE HANDLING WAS A REGRESSION, AND THE COMMENT
+I WROTE FOR IT ASSERTED THE OPPOSITE OF THE CODE.** `MockMatrixClient::
+findEvent` was changed to reduce a §8 composite to its room, on the stated
+premise that the mock "has no separate thread timeline". It has one:
+`rebuildOpenThreadTimeline()` stores `m_timelines[composite]`, a list of
+COPIES, and `closeThread()` removes the key — so a composite resolves for
+exactly as long as a thread panel is open, which is the only window in which
+a composite reaches `findEvent` at all. The reduction therefore mutated the
+ROOM copy while `TimelineModel::onEventEdited` and `onReactionsChanged`
+re-read `client->timeline(m_roomId)` with `m_roomId` being the composite, got
+the untouched thread copy, and wrote the PRE-EDIT body back over the row: an
+edit that worked would have begun showing the old text. Caught in review
+round 7 and reverted the same day.
+Nothing failed while it was in, because no test opened a thread on the mock
+and then edited through it; `anEditThroughTheOpenThreadLandsInTheThreadsOwnList`
+is that test now and it fails on the reverted-away version.
+GENERALISE, and this is the part that stings: the comment was written from
+the premise rather than from the code, and it was long and confident enough
+to look researched. A comment asserting what a collaborator's code does NOT
+do is a claim to verify at that code, not at the call site.
 
 **AND A HARNESS FLAG MUST BE NAMED FOR WHAT IT DOES.** `--kbps` throttled
 KiB/s, per direction, per tunnel — overstating the rate by eight and hiding
