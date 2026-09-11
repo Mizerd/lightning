@@ -151,7 +151,24 @@ public:
     /// True when one of the local user's own devices is in the call — which
     /// is how "you are in this call, from somewhere" is answered.
     Q_INVOKABLE bool ownUserInSession(const QString &roomId) const;
-    /// True when THIS device is in the call.
+    /// True when ROOM STATE HOLDS A MEMBERSHIP NAMING THIS DEVICE — which is
+    /// NOT the same question as "is this device in a call", and three surfaces
+    /// once got that wrong at the same time.
+    ///
+    /// A device id survives a restart. A client that exits while a call is
+    /// running leaves a membership behind that still names it, and for the
+    /// five minutes until that membership expires this returns true for a
+    /// device that is in no call at all. `RoomCallBanner`, `CallEventDelegate`
+    /// and `RoomCallGlyph` each used it to decide whether to offer Join, so a
+    /// user dropped out of a call by a crash was shown no way back into it —
+    /// reproduced live on 2026-09-12, and the banner reappeared by itself the
+    /// moment the ghost expired.
+    ///
+    /// **THE LOCAL CALL CONTROLLER IS THE AUTHORITY ON THAT QUESTION**
+    /// (`app.groupCall.active` with a matching `roomId`). All three surfaces
+    /// ask it now and none of them calls this any more. Keep it for what it
+    /// actually says — whose memberships are in the room — and do not reach
+    /// for it again to mean "am I in this call".
     Q_INVOKABLE bool ownDeviceInSession(const QString &roomId) const;
     /// True when any participant declared a video intent. An intent, not a
     /// live camera: never render this as "their camera is on".

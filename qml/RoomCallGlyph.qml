@@ -48,13 +48,16 @@ Item {
     /// This device is in that call. Drawn in the accent so a row you are
     /// CONNECTED to is not the same picture as a row somebody else is talking
     /// in — those are different facts and the second one is a suggestion.
-    readonly property bool joinedHere: {
-        var _ = root.refreshTick;
-        if (typeof app !== "undefined" && app && app.groupCall
-            && app.groupCall.active && app.groupCall.roomId === root.roomId)
-            return true;
-        return root.rtcReachable && app.rtc.ownDeviceInSession(root.roomId);
-    }
+    ///
+    /// ASK THE CALL CONTROLLER, NOT ROOM STATE. This used to fall back to
+    /// `app.rtc.ownDeviceInSession()`, which is true whenever a membership
+    /// NAMES this device — including the one an unclean exit leaves behind,
+    /// because the device id survives a restart. That painted the row in the
+    /// accent, telling the user they were connected to a call they had just
+    /// been dropped out of.
+    readonly property bool joinedHere:
+        typeof app !== "undefined" && app && app.groupCall
+        && app.groupCall.active && app.groupCall.roomId === root.roomId
 
     implicitWidth: root.live ? root.glyphSize : 0
     implicitHeight: root.live ? root.glyphSize : 0

@@ -49,6 +49,88 @@
 /// an RTC ring" would pass on the broken tree and prove nothing. Registering
 /// this is what makes the two lanes tell each other apart. It answers
 /// nothing — no offer is ever produced — which is all these cases need.
+// A STAND-IN FOR `app` FOR THE THREE SURFACES THAT DECIDE "am I in this
+// call?". Small on purpose: these surfaces call exactly the handful of things
+// below, and a stub lets a test put ROOM STATE and the LOCAL CALL CONTROLLER
+// into deliberate disagreement — which is the whole defect and is not
+// reachable through AppController without a homeserver and a real call.
+class StubRtc : public QObject
+{
+    Q_OBJECT
+public:
+    using QObject::QObject;
+
+    int count = 0;
+    bool ownDevice = false;
+    bool ownUser = false;
+    QString block;
+
+    Q_INVOKABLE int participantCount(const QString &) const { return count; }
+    Q_INVOKABLE bool hasLiveSession(const QString &) const { return count > 0; }
+    Q_INVOKABLE bool ownUserInSession(const QString &) const { return ownUser; }
+    // KEPT DELIBERATELY, THOUGH PRODUCTION NO LONGER CALLS IT. Without it the
+    // pre-fix expression fails on a MISSING METHOD rather than on the
+    // assertion, and a test that fails for the wrong reason proves nothing
+    // about the fix.
+    Q_INVOKABLE bool ownDeviceInSession(const QString &) const
+    { return ownDevice; }
+    Q_INVOKABLE QString joinBlockReason(const QString &) const { return block; }
+    Q_INVOKABLE QVariantList participantFaces(const QString &, int) const
+    { return {}; }
+    Q_INVOKABLE void refresh(const QString &) {}
+
+Q_SIGNALS:
+    void sessionChanged(const QString &roomId);
+    void availabilityChanged();
+};
+
+class StubGroupCall : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(bool active READ active NOTIFY activeChanged)
+    Q_PROPERTY(QString roomId READ roomId NOTIFY roomIdChanged)
+public:
+    using QObject::QObject;
+
+    bool active() const { return m_active; }
+    QString roomId() const { return m_roomId; }
+    // The NOTIFY signals are load-bearing: toggling mid-test and re-reading
+    // proves `visible` is a live binding rather than a one-shot evaluation.
+    void setActive(bool v) { if (m_active != v) { m_active = v; Q_EMIT activeChanged(); } }
+    void setRoomId(const QString &v)
+    { if (m_roomId != v) { m_roomId = v; Q_EMIT roomIdChanged(); } }
+
+    Q_INVOKABLE void join(const QString &) {}
+
+Q_SIGNALS:
+    void activeChanged();
+    void roomIdChanged();
+
+private:
+    bool m_active = false;
+    QString m_roomId;
+};
+
+class StubApp : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QObject *rtc READ rtc CONSTANT)
+    Q_PROPERTY(QObject *groupCall READ groupCall CONSTANT)
+public:
+    explicit StubApp(QObject *parent = nullptr)
+        : QObject(parent), m_rtc(new StubRtc(this)),
+          m_groupCall(new StubGroupCall(this)) {}
+
+    QObject *rtc() const { return m_rtc; }
+    QObject *groupCall() const { return m_groupCall; }
+    StubRtc *rtcStub() const { return m_rtc; }
+    StubGroupCall *callStub() const { return m_groupCall; }
+
+private:
+    StubRtc *m_rtc = nullptr;
+    StubGroupCall *m_groupCall = nullptr;
+};
+
 class StubMediaBackend : public CallMediaBackend
 {
 public:
@@ -142,6 +224,49 @@ private:
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         }
     }
+
+    // Build a standalone RoomCallBanner against a stub `app`.
+    //
+    // The stub is installed on a context of the component's OWN, not on the
+    // engine root: a root context property named `app` reads back null inside
+    // this module's components, and every case then fails on
+    // "Cannot read property 'rtc' of null" for a reason that has nothing to do
+    // with what it tests. Creating with an explicit QQmlContext is the
+    // reliable form and says plainly which object the component is seeing.
+    QQuickItem *buildBanner(QQmlEngine &engine, StubApp &stub,
+                            const QString &room)
+    {
+        // ON THE ROOT CONTEXT. A component loaded from a module resolves the
+        // unqualified names in its OWN file against the engine root, not
+        // against whatever context it happens to be created with — so a stub
+        // installed on a child context is visible to an expression evaluated
+        // there and invisible to the component's own bindings.
+        engine.rootContext()->setContextProperty(
+            QStringLiteral("app"), static_cast<QObject *>(&stub));
+        auto *ctx = new QQmlContext(engine.rootContext(), this);
+        auto *component = new QQmlComponent(&engine, this);
+        component->loadFromModule(QStringLiteral("MatrixClient"),
+                                  QStringLiteral("RoomCallBanner"));
+        if (!component->errors().isEmpty()) {
+            qWarning("%s", qPrintable(component->errorString()));
+            return nullptr;
+        }
+        auto *item = qobject_cast<QQuickItem *>(component->create(ctx));
+        if (item) {
+            item->setParent(component);
+            // INTO A WINDOW, or `visible` answers the wrong question. It is
+            // EFFECTIVE visibility: an item with no visual parent reads false
+            // however its own binding evaluates, so every case here would fail
+            // while the property under test was in fact correct. Verified
+            // during the writing of these tests — the binding reported
+            // hasCall=true, locallyInCall=false and visible=false together.
+            item->setParentItem(m_fixtureWindow.contentItem());
+            item->setProperty("roomId", room);
+        }
+        return item;
+    }
+
+    QQuickWindow m_fixtureWindow;
 
     static QString normalized(const QString &s)
     {
@@ -2009,20 +2134,129 @@ ApplicationWindow {
                  "the Join handler is empty again");
     }
 
+    // ── "Am I in this call?", instantiated rather than scanned ──────────
+    //
+    // THESE REPLACED A TEST THAT ASSERTED THE DEFECT. It required the literal
+    // `visible: hasCall && !ownDeviceHere && !locallyInCall`, so the buggy
+    // expression was pinned in place by its own coverage and could not be
+    // corrected without "breaking" a test.
+    //
+    // The defect: `ownDeviceHere` was `app.rtc.ownDeviceInSession()`, which
+    // answers whether ROOM STATE holds a membership naming this device — not
+    // whether this device is in a call. A device id survives a restart, so a
+    // client that exited while a call was running leaves a membership behind
+    // that still names it, and every one of these surfaces then hid its Join
+    // from the user who had just been dropped out. Reproduced live on
+    // 2026-09-12: `participants= 3` read repeatedly with no banner on screen,
+    // and the banner returned by itself the moment the ghost expired five
+    // minutes later — no restart, no click, nothing else changed.
+    //
+    // Read `property("visible")`, never `QQuickItem::isVisible()`: the latter
+    // is EFFECTIVE visibility and folds in the parent chain, so a standalone
+    // item answers a different question in either direction.
+    void aGhostMembershipDoesNotHideTheBanner()
+    {
+        QQmlEngine engine;
+        StubApp stub;
+        const QString room = QStringLiteral("!r:mock.local");
+
+        // A live call, and room state carries a membership for THIS DEVICE —
+        // the ghost an unclean exit leaves behind. The local call controller
+        // says we are in no call, and it is the authority.
+        stub.rtcStub()->count = 3;
+        stub.rtcStub()->ownDevice = true;
+        stub.callStub()->setActive(false);
+
+        QQuickItem *banner = buildBanner(engine, stub, room);
+        QVERIFY2(banner, "RoomCallBanner did not instantiate");
+        QVERIFY2(banner->property("visible").toBool(),
+                 "a membership left behind by this device's own previous "
+                 "process hid the banner, and with it the only way back into "
+                 "a call the user is not in");
+    }
+
     void theBannerStandsDownOnceThisDeviceIsInTheCall()
     {
         // Offering "Join" to someone already in the call is nonsense, and
-        // the header bar owns the call at that point.
-        const QString banner =
-            normalized(read(QStringLiteral(QML_DIR "/RoomCallBanner.qml")));
-        QVERIFY2(banner.contains(QStringLiteral(
-                     "visible: hasCall && !ownDeviceHere && !locallyInCall")),
-                 "the banner does not stand down for this device's own call");
-        // ownDEVICE, not ownUser: the same account on another device is a
-        // real other participant and this device should still be offered a
-        // way in.
-        QVERIFY2(banner.contains(QStringLiteral("ownDeviceInSession(")),
-                 "the banner keys on the account rather than the device");
+        // the header bar owns the call at that point. Same name as the test
+        // this replaced; the meaning is now behavioural.
+        QQmlEngine engine;
+        StubApp stub;
+        const QString room = QStringLiteral("!r:mock.local");
+
+        stub.rtcStub()->count = 3;
+        stub.callStub()->setRoomId(room);
+        stub.callStub()->setActive(true);
+
+        QQuickItem *banner = buildBanner(engine, stub, room);
+        QVERIFY(banner);
+        QVERIFY2(!banner->property("visible").toBool(),
+                 "the banner offers Join to a device already in the call");
+
+        // AND IT IS A LIVE BINDING, not a one-shot evaluation: leaving the
+        // call must bring the banner back without rebuilding anything.
+        stub.callStub()->setActive(false);
+        QVERIFY2(banner->property("visible").toBool(),
+                 "the banner did not come back when this device left the "
+                 "call, so `visible` is not tracking the controller");
+    }
+
+    void aCallInAnotherRoomLeavesThisRoomsBannerUp()
+    {
+        // Without this, "simplify it to !app.groupCall.active" passes — and
+        // that would hide every other room's call while you are in one.
+        QQmlEngine engine;
+        StubApp stub;
+        const QString room = QStringLiteral("!r:mock.local");
+
+        stub.rtcStub()->count = 2;
+        stub.callStub()->setRoomId(QStringLiteral("!elsewhere:mock.local"));
+        stub.callStub()->setActive(true);
+
+        QQuickItem *banner = buildBanner(engine, stub, room);
+        QVERIFY(banner);
+        QVERIFY2(banner->property("visible").toBool(),
+                 "a call in a DIFFERENT room hid this room's banner");
+    }
+
+    void noCallMeansNoBannerAndNoReservedHeight()
+    {
+        // The collapse is separate real behaviour: a room with no call must
+        // not reserve a strip of empty space above its timeline.
+        QQmlEngine engine;
+        StubApp stub;
+
+        stub.rtcStub()->count = 0;
+        QQuickItem *banner =
+            buildBanner(engine, stub, QStringLiteral("!r:mock.local"));
+        QVERIFY(banner);
+        QVERIFY(!banner->property("visible").toBool());
+        QCOMPARE(banner->property("implicitHeight").toReal(), 0.0);
+    }
+
+    void theSiblingJoinSurfacesAskTheControllerToo()
+    {
+        // THE SAME WRONG ASSUMPTION LIVED IN THREE FILES, and a banner-only
+        // test would leave two of them unpinned. Source-level here rather
+        // than instantiated: CallEventDelegate is a timeline row that needs a
+        // model and RoomCallGlyph a room-list row, and what actually has to
+        // hold is narrow and checkable — neither may decide "this device is
+        // in the call" from room state.
+        for (const auto *file : { QML_DIR "/CallEventDelegate.qml",
+                                  QML_DIR "/RoomCallGlyph.qml",
+                                  QML_DIR "/RoomCallBanner.qml" }) {
+            const QString src = read(QString::fromUtf8(file));
+            QVERIFY2(!src.isEmpty(), file);
+            QString code = src;
+            code.remove(QRegularExpression(QStringLiteral("(?m)^\\s*//.*$")));
+            code.remove(QRegularExpression(QStringLiteral("(?m)^\\s*///.*$")));
+            QVERIFY2(!code.contains(QStringLiteral("ownDeviceInSession(")),
+                     qPrintable(QStringLiteral(
+                         "%1 still decides whether this device is in the call "
+                         "from room state, so a membership left behind by a "
+                         "previous process hides its Join").arg(
+                         QString::fromUtf8(file))));
+        }
     }
 
     // 2026-08-26, maintainer request: "calls get put at the top of the screen".

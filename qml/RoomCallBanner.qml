@@ -89,20 +89,24 @@ Rectangle {
         return roomId.length > 0 ? app.rtc.participantFaces(roomId, 4) : [];
     }
 
-    /// This device is in this room's call, so the call CONTROLS are up and
-    /// this banner has nothing left to offer. `ownUserPresent` is not enough:
-    /// the same account on another device is a genuine other participant, and
-    /// the banner should still offer to join from here.
-    readonly property bool ownDeviceHere: {
-        var _ = root.refreshTick;
-        return roomId.length > 0 && app.rtc.ownDeviceInSession(roomId);
-    }
-    /// ...and the same when the local call controller is on this room, which
-    /// covers the window between pressing Join and the membership landing.
+    /// THE LOCAL CALL CONTROLLER IS THE ONLY AUTHORITY ON WHETHER THIS DEVICE
+    /// IS IN THE CALL. It also covers the window between pressing Join and the
+    /// membership landing.
+    ///
+    /// `ownDeviceInSession` cannot serve that purpose, and the difference is a
+    /// live defect rather than a theoretical one. A device id SURVIVES A
+    /// RESTART, so a client that exited while a call was running leaves behind
+    /// a membership that still names this device — and for the five minutes
+    /// until it expires the banner would hide itself from a user who is not in
+    /// any call, taking the only Join affordance with it. That is precisely the
+    /// person who most needs it: they were just dropped out of the call.
+    /// `ownUserPresent` is not enough either, for the opposite reason — the
+    /// same account on another device is a genuine other participant, and this
+    /// device should still be offered a way in.
     readonly property bool locallyInCall: app.groupCall.active && app.groupCall.roomId === root.roomId
 
     objectName: "roomCallBanner"
-    visible: hasCall && !ownDeviceHere && !locallyInCall
+    visible: hasCall && !locallyInCall
     // Height collapses when there is no call so the room layout does not
     // reserve space for a banner nobody can see.
     implicitHeight: visible ? content.implicitHeight + AppTheme.spacing12 * 2 : 0

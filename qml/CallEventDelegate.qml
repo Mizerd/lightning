@@ -86,15 +86,19 @@ Item {
                                  : "unsupported";
     }
     /// This device is already in the call, so the call controls are up and
-    /// this row has nothing left to offer. ownDEVICE, not ownUser: the same
-    /// account on another device is a real other participant.
-    readonly property bool alreadyInThisCall: {
-        var _ = root.refreshTick;
-        if (root.groupCallReachable && app.groupCall.active
-            && app.groupCall.roomId === root.roomId)
-            return true;
-        return root.rtcReachable && app.rtc.ownDeviceInSession(root.roomId);
-    }
+    /// this row has nothing left to offer.
+    ///
+    /// THE LOCAL CALL CONTROLLER IS THE ONLY AUTHORITY ON THIS. It used to
+    /// fall back to `app.rtc.ownDeviceInSession()`, which answers a different
+    /// question — whether ROOM STATE holds a membership naming this device —
+    /// and a device id survives a restart. A client that exited while a call
+    /// was running leaves one behind, so for the five minutes until it expires
+    /// this row would hide Join from the very user who had just been dropped
+    /// out of the call. ownUser would be wrong for the opposite reason: the
+    /// same account on another device is a real other participant.
+    readonly property bool alreadyInThisCall:
+        root.groupCallReachable && app.groupCall.active
+        && app.groupCall.roomId === root.roomId
     readonly property bool canJoin:
         sessionLive && blockReason.length === 0 && !alreadyInThisCall
         && groupCallReachable
