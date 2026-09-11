@@ -50,10 +50,9 @@ with no replies at all could show the divider once it crossed a day boundary.
 `TimelineModel::realCount` states the distinction where it only has to be
 stated once — `count` counts rows, `realCount` counts events — and
 LIVE-VALIDATED PASS on the same thread that produced the report: the divider
-reads 2 beside the card's 2, with the date divider still present. **That PASS
-belongs to the `realCount - 1` revision and to nothing after it** — the
-shipped code is `ThreadController::replyCount`, which prefers the SDK's number
-and can legitimately answer differently, and it is NOT TESTED live.
+reads 2 beside the card's 2, with the date divider still present. That PASS belonged to the
+`realCount - 1` revision; the shipped `ThreadController::replyCount` is
+LIVE-VALIDATED separately below.
 
 Review round 8 then found that `realCount - 1` was only two thirds of a fix,
 and both remaining holes are ones QML cannot even see, so the answer moved to
@@ -75,6 +74,31 @@ pinned the count HIGH when replies are redacted and a stale `num_replies`
 outlives them. The root is also looked up in the ROOM timeline when it is not
 a row of the thread model, which is the very case the SDK's number exists for.
 
+**AND PREFERRING THE SERVER'S NUMBER OUTRIGHT FAILED ON SCREEN, WHICH IS THE
+ONLY REASON IT WAS CAUGHT.** Every unit test passed and two review rounds had
+approved the shape. Driving it through a real thread panel: sending a third
+reply left the divider reading "2 replies" above three visible ones, and 45
+seconds later it still did. A thread summary is stale LOW as readily as high,
+and low is the direction a reader can see — the label sits directly above the
+rows it counts. So the loaded replies are a FLOOR and the SDK's number covers
+only what lies beyond the loaded window: `qMax(known, loaded)`.
+
+That is the shape review round 9 talked me OUT of, on the argument that a
+stale-high `num_replies` outliving redacted replies would pin the count up.
+Checked rather than traded off: `onEventRedacted` sets `redacted` and removes
+nothing, and a redacted event is not virtual, so `realEventCount` does not
+fall on a redaction and the hazard does not arise from that direction. What
+can still happen is the server decrementing `num_replies` while the redacted
+row remains, leaving the divider one above the room's card — recorded in the
+code as the accepted cost, because the card describes the thread from outside
+while this label describes the list underneath it.
+LIVE-VALIDATED PASS on the shipped code: three replies read "3 replies", and a
+fourth sent with the panel open moved it to "4" with no reopen — which
+exercises the announcement path below as well.
+GENERALISE: a number rendered immediately above the things it counts is
+checkable by eye, and that is the check to run. Two review rounds and a full
+unit suite passed the version that contradicted itself on screen.
+
 **AND THE PROPERTY DID NOT ANNOUNCE THE ONE ARRIVAL IT EXISTS FOR.** The SDK
 summary lands as an in-place Set on the root row, and `onEventChangedAt` emits
 `countChanged` only when a row's virtualness flips — so wiring
@@ -82,7 +106,16 @@ summary lands as an in-place Set on the root row, and `onEventChangedAt` emits
 divider kept the loaded count until some unrelated insert happened to fire.
 It listens to `dataChanged` now, filtered to the root row, and every source
 goes through a recompute that emits only when the ANSWER moves, so one Set per
-receipt cannot become one re-render per receipt.
+receipt cannot become one re-render per receipt. The FILTER's own first draft
+resolved the root's row to test the range — and `rowForStableId` is an
+unconditional linear scan that does not use the `rowIndex` hash, so that put
+an O(n) lookup in front of a free range test on every SDK Set, which is
+receipt frequency. This file records paying for exactly that shape twice
+before. It compares event ids over the announced range instead (one row, in
+practice), and the room-length fallback scan runs only when the thread model
+does not hold the root at all.
+GENERALISE: order a filter's tests by cost, cheapest first — and check what
+the "cheap" lookup actually does before believing it is cheap.
 Mutation-proven both ways: reverting to the row count minus one fails
 `replyCountIsRepliesNotRows`, and dropping the `dataChanged` connection or
 preferring the loaded count fails

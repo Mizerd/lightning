@@ -1539,25 +1539,19 @@ round and REFUSED: "@admin" linking to `@attacker:evil` must read as
 ignores the anchor text too.
 
 **MEMBER HYDRATION NO LONGER RE-RENDERS THE WHOLE ROOM.** `onMembersChanged`
-used to `clearRenderedHtml()` and announce `FormattedBodyRole` +
-`MessageSegmentsRole` for EVERY row — every message body rebuilt a second
-time, on the GUI thread, a few seconds after the first open of each room
-(the `/members` fetch lands then). It now re-resolves the recorded name pairs
-and forgets only the rows whose answer moved; the identity roles are still
-swept (cheap). LIVE EFFECT ON THE REPORTED ROOM-LOAD LAG: **NOT TESTED** —
-the lag itself was never captured; see the open item.
+used to rebuild every message body a second time, on the GUI thread, seconds
+after each room's first open (the `/members` fetch lands then). It re-resolves
+the recorded name pairs and forgets only the rows whose answer moved. LIVE
+EFFECT ON THE ROOM-LOAD LAG: **NOT TESTED**.
 
-**MEDIA ROWS FETCH ONLY NEAR THE VIEWPORT.** Every row of a room is
-instantiated, so every image in the loaded history used to ask the bridge for
-its payload the moment the room opened — hundreds of decodes, and in an
-encrypted room without server thumbnails the FULL files (`media_source`
-falls back to the source when there is no `thumbnail_file`). `TimelinePane`
-publishes `mediaBandMinY/MaxY` (content coordinates; 2.5 viewports towards
-the newest end, 1.5 the other way) moved ONLY at load, reset, resize and
-the settle after a gesture — never bound to `contentY`, which would re-run a
+**MEDIA ROWS FETCH ONLY NEAR THE VIEWPORT.** Every row is instantiated, so
+every image in the loaded history used to ask the bridge for its payload at
+room open — and in an encrypted room without server thumbnails, the FULL
+files. `TimelinePane` publishes `mediaBandMinY/MaxY` (2.5 viewports towards
+the newest end, 1.5 the other way) moved ONLY at load, reset, resize and the
+settle after a gesture — never bound to `contentY`, which would re-run a
 comparison in every row on every frame — and `MessageDelegate.mediaInBand`
-gates `refreshBridgeSource()`. Thumbnails included: the win is for the
-reader's band. Also NOT live-measured.
+gates `refreshBridgeSource()`. Thumbnails included. NOT live-measured.
 
 **A WAIT LOOP WHOSE PATTERN MATCHES ITS OWN COMMAND LINE NEVER TERMINATES.**
 `while pgrep -f "ninja|ctest"; do sleep; done` matches the bash process running
@@ -1605,10 +1599,14 @@ row carries the `edited` marker and the room's summary card follows — and the
 new body survives a restart, so it is the server's copy and not an echo.
 Found in the same session: the panel's "N replies" divider read the ROW
 count, so date dividers inflated it — it said 3 beside two replies where the
-room card correctly said 2. The `realCount - 1` revision was live-checked and
-read 2; the SHIPPED code is `ThreadController::replyCount` (it prefers the
-SDK's num_replies, which `realCount - 1` cannot match on a windowed thread)
-and that is **NOT TESTED** live. Two harness facts: the message context menu
+room card correctly said 2. The shipped fix is
+`ThreadController::replyCount` and it is **LIVE-VALIDATED PASS** on the real
+backend: three replies read "3 replies", and a fourth sent with the panel
+open moved it to "4 replies" without a reopen. Getting there caught one more
+defect the same way — preferring the SDK's `num_replies` outright showed "2
+replies" above THREE visible ones and had not corrected itself 45 s later,
+because a thread summary is stale LOW as readily as high. The loaded replies
+are a floor now; the SDK's number covers only what lies beyond the window. Two harness facts: the message context menu
 survives a `shot_pid` capture (the no-capture-mid-menu rule is about
 spectacle's interactive mode) and publishes its own shortcuts, `T` and `E`.
 `ydotool key` needs KEYCODES — `28:1 28:0` for Return; a key NAME types
