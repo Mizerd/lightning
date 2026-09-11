@@ -254,6 +254,37 @@ private:
         return out.toInt();
     }
 
+    // THE FIXTURE MUST STOP GROWING BEFORE THE ANCHOR IS CAPTURED.
+    //
+    // `!pagination()->busy()` is not that guarantee: ReverseListProxyModel
+    // paces its reveal (3 ms per tick), so rows keep arriving and
+    // contentHeight keeps growing after the controller reports idle. Parking
+    // at the top edge and capturing an anchor during that window picks a
+    // DIFFERENT row from one run to the next, which is what made the three
+    // prepend cases flake.
+    //
+    // Measured, same case, same build — the divergence is present in
+    // `offsetBefore`, i.e. BEFORE the prepend under test runs:
+    //     pass  offsetBefore=+334  item y=723  contentHeight=2231
+    //     fail  offsetBefore=-389  item y=0    contentHeight=2115
+    // One row short, and the anchor lands at content y 0 instead.
+    static bool waitForContentHeightToSettle(QQuickItem *timeline)
+    {
+        double last = -1;
+        int stable = 0;
+        return QTest::qWaitFor(
+            [&] {
+                const double now =
+                    timeline->property("contentHeight").toDouble();
+                stable = (now == last) ? stable + 1 : 0;
+                last = now;
+                // Three consecutive identical reads, so one paced tick
+                // landing between two polls cannot look like a settle.
+                return stable >= 3;
+            },
+            kAnchorRowRevealTimeoutMs);
+    }
+
     // WAIT FOR THE ANCHOR TO SETTLE — AND SAY WHY WHEN IT DOES NOT.
     //
     // Three cases assert the same invariant, that a prepend must not move
@@ -398,27 +429,48 @@ private:
         // leaving the next reader to reproduce it again.
         const auto snapshot = [&] {
             static const char *kNames[] = {
+                // Did the machinery correct anything?
                 "diagAnchorCorrections", "diagGrowthCorrections",
-                "diagDisplacedFirings",  "diagMaterializedFirings",
-                "diagActiveDeferrals",   "diagUnresolvedIdFallbacks",
-                "diagEvictedNoInsertFallbacks",
+                // Did it RUN and take an early return? Without these two,
+                // "the machinery never ran" is not a conclusion the capture
+                // can reach — it can only say nothing was corrected.
+                "diagNoAnchorReturns", "diagStickToBottomReturns",
+                // The PREPEND family: the operation these three cases
+                // actually perform, on its own branch, independent of every
+                // counter above it.
+                "diagPrependFirings", "diagPrependOriginShiftSum",
+                "diagPrependMaxAbsOriginShift",
+                // The displaced/materialized branches and their magnitudes.
+                "diagDisplacedFirings", "diagMaterializedFirings",
+                "diagMaterializedMaxAbsDelta", "diagActiveDeferrals",
+                "diagUnresolvedIdFallbacks", "diagEvictedNoInsertFallbacks",
+                // originY decides between "the row moved inside the content"
+                // and "the content's origin moved under a stationary
+                // contentY" — with item y 0 -> 839 and contentY standing
+                // still, it is the single most likely explanation, and the
+                // first capture omitted it.
+                "originY", "contentY", "contentHeight", "rowWindowSkip",
             };
             QStringList parts;
+            QStringList missing;
             for (const char *name : kNames) {
                 const QVariant v = timeline->property(name);
                 if (v.isValid())
                     parts << QStringLiteral("%1=%2").arg(
-                        QString::fromLatin1(name).mid(4), v.toString());
+                        QString::fromLatin1(name).startsWith(QLatin1String("diag"))
+                            ? QString::fromLatin1(name).mid(4)
+                            : QString::fromLatin1(name),
+                        v.toString());
+                else
+                    missing << QString::fromLatin1(name);
             }
-            parts << QStringLiteral("contentY=%1")
-                         .arg(timeline->property("contentY").toDouble())
-                  << QStringLiteral("contentHeight=%1")
-                         .arg(timeline->property("contentHeight").toDouble())
-                  << QStringLiteral("rowWindowSkip=%1")
-                         .arg(timeline->property("rowWindowSkip").toInt());
-            settle.counters = parts.isEmpty()
-                ? QStringLiteral("(no counters readable on the pane)")
-                : parts.join(QLatin1Char(' '));
+            // A renamed property must SAY it is gone rather than read as a
+            // silent zero — the failure mode this whole snapshot exists to
+            // avoid, one level down.
+            if (!missing.isEmpty())
+                parts << QStringLiteral("UNREADABLE[%1]")
+                             .arg(missing.join(QLatin1Char(',')));
+            settle.counters = parts.join(QLatin1Char(' '));
         };
         read();
         identify();
@@ -5256,7 +5308,24 @@ private Q_SLOTS:
     // content and ratifies the jump — the teleport cascade).
     void topEdgePrependKeepsReaderOnTheSameRowMidGesture()
     {
+    {
+        // THE COUNTERS ARE TRACE-GATED, SO THIS IS NOT OPTIONAL. Every
+        // `diag*` increment in TimelinePane.qml sits inside `if
+        // (scrollTrace)`, and `scrollTrace` reads
+        // app.timelineScroll.scrollTraceEnabled, which is CONSTANT and set
+        // once per controller from the environment. Without this the
+        // snapshot below prints seven zeros on a correct build, a broken
+        // build and any build — a diagnostic reporting a constant, which
+        // this suite already records as worse than reporting nothing. It
+        // must be set BEFORE the AppController is constructed.
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+    }
+    struct TraceGuard { ~TraceGuard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } traceGuard;
+
         AppController controller(AppController::MockBackend);
+        QVERIFY2(controller.timelineScroll()->scrollTraceEnabled(),
+                 "the diag counters are gated on this — without it the "
+                 "snapshot below can only ever print zeros");
         QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
@@ -5343,6 +5412,9 @@ private Q_SLOTS:
         // Put the reader AT THE TOP EDGE, which is where near-top backfill
         // fires and where an upward glide parks against StopAtBounds.
         QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY2(waitForContentHeightToSettle(timeline),
+                 "the fixture never stopped growing, so the anchor would be "
+                 "captured on whichever row happened to be there");
         QVERIFY(positionAtTopEdge(timeline));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
@@ -5436,7 +5508,24 @@ private Q_SLOTS:
     // instead of ending the run.
     void nearTopControllerDrivenBatchesCompensateImmediatelyNotChained()
     {
+    {
+        // THE COUNTERS ARE TRACE-GATED, SO THIS IS NOT OPTIONAL. Every
+        // `diag*` increment in TimelinePane.qml sits inside `if
+        // (scrollTrace)`, and `scrollTrace` reads
+        // app.timelineScroll.scrollTraceEnabled, which is CONSTANT and set
+        // once per controller from the environment. Without this the
+        // snapshot below prints seven zeros on a correct build, a broken
+        // build and any build — a diagnostic reporting a constant, which
+        // this suite already records as worse than reporting nothing. It
+        // must be set BEFORE the AppController is constructed.
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+    }
+    struct TraceGuard { ~TraceGuard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } traceGuard;
+
         AppController controller(AppController::MockBackend);
+        QVERIFY2(controller.timelineScroll()->scrollTraceEnabled(),
+                 "the diag counters are gated on this — without it the "
+                 "snapshot below can only ever print zeros");
         QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
@@ -5527,6 +5616,9 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY2(waitForContentHeightToSettle(timeline),
+                 "the fixture never stopped growing, so the anchor would be "
+                 "captured on whichever row happened to be there");
         QVERIFY(positionAtTopEdge(timeline));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
@@ -5624,7 +5716,24 @@ private Q_SLOTS:
     // gesture stays held, sampling the offset after each.
     void viewportFillRunCompensatesEveryBatchImmediately()
     {
+    {
+        // THE COUNTERS ARE TRACE-GATED, SO THIS IS NOT OPTIONAL. Every
+        // `diag*` increment in TimelinePane.qml sits inside `if
+        // (scrollTrace)`, and `scrollTrace` reads
+        // app.timelineScroll.scrollTraceEnabled, which is CONSTANT and set
+        // once per controller from the environment. Without this the
+        // snapshot below prints seven zeros on a correct build, a broken
+        // build and any build — a diagnostic reporting a constant, which
+        // this suite already records as worse than reporting nothing. It
+        // must be set BEFORE the AppController is constructed.
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+    }
+    struct TraceGuard { ~TraceGuard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } traceGuard;
+
         AppController controller(AppController::MockBackend);
+        QVERIFY2(controller.timelineScroll()->scrollTraceEnabled(),
+                 "the diag counters are gated on this — without it the "
+                 "snapshot below can only ever print zeros");
         QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
@@ -5729,6 +5838,9 @@ private Q_SLOTS:
         // test's own room primes a full extra page via
         // setPaginationChunkForTest — count is 60, not 30, before this
         // call), so headroom is measured against that larger total.
+        QVERIFY2(waitForContentHeightToSettle(timeline),
+                 "the fixture never stopped growing, so the anchor would be "
+                 "captured on whichever row happened to be there");
         QVERIFY(positionAtSourceRow(timeline, 8));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
