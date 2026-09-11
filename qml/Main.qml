@@ -499,11 +499,26 @@ ApplicationWindow {
             // so that is what it locates. There is no thread-scoped jump to
             // call; if one is ever added, the reply itself is the better
             // target and this is the line to change.
-            var target = inThread ? threadRootId : eventId
-            if (target && target.length > 0)
+            //
+            // BUT CONTEXT MAY NOT PAGINATE. A thread root can be arbitrarily
+            // old, and jumpToEvent is allowed to spend kMaxNavigationBatches
+            // real backward paginations hunting for one — so a click on a
+            // thread notification walked the reader's ROOM view backwards
+            // through months of history nobody asked to see, reported as a
+            // notification that "started scrolling backwards" until it
+            // reached the previous month. The destination was already on
+            // screen the whole time. revealIfLoaded() takes the context when
+            // it is free and leaves the room timeline alone when it is not.
+            if (inThread) {
+                if (threadRootId && threadRootId.length > 0)
+                    Qt.callLater(function() {
+                        app.pagination.revealIfLoaded(threadRootId)
+                    })
+            } else if (eventId && eventId.length > 0) {
                 Qt.callLater(function() {
-                    app.pagination.jumpToEvent(target)
+                    app.pagination.jumpToEvent(eventId)
                 })
+            }
         }
     }
 

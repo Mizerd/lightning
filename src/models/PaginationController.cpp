@@ -291,6 +291,26 @@ void PaginationController::jumpToEvent(const QString &eventId)
         failNavigation();
 }
 
+// See the header for why this is not jumpToEvent with a flag: the price
+// jumpToEvent may pay (kMaxNavigationBatches backward paginations, then the
+// unavailable notice) is right for a message the reader asked for and wrong
+// for one that is only context for a destination they are already at.
+void PaginationController::revealIfLoaded(const QString &eventId)
+{
+    if (eventId.isEmpty() || !m_timelineModel || m_roomId.isEmpty())
+        return;
+    const int row = m_timelineModel->rowForStableId(eventId);
+    if (row < 0)
+        return;
+    // A navigation may already be in flight for something the reader DID ask
+    // for. Context must never displace it.
+    if (m_navigationPurpose != NavigationPurpose::None)
+        return;
+    m_navigationPurpose = NavigationPurpose::Reply;
+    m_navigationEventId = eventId;
+    locateNavigationTarget(row);
+}
+
 void PaginationController::saveScrollAnchor(const QString &roomId,
                                             const QString &eventId,
                                             qreal pixelOffset,

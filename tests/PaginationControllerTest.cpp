@@ -1172,6 +1172,82 @@ private Q_SLOTS:
         QTRY_VERIFY(controller.highlightedEventId().isEmpty());
     }
 
+    // A THREAD NOTIFICATION'S ROOT IS CONTEXT, NOT A DESTINATION.
+    //
+    // The destination is the thread panel, which is already open by the time
+    // this runs. Letting the room timeline hunt for the root cost up to
+    // kMaxNavigationBatches real backward paginations and dragged the
+    // reader's room view through months of history — reported as a
+    // notification click that "started scrolling backwards" until it reached
+    // the previous month. So: take the row when it is free, and do nothing
+    // at all when it is not. Not a failure either; nothing failed.
+    void contextRevealTakesALoadedRowAndNeverPaginatesForOne()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setHighlightDurationForTest(5);
+        controller.setRoomId(kRoomA);
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+
+        // NOT loaded: no request, no landing, and no notice.
+        controller.revealIfLoaded(QStringLiteral("$august-root:example.org"));
+        QCOMPARE(client.loadOlderCalls, 0);
+        QCOMPARE(located.count(), 0);
+        QVERIFY(controller.navigationMessage().isEmpty());
+
+        // Loaded: free context, taken.
+        const QString rootId = QStringLiteral("$root:example.org");
+        client.timelines[kRoomA] = { makeEvent(rootId) };
+        model.setRoomId(QString());
+        model.setRoomId(kRoomA);
+        controller.revealIfLoaded(rootId);
+        QCOMPARE(client.loadOlderCalls, 0);
+        QCOMPARE(located.count(), 1);
+        QCOMPARE(located.first().at(0).toInt(), 0);
+        QVERIFY(located.first().at(2).toBool());
+    }
+
+    // And it must never displace a jump the reader actually asked for. The
+    // notification handler opens the thread and reveals the root on the same
+    // turn, so an in-flight reply search is exactly the state it meets.
+    void contextRevealYieldsToANavigationTheReaderAskedFor()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+
+        const QString wanted = QStringLiteral("$wanted:example.org");
+        controller.jumpToEvent(wanted);
+        QCOMPARE(client.loadOlderCalls, 1);
+
+        // A root that IS loaded, arriving mid-search. It must not land, and
+        // it must not steal the search's target.
+        client.beginLoading(kRoomA);
+        client.completeEvents(kRoomA,
+                              { makeEvent(QStringLiteral("$root:example.org")) },
+                              false);
+        QCOMPARE(located.count(), 0);
+        controller.revealIfLoaded(QStringLiteral("$root:example.org"));
+        QCOMPARE(located.count(), 0);
+
+        // The reader's own target still lands when it arrives.
+        client.beginLoading(kRoomA);
+        client.completeEvents(kRoomA, { makeEvent(wanted) }, false);
+        QCOMPARE(located.count(), 1);
+        QCOMPARE(model.rowForStableId(wanted), located.first().at(0).toInt());
+    }
+
     void replyTargetSearchPaginatesBoundedlyAndCoalescesClicks()
     {
         FakeClient client;

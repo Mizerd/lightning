@@ -354,16 +354,29 @@ private Q_SLOTS:
         }
     }
 
-    // A NOTIFICATION FOR A THREAD REPLY MUST NOT JUMP ON THE ROOM TIMELINE.
+    // A NOTIFICATION FOR A THREAD REPLY MUST NOT JUMP ON THE ROOM TIMELINE,
+    // AND MUST NOT PAGINATE IT EITHER.
     //
-    // The live room timeline is TimelineFocus::Live with
+    // Two defects, one handler, and the second was created by the fix for
+    // the first.
+    //
+    // B023: the live room timeline is TimelineFocus::Live with
     // hide_threaded_events, so a threaded event id is not a row there. The
     // click opened the thread and then asked the ROOM timeline to locate the
-    // reply, which could only fail: it paginated looking for something that
-    // can never appear and ended on the unavailable notice. B023.
+    // REPLY, which could only fail — it paginated looking for something that
+    // can never appear and ended on the unavailable notice. A thread ROOT
+    // does remain in the main timeline (CLAUDE.md §8), so that became the
+    // target instead.
     //
-    // A thread ROOT does remain in the main timeline (CLAUDE.md §8), so that
-    // is the one target the room timeline can still contribute.
+    // And THAT is the second defect. jumpToEvent() may spend
+    // kMaxNavigationBatches real backward paginations hunting for its target,
+    // which is right for a message the reader asked for — but a thread root
+    // can be arbitrarily old, and the destination (the thread panel) is
+    // already open. So clicking a thread notification walked the reader's
+    // room view backwards through months of history nobody asked to see,
+    // reported as a notification that "started scrolling backwards" until it
+    // reached the previous month. revealIfLoaded() takes the root when it is
+    // already loaded and leaves the room timeline alone when it is not.
     void aThreadNotificationDoesNotJumpToAnEventTheTimelineHides()
     {
         QFile file(QStringLiteral(QML_DIR "/Main.qml"));
@@ -372,14 +385,43 @@ private Q_SLOTS:
 
         const int at = source.indexOf(QStringLiteral("onNotificationOpenRequested"));
         QVERIFY2(at > 0, "the notification click handler is gone");
-        const QString body = source.mid(at, 1600);
-        QVERIFY2(body.contains(QStringLiteral("inThread ? threadRootId : eventId")),
-                 "a notification for a thread reply still asks the room "
-                 "timeline to locate an event it hides, so the click lands "
-                 "on the unavailable notice instead of the thread");
-        QVERIFY2(!body.contains(QStringLiteral("jumpToEvent(eventId)")),
-                 "the raw event id is still handed to the room timeline's "
-                 "jump, which cannot find a threaded event");
+        // The handler's OWN block, by brace matching. A fixed character
+        // window silently stopped covering the tail of it the first time a
+        // comment grew, and a scan that reaches past its last line reports
+        // an absence it never looked for.
+        const int open = source.indexOf(QLatin1Char('{'), at);
+        QVERIFY2(open > at, "the handler has no body");
+        int depth = 0;
+        int close = -1;
+        for (int i = open; i < source.size(); ++i) {
+            if (source.at(i) == QLatin1Char('{'))
+                ++depth;
+            else if (source.at(i) == QLatin1Char('}') && --depth == 0) {
+                close = i;
+                break;
+            }
+        }
+        QVERIFY2(close > open, "the handler's body is unbalanced");
+        const QString body = source.mid(open, close - open + 1);
+        // B023: the reply id must never reach the room timeline at all.
+        QVERIFY2(!body.contains(QStringLiteral("jumpToEvent(target)")),
+                 "the single-target form is back, so a threaded event id can "
+                 "reach the room timeline's jump again — it cannot find one");
+        QVERIFY2(!body.contains(QStringLiteral("revealIfLoaded(eventId)")),
+                 "the reply id is handed to the room timeline, which hides "
+                 "threaded events and can never hold it");
+        // The root is CONTEXT: free if loaded, never paid for.
+        QVERIFY2(body.contains(QStringLiteral("revealIfLoaded(threadRootId)")),
+                 "the thread root is not revealed from the loaded timeline");
+        QVERIFY2(!body.contains(QStringLiteral("jumpToEvent(threadRootId)")),
+                 "the thread root is still handed to jumpToEvent, which is "
+                 "allowed to paginate for it: that is the runaway backward "
+                 "scroll");
+        // And a NON-thread notification still goes to its own message —
+        // that one IS what the reader asked for.
+        QVERIFY2(body.contains(QStringLiteral("jumpToEvent(eventId)")),
+                 "an ordinary notification no longer jumps to the message it "
+                 "was raised for");
     }
 
     // A SUBMITTED REPORT MUST TELL THE USER WHAT HAPPENED.

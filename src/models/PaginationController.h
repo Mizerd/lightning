@@ -172,6 +172,23 @@ public:
     // Clear a failure and request again (user pressed Retry).
     Q_INVOKABLE void retry();
     Q_INVOKABLE void jumpToEvent(const QString &eventId);
+    // Reveal an event ONLY if it is already in the loaded timeline.
+    //
+    // WHY THIS IS NOT jumpToEvent WITH A FLAG. jumpToEvent's contract is "get
+    // me to this message", and the price it is allowed to pay for that is
+    // kMaxNavigationBatches real backward paginations plus the unavailable
+    // notice when they run out. That is right when the reader asked for THAT
+    // message. It is wrong when the message is only CONTEXT for a
+    // destination they have already been taken to: a thread notification
+    // opens the thread panel, and a thread root can be arbitrarily old, so
+    // asking the room timeline to hunt for it walks the reader's room view
+    // backwards through months of history they did not ask to see — reported
+    // as a notification click that "started scrolling backwards" until it
+    // reached the previous month.
+    //
+    // So this locates the row when it is free and does NOTHING otherwise: no
+    // pagination, and no failure message either, because nothing failed.
+    Q_INVOKABLE void revealIfLoaded(const QString &eventId);
     Q_INVOKABLE void saveScrollAnchor(const QString &roomId,
                                       const QString &eventId,
                                       qreal pixelOffset,
