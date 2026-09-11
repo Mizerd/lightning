@@ -149,12 +149,6 @@ for base_lib in libEGL.so.1 libGLX.so.0 libGLdispatch.so.0 \
     test -f "$TREE/usr/lib/$base_lib" || \
         die "the snap payload has no $base_lib; it would install and then fail to start"
 done
-# Nothing the binary needs may remain unresolved against the payload alone.
-still_missing=$(LD_LIBRARY_PATH="$TREE/usr/lib" ldd "$TREE/usr/bin/lightning-matrix" 2>/dev/null \
-                | awk '/not found/ { print $1 }' | tr '\n' ' ')
-[ -z "$still_missing" ] || \
-    die "the snap payload cannot resolve: $still_missing"
-
 # AND THE SAME QUESTION OF EVERY PLUGIN, WHICH IS WHAT libSM ESCAPED THROUGH.
 #
 # A Qt platform plugin is dlopened, so its dependencies are NOT the binary's:
@@ -168,38 +162,106 @@ still_missing=$(LD_LIBRARY_PATH="$TREE/usr/lib" ldd "$TREE/usr/bin/lightning-mat
 # is completely broken passes every check we have and installs cleanly. This
 # is the fourth appearance of "a library loads its own plugins" in this
 # project, and the first one a build-time check catches by itself.
-# A Qt plugin that cannot load is FATAL and a GStreamer one is a feature lost,
-# so they are judged differently — but both are reported, because neither is
-# visible any other way.
+# ── DOES EVERY PLUGIN'S DEPENDENCY EXIST IN THE PAYLOAD? ─────────────────
+#
+# ASKED WITH `readelf`, NOT `ldd`, AND THAT IS THE WHOLE POINT. `ldd` resolves
+# against the BUILD HOST: `LD_LIBRARY_PATH` only PREPENDS, so it still falls
+# back to /etc/ld.so.cache and answers "found" for anything the build image
+# happens to have installed. The libSM defect was caught only because
+# ubuntu:24.04 plus this job's apt list happens not to pull libSM in — the day
+# some unrelated package does, the check goes quiet and a snap that cannot open
+# a window ships again. A set difference against the payload cannot drift that
+# way.
+#
+# What may legitimately come from OUTSIDE the payload is the base snap's C and
+# C++ runtime, and nothing else: linuxdeploy puts everything else in usr/lib.
+# What may legitimately come from the base snap: the C and C++ runtime, and
+# nothing else — linuxdeploy puts everything else in usr/lib. `libresolv.so.2`
+# is on this list because it ships WITH glibc on a modern Ubuntu base; the
+# binary itself needs it, and the snap demonstrably runs.
+BASE_SNAP_LIBS="ld-linux-x86-64.so.2 libc.so.6 libm.so.6 libdl.so.2 \
+libpthread.so.0 librt.so.1 libresolv.so.2 libstdc++.so.6 libgcc_s.so.1"
+
+# TRANSITIVELY, and that is not a refinement — it is the difference between
+# catching the defect and not. `readelf -d` lists only DIRECT dependencies, and
+# neither library that broke the shipped snap is direct: `libqxcb.so` reaches
+# libSM through Qt's own XCB support library, and `libgstopengl.so` reaches
+# libGL through libgstgl. A one-level check reports neither. So walk the graph
+# the loader would walk, resolving every name against the PAYLOAD.
+plugin_needs_missing() {   # object -> names no payload library can satisfy
+    # SEPARATE STATEMENTS. `local a="$1" q="$a"` expands every word BEFORE it
+    # assigns any of them, so `q` would be empty and the walk would never
+    # start — silently, reporting nothing missing on a payload that is.
+    local root="$1"
+    local seen="" current need resolved missing=""
+    local queue="$root"
+    while [ -n "$queue" ]; do
+        current="${queue%% *}"
+        case "$queue" in *" "*) queue="${queue#* }" ;; *) queue="" ;; esac
+        case " $seen " in *" $current "*) continue ;; esac
+        seen="$seen $current"
+        while IFS= read -r need; do
+            [ -n "$need" ] || continue
+            case " $BASE_SNAP_LIBS " in *" $need "*) continue ;; esac
+            resolved="$TREE/usr/lib/$need"
+            if [ -e "$resolved" ]; then
+                case " $seen " in *" $resolved "*) ;; *) queue="$queue $resolved" ;; esac
+            else
+                case " $missing " in
+                    *" $need "*) ;;
+                    *) missing="$missing $need" ;;
+                esac
+            fi
+        done < <(readelf -d "$current" 2>/dev/null \
+                 | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p')
+    done
+    echo "$missing"
+}
+
+# A Qt plugin that cannot load is FATAL — the app exits with "no Qt platform
+# plugin could be initialized" — and a GStreamer one is a feature lost. Both
+# are reported, because neither is visible any other way: validate-snap.sh runs
+# with QT_QPA_PLATFORM=offscreen, which never loads xcb at all.
 qt_unresolved=""
 gst_unresolved=""
 gst_fatal=""
 while IFS= read -r plugin; do
-    missing=$(LD_LIBRARY_PATH="$TREE/usr/lib" ldd "$plugin" 2>/dev/null \
-              | awk '/not found/ { print $1 }' | sort -u | tr '\n' ' ')
+    missing="$(plugin_needs_missing "$plugin")"
     [ -n "$missing" ] || continue
     case "$plugin" in
-        "$TREE"/usr/plugins/*)
+        # FATAL: the binary (which used to have its own `ldd` check with the
+        # same build-host flaw — one sweep, one method) and the PLATFORM
+        # plugins. Without a platform plugin the app exits with "no Qt platform
+        # plugin could be initialized" and there is no window at all.
+        "$TREE"/usr/bin/*|"$TREE"/usr/plugins/platforms/*)
             qt_unresolved="$qt_unresolved
-    $(basename "$plugin"): $missing" ;;
+    $(basename "$plugin"):$missing" ;;
+        # Every other Qt plugin is a FEATURE, not the app: an image format, a
+        # media backend, a TLS backend. Report it and keep going — several
+        # have been quietly unloadable for as long as this package has
+        # existed, and turning that into a release blocker on the day the
+        # check was written would be a different kind of mistake.
+        "$TREE"/usr/plugins/*)
+            gst_unresolved="$gst_unresolved
+    $(basename "$plugin"):$missing" ;;
         *)
             gst_unresolved="$gst_unresolved
-    $(basename "$plugin"): $missing"
-            # These two are not optional: libgstopengl is the GPU share chain
-            # AND the reason Qt gets a usable GL context here at all, and
-            # libgstwebrtc is every call.
+    $(basename "$plugin"):$missing"
+            # Not optional: libgstopengl is the GPU share chain AND the reason
+            # Qt gets a usable GL context here, and libgstwebrtc is every call.
             case "$(basename "$plugin")" in
                 libgstopengl.so|libgstwebrtc.so)
                     gst_fatal="$gst_fatal $(basename "$plugin")" ;;
             esac ;;
     esac
-done < <(find "$TREE/usr/plugins" "$TREE/usr/lib/gstreamer-1.0" \
-             -name '*.so' 2>/dev/null | sort)
+done < <({ echo "$TREE/usr/bin/lightning-matrix";
+           find "$TREE/usr/plugins" "$TREE/usr/lib/gstreamer-1.0" \
+                -name '*.so' 2>/dev/null | sort; })
 
 [ -z "$qt_unresolved" ] || \
     die "snap Qt plugins cannot resolve against the payload:$qt_unresolved"
 [ -z "$gst_unresolved" ] || \
-    echo "snap: WARNING - GStreamer plugins that will not load:$gst_unresolved"
+    echo "snap: WARNING - plugins that will not load:$gst_unresolved"
 [ -z "$gst_fatal" ] || \
     die "snap: these GStreamer plugins are load-bearing and cannot resolve:$gst_fatal"
 

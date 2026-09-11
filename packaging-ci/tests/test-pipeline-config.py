@@ -67,8 +67,16 @@ publish_needs = {
     n["job"] if isinstance(n, dict) else n
     for n in doc.get("publish-packages", {}).get("needs", [])
 }
-for job in ["validate-deb", "validate-deb-ubuntu", "validate-rpm",
-            "validate-flatpak", "validate-appimage", "validate-snap"]:
+# DERIVED FROM THE FILE, not listed here: a hard-coded list would not notice a
+# NEW format's validator going unconsumed, which is the same class of gap this
+# assertion exists to close.
+validators = sorted(
+    j for j in doc
+    if isinstance(j, str) and j.startswith("validate-")
+    and isinstance(doc.get(j), dict)
+)
+check(len(validators) >= 6, f"found the validate-* jobs ({len(validators)})")
+for job in validators:
     check(job in publish_needs, f"publish-packages consumes {job}")
 
 # --- one dedicated runner pool per format: every build/validate job selects
