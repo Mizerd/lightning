@@ -1864,12 +1864,50 @@ pub(crate) fn publish_membership(
             Err(_) => (false, "network".to_owned(), String::new()),
         };
 
-        // The delayed retraction. Only attempted once the membership is
-        // actually published — scheduling a retraction for something that
-        // does not exist is pointless.
+        // THE DELAYED RETRACTION IS A NAKED `{}` PUT TO OUR OWN STATE KEY,
+        // AND ON A SERVER THAT DOES NOT KNOW MSC4140 IT RETRACTS US.
+        //
+        // ruma's `delayed_state_event::unstable::Request` uses the STABLE v3
+        // state endpoint and marks the request delayed with nothing but a
+        // query parameter:
+        //
+        //   /_matrix/client/v3/rooms/{room}/state/{type}/{state_key}
+        //       ?org.matrix.msc4140.delay=1234321
+        //
+        // A homeserver that does not recognise that parameter — Synapse
+        // 1.115 and older have no handling for it at all, and anything that
+        // never implemented MSC4140 and does not reject unknown query
+        // parameters — simply applies the body. The body is `{}`, which IS a
+        // retraction. So on those servers this call deletes the membership we
+        // published milliseconds earlier.
+        //
+        // That is the reported defect (GitHub #10, still failing on 0.9.4):
+        // a two-party call that works for about a minute and then, IMMEDIATELY
+        // after `membership refreshed`, drops to `participants= 1` from BOTH
+        // the store and the server, the peer stops being able to address a
+        // media key to us, and we go on being heard while hearing nobody.
+        // Three rounds looked for a peer who had vanished. The participant
+        // that vanished was OURS.
+        //
+        // The asymmetry is what made it survive those rounds: a JOIN is
+        // repaired by the reconciliation below (`!assumed_no_delayed &&
+        // delay_id.is_empty()` re-publishes), so the call comes up healthy —
+        // but a REFRESH takes `assumed_no_delayed`, where neither branch can
+        // fire, so nothing puts the membership back for a full period.
+        //
+        // So: only arm where the repair write can follow. See
+        // `delayed_retraction_is_repairable` for the rule stated on its own.
+        //
+        // element-call does it the other way round and is immune by
+        // ORDERING — `MembershipManager` arms the delayed event FIRST and
+        // writes the membership SECOND, so an ignored `{}` lands on a state
+        // key with no live membership and the write that follows is final.
+        // Reordering here is the better fix and is a bigger change than a
+        // reported-and-waiting defect should carry; this gate makes every
+        // naked retraction a repaired one, which is the property that matters.
         let mut delay_id = String::new();
         let mut delayed_category = String::new();
-        if ok {
+        if ok && delayed_retraction_is_repairable(assumed_no_delayed) {
             match schedule_delayed_leave(&client, room.room_id().as_str(),
                                          &state_key).await
             {
@@ -1897,12 +1935,17 @@ pub(crate) fn publish_membership(
         //     expiry, client re-publishes), which is correct if slower, and
         //     the NEXT publish carries the long expiry and a real delayed
         //     retraction. No state event is rewritten under an armed event.
-        if ok && assumed_no_delayed && !delay_id.is_empty() {
-            DELAYED_EVENTS_REFUSED.store(false, Ordering::Relaxed);
-            cancel_delayed_leave(&client, &delay_id).await;
-            delay_id.clear();
-            delayed_category = "delayed_resynced".to_owned();
-        } else if ok && !assumed_no_delayed && delay_id.is_empty() {
+        // The "assumed they do NOT work, they DO" branch is GONE with the
+        // gate above, because we no longer arm while assuming refusal — so
+        // `delay_id` cannot be non-empty there. The re-probe it provided is
+        // not lost, it is rarer: DELAYED_EVENTS_REFUSED is a process-global
+        // latch that nothing clears, so a server that gains MSC4140 support
+        // is re-probed on the next launch rather than on the next publish.
+        // That is the trade this fix makes, and it is the right way round —
+        // the old re-probe cost a NAKED, UNREPAIRED retraction every single
+        // refresh on every server that ignores the parameter, which is the
+        // defect itself.
+        if ok && !assumed_no_delayed && delay_id.is_empty() {
             DELAYED_EVENTS_REFUSED.store(true, Ordering::Relaxed);
             // A SECOND write, with the short expiry. It replaces our own
             // previous state event under the same state key, so the room sees
@@ -2034,6 +2077,21 @@ async fn cancel_delayed_leave(client: &Client, delay_id: &str) {
 }
 
 /// Schedule the server-side retraction of our membership.
+/// Whether a delayed retraction may be armed on this publish.
+///
+/// It may be armed only where the reconciliation that follows will put the
+/// membership back if the server ignored the delay and applied the `{}`
+/// outright — which is the `!assumed_no_delayed && delay_id.is_empty()`
+/// branch of `publish_membership`. A refresh (`assumed_no_delayed == true`)
+/// reaches no repair branch at all, so arming there can only delete us.
+///
+/// Split out from `publish_membership` so the rule is testable offline, the
+/// same reason `inheritable_created_ts` is: a test that cannot reach
+/// production's decision proves nothing about it.
+pub(crate) fn delayed_retraction_is_repairable(assumed_no_delayed: bool) -> bool {
+    !assumed_no_delayed
+}
+
 async fn schedule_delayed_leave(
     client: &Client,
     room_id: &str,
@@ -4421,6 +4479,41 @@ mod tests {
             inheritable_created_ts(&ghost, None, 200_000),
             Some(1_000)
         );
+    }
+
+    #[test]
+    fn a_naked_retraction_is_only_sent_where_a_repair_write_follows() {
+        // schedule_delayed_leave PUTs an EMPTY content — which IS a
+        // retraction — to our own membership's state key, through ruma's
+        // `delayed_state_event::unstable::Request`. That request uses the
+        // ORDINARY /_matrix/client/v3/rooms/{room}/state/{type}/{state_key}
+        // endpoint and marks itself delayed with nothing but an
+        // `org.matrix.msc4140.delay` query parameter. A homeserver that does
+        // not recognise the parameter applies the body immediately, and we
+        // have just deleted ourselves from the call.
+        //
+        // publish_membership repairs that, but only on the branch where it
+        // had NOT already assumed refusal — so a refresh, which always
+        // assumes it, armed a retraction that nothing would ever put back.
+        // Reported as a two-party call that drops the reporter's OWN
+        // participant about a minute in, immediately after
+        // `membership refreshed`, on 0.9.4 (GitHub #10).
+        //
+        // The invariant: never arm where the repair cannot follow.
+        for assumed_no_delayed in [false, true] {
+            if delayed_retraction_is_repairable(assumed_no_delayed) {
+                assert!(
+                    !assumed_no_delayed,
+                    "a delayed retraction was armed on a publish whose \
+                     reconciliation cannot re-publish the membership, so an \
+                     ignored MSC4140 parameter deletes us for a whole period"
+                );
+            }
+        }
+        // And it IS armed somewhere, or the fix is "never use MSC4140" and
+        // an unclean exit strands a phantom participant for four hours.
+        assert!(delayed_retraction_is_repairable(false),
+                "nothing arms a delayed retraction at all any more");
     }
 
     #[test]
