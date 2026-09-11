@@ -158,6 +158,7 @@ private Q_SLOTS:
     void init();
     void cleanup();
 
+    void realCountExcludesVirtualRows();
     void appendAddsRow();
     void prependAddsRowsAtTop();
     void insertAtAddsRowInPlace();
@@ -306,6 +307,40 @@ void TimelineModelDiffTest::consecutiveDeletionsCollapseIntoOneRow()
     QVERIFY(leader(4));
     QVERIFY(leader(6));
     QCOMPARE(count(0), 0);
+}
+
+// `count` IS THE ROW COUNT AND MUST NOT BE USED TO COUNT MESSAGES.
+//
+// Date dividers, the read marker and the timeline-start row are rows like any
+// other. The thread panel's "N replies" divider read `count - 1`, subtracting
+// the thread ROOT and nothing else, so every virtual row inflated it — live on
+// 2026-09-11 a thread holding two replies and one date divider announced
+// "3 replies" beside a room summary card that correctly said two, the two
+// numbers visible in the same window at the same moment.
+//
+// This pins the distinction at the model, which is where it can be stated
+// once: `count` counts rows, `realCount` counts events.
+void TimelineModelDiffTest::realCountExcludesVirtualRows()
+{
+    TimelineEvent divider;
+    divider.type = TimelineEvent::DateDivider;
+    divider.itemId = QStringLiteral("uid-divider");
+    divider.roomId = kRoom;
+    divider.timestamp = QDateTime::fromMSecsSinceEpoch(1700000000000);
+    QVERIFY2(divider.isVirtual(), "fixture assumption: a date divider is virtual");
+
+    m_client->mirror = { makeEvent(QStringLiteral("$root"), QStringLiteral("root")),
+                         divider,
+                         makeEvent(QStringLiteral("$r1"), QStringLiteral("reply 1")),
+                         makeEvent(QStringLiteral("$r2"), QStringLiteral("reply 2")) };
+    m_model->setRoomId(QStringLiteral("!other:example.org"));
+    m_model->setRoomId(kRoom);
+
+    QCOMPARE(m_model->rowCount(), 4);
+    QCOMPARE(m_model->property("count").toInt(), 4);
+    // The number the thread panel shows is realCount - 1 (the root).
+    QCOMPARE(m_model->property("realCount").toInt(), 3);
+    QCOMPARE(m_model->property("realCount").toInt() - 1, 2);
 }
 
 void TimelineModelDiffTest::appendAddsRow()

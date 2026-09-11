@@ -595,7 +595,7 @@ Rectangle {
             Layout.bottomMargin: AppTheme.spacing4
             visible: app.thread.active
                      && app.thread.state === ThreadController.Ready
-                     && app.thread.model.count > 1
+                     && app.thread.model.realCount > 1
             spacing: AppTheme.spacing8
             Rectangle {
                 Layout.fillWidth: true
@@ -603,7 +603,13 @@ Rectangle {
                 color: AppTheme.border
             }
             Label {
-                readonly property int replies: app.thread.model.count - 1
+                // realCount, NOT count: `count` includes date dividers, the
+                // read marker and the timeline-start row, and the -1 here
+                // subtracts only the thread ROOT. Live on 2026-09-11 this
+                // said "3 replies" beside two replies and one date divider,
+                // while the room's own summary card said two.
+                readonly property int replies:
+                    app.thread.model.realCount - 1
                 text: qsTr("%n reply(s)", "replies in the open thread",
                            replies)
                 color: AppTheme.textMuted

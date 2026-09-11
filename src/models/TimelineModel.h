@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <functional>
 
 #include "matrix/TimelineEvent.h"
@@ -21,6 +22,7 @@ class TimelineModel : public QAbstractListModel
 
     Q_PROPERTY(QString roomId READ roomId WRITE setRoomId NOTIFY roomIdChanged)
     Q_PROPERTY(int count READ eventCount NOTIFY countChanged)
+    Q_PROPERTY(int realCount READ realEventCount NOTIFY countChanged)
     /// Source row of the SDK's read-marker ("New messages") virtual row, or -1
     /// when the loaded timeline does not carry one. See readMarkerRow().
     Q_PROPERTY(int firstUnreadRow READ readMarkerRow NOTIFY countChanged)
@@ -257,6 +259,27 @@ public:
     // mirror size" any more — this IS both the view count and the backend
     // growth count.
     int eventCount() const { return static_cast<int>(m_events.size()); }
+    /// The loaded rows that are REAL events — date dividers, the read marker
+    /// and the timeline-start row excluded.
+    ///
+    /// `count` counts rows, which is what a view wants and what any
+    /// "how many messages are here" label must NOT use. The thread panel's
+    /// "N replies" divider read `count - 1`, subtracting the thread root and
+    /// nothing else, so every virtual row inflated it: measured live on
+    /// 2026-09-11, a thread with two replies and one date divider announced
+    /// "3 replies" while the room's own summary card — which reads the SDK's
+    /// num_replies — correctly said two. A thread spanning several days
+    /// drifts by one per day.
+    ///
+    /// O(rows) and deliberately not cached: a thread timeline is small, it is
+    /// read by one label, and a cached counter is a second thing that every
+    /// mutation point would have to remember to update.
+    int realEventCount() const
+    {
+        return static_cast<int>(std::count_if(
+            m_events.begin(), m_events.end(),
+            [](const TimelineEvent &e) { return !e.isVirtual(); }));
+    }
     /// The loaded rows, virtual ones included. Read-only and by reference:
     /// the export renderer walks them and copying a busy room's timeline to
     /// count it would be pointless work. Callers must not hold it across a
