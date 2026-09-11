@@ -1621,7 +1621,17 @@ impl TimelineRegistry {
         } else {
             self.timeline_for(&room_id)
         };
-        let Some((timeline, room_gen, lifecycle)) = resolved else {
+        // NAMED `timeline_gen`, NOT `room_gen`, because in the thread branch
+        // it is a THREAD generation — `thread_timeline_for` returns
+        // `thread.thread_gen`. The first revision of this fix bound it to
+        // `room_gen` and handed it to `is_current`, which compares against
+        // `self.room_gen`: two independent counters, and `open_thread` bumps
+        // only the thread one, so with a thread open the thread generation is
+        // STRICTLY GREATER, the guard was unconditionally false, and the
+        // failure report below was dead code. A rejected thread edit said
+        // nothing at all — the silent no-op this whole family exists to
+        // remove, reintroduced in the reporting half.
+        let Some((timeline, timeline_gen, lifecycle)) = resolved else {
             return Err(if in_thread {
                 "No live timeline is open for that thread.".to_owned()
             } else {
@@ -1633,6 +1643,10 @@ impl TimelineRegistry {
         let mentions = mentions_from_ids(mention_user_ids);
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
+        // The room generation for the PAYLOAD, which names `room_generation`
+        // and must not carry a thread counter under that name even though no
+        // C++ consumer reads it — both handlers dispatch on `category` alone.
+        let room_gen_for_report = self.room_gen.load(Ordering::SeqCst);
         runtime.spawn(async move {
             let item_id = TimelineEventItemId::EventId(event_id);
             // ruma's make_replacement puts the new mentions in m.new_content and
@@ -1644,19 +1658,31 @@ impl TimelineRegistry {
             }
             let content = EditedContent::RoomMessage(message);
             unwedge_send_queue(&timeline);
-            if timeline.edit(&item_id, content).await.is_err()
-                && registry.is_current(room_gen, lifecycle)
-            {
-                enqueue(
-                    &events,
-                    json!({
-                        "type": "timeline_send_failed",
-                        "room_id": room_id,
-                        "room_generation": room_gen,
-                        "lifecycle": lifecycle,
-                        "category": "edit_rejected",
-                    }),
-                );
+            if timeline.edit(&item_id, content).await.is_err() {
+                // Each generation checked against its OWN counter, the split
+                // `toggle_reaction` already makes for the same reason.
+                let current = if in_thread {
+                    registry.thread_current(timeline_gen, lifecycle)
+                } else {
+                    registry.is_current(timeline_gen, lifecycle)
+                };
+                if current {
+                    // timeline_send_failed for BOTH lanes, deliberately: it is
+                    // the branch that produces "The edit could not be applied."
+                    // The thread_send_failed handler has no edit category and
+                    // would say "The thread reply could not be sent." — the
+                    // wrong words for an edit.
+                    enqueue(
+                        &events,
+                        json!({
+                            "type": "timeline_send_failed",
+                            "room_id": room_id,
+                            "room_generation": room_gen_for_report,
+                            "lifecycle": lifecycle,
+                            "category": "edit_rejected",
+                        }),
+                    );
+                }
             }
         });
         Ok(())
@@ -4898,6 +4924,61 @@ mod tests {
             "expected 11 queue-backed sends in timeline.rs; found {sends}. \
              If a send was added or removed, update this number AND confirm \
              every site is still guarded."
+        );
+    }
+
+    /// A THREAD EDIT MUST CHECK ITS OWN GENERATION COUNTER.
+    ///
+    /// `thread_timeline_for` returns `thread.thread_gen`, and `is_current`
+    /// compares against `self.room_gen` — two independent counters where
+    /// `open_thread` bumps only the thread one. So a thread generation handed
+    /// to `is_current` can never match, and the first revision of the
+    /// thread-edit fix did exactly that: the failure report was dead code and
+    /// a rejected thread edit said nothing at all.
+    ///
+    /// A source scan, because the behaviour needs a live SDK timeline that
+    /// this crate has no harness for. It pins the pairing that matters:
+    /// inside `edit`, the staleness test must branch on `in_thread` and reach
+    /// `thread_current`, and must not hand the resolved generation to
+    /// `is_current` unconditionally.
+    #[test]
+    fn a_thread_edit_checks_the_thread_generation() {
+        let source = include_str!("timeline.rs");
+        let after = source
+            .split("pub fn edit(")
+            .nth(1)
+            .expect("edit() not found — the scan is reading the wrong file");
+        // BOUND THE WINDOW, AND PROVE IT WAS BOUND. `split(..).next()` on a
+        // marker that has moved returns the WHOLE REMAINDER without failing,
+        // and the rest of this file is full of `thread_current` call sites —
+        // the scan would then pass on an edit() that had none of its own.
+        let bound = "\n    /// Toggle a reaction";
+        assert!(
+            after.contains(bound),
+            "edit() is no longer followed by toggle_reaction — re-bound this \
+             scan before trusting it"
+        );
+        let body = after.split(bound).next().unwrap();
+
+        // The PAIRING is the invariant: each lane's generation checked
+        // against the counter that issued it. `if in_thread {` alone proves
+        // nothing — edit() already branches on it twice for other reasons.
+        assert!(
+            body.contains("registry.thread_current(timeline_gen, lifecycle)"),
+            "a thread edit's failure report is not checked against the THREAD \
+             generation, so it can never fire"
+        );
+        assert!(
+            body.contains("registry.is_current(timeline_gen, lifecycle)"),
+            "a room edit's failure report is not checked against the room \
+             generation"
+        );
+        // And the resolved binding must not be NAMED room_gen while holding a
+        // thread generation — that name is what made the defect invisible.
+        assert!(
+            !body.contains("let Some((timeline, room_gen, lifecycle))"),
+            "edit() binds the resolved generation as `room_gen`, which is a \
+             thread generation in the thread branch"
         );
     }
 

@@ -4770,10 +4770,15 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // sent". One branch away from the defect the room lane's fix was
         // about.
         //
-        // Deliberately NOT edit_rejected: TimelineRegistry::edit always
-        // resolves the ROOM timeline and always emits timeline_send_failed,
-        // so that category cannot reach this handler. A branch for it here
-        // would be dead code claiming coverage it does not have.
+        // Deliberately NOT edit_rejected, and the reason changed on
+        // 2026-09-11 even though the conclusion did not. TimelineRegistry::
+        // edit no longer always resolves the ROOM timeline — it selects the
+        // thread's when given a root — but it still emits
+        // timeline_send_failed for BOTH lanes, on purpose: that is the branch
+        // carrying "The edit could not be applied.", and routing a thread
+        // edit here would produce "The thread reply could not be sent.",
+        // which is the wrong sentence for an edit. Keep it that way; a branch
+        // for edit_rejected here would be dead code.
         if (category == QLatin1String("reaction_rejected")) {
             Q_EMIT errorOccurred(tr("The reaction could not be applied."));
             return;

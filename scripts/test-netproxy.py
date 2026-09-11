@@ -11,7 +11,7 @@ process gives a network whose behaviour is under test control. It tunnels
 bytes for CONNECT and never inspects TLS, so nothing is decrypted here.
 
   netproxy.py --port 8888                  plain tunnel
-  netproxy.py --port 8888 --kbps 200       throttle every tunnel
+  netproxy.py --port 8888 --kbytes 200     throttle every tunnel
   touch <ctl>/cut                          drop all tunnels and refuse new
   rm <ctl>/cut                             resume
 """
@@ -19,7 +19,11 @@ import argparse, os, select, socket, threading, time
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--port", type=int, default=8888)
-ap.add_argument("--kbps", type=int, default=0, help="0 = unthrottled")
+# KIBIBYTES PER SECOND, per direction, per tunnel — not kilobits, and not an
+# aggregate. Named for what it does: the earlier `--kbps` overstated the rate
+# by eight and hid that two concurrent tunnels get twice the budget.
+ap.add_argument("--kbytes", type=int, default=0,
+                help="KiB/s per direction per tunnel; 0 = unthrottled")
 ap.add_argument("--ctl", default="/tmp/netproxy-ctl")
 args = ap.parse_args()
 os.makedirs(args.ctl, exist_ok=True)
@@ -67,7 +71,7 @@ def handle(cli):
         up = socket.create_connection((host, int(port or 443)), timeout=10)
         cli.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         live.extend([cli, up])
-        budget = int(args.kbps * 1024) if args.kbps else 0
+        budget = int(args.kbytes * 1024) if args.kbytes else 0
         t = threading.Thread(target=pump, args=(up, cli, budget), daemon=True)
         t.start()
         pump(cli, up, budget)
@@ -98,7 +102,7 @@ srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 srv.bind(("127.0.0.1", args.port))
 srv.listen(64)
 threading.Thread(target=watch_cut, daemon=True).start()
-print(f"proxy on 127.0.0.1:{args.port} kbps={args.kbps or 'unlimited'} ctl={args.ctl}", flush=True)
+print(f"proxy on 127.0.0.1:{args.port} kbytes={args.kbytes or 'unlimited'} ctl={args.ctl}", flush=True)
 while True:
     c, _ = srv.accept()
     threading.Thread(target=handle, args=(c,), daemon=True).start()

@@ -320,7 +320,19 @@ void MockMatrixClient::finalizeDemoMedia(DemoAccount &acct)
 TimelineEvent *MockMatrixClient::findEvent(const QString &roomId,
                                            const QString &eventId)
 {
-    auto it = m_timelines.find(roomId);
+    // A COMPOSITE THREAD-TIMELINE ID RESOLVES TO ITS ROOM. The mock keys
+    // m_timelines by the real room id and has no separate thread timeline —
+    // it reports supportsThreadTimelines() true and serves thread replies
+    // from the same list — so a caller handing it `room ␟ thread ␟ root`
+    // found nothing and the action failed with "original message not found".
+    //
+    // redactEvent and toggleReaction have passed the composite from
+    // TimelineModel since threads landed, and editMessage joined them on
+    // 2026-09-11; all three were affected, and one reduction here fixes all
+    // three. Identity for an ordinary room id (threadTimelineRoomId returns
+    // its input unchanged with no separator present).
+    const QString realRoom = MatrixClient::threadTimelineRoomId(roomId);
+    auto it = m_timelines.find(realRoom);
     if (it == m_timelines.end())
         return nullptr;
     for (auto &e : *it) {
