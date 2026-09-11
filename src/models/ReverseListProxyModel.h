@@ -85,6 +85,9 @@ public:
     /// than the current interval proves nothing — and the interval grows
     /// precisely when rows are expensive, which is the loaded machine a
     /// flake shows up on.
+    /// NOT BINDABLE — there is no change signal. `visible: view.revealIdle()`
+    /// compiles, evaluates once and never updates again. Call it; do not
+    /// bind to it.
     Q_INVOKABLE bool revealIdle() const { return m_revealedRows >= revealTarget(); }
     Q_INVOKABLE int oldestExposedSourceRow() const;
     // Move to the window (skipNewest, rows). Clamped to what the source

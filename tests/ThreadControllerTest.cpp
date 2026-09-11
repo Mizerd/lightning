@@ -226,6 +226,52 @@ private Q_SLOTS:
         QCOMPARE(spy.count(), 1);
     }
 
+    // A LABEL DIRECTLY ABOVE THE REPLIES MUST NEVER SAY FEWER THAN THEY ARE.
+    //
+    // Preferring the SDK's num_replies outright FAILED LIVE on 2026-09-11:
+    // sending a third reply left the divider reading "2 replies" above three
+    // visible ones, and it had not corrected itself 45 seconds later — the
+    // server's thread summary had simply not been re-delivered. A stale
+    // summary is stale LOW as readily as high, and low is the direction the
+    // reader can see.
+    void aStaleSummaryNeverUndercutsTheRepliesOnScreen()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+
+        const QString composite =
+            MatrixClient::threadTimelineId(kGeneral, rootId);
+        const auto thread = client.timeline(composite);
+        const int rootIndex = static_cast<int>(std::distance(
+            thread.cbegin(),
+            std::find_if(thread.cbegin(), thread.cend(),
+                         [&](const TimelineEvent &e) {
+                             return e.eventId == rootId;
+                         })));
+        QVERIFY2(rootIndex < thread.size(), "fixture assumption: the root is a row");
+
+        const int loaded = controller.replyCount();
+        QVERIFY2(loaded >= 2, "fixture assumption: at least two replies");
+
+        // The server is BEHIND what is loaded — exactly the live shape.
+        TimelineEvent stale = thread.at(rootIndex);
+        stale.threadReplyCount = loaded - 1;
+        client.changeEventAtForTest(composite, rootIndex, stale);
+
+        QCOMPARE(controller.replyCount(), loaded);
+
+        // And it still yields to a summary that is AHEAD, which is the case
+        // a loaded count can never know about: a windowed thread.
+        TimelineEvent ahead = stale;
+        ahead.threadReplyCount = loaded + 40;
+        client.changeEventAtForTest(composite, rootIndex, ahead);
+        QCOMPARE(controller.replyCount(), loaded + 40);
+    }
+
     void mockBackendSupportsThreadTimelines()
     {
         MockMatrixClient client;

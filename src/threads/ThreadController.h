@@ -314,7 +314,10 @@ private:
 
     MatrixClient *m_client = nullptr;
     TimelineModel m_model;
-    mutable int m_lastReplyCount = -1;
+    // De-duplication only: notifyReplyCountIfChanged() always recomputes
+    // from live state and compares. Never `mutable` — writing it from a
+    // const getter would mean emitting from one.
+    int m_lastReplyCount = -1;
     AttachmentQueueModel *m_attachments = nullptr;
     State m_state = Closed;
     QString m_roomId;

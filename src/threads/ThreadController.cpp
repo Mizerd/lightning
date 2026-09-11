@@ -91,15 +91,28 @@ ThreadController::ThreadController(QObject *parent)
             [this](const QModelIndex &topLeft, const QModelIndex &bottomRight,
                    const QList<int> &roles) {
                 // onEventChangedAt announces ALL roles (an empty list), so
-                // the role filter must treat empty as "might be it".
+                // the role filter must treat empty as "might be it" — which
+                // means every SDK Set reaches the next line.
                 if (!roles.isEmpty()
                     && !roles.contains(TimelineModel::ThreadReplyCountRole))
                     return;
-                const int rootRow = m_model.rowForStableId(m_rootEventId);
-                if (rootRow < 0 || rootRow < topLeft.row()
-                    || rootRow > bottomRight.row())
-                    return;
-                notifyReplyCountIfChanged();
+                // COMPARE IDS OVER THE ANNOUNCED RANGE; do not resolve the
+                // root's row. rowForStableId is an unconditional linear scan
+                // (it does not use the rowIndex hash), so asking it first
+                // would put an O(n) lookup in front of a free range test on
+                // every Set — a receipt-frequency cost on long timelines, and
+                // the third time this file would have paid it. The range is
+                // one row in practice, so this is O(1).
+                const auto &events = m_model.events();
+                const int lo = qMax(0, topLeft.row());
+                const int hi =
+                    qMin(bottomRight.row(), static_cast<int>(events.size()) - 1);
+                for (int row = lo; row <= hi; ++row) {
+                    if (events.at(row).eventId == m_rootEventId) {
+                        notifyReplyCountIfChanged();
+                        return;
+                    }
+                }
             });
     connect(&m_model, &TimelineModel::paginationChanged, this, [this] {
         const bool wasPaginating = m_modelPaginating;
@@ -374,7 +387,8 @@ void ThreadController::close()
         QFile::remove(op.localPath);
     m_voiceOps.clear();
     if (wasActive)
-        setState(Closed);
+        m_lastReplyCount = -1;   // the next thread announces its own
+    setState(Closed);
 }
 
 void ThreadController::sendText(const QString &body)
@@ -897,17 +911,34 @@ int ThreadController::replyCount() const
     int known = summaryFor(m_model.events(), m_rootEventId);
     // The root is not always a row of the THREAD model — rootInfo() has the
     // same fallback, for the window while the thread snapshot is still
-    // arriving — and that is precisely the case the SDK's number exists for,
-    // so consulting it only when the root is loaded would miss it.
-    if (known < 0 && m_client)
+    // arriving — and that is precisely the case the SDK's number exists for.
+    // Only worth the room-length scan when the thread model does not hold
+    // the root at all.
+    if (rootRow < 0 && known < 0 && m_client)
         known = summaryFor(m_client->timeline(m_roomId), m_rootEventId);
-    if (known >= 0)
-        return known;
 
-    // Nothing authoritative: count the REAL events loaded — virtual rows are
-    // rows and are not replies — and subtract the root only when the root is
-    // actually one of them.
-    return qMax(0, m_model.realEventCount() - (rootRow >= 0 ? 1 : 0));
+    // The REAL events loaded — virtual rows are rows and are not replies —
+    // less the root, when the root is one of them.
+    const int loaded = qMax(0, m_model.realEventCount() - (rootRow >= 0 ? 1 : 0));
+
+    // THE LABEL SITS DIRECTLY ABOVE THE REPLIES, SO IT MUST NEVER CONTRADICT
+    // THEM. Preferring the SDK's number outright was tried and FAILED LIVE on
+    // 2026-09-11: sending a third reply left the divider reading "2 replies"
+    // above three visible ones, and it had not corrected itself 45 seconds
+    // later — the server's thread summary simply had not been re-delivered.
+    // So the loaded replies are a FLOOR, and the SDK's number is consulted
+    // for what lies beyond the loaded window, which a loaded count can never
+    // know about.
+    //
+    // The cost of that choice, recorded rather than hidden: after a redaction
+    // the server may decrement num_replies while the redacted reply REMAINS a
+    // row (onEventRedacted sets `redacted` and removes nothing, and a
+    // redacted event is not virtual), so the divider can read one higher than
+    // the room's summary card. That is the lesser evil — the card describes
+    // the thread from outside, this label describes the list underneath it,
+    // and a label contradicting the rows it introduces is the defect a reader
+    // actually sees.
+    return qMax(known, loaded);
 }
 
 void ThreadController::notifyReplyCountIfChanged()
