@@ -15,6 +15,125 @@ By THEME, not chronology, and reduced to rules, refutations, deliberate
 decisions, measured numbers and live status. Features are §7; the caps
 contract, the refutation rule and the probe rule are in the standing warnings.
 
+#### 2026-09-11 (evening), four user reports, and a bell that hid real unreads
+
+**THE SIGNAL THAT ANNOUNCES A CHANGE IS NOT NECESSARILY THE SIGNAL THAT
+CARRIES IT.** This is the generalised form of the round's one serious defect
+and it cost a review round to catch. `ActivityModel` needed to know when a
+room had been read on ANY device, which the SDK expresses through four
+`RoomInfo` fields (`unreadCount`, `highlightCount`, `hasUnreadMessages`,
+`markedUnread`). The obvious trigger was `MatrixClient::roomUpdated` — a
+per-room signal, named for the thing being watched. It is the one room signal
+that never carries unread state: `RustSdkMatrixClient` emits `eventAppended`,
+and then THIRTY-SIX LINES LATER IN THE SAME FUNCTION raises the room's
+`lastActivity` to that event's timestamp and emits `roomUpdated`, touching no
+unread field. Those four fields are written in exactly one place,
+`rust_rooms::roomInfoFromJson`, reached only from the room PAYLOAD handlers —
+and every one of those emits `roomsChanged`.
+
+So the predicate read counters that still said "clear" from before the
+message, against a `lastActivity` that had just been raised to that very
+message — and the "nothing newer than lastActivity" refusal was satisfied to
+the millisecond by the row's own timestamp. **The first mention in any
+already-read room was marked seen on arrival.** The room badge would say 1
+and the bell 0: the same disagreement the change existed to remove, pointing
+the other way and worse, because this one hides something real.
+
+**A CONSUMER OF DERIVED STATE MUST LISTEN TO THE WRITER OF THAT STATE**, not
+to whatever signal is named after the same noun. The check is mechanical:
+grep every emit site of the signal you chose and confirm each one writes the
+field you read. Three of the four `roomUpdated` sites in `RustSdkMatrixClient`
+are in the timeline-event path; none writes an unread field.
+
+**And three tests structurally could not see it.** Each handed the model an
+already-updated `RoomInfo` and then emitted — so each one tested the fix's
+intent rather than production's ordering. The case that catches it ingests the
+row FIRST, against the stale pre-message `RoomInfo` with `lastActivity`
+already at the row's timestamp, and only then emits. Same family as the
+recorded "a policy test that invokes the policy function directly proves
+nothing about whether production ever reaches it".
+
+**A BACKEND THAT NEVER WRITES A FIELD IS NOT ANSWERING "no".** The same
+predicate collapsed onto `notification_count` alone on the mock and the
+experimental HTTP backend, because `hasUnreadMessages` and `markedUnread` are
+never assigned there — so "every unread signal is clear" was true BY OMISSION.
+`MatrixClient::tracksRoomReadState()` is the honest gate: false by default,
+true only where someone actually answers. Sibling of the recorded
+[[boolean-cannot-say-unknown]] lesson, in the negative direction.
+
+**A LANDING IS ANNOUNCED NOW, because an absence is not a proof.**
+`SfuMediaEngine::setTrackVolume` logged `participant volume had nowhere to
+land` on a miss and NOTHING on a hit, so "the per-participant slider is not
+cosmetic" could only ever be argued from silence — and silence is also what a
+control nobody calls produces. `participant volume applied: wanted=<element>
+percent=<n> gst=<factor> elements=<count>` is written only after
+`g_object_set(element, "volume", …)` succeeded on a real element, at qCInfo
+(a tester running `*.debug=false` would otherwise turn its absence into a
+confident false FAIL), rate-limited per key on a REAL change. A landing also
+clears that key's warned flag — ABOVE the rate limit, or a torn-down and
+rebuilt bin silences the next genuine outage forever.
+
+**A THREAD NOTIFICATION'S ROOT IS CONTEXT, AND CONTEXT MAY NOT PAGINATE.**
+Reported as a notification click that "started scrolling backwards, I had to
+stop it when it got to august". `jumpToEvent()` is allowed to spend
+`kMaxNavigationBatches` (8) real backward paginations hunting for its target,
+which is right for a message the reader asked for. B023's repair pointed a
+thread notification at the thread ROOT — which the room timeline genuinely can
+hold — and missed the PRICE: the destination is the thread panel, already open
+on the same turn, while a root can be arbitrarily old. `revealIfLoaded()` takes
+the row when the timeline already has it and does nothing when it does not —
+not a failure either, since posting the unavailable notice for context nobody
+requested would be a second lie. An ordinary notification is unchanged.
+NOT live-validated, and the honest limit is stated: an old `eventId` on an
+ordinary notification reaches the same 8 pages BY DESIGN, and that path is
+deliberately left alone, so this may not be the whole of what the reporter saw.
+
+**THE RENDERER NOW SAYS WHICH BACKEND IT GOT.** `src/main.cpp` probes for a
+usable OpenGL context and falls back to `QSGRendererInterface::Software`; its
+qWarning was the only observable, so a log with no such line was
+indistinguishable from a log whose line was never written, and
+`setGraphicsApi()` is a REQUEST rather than an answer. One startup line now
+reads `rendererInterface()` once `sceneGraphInitialized` fires:
+`lightning: scene graph backend=<name> software=<0|1> platform=<x>
+refreshHz=<r> dpr=<d>`. The refresh rate rides along because it is what makes
+a reported frame rate legible — an overlay claiming thousands of frames a
+second against a 60 Hz panel is either not measuring presentation or the swap
+chain is not throttling, and those are different investigations. Written for
+the open "bouncing up to 9999 fps" report; it is an INSTRUMENT, not a fix.
+
+**`scripts/gui-suite-calls.sh` IS THE CALL/SHARE/VOLUME CHECKS AS A SUITE, and
+running it found two defects in itself that reading it did not.** Every
+assertion is on evidence the layout cannot fake — an engine log line or a
+value on disk — and it refuses to act on a process whose command line does not
+name an isolated throwaway profile, fails rather than clicking blind when KWin
+declines the pinned geometry, and proves cgroup ownership before restarting a
+systemd unit.
+- It refused to start on the machine it was written for: `no ImageMagick`. The
+  GUI host has spectacle and no ImageMagick at all. A crop tool is the wrong
+  shape for a hard precondition when no assertion depends on a picture;
+  captures fall back to an uncropped full screen and say so.
+- Its `share` check passed on a step that never happened. Clicking the
+  portal's source tile CONFIRMS on this rig, so the dialog was gone before the
+  Enter ran, `keypid`'s focus guard correctly refused to type into whatever
+  had focus, and the check passed on its real assertions anyway. It asks
+  whether the picker is still there now, and names the path it took.
+
+**LIVE-VALIDATED PASS, two clients on the laptop rig** (AppImage
+0.9.4+git, profiles A and B, `matrix.smetonis.net`): a two-party call with
+clear-frame counters advancing in both directions on both clients; a screen
+share that B RENDERS (`frames in the clear in video= true`, first encoded
+frame at 108-152 ms, GPU scaling); per-participant volume at 0% muting with
+the popup reading `0%`; 200% reached by dragging (plain clicks do not move
+that slider) with the tooltip documenting amplification; and the value
+surviving a full `systemctl --user restart` — `callVolumes\<hash>=200` on disk
+and the popup still reading 200% after. **NOT TESTED: audibility.** Nobody
+listened; what is proven is that the value reaches a real GStreamer `volume`
+element.
+
+**NOT live-validated in this round:** the bell's cross-device clear (needs a
+second device reading a room the bell holds a row for), the thread-notification
+scroll, and the renderer line's non-software branch.
+
 #### 2026-09-11, the thread edit live, and a reply count that counted rows
 
 **THE FOURTH THREAD DEFECT IS LIVE-VALIDATED: PASS.** Driven through the GUI
