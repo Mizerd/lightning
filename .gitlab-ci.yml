@@ -528,9 +528,30 @@ build-snap:
       artifacts: true
   before_script:
     - apt-get update
+    # THE GRAPHICS LIBRARIES ARE BUILD INPUTS FOR THE SNAP, not runtime
+    # dependencies of this job. build-snap.sh stages into the payload
+    # whatever the shipped binary cannot resolve against the AppDir alone —
+    # the base set linuxdeploy's excludelist deliberately leaves on the host,
+    # which a strictly confined snap cannot see. It has to have something to
+    # copy FROM, and this image is the right source: it is ubuntu:24.04, the
+    # same base the snap declares (`base: core24`), so anything staged from
+    # here is glibc-compatible with the base snap by construction.
+    #
+    # Measured 2026-09-11 under a real snapd, the first time a Lightning snap
+    # had ever been run: it installed and then died on `libEGL.so.1: cannot
+    # open shared object file`. Six libraries were unresolved inside the
+    # confinement and every one was absent from the payload AND from core24
+    # while present on the host, which is why `ldd` was happy unconfined and
+    # every CI check passed.
     - >-
       apt-get install -y --no-install-recommends
       ca-certificates file jq python3 python3-yaml squashfs-tools zstd
+      libegl1 libglx0 libgl1 libopengl0
+      libx11-6 libx11-xcb1 libxcb1 libxkbcommon-x11-0
+      libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0
+      libxcb-render-util0 libxcb-shape0 libxcb-shm0 libxcb-sync1
+      libxcb-xfixes0 libxcb-xkb1 libxcb-cursor0 libxcb-util1
+      libxcb-glx0 libxcb-present0 libxcb-dri3-0
   script:
     - ./packaging-ci/scripts/build-snap.sh
 

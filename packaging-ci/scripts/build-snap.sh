@@ -51,6 +51,78 @@ mkdir -p "$TREE"
 # top-level desktop file, .DirIcon) stay behind in the AppDir.
 cp -a "$SNAP_WORK/appdir/usr" "$TREE/usr"
 
+# ── THE BASE GRAPHICS STACK, WHICH AN APPIMAGE MUST NOT BUNDLE AND A SNAP
+#    CANNOT DO WITHOUT ────────────────────────────────────────────────────
+#
+# The snap installed and then died on `libEGL.so.1: cannot open shared object
+# file` — measured under a real snapd on 2026-09-11, the first time one had
+# ever been run. Six libraries were unresolved inside the confinement, and
+# every one of them was ABSENT FROM THE PAYLOAD AND FROM core24 WHILE BEING
+# PRESENT ON THE HOST. That is exactly why `ldd` resolves them unconfined,
+# why every CI check passed, and why nothing caught it for months.
+#
+# The AppDir is right to omit them. linuxdeploy's excludelist leaves the X,
+# GL and Wayland client libraries on the host on purpose, and
+# build-appimage.sh records what re-bundling one costs: GitHub issue #9, where
+# a bundled libwayland-client older than the host's was handed to the host's
+# Mesa EGL and aborted the client on every native Wayland session. An AppImage
+# can see /usr/lib. A STRICTLY CONFINED SNAP CANNOT — that is the whole point
+# of the confinement — so the same omission that keeps the AppImage portable
+# makes the snap unlaunchable.
+#
+# COMPUTED, NOT LISTED. The set is derived from what the shipped binary and
+# its Qt platform plugins actually fail to resolve against the payload, so a
+# Qt or plugin change that needs a seventh library is staged without anyone
+# remembering to add it. libEGL/libGLX/libGLdispatch are libglvnd DISPATCH
+# libraries: they are vendor-neutral and load the real driver through the
+# snap's `opengl` interface at runtime, so staging them does not pin a GPU.
+stage_unresolved_libs() {
+    local probe want src staged=0
+    local -a probes=("$TREE/usr/bin/lightning-matrix")
+    while IFS= read -r probe; do probes+=("$probe"); done < <(
+        find "$TREE/usr/plugins/platforms" "$TREE/usr/plugins/xcbglintegrations" \
+             -name '*.so' 2>/dev/null)
+    for probe in "${probes[@]}"; do
+        [ -e "$probe" ] || continue
+        while IFS= read -r want; do
+            [ -n "$want" ] || continue
+            # Already in the payload, or provided by core24's own runtime.
+            [ -e "$TREE/usr/lib/$want" ] && continue
+            case "$want" in
+                # NEVER: the loader and the C/C++ runtime come from the base
+                # snap, exactly as they come from the host for an AppImage.
+                ld-linux*|libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|\
+                librt.so.*|libgcc_s.so.*|libstdc++.so.*|libresolv.so.*) continue ;;
+            esac
+            src=$(ldconfig -p 2>/dev/null | awk -v n="$want" '$1==n {print $NF; exit}')
+            [ -n "$src" ] && [ -e "$src" ] || continue
+            cp -Ln "$src" "$TREE/usr/lib/$want" 2>/dev/null && staged=$((staged+1))
+        done < <(LD_LIBRARY_PATH="$TREE/usr/lib" ldd "$probe" 2>/dev/null \
+                 | awk '/not found/ { print $1 }')
+    done
+    echo "$staged"
+}
+snap_staged=$(stage_unresolved_libs)
+echo "snap: staged $snap_staged base libraries the AppDir deliberately omits"
+
+# AND ASSERT IT, because the failure mode is a snap that installs cleanly and
+# then does not start — which no build-time check can see and which the
+# runner fleet cannot reach at all (validate-snap.sh says so itself: a real
+# `snap install --dangerous` needs a running snapd and there is none). This
+# is the same shape as the GStreamer-plugin and image-format guards above,
+# and it exists for the same reason: graceful fallback and silent absence are
+# the same observable unless something asserts the payload.
+for base_lib in libEGL.so.1 libGLX.so.0 libGLdispatch.so.0 \
+                libX11.so.6 libX11-xcb.so.1 libxcb.so.1; do
+    test -f "$TREE/usr/lib/$base_lib" || \
+        die "the snap payload has no $base_lib; it would install and then fail to start"
+done
+# Nothing the binary needs may remain unresolved against the payload alone.
+still_missing=$(LD_LIBRARY_PATH="$TREE/usr/lib" ldd "$TREE/usr/bin/lightning-matrix" 2>/dev/null \
+                | awk '/not found/ { print $1 }' | tr '\n' ' ')
+[ -z "$still_missing" ] || \
+    die "the snap payload cannot resolve: $still_missing"
+
 # Launcher: point Qt at the bundled runtime under $SNAP -- and GStreamer too.
 # The snap takes only usr/ from the AppDir, so linuxdeploy's AppRun and its
 # apprun-hooks/gstreamer.sh stay behind; without the three variables below the
