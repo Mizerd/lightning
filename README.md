@@ -139,10 +139,24 @@ Replace `0.9.3` below with the version you downloaded.
 
 ### Linux
 
+The deb and the rpm are each built against a recent Qt, and their declared
+dependencies say so. **If your distribution ships an older Qt the package will
+refuse to install rather than half-work** — use the AppImage or the Flatpak
+there, both of which carry their own Qt.
+
+| package | needs | known good | known to FAIL |
+|---|---|---|---|
+| `.deb` | Qt >= 6.8.2, GStreamer >= 1.26.2, `QtQuick.Effects` (Qt 6.5+) | Debian 13 | **Ubuntu 24.04 LTS** (Qt 6.4.2), and its derivatives — Mint 22.x, Pop!_OS 24.04 |
+| `.rpm` | Qt 6.11 | Fedora 44 | **Fedora 43** (Qt 6.10.3) |
+
+Both rows are measured on a real installation of each distribution, not
+inferred from the packaging. openSUSE and RHEL are **untested**; the rpm's Qt
+6.11 floor makes any current RHEL unlikely to satisfy it.
+
 ```sh
-sudo apt install ./lightning_0.9.3_amd64.deb            # Debian, Ubuntu, Mint, Pop!_OS
-sudo dnf install ./lightning-0.9.3-1.x86_64.rpm         # Fedora, RHEL
-sudo zypper install ./lightning-0.9.3-1.x86_64.rpm      # openSUSE
+sudo apt install ./lightning_0.9.3_amd64.deb            # Debian 13+
+sudo dnf install ./lightning-0.9.3-1.x86_64.rpm         # Fedora 44+
+sudo zypper install ./lightning-0.9.3-1.x86_64.rpm      # openSUSE (untested)
 
 # The VERSION stays in the pattern; only the suffix is globbed, because some
 # browsers and download managers lower-case .AppImage on the way in. Do not
