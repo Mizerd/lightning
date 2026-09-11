@@ -45,6 +45,8 @@ check(idxs == sorted(idxs), "required stages are in the correct order")
 required_jobs = [
     "resolve-source", "build-deb", "build-rpm",
     "build-flatpak", "build-appimage", "build-snap",
+    # The second deb lane, which existed for a while as a job nothing consumed.
+    "build-deb-ubuntu", "validate-deb-ubuntu",
     "validate-deb", "validate-rpm",
     "validate-flatpak", "validate-appimage", "validate-snap",
     "publish-packages", "verify-published-packages", "finalize-release",
@@ -54,6 +56,20 @@ required_jobs = [
 ]
 for job in required_jobs:
     check(job in doc, f"job {job} is defined")
+
+# --- every package a publishing pipeline BUILDS must be consumed by the job
+# --- that publishes it. `build-deb-ubuntu` shipped for a while as a lane no
+# --- consumer listed: it built and validated a real package on every
+# --- publishing pipeline and then let the artifact expire with the job. That
+# --- is invisible in a green pipeline, which is exactly why it is asserted
+# --- here rather than noticed later.
+publish_needs = {
+    n["job"] if isinstance(n, dict) else n
+    for n in doc.get("publish-packages", {}).get("needs", [])
+}
+for job in ["validate-deb", "validate-deb-ubuntu", "validate-rpm",
+            "validate-flatpak", "validate-appimage", "validate-snap"]:
+    check(job in publish_needs, f"publish-packages consumes {job}")
 
 # --- one dedicated runner pool per format: every build/validate job selects
 # --- exactly one unique selector tag. Each selector matches a runner on both

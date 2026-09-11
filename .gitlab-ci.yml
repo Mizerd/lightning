@@ -390,6 +390,14 @@ build-deb-ubuntu:
     - ./packaging-ci/scripts/prepare-pinned-source.sh
     - ./packaging-ci/scripts/build-deb.sh
     - ./packaging-ci/scripts/write-build-info.sh deb
+  # ITS OWN ARCHIVE NAME. `.build-base` names the archive
+  # `lightning-${FORMAT}-<pipeline>`, and FORMAT is "deb" in BOTH deb lanes —
+  # so the two jobs produced archives of the same name, and their
+  # `dist/build-info.json` overwrote one another wherever both were
+  # downloaded together. The package filenames already differ (DEB_SUFFIX);
+  # these did not.
+  artifacts:
+    name: "lightning-deb-ubuntu-${CI_PIPELINE_ID}"
 
 
 build-rpm:
@@ -835,10 +843,22 @@ validate-deb:
       - dist/version.env
       - dist/version.json
 
-# The Ubuntu lane's validator. Same script, same assertions, different base —
-# and that IS the point: a package's install test has to run somewhere other
-# than the image that built it, which is the gap that let the Ubuntu failure
-# live for months (validate-deb pins the same digest build-deb does).
+# The Ubuntu lane's validator. Same script, same assertions, different TARGET.
+#
+# WHAT THIS DOES NOT DO, because this comment used to claim it did: it does not
+# install a package on an image other than the one that built it. Both jobs pin
+# the same ubuntu:26.04 digest, exactly as `build-deb`/`validate-deb` both pin
+# Debian, `build-rpm`/`validate-rpm` both pin Fedora, and so on for flatpak,
+# appimage and snap; Windows and macOS validate inside their build job. So
+# EVERY format is still validated on the machine that produced it, and a
+# package that installs where it was built and nowhere else still goes green.
+#
+# That is the gap which let the Ubuntu failure live for months, and it is still
+# OPEN. What this lane adds is a second target — a deb built FOR Ubuntu — not a
+# second environment. Closing the real gap needs one job per format that
+# installs the artifact on an image it was not built on; the obvious first one
+# is `build-deb`'s Debian output on this same ubuntu:26.04 image, asserting the
+# documented REFUSAL rather than a success.
 validate-deb-ubuntu:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
@@ -1092,6 +1112,13 @@ publish-packages:
       artifacts: true
     - job: validate-deb
       artifacts: true
+    # The Ubuntu deb is PUBLISHED. It used to be built and validated and
+    # then dropped on the floor: nothing listed it as a need, so a fat-LTO
+    # build burned per publishing pipeline, the artifact expired with the
+    # job, and no Ubuntu user ever saw it. It is deliberately NOT in the
+    # signed UPDATE manifest — see write-manifest.sh for why.
+    - job: validate-deb-ubuntu
+      artifacts: true
     - job: validate-rpm
       artifacts: true
     - job: validate-flatpak
@@ -1269,6 +1296,13 @@ mirror-release-to-github:
     - job: resolve-source
       artifacts: true
     - job: validate-deb
+      artifacts: true
+    # The Ubuntu deb is PUBLISHED. It used to be built and validated and
+    # then dropped on the floor: nothing listed it as a need, so a fat-LTO
+    # build burned per publishing pipeline, the artifact expired with the
+    # job, and no Ubuntu user ever saw it. It is deliberately NOT in the
+    # signed UPDATE manifest — see write-manifest.sh for why.
+    - job: validate-deb-ubuntu
       artifacts: true
     - job: validate-rpm
       artifacts: true

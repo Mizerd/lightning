@@ -31,11 +31,23 @@ short_sha="${SOURCE_SHA:0:7}"
 WINDOWS_SUFFIX="$(windows_unsigned_suffix)"
 
 # Declared package files for this release. Append future formats here only.
-declare -a formats=(deb rpm flatpak appimage snap windows-portable windows-msi windows-setup)
+declare -a formats=(deb deb-ubuntu rpm flatpak appimage snap windows-portable windows-msi windows-setup)
 declare -A file_of arch_of name_of
 file_of[deb]="$ROOT/dist/lightning_${PACKAGE_VERSION}_amd64.deb"
 arch_of[deb]="amd64"
 name_of[deb]="Lightning ${PACKAGE_VERSION} — Debian amd64"
+# THE UBUNTU DEB IS PUBLISHED, AND DELIBERATELY NOT IN THE SIGNED UPDATE
+# MANIFEST. This file writes the PUBLICATION manifest — registry links and
+# mirror assets — while the updater reads the separate signed manifest built by
+# generate-update-manifest.sh, whose format map turns `deb` into the install
+# type `linux-deb`. An Ubuntu deb install reports that SAME install type, so
+# advertising both would hand a deb client two candidates it has no way to
+# choose between. Publishing the file gives Ubuntu users a download; teaching
+# the updater to tell the two apart is a separate decision, and until it is
+# taken this entry must not be added to that map.
+file_of[deb-ubuntu]="$ROOT/dist/lightning_${PACKAGE_VERSION}_ubuntu2604_amd64.deb"
+arch_of[deb-ubuntu]="amd64"
+name_of[deb-ubuntu]="Lightning ${PACKAGE_VERSION} — Ubuntu 26.04 amd64"
 file_of[rpm]="$ROOT/dist/lightning-${PACKAGE_VERSION}-1.x86_64.rpm"
 arch_of[rpm]="x86_64"
 name_of[rpm]="Lightning ${PACKAGE_VERSION} — RPM x86_64"
