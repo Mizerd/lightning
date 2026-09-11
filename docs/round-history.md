@@ -135,6 +135,78 @@ GENERALISE: a label that says how many MESSAGES there are must never be
 derived from a row count, in any view that synthesises rows. Lightning
 synthesises three kinds.
 
+#### 2026-09-11 (later), four defects an analyst found by looking for known shapes
+
+A read-only pass whose brief was "look for a test that cannot fail, a
+diagnostic that reports a constant, a comment that contradicts the code beside
+it, a NOTIFY some mutator does not emit — this file records several of each
+shipping, treat that as the base rate". It found one of each. That brief is
+reusable, and the yield says the base rate is real.
+
+**THE THREAD PANEL'S ROOT CARD WAS A SNAPSHOT WITH NO IN-PLACE TRIGGER.**
+`ThreadPanel` copies `app.thread.rootInfo()` into `rootData` and refreshed it
+on exactly three things: a lifecycle change, `model.countChanged`, and
+`Component.onCompleted`. The card renders the root's body, its `redacted` and
+`undecryptable` states, and its sender's name and avatar — and every one of
+those arrives as an IN-PLACE SET, which changes no row count. So a thread root
+that arrived undecryptable and decrypted later kept "Unable to decrypt this
+message" on screen above replies that had decrypted fine, and editing or
+redacting the root while the panel was open left the original body. §9 is
+explicit that a late key updates the event in place with no restart and no
+room switch; the card broke that. `ThreadController` already identified a
+root-row `dataChanged` for the reply count, so it now emits `rootInfoChanged`
+from the same place and the panel refreshes on it. Predates this week's
+countChanged work — `onEventChangedAt` never emitted countChanged at all
+before — so it is not a regression from it.
+GENERALISE: this is the reply-count NOTIFY defect one layer up, found by
+asking "what else in this file reads a snapshot?" after fixing the first.
+
+**AN OVERFLOW ANNOUNCED THAT THE STREAM BROKE AND REPAIRED NOTHING.** The
+Rust→C++ queue drops its OLDEST entries at `EVENT_QUEUE_CAP` and injects one
+`queue_overflow` marker; the handler logged it, emitted a banner and returned.
+What the queue carries is POSITIONAL — timeline diffs at an index, room-list
+index diffs — so after a drop every later op addresses a vector that never
+received the earlier ones, and only SOME of that is detectable: an
+out-of-range index is caught by `DiffOutcome::Invalid`, but a dropped `Set` (a
+send-state update, a decryption, an edit) or a dropped insert followed by
+in-range ops passes every bounds check in silence, and nothing in the payload
+carries a sequence number that would reveal the gap. It now re-snapshots with
+the two primitives this file already uses for DETECTED damage — resync the
+room list, reload the open room — both idempotent, and the producer injects at
+most one marker per episode so it cannot chase its own tail.
+GENERALISE: "we told the user it broke" is not error handling when the
+program is the only party that can repair it.
+
+**A NOTIFY NOTHING EMITTED, BESIDE A COMMENT ASSERTING IT DID.**
+`CustomThemeStore`'s `roles` is declared `NOTIFY rolesChanged` under a comment
+saying labels "are translated, so this is re-read on a language change rather
+than being CONSTANT". `rolesChanged` was emitted nowhere in the tree — a
+mechanical sweep of every `Q_PROPERTY` NOTIFY in `src/` found it the only one
+neither emitted nor forwarded. `roles()` builds its labels with `tr()`, and
+QML's `engine.retranslate()` does not reach strings a C++ model has already
+turned into data, so the theme editor kept the old language until reopened.
+The store already holds the `SettingsManager` and already wires
+`sessionChanged`; it wires `languageChanged` now, which makes the comment
+true rather than weakening it.
+
+**AND A CONTRACT SCAN THAT PASSES IF ITS SUBJECT IS RENAMED.**
+`theChannelsPresenterDrawsNoSecondGrouping` read a QML file through a helper
+that answers an EMPTY string when the file cannot be opened, then asserted
+only that the text does NOT contain something. Rename or move the file and the
+case goes green — the one change most likely to break the contract it pins.
+Its neighbour one line away already had the `!isEmpty()` guard.
+GENERALISE: a purely NEGATIVE assertion over text that might not have loaded
+is vacuous by construction. Assert you read something first.
+
+**Three doc claims were also false and have been corrected**, all of the same
+kind: an "accepted follow-up" or a "STILL NOT SEEN" that a later round closed
+without going back to amend. The cost is an agent re-doing shipped work or
+hunting a surface that has been found — CLAUDE.md's local-search paragraph
+still said the find bar had never been reached from the GUI, and pointed at
+the room-header magnifier, which is the wrong surface.
+GENERALISE: when a round closes something an earlier entry lists as open, the
+edit to the earlier entry is part of closing it.
+
 #### 2026-09-11, review round 6, and three anchor tests that proved nothing
 
 **A GENERATION GUARD IS ONLY A GUARD IF IT NAMES THE RIGHT COUNTER.** The
@@ -664,15 +736,20 @@ load-sensitive suites.
 machine where a native secret backend is compiled in but unavailable,
 `SecretStore` substitutes the insecure fallback and `lastReadFailed()` is
 permanently true — so an account whose token really IS gone classifies
-`Unreadable` and is told to unlock a keyring that does not exist. Fixing it
-means splitting "read failed" from "substituted and therefore unvouched" at
-the `SecretStore` level. (2) `MessageHtmlTest` now carries two wall-clock
+`Unreadable` and is told to unlock a keyring that does not exist. **DONE —
+closed later the same day by `efd2009`: `InsecureFallbackSecretStore` splits
+`lastReadFailed()` (the real per-read failure) from `missesAreInconclusive()`
+(structural, and it never softens), which is exactly the split named here.** (2) `MessageHtmlTest` now carries two wall-clock
 assertions (complexity is the property under test and there is no branch to
 assert on; the headroom is 24x and documented in-source) — so a
 `message-html` failure in a full run should be re-run alone before it is read
 as a regression, exactly like the three suites §16 already tracks. (3)
 **Rust's DEFAULT panic hook still writes the payload to stderr**, and no
-`std::panic::set_hook` is installed anywhere in the crate. That matters
+`std::panic::set_hook` is installed anywhere in the crate. **DONE — closed
+later the same day by `581ba4e`: `install_panic_hook()` runs at the top of
+`mx_rust_create` and `panic_report_line()` keeps the location and drops the
+payload. Left here because the reasoning below is still the reasoning.** That
+matters
 because a `str` slice panic prints the string it was slicing, and the two such
 panics fixed in 0.9.4 were slicing message BODIES. It does NOT reach
 `--log-file` (that mirrors Qt's message handler, not the process's stderr),

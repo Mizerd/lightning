@@ -2067,11 +2067,13 @@ in the browser so the page cannot reach the account, keys or messages. One
 inaccuracy worth fixing eventually and not a defect: a `javascript:` URL is
 refused with the not-HTTPS wording rather than a scheme-specific one.
 
-STILL NOT SEEN: the find bar's source strip and coverage line. The room-header
-magnifier opens the SERVER-side search panel (it says so, and correctly finds
-nothing in an encrypted room); whatever surface exposes the local index was not
-reached from the GUI this round, so local search remains validated at the Rust
-layer only.
+SUPERSEDED 2026-09-10 — kept only to say so, because it sent a later round
+looking at the wrong surface: this paragraph used to read "STILL NOT SEEN: the
+find bar's source strip and coverage line … local search remains validated at
+the Rust layer only." Local search HAS since been driven from the GUI (it is
+the find bar's History scope, Ctrl+F — not the room-header magnifier, which
+opens the SERVER-side panel) and its coverage line was read off the screen.
+See the 2026-09-10 live-validation entry above.
 
 Keyboard automation now works — a `ydotool` uinput device plus KWin scripting
 for closed-loop pointer positioning, with a focus guard that refuses to type
