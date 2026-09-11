@@ -265,6 +265,17 @@ Q_SIGNALS:
     void supportedChanged();
     void stateChanged();
     void replyCountChanged();
+    /// The ROOT's own row changed in place — decrypted, edited, redacted, or
+    /// its sender's name/avatar resolved.
+    ///
+    /// The panel renders the root from a SNAPSHOT (`rootInfo()`), refreshed
+    /// only on a lifecycle change and on the model's countChanged. Every one
+    /// of those four arrives as an in-place Set, which changes no row count,
+    /// so without this the card kept showing "Unable to decrypt this
+    /// message" over a thread whose replies had decrypted fine — and §9 says
+    /// a late key must update the event in place, with no restart or room
+    /// switch.
+    void rootInfoChanged();
     void textChanged();
     void commandErrorChanged();
     // /markdown and /nick only ASK, exactly as in MessageComposer: the mode

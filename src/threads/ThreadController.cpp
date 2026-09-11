@@ -110,6 +110,8 @@ ThreadController::ThreadController(QObject *parent)
                 for (int row = lo; row <= hi; ++row) {
                     if (events.at(row).eventId == m_rootEventId) {
                         notifyReplyCountIfChanged();
+                        // The panel's root card is a snapshot of this row.
+                        Q_EMIT rootInfoChanged();
                         return;
                     }
                 }

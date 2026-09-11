@@ -272,6 +272,59 @@ private Q_SLOTS:
         QCOMPARE(controller.replyCount(), loaded + 40);
     }
 
+    // A LATE DECRYPTION MUST REACH THE ROOT CARD, NOT ONLY THE REPLIES.
+    //
+    // ThreadPanel renders the root from a SNAPSHOT (`rootInfo()`), refreshed
+    // only on a lifecycle change and on the model's countChanged. A late key,
+    // an edit, a redaction and a sender-name resolution all arrive as
+    // in-place Sets, which change no row count — so the card kept showing
+    // "Unable to decrypt this message" over a thread whose replies had
+    // decrypted fine, and §9 is explicit that a late key updates the event in
+    // place with no restart and no room switch.
+    void aRootRowChangedInPlaceAnnouncesItself()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+
+        const QString composite =
+            MatrixClient::threadTimelineId(kGeneral, rootId);
+        const auto thread = client.timeline(composite);
+        const int rootIndex = static_cast<int>(std::distance(
+            thread.cbegin(),
+            std::find_if(thread.cbegin(), thread.cend(),
+                         [&](const TimelineEvent &e) {
+                             return e.eventId == rootId;
+                         })));
+        QVERIFY2(rootIndex < thread.size(), "fixture assumption: the root is a row");
+
+        QSignalSpy rootSpy(&controller, &ThreadController::rootInfoChanged);
+        QSignalSpy countSpy(controller.model(), &TimelineModel::countChanged);
+
+        // The shape of a late decryption: same row, new body, no row added.
+        TimelineEvent decrypted = thread.at(rootIndex);
+        decrypted.body = QStringLiteral("the key finally arrived");
+        client.changeEventAtForTest(composite, rootIndex, decrypted);
+
+        QCOMPARE(rootSpy.count(), 1);
+        QCOMPARE(controller.rootInfo().value(QStringLiteral("body")).toString(),
+                 decrypted.body);
+        // And the fixture is honest: countChanged did NOT fire, which is why
+        // the panel's existing trigger could never have caught this.
+        QCOMPARE(countSpy.count(), 0);
+
+        // A Set on a REPLY must not masquerade as a root change.
+        const int replyIndex = rootIndex == 0 ? 1 : 0;
+        TimelineEvent reply = thread.at(replyIndex);
+        QVERIFY(reply.eventId != rootId);
+        reply.body = QStringLiteral("a reply changed, not the root");
+        client.changeEventAtForTest(composite, replyIndex, reply);
+        QCOMPARE(rootSpy.count(), 1);
+    }
+
     void mockBackendSupportsThreadTimelines()
     {
         MockMatrixClient client;

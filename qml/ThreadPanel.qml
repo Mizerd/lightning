@@ -147,6 +147,16 @@ Rectangle {
     }
     Connections {
         target: app.thread
+        // The root card is a SNAPSHOT, and the four things that change it —
+        // a late decryption, an edit, a redaction, the sender's name or
+        // avatar resolving — all arrive as in-place Sets that change no row
+        // count, so countChanged above never fires for them. The controller
+        // identifies a root-row change (it already does, for the reply
+        // count) and says so.
+        function onRootInfoChanged() { panel.refreshRoot() }
+    }
+    Connections {
+        target: app.thread
         function onNavigationTargetLocated(row) {
             replyList.positionAtNavigationRow(row)
         }
