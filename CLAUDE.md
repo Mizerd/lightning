@@ -49,13 +49,10 @@ available, and the recorded 0.9.0 gaps stay closed — Qt's TLS backends
 launched BARE on this NixOS host (`libEGL.so.1: cannot open shared object
 file`) because graphics libraries must come from the host and NixOS does not
 put them on the standard path — that is the host, not the package, and
-`nix-shell -p appimage-run` runs it correctly. And **`gst-plugin-scanner` is
-NOT staged in the AppImage**, so it prints `External plugin loader failed` at
-every launch and falls back to scanning in-process. Same defect the macOS
-bundle had and the same fix shape (stage the helper, derive its path);
-`applyBundledScannerPath()` is already exported and tested, so only the
-packaging half plus dropping the `Q_OS_MACOS` guard is missing. Log noise and
-lost crash isolation, NOT a call failure — the engine reports available.
+`nix-shell -p appimage-run` runs it correctly. And the `gst-plugin-scanner`
+gap this section used to record is **CLOSED, and proven on the artifact**:
+project 6 pipeline **187** builds and validates an AppImage that stages the
+helper, reports its path at launch and logs zero plugin-loader warnings.
 
 Previous release: **Lightning 0.9.3** (`v0.9.3` -> `7306dde`), tagged
 2026-09-08 by **project 6** pipeline **183, 21/22** (the one red job is
@@ -77,14 +74,10 @@ digest. The website (third repo, §14) is at 0.9.3 and both of its checks pass
 against the real release.
 
 **0.9.3's ONE red job was a verification racing GitHub's CDN, not a bad
-upload.** `mirror-update-manifest-to-github` read its own upload back 1.5 s
-later and got the PREVIOUS release's object at a 200, from an edge that had
-not been invalidated; the stored bytes were correct throughout (the API served
-0.9.3 immediately) and the public URL caught up within about two minutes. The
-read-back now compares the digest INSIDE its retry loop rather than once after
-it (`6149337`), with a mock that serves stale-but-200 reads so both halves are
-covered. Its sibling failure shape, a 404 while the API says `state=uploaded`,
-is the one recorded below.
+upload** — a stale-but-200 read-back of its own upload, fixed in `6149337` by
+comparing the digest INSIDE the retry loop. The generalised trap, and its
+sibling (a 404 while the API says `state=uploaded`), are in the trap list
+below.
 
 **ON `main` ABOVE 0.9.4 (2026-09-10, NOT a release).** Nothing tagged, no
 version bumped. Two batches, both recorded in `docs/round-history.md` under
@@ -1047,6 +1040,10 @@ the staging/freeze window `225c7b3` shipped, regressed and was removed
 in `263268b`). A fourth needs a `LIGHTNING_SCROLL_TRACE=1` capture
 naming a failure: a non-zero `displacedApplied`, `anchorCorrections` or
 `materializedMaxAbsDelta`. All-zero lines are not evidence.
+**THERE IS NOW A DIRECT MEASUREMENT OF THAT CLAIM** (2026-09-11): disabling
+`maintainViewAnchor()` outright fails EIGHT cases in `timeline-pane-qml`,
+and the three prepend/anchor cases — `topEdgePrepend…MidGesture` among
+them — all PASS. A backfill prepend has nothing to correct.
 
 *Element (classic) was read for this and does NOT animate.*
 `ScrollPanel.scrollToBottom()` is a bare `scrollTop = scrollHeight`;
@@ -1373,7 +1370,11 @@ The usual offender is
 so before reading a failure as a scroll regression, re-run it alone and at
 lower parallelism. §16's scrolling block is explicit that a fourth anchor fix
 needs a `LIGHTNING_SCROLL_TRACE=1` capture naming a failure, and a flake is
-not that capture.
+not that capture. **It cannot BE a compensation regression** (the measurement
+in that block), and since 2026-09-11 its failure text names which of two
+things ran out of time instead of the bare `returned FALSE ()` that named
+nothing — the wait is on the anchor row's construction alone now, so a loaded
+machine cannot produce the failure and the 2 px bound is read once.
 
 **A PIPELINE'S CAPS ARE A CONTRACT BOTH ENDS MUST HONOUR, and three ways
 this lane has broken it.** All three were live defects, all three were

@@ -15,6 +15,81 @@ By THEME, not chronology, and reduced to rules, refutations, deliberate
 decisions, measured numbers and live status. Features are §7; the caps
 contract, the refutation rule and the probe rule are in the standing warnings.
 
+#### 2026-09-11, review round 6, and three anchor tests that proved nothing
+
+**A GENERATION GUARD IS ONLY A GUARD IF IT NAMES THE RIGHT COUNTER.** The
+thread-edit fix shipped a failure report that could never fire. `edit()`
+resolves its timeline through `thread_timeline_for` in the thread lane, which
+returns `thread.thread_gen`; the binding was NAMED `room_gen` and handed to
+`is_current`, which compares against `self.room_gen`. They are independent
+counters and `open_thread` bumps only the thread one, so the test was
+unconditionally false and a REJECTED thread edit said nothing at all — the
+silent no-op the whole four-defect family exists to remove, reintroduced in
+the reporting half of its own fix. `toggle_reaction` had already split the
+two; `edit` now does the same. The name is what hid it, so the regression
+scan asserts the pairing AND refuses the old name.
+GENERALISE: when two generation counters exist, a variable holding "the"
+generation is a bug waiting for a reader — name it for its lane.
+
+**AND THE SCAN THAT PINS IT WAS ITSELF WRITTEN WRONG FIRST.** It bounded the
+window with `split(marker).next()`, which on a marker that has MOVED returns
+the whole remainder without failing — and the rest of `timeline.rs` is full
+of `thread_current` call sites, so the scan would have passed on an `edit()`
+that had none. Its other assertion, `body.contains("if in_thread {")`, was
+already satisfied twice over by branches `edit()` had before this round. Both
+replaced: the bound is asserted before use, and the assertions name the exact
+pairing. Mutation-proven in both directions.
+
+**THREE ANCHOR TESTS PASS WITH `maintainViewAnchor()` DISABLED OUTRIGHT.**
+Measured, module rebuilt: an `if (true) return` at the top of that function
+fails EIGHT cases in `timeline-pane-qml` — the `diag*` family,
+`displacedBranchDoesNotFireWhileAnchorDelegateAlive` and
+`anchorDelegateSurvivesDistantScrollNeverEvictedFallback` — and
+`topEdgePrependKeepsReaderOnTheSameRowMidGesture`,
+`nearTopControllerDrivenBatchesCompensateImmediatelyNotChained` and
+`viewportFillRunCompensatesEveryBatchImmediately` all PASS. They never
+exercised compensation. This is not a defect in the product: it is the direct
+measurement of §16's positive-only anchor guard, which has always said a
+backfill prepend lands BEYOND the reader and has nothing to correct. It does
+mean the suite's best-known flake cannot be a compensation regression, and
+the three cases' names oversell what they guard (the geometric identity —
+worth keeping, since the row window, the view-row numbering and the reveal
+pacing could each break it).
+
+**AND THEIR FAILURE TEXT COULD NEVER PRINT.** All three used one QTRY whose
+lambda returned false for two unrelated reasons — the anchor's row not BUILT
+yet, or the reader having MOVED — and a failing `QTRY_VERIFY` RETURNS from
+the test function, so the carefully worded `QVERIFY2` beneath it, the only
+place the offsets were ever named, was unreachable. Every failure these three
+have ever produced read `returned FALSE ()`. Split: `QTest::qWaitFor` answers
+with a bool, the wait covers the row's CONSTRUCTION alone with a generous
+budget, and the 2 px bound is then read ONCE with no grace period — strictly
+stricter than before, since these cases are named for compensation being
+IMMEDIATE and a converge-until-true loop is the one thing that could let a
+deferred correction pass them. Cutting the old combined wait to 1 ms showed
+all three still passed, so no case was relying on the grace.
+GENERALISE: a wait whose predicate can be false for two reasons reports
+neither. Wait for the precondition, assert the invariant.
+
+**A MOCK BACKEND MUST UNDERSTAND THE COMPOSITE TOO.** `MockMatrixClient::
+findEvent` keyed `m_timelines` by the raw argument, so every §8 composite
+handed to it missed — edit, redact and react were all broken on the mock
+backend, and redact and react had been since threads landed. One reduction
+through `MatrixClient::threadTimelineRoomId` fixes all three (identity for an
+ordinary room id).
+
+**AND A HARNESS FLAG MUST BE NAMED FOR WHAT IT DOES.** `--kbps` throttled
+KiB/s, per direction, per tunnel — overstating the rate by eight and hiding
+that two tunnels get twice the budget. Renamed `--kbytes`.
+
+**PROCESS NOTE, MY OWN.** The `timeline-pane-qml` failures that opened this
+round were produced by running the two CTest trees and a three-run flake
+measurement CONCURRENTLY — the exact thing §18 forbids and which the file
+already records as having caused flakes twice. Serialized, everything is
+green: 203/203, 201/201, 93/93 idle and 93/93 again under 24-way CPU load,
+and the case alone 10/10. A measurement taken under a condition the guide
+forbids is not evidence.
+
 #### 2026-09-11, the live tests that were "impossible", and the fourth thread defect
 
 **A LOCAL CONNECT PROXY TURNS TWO UNTESTABLE THINGS INTO ORDINARY TESTS.** Two
@@ -25,7 +100,7 @@ were framed as "cannot be staged for one app without root". That framing was
 wrong. reqwest — which matrix-sdk uses — honours `HTTPS_PROXY`, so pointing
 ONLY Lightning at a local CONNECT tunnel puts that one app's network under
 test control while the machine's own networking is untouched. The tunnel
-copies bytes and never inspects TLS. `scripts/test-netproxy.py`: `--kbps` to
+copies bytes and never inspects TLS. `scripts/test-netproxy.py`: `--kbytes` to
 throttle, `touch <ctl>/cut` to drop every tunnel and refuse new ones.
 
 **LIVE PASS — the upload-progress percentage.** Throttled to 120 KB/s, a 21 MB
