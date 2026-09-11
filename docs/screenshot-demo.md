@@ -323,3 +323,49 @@ Responsive:
 ```sh
 scripts/run-screenshot-demo.sh --scenario responsive-chat --size narrow --hide-controls
 ```
+
+## AppStream / Flathub captures (`docs/screenshots/flathub/`)
+
+These are a **separate set** from `docs/screenshots/*.png`, which README uses
+and which are deliberately full resolution (`aaa759d`). Do not point the
+metainfo at those: Flathub caps a screenshot at **1000x700**, or **2000x1400**
+for a HiDPI capture, and the README set is 3830x2039 to 3838x2037.
+
+The metainfo
+(`packaging-ci/packaging/common/lightning.metainfo.xml`) references this
+directory at an **immutable tag**, never a branch — Flathub requires that — so
+whoever cuts the submitted release must re-point the four URLs at the tag
+being submitted.
+
+### How the current four were produced, and why they must be redone
+
+They are **downscaled copies** of the README captures
+(`magick <src> -resize 2000x1400`), not fresh captures, because regenerating
+needs a `LIGHTNING_ENABLE_SCREENSHOT_DEMO` build tree and none existed. They
+are inside the size cap and they validate, but they do **not** meet Flathub's
+quality bar: the source windows are ~3834 logical pixels wide, so at 2000px
+the interface text renders at roughly half the size it was drawn at, and
+Flathub's guidance is that the text should read 1:1 in the listing.
+
+Re-shoot them at a window size that is already inside the cap — the window
+itself must be <= 1000x700, or <= 2000x1400 captured at 2x:
+
+```sh
+scripts/run-screenshot-demo.sh --scenario main-chat    --size 1000x700 --hide-controls
+scripts/run-screenshot-demo.sh --scenario thread-view  --size 1000x700 --hide-controls
+scripts/run-screenshot-demo.sh --scenario settings-themes --size 1000x700
+```
+
+Two things to fix while re-shooting:
+
+- The `channels-space` capture is mostly empty canvas, and Flathub explicitly
+  refuses empty states. It is not in the AppStream set for that reason; give
+  the Space a populated lobby if you want it back.
+- The Lightning Development room's topic reads "Native Qt/QML + Rust Matrix
+  SDK". Flathub asks that a listing not advertise the toolkit, and a reviewer
+  reads the screenshots too.
+
+Keep the filenames (`01-conversation.png`, `02-threads.png`, `03-call.png`,
+`04-themes.png`) so the metainfo URLs do not have to change, and keep the data
+fictional — every capture here is the demo mode's `*.example` accounts, which
+is the only reason they are publishable at all.

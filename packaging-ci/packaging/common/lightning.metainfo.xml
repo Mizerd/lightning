@@ -1,17 +1,247 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AppStream metainfo for Lightning.
+
+  ONE file serves every package. The deb, rpm, AppImage and snap install it as
+  usr/share/metainfo/lightning.metainfo.xml beside usr/share/applications/
+  lightning.desktop, which is the desktop-id the launchable element names.
+
+  The Flatpak installs the SAME file and lets flatpak-builder's own
+  rename-desktop-file / rename-appdata-file / rename-icon options move it to
+  the app id during the cleanup phase; renaming the desktop file rewrites the
+  launchable for you, so nothing here is app-id specific and nothing has to be
+  patched after install.
+
+  The release list is maintained by
+  packaging-ci/scripts/update-metainfo-release.sh, which derives each entry
+  from docs/releases/v<version>.md. Do not hand-edit the top entry during a
+  release: run the script, which is also what asserts that the top entry
+  matches the version actually being built.
+
+  No XML tag name appears in the comments of this file on purpose. A previous
+  revision wrote one, and a text tool anchored on it matched the comment
+  instead of the element and ate the document.
+-->
 <component type="desktop-application">
   <id>org.lightning_matrix.Lightning</id>
   <name>Lightning</name>
-  <summary>Native Matrix desktop client</summary>
+  <summary>Chat and calls on Matrix</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
+
   <description>
-    <p>Lightning is a native C++ and Qt Matrix desktop client with a Matrix Rust SDK backend.</p>
+    <p>
+      Lightning is a desktop messenger for Matrix, the open network for secure,
+      decentralised communication. Sign in to any homeserver, or to several
+      accounts at once, and reach people wherever their account lives.
+    </p>
+    <p>
+      Conversations are organised into Spaces, rooms and threads. Send rich
+      text, pictures, files, voice messages, polls, reactions and custom emoji,
+      and find something you sent months ago without scrolling back to it.
+    </p>
+    <p>
+      Private rooms are end-to-end encrypted throughout: verify your other
+      devices by comparing emoji, restore your keys from backup, and search
+      even your encrypted rooms with an index that never leaves this computer.
+    </p>
+    <p>
+      Group voice calls and screen sharing run in the room itself.
+    </p>
   </description>
+
   <launchable type="desktop-id">lightning.desktop</launchable>
-  <url type="homepage">https://lightning-matrix.org</url>
+
+  <branding>
+    <!--
+      Both values are real theme tokens, not taste: the light one is Lightning
+      Light's selection blue (_selectedLight, qml/AppTheme.qml) and the dark
+      one is the Storm brand theme's panel indigo (_stoPanel). Neither is a
+      grey, they are far apart from each other, and both sit clear of the
+      purple and gold in the application icon.
+    -->
+    <color type="primary" scheme_preference="light">#AAD4FF</color>
+    <color type="primary" scheme_preference="dark">#202473</color>
+  </branding>
+
+  <keywords>
+    <keyword>Matrix</keyword>
+    <keyword>chat</keyword>
+    <keyword>messaging</keyword>
+    <keyword>encrypted</keyword>
+    <keyword>calls</keyword>
+    <keyword>federated</keyword>
+  </keywords>
+
+  <screenshots>
+    <!--
+      Flathub requires an immutable ref, never a branch. These point at the tag
+      v0.9.4; RE-POINT THEM AT THE TAG ACTUALLY SUBMITTED before the manifest
+      is sent anywhere.
+    -->
+    <screenshot type="default">
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.4/docs/screenshots/flathub/01-conversation.png</image>
+      <caption>A room conversation with replies, reactions and a shared picture</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.4/docs/screenshots/flathub/02-threads.png</image>
+      <caption>A thread open beside the conversation it came from</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.4/docs/screenshots/flathub/03-call.png</image>
+      <caption>A four-person call running above the room it belongs to</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.4/docs/screenshots/flathub/04-themes.png</image>
+      <caption>Building a colour theme against a live sample of the interface</caption>
+    </screenshot>
+  </screenshots>
+
+  <url type="homepage">https://www.lightning-matrix.org</url>
+  <url type="bugtracker">https://github.com/Mizerd/lightning/issues</url>
+  <!--
+    THE GITHUB MIRROR, deliberately, even though GitLab is canonical.
+    Every other user-facing link on the listing goes to GitHub — the issue
+    tracker is there and in active use by strangers, and CONTRIBUTING.md
+    points there for reports — so sending "Source code" to a host a reader
+    cannot register on would land them somewhere different from where
+    "Report an issue" just sent them. The canonical GitLab is named in
+    CONTRIBUTING.md for anyone who needs to submit a change.
+  -->
+  <url type="vcs-browser">https://github.com/Mizerd/lightning</url>
+  <url type="contribute">https://github.com/Mizerd/lightning/blob/main/CONTRIBUTING.md</url>
+  <url type="translate">https://github.com/Mizerd/lightning/blob/main/docs/localization.md</url>
+  <url type="contact">https://matrix.to/#/%23lightning%3Amatrix.smetonis.net</url>
+
+  <!--
+    The real name, not the handle. It is already public and unavoidable —
+    every commit in the GitHub mirror is authored by it, and
+    docs/code-signing-policy.md names it because a code-signing certificate
+    is issued to a legal identity. A store page naming someone different
+    from the licence and the signing story reads as two parties, and
+    Flathub's verified badge is an assertion about who publishes this.
+  -->
   <developer id="net.smetonis">
-    <name>Mizerd</name>
+    <name>Rokas Smetonis</name>
   </developer>
-  <content_rating type="oars-1.1" />
+
+  <requires>
+    <internet>always</internet>
+    <display_length compare="ge">640</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+
+  <!--
+    OARS 1.1, worked through rather than copied. Only the attributes that are
+    not "none" are listed; every other attribute is absent and therefore none.
+
+      social-chat = intense   "Uncontrolled chat functionality between users".
+                              Lightning talks to any federated homeserver and
+                              moderates nothing itself.
+      social-audio = intense  "Uncontrolled audio or video chat between users".
+                              MatrixRTC group calls carry audio, camera and
+                              screen share, unmoderated.
+      social-info = mild      "Using any online API". The update check reaches
+                              the project's manifest anonymously and the GIF
+                              picker sends only the typed search term to the
+                              selected provider - never a Matrix identifier.
+                              Nothing identifiable to the user goes to a third
+                              party, so this is not moderate or intense.
+
+    Deliberately NOT declared, with the reason:
+      social-contacts  no identity-server lookups, no third-party-id invites
+                       and no address-book import exist in the source.
+      social-location  receiving m.location and live beacons is implemented;
+                       SENDING a location is deliberately not (see
+                       docs/feature-contracts.md), so the user shares no
+                       physical location through this application.
+      money-*          no purchases, no in-application donation prompt and no
+                       advertising.
+  -->
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-chat">intense</content_attribute>
+    <content_attribute id="social-audio">intense</content_attribute>
+    <content_attribute id="social-info">mild</content_attribute>
+  </content_rating>
+
+  <releases>
+    <release version="0.9.4" date="2026-09-10" type="stable">
+      <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.4</url>
+      <description>
+        <p>
+          A release about being able to sign in, and about a call that stops
+          working while telling you nothing is wrong. Two of the fixes below
+          came from people who reported them the same day; the rest came from a
+          deep audit of the parts of the client nobody had read end to end.
+        </p>
+      </description>
+    </release>
+    <release version="0.9.3" date="2026-09-08" type="stable">
+      <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.3</url>
+      <description>
+        <p>
+          A release about things that failed quietly. Most of what follows was
+          already broken in 0.9.2 and gave you nothing to go on: a call that was
+          silent in one direction while the other person heard you perfectly,
+          admin controls that simply were not there, a report you submitted that
+          never said whether it arrived, settings that changed when you switched
+          accounts and told nobody. Each of those now either works or says what
+          happened.
+        </p>
+      </description>
+    </release>
+    <release version="0.9.2" date="2026-09-06" type="stable">
+      <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.2</url>
+      <description>
+        <p>
+          A repair release, and an unusually blunt one. Everything here is
+          something 0.9.1 broke or left broken, found by the people running it:
+          a Linux client that would not start, Windows updates that could not
+          install, a settings panel that froze the app, and history that stopped
+          loading in the rooms people use most.
+        </p>
+      </description>
+    </release>
+    <release version="0.9.1" date="2026-09-06" type="stable">
+      <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.1</url>
+      <description>
+        <p>
+          A fixing round. 0.9.0 was the largest feature release this client has
+          had, and 0.9.1 is the week after it: the maintainer and the first
+          outside users ran it on real accounts, reported what was wrong, and
+          this is the answer to that list. Two things are new rather than fixed
+          — a favourites section, and notifications on Windows and macOS at all
+          — and the rest is repair.
+        </p>
+      </description>
+    </release>
+    <release version="0.9.0" date="2026-09-05" type="stable">
+      <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.0</url>
+      <description>
+        <p>
+          The largest feature round this client has had. The last few releases
+          went into calls; this one goes into everything around them — finding
+          things, sending things, moderating things, and deciding what your own
+          client tells other people about you.
+        </p>
+      </description>
+    </release>
+    <release version="0.8.4" date="2026-09-02" type="stable">
+      <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.8.4</url>
+      <description>
+        <p>
+          A composing-and-managing release. The last few rounds went into calls;
+          this one goes into the parts of a chat client you use between them.
+          The headline is that <em>the message box can format text now</em> —
+          bold, italic, lists, quotes, code and spoilers, with slash commands
+          and a spell checker — and that a room's own settings, its access rules
+          and even its room version are editable from inside the client instead
+          of from Element.
+        </p>
+      </description>
+    </release>
+  </releases>
 </component>

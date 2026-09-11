@@ -2,7 +2,7 @@
 Type=Application
 Name=Lightning
 GenericName=Matrix Client
-Comment=Native Qt Matrix chat client
+Comment=Chat and calls on Matrix
 Exec=lightning-matrix --backend=rust
 Icon=lightning
 Terminal=false

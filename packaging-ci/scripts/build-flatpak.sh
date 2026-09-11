@@ -25,7 +25,15 @@ BUILD_DIR="$FLATPAK_WORK/build"
 STATE_DIR="$FLATPAK_WORK/state"
 BUNDLE="dist/lightning_${LOGICAL_VERSION}_amd64.flatpak"
 APP_ID=org.lightning_matrix.Lightning
-RUNTIME_VERSION="6.9"
+# org.kde.Sdk//6.9 is marked END-OF-LIFE on Flathub ("We strongly recommend
+# moving to the latest stable version"). It still resolves today, so this is
+# not yet a broken build, but an EOL runtime stops being rebuilt and will
+# eventually go. 6.10 and 6.11 are both current and both sit on freedesktop
+# 25.08; 6.11 carries Qt 6.11.1, libsecret-1 0.21.7, all six GStreamer WebRTC
+# pkg-config modules at 1.26.11, and the libqwebp.so / kimg_jxl.so image
+# decoders validate-flatpak.sh asserts. Verified 2026-09-11 by building the
+# v0.9.4 source against it.
+RUNTIME_VERSION="6.11"
 FLATHUB_REPO=https://dl.flathub.org/repo/flathub.flatpakrepo
 
 test -f "$SOURCE_DIR/CMakeLists.txt" || die "pinned source missing"

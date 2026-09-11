@@ -68,7 +68,7 @@ set -e
 assert_call_media_engine Flatpak dist/flatpak-call-media-status.txt "$call_media_status"
 
 # The image DECODERS, asked of the RUNTIME. The Flatpak is the one Linux
-# format that was never broken here: org.kde.Platform//6.9 ships libqwebp.so
+# format that was never broken here: org.kde.Platform//6.11 ships libqwebp.so
 # and kimg_jxl.so (and 27 more), so this pins a property the runtime provides
 # rather than one this repository staged -- and it is exactly the check that
 # would catch a runtime bump quietly dropping either.

@@ -9,7 +9,7 @@
 # runtime's libraries — the Debian-staged build is not reusable here.
 app-id: org.lightning_matrix.Lightning
 runtime: org.kde.Platform
-runtime-version: "6.9"
+runtime-version: "6.11"
 sdk: org.kde.Sdk
 command: lightning
 
@@ -49,10 +49,20 @@ finish-args:
   # unaffected.
 
 build-options:
-  # The 24.08 rust-stable SDK extension ships rustc 1.89, too old for
-  # matrix-sdk 0.18 (needs 1.93) — the sandbox installs the same pinned
-  # rustup toolchain the deb job uses. Keep the version in step with
-  # RUST_TOOLCHAIN in .gitlab-ci.yml.
+  # This build installs the same pinned rustup toolchain the deb job uses.
+  # Keep the version in step with RUST_TOOLCHAIN in .gitlab-ci.yml.
+  #
+  # The reason for the download was that 6.9 was built on freedesktop
+  # 24.08, whose rust-stable extension shipped rustc 1.89 — too old for
+  # matrix-sdk 0.18, which needs 1.93. That is NO LONGER TRUE on 6.11:
+  # it is built on freedesktop 25.08, whose rust-stable ships rustc
+  # 1.98.1 (measured 2026-09-11). This job could therefore drop the
+  # rustup download for `sdk-extensions:
+  # [org.freedesktop.Sdk.Extension.rust-stable]` plus
+  # `append-path: /usr/lib/sdk/rust-stable/bin`, exactly as the Flathub
+  # manifest at the repository root already does. Left alone here on
+  # purpose: this template is the release path and the change is not
+  # needed for it to work, so it wants its own validated round.
   prepend-path: /run/build/lightning/cargo-home/bin
   # Cargo needs the network for the locked fetch; this is not a Flathub
   # build, so sandboxed-network vendoring is not required.
