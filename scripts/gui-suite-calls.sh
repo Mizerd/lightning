@@ -182,12 +182,14 @@ check_geometry() {
 # A CALL IS FRAMES MOVING, not a button that lit up. Both directions on both
 # clients, sampled twice, because a stalled counter reads exactly like a
 # healthy one in a single sample.
-# streams_in_lane <log> <direction> <video> — how many DISTINCT stream ids
-# have ever reported a clear-frame count in that lane.
-streams_in_lane() {
+# stream_ids_in_lane <log> <direction> <video> — the DISTINCT stream ids that
+# have reported a clear-frame count in that lane, sorted.
+stream_ids_in_lane() {
     grep -oE "frames in the clear $2 stream= \"?[^ \"]+" "$1" 2>/dev/null \
-        | awk '{print $NF}' | sort -u | wc -l
+        | awk '{print $NF}' | tr -d '"' | sort -u
 }
+# ...and how many there are.
+streams_in_lane() { stream_ids_in_lane "$@" | wc -l; }
 
 check_call() {
     local a_out1 a_in1 b_out1 b_in1 a_out2 a_in2 b_out2 b_in2
@@ -361,6 +363,12 @@ check_volume_persists() {
 check_share() {
     local marka markb portal g px py pw ph
     marka=$(mark_of "$LT_A_LOG"); markb=$(mark_of "$LT_B_LOG")
+    # WHICH INBOUND VIDEO STREAMS B ALREADY HAS. Without this the check
+    # matched ANY inbound video and passed on a completely broken share as
+    # long as a camera was publishing — and after this round's engine change
+    # the id is on the line, so it can be answered properly.
+    local before_streams
+    before_streams=$(stream_ids_in_lane "$LT_B_LOG" in true)
     pidclick "$A" "$SHARE_BTN_X" "$SHARE_BTN_Y" >/dev/null 2>&1
     sleep 4
     portal=$(pgrep -f xdg-desktop-portal-kde | head -1)
@@ -396,15 +404,24 @@ check_share() {
     local publishing encoded received
     publishing=$(lines_since "$LT_A_LOG" "$marka" 'screen share publishing' | tail -1)
     encoded=$(lines_since "$LT_A_LOG" "$marka" 'first encoded frame screenShare= true' | tail -1)
-    received=$(lines_since "$LT_B_LOG" "$markb" 'frames in the clear in .* video= true' | tail -1)
+    # A stream B was NOT already receiving. That is the share.
+    local new_stream
+    new_stream=$(comm -13 <(printf '%s\n' "$before_streams") \
+                          <(stream_ids_in_lane "$LT_B_LOG" in true) | head -1)
+    if [[ -n "$new_stream" ]]; then
+        received=$(grep -F "stream= \"$new_stream\"" "$LT_B_LOG" 2>/dev/null \
+                   | grep -E 'frames in the clear in .* video= true' | tail -1)
+    else
+        received=""
+    fi
     note "A: ${publishing:-<not publishing>}"
     note "A: ${encoded:-<no encoded frame>}"
-    note "B: ${received:-<nothing received>}"
+    note "B: ${received:-<no NEW inbound video stream appeared>}"
     shot "$B" "share-received"
     local why=""
     [[ -n "$publishing" ]] || why="A never published"
     [[ -n "$encoded"    ]] || why="${why:-A published but encoded no frame}"
-    [[ -n "$received"   ]] || why="${why:-B received no video frames}"
+    [[ -n "$received"   ]] || why="${why:-B received no video frames on a stream it was not already receiving; any video already flowing is NOT evidence of this share}"
     [[ -z "$why" ]] || { bad share "$why"; return 1; }
     # WHAT THIS CHECK DOES **NOT** SAY, and it used to imply all three.
     #
@@ -415,9 +432,10 @@ check_share() {
     #    `QT_QUICK_BACKEND=software` the only change: the counter climbed past
     #    500 against an empty rectangle. Asserting a render needs a capture a
     #    human or a comparison looks at, which is what `shot` is for.
-    #  * Not that what arrived is the SHARE. The counter is now pinned to a
-    #    stream id, but this check does not yet know which id the share got,
-    #    so a camera already publishing would satisfy it.
+    #  * Not that what arrived is the share rather than some OTHER new
+    #    stream. It is pinned to a stream B was not already receiving, which
+    #    rules out a camera that was already running; a camera switched on in
+    #    the same twelve seconds would still satisfy it.
     #  * Not that the picture is CORRECT — aspect, crop and staleness are all
     #    invisible here.
     note "PASS means B decrypted inbound video frames; it does NOT assert a picture was drawn"

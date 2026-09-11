@@ -772,8 +772,16 @@ Rectangle {
                     if (!item)
                         return;
                     if (!cramped) {
-                        // Live measurement is trustworthy only out here.
-                        expandedNeed = implicitWidth;
+                        // Live measurement is trustworthy only when the bar is
+                        // in the shape we want to come back TO — not cramped,
+                        // and not collapsed. The collapsed strip has its own,
+                        // much smaller, implicit width, and recording that as
+                        // "the expanded requirement" would let the bar expand
+                        // into a box it does not fit. It self-heals on the way
+                        // out of collapsed, but a property should mean what its
+                        // name says at every moment, not eventually.
+                        if (!root.collapsed)
+                            expandedNeed = implicitWidth;
                         // Sub-pixel slack: a fractional layout width must not
                         // read as a shortfall.
                         if (width + 0.5 < implicitWidth)
