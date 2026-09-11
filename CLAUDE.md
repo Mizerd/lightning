@@ -1267,34 +1267,18 @@ packages). **Cancel a doomed pipeline immediately — it keeps running its
 other jobs and HOLDS the runners, so a retry sits pending.** (Third time
 that note has earned its place.)
 
-**A plugin an ELEMENT loads for itself is invisible to every check we
-have.** Windows shipped for months able to SEND audio and unable to
-RECEIVE anything — no `pad-added`, no receive bin, not one
-`received track attributed` line in a whole call — because
-`libgstsctp.dll` was never staged. LiveKit's SUBSCRIBER offer puts a data
-channel in media section 0 and Lightning sets `bundle-policy=max-bundle`,
-so EVERY audio and video section is bundled onto that section's
-transport; without sctp webrtcbin cannot build it
-(`_get_or_create_data_channel_transports: code should not be reached`)
-and the media has nowhere to ride. Sending still worked because our own
-publisher offer is media-only, so its bundle owner is the audio section —
-and that one-directional shape is what made it look like anything but a
-missing plugin. macOS stages sctp and was never affected.
-**Two reasons nothing caught it.** The Windows Dockerfile copies a
-hand-written list of plugins out of the SDK's **267**, and the element
-probe covers only elements Lightning NAMES in its own pipelines —
-`sctpenc` appears nowhere in our source. It also copied
-`libgstsctp-1.0-0.dll`, the SCTP LIBRARY, all along: a DLL of the right
-name is not the element, the same distinction that bit the webrtc lane.
-**And the SDP is no use for diagnosing it** — the answer is byte-identical
-with and without the plugin, which refuted the theory once before a
-single-variable control run watching for the WARNING brought it back. The
-method that worked: cross-compile a tiny webrtcbin harness with the MinGW
-SDK and run it UNDER WINE on the builder image, so the SHIPPED GStreamer
-answers the question. Generalize: when a feature is assembled at package
-time, the check must ask the shipped artifact whether the feature WORKS —
-and the required-element list must include what the elements load, not
-only what we call.
+**A plugin an ELEMENT loads for itself is invisible to every check we have.**
+Windows shipped for months able to SEND audio and unable to RECEIVE anything,
+because `libgstsctp.dll` was never staged: LiveKit's subscriber offer bundles
+every section onto a data channel's transport, and without sctp webrtcbin
+cannot build it. Sending still worked (our publisher offer is media-only), and
+that one-directional shape is what disguised it. The SDP is byte-identical
+with and without the plugin, so only running the SHIPPED GStreamer answers the
+question — a MinGW webrtcbin harness under Wine on the builder image.
+GENERALISE: when a feature is assembled at package time, the check must ask
+the shipped artifact whether the feature WORKS, and the required-element list
+must include what the elements LOAD, not only what we call. Full account in
+`docs/round-history.md`.
 
 **GStreamer version differences, same trap, different library.** The dev
 shell is **1.26.11** again (MEASURED 2026-09-08 via `--call-media-status`; it
@@ -1587,10 +1571,25 @@ root.** reqwest honours `HTTPS_PROXY`, so one app's network becomes
 controllable: throttle it and an upload is samplable, cut it and that app
 alone goes offline. PASSES: the upload percentage advances on a determinate
 bar; `cancel_too_late` says the message had already been sent; and Retry
-recovers a room whose send queue matrix-sdk had disabled. STILL OPEN and now
-reproducible: a local echo can sit at "sending…" after the server has the
-event, resolving only on a timeline reload — cause NOT established. Detail in
-`docs/round-history.md`, 2026-09-11.
+recovers a room whose send queue matrix-sdk had disabled. STILL OPEN: a local
+echo can sit at "sending…" after the server has the event, resolving only on a
+timeline reload — cause NOT established, and NOT reproducible on demand (two
+cut/restore cycles on 2026-09-11 evening did not trigger it). **Run the
+capture with `LIGHTNING_SEND_TRACE=1`** as well as `LIGHTNING_RUST_LOG=1`: it
+reconciles the timeline's in-flight items against `SendQueue::local_echoes()`
+and prints `queued=0 … ORPHANED` exactly when a terminal update was lost,
+which is the one thing that separates this from a slow link. Read
+`docs/round-history.md`, 2026-09-11, before theorising — it records which
+conclusions the evidence does and does not support.
+
+**2026-09-11 — THE THREAD ROOT CARD FOLLOWS AN IN-PLACE CHANGE: PASS.**
+Editing a thread ROOT from the room timeline with the panel open updates the
+card without a reopen. It renders the root from a SNAPSHOT refreshed only on a
+lifecycle change and on countChanged, and a late decryption, an edit, a
+redaction and a sender-name resolution all arrive as in-place Sets that change
+no row count — so an undecryptable root stayed undecryptable on screen above
+replies that had decrypted fine. Driven on a LAPTOP over SSH, which is how GUI
+tests run now without touching the maintainer's desktop.
 
 **2026-09-11 — THE THREAD EDIT IS LIVE-VALIDATED: PASS.** The fourth and last
 of the "address the event on the timeline that HOLDS it" family, driven

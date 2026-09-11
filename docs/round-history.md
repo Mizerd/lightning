@@ -170,16 +170,33 @@ maintainer's desktop:
     orphaned>0 ever:            0
     missed-echo warnings ever:  0
 
-`queued=1` throughout means the send queue still OWED the message at every
-sample — no terminal update was lost, which is exactly what the lagged
-`broadcast::channel(32)` theory predicted would happen. The watcher would have
-printed `queued=0`. Both times the message eventually sent and the trace went
-quiet on its own.
-So: the defect did NOT reproduce on the current build under its own recipe, and
-the mechanism this file recorded as the leading explanation has no support.
-That is not proof of absence — two runs, one machine, one network shape — but
-it is evidence where there was none, and it means a fix aimed at the broadcast
-lane would have been aimed at nothing.
+**AND THE CONCLUSION I FIRST DREW FROM THAT WAS WRONG — the same one-way
+instrument error as the scroll counters, in a new dress.** I wrote that the
+lagged-broadcast hypothesis "has no support". It does not have support, but
+this run cannot be what withholds it: THE TWO HYPOTHESES DIFFER ONLY IN THE
+DEFECTIVE STATE. A slow link and a lost terminal update look identical until
+the timeline is stuck at `sending…` while the server already has the event,
+and that state never occurred here — both messages sent and the trace went
+quiet on its own, which is the send queue working. During a genuine outage a
+queued message really has not been sent, so `queued=1` is the ONLY reading the
+instrument could have produced. I measured the healthy regime and concluded
+about the defective one.
+
+What this run does establish, and all it establishes: the recipe no longer
+reproduces the defect on this build, across two cut/restore cycles. With zero
+samples of the defective state, the lagged-broadcast hypothesis is neither
+supported nor refuted — and the instrument is now in place to settle it the
+first time the defect IS seen.
+
+Two gaps against the recipe this file recorded, stated so the next run closes
+them: it says "throttle, cut, send, restore, RETRY, and watch the row against
+the ROOM-LIST PREVIEW", and this run did neither the retry step nor the
+room-list cross-check. The preview is what established "the server already has
+it" in the original sighting, so it is the only thing that identifies the
+defective state at all.
+GENERALISE, third time today: before reading a measurement, ask what the
+instrument would print in the case you are trying to rule out. If the answer
+is "the same thing", the measurement is not evidence about that case.
 
 **LIVE-VALIDATED PASS, same session:** the thread root card now follows an
 in-place change. Editing a thread ROOT from the room timeline with the panel
