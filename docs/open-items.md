@@ -766,3 +766,52 @@ that implements MSC4140, and for the rest of the process the second account:
 FIX: scope the latch per homeserver rather than per process. That also makes
 the two recoveries the old doc comment claimed — a server that GAINS support,
 and a mis-latch — genuinely true, which they are not today.
+
+---
+
+**TWO UI CLIPPING ITEMS THE 2026-09-12 WINDOWS SWEEP LEFT OPEN.** The sweep
+itself came back mostly clean — room list rows, the composer (its `…` overflow
+at 640 px is a designed adaptation, not a break), message rows with long
+unbroken tokens, link-preview and attachment cards, the room-info tab strip at
+~313 px, and Settings all PASS at 640 / ~1100 / 1280. These two did not.
+
+**1. The last facepile avatar is sliced, at every width including maximised.**
+Settled as a CLIP, not the control pill painting over it: a 900% crop shows a
+straight vertical cut with pale-green header background beyond it, while the
+pill's rounded edge starts well to the right with a clear gap. An opaque pill
+would have cut along its own arc and left white.
+
+Owner: `qml/CallSpeakerBubbles.qml`'s `clip: true` on the `anchors.fill: parent`
+ListView. Its host, `callHeaderBubblesHost` in `qml/CallStage.qml`, has
+`Layout.fillWidth: root.collapsed` — false while expanded — and, unlike the
+controls Loader, no `Layout.minimumWidth` floor at all, so it is squeezed below
+its natural width. That it fires at 1280 maximised is independent evidence the
+header row was over-full even at full width.
+
+The control-overflow fix in the same round may close it as a side effect, since
+a compact bar stops demanding the width the bubbles are losing. **Unverified —
+the guest runs released 0.9.4.** Re-check on a build carrying the fix before
+touching `CallSpeakerBubbles`; do NOT add a floor to the bubbles host on a
+hunch, because a floor is what put Leave call off the edge of the window.
+
+**2. The room-header title elides with room to spare, and the obvious
+candidate is REFUTED.** At 640 px: header ~338 px, so `header.width * 0.5`
+allows ~169 px; the rendered title ink is ~55 px, followed by ~60 px of EMPTY
+space before the icon cluster. So `qml/TimelinePane.qml`'s 50%-of-header cap is
+not the binding constraint — the title elides at roughly a third of what the
+cap allows — and a layout squeeze cannot leave 60 px unused beside the thing it
+squeezed.
+
+HYPOTHESIS, not measured: the other term, `Math.ceil(implicitWidth)`.
+`QQuickText.implicitWidth` reflects the ELIDED content once eliding is active,
+which would make `Layout.maximumWidth` self-referential and ratchet the width
+down. The comment on that line records that it already produced a
+fractional-elide bug once. WHAT WOULD SETTLE IT: an offscreen probe logging the
+Text's `width`, `implicitWidth`, `truncated` and `header.width` at a fixed
+size. Do not edit that line on the hypothesis alone.
+
+NOT TESTED in that sweep and worth covering: code blocks and wide tables (the
+one attempt was void — shell quoting truncated the message before it reached
+the composer, and the "clipped code block" it appeared to show was simply the
+message the app had received), and the call stage's tile grid, which cannot be
+judged on a machine that renders no video.
