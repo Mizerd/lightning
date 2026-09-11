@@ -323,17 +323,27 @@ check_share() {
     rx=$(awk -v w="${pw%%.*}" -v f="$PORTAL_TILE_FX" 'BEGIN{printf "%d", w*f}')
     ry=$(awk -v h="${ph%%.*}" -v f="$PORTAL_TILE_FY" 'BEGIN{printf "%d", h*f}')
     # NOTE: the harness's pidclick_nf/keypid both END in `sleep`, so their
-    # exit status is the sleep's and `|| bad ...` on them is dead code. The
+    # exit status is the sleep's and `|| bad ...` on them is dead code. Any
     # guard has to be explicit.
     pidclick_nf "$portal" "$rx" "$ry" >/dev/null 2>&1
     sleep 1
-    guard_pid "$portal" \
-        || { bad share "the picker is not the active window; Enter would have gone elsewhere"; return 1; }
-    # keypid, not a bare `ydotool key`. The harness's focus guard exists
-    # because an unguarded synthetic keystroke once went into a browser
-    # window instead of the client, and a global key lands wherever the
-    # compositor says focus is. The picker is a WINDOW, so the guard applies.
-    keypid "$portal" 28:1 28:0
+    # ONE CLICK IS USUALLY THE WHOLE ANSWER, and the Enter is for the
+    # versions where it is not.
+    #
+    # Measured on the rig this was written against: selecting the source tile
+    # CONFIRMS — the dialog closes and the share starts — so by the time the
+    # Enter ran the picker was already gone, keypid's own focus guard
+    # correctly refused to type into whatever had focus instead, and the
+    # check passed on a step that never happened. That is a fixture quietly
+    # depending on something it did not do, so ask first: if the picker has
+    # closed, the click confirmed and there is nothing to send.
+    if [[ -n "$(geom_pid "$portal")" ]]; then
+        guard_pid "$portal" \
+            || { bad share "the picker is still open but not active; Enter would have gone elsewhere"; return 1; }
+        keypid "$portal" 28:1 28:0
+    else
+        note "the source click confirmed on its own; no Enter needed"
+    fi
     sleep 12
     local publishing encoded received
     publishing=$(lines_since "$LT_A_LOG" "$marka" 'screen share publishing' | tail -1)
