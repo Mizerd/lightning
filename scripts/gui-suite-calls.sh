@@ -88,11 +88,21 @@ note() { echo "      $*"; }
 lines_since() { tail -n +"$(( $2 + 1 ))" "$1" 2>/dev/null | grep -E "$3"; }
 mark_of()     { wc -l < "$1" 2>/dev/null || echo 0; }
 
-# counter_of <log> <direction> <video> — the newest `frames in the clear`
-# count for one lane, or empty when that lane has never carried a frame.
+# counter_of <log> <direction> <video> [stream] — the newest
+# `frames in the clear` count for one lane, or empty when that lane has never
+# carried a frame. Pass `stream` to pin it to ONE track.
+#
+# THE LINE NOW CARRIES `stream=` and this pattern must tolerate it, or every
+# counter silently reads empty and every check that compares two samples
+# passes by finding nothing twice.
+#
+# AND A LANE IS NOT A TRACK. Once a participant publishes share audio they
+# have TWO `video= false` tracks, so two consecutive unpinned samples can come
+# from different streams and their difference means nothing.
 counter_of() {
-    grep -E "frames in the clear $2 video= $3 count= [0-9]+" "$1" 2>/dev/null \
-        | tail -1 | grep -oE '[0-9]+$'
+    local stream="${4:-}"
+    grep -E "frames in the clear $2 stream= \"?${stream:-[^ ]*}\"? video= $3 count= [0-9]+" \
+        "$1" 2>/dev/null | tail -1 | grep -oE '[0-9]+$'
 }
 
 # pid_for <profile-A|profile-B> — and it must be an ISOLATED profile.
@@ -172,8 +182,31 @@ check_geometry() {
 # A CALL IS FRAMES MOVING, not a button that lit up. Both directions on both
 # clients, sampled twice, because a stalled counter reads exactly like a
 # healthy one in a single sample.
+# streams_in_lane <log> <direction> <video> — how many DISTINCT stream ids
+# have ever reported a clear-frame count in that lane.
+streams_in_lane() {
+    grep -oE "frames in the clear $2 stream= \"?[^ \"]+" "$1" 2>/dev/null \
+        | awk '{print $NF}' | sort -u | wc -l
+}
+
 check_call() {
     local a_out1 a_in1 b_out1 b_in1 a_out2 a_in2 b_out2 b_in2
+    # TWO SAMPLES OF A LANE ARE ONLY COMPARABLE IF THE LANE IS ONE TRACK.
+    # `counter_of` takes the NEWEST line, and each track counts from its own
+    # zero — so once a participant publishes share audio alongside the
+    # microphone there are two `video= false` tracks, consecutive samples can
+    # land on different ones, and the difference between them is noise. It can
+    # read as a stall on a healthy call or as progress on a stalled one.
+    # Refuse rather than report either.
+    local lane
+    for lane in "$LT_A_LOG out" "$LT_A_LOG in" "$LT_B_LOG out" "$LT_B_LOG in"; do
+        # shellcheck disable=SC2086
+        set -- $lane
+        if (( $(streams_in_lane "$1" "$2" false) > 1 )); then
+            bad call "the $2 audio lane of $(basename "$1") carries more than one stream (share audio?), so two samples of it are not comparable — restart the clients or check this lane by stream id"
+            return 1
+        fi
+    done
     a_out1=$(counter_of "$LT_A_LOG" out false); a_in1=$(counter_of "$LT_A_LOG" in false)
     b_out1=$(counter_of "$LT_B_LOG" out false); b_in1=$(counter_of "$LT_B_LOG" in false)
     if [[ -z "$a_out1$a_in1$b_out1$b_in1" ]]; then
@@ -363,7 +396,7 @@ check_share() {
     local publishing encoded received
     publishing=$(lines_since "$LT_A_LOG" "$marka" 'screen share publishing' | tail -1)
     encoded=$(lines_since "$LT_A_LOG" "$marka" 'first encoded frame screenShare= true' | tail -1)
-    received=$(lines_since "$LT_B_LOG" "$markb" 'frames in the clear in video= true' | tail -1)
+    received=$(lines_since "$LT_B_LOG" "$markb" 'frames in the clear in .* video= true' | tail -1)
     note "A: ${publishing:-<not publishing>}"
     note "A: ${encoded:-<no encoded frame>}"
     note "B: ${received:-<nothing received>}"
@@ -373,6 +406,21 @@ check_share() {
     [[ -n "$encoded"    ]] || why="${why:-A published but encoded no frame}"
     [[ -n "$received"   ]] || why="${why:-B received no video frames}"
     [[ -z "$why" ]] || { bad share "$why"; return 1; }
+    # WHAT THIS CHECK DOES **NOT** SAY, and it used to imply all three.
+    #
+    #  * Not that B drew a picture. These frames have been decrypted and
+    #    handed downstream, nothing more. On a host with no usable OpenGL the
+    #    scene graph falls back to Qt Quick's software adaptation, which has
+    #    NO NODE TYPE FOR VIDEO — measured 2026-09-12, one client, one call,
+    #    `QT_QUICK_BACKEND=software` the only change: the counter climbed past
+    #    500 against an empty rectangle. Asserting a render needs a capture a
+    #    human or a comparison looks at, which is what `shot` is for.
+    #  * Not that what arrived is the SHARE. The counter is now pinned to a
+    #    stream id, but this check does not yet know which id the share got,
+    #    so a camera already publishing would satisfy it.
+    #  * Not that the picture is CORRECT — aspect, crop and staleness are all
+    #    invisible here.
+    note "PASS means B decrypted inbound video frames; it does NOT assert a picture was drawn"
     ok share
 }
 

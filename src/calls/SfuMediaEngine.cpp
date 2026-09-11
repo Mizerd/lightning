@@ -455,8 +455,23 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         if (ctx->total)
             ctx->total->fetch_add(1);
         if (shouldReport(ctx->passed)) {
+            // NAME THE STREAM. Without it this line says only "some video is
+            // flowing", so a harness cannot tell a SCREEN SHARE from a camera
+            // — or from the share it was already receiving before the step
+            // under test — and `gui-suite-calls.sh`'s share check passed on
+            // any inbound video at all. The sibling `frames dropped` line
+            // above has carried `stream=` from the start; this one did not.
+            //
+            // AND IT STILL SAYS NOTHING ABOUT A PICTURE. These frames have
+            // been decrypted and handed downstream; whether a tile ever drew
+            // one is a different question, and on a machine with no usable
+            // GL the answer is no — Qt Quick's software adaptation has no
+            // node type for video (see src/main.cpp's fallback warning), so
+            // this counter climbs against a blank rectangle. Do not read it
+            // as "the other end can see it".
             qCInfo(lcSfuMedia) << "frames in the clear"
                                << (ctx->encrypting ? "out" : "in")
+                               << "stream=" << ctx->streamId
                                << "video=" << ctx->video
                                << "count=" << ctx->passed;
         }
