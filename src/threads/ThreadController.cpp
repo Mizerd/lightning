@@ -386,9 +386,17 @@ void ThreadController::close()
     for (const VoiceOp &op : std::as_const(m_voiceOps))
         QFile::remove(op.localPath);
     m_voiceOps.clear();
-    if (wasActive)
-        m_lastReplyCount = -1;   // the next thread announces its own
-    setState(Closed);
+    if (wasActive) {
+        // The next thread announces its own count. Braced deliberately: an
+        // earlier revision left setState() as an unbraced follower at the
+        // same indent, which READS as guarded and is not. It happened to be
+        // harmless only because setState() early-returns on an unchanged
+        // state — and stateChanged now fans out to
+        // notifyReplyCountIfChanged(), so narrowing that early return would
+        // have made close() announce on an already-closed controller.
+        m_lastReplyCount = -1;
+        setState(Closed);
+    }
 }
 
 void ThreadController::sendText(const QString &body)
@@ -930,11 +938,15 @@ int ThreadController::replyCount() const
     // for what lies beyond the loaded window, which a loaded count can never
     // know about.
     //
-    // The cost of that choice, recorded rather than hidden: after a redaction
-    // the server may decrement num_replies while the redacted reply REMAINS a
-    // row (onEventRedacted sets `redacted` and removes nothing, and a
-    // redacted event is not virtual), so the divider can read one higher than
-    // the room's summary card. That is the lesser evil — the card describes
+    // The cost of that choice, recorded rather than hidden: `loaded` can
+    // legitimately exceed the server's truth two ways, and under "the label
+    // describes the rows underneath it" both are CORRECT rather than
+    // tolerated. After a redaction the server may decrement num_replies while
+    // the redacted reply REMAINS a row (onEventRedacted sets `redacted` and
+    // removes nothing, and a redacted event is not virtual). And a failed or
+    // still-sending local echo is a non-virtual row too, so a reply the
+    // server has never seen counts while it is on screen. Either way the
+    // divider can read one above the room's summary card — the card describes
     // the thread from outside, this label describes the list underneath it,
     // and a label contradicting the rows it introduces is the defect a reader
     // actually sees.
