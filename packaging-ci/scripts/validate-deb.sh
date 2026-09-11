@@ -10,7 +10,11 @@ shopt -s nullglob
 packages=("$ROOT"/dist/*.deb)
 (( ${#packages[@]} == 1 )) || die "expected exactly one DEB package"
 package="${packages[0]}"
-expected="lightning_${DEB_VERSION}_amd64.deb"
+# Suffix-aware, because there are two deb lanes now. Each validate job
+# `needs:` exactly one build job, so dist/ still holds exactly one deb — but
+# WHICH one depends on the lane, and a validator that accepted either would
+# happily pass the Ubuntu deb on Debian and call it proven.
+expected="lightning_${DEB_VERSION}${DEB_SUFFIX:+_$DEB_SUFFIX}_amd64.deb"
 [[ "$(basename "$package")" == "$expected" ]] || die "unexpected DEB filename"
 [[ ! -e "$ROOT/work/lightning" ]] || die "validation must not receive a source checkout"
 command -v nix >/dev/null 2>&1 && die "Nix must be absent from the validation environment"

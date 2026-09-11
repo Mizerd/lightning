@@ -306,6 +306,91 @@ build-deb:
     - ./packaging-ci/scripts/build-deb.sh
     - ./packaging-ci/scripts/write-build-info.sh deb
 
+# ── THE SECOND DEB LANE: UBUNTU ────────────────────────────────────────────
+#
+# One deb cannot serve both. dpkg-shlibdeps reads the BUILD HOST's library
+# versions and bakes them into Depends, so the Debian 13 lane declares
+# Qt >= 6.8.2 and GStreamer >= 1.26.2 — a floor Ubuntu 24.04 LTS (Qt 6.4.2)
+# cannot meet. Measured on a real Ubuntu install: the deb refuses outright,
+# and `qml6-module-qtquick-effects` does not exist in noble at all, because
+# QtQuick.Effects is Qt 6.5+. README advertised Ubuntu, Mint and Pop!_OS and
+# all three were wrong.
+#
+# Ubuntu 26.04 LTS is the answer and it was VERIFIED, not assumed:
+# `qml6-module-qtquick-effects` is PRESENT in resolute and ABSENT in noble.
+# So this lane targets 26.04 LTS, the current LTS, and Ubuntu 24.04 users are
+# pointed at the AppImage or the Flatpak, both of which carry their own Qt.
+#
+# It is the Debian job with three changes and no other divergence: the image,
+# DEB_SUFFIX (which the Debian lane leaves empty so its filename, links and
+# checksums never move), and its own resource_group so the two lanes do not
+# serialise on each other.
+#
+# The image is a TAG, not a digest, unlike every other image here. That is a
+# deliberate, recorded exception: ubuntu:26.04 has no pinned digest in this
+# file yet and pinning one requires pulling it. Pin it on the first green run.
+build-deb-ubuntu:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)deb(,|$)/'
+    - when: never
+  extends: .build-base
+  image: ubuntu:26.04
+  tags: [apt, deb, package]
+  resource_group: lightning-package-build-c
+  variables:
+    FORMAT: "deb"
+    BASE_IMAGE: "ubuntu:26.04"
+    # The Debian lane leaves this empty so its filename never moves.
+    DEB_SUFFIX: "ubuntu2604"
+    DEBIAN_FRONTEND: "noninteractive"
+    RUST_TOOLCHAIN: "1.93.0"
+    RUSTUP_VERSION: "1.29.1"
+    # sha256 of static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init
+    RUSTUP_INIT_SHA256: "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
+  before_script:
+    - apt-get update
+    - >-
+      apt-get install -y --no-install-recommends
+      build-essential ca-certificates ccache cmake curl debhelper dpkg-dev
+      fakeroot file git jq libsecret-1-dev libsqlite3-dev libssl-dev
+      ninja-build patchelf pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev
+      qt6-multimedia-dev qt6-tools-dev zstd
+    # GStreamer development files for the voice/video call media engine. The
+    # source's LIGHTNING_ENABLE_WEBRTC option is gated on a pkg-config probe of
+    # gstreamer-1.0, gstreamer-webrtc-1.0, gstreamer-sdp-1.0, gstreamer-app-1.0,
+    # gstreamer-video-1.0 and gstreamer-rtp-1.0; without these packages the probe
+    # fails, CMake configures the engine OUT in one STATUS line, and the package
+    # ships a client that refuses every call. That is exactly how 0.8.0 shipped
+    # on every Linux format. configure-build.sh now asserts the staged binary
+    # carries the engine, so removing these fails the BUILD rather than a user.
+    - >-
+      apt-get install -y --no-install-recommends
+      libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      libgstreamer-plugins-bad1.0-dev
+    # The rustup INSTALLER is version-addressed and checksum-verified before it
+    # runs. `sh.rustup.rs` was the one unverified executable in this pipeline:
+    # TLS alone proved who served it, not what it was, and it builds the Rust
+    # Matrix SDK -- E2EE, key handling, token storage -- into every signed
+    # package. Every other download here is pinned; this one now is too.
+    - >-
+      curl --fail --show-error --silent --location --max-redirs 3
+      --proto '=https' --tlsv1.2
+      "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init"
+      --output /tmp/rustup-init
+    - printf '%s  /tmp/rustup-init\n' "$RUSTUP_INIT_SHA256" | sha256sum -c -
+    - chmod +x /tmp/rustup-init
+    - /tmp/rustup-init -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+    - export PATH="/root/.cargo/bin:$PATH"
+  script:
+    - ./packaging-ci/scripts/prepare-pinned-source.sh
+    - ./packaging-ci/scripts/build-deb.sh
+    - ./packaging-ci/scripts/write-build-info.sh deb
+
+
 build-rpm:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
@@ -748,6 +833,51 @@ validate-deb:
       - dist/source-info.json
       - dist/version.env
       - dist/version.json
+
+# The Ubuntu lane's validator. Same script, same assertions, different base —
+# and that IS the point: a package's install test has to run somewhere other
+# than the image that built it, which is the gap that let the Ubuntu failure
+# live for months (validate-deb pins the same digest build-deb does).
+validate-deb-ubuntu:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)deb(,|$)/'
+    - when: never
+  extends: .trusted-pipeline
+  stage: validate
+  image: ubuntu:26.04
+  variables:
+    DEB_SUFFIX: "ubuntu2604"
+  tags: [apt, deb, package]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-deb-ubuntu
+      artifacts: true
+  before_script:
+    - test ! -e work/lightning
+    - command -v nix >/dev/null 2>&1 && exit 1 || true
+    - apt-get update
+    - >-
+      apt-get install -y --no-install-recommends
+      appstream binutils ca-certificates desktop-file-utils file lintian
+      procps shared-mime-info
+  script: [./packaging-ci/scripts/validate-deb.sh]
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/*.deb
+      - dist/*.sha256
+      - dist/*deb*.log
+      - dist/*deb*.txt
+      - dist/source-info.json
+      - dist/version.env
+      - dist/version.json
+
 
 validate-rpm:
   # Build-only pipelines may select formats via BUILD_FORMATS;

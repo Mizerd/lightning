@@ -133,7 +133,22 @@ IMAGE_RECOMMENDS="kimageformat6-plugins"
 install -m0755 "$ROOT/packaging-ci/packaging/deb/postinst" "$CONTROL/postinst"
 install -m0755 "$ROOT/packaging-ci/packaging/deb/postrm" "$CONTROL/postrm"
 
-PACKAGE="$ROOT/dist/lightning_${DEB_VERSION}_amd64.deb"
+# TWO DEB LANES, AND THE FILENAME HAS TO SAY WHICH.
+#
+# dpkg-shlibdeps reads the versions of the BUILD HOST's libraries and bakes
+# them into Depends, so a deb built on Debian 13 (Qt 6.8.2) declares a floor
+# no Ubuntu 24.04 LTS can satisfy — measured: it refuses to install there, and
+# `qml6-module-qtquick-effects` does not exist in noble at all because
+# QtQuick.Effects is Qt 6.5+. One artifact cannot serve both, and a deb that
+# refuses to install is better than one that half-works, so the answer is a
+# second lane rather than a loosened dependency.
+#
+# DEB_SUFFIX is set by the CI job (empty for the Debian lane, so its filename
+# is unchanged and every existing link, checksum and manifest entry still
+# resolves). A lane that forgets to set it collides with the other lane's
+# artifact, which is why the value comes from the job and not from a guess
+# about the running container.
+PACKAGE="$ROOT/dist/lightning_${DEB_VERSION}${DEB_SUFFIX:+_$DEB_SUFFIX}_amd64.deb"
 dpkg-deb --build --root-owner-group "$PKGROOT" "$PACKAGE"
 write_sha256 "$PACKAGE"
 printf 'Built %s\n' "$PACKAGE"
