@@ -1690,15 +1690,27 @@ static DELAYED_EVENTS_REFUSED: AtomicBool = AtomicBool::new(false);
 /// Does this refusal category mean the homeserver simply does not implement
 /// MSC4140, as opposed to something that may work on the next try?
 ///
-/// Pure, so it can be tested without a homeserver. `unrecognized` is Synapse's
-/// answer for an endpoint it does not implement (404 with M_UNRECOGNIZED) and
-/// `not_found` the plain 404; everything else — `network` (which is also where
-/// a TIMEOUT lands), `rate_limited`, `forbidden`, `invalid` — is either
-/// transient or specific to one room, and neither justifies a process-global
-/// latch. `forbidden` in particular is how a room's own power levels refuse a
-/// state write, which says nothing about the server's MSC4140 support.
+/// Pure, so it can be tested without a homeserver. Three categories mean the
+/// server will never arm one:
+///
+///   * `unrecognized` — Synapse's 404 M_UNRECOGNIZED for an endpoint it does
+///     not implement;
+///   * `not_found` — the plain 404;
+///   * `no_delay_id` — **the server ANSWERED and it was not a delayed event.**
+///     A homeserver that ignores `?org.matrix.msc4140.delay=` applies the
+///     body and returns 200 with an `event_id` and no `delay_id`. That is not
+///     a 404 and there is nothing in its message text to match, so it used to
+///     fall through to `network` and be treated as transient — which left the
+///     latch permanently unset on exactly the server class GitHub #10 is
+///     about, and so armed a naked retraction on every single refresh.
+///
+/// Everything else — `network` (which is also where a TIMEOUT lands),
+/// `rate_limited`, `forbidden`, `invalid` — is either transient or specific to
+/// one room, and neither justifies a process-global latch. `forbidden` in
+/// particular is how a room's own power levels refuse a state write, which
+/// says nothing about the server's MSC4140 support.
 pub(crate) fn delayed_refusal_is_permanent(category: &str) -> bool {
-    matches!(category, "unrecognized" | "not_found")
+    matches!(category, "unrecognized" | "not_found" | "no_delay_id")
 }
 
 /// v0.9 (phase 11): whether this process has seen the homeserver refuse a
@@ -2157,12 +2169,57 @@ async fn schedule_delayed_leave(
             .cast_unchecked(),
     );
     match tokio::time::timeout(DISCOVERY_TIMEOUT, client.send(request)).await {
-        Ok(Ok(response)) => Ok(response.delay_id),
+        Ok(Ok(response)) => {
+            if response.delay_id.is_empty() {
+                // ANSWERED, AND NOT WITH A DELAYED EVENT. A delay id is the
+                // only thing that makes this a delayed event rather than an
+                // ordinary state write, so an empty one means the server
+                // already applied the `{}` body — it retracted us.
+                Err("no_delay_id".to_owned())
+            } else {
+                Ok(response.delay_id)
+            }
+        }
         // A server without MSC4140 answers 404/400. That is not a failure of
         // the call — it only means cleanup falls back to `expires`.
-        Ok(Err(err)) => Err(classify_room_error(&err.to_string()).to_owned()),
+        Ok(Err(err)) => Err(classify_delayed_leave_failure(&err)),
         Err(_) => Err("network".to_owned()),
     }
+}
+
+/// Why a delayed retraction could not be armed, in the vocabulary
+/// `delayed_refusal_is_permanent` understands.
+///
+/// THE CASE THIS EXISTS FOR IS THE ONE `classify_room_error` CANNOT SEE. A
+/// homeserver that does not know MSC4140 ignores the `org.matrix.msc4140.delay`
+/// query parameter, applies the `{}` body as an ordinary state event, and
+/// answers **200 with an `event_id` and no `delay_id`** — which is exactly the
+/// server class GitHub #10 is about. ruma cannot read that as the delayed
+/// response, so it arrives as a DESERIALIZATION failure on a status it
+/// accepted: no 404 anywhere, nothing in the message text to match, and a
+/// string ladder therefore files it under `network` and treats a permanent
+/// property as a passing blip.
+fn classify_delayed_leave_failure(err: &matrix_sdk::HttpError) -> String {
+    use matrix_sdk::ruma::api::error::FromHttpResponseError;
+    use matrix_sdk::HttpError;
+
+    // The server spoke Matrix's own error shape — 404 M_UNRECOGNIZED, 403,
+    // 429 and friends. That is what classify_room_error is for.
+    if err.as_client_api_error().is_some() {
+        return classify_room_error(&err.to_string()).to_owned();
+    }
+    // A body ruma could not read on a status it ACCEPTED. Matched on the
+    // error's own variant rather than its text, deliberately: the message of
+    // a serde failure names a missing field, not a status, so no ladder of
+    // string tests can tell this from a transport error.
+    if let HttpError::Api(api) = err {
+        if matches!(**api, FromHttpResponseError::Deserialization(_)) {
+            return "no_delay_id".to_owned();
+        }
+    }
+    // Everything else — transport, TLS, a timeout further down — is transient
+    // by default, which is the safe direction: a blip must never latch.
+    "network".to_owned()
 }
 
 /// Restart the delayed retraction, so it keeps not-firing while we are alive.
@@ -4574,6 +4631,18 @@ mod tests {
                 "a '{transient}' refusal would permanently disable delayed                  retractions for every room in the process, so an unclean                  exit would strand a phantom participant from then on"
             );
         }
+        // AND THE ONE THAT REOPENED #10 WHEN IT WAS MISSING. A homeserver
+        // that ignores `?org.matrix.msc4140.delay=` does not 404: it applies
+        // the `{}` body and answers 200 with an `event_id` and no `delay_id`.
+        // Classified as transient, the latch never sets on that server, the
+        // gate keeps allowing arming, and every refresh sends a naked
+        // retraction that the repair write then has to undo — a leave and a
+        // rejoin every minute, on precisely the server class #10 came from.
+        assert!(
+            delayed_refusal_is_permanent("no_delay_id"),
+            "a server that ANSWERED without a delay id was treated as a \
+             passing blip, so a naked retraction is armed on every refresh"
+        );
         // Synapse answers 404 M_UNRECOGNIZED for an endpoint it does not
         // implement; a plain 404 is the other spelling.
         for absent in ["unrecognized", "not_found"] {
