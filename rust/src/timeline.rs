@@ -2428,6 +2428,95 @@ async fn open_room_task(
         }
     }
 
+    // OPT-IN SEND-STATE RECONCILIATION — the instrument the open
+    // "sending… until a room switch" defect needs, and the question a
+    // screenshot cannot answer.
+    //
+    // Two views of the same fact disagree in that report: the timeline says a
+    // local echo is still in flight while the server already has the event. A
+    // capture of ONE of them cannot separate the two live hypotheses — a slow
+    // link that has not delivered the remote echo yet, versus a TERMINAL
+    // UPDATE THAT WAS LOST. matrix-sdk-ui's `room_send_queue_update_task`
+    // warns "missed {n} local echoes, ignoring those missed" on a lagged
+    // broadcast and then CONTINUES, with no resync — unlike every
+    // event-cache stream in that same crate — so a dropped update leaves the
+    // item at NotSentYet until the timeline is rebuilt, which is precisely
+    // what "resolved only by a room switch" looks like.
+    //
+    // `SendQueue::local_echoes()` is the second view, and it is independent:
+    // it reads what the queue still OWES from the state store, not from the
+    // stream that may have dropped the update. So an item the timeline calls
+    // in flight that the queue no longer holds is ORPHANED, and that is
+    // decisive:
+    //     queued non-empty -> the send really is outstanding. Not a defect.
+    //     queued empty     -> the terminal update never arrived. Defect.
+    //
+    // Counts and ids only, never a body. Opt-in because it polls the state
+    // store, and guarded on the room generation so it cannot outlive the
+    // room that started it.
+    if std::env::var_os("LIGHTNING_SEND_TRACE").is_some() {
+        let watch_timeline = Arc::clone(&timeline);
+        let watch_client = client.clone();
+        let watch_registry = Arc::clone(&registry);
+        let watch_room = room_id.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                if !watch_registry.is_current(room_gen, lifecycle) {
+                    break;
+                }
+                let mut in_flight: Vec<String> = Vec::new();
+                for item in watch_timeline.items().await.iter() {
+                    let Some(event) = item.as_event() else { continue };
+                    if matches!(
+                        event.send_state(),
+                        Some(EventSendState::NotSentYet { .. })
+                            | Some(EventSendState::SendingFailed { .. })
+                    ) {
+                        in_flight.push(match event.identifier() {
+                            TimelineEventItemId::TransactionId(id) => id.to_string(),
+                            TimelineEventItemId::EventId(id) => id.to_string(),
+                        });
+                    }
+                }
+                if in_flight.is_empty() {
+                    continue;
+                }
+                let queued: Vec<String> = match watch_client.send_queue().local_echoes().await {
+                    Ok(rooms) => rooms
+                        .iter()
+                        .filter(|(room, _)| room.as_str() == watch_room)
+                        .flat_map(|(_, echoes)| {
+                            echoes.iter().map(|echo| echo.transaction_id.to_string())
+                        })
+                        .collect(),
+                    Err(_) => continue,
+                };
+                let orphaned = in_flight.iter().filter(|id| !queued.contains(id)).count();
+                // eprintln! rather than tracing: `tracing` is not a direct
+                // dependency of this crate and adding one incidentally is
+                // exactly what the dependency rule forbids. This is already
+                // gated behind an env var, so it cannot be noise, and stderr
+                // is where the SDK's own tracing lands — the two lines want
+                // to be read together.
+                eprintln!(
+                    "lightning.send_trace: room={} in_flight={} queued={} \
+orphaned={}{}",
+                    watch_room,
+                    in_flight.len(),
+                    queued.len(),
+                    orphaned,
+                    if orphaned > 0 {
+                        "  <-- ORPHANED: the timeline says in flight, the send \
+queue owes nothing. A terminal update was lost."
+                    } else {
+                        ""
+                    }
+                );
+            }
+        });
+    }
+
     let snapshot: Vec<serde_json::Value> =
         items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
     enqueue(
