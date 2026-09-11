@@ -47,9 +47,36 @@ and the timeline-start row are all rows. One date divider was the whole
 discrepancy, and a thread spanning several days drifts by one per day. The
 divider's own visibility gate (`count > 1`) had the same flaw, so a thread
 with no replies at all could show the divider once it crossed a day boundary.
-`TimelineModel::realCount` now states the distinction where it can be stated
-once — `count` counts rows, `realCount` counts events — and the panel reads
-it. Mutation-proven at the model.
+`TimelineModel::realCount` states the distinction where it only has to be
+stated once — `count` counts rows, `realCount` counts events — and
+LIVE-VALIDATED PASS on the same thread that produced the report: the divider
+reads 2 beside the card's 2, with the date divider still present.
+
+Review round 8 then found that `realCount - 1` was only two thirds of a fix,
+and both remaining holes are ones QML cannot even see, so the answer moved to
+`ThreadController::replyCount`. The `- 1` assumed the root IS a row, which
+`rootInfo()` itself documents is not always true — it falls back to the ROOM
+timeline while the thread snapshot is arriving — so in that window it
+UNDERCOUNTED instead. And a loaded count can never agree with the card for a
+long thread at all: the thread timeline is windowed and paginates lazily, so
+it would disagree by LENGTH rather than by date dividers. The controller
+prefers the SDK's `num_replies`, falls back to the loaded count, and
+subtracts the root only when the root is really a row. One trap inside that:
+`ThreadReplyCountRole` answers 0 rather than -1 when the SDK summary is
+absent, so 0 cannot be read as an authoritative zero — take the larger of the
+two. Mutation-proven: reverting to the row count minus one fails
+`replyCountIsRepliesNotRows`.
+
+The same review caught the signal half. `realCount` was published with
+`NOTIFY countChanged`, and `onEventChangedAt` is the one `m_events` mutator
+that deliberately does not emit it — correctly, because an in-place Set
+cannot change the ROW count. It can change the REAL count, by replacing a
+virtual row with a real one or the reverse, so anything bound to `realCount`
+kept the old number. It emits now when virtualness flips.
+GENERALISE: reusing an existing NOTIFY for a new property means inheriting
+every place that signal is deliberately NOT emitted. The restart that check needed also confirms the
+thread edit reached the SERVER rather than a local echo — the edited body and
+its `edited` marker came back from a cold start.
 GENERALISE: a label that says how many MESSAGES there are must never be
 derived from a row count, in any view that synthesises rows. Lightning
 synthesises three kinds.
@@ -97,15 +124,20 @@ fail for want of a correction. An OVER-firing `maintainViewAnchor()` — one
 that corrects a prepend the positive-only guard says needs none — would move
 exactly the quantity they measure, so they do guard something real.
 
-**AND THE SECOND HALF OF THAT CAPTURE RULES THE OVER-FIRING OUT TOO.** The
-three cases now print the anchor counters when they fail, and the flake
-reproduces at roughly one run in five: `AnchorCorrections=0
-GrowthCorrections=0 DisplacedFirings=0 MaterializedFirings=0
-ActiveDeferrals=0 UnresolvedIdFallbacks=0 EvictedNoInsertFallbacks=0`. Every
-one zero, at the moment of failure. So the compensation machinery is not what
-fails these — it never runs. §16 has asked for years that a fourth anchor fix
-produce a capture naming a failure; this is that capture, and it argues
-AGAINST a fourth fix.
+**AND THE FIRST VERSION OF THE COUNTER CAPTURE WAS A DEAD INSTRUMENT, WHICH I
+DREW A CONCLUSION FROM.** Every `diag*` increment in `TimelinePane.qml` sits
+inside `if (scrollTrace)`, and `scrollTrace` reads
+`app.timelineScroll.scrollTraceEnabled` — CONSTANT, set once per controller
+from `LIGHTNING_SCROLL_TRACE`. The eight cases that read counters all
+`qputenv` it; the three anchor cases did not. So the snapshot printed seven
+zeros on a correct build, a broken build and any build, and I wrote "every
+counter zero, so the machinery never ran" into CLAUDE.md as the reason not to
+attempt a fourth anchor fix. Caught in review round 8.
+GENERALISE, and this repo already had the sentence for it one file away — *a
+diagnostic that reports a constant is worse than one that reports nothing*. A
+new reader of a gated counter must prove the gate is OPEN before reading
+anything into the value; the three cases now assert
+`scrollTraceEnabled()` before the snapshot can run.
 
 **AND THEIR FAILURE TEXT COULD NEVER PRINT.** All three used one QTRY whose
 lambda returned false for two unrelated reasons — the anchor's row not BUILT
@@ -133,20 +165,36 @@ momentary disagreement resolves to somebody else's delegate; reporting "the
 reader moved" for that would accuse the anchor machinery of the mapping's
 mistake.
 
-**OPEN, WITH NUMBERS AND NO CAUSE.** With all of the above in place the flake
-still reproduces, and every capture is identical: `viewport offset -389 ->
-450`, `contentY` unchanged at 389, the measured row CONFIRMED to be the
-anchor's own, a layout flush that does not settle it, and every anchor
-counter zero. So the anchor row's own `y` went 0 -> 839 while contentY stood
-still and nothing in the anchor machinery fired. Identical numbers in two
-DIFFERENT cases (`topEdgePrepend…` and `nearTopControllerDriven…`) say this
-is a deterministic state reached intermittently, not noise. It is not the
-anchor machinery, it is not a missing correction, and it is not the row
-mapping. What is left — the reveal pacing, the fixture's own anchor capture,
-or the end at which the mock inserts a pagination chunk — is UNTESTED
-guessing, and §16's standing rule is that a fourth wrong fix costs more than
-another round of not knowing. Reproduce with the three cases run TOGETHER;
-alone they pass 10/10.
+**AND WITH THE INSTRUMENT LIVE, THE FLAKE WAS THE FIXTURE — ROOT-CAUSED AND
+FIXED.** Turning the trace on made the counters say something, and a pass/fail
+control on the same case said the rest. Same build, same case:
+
+    pass  offsetBefore=+334  row y=723  contentHeight=2231  MaterializedMaxAbsDelta=0
+    fail  offsetBefore=-389  row y=0    contentHeight=2115  MaterializedMaxAbsDelta=819
+
+The divergence is in `offsetBefore` — BEFORE the prepend the test performs.
+The failing run is one row short and captures its anchor on a different row
+(content y 0 rather than 723), and the 819 the machinery measures is the 839
+the test then sees. In both runs `ActiveDeferrals == MaterializedFirings`,
+which by this file's own reading rule means every firing was deferred; the
+machinery behaves identically in a pass and a fail.
+
+The cause is the fixture's readiness check. It waited for
+`!controller.pagination()->busy()`, which is NOT "the timeline stopped
+growing": `ReverseListProxyModel` paces its reveal at 3 ms a tick, so rows
+keep arriving after the controller reports idle, and `positionAtTopEdge()` +
+`captureViewAnchor()` sometimes ran mid-growth and picked whichever row was
+there. Waiting for `contentHeight` to hold still across three consecutive
+reads took the three cases from roughly one failure in five to **24
+consecutive clean runs** (p ~= 0.005 under the old rate).
+GENERALISE: "the producer says it is idle" is not "the derived view has
+stopped changing" whenever anything between them is PACED. Wait on the
+quantity you are about to measure.
+
+So the recorded `timeline-pane-qml` anchor flake is closed, and it was never
+the anchor machinery. Note what remains untouched: the positive-only guard
+still stands on its own evidence, and §16's bar for a fourth anchor fix is
+unchanged.
 
 **A "FIX" TO THE MOCK'S COMPOSITE HANDLING WAS A REGRESSION, AND THE COMMENT
 I WROTE FOR IT ASSERTED THE OPPOSITE OF THE CODE.** `MockMatrixClient::

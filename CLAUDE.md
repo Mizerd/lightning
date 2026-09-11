@@ -74,18 +74,12 @@ comparing the digest INSIDE the retry loop. Both it and its sibling (a 404
 while the API says `state=uploaded`) are in `docs/release-operations.md`.
 
 **ON `main` ABOVE 0.9.4 (2026-09-10, NOT a release).** Nothing tagged, no
-version bumped. Two batches, both recorded in `docs/round-history.md` under
-2026-09-10, with their accepted follow-ups and one recorded refutation. First,
-the post-0.9.4 audit debt: nine defects 0.9.4 shipped without — themes, HTML
-scan, `--log-file`, FFI task tracking, Spaces rail, timeline mirror,
-MediaBridge, local search paging, thread identity, and §6's "no readable token
-is not no account" twice more. Then four items that were degrading every
-session: this file's own size limit, the AppImage's missing
-`gst-plugin-scanner`, a panic hook so a panic payload can no longer quote a
-message body to stderr, and the fallback secret store refusing to vouch for a
-secret it had just returned. Validation: Rust 413 passed, `WEBRTC=OFF` over
-every target, and both CTest trees green but for the recorded
-`timeline-pane-qml` anchor flake. NOTHING in it is live-validated.
+version bumped: the post-0.9.4 audit debt (nine defects 0.9.4 shipped
+without) and four items that were degrading every session, including this
+file's size limit and the AppImage's `gst-plugin-scanner`. Both batches, their
+accepted follow-ups and one refutation are in `docs/round-history.md` under
+2026-09-10. Validation: Rust 413 passed, `WEBRTC=OFF` over every target, both
+CTest trees green. NOTHING in it is live-validated.
 
 **The 2026-09-08/09 four-audit round SHIPPED IN 0.9.4** (`5d9fa37..820d368`;
 `820d368` is an ancestor of `bcea599`). See `docs/round-history.md`,
@@ -1017,17 +1011,21 @@ the staging/freeze window `225c7b3` shipped, regressed and was removed
 in `263268b`). A fourth needs a `LIGHTNING_SCROLL_TRACE=1` capture
 naming a failure: a non-zero `displacedApplied`, `anchorCorrections` or
 `materializedMaxAbsDelta`. All-zero lines are not evidence.
-**THE CAPTURE EXISTS NOW, AND IT ACQUITS THE ANCHOR MACHINERY TWICE OVER**
-(2026-09-11, `timeline-pane-qml`). Disabling `maintainViewAnchor()` fails
+**AND THE SUITE'S ANCHOR FLAKE WAS ITS FIXTURE, NOT THIS MACHINERY
+(2026-09-11, root-caused and FIXED).** Disabling `maintainViewAnchor()` fails
 EIGHT cases while the three prepend/anchor ones PASS, so a MISSING correction
-is not what fails them; and a reproduced failure reports every counter ZERO
-(`AnchorCorrections=0 DisplacedFirings=0 MaterializedFirings=0
-ActiveDeferrals=0 …`), so a WRONG one is not it either — the machinery never
-ran. What it does NOT explain: something moved the reader's row 839 px
-(`offset -389 -> 450`, `contentY` unchanged at 389, the measured row
-confirmed to be the anchor's own). Cause NOT established;
-`docs/round-history.md`, 2026-09-11. This is evidence AGAINST a fourth anchor
-fix, not for one.
+never failed them. And with the counters ON, a pass and a fail of one case
+differ BEFORE the prepend under test: `offsetBefore=+334` (row y 723,
+contentHeight 2231) vs `-389` (row y 0, 2115) — one row short, so the anchor
+was captured on a different row. `!pagination()->busy()` is not "the timeline
+stopped growing" (`ReverseListProxyModel` paces its reveal), so it captured
+mid-growth. Waiting for `contentHeight` to hold still took the three from ~1
+failure in 5 to **24 consecutive clean runs**.
+**THE COUNTERS ARE GATED ON `LIGHTNING_SCROLL_TRACE`** — every `diag*`
+increment is inside `if (scrollTrace)`, read once per controller — so a test
+reading them without setting it gets zeros on any build. A first version of
+this capture did that, and "every counter zero, so the machinery never ran"
+was written here on it. A dead instrument, not a measurement.
 
 *Element (classic) was read for this and does NOT animate.*
 `ScrollPanel.scrollToBottom()` is a bare `scrollTop = scrollHeight`;
@@ -1354,11 +1352,11 @@ The usual offender is
 so before reading a failure as a scroll regression, re-run it alone and at
 lower parallelism. §16's scrolling block is explicit that a fourth anchor fix
 needs a `LIGHTNING_SCROLL_TRACE=1` capture naming a failure, and a flake is
-not that capture. Since 2026-09-11 it reproduces on demand (about one run in
-five of the three cases together; ALONE it passed 10/10) and its failure text
-carries the offsets, the anchor counters, and which of three things went
-wrong — row never built, wrong row measured, or the reader moved. Read that
-line before theorising.
+not that capture. **The anchor flake itself is FIXED as of 2026-09-11 and was
+the FIXTURE** — see the scrolling block — so a failure of those three is now
+news. Their failure text carries the offsets, the live anchor counters, and
+which of three things went wrong: the row was never built, the wrong row was
+measured, or the reader moved.
 
 **A PIPELINE'S CAPS ARE A CONTRACT BOTH ENDS MUST HONOUR, and three ways
 this lane has broken it.** All three were live defects, all three were
@@ -1608,14 +1606,15 @@ event, resolving only on a timeline reload — cause NOT established. Detail in
 **2026-09-11 — THE THREAD EDIT IS LIVE-VALIDATED: PASS.** The fourth and last
 of the "address the event on the timeline that HOLDS it" family, driven
 through a real thread panel against a real homeserver: the edit applies, the
-row carries the `edited` marker and the room's summary card follows. Found in
-the same session and FIXED: the panel's "N replies" divider read the ROW
-count, so date dividers inflated it — it said 3 beside two replies while the
-room card correctly said 2. Two harness facts worth keeping: the message
-context menu survives a `shot_pid` capture (the no-capture-mid-menu rule is
-about spectacle's interactive mode), and it publishes its own shortcuts, `T`
-for Reply in thread and `E` for Edit. `ydotool key` needs KEYCODES — `28:1
-28:0` for Return; a key NAME types nothing and reports success.
+row carries the `edited` marker and the room's summary card follows — and the
+new body survives a restart, so it is the server's copy and not an echo.
+Found in the same session and FIXED, the fix live-checked too: the panel's "N
+replies" divider read the ROW count, so date dividers inflated it — it said 3
+beside two replies where the room card correctly said 2, and now reads 2. Two harness facts: the message context menu
+survives a `shot_pid` capture (the no-capture-mid-menu rule is about
+spectacle's interactive mode) and publishes its own shortcuts, `T` and `E`.
+`ydotool key` needs KEYCODES — `28:1 28:0` for Return; a key NAME types
+nothing and reports success.
 
 **2026-09-10 — the first GUI validation of anything above 0.9.4, and it was
 AUTOMATION-driven on a throwaway fixture account, not Rokas.** Four PASSes,
