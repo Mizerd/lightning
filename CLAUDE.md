@@ -1018,14 +1018,21 @@ never failed them. And with the counters ON, a pass and a fail of one case
 differ BEFORE the prepend under test: `offsetBefore=+334` (row y 723,
 contentHeight 2231) vs `-389` (row y 0, 2115) — one row short, so the anchor
 was captured on a different row. `!pagination()->busy()` is not "the timeline
-stopped growing" (`ReverseListProxyModel` paces its reveal), so it captured
-mid-growth. Waiting for `contentHeight` to hold still took the three from ~1
-failure in 5 to **24 consecutive clean runs**.
+stopped growing" — `ReverseListProxyModel` paces its reveal — so it captured
+mid-growth. **Wait on the PRODUCER**: `revealIdle()` is the same condition the
+proxy stops its own timer on. ~1 failure in 5 became 0 in 24 on a first
+(heuristic) fix and 0 in 6 idle plus 0 in 6 under 24-way CPU load on this one.
+Do not time the poller instead: `kRevealBudgetMs` is a per-tick WORK budget
+and the interval is 16-250 ms and ADAPTIVE, while `qWaitFor` polls every
+~10 ms, so "N quiet reads" silently stops meaning anything once rows get
+expensive — which is the loaded machine a flake appears on.
 **THE COUNTERS ARE GATED ON `LIGHTNING_SCROLL_TRACE`** — every `diag*`
 increment is inside `if (scrollTrace)`, read once per controller — so a test
 reading them without setting it gets zeros on any build. A first version of
 this capture did that, and "every counter zero, so the machinery never ran"
-was written here on it. A dead instrument, not a measurement.
+was written here on it: a dead instrument, not a measurement. (`PrependFirings`
+is 0 in a passing run too, so these three do not exercise that branch despite
+their names.)
 
 *Element (classic) was read for this and does NOT animate.*
 `ScrollPanel.scrollToBottom()` is a bare `scrollTop = scrollHeight`;
@@ -1167,40 +1174,28 @@ before the MJPG app half lands, then move `libgstjpeg.dll` back to the
 required list — both, or the next release dies the same way.
 
 **THE 0.9.0 APPIMAGE SHIPPED WITHOUT QT'S TLS BACKEND AND WITHOUT THE
-WAYLAND SHELL INTEGRATION, and nothing could have caught it.** Seen live the
-day it shipped: `qt.qpa.wayland: No shell integration named "xdg-shell"
-found … Could not load the Qt platform plugin "wayland"`, so it ran under
-XWayland (where a screen share captures a black root window), and
-`usr/plugins/tls` existed and was EMPTY, so every https request through
-QNetworkAccessManager fails — the update manifest fetch and the update
-download included, which means **a 0.9.0 AppImage will never offer the
-next release by itself**; Matrix traffic was unaffected (rustls).
+WAYLAND SHELL INTEGRATION, and nothing could have caught it.**
 linuxdeploy-plugin-qt deploys neither directory unless `EXTRA_QT_PLUGINS`
-names it. Deploy `1b773c2` names `tls`, `wayland-shell-integration`,
-`wayland-decoration-client` and `wayland-graphics-integration-client`, and
-`validate-appimage.sh` asserts the two files, because graceful fallback and
-silent absence are the same observable until something asserts the payload
-(the fourth time this shape has bitten: sctp, ximagesrc, opengl, now this).
-Whether 0.7.x–0.8.x AppImages ever self-updated is unknown — no AppImage
-upgrade was ever live-tested (§2).
+names it, so it ran under XWayland (a screen share captures a black root
+window) and every QNetworkAccessManager https request failed — the update
+manifest and download included, so **a 0.9.0 AppImage will never offer the
+next release by itself**; Matrix traffic was unaffected (rustls). Deploy
+`1b773c2` names the four directories and `validate-appimage.sh` asserts the
+files, because graceful fallback and silent absence are the same observable
+until something asserts the payload — the fourth time this shape has bitten
+(sctp, ximagesrc, opengl, now this). Detail in `docs/round-history.md`.
 
 **A ROOM OPEN COSTS THE HISTORY FILL'S PAGE COUNT TIMES ~400 MS, AND
-`maxInvisibleFillRetries` IS THAT COUNT'S CEILING (measured 2026-09-05,
-timestamped log on the maintainer's desktop).** `a5e64a6` (2026-08-31, in
-0.8.4) raised the fill's budget for pages that add rows but no visible height
-from the old no-progress cap of 8 to 60, so a collapsed activity run never
-has to be expanded to reach older history. In a call room whose tail is RTC
-membership churn (one state event per participant per minute, every one a
-hidden row) that meant 9 pages on a first open (4.2 s) and 18 on a re-open
-(11 s), each page ≈ 70 ms dispatch + network (110 ms from the server, ~1 ms
-from the event cache) + 100-250 ms of ingest and the fill loop's own
-timers. Reported as "ten seconds to load a room" and "you broke initial
-loading". It is 12 now (≈240 hidden events, more than the 184-event run
-`a5e64a6` was written for), and a wheel towards older history on content
-too short to scroll asks for the next page (`requestNearTop(true)` from the
-WheelHandler), so the reader is never stuck behind a group either. The
-fill also decides how many rows a room holds after open, which is the scroll
-frame cost (~14 ms at 900 rows): a bigger budget makes scrolling worse too.
+`maxInvisibleFillRetries` IS THAT COUNT'S CEILING (measured 2026-09-05).**
+`a5e64a6` raised the no-progress budget 8 -> 60; in a call room whose tail is
+RTC membership churn that meant 9 fill pages on a first open (4.2 s) and 18 on
+a re-open (11 s) — each page ~70 ms dispatch + network + 100-250 ms of ingest
+and the fill's own timers. Reported as "ten seconds to load a room". It is 12
+now, and a wheel towards older history on content too short to scroll asks for
+the next page, so the reader is never stuck behind a collapsed group either.
+The fill also decides how many rows a room holds after open, which IS the
+scroll frame cost (~14 ms at 900 rows): a bigger budget makes scrolling worse
+too. Detail in `docs/round-history.md`.
 
 **PAGE DOUBLING WAS TRIED THE SAME DAY AND REFUTED BY THE SAME LOG.** Asking
 for 100 events after an invisible page: Synapse answered a 100-event
@@ -1608,9 +1603,12 @@ of the "address the event on the timeline that HOLDS it" family, driven
 through a real thread panel against a real homeserver: the edit applies, the
 row carries the `edited` marker and the room's summary card follows — and the
 new body survives a restart, so it is the server's copy and not an echo.
-Found in the same session and FIXED, the fix live-checked too: the panel's "N
-replies" divider read the ROW count, so date dividers inflated it — it said 3
-beside two replies where the room card correctly said 2, and now reads 2. Two harness facts: the message context menu
+Found in the same session: the panel's "N replies" divider read the ROW
+count, so date dividers inflated it — it said 3 beside two replies where the
+room card correctly said 2. The `realCount - 1` revision was live-checked and
+read 2; the SHIPPED code is `ThreadController::replyCount` (it prefers the
+SDK's num_replies, which `realCount - 1` cannot match on a windowed thread)
+and that is **NOT TESTED** live. Two harness facts: the message context menu
 survives a `shot_pid` capture (the no-capture-mid-menu rule is about
 spectacle's interactive mode) and publishes its own shortcuts, `T` and `E`.
 `ydotool key` needs KEYCODES — `28:1 28:0` for Return; a key NAME types

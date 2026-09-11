@@ -50,7 +50,10 @@ with no replies at all could show the divider once it crossed a day boundary.
 `TimelineModel::realCount` states the distinction where it only has to be
 stated once — `count` counts rows, `realCount` counts events — and
 LIVE-VALIDATED PASS on the same thread that produced the report: the divider
-reads 2 beside the card's 2, with the date divider still present.
+reads 2 beside the card's 2, with the date divider still present. **That PASS
+belongs to the `realCount - 1` revision and to nothing after it** — the
+shipped code is `ThreadController::replyCount`, which prefers the SDK's number
+and can legitimately answer differently, and it is NOT TESTED live.
 
 Review round 8 then found that `realCount - 1` was only two thirds of a fix,
 and both remaining holes are ones QML cannot even see, so the answer moved to
@@ -63,9 +66,27 @@ it would disagree by LENGTH rather than by date dividers. The controller
 prefers the SDK's `num_replies`, falls back to the loaded count, and
 subtracts the root only when the root is really a row. One trap inside that:
 `ThreadReplyCountRole` answers 0 rather than -1 when the SDK summary is
-absent, so 0 cannot be read as an authoritative zero — take the larger of the
-two. Mutation-proven: reverting to the row count minus one fails
-`replyCountIsRepliesNotRows`.
+absent, so through the ROLE "the server says none", "no summary yet" and
+"nothing indexed" are one value. A first revision took `qMax(role, loaded)` to
+dodge that, and round 9 showed the ambiguity does not exist one layer down:
+`TimelineEvent::threadReplyCount` is -1 in exactly the unknown case, so the
+preference is expressible rather than approximated — and `qMax` would have
+pinned the count HIGH when replies are redacted and a stale `num_replies`
+outlives them. The root is also looked up in the ROOM timeline when it is not
+a row of the thread model, which is the very case the SDK's number exists for.
+
+**AND THE PROPERTY DID NOT ANNOUNCE THE ONE ARRIVAL IT EXISTS FOR.** The SDK
+summary lands as an in-place Set on the root row, and `onEventChangedAt` emits
+`countChanged` only when a row's virtualness flips — so wiring
+`replyCountChanged` to `countChanged` and `stateChanged` alone meant the
+divider kept the loaded count until some unrelated insert happened to fire.
+It listens to `dataChanged` now, filtered to the root row, and every source
+goes through a recompute that emits only when the ANSWER moves, so one Set per
+receipt cannot become one re-render per receipt.
+Mutation-proven both ways: reverting to the row count minus one fails
+`replyCountIsRepliesNotRows`, and dropping the `dataChanged` connection or
+preferring the loaded count fails
+`theSdkSummaryWinsAndItsArrivalIsAnnounced`.
 
 The same review caught the signal half. `realCount` was published with
 `NOTIFY countChanged`, and `onEventChangedAt` is the one `m_events` mutator
