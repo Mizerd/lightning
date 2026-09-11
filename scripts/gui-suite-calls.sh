@@ -62,6 +62,7 @@ LT_OUT="${LT_OUT:-$LT_HOME/suite-out}"
 # --- calibrated control offsets, window pinned to 1707x1000 logical --------
 WIN_W=1707 WIN_H=1000
 CALL_JOIN_X=1509  CALL_JOIN_Y=57     # room header's call button
+ROOM_ROW_X=165    ROOM_ROW_Y=361     # the fixture room in the room list
 SHARE_BTN_X=1123  SHARE_BTN_Y=135    # screen-share button in the call bar
 PEOPLE_BTN_X=1063 PEOPLE_BTN_Y=201   # call bar's participants button
 VOL_Y=300                            # the volume slider's row in the popup
@@ -294,13 +295,27 @@ check_volume_persists() {
     pin_geometry \
         || { bad volume-persists "after the restart KWin gave ${GEOM_WAS}; the join click would be blind"; return 1; }
     mark=$(mark_of "$LT_A_LOG")
+    # A RESTARTED CLIENT COMES UP ON HOME, NOT IN THE ROOM. Clicking where the
+    # call button sits while a room is open just hits the Home screen, and the
+    # check then reported "the restarted client never applied the stored
+    # volume" — which reads as a product defect and is nothing of the kind.
+    # Open the room first.
+    pidclick "$A" "$ROOM_ROW_X" "$ROOM_ROW_Y" >/dev/null 2>&1
+    sleep 6
     pidclick "$A" "$CALL_JOIN_X" "$CALL_JOIN_Y" >/dev/null 2>&1
     sleep 25
     shot "$A" "volume-persists"
+    # AND SAY WHICH THING FAILED. Without this the absence of the volume line
+    # is reported as a volume defect even when the client never got into the
+    # call at all, which is a different investigation entirely.
+    if ! lines_since "$LT_A_LOG" "$mark" 'sfu joined' >/dev/null; then
+        bad volume-persists "the restarted client never rejoined the call, so this says nothing about the stored volume — the value DID survive on disk as $before"
+        return 1
+    fi
     local applied
     applied=$(lines_since "$LT_A_LOG" "$mark" 'participant volume applied' | tail -1)
     [[ -n "$applied" ]] \
-        || { bad volume-persists "the restarted client never applied the stored volume to an element"; return 1; }
+        || { bad volume-persists "the restarted client rejoined the call but never applied the stored volume to an element"; return 1; }
     grep -q "percent= $before" <<<"$applied" \
         || { bad volume-persists "it re-applied something else: $applied"; return 1; }
     note "re-applied with no user input: $applied"
