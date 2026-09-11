@@ -133,6 +133,49 @@ private Q_SLOTS:
         QCOMPARE(row->body, edited);
     }
 
+    // THE DIVIDER'S NUMBER MUST BE REPLIES, NOT ROWS.
+    //
+    // The panel derived it from `model.count - 1` — the ROW count minus the
+    // thread root — and rows include date dividers, the read marker and the
+    // timeline-start row. Live on 2026-09-11 that showed "3 replies" beside
+    // two replies while the room's own summary card said 2.
+    void replyCountIsRepliesNotRows()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+
+        // What the ROOM says the thread holds, computed independently of
+        // anything the panel or the thread model does.
+        int repliesInRoom = 0;
+        for (const auto &e : client.timeline(kGeneral))
+            if (e.threadRootId == rootId)
+                ++repliesInRoom;
+        QVERIFY2(repliesInRoom > 0, "fixture assumption: the thread has replies");
+        QCOMPARE(controller.replyCount(), repliesInRoom);
+
+        // Now make the row count and the reply count disagree, which is the
+        // whole defect: a virtual row is a row and is not a reply.
+        const int rowsBefore = controller.model()->property("count").toInt();
+        const int realBefore = controller.model()->property("realCount").toInt();
+        QCOMPARE(controller.replyCount(), realBefore - 1);
+
+        TimelineEvent divider;
+        divider.type = TimelineEvent::DateDivider;
+        divider.itemId = QStringLiteral("uid-divider");
+        divider.roomId = MatrixClient::threadTimelineId(kGeneral, rootId);
+        divider.timestamp = QDateTime::currentDateTimeUtc();
+        QVERIFY(divider.isVirtual());
+        client.appendEventForTest(divider.roomId, divider);
+
+        QCOMPARE(controller.model()->property("count").toInt(), rowsBefore + 1);
+        QCOMPARE(controller.model()->property("realCount").toInt(), realBefore);
+        QCOMPARE(controller.replyCount(), repliesInRoom);
+    }
+
     void mockBackendSupportsThreadTimelines()
     {
         MockMatrixClient client;

@@ -2042,6 +2042,13 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     // rebuild a real cost in long timelines.
     const bool threadIndexChanged =
         m_events.at(index).threadRootId != event.threadRootId;
+    // `count` cannot change under an in-place Set, which is why this handler
+    // has never emitted countChanged. `realCount` CAN: a Set that turns a
+    // virtual row into a real one, or back, changes how many EVENTS are
+    // loaded while the row count stands still. Anything bound to realCount
+    // would silently keep the old number.
+    const bool virtualnessChanged =
+        m_events.at(index).isVirtual() != event.isVirtual();
     forgetRenderedHtml(m_events.at(index).eventId);
     forgetRenderedHtml(event.eventId);
     const bool hostedBefore = rowHostsReceipts(index);
@@ -2057,6 +2064,8 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
                         /*announceRow=*/false);
     if (groupingChanged)
         emitPresentationGroupingChanged(index - 1, index + 1);
+    if (virtualnessChanged)
+        Q_EMIT countChanged();
 }
 
 void TimelineModel::onEventRemovedAt(const QString &roomId, int index)

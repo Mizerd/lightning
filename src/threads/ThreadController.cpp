@@ -74,6 +74,12 @@ ThreadController::ThreadController(QObject *parent)
         if (row >= 0)
             locateNavigationTarget(row);
     });
+    // realCount moves with every row change, and the SDK summary arrives as
+    // a Set on the root row — both reach countChanged.
+    connect(&m_model, &TimelineModel::countChanged, this,
+            &ThreadController::replyCountChanged);
+    connect(this, &ThreadController::stateChanged, this,
+            &ThreadController::replyCountChanged);
     connect(&m_model, &TimelineModel::paginationChanged, this, [this] {
         const bool wasPaginating = m_modelPaginating;
         m_modelPaginating = m_model.paginating();
@@ -845,6 +851,25 @@ QStringList ThreadController::participants() const
             result.append(sender);
     }
     return result;
+}
+
+int ThreadController::replyCount() const
+{
+    const int rootRow = m_model.rowForStableId(m_rootEventId);
+    // ThreadReplyCountRole answers 0, never -1, when the SDK summary is
+    // absent — it falls back to a local index — so 0 cannot be read as an
+    // authoritative zero. Take the larger of the two instead: the SDK's
+    // number wins for a windowed thread (which is the case a loaded count
+    // can never get right), the loaded count wins before the summary
+    // arrives, and a thread with genuinely no replies reports 0 either way.
+    const int known =
+        rootRow >= 0 ? m_model.data(m_model.index(rootRow, 0),
+                                    TimelineModel::ThreadReplyCountRole)
+                           .toInt()
+                     : 0;
+    // Subtract the root only when the root is actually one of the rows.
+    const int loaded = m_model.realEventCount() - (rootRow >= 0 ? 1 : 0);
+    return qMax(0, qMax(known, loaded));
 }
 
 QVariantMap ThreadController::rootInfo() const

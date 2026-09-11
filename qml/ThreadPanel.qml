@@ -595,7 +595,7 @@ Rectangle {
             Layout.bottomMargin: AppTheme.spacing4
             visible: app.thread.active
                      && app.thread.state === ThreadController.Ready
-                     && app.thread.model.realCount > 1
+                     && app.thread.replyCount > 0
             spacing: AppTheme.spacing8
             Rectangle {
                 Layout.fillWidth: true
@@ -603,13 +603,12 @@ Rectangle {
                 color: AppTheme.border
             }
             Label {
-                // realCount, NOT count: `count` includes date dividers, the
-                // read marker and the timeline-start row, and the -1 here
-                // subtracts only the thread ROOT. Live on 2026-09-11 this
-                // said "3 replies" beside two replies and one date divider,
-                // while the room's own summary card said two.
-                readonly property int replies:
-                    app.thread.model.realCount - 1
+                // The controller resolves this: the SDK's num_replies when
+                // it is known, a loaded count otherwise, and the thread
+                // ROOT subtracted only when the root is really a row. QML
+                // cannot make that choice — it cannot see whether the root
+                // is in the model. See ThreadController::replyCount.
+                readonly property int replies: app.thread.replyCount
                 text: qsTr("%n reply(s)", "replies in the open thread",
                            replies)
                 color: AppTheme.textMuted

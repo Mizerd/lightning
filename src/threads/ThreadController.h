@@ -47,6 +47,27 @@ class ThreadController : public QObject
     // display; never carries server detail or message content.
     Q_PROPERTY(QString failureCategory READ failureCategory NOTIFY stateChanged)
     Q_PROPERTY(TimelineModel *model READ model CONSTANT)
+    /// How many REPLIES this thread has, or -1 when nothing can say.
+    ///
+    /// The room's own summary card reads the SDK's `num_replies`, and the
+    /// panel used to derive its "N replies" divider from
+    /// `model.count - 1` — the ROW count, minus the thread root. That was
+    /// wrong twice over and both are fixed here rather than in QML, because
+    /// only this class can see which correction applies:
+    ///
+    ///   * virtual rows (date dividers, the read marker, timeline start) are
+    ///     rows, so they inflated it — live on 2026-09-11 the panel said 3
+    ///     beside two replies while the card correctly said 2; and
+    ///   * the `- 1` assumed the root IS a row, which `rootInfo()` itself
+    ///     documents is not always true (it falls back to the ROOM timeline
+    ///     while the thread snapshot is still arriving), so in that window it
+    ///     undercounted instead.
+    ///
+    /// The SDK's count is preferred whenever it is known, which also fixes
+    /// the divergence a LOADED count can never fix: a thread timeline is
+    /// windowed and paginates lazily, so for any thread longer than its first
+    /// page a loaded count disagrees with the card by length.
+    Q_PROPERTY(int replyCount READ replyCount NOTIFY replyCountChanged)
     // v0.7: the thread composer text lives here so outgoing @-mentions can be
     // tracked (the room composer keeps its own text on MessageComposer). The
     // thread panel two-way-binds its TextArea to this.
@@ -220,6 +241,7 @@ public:
     // root is not loaded anywhere, {loaded: false} lets QML show the
     // honest "original message unavailable" state. Safe fields only.
     Q_INVOKABLE QVariantMap rootInfo() const;
+    int replyCount() const;
 
     // Reply navigation WITHIN the open thread (contract C5). Resolves the
     // target in the thread's own timeline, paginating this thread's history a
@@ -240,6 +262,7 @@ public:
 Q_SIGNALS:
     void supportedChanged();
     void stateChanged();
+    void replyCountChanged();
     void textChanged();
     void commandErrorChanged();
     // /markdown and /nick only ASK, exactly as in MessageComposer: the mode
