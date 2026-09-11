@@ -299,26 +299,71 @@ private:
     // family, displacedBranchDoesNotFireWhileAnchorDelegateAlive and
     // anchorDelegateSurvivesDistantScrollNeverEvictedFallback); those are the
     // ones that fail when the mechanism goes.
+    // ONE LAYOUT FLUSH IS ALLOWED, AND EXACTLY ONE. The rows live in a
+    // Repeater inside a Column, and QQuickBasePositioner assigns `y` in a
+    // POLISH pass: a delegate is created synchronously on the model change,
+    // so there is a real window in which itemAt(row) is non-null and y is
+    // still 0. Reading the offset in that instant would fail a correct
+    // build — the flake shape this restructure exists to remove, reinvented.
+    //
+    // A flush is not the grace period that was removed. What these cases are
+    // named for is compensation not being CHAINED across batches, and the
+    // `!nearTopRunActive()` assertion beside each call is what guards that; a
+    // single layout pass within one batch is not a chain, while an unbounded
+    // converge-until-true loop is. That is why one is the limit, and why
+    // `neededFlush` is reported: if these start needing the flush routinely,
+    // that is a finding rather than a detail.
     struct AnchorSettle {
         bool sawRow = false;
+        bool neededFlush = false;
+        bool rightRow = true;
+        QString measuredId;
+        QString wantedId;
+        QString counters;
         double offset = 0;
         bool moved(double offsetBefore) const
         {
-            return !sawRow || qAbs(offset - offsetBefore) >= 2.0;
+            return !sawRow || !rightRow
+                || qAbs(offset - offsetBefore) >= 2.0;
         }
         QString detail(double offsetBefore) const
         {
-            return sawRow
-                ? QStringLiteral("viewport offset %1 -> %2")
-                      .arg(offsetBefore).arg(offset)
-                : QStringLiteral("the anchor's row was never built within "
-                                 "%1 ms — a paced-reveal timeout, NOT a "
-                                 "compensation failure")
-                      .arg(kAnchorRowRevealTimeoutMs);
+            if (!sawRow)
+                return QStringLiteral("the anchor's row was never built "
+                                      "within %1 ms — a paced-reveal "
+                                      "timeout, NOT a compensation failure")
+                    .arg(kAnchorRowRevealTimeoutMs);
+            if (!rightRow)
+                return QStringLiteral("the row measured was %1, not the "
+                                      "anchor %2 — a source-row/view-row "
+                                      "MAPPING failure, NOT a compensation "
+                                      "failure (offset read %3)")
+                    .arg(measuredId.isEmpty() ? QStringLiteral("(none)")
+                                              : measuredId)
+                    .arg(wantedId).arg(offset);
+            return QStringLiteral("viewport offset %1 -> %2, read %3 a "
+                                  "layout flush; %4")
+                .arg(offsetBefore)
+                .arg(offset)
+                .arg(neededFlush ? QStringLiteral("after")
+                                 : QStringLiteral("without"))
+                .arg(counters);
         }
     };
+    // The id is not decoration. A view row is `count - 1 - sourceRow` MINUS
+    // rowWindowSkip, so any momentary disagreement about the exposed count or
+    // the window resolves `rowAfter` to somebody ELSE's delegate — and
+    // measuring that one's offset and reporting "the reader moved" accuses
+    // the anchor machinery of something the mapping did. It has earned its
+    // place: every reproduction of this suite's flake so far reports
+    // `rightRow` TRUE with `viewport offset -389 -> 450` — an 839 px jump a
+    // layout flush does not settle, with contentY standing still and every
+    // anchor counter zero. Identical numbers in two DIFFERENT cases, so it
+    // is a deterministic state reached intermittently, not noise.
     static AnchorSettle anchorOffsetOnceItsRowExists(QQuickItem *timeline,
-                                                     int rowAfter)
+                                                     int rowAfter,
+                                                     double offsetBefore,
+                                                     const QString &anchorId)
     {
         AnchorSettle settle;
         QQuickItem *item = nullptr;
@@ -328,9 +373,67 @@ private:
                 return item != nullptr;
             },
             kAnchorRowRevealTimeoutMs);
-        if (settle.sawRow)
+        if (!settle.sawRow)
+            return settle;
+        const auto read = [&] {
             settle.offset =
                 item->y() - timeline->property("contentY").toDouble();
+        };
+        const auto identify = [&] {
+            settle.wantedId = anchorId;
+            QVariant out;
+            const int viewRow = viewRowForSourceRow(timeline, rowAfter);
+            if (viewRow >= 0
+                && QMetaObject::invokeMethod(
+                       timeline, "stableIdAtViewRow", Q_RETURN_ARG(QVariant, out),
+                       Q_ARG(QVariant, QVariant(viewRow))))
+                settle.measuredId = out.toString();
+            settle.rightRow = settle.measuredId == anchorId;
+        };
+        // THE COUNTERS THE FOURTH ANCHOR FIX WOULD NEED. §16 says a fourth
+        // attempt needs a capture naming a failure — a non-zero
+        // anchorCorrections, displacedApplied or materializedMaxAbsDelta —
+        // and that all-zero lines are not evidence. When one of these three
+        // cases fails it IS that moment, so it reports them rather than
+        // leaving the next reader to reproduce it again.
+        const auto snapshot = [&] {
+            static const char *kNames[] = {
+                "diagAnchorCorrections", "diagGrowthCorrections",
+                "diagDisplacedFirings",  "diagMaterializedFirings",
+                "diagActiveDeferrals",   "diagUnresolvedIdFallbacks",
+                "diagEvictedNoInsertFallbacks",
+            };
+            QStringList parts;
+            for (const char *name : kNames) {
+                const QVariant v = timeline->property(name);
+                if (v.isValid())
+                    parts << QStringLiteral("%1=%2").arg(
+                        QString::fromLatin1(name).mid(4), v.toString());
+            }
+            parts << QStringLiteral("contentY=%1")
+                         .arg(timeline->property("contentY").toDouble())
+                  << QStringLiteral("contentHeight=%1")
+                         .arg(timeline->property("contentHeight").toDouble())
+                  << QStringLiteral("rowWindowSkip=%1")
+                         .arg(timeline->property("rowWindowSkip").toInt());
+            settle.counters = parts.isEmpty()
+                ? QStringLiteral("(no counters readable on the pane)")
+                : parts.join(QLatin1Char(' '));
+        };
+        read();
+        identify();
+        snapshot();
+        if (settle.moved(offsetBefore)) {
+            settle.neededFlush = true;
+            if (QQuickWindow *window = timeline->window())
+                window->requestUpdate();
+            QTest::qWait(0);
+            if (QQuickItem *again = itemForSourceRow(timeline, rowAfter))
+                item = again;
+            read();
+            identify();
+            snapshot();
+        }
         return settle;
     }
 
@@ -5298,7 +5401,8 @@ private Q_SLOTS:
         QVERIFY2(rowAfter > rowBefore,
                  "fixture assumption: the prepend must shift the row index");
         const AnchorSettle settle =
-            anchorOffsetOnceItsRowExists(timeline, rowAfter);
+            anchorOffsetOnceItsRowExists(timeline, rowAfter, offsetBefore,
+                                         anchorId);
         QVERIFY2(!settle.moved(offsetBefore),
                  qPrintable(QStringLiteral(
                      "a top-edge prepend moved the reader off their row "
@@ -5489,7 +5593,8 @@ private Q_SLOTS:
             // onContentHeightChanged reaction — before the next batch is even
             // requested. Compensation must be IMMEDIATE, never deferred.
             const AnchorSettle settle =
-                anchorOffsetOnceItsRowExists(timeline, rowAfter);
+                anchorOffsetOnceItsRowExists(timeline, rowAfter, offsetBefore,
+                                         anchorId);
             QVERIFY2(!settle.moved(offsetBefore),
                      qPrintable(QStringLiteral(
                          "batch %1 of %2: a near-top prepend during a held "
@@ -5686,7 +5791,8 @@ private Q_SLOTS:
             // own onContentHeightChanged reaction — before the next batch
             // is even requested. This must be IMMEDIATE.
             const AnchorSettle settle =
-                anchorOffsetOnceItsRowExists(timeline, rowAfter);
+                anchorOffsetOnceItsRowExists(timeline, rowAfter, offsetBefore,
+                                         anchorId);
             QVERIFY2(!settle.moved(offsetBefore),
                      qPrintable(QStringLiteral(
                          "batch %1 of %2: a prepend during a held gesture "
