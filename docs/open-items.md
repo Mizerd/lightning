@@ -264,6 +264,131 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   centres inside one screen and VALIDATES the result, falling back to platform
   placement; `window-placement` covers it.
 
+**THE SNAP HAS NEVER WORKED. IT INSTALLS AND CANNOT START (found 2026-09-11,
+first execution under a real snapd).**
+
+    $ snap run lightning --version
+    /snap/lightning/x1/usr/bin/lightning-matrix: error while loading shared
+    libraries: libEGL.so.1: cannot open shared object file
+
+Six libraries are unresolved inside the confinement — `libEGL.so.1`,
+`libGLX.so.0`, `libGLdispatch.so.0`, `libX11-xcb.so.1`, `libX11.so.6`,
+`libxcb.so.1`. All six are **absent from the snap payload AND from `core24`,
+and present on the HOST**, which is exactly why `ldd` unconfined resolves
+everything and why CI has always passed. `build-snap.sh` copies the AppImage
+AppDir's `usr/` verbatim, and linuxdeploy's excludelist deliberately leaves
+those on the host — correct for an AppImage, where the host `/usr/lib` is
+visible, and fatal for a strictly confined snap, where it is not.
+`/var/lib/snapd/lib/gl` is empty: the `opengl` interface carries vendor
+drivers, not the base loader.
+
+**STRUCTURAL, not a 0.9.4 accident.** The AppDir of a newer snapshot
+(`317bd39`) was extracted and all six checked: all six ABSENT. Every snap
+repacked this way fails identically. Fix is packaging-side — stage those
+libraries, or plug a `gnome-*-2404` content snap with
+`command-chain: desktop-launch`.
+
+`validate-snap.sh` says in as many words that it cannot reach this class ("a
+real `snap install --dangerous` needs a running snapd, which the
+Docker-outside-of-Docker runner fleet cannot provide"). Fifth appearance of
+§16's *graceful fallback and silent absence are the same observable*.
+
+Two more, visible once the payload is run unconfined:
+* **Three interfaces do not auto-connect, and the keyring is one**:
+  `password-manager-service`, `audio-record`, `camera`. Without the first
+  there is no Secret Service and the access token has nowhere to go — §6
+  territory. `snap.yaml` flags `audio-record` in a comment and not the
+  keyring. All three connect manually.
+* **`--call-media-status` misreports the snap's own GStreamer.** It correctly
+  loads the bundled 1.26.2 (the host has only 1.24.2) yet prints
+  `bundled plugin directory: <none - using system GStreamer>`, because
+  `appImageBundledPluginPath()` (`src/calls/GstBootstrap.h:104`) keys on the
+  APPIMAGE AppDir layout. That header's own comment says four packaging
+  defects here have turned on exactly which GStreamer was loaded, so this
+  line telling the wrong story is not cosmetic.
+
+**THE DEB DOES NOT INSTALL ON UBUNTU, WHICH README CLAIMS IT SUPPORTS (found
+2026-09-11).** On Ubuntu 24.04 LTS, both the released 0.9.4 deb and a fresh
+one:
+
+    Depends: libqt6core6t64 (>= 6.8.2) but 6.4.2+dfsg-21.1build5 is to be installed
+    Depends: libgstreamer-plugins-bad1.0-0 (>= 1.26.2) but 1.24.2-1ubuntu4 …
+    Depends: qml6-module-qtquick-effects but it is not installable
+
+`dpkg-shlibdeps` runs on Debian 13 (Qt 6.8.2, GStreamer 1.26.2) and bakes
+those floors in; Ubuntu 24.04 is on Qt **6.4.2**, and
+`qml6-module-qtquick-effects` does not exist in noble at all because
+`QtQuick.Effects` is Qt 6.5+. `README.md:143` advertises
+`# Debian, Ubuntu, Mint, Pop!_OS`; 24.04 is the current LTS and Mint 22.x /
+Pop!_OS 24.04 derive from it. Either the claim narrows to Debian 13+ /
+Ubuntu 25.04+, or the deb needs a second build lane. **On Debian 13 the same
+deb is clean** — installs, runs, `opengl software=0`, libsecret ready, no QML
+warnings.
+
+**THE APP-ID / WINDOW-ICON DEFECT IS CONFIRMED FOR THE FLATPAK**, by the
+app's own `--desktop-status`: `app id (desktop file name): lightning`,
+`visible launcher entry: NONE`, `visible icon: NONE`. The flatpak exports
+`org.lightning_matrix.Lightning.desktop` while the binary stamps `lightning`.
+The deb is the control and resolves both. On X11 it still works (WM_CLASS is
+`lightning-matrix` and `StartupWMClass` matches); the WAYLAND half is NOT
+TESTED for want of a Wayland guest, but `--desktop-status` classifies it.
+
+**THREE THINGS THE FLATPAK SANDBOX BREAKS THAT THE APPIMAGE DOES NOT:**
+* **Spell checking is absent, and the diagnostic blames the wrong thing.**
+  `--spell-status` says "this machine has no dictionary Lightning can reach",
+  but `/usr/share/hunspell` EXISTS in the sandbox and `libenchant-2*` does
+  not. Lightning resolves `libenchant-2.so.2` at runtime through QLibrary
+  (`SpellBackend.cpp:352`), so this is `no-library`, not `no-dictionary` —
+  and `createPlatformSpellBackend` already returns that distinction
+  (`SpellBackend.h:71-76`) while `main.cpp:1813` prints the dictionary
+  wording for every failure. Two items: the KDE runtime carries no enchant
+  and the manifest does not add it, and the diagnostic misdirects whoever
+  tries to fix it.
+* **The SNI tray cannot own its bus name.** The Flathub manifest adds
+  `org.kde.StatusNotifierWatcher=talk`, but there is no `--own-name`:
+  `RequestName org.kde.StatusNotifierItem-99-1` is refused with
+  `ServiceUnknown` by xdg-dbus-proxy while a control name in the app's own
+  namespace is granted. The talk half is fixed and the own half is not.
+  Whether Qt still registers via its unique bus name is NOT TESTED.
+* Two **25 s D-Bus stalls** at startup (`portal.Settings.ReadAll` and
+  `portal.FileChooser`, both NoReply) that the deb and AppImage never incur.
+  The guest runs no portal backend, so a real desktop would answer;
+  environment-conditioned, not a proven user-facing defect.
+
+**THE RPM INSTALLS ON FEDORA 44 AND NOTHING ELSE, AND THE README SAYS
+"Fedora, RHEL" (found 2026-09-11, on the new Fedora test guest).** Measured,
+not argued — `dnf install` of the 0.9.4+git rpm on **Fedora 43**:
+
+    nothing provides libQt6Core.so.6(Qt_6.11)(64bit)
+    nothing provides libQt6Qml.so.6(Qt_6.11_PRIVATE_API)(64bit)
+
+Fedora 43 ships **qt6-qtbase 6.10.3**. The rpm is built AND validated on
+`fedora:44` (`.gitlab-ci.yml`, both `build-rpm` and `validate-rpm` pin the same
+digest), which carries Qt 6.11.1 — a deliberate choice, documented in
+`packaging-ci/docs/windows-packaging.md`. Three separate things follow and
+only the first is obvious:
+
+* **Fedora supports N and N-1.** 43 is current-minus-one and fully supported,
+  and the rpm cannot be installed on it at all. `README.md:144` advertises the
+  rpm for "Fedora, RHEL" with no version qualifier.
+* **"RHEL" is almost certainly false** for any shipping RHEL, which is far
+  behind Qt 6.11. Unverified here — no RHEL guest — but it should be checked
+  before the claim is repeated.
+* **`Qt_6.11_PRIVATE_API` is an ABI trap independent of the above.** Qt's
+  private API carries no ABI guarantee, so that dependency pins the package to
+  an exact Qt MINOR: Fedora 44 shipping Qt 6.12 breaks it too. Where the
+  private-API link comes from has not been traced.
+
+**VALIDATION CANNOT CATCH THIS AND NEVER WILL, because `validate-rpm` runs on
+the SAME pinned image `build-rpm` builds on.** That is the recorded "a probe is
+evidence only if it shares the property under test" trap inverted — this probe
+shares too much. A package's install test has to run somewhere other than the
+machine that built it, which is precisely what the new guests are for.
+
+NOT YET ESTABLISHED: whether the rpm installs cleanly on Fedora 44 itself
+(the guest is 43; a 44 guest is the obvious next build), and what the download
+page claims.
+
 **NOT TESTED, 2026-09-02 audit:** six items in
 `docs/security-audit-2026-09-02.md`.
 
