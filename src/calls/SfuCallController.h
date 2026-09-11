@@ -858,6 +858,7 @@ private:
     /// just appeared is born at unity and a person the user turned down two
     /// calls ago must not come back loud.
     void applyStoredVolumes();
+    void applyStoredShareVolumes();
     /// Mute every track of `source` ("camera" / "screen_share") that the SFU
     /// still reports as LIVE. MUTE ONLY — it never unmutes, deliberately.
     ///

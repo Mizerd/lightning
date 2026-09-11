@@ -18,6 +18,7 @@
 #include "calls/CallStageState.h"
 #include "calls/SdpStore.h"
 #include "calls/RtcController.h"
+#include "app/SettingsManager.h"
 #include "calls/SfuCallController.h"
 #include "matrix/CallSignal.h"
 #include "matrix/RtcSession.h"
@@ -3359,6 +3360,129 @@ private Q_SLOTS:
     // threw away the entire upper half of every slider.
     //
     // ON THE BROKEN TREE: the row reads back 100.
+    // A VOLUME MUST SURVIVE THE CLIENT, NOT ONLY THE CALL.
+    //
+    // Reported by a user: set another person's volume in a call, restart the
+    // client, and it is back to 100. Within one session everything looked
+    // right — the controller records it, the tile reads it back, and
+    // applyStoredVolumes() re-applies it — which is exactly why this
+    // survived: no test had ever crossed a controller lifetime, so the whole
+    // persist-and-restore round trip was uncovered.
+    //
+    // Two controllers over ONE SettingsManager is the restart: the second
+    // knows nothing except what reached the store.
+    void aParticipantVolumeSurvivesARestart()
+    {
+        const QString room = QStringLiteral("!vol:example.org");
+        const QString identity = QStringLiteral("@her:example.org:HERDEV");
+        const QString userId = QStringLiteral("@her:example.org");
+
+        // No secret store: this test needs the account RECORD (which is
+        // what the volume key is scoped by), not the token.
+        SettingsManager settings;
+        settings.saveSession(QStringLiteral("https://example.org"),
+                             QStringLiteral("@me:example.org"),
+                             QStringLiteral("MEDEV"),
+                             QStringLiteral("token-fixture"));
+
+        // Same hazard as the share case below: the store outlives the
+        // process, so a stale 40 from an earlier run would let this pass
+        // whatever the code did.
+        settings.setCallParticipantVolume(userId, 100);
+        QCOMPARE(settings.callParticipantVolume(userId), 100);
+
+        {
+            RecordingCallClient client;
+            RtcController rtc;
+            SfuCallController call;
+            call.setSettings(&settings);
+            CallParticipantModel *model = stageOneRemoteParticipant(
+                client, rtc, call, room, identity, userId,
+                QStringLiteral("HERDEV"), QStringLiteral("$m1"));
+            QVERIFY(model != nullptr);
+            call.setParticipantVolume(identity, 40);
+            QCOMPARE(call.participantVolume(identity), 40);
+        }
+
+        // The restart, as far as this level can model one. NOTE what it does
+        // NOT prove: both halves share one SettingsManager, so QSettings' own
+        // cache could answer the second read. That the value reaches DISK is
+        // proven separately, by SettingsSessionTest reading the ini file.
+        RecordingCallClient client2;
+        RtcController rtc2;
+        SfuCallController call2;
+        call2.setSettings(&settings);
+        CallParticipantModel *model2 = stageOneRemoteParticipant(
+            client2, rtc2, call2, room, identity, userId,
+            QStringLiteral("HERDEV"), QStringLiteral("$m2"));
+        QVERIFY(model2 != nullptr);
+
+        QCOMPARE(call2.participantVolume(identity), 40);
+        QCOMPARE(participantRole(model2, 0,
+                                 CallParticipantModel::VolumePercentRole)
+                     .toInt(),
+                 40);
+    }
+
+    // A SHARE'S VOLUME MUST BE REMEMBERED UNDER THE PERSON, NOT THE SHARE.
+    //
+    // The participant level already persisted; the share level did not — it
+    // lived in a per-process QHash keyed by share id. That failed twice over:
+    // across a restart, and WITHIN one call, because a share that stops and
+    // restarts returns under a NEW share id, so the level the user chose
+    // applied to exactly one share and then evaporated.
+    //
+    // Keyed by the owner's user id, both cases work, and the second half of
+    // this test is the one the old code could never have passed.
+    void aShareVolumeIsRememberedUnderItsOwner()
+    {
+        const QString room = QStringLiteral("!share:example.org");
+        const QString identity = QStringLiteral("@her:example.org:HERDEV");
+        const QString userId = QStringLiteral("@her:example.org");
+
+        SettingsManager settings;
+        settings.saveSession(QStringLiteral("https://example.org"),
+                             QStringLiteral("@me:example.org"),
+                             QStringLiteral("MEDEV"),
+                             QStringLiteral("token-fixture"));
+
+        RecordingCallClient client;
+        RtcController rtc;
+        SfuCallController call;
+        call.setSettings(&settings);
+        QVERIFY(stageOneRemoteParticipant(client, rtc, call, room, identity,
+                                          userId, QStringLiteral("HERDEV"),
+                                          QStringLiteral("$m1")) != nullptr);
+
+        // THE STORE OUTLIVES THE PROCESS, so a value left by an earlier run
+        // of this very test would make it pass on code that persists
+        // nothing — which is exactly what happened the first time it was
+        // written. Reset to the neutral point (which REMOVES the key) and
+        // assert the fixture is clean before trusting anything after it.
+        settings.setCallShareVolume(userId, 100);
+        QCOMPARE(settings.callShareVolume(userId), 100);
+
+        // The share id IS the track sid, so a restart gives a different one.
+        call.ingestParticipantsForTest({
+            sfuParticipant(identity, QStringLiteral("PA_ONE"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_a"), false) }),
+        });
+        QCOMPARE(call.shareModel()->rowCount(), 1);
+        call.setShareVolume(QStringLiteral("TR_share_a"), 35);
+        QCOMPARE(call.shareVolume(QStringLiteral("TR_share_a")), 35);
+        QCOMPARE(settings.callShareVolume(userId), 35);
+
+        // The same person shares again under a NEW id. The old map cannot
+        // help; only a store keyed by the OWNER can.
+        call.ingestParticipantsForTest({
+            sfuParticipant(identity, QStringLiteral("PA_ONE"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_b"), false) }),
+        });
+        QCOMPARE(call.shareVolume(QStringLiteral("TR_share_b")), 35);
+    }
+
     void aParticipantVolumeCanBeAmplifiedPastUnity()
     {
         RecordingCallClient client;

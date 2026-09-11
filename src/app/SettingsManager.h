@@ -745,6 +745,16 @@ public:
 
     /// This account's playback volume for one person, 0..200. 100 when unset.
     Q_INVOKABLE int callParticipantVolume(const QString &userId) const;
+    /// A person's SCREEN SHARE playback level, remembered under them.
+    ///
+    /// Separate from their microphone level on purpose: turning down someone
+    /// who is sharing a noisy game is not the same wish as turning down their
+    /// voice, and collapsing the two would make one control silently move the
+    /// other. Keyed by USER, never by share id — a share that stops and
+    /// restarts comes back under a new id, so a share-id key could never
+    /// survive even within one call, let alone across a restart.
+    Q_INVOKABLE int callShareVolume(const QString &userId) const;
+    Q_INVOKABLE void setCallShareVolume(const QString &userId, int percent);
     /// Persists it. Setting exactly 100 REMOVES the key rather than storing
     /// the default, so "reset" is a real reset and the store does not grow a
     /// row per person ever seen in a call.
@@ -1067,6 +1077,7 @@ Q_SIGNALS:
     void microphoneGainChanged();
     /// One person's stored volume changed. Carries the USER ID.
     void callParticipantVolumeChanged(const QString &userId, int percent);
+    void callShareVolumeChanged(const QString &userId, int percent);
     void clockFormatChanged();
     void enterInsertsNewlineChanged();
     void composerModeChanged();

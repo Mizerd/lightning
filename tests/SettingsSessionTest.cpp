@@ -86,6 +86,7 @@ class SettingsSessionTest : public QObject
 private Q_SLOTS:
     void initTestCase();
     void init();
+    void aParticipantVolumeReachesTheDiskImmediately();
     void clearsOnlySelectedAccount();
     void clearsMetadataWhenTokenIsAlreadyMissing();
     void normalizedIdentityClearsLegacyKey();
@@ -175,6 +176,45 @@ void SettingsSessionTest::init()
     QSettings settings;
     settings.clear();
     settings.sync();
+}
+
+// A PREFERENCE THAT IS ONLY IN MEMORY IS NOT SAVED, HOWEVER CORRECT THE
+// READ-BACK LOOKS.
+//
+// Reported by a user: set another person's volume in a call, restart the
+// client, and it is back to 100. Every layer above this one is right — the
+// controller records it, the tile reads it back from the store, and
+// applyStoredVolumes() re-applies it — so within one session the value
+// behaves perfectly, which is exactly why the defect survived.
+//
+// QSettings writes lazily. Without an explicit sync() the value lives in
+// QSettings' own cache until the object is destroyed, and a call is the one
+// situation where this client is most likely NOT to exit cleanly. This file
+// already syncs for the cases whose comments say the value "must not be the
+// thing that is lost in a crash"; a volume is another.
+//
+// So the assertion is against the FILE, not the API: reading it back through
+// the same QSettings instance would pass on the broken code, because the
+// cache answers.
+void SettingsSessionTest::aParticipantVolumeReachesTheDiskImmediately()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    const QString me = QStringLiteral("@alice:matrix.example");
+    settings.saveSession(QStringLiteral("https://matrix.example"), me,
+                         QStringLiteral("ALICEDEVICE"),
+                         QStringLiteral("alice-token-fixture"));
+
+    const QString other = QStringLiteral("@bob:matrix.example");
+    settings.setCallParticipantVolume(other, 47);
+    QCOMPARE(settings.callParticipantVolume(other), 47);
+
+    QFile file(QSettings().fileName());
+    QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+    const QString onDisk = QString::fromUtf8(file.readAll());
+    qInfo().noquote() << "ON DISK >>>\n" << onDisk;
+    QVERIFY(onDisk.contains(QStringLiteral("callVolumes")));
 }
 
 void SettingsSessionTest::clearsOnlySelectedAccount()

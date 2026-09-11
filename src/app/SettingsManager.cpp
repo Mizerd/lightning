@@ -996,6 +996,35 @@ void SettingsManager::setCallParticipantVolume(const QString &userId,
     Q_EMIT callParticipantVolumeChanged(userId, clamped);
 }
 
+int SettingsManager::callShareVolume(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty() || userId.trimmed().isEmpty())
+        return kVolumeDefault;
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/shareVolumes/") + volumeKeyFor(userId);
+    if (!m_store->contains(key))
+        return kVolumeDefault;
+    return qBound(0, m_store->value(key, kVolumeDefault).toInt(), kVolumeMax);
+}
+
+void SettingsManager::setCallShareVolume(const QString &userId, int percent)
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty() || userId.trimmed().isEmpty())
+        return;
+    const int clamped = qBound(0, percent, kVolumeMax);
+    if (callShareVolume(userId) == clamped)
+        return;
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/shareVolumes/") + volumeKeyFor(userId);
+    if (clamped == kVolumeDefault)
+        m_store->remove(key);
+    else
+        m_store->setValue(key, clamped);
+    Q_EMIT callShareVolumeChanged(userId, clamped);
+}
+
 int SettingsManager::microphoneGain() const
 {
     return qBound(0, appearanceValue("call/microphoneGain",

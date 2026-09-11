@@ -3703,16 +3703,20 @@ void SfuCallController::setShareVolume(const QString &shareId, int percent)
     if (identity.isEmpty())
         return;
     m_shareVolumes.insert(shareId, clamped);
+    // REMEMBERED UNDER THE PERSON, not the share id. Reported by a user:
+    // set someone's volume in a call, restart, and it is back to 100. The
+    // participant level already persisted; this one did not, and the map
+    // below is per-process — which also meant a share that stopped and
+    // restarted came back at unity WITHIN one call, because it returns under
+    // a new share id. Keying the store by the owner fixes both.
+    const QString ownerUserId = userIdForIdentity(identity);
+    if (m_settings && !ownerUserId.isEmpty())
+        m_settings->setCallShareVolume(ownerUserId, clamped);
 #ifdef HAVE_LIGHTNING_WEBRTC
     // The share's AUDIO track, which is a different track from the sharer's
     // microphone. Empty means they are sharing silently, and then there is
-    // simply nothing to set: NOTHING RE-APPLIES A STORED LEVEL when a track
-    // appears later, so do not read the stored value as a standing intent.
-    // It is not reachable from the UI either — the tile offers the slider
-    // only while shareHasAudio() is true — and a share that stops and
-    // restarts comes back under a NEW share id, so the old entry could not
-    // apply to it anyway. The map exists to answer shareVolume() for the
-    // slider's own position, nothing more.
+    // simply nothing to set here — applyStoredShareVolumes() is what carries
+    // the stored level onto a track that appears later.
     const QString audioKey =
         trackKeyForSource(identity, QStringLiteral("screen_share_audio"));
     const QString streamId = streamIdForIdentity(identity);
@@ -3736,9 +3740,46 @@ bool SfuCallController::shareHasAudio(const QString &shareId) const
 
 int SfuCallController::shareVolume(const QString &shareId) const
 {
-    // 100 is the neutral point, and the honest answer for a share nobody has
-    // touched — not 0, which would read as muted.
-    return m_shareVolumes.value(shareId, 100);
+    // This call's own value first — it is the most recent thing the user
+    // did — then what they chose for this person before. 100 is the neutral
+    // point and the honest answer for a share nobody has touched, not 0,
+    // which would read as muted.
+    const auto live = m_shareVolumes.constFind(shareId);
+    if (live != m_shareVolumes.constEnd())
+        return live.value();
+    if (m_settings && m_shareModel) {
+        const QString userId =
+            userIdForIdentity(m_shareModel->ownerIdentityFor(shareId));
+        if (!userId.isEmpty())
+            return m_settings->callShareVolume(userId);
+    }
+    return 100;
+}
+
+/// Carry each sharer's stored level onto a share whose audio has appeared.
+///
+/// Deliberately mirrors applyStoredVolumes(): a share that starts, or stops
+/// and restarts, comes back under a NEW share id, so without this the level
+/// the user chose applies to exactly one share and then evaporates.
+void SfuCallController::applyStoredShareVolumes()
+{
+    if (!m_settings || !m_shareModel)
+        return;
+    const int count = m_shareModel->rowCount();
+    for (int i = 0; i < count; ++i) {
+        const QVariantMap share = m_shareModel->get(i);
+        const QString shareId = share.value(QStringLiteral("shareId")).toString();
+        if (shareId.isEmpty() || m_shareVolumes.contains(shareId))
+            continue;   // this call's own choice wins over the stored one
+        const QString userId =
+            userIdForIdentity(m_shareModel->ownerIdentityFor(shareId));
+        if (userId.isEmpty())
+            continue;
+        const int stored = m_settings->callShareVolume(userId);
+        if (stored == 100)
+            continue;
+        setShareVolume(shareId, stored);
+    }
 }
 
 void SfuCallController::setParticipantVolume(const QString &identity,
@@ -3975,6 +4016,7 @@ void SfuCallController::rebuildModels()
     // turned down in a previous call — possibly in a different room — must
     // come back at the volume they chose, which is the whole of the request.
     applyStoredVolumes();
+    applyStoredShareVolumes();
     // Hand raise has no wire representation (see CallParticipantModel), so
     // the only row it can be true for is ours.
     if (!m_ownIdentity.isEmpty())
