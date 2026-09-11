@@ -21,6 +21,8 @@
 #include <qpa/qplatformscreen.h>
 #endif
 #include <QDateTime>
+#include <QDir>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -36,6 +38,7 @@
 #include "calls/CallParticipantModel.h"
 #include "calls/CallShareModel.h"
 #include "calls/CallStageState.h"
+#include "calls/CameraPortal.h"
 #include "calls/RtcController.h"
 #include "calls/ScreenCastPortal.h"
 // UNCONDITIONAL, unlike the HAVE_LIGHTNING_WEBRTC block below: the refusal
@@ -87,6 +90,57 @@ void closePortalFd(int fd)
     Q_UNUSED(fd);
 #endif
 }
+
+#ifdef HAVE_LIGHTNING_WEBRTC
+// BOTH OF THESE ARE CAMERA-ROUTE INPUTS and nothing else reads them, so they
+// are compiled only where a camera can be published. An unused static in a
+// build with no media engine is exactly the noise that hides a real warning
+// (the same reason main.cpp's AppImage helpers are Linux-only).
+
+/// Whether this process is running inside an application sandbox that keeps
+/// `/dev/video*` out of reach.
+///
+/// The SAME detection `src/update/InstallType.cpp` uses for the two runtimes
+/// that do it — `$FLATPAK_ID` or `/.flatpak-info` for Flatpak, `$SNAP` plus
+/// `$SNAP_NAME` for Snap — repeated here rather than depended on, because
+/// this file is linked into targets that must not drag in the update lane,
+/// and the update lane's question ("can I install over myself?") is not this
+/// one.
+bool runningSandboxed()
+{
+#ifdef Q_OS_LINUX
+    if (!qEnvironmentVariableIsEmpty("FLATPAK_ID"))
+        return true;
+    if (QFileInfo::exists(QStringLiteral("/.flatpak-info")))
+        return true;
+    if (!qEnvironmentVariableIsEmpty("SNAP")
+        && !qEnvironmentVariableIsEmpty("SNAP_NAME"))
+        return true;
+#endif
+    return false;
+}
+
+/// Whether ANY V4L2 device node is visible to this process.
+///
+/// Deliberately a presence test and not an enumeration: the question is
+/// "could `v4l2src` open something", and answering it by opening devices
+/// would turn a routing decision into a camera LED blinking. Metadata nodes
+/// count — `v4l2src` will simply fail on one and report itself, which is the
+/// behaviour a desktop has today.
+bool v4l2DeviceNodeVisible()
+{
+#ifdef Q_OS_LINUX
+    QDir dev(QStringLiteral("/dev"));
+    return !dev.entryList(QStringList{ QStringLiteral("video*") },
+                          QDir::System | QDir::Files | QDir::Dirs
+                              | QDir::NoDotAndDotDot)
+                .isEmpty();
+#else
+    return true;
+#endif
+}
+
+#endif // HAVE_LIGHTNING_WEBRTC
 
 /// The heartbeat that says "still here". It restarts the MSC4140 delayed
 /// retraction (8 s), so it has to be comfortably inside that.
@@ -437,13 +491,22 @@ void SfuCallController::setSettings(SettingsManager *settings)
     // another surface, another window, a settings page — and the engine has
     // to hear about it or the slider and the sound disagree.
     connect(m_settings, &SettingsManager::callParticipantVolumeChanged, this,
-            [this](const QString &, int) { applyStoredVolumes();
+            [this](const QString &, int) { applyStoredVolumes(); });
     // Its share sibling, for symmetry and for the same reason: a level
     // changed in settings must reach the live call without a rejoin. It had
     // no consumer at all when it was added, which is the shape this tree
     // shipped three commits ago and fixed.
+    //
+    // ...AND IT WAS RE-BROKEN BY A MISPLACED BRACE. This `connect` used to
+    // sit INSIDE the participant lambda above, which is two defects in one
+    // statement and neither shows up as a compiler complaint: the share
+    // signal had no consumer at all until somebody changed a PARTICIPANT
+    // volume — exactly the state the comment above says was fixed — and every
+    // participant change after that added another duplicate connection, so
+    // applyStoredShareVolumes() ran once more per change, for the life of the
+    // process.
     connect(m_settings, &SettingsManager::callShareVolumeChanged, this,
-            [this](const QString &, int) { applyStoredShareVolumes(); }); });
+            [this](const QString &, int) { applyStoredShareVolumes(); });
     connect(m_settings, &SettingsManager::microphoneGainChanged, this,
             [this] { applyAudioState(); });
 }
@@ -491,6 +554,88 @@ void SfuCallController::setScreenCastPortal(ScreenCastPortal *portal)
                                            "this desktop.")
                                       : tr("Screen sharing couldn't start."));
             });
+}
+
+void SfuCallController::setCameraPortal(CameraPortal *portal)
+{
+    if (m_cameraPortal == portal)
+        return;
+    if (m_cameraPortal)
+        disconnect(m_cameraPortal, nullptr, this, nullptr);
+    m_cameraPortal = portal;
+    if (!m_cameraPortal)
+        return;
+    connect(m_cameraPortal, &CameraPortal::ready, this, [this](int pipewireFd) {
+        // The fd is OURS the moment this fires, so every path out of here
+        // either hands it to the engine or closes it. A declined camera that
+        // leaked one per attempt is the mistake the screen-share lane made
+        // and had to fix with an RAII guard; here there is one owner and
+        // three exits, so they are spelled out.
+        qCInfo(lcSfuCall) << "camera portal ready remote_fd="
+                          << (pipewireFd >= 0);
+        if (!m_cameraAwaitingPortal) {
+            // The user turned the camera back off, or a second request
+            // superseded this one, while the dialog was open.
+            qCInfo(lcSfuCall) << "camera portal grant arrived for a camera "
+                                 "that is no longer wanted; releasing";
+            closePortalFd(pipewireFd);
+            return;
+        }
+        m_cameraAwaitingPortal = false;
+        if (!active() || m_engine.isNull() || !m_client) {
+            // The call ended while the dialog was open. The dialog is modal
+            // to the desktop, not to us.
+            closePortalFd(pipewireFd);
+            abandonPendingCamera();
+            return;
+        }
+        publishCameraTrack(pipewireFd);
+        applyVideoState();
+        Q_EMIT mediaStateChanged();
+    });
+    connect(m_cameraPortal, &CameraPortal::cancelled, this, [this] {
+        // The user declined. Deliberately no message — but the control must
+        // not stay lit, or it reads as a camera that is on and broken.
+        qCInfo(lcSfuCall) << "camera portal declined";
+        abandonPendingCamera();
+    });
+    connect(m_cameraPortal, &CameraPortal::failed, this,
+            [this](const QString &category) {
+                qCWarning(lcSfuCall) << "camera portal failed category="
+                                     << category;
+                abandonPendingCamera();
+                // The EXISTING camera wording, through the one mapping that
+                // owns it. A portal that will not grant and a device that
+                // will not open are the same fact to the person holding the
+                // mouse — "your camera isn't available" — and inventing a
+                // second sentence for it would add a string to every catalog
+                // to say the same thing twice.
+                Q_EMIT callFailed(
+                    userFacingError(QStringLiteral("camera_failed")));
+            });
+}
+
+SfuCallController::LinuxCameraRoute SfuCallController::linuxCameraRoute(
+    bool sandboxed, bool portalUsable, bool directDeviceVisible)
+{
+    // 1. A sandbox has no device node and no way to be given one that Flathub
+    //    will accept, so the portal is the only camera that can exist there —
+    //    even when the probes say it is unusable, because the portal's own
+    //    refusal is at least a refusal the user can act on.
+    if (sandboxed)
+        return LinuxCameraRoute::Portal;
+    // 2. The path that works today keeps working. This is the ONLY clause
+    //    that a normal desktop reaches, and it is deliberately first among
+    //    the unsandboxed ones.
+    if (directDeviceVisible)
+        return LinuxCameraRoute::Direct;
+    // 3. Nothing to open directly, and a portal that says it has a camera.
+    //    There is no regression available here: the direct element has no
+    //    device.
+    if (portalUsable)
+        return LinuxCameraRoute::Portal;
+    // 4. Unchanged, including the honest failure.
+    return LinuxCameraRoute::Direct;
 }
 
 SfuCallController::LinuxShareRoute SfuCallController::linuxShareRoute(
@@ -1440,6 +1585,10 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     // This comment used to say a level two calls ago is not a preference
     // about the next one; that was the behaviour, and it was the defect.
     m_shareVolumes.clear();
+    // The shadow records of what reached the engine go with them: the engine
+    // is being torn down, so nothing it was told is true of the next call.
+    m_engineParticipantVolume.clear();
+    m_engineShareVolume.clear();
     m_audioCid.clear();
     m_cameraCid.clear();
     m_screenCid.clear();
@@ -1812,21 +1961,8 @@ void SfuCallController::publishTracks()
     m_audioCid = audioCid;
     m_publishedTrackIds.append(audioCid);
 
-    if (m_cameraOn) {
-        const QString videoCid =
-            QUuid::createUuid().toString(QUuid::WithoutBraces);
-        // The ceiling the camera pipeline scales to. Declaring the real
-        // shape is what stops the SFU inferring simulcast (SfuMediaEngine's
-        // caps are the authority on these numbers).
-        m_client->sfuAddTrack(videoCid, QStringLiteral("camera"), 1,
-                              SfuMediaEngine::kCameraWidth,
-                              SfuMediaEngine::kCameraHeight,
-                              false, m_roomEncrypted);
-        m_engine->publishVideo(videoCid, /*screenShare=*/false,
-                               /*nodeId=*/-1);
-        m_cameraCid = videoCid;
-        m_publishedTrackIds.append(videoCid);
-    }
+    if (m_cameraOn)
+        startCameraCapture();
 #endif
 }
 
@@ -2797,6 +2933,14 @@ void SfuCallController::teardown(State finalState, const QString &error)
 #endif
     if (m_portal)
         m_portal->cancel();
+    // ...and any camera grant still in flight. The dialog is modal to the
+    // desktop and not to us, so a call can end with it open; cancelling bumps
+    // the portal's generation so a late Response cannot open a remote for a
+    // call that is over. Clearing the flag is what stops a grant that races
+    // the cancel from publishing into a torn-down engine.
+    m_cameraAwaitingPortal = false;
+    if (m_cameraPortal)
+        m_cameraPortal->cancel();
     if (m_client) {
         m_client->sfuDisconnect();
         if (!m_roomId.isEmpty() && m_membershipPublished) {
@@ -2862,6 +3006,10 @@ void SfuCallController::teardown(State finalState, const QString &error)
     // This comment used to say a level two calls ago is not a preference
     // about the next one; that was the behaviour, and it was the defect.
     m_shareVolumes.clear();
+    // The shadow records of what reached the engine go with them: the engine
+    // is being torn down, so nothing it was told is true of the next call.
+    m_engineParticipantVolume.clear();
+    m_engineShareVolume.clear();
     m_audioCid.clear();
     m_cameraCid.clear();
     m_screenCid.clear();
@@ -2969,6 +3117,102 @@ void SfuCallController::setDeafened(bool deafened)
 
 void SfuCallController::toggleDeafened() { setDeafened(!m_deafened); }
 
+void SfuCallController::startCameraCapture()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (m_engine.isNull() || !m_client)
+        return;
+
+    // ── WHICH CAMERA THIS MACHINE ACTUALLY HAS ─────────────────────────
+    //
+    // Linux only. Windows and macOS open the device through their own
+    // capture element and there is no broker to ask, so `CameraPortal` is
+    // unavailable there by construction and this resolves to Direct.
+    const bool sandboxed = runningSandboxed();
+    const bool deviceNode = v4l2DeviceNodeVisible();
+    const bool portalWired = !m_cameraPortal.isNull();
+    const bool portalUsable = portalWired && CameraPortal::available()
+        && CameraPortal::cameraPresent();
+    LinuxCameraRoute route =
+        linuxCameraRoute(sandboxed, portalUsable, deviceNode);
+    // AND THE ROUTE IS ONLY REAL IF SOMETHING IS WIRED TO IT. The predicate
+    // answers "what should this machine do"; whether a portal object exists
+    // is this object's own wiring, and conflating the two would leave a
+    // sandboxed build waiting forever on a signal nothing can emit.
+    if (route == LinuxCameraRoute::Portal && !portalWired) {
+        qCWarning(lcSfuCall)
+            << "camera route=portal but no camera portal is wired; falling "
+               "back to the direct device";
+        route = LinuxCameraRoute::Direct;
+    }
+    // SAY WHICH ONE, ALWAYS, AND SAY WHAT DECIDED IT.
+    //
+    // Graceful fallback and silent absence are the same observable unless
+    // something asserts the positive (§16). A Flatpak whose camera produces
+    // nothing needs one grep to separate "the portal was never asked"
+    // from "the portal said no" from "the portal gave us a remote and the
+    // pipeline still built nothing".
+    qCInfo(lcSfuCall) << "camera route="
+                      << (route == LinuxCameraRoute::Portal ? "portal"
+                                                            : "direct")
+                      << "sandboxed=" << sandboxed
+                      << "device_node=" << deviceNode
+                      << "portal_wired=" << portalWired
+                      << "portal_usable=" << portalUsable;
+
+    if (route == LinuxCameraRoute::Direct) {
+        publishCameraTrack(/*pipewireFd=*/-1);
+        return;
+    }
+
+    // The portal answers asynchronously and may put a dialog in front of the
+    // user. Nothing is declared to the SFU until it grants: declaring a
+    // camera track and then never publishing it would leave every other
+    // client waiting on media that is not coming.
+    m_cameraAwaitingPortal = true;
+    m_cameraPortal->requestAccess();
+#endif
+}
+
+void SfuCallController::publishCameraTrack(int pipewireFd)
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (m_engine.isNull() || !m_client) {
+        closePortalFd(pipewireFd);
+        return;
+    }
+    const QString cid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    // The ceiling the camera pipeline scales to. Declaring the real shape is
+    // what stops the SFU inferring simulcast (SfuMediaEngine's caps are the
+    // authority on these numbers).
+    m_client->sfuAddTrack(cid, QStringLiteral("camera"), 1,
+                          SfuMediaEngine::kCameraWidth,
+                          SfuMediaEngine::kCameraHeight,
+                          false, m_roomEncrypted);
+    // Ownership of the descriptor passes to the engine, which holds it for
+    // the life of the publishing bin and closes it on every failure path —
+    // see the RAII guard at the top of SfuMediaEngine::publishVideo().
+    m_engine->publishVideo(cid, /*screenShare=*/false, /*nodeId=*/-1,
+                           pipewireFd);
+    m_cameraCid = cid;
+    m_publishedTrackIds.append(cid);
+#else
+    closePortalFd(pipewireFd);
+#endif
+}
+
+void SfuCallController::abandonPendingCamera()
+{
+    m_cameraAwaitingPortal = false;
+    if (!m_cameraOn)
+        return;
+    m_cameraOn = false;
+    // The SFU and every other client are told, and our own row reads back
+    // correctly — the same two calls the OFF branch of setCameraOn makes.
+    applyVideoState();
+    Q_EMIT mediaStateChanged();
+}
+
 void SfuCallController::setCameraOn(bool on)
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
@@ -2976,15 +3220,17 @@ void SfuCallController::setCameraOn(bool on)
         return;
     m_cameraOn = on;
     if (on) {
-        const QString cid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        m_client->sfuAddTrack(cid, QStringLiteral("camera"), 1,
-                              SfuMediaEngine::kCameraWidth,
-                              SfuMediaEngine::kCameraHeight,
-                              false, m_roomEncrypted);
-        m_engine->publishVideo(cid, false, -1);
-        m_cameraCid = cid;
-        m_publishedTrackIds.append(cid);
+        // May publish immediately (direct route) or wait on a portal dialog.
+        // Either way `m_cameraOn` is already true, so the control responds to
+        // the press rather than appearing to ignore it.
+        startCameraCapture();
     } else {
+        // A grant still in flight has nothing to unpublish; it must simply
+        // stop being wanted, or its `ready` would publish a camera the user
+        // has already switched off.
+        m_cameraAwaitingPortal = false;
+        if (!m_cameraPortal.isNull())
+            m_cameraPortal->cancel();
         // Unpublish the CAMERA track by id. This used to take "the last
         // track we published", which is the SCREEN SHARE whenever the share
         // started after the camera — so turning the camera off killed the
@@ -3720,17 +3966,12 @@ void SfuCallController::setShareVolume(const QString &shareId, int percent)
     const QString ownerUserId = userIdForIdentity(identity);
     if (m_settings && !ownerUserId.isEmpty())
         m_settings->setCallShareVolume(ownerUserId, clamped);
-#ifdef HAVE_LIGHTNING_WEBRTC
     // The share's AUDIO track, which is a different track from the sharer's
-    // microphone. Empty means they are sharing silently, and then there is
-    // simply nothing to set here — applyStoredShareVolumes() is what carries
-    // the stored level onto a track that appears later.
-    const QString audioKey =
-        trackKeyForSource(identity, QStringLiteral("screen_share_audio"));
-    const QString streamId = streamIdForIdentity(identity);
-    if (!m_engine.isNull() && !streamId.isEmpty() && !audioKey.isEmpty())
-        m_engine->setTrackVolume(streamId, audioKey, clamped);
-#endif
+    // microphone. An unknown track key means they are sharing silently (or
+    // have not been listed yet), and then there is simply nothing to set —
+    // applyStoredShareVolumes() carries the level onto a track that appears
+    // later, which is why that one must not early-out past this call.
+    applyEngineShareVolume(shareId, identity, clamped);
     Q_EMIT shareVolumeChanged(shareId, clamped);
 }
 
@@ -3764,6 +4005,68 @@ int SfuCallController::shareVolume(const QString &shareId) const
     return 100;
 }
 
+/// Hand a participant's level to the media engine, and record that we did.
+///
+/// THE ONE PLACE THIS HAPPENS. It used to be a tail inside
+/// applyStoredVolumes(), behind a guard that compared the MODEL's value
+/// against the store — and that guard is what made a remembered level reach
+/// the slider and never reach the audio graph:
+///
+///   1. the row appears before the stream id is known. The model is set to
+///      the stored level; there is nothing to address, so the engine is not
+///      told.
+///   2. the stream id arrives and the applier runs again — and now the model
+///      already SAYS the stored level, so the guard fires and the engine is
+///      never told at all.
+///
+/// The model and the store agree, the slider reads 200%, and nothing reached
+/// the audio graph. Found by scripts/gui-suite-calls.sh on two real clients:
+/// `callVolumes\...=200` on disk, one `sfu joined` after the restart, and no
+/// `participant volume applied:` line. It is the exact twin of the share
+/// defect recorded below applyStoredShareVolumes(), one guard higher.
+///
+/// So the apply is UNCONDITIONAL on the value: idempotent, cheap, and since
+/// a95ef84 a repeated identical value does not even log.
+bool SfuCallController::applyEngineParticipantVolume(const QString &identity,
+                                                     int percent)
+{
+    const QString streamId = streamIdForIdentity(identity);
+    if (streamId.isEmpty())
+        return false;
+    // Recorded on the STREAM ID ALONE, outside the media guard and before the
+    // engine is consulted: the suite that can drive the ordering above has no
+    // engine at all, and what it has to be able to see is whether this point
+    // was ever reached. See engineParticipantVolumeForTest().
+    m_engineParticipantVolume.insert(identity, percent);
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_engine.isNull()) {
+        m_engine->setParticipantVolume(streamId, percent);
+        return true;
+    }
+#endif
+    return false;
+}
+
+/// The share sibling. A share's audio is a different track from the sharer's
+/// microphone, so this needs the track key as well as the stream id, and
+/// either being unknown means the track has not appeared yet — which is the
+/// state the guard in applyStoredShareVolumes() has to survive.
+void SfuCallController::applyEngineShareVolume(const QString &shareId,
+                                               const QString &identity,
+                                               int percent)
+{
+    const QString streamId = streamIdForIdentity(identity);
+    const QString audioKey =
+        trackKeyForSource(identity, QStringLiteral("screen_share_audio"));
+    if (streamId.isEmpty() || audioKey.isEmpty())
+        return;
+    m_engineShareVolume.insert(shareId, percent);
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_engine.isNull())
+        m_engine->setTrackVolume(streamId, audioKey, percent);
+#endif
+}
+
 /// Carry each sharer's stored level onto a share whose audio has appeared.
 ///
 /// Mirrors applyStoredVolumes() — including, load-bearingly, that it runs
@@ -3778,16 +4081,34 @@ void SfuCallController::applyStoredShareVolumes()
     for (int i = 0; i < count; ++i) {
         const QVariantMap share = m_shareModel->get(i);
         const QString shareId = share.value(QStringLiteral("shareId")).toString();
-        if (shareId.isEmpty() || m_shareVolumes.contains(shareId))
-            continue;   // this call's own choice wins over the stored one
-        const QString userId =
-            userIdForIdentity(m_shareModel->ownerIdentityFor(shareId));
+        if (shareId.isEmpty())
+            continue;
+        const QString identity = m_shareModel->ownerIdentityFor(shareId);
+        const QString userId = userIdForIdentity(identity);
         if (userId.isEmpty())
             continue;
-        const int stored = m_settings->callShareVolume(userId);
-        if (stored == 100)
+        const auto live = m_shareVolumes.constFind(shareId);
+        const bool chosenThisCall = live != m_shareVolumes.constEnd();
+        if (!chosenThisCall) {
+            // Nothing chosen for this share yet: carry the stored level, or
+            // leave a share nobody has touched at unity.
+            const int stored = m_settings->callShareVolume(userId);
+            if (stored != 100)
+                setShareVolume(shareId, stored);   // records, persists, applies
             continue;
-        setShareVolume(shareId, stored);
+        }
+        // ALREADY RECORDED FOR THIS CALL — AND THAT IS NOT THE SAME AS
+        // ALREADY APPLIED, which is the trap this used to fall into.
+        //
+        // `setShareVolume()` records the choice in `m_shareVolumes` BEFORE it
+        // reaches the engine, and the engine can only be reached once the
+        // share's own audio track key is known. A share listed before its
+        // audio track therefore recorded the level, failed to apply it, and
+        // was skipped by `m_shareVolumes.contains()` on every later pass —
+        // the same shape as the participant defect this file's applier
+        // documents, one level down. Re-applying is idempotent and does NOT
+        // re-emit shareVolumeChanged, so a surface bound to it sees nothing.
+        applyEngineShareVolume(shareId, identity, live.value());
     }
 }
 
@@ -3795,24 +4116,25 @@ void SfuCallController::setParticipantVolume(const QString &identity,
                                               int percent)
 {
     const int clamped = qBound(0, percent, 200);
-#ifdef HAVE_LIGHTNING_WEBRTC
     // Local only: nothing is sent, and nobody else is affected. The ENGINE is
     // addressed by LiveKit stream id, not by SFU identity — that is the name
     // the receive bin's volume element carries, and the two are different
     // strings.
-    const QString streamId = streamIdForIdentity(identity);
-    if (!m_engine.isNull() && !streamId.isEmpty()) {
-        m_engine->setParticipantVolume(streamId, clamped);
-    } else {
+    const bool reached = applyEngineParticipantVolume(identity, clamped);
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!reached) {
         // Reported twice as a control that "does nothing, but does remember
         // the set %": the value lands in settings below whatever happens
-        // here, so a silent miss at this line looks exactly like success.
-        // Booleans and a sid, no user content.
+        // here, so a silent miss looks exactly like success. Booleans and a
+        // count, no user content.
         qCWarning(lcSfuCall)
             << "participant volume not applied: engine="
-            << !m_engine.isNull() << "streamId=" << streamId
+            << !m_engine.isNull() << "streamKnown="
+            << !streamIdForIdentity(identity).isEmpty()
             << "participants=" << m_participants.size();
     }
+#else
+    Q_UNUSED(reached);
 #endif
     // Recorded so the control that sets it can READ IT BACK. This was
     // write-only, which is why no QML ever called it: a slider with nothing
@@ -3846,14 +4168,13 @@ void SfuCallController::applyStoredVolumes()
         if (identity.isEmpty() || userId.isEmpty())
             continue; // unknown person: unity, and nothing invented
         const int stored = m_settings->callParticipantVolume(userId);
-        if (person.value(QStringLiteral("volumePercent")).toInt() == stored)
-            continue;
-        m_participantModel->setVolumePercent(identity, stored);
-#ifdef HAVE_LIGHTNING_WEBRTC
-        const QString streamId = streamIdForIdentity(identity);
-        if (!m_engine.isNull() && !streamId.isEmpty())
-            m_engine->setParticipantVolume(streamId, stored);
-#endif
+        // THE MODEL WRITE IS GUARDED; THE ENGINE APPLY IS NOT, and the whole
+        // defect lived in conflating the two. See
+        // applyEngineParticipantVolume() for the sequence that makes an
+        // early-out here mean the audio graph is never told at all.
+        if (person.value(QStringLiteral("volumePercent")).toInt() != stored)
+            m_participantModel->setVolumePercent(identity, stored);
+        applyEngineParticipantVolume(identity, stored);
     }
 }
 

@@ -39,6 +39,7 @@
 #endif
 #include "calls/CallController.h"
 #ifdef HAVE_LIGHTNING_WEBRTC
+#include "calls/CameraPortal.h"
 #include "calls/GstCallMediaBackend.h"
 #include "calls/ScreenCastPortal.h"
 #include "calls/SfuMediaEngine.h"
@@ -2922,6 +2923,23 @@ void AppController::enableCallMediaEngine()
             qCInfo(lcApp) << "screen-share portal available";
         } else {
             qCInfo(lcApp) << "screen-share portal unavailable";
+        }
+        // THE CAMERA PORTAL, and it is wired whenever it answers rather than
+        // only inside a sandbox.
+        //
+        // Which route a given publish takes is
+        // SfuCallController::linuxCameraRoute(), which prefers the DIRECT
+        // device whenever one is visible — so registering this on a desktop
+        // changes nothing there, and refusing to register it would mean a
+        // machine that grows a reason to need the portal has nothing to fall
+        // back to. Inside a Flatpak there is no `/dev/video*` at all and this
+        // is the only camera that can exist.
+        if (CameraPortal::available()) {
+            m_groupCall->setCameraPortal(new CameraPortal(this));
+            qCInfo(lcApp) << "camera portal available present="
+                          << CameraPortal::cameraPresent();
+        } else {
+            qCInfo(lcApp) << "camera portal unavailable";
         }
         qCInfo(lcApp) << "group-call media engine active (webrtcbin/SFU)";
     } else {

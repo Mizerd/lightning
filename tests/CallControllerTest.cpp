@@ -3463,6 +3463,236 @@ private Q_SLOTS:
     //
     // Keyed by the owner's user id, both cases work, and the second half of
     // this test is the one the old code could never have passed.
+    // A REMEMBERED LEVEL THAT REACHES THE SLIDER AND NEVER REACHES THE AUDIO.
+    //
+    // Found by scripts/gui-suite-calls.sh on two real clients against a
+    // packaged build: `callVolumes\...=200` on disk, one `sfu joined` after
+    // the restart, no `participant volume applied:` line. The popup read
+    // 200% the whole time, which is why a hand-driven check called it PASS —
+    // the popup is the half that was never broken.
+    //
+    // THE SEQUENCE, which is the whole defect and is what this drives:
+    //
+    //   1. the participant row appears before their stream id is known.
+    //      applyStoredVolumes() sets the MODEL to the stored level and finds
+    //      nothing to address, so the engine is not told.
+    //   2. the stream id arrives and the applier runs again — and now the
+    //      model already SAYS the stored level, so the old
+    //      `if (volumePercent == stored) continue;` fired and the engine was
+    //      never told at all.
+    //
+    // ASSERTED ON THE ENGINE, NEVER ON THE GETTER. participantVolume() falls
+    // back to the store and answers 200 on completely broken code; that
+    // fallback is exactly what hid this. This suite is built with no media
+    // engine, so the assertion is against the record the applier keeps beside
+    // the call it makes (engineParticipantVolumeForTest).
+    //
+    // It is the twin, one guard higher, of the share defect
+    // aShareVolumeIsRememberedUnderItsOwner below was written for.
+    void aStoredVolumeReachesTheEngineWhenTheStreamIdArrivesLate()
+    {
+        const QString room = QStringLiteral("!late:example.org");
+        const QString identity = QStringLiteral("@her:example.org:HERDEV");
+        const QString userId = QStringLiteral("@her:example.org");
+
+        SettingsManager settings;
+        settings.saveSession(QStringLiteral("https://example.org"),
+                             QStringLiteral("@me:example.org"),
+                             QStringLiteral("MEDEV"),
+                             QStringLiteral("token-fixture"));
+        // The store outlives the process, so prove the fixture before
+        // trusting anything after it.
+        settings.setCallParticipantVolume(userId, 100);
+        QCOMPARE(settings.callParticipantVolume(userId), 100);
+        settings.setCallParticipantVolume(userId, 200);
+
+        RecordingCallClient client;
+        RtcController rtc;
+        SfuCallController call;
+        call.setSettings(&settings);
+        rtc.setClient(&client);
+        rtc.setPokeCoalesceMsForTest(0);
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        call.setMembershipForTest(room, QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
+
+        RtcParticipant member;
+        member.userId = userId;
+        member.deviceId = QStringLiteral("HERDEV");
+        member.rtcIdentity = identity;
+        member.intent = QStringLiteral("audio");
+        member.membershipEventId = QStringLiteral("$m1");
+        member.wireFormat = QStringLiteral("session");
+        RtcSessionData session;
+        session.roomId = room;
+        session.participants = { member };
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+
+        // ── 1. the row, with no stream id to address ──
+        call.ingestParticipantsForTest({
+            sfuParticipant(identity, QString(), {}),
+        });
+        const int row = participantRowFor(call.participantModel(), identity);
+        QVERIFY2(row >= 0, "the participant row never appeared, so this case "
+                           "cannot be driving the ordering it is about");
+        QCOMPARE(participantRole(call.participantModel(), row,
+                                 CallParticipantModel::VolumePercentRole)
+                     .toInt(),
+                 200);
+        QCOMPARE(call.engineParticipantVolumeForTest(identity), -1);
+
+        // ── 2. the stream id arrives ──
+        call.ingestParticipantsForTest({
+            sfuParticipant(identity, QStringLiteral("PA_ONE"),
+                           { sfuTrack(QStringLiteral("microphone"),
+                                      QStringLiteral("TR_1"), false) }),
+        });
+        QCOMPARE(participantRole(call.participantModel(), row,
+                                 CallParticipantModel::VolumePercentRole)
+                     .toInt(),
+                 200);
+        QVERIFY2(call.engineParticipantVolumeForTest(identity) != -1,
+                 "the stored level never reached the audio graph: the model "
+                 "and the store agree, the slider reads 200%, and the "
+                 "element was never told");
+        QCOMPARE(call.engineParticipantVolumeForTest(identity), 200);
+
+        // ...and the getter would have said 200 the entire time, on every
+        // version of this code. Asserted so nobody rewrites the case around
+        // it.
+        QCOMPARE(call.participantVolume(identity), 200);
+    }
+
+    // A SHARE LEVEL CHANGED IN SETTINGS MUST REACH A LIVE CALL, WITHOUT
+    // ANYBODY TOUCHING A PARTICIPANT FIRST.
+    //
+    // `setSettings()` subscribes to both volume signals. The share `connect`
+    // had drifted INSIDE the participant lambda — one misplaced brace, no
+    // compiler complaint, and two defects out of it:
+    //
+    //   * `callShareVolumeChanged` had NO consumer at all until somebody
+    //     changed a PARTICIPANT volume, which is the exact state the comment
+    //     above that connect says was fixed;
+    //   * and every participant change after that added ANOTHER duplicate
+    //     connection, so the share applier ran once more per change for the
+    //     life of the process.
+    //
+    // Driven through the real signal, and asserted on the engine record
+    // rather than shareVolume(), which reads the store back and is green
+    // either way.
+    void aShareLevelChangedInSettingsReachesTheCallOnItsOwnSignal()
+    {
+        const QString room = QStringLiteral("!shsig:example.org");
+        const QString identity = QStringLiteral("@her:example.org:HERDEV");
+        const QString userId = QStringLiteral("@her:example.org");
+
+        SettingsManager settings;
+        settings.saveSession(QStringLiteral("https://example.org"),
+                             QStringLiteral("@me:example.org"),
+                             QStringLiteral("MEDEV"),
+                             QStringLiteral("token-fixture"));
+        settings.setCallShareVolume(userId, 100);
+        QCOMPARE(settings.callShareVolume(userId), 100);
+
+        RecordingCallClient client;
+        RtcController rtc;
+        SfuCallController call;
+        call.setSettings(&settings);
+        QVERIFY(stageOneRemoteParticipant(client, rtc, call, room, identity,
+                                          userId, QStringLiteral("HERDEV"),
+                                          QStringLiteral("$m1")) != nullptr);
+        call.ingestParticipantsForTest({
+            sfuParticipant(identity, QStringLiteral("PA_ONE"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_a"), false),
+                             sfuTrack(QStringLiteral("screen_share_audio"),
+                                      QStringLiteral("TR_share_audio"),
+                                      false) }),
+        });
+        QCOMPARE(call.shareModel()->rowCount(), 1);
+        // Unity and untouched: nothing has been carried anywhere yet, so a
+        // later non-zero record can only have come from the signal below.
+        QCOMPARE(call.engineShareVolumeForTest(QStringLiteral("TR_share_a")),
+                 -1);
+
+        // The change arrives from settings, NOT from this controller, and no
+        // participant volume is touched at any point.
+        settings.setCallShareVolume(userId, 60);
+        QVERIFY2(call.engineShareVolumeForTest(QStringLiteral("TR_share_a"))
+                     != -1,
+                 "callShareVolumeChanged has no consumer, so a share level "
+                 "changed elsewhere never reaches a live call");
+        QCOMPARE(call.engineShareVolumeForTest(QStringLiteral("TR_share_a")),
+                 60);
+    }
+
+    // THE SHARE SIBLING OF THE SAME GUARD, which was latent rather than
+    // reported.
+    //
+    // setShareVolume() records the choice in `m_shareVolumes` BEFORE it can
+    // reach the engine, and it can only reach the engine once the share's own
+    // AUDIO track key is known — a different track from the sharer's
+    // microphone. A share listed before its audio track therefore recorded
+    // the level, applied nothing, and was skipped by the old
+    // `m_shareVolumes.contains(shareId)` early-out on every later pass.
+    //
+    // The 2026-09-05 fix for this family reordered applyStoredShareVolumes()
+    // after rebuildShareModel(), which cures "the row does not exist yet" and
+    // not "the audio track is not listed yet". Same shape, one guard along.
+    void aStoredShareVolumeReachesTheEngineWhenItsAudioTrackArrivesLate()
+    {
+        const QString room = QStringLiteral("!shlate:example.org");
+        const QString identity = QStringLiteral("@her:example.org:HERDEV");
+        const QString userId = QStringLiteral("@her:example.org");
+
+        SettingsManager settings;
+        settings.saveSession(QStringLiteral("https://example.org"),
+                             QStringLiteral("@me:example.org"),
+                             QStringLiteral("MEDEV"),
+                             QStringLiteral("token-fixture"));
+        settings.setCallShareVolume(userId, 100);
+        QCOMPARE(settings.callShareVolume(userId), 100);
+
+        RecordingCallClient client;
+        RtcController rtc;
+        SfuCallController call;
+        call.setSettings(&settings);
+        QVERIFY(stageOneRemoteParticipant(client, rtc, call, room, identity,
+                                          userId, QStringLiteral("HERDEV"),
+                                          QStringLiteral("$m1")) != nullptr);
+
+        // A SILENT SHARE FIRST: the row exists, the audio track does not, so
+        // there is nothing for the engine to address.
+        call.ingestParticipantsForTest({
+            sfuParticipant(identity, QStringLiteral("PA_ONE"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_a"), false) }),
+        });
+        QCOMPARE(call.shareModel()->rowCount(), 1);
+        call.setShareVolume(QStringLiteral("TR_share_a"), 35);
+        QCOMPARE(call.engineShareVolumeForTest(QStringLiteral("TR_share_a")),
+                 -1);
+
+        // ...and now they unmute the share's audio.
+        call.ingestParticipantsForTest({
+            sfuParticipant(identity, QStringLiteral("PA_ONE"),
+                           { sfuTrack(QStringLiteral("screen_share"),
+                                      QStringLiteral("TR_share_a"), false),
+                             sfuTrack(QStringLiteral("screen_share_audio"),
+                                      QStringLiteral("TR_share_audio"),
+                                      false) }),
+        });
+        QVERIFY2(call.engineShareVolumeForTest(QStringLiteral("TR_share_a"))
+                     != -1,
+                 "the share level never reached the audio graph once its "
+                 "audio track appeared; shareVolume() would still say 35");
+        QCOMPARE(call.engineShareVolumeForTest(QStringLiteral("TR_share_a")),
+                 35);
+    }
+
     void aShareVolumeIsRememberedUnderItsOwner()
     {
         const QString room = QStringLiteral("!share:example.org");
@@ -3598,6 +3828,106 @@ private Q_SLOTS:
     // must never be able to displace it — so the portal clause is asserted
     // against every session shape, including the ones that would otherwise
     // route somewhere else.
+    // ── THE CAMERA'S ROUTE ────────────────────────────────────────────
+    //
+    // Same discipline as the share route below: a pure predicate, every input
+    // passed in, so each clause is a claim that can be checked without the
+    // machine that would make it. Compiled here WITHOUT
+    // HAVE_LIGHTNING_WEBRTC, which is the second thing it proves.
+    //
+    // NOT LIVE-VALIDATED. There is no webcam on the machine this was written
+    // on, and no Flatpak runtime either; what is proved here is the decision,
+    // not that either route carries a picture.
+
+    // A SANDBOX HAS NO CHOICE, and this is the clause the whole change exists
+    // for. Flatpak offers no camera-only device permission; `--device=all` is
+    // the only static route to `/dev/video*` and Flathub rejects it. So the
+    // portal is the only camera a Flathub package can have, and that holds
+    // even when the probes look bad — a portal refusal is something the user
+    // can act on ("allow the camera"), a device-open failure is not.
+    void aSandboxedBuildAlwaysTakesTheCameraPortal()
+    {
+        using Route = SfuCallController::LinuxCameraRoute;
+        for (bool portalUsable : { true, false }) {
+            for (bool deviceNode : { true, false }) {
+                QCOMPARE(SfuCallController::linuxCameraRoute(
+                             /*sandboxed=*/true, portalUsable, deviceNode),
+                         Route::Portal);
+            }
+        }
+    }
+
+    // AND A DESKTOP KEEPS THE ROUTE THAT WORKS. `v4l2src` on a visible device
+    // node is the only camera path this project has ever live-validated, and
+    // the portal must not take it over on a machine where nothing was wrong —
+    // that would trade a working camera for a permission dialog and an
+    // untested pipeline.
+    void aVisibleDeviceNodeKeepsTheDirectCamera()
+    {
+        using Route = SfuCallController::LinuxCameraRoute;
+        QCOMPARE(SfuCallController::linuxCameraRoute(
+                     /*sandboxed=*/false, /*portalUsable=*/true,
+                     /*directDeviceVisible=*/true),
+                 Route::Direct);
+        QCOMPARE(SfuCallController::linuxCameraRoute(
+                     /*sandboxed=*/false, /*portalUsable=*/false,
+                     /*directDeviceVisible=*/true),
+                 Route::Direct);
+    }
+
+    // NO DEVICE NODE AND A USABLE PORTAL takes the portal, because there is
+    // nothing available to regress: the direct element has no device to open.
+    // With no usable portal either, the answer stays Direct — which is
+    // today's behaviour including today's honest failure, and is deliberately
+    // not a new refusal state.
+    void withNoDeviceNodeThePortalIsUsedOnlyWhenItIsUsable()
+    {
+        using Route = SfuCallController::LinuxCameraRoute;
+        QCOMPARE(SfuCallController::linuxCameraRoute(
+                     /*sandboxed=*/false, /*portalUsable=*/true,
+                     /*directDeviceVisible=*/false),
+                 Route::Portal);
+        QCOMPARE(SfuCallController::linuxCameraRoute(
+                     /*sandboxed=*/false, /*portalUsable=*/false,
+                     /*directDeviceVisible=*/false),
+                 Route::Direct);
+    }
+
+    // WHICHEVER ROUTE IT TAKES, THE LOG SAYS SO — and says what decided it.
+    //
+    // §16, four separate packaging defects deep: graceful fallback and silent
+    // absence are the same observable unless something asserts the positive.
+    // A Flatpak whose camera produces nothing has to be one grep away from
+    // "the portal was never asked" / "the portal said no" / "the portal
+    // granted a remote and the pipeline still built nothing", or the next
+    // round is a theory.
+    void theCameraRouteIsAnnouncedWithWhatDecidedIt()
+    {
+        QFile file(QStringLiteral(SOURCE_DIR
+                                  "/src/calls/SfuCallController.cpp"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray source = file.readAll();
+        const int at = source.indexOf("\"camera route=\"");
+        QVERIFY2(at > 0, "nothing announces which camera route was taken, so "
+                         "a silent fallback is unreadable from a log");
+        const QByteArray line = source.mid(at, 400);
+        for (const char *input : { "sandboxed=", "device_node=",
+                                   "portal_wired=", "portal_usable=" }) {
+            QVERIFY2(line.contains(input),
+                     qPrintable(QStringLiteral("the camera route line does "
+                                               "not report %1")
+                                    .arg(QLatin1String(input))));
+        }
+        // The engine says which source it actually built from, separately:
+        // the controller's decision and the pipeline's shape are two claims
+        // and a capture can fail between them.
+        QFile engine(QStringLiteral(SOURCE_DIR
+                                    "/src/calls/SfuMediaEngine.cpp"));
+        QVERIFY(engine.open(QIODevice::ReadOnly));
+        QVERIFY2(engine.readAll().contains("\"camera source=\""),
+                 "the engine does not report which camera source it built");
+    }
+
     void theDesktopPortalIsPreferredOverTheFallbackInEverySession()
     {
         using Route = SfuCallController::LinuxShareRoute;

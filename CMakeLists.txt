@@ -472,6 +472,8 @@ set(APP_SOURCES
     src/calls/CallStageState.cpp
     src/calls/CallDeviceController.h
     src/calls/CallDeviceController.cpp
+    src/calls/CameraPortal.h
+    src/calls/CameraPortal.cpp
     src/calls/ScreenCastPortal.h
     src/calls/ScreenCastPortal.cpp
     # Header only: AUTOMOC supplies the CallMediaBackend metaobject; no
@@ -3236,6 +3238,8 @@ if(BUILD_TESTING)
         src/calls/CallShareModel.cpp
         src/calls/CallStageState.h
         src/calls/CallStageState.cpp
+        src/calls/CameraPortal.h
+        src/calls/CameraPortal.cpp
         src/calls/ScreenCastPortal.h
         src/calls/ScreenCastPortal.cpp
         src/calls/CallMediaBackend.h

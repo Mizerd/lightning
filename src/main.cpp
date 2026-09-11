@@ -824,8 +824,37 @@ namespace {
 // icon name that entry's Icon= key carries.
 constexpr QLatin1String kAppId("lightning");
 // X11/XWayland association: Qt's xcb plugin takes the WM_CLASS instance from
-// argv[0], i.e. the binary name.
+// argv[0], i.e. the binary name. NOT affected by resolvedAppId() below: the
+// WM_CLASS instance comes from argv[0] and never from the desktop-file name,
+// so the two are separate associations that happen to sit beside each other.
 constexpr QLatin1String kWmClass("lightning-matrix");
+
+/// The app id THIS INSTALLATION's launcher entry is actually published under.
+///
+/// Everything the block above says about Wayland applies unchanged — the
+/// compositor's only route to an icon is the toplevel's app id resolved
+/// against an installed desktop entry — but INSIDE A FLATPAK the entry is not
+/// named `lightning.desktop`. A Flatpak exports only app-id-prefixed files,
+/// so the one the session can see is `org.lightning_matrix.Lightning.desktop`
+/// and the bare name is deleted at build time. An app id of "lightning" then
+/// resolves against nothing and the window icon is the same generic
+/// placeholder the AppImage had, for the same reason and with a different
+/// cause: there the entry did not exist, here it exists under another name.
+///
+/// `$FLATPAK_ID` is the app id the sandbox was built with, exported by the
+/// Flatpak runtime itself, so it IS the basename of the exported entry. Same
+/// resolution and same reasoning as the notification `desktop-entry` hint in
+/// src/notifications/NotificationManager.cpp (`notificationIdentity()`),
+/// which has been taking the id from this variable since notifications
+/// learned to carry one.
+///
+/// Unset everywhere else — a deb, rpm, AppImage, snap, Windows, macOS or
+/// source run — so every one of those keeps `kAppId` exactly as before.
+QString resolvedAppId()
+{
+    const QString flatpakId = qEnvironmentVariable("FLATPAK_ID");
+    return flatpakId.isEmpty() ? QString(kAppId) : flatpakId;
+}
 
 struct LauncherEntryReport {
     bool appImageRun = false;
@@ -1354,11 +1383,19 @@ static int printDesktopStatus()
 {
     QTextStream out(stdout);
 
-    QGuiApplication::setDesktopFileName(kAppId);
+    // The SAME resolution the startup path applies, or this flag would report
+    // on an app id the running application never uses — and inside a Flatpak
+    // that is exactly the case the flag exists to answer.
+    const QString appId = resolvedAppId();
+    QGuiApplication::setDesktopFileName(resolvedAppId());
     out << "qt version: " << QLatin1String(qVersion()) << "\n";
     out << "app id (desktop file name): "
         << QGuiApplication::desktopFileName() << "\n";
-    out << "launcher entry basename: " << kAppId << ".desktop\n";
+    out << "app id source: "
+        << (qEnvironmentVariableIsEmpty("FLATPAK_ID") ? "built in"
+                                                      : "FLATPAK_ID")
+        << "\n";
+    out << "launcher entry basename: " << appId << ".desktop\n";
     out << "wm class: " << kWmClass << "\n";
 
     const LauncherEntryReport report = publishAppImageLauncherEntry();
@@ -1386,7 +1423,7 @@ static int printDesktopStatus()
     const QStringList dirs = xdgDataDirs();
     for (const QString &dir : dirs) {
         const QString candidate = dir + QStringLiteral("/applications/")
-            + kAppId + QStringLiteral(".desktop");
+            + appId + QStringLiteral(".desktop");
         if (visibleEntry.isEmpty() && QFileInfo(candidate).isFile())
             visibleEntry = candidate;
         const QDir hicolor(dir + QStringLiteral("/icons/hicolor"));
@@ -1397,7 +1434,7 @@ static int printDesktopStatus()
                 const QDir apps(
                     hicolor.filePath(size + QStringLiteral("/apps")));
                 const QStringList hits = apps.entryList(
-                    QStringList{ kAppId + QStringLiteral(".*") }, QDir::Files);
+                    QStringList{ appId + QStringLiteral(".*") }, QDir::Files);
                 if (!hits.isEmpty()) {
                     visibleIcon = apps.filePath(hits.first());
                     break;
@@ -1415,14 +1452,14 @@ static int printDesktopStatus()
         << "\n";
 
     if (visibleEntry.isEmpty() || visibleIcon.isEmpty()) {
-        out << "\nRESULT: this session cannot resolve the app id \"" << kAppId
+        out << "\nRESULT: this session cannot resolve the app id \"" << appId
             << "\" to a launcher entry and an icon, so the window and taskbar "
                "icon is a generic placeholder on Wayland. Expected for a source "
                "build, which installs neither; a packaging defect for any "
                "package.\n";
         return 1;
     }
-    out << "\nRESULT: the app id \"" << kAppId
+    out << "\nRESULT: the app id \"" << appId
         << "\" resolves to a launcher entry and an icon this session can "
            "find.\n";
     return 0;
@@ -2093,7 +2130,12 @@ int main(int argc, char *argv[])
     // the desktop-file name (app_id "lightning" ↔ lightning.desktop); X11
     // matches WM_CLASS (the binary name, "lightning-matrix") through
     // StartupWMClass.
-    QGuiApplication::setDesktopFileName(kAppId);
+    //
+    // resolvedAppId(), not kAppId: inside a Flatpak the only exported entry
+    // is `$FLATPAK_ID.desktop` and the bare `lightning.desktop` is deleted at
+    // build time, so the built-in id would resolve against nothing and the
+    // window icon would be generic. See resolvedAppId().
+    QGuiApplication::setDesktopFileName(resolvedAppId());
     // ...and, for an AppImage, put a launcher entry carrying that id
     // where the session can find it. Without one there is no window icon
     // on Wayland at all: Qt has no icon protocol there, so the compositor

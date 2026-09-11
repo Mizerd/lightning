@@ -404,7 +404,16 @@ public:
     /// a camera carries pixels at all, and on Linux the choice of `v4l2src`
     /// over `autovideosrc` is a MEASURED one (see the definition) that a
     /// future edit must not undo by accident.
-    static QString cameraSource();
+    ///
+    /// `pipewireFd` is a descriptor from the xdg CAMERA portal's
+    /// OpenPipeWireRemote and is -1 for every direct capture, which is every
+    /// capture this client has ever made. It exists because a SANDBOXED build
+    /// has no `/dev/video*` to open at all: Flatpak offers no camera-only
+    /// device permission, `--device=all` is the only static route to one and
+    /// Flathub rejects it, so the portal is the only camera a Flathub package
+    /// can have. Which route a given publish takes is
+    /// `SfuCallController::linuxCameraRoute()`, and it is logged.
+    static QString cameraSource(int pipewireFd = -1);
     /// Stop publishing one track and renegotiate.
     void unpublish(const QString &cid);
 

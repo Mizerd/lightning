@@ -190,14 +190,101 @@ private Q_SLOTS:
         // app id, the basename of the entry the compositor looks it up in and
         // the Icon= key that entry carries all come from kAppId, so they
         // cannot drift apart into a generic window icon.
+        //
+        // It is applied THROUGH resolvedAppId(), which is the one place a
+        // Flatpak's exported id overrides it — see
+        // theAppIdFollowsTheEntryAFlatpakActuallyExports below.
         QVERIFY(main.contains(QStringLiteral(
             "constexpr QLatin1String kAppId(\"lightning\")")));
         QVERIFY(main.contains(QStringLiteral(
-            "setDesktopFileName(kAppId)")));
+            "setDesktopFileName(resolvedAppId())")));
         // Themed icon with the bundled fallback.
         QVERIFY(main.contains(QStringLiteral("QIcon::fromTheme")));
         QVERIFY(main.contains(QStringLiteral(
             "icons/hicolor/256x256/apps/lightning.png")));
+    }
+
+    // THE WINDOW ICON INSIDE A FLATPAK — the AppImage defect below with a
+    // different cause, and one the AppImage fix cannot reach.
+    //
+    // A Flatpak exports ONLY app-id-prefixed files, so the entry the session
+    // can see is `org.lightning_matrix.Lightning.desktop` and the manifest
+    // deletes the bare `lightning.desktop` at build time. Qt stamps the
+    // Wayland toplevel with QGuiApplication::desktopFileName() and the
+    // compositor resolves THAT against installed entries, so a built-in
+    // "lightning" resolves against nothing: a generic placeholder icon, and
+    // the same `Could not register app ID` line in the portal path that the
+    // AppImage report carried. The AppImage's self-publication cannot help —
+    // it is scoped to an AppImage run, and a Flatpak may not write into the
+    // host's data directory anyway.
+    //
+    // $FLATPAK_ID is exported by the Flatpak runtime and IS the basename of
+    // the exported entry, which is why it is the answer rather than a second
+    // hard-coded literal that could drift from whatever the manifest is
+    // built with. Everywhere else it is unset and kAppId stands unchanged.
+    void theAppIdFollowsTheEntryAFlatpakActuallyExports()
+    {
+        const QString main =
+            readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
+        QVERIFY(!main.isEmpty());
+
+        QVERIFY2(main.contains(QStringLiteral("QString resolvedAppId()")),
+                 "no resolvedAppId(): nothing can make the app id follow the "
+                 "entry a Flatpak actually exports");
+        QVERIFY2(main.contains(QStringLiteral(
+                     "qEnvironmentVariable(\"FLATPAK_ID\")")),
+                 "resolvedAppId() does not read FLATPAK_ID, so a Flatpak "
+                 "build still stamps an app id the session cannot resolve. "
+                 "Same variable, same reason, as the notification "
+                 "desktop-entry hint in NotificationManager.cpp");
+        // ...and falls back to the built-in id, so every OTHER install type
+        // is bit-for-bit what it was.
+        QVERIFY2(main.contains(QStringLiteral(
+                     "flatpakId.isEmpty() ? QString(kAppId) : flatpakId")),
+                 "resolvedAppId() does not fall back to kAppId: a deb, rpm, "
+                 "AppImage or source run would lose its app id entirely");
+
+        // EVERY application of the app id goes through it. There are two call
+        // sites — main()'s and --desktop-status's — and leaving either on the
+        // raw constant is either a generic icon in the shipped Flatpak or a
+        // diagnostic that reports on an id the application never uses. They
+        // have drifted apart before, which is why this counts rather than
+        // matching one of them.
+        const int sites = main.count(QStringLiteral("setDesktopFileName("));
+        QVERIFY2(sites >= 2,
+                 "the app-id call sites vanished, so this case would pass on "
+                 "a build that never sets a desktop file name at all");
+        QCOMPARE(main.count(QStringLiteral(
+                     "setDesktopFileName(resolvedAppId())")), sites);
+
+        // --desktop-status is the flag validate-appimage.sh runs against the
+        // shipped artifact, and a Flatpak check would run it the same way. It
+        // must search for the id the application actually stamps, or it
+        // reports NONE for a perfectly good Flatpak install and OK for a
+        // broken one.
+        QVERIFY2(main.contains(QStringLiteral(
+                     "const QString appId = resolvedAppId();")),
+                 "--desktop-status does not resolve the app id, so its "
+                 "launcher-entry and icon lookup searches for the wrong "
+                 "basename inside a Flatpak");
+        QVERIFY2(main.contains(QStringLiteral(
+                     "\"launcher entry basename: \" << appId")),
+                 "--desktop-status still reports the built-in basename");
+
+        // WHAT MUST NOT FOLLOW IT, both pinned because both are separate
+        // associations that merely sit next to this one:
+        //
+        //  * the AppImage's self-published entry, which really is called
+        //    lightning.desktop and really does carry Icon=lightning. An
+        //    AppImage never has FLATPAK_ID set, so this cannot change today
+        //    — it is pinned so a future "tidy up" cannot make the two
+        //    resolutions one.
+        //  * WM_CLASS, which Qt's xcb plugin takes from argv[0] (the binary
+        //    name) and never from the desktop-file name.
+        QVERIFY(main.contains(QStringLiteral(
+            "kept.append(QStringLiteral(\"Icon=\") + kAppId);")));
+        QVERIFY(main.contains(QStringLiteral(
+            "kept.append(QStringLiteral(\"StartupWMClass=\") + kWmClass);")));
     }
 
     // THE WINDOW ICON ON WAYLAND, which setWindowIcon() above cannot supply.
@@ -228,7 +315,8 @@ private Q_SLOTS:
         // From the LAST application of the app id — main()'s, since
         // --desktop-status applies it too, earlier in the file.
         const int appIdAt =
-            main.lastIndexOf(QStringLiteral("setDesktopFileName(kAppId);"));
+            main.lastIndexOf(QStringLiteral(
+                "setDesktopFileName(resolvedAppId());"));
         QVERIFY2(appIdAt > 0, "the app id is never applied");
         QVERIFY2(main.indexOf(QStringLiteral(
                      "publishAppImageLauncherEntry();"), appIdAt) > 0,

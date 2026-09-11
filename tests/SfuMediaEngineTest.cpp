@@ -674,6 +674,139 @@ private slots:
         gst_object_unref(rawBin);
     }
 
+    // THE CAMERA A SANDBOX CAN ACTUALLY HAVE.
+    //
+    // `v4l2src` needs the raw `/dev/video*` node. A Flatpak has none: there
+    // is no camera-only device permission, `--device=all` is the only static
+    // route to one and Flathub rejects it. So a packaged Flatpak has working
+    // audio, working screen sharing, and a camera button that cannot ever
+    // produce a frame — which is what the xdg Camera portal exists to fix,
+    // and it needs NO new sandbox permission at all.
+    //
+    // NOT LIVE-VALIDATED and it cannot be from this machine: there is no
+    // webcam here (`/dev/video*` is empty). What this pins is the SHAPE of
+    // the element, which is the part that has silently broken before.
+    void aSandboxedCameraCapturesThroughThePortalsPipeWireRemote()
+    {
+        const QString direct = SfuMediaEngine::cameraSource();
+        const QString portal = SfuMediaEngine::cameraSource(11);
+        QVERIFY(!direct.isEmpty());
+        QVERIFY(!portal.isEmpty());
+
+        // THE DEFAULT IS UNCHANGED. Every desktop build, and every build on a
+        // platform with no portal, keeps exactly the source it has always
+        // had — the only camera path that has ever been live-validated.
+        QCOMPARE(SfuMediaEngine::cameraSource(-1), direct);
+
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+        // No portal on these platforms: the capture element opens the device
+        // itself and the OS gates it. An fd must change nothing, or a stray
+        // value would rewrite a working camera into an element that is not
+        // even shipped there.
+        QCOMPARE(portal, direct);
+#else
+        QCOMPARE(direct, QStringLiteral("v4l2src"));
+        QVERIFY2(portal.startsWith(QStringLiteral("pipewiresrc")),
+                 qPrintable(QStringLiteral("not a PipeWire capture: %1")
+                                .arg(portal)));
+        QVERIFY2(portal.contains(QStringLiteral("fd=11")),
+                 qPrintable(QStringLiteral("the portal's remote descriptor is "
+                                           "not passed: %1").arg(portal)));
+
+        // AND DELIBERATELY NO `path=`, which is the one place this differs
+        // from the screen share and the difference is not cosmetic. The
+        // ScreenCast portal grants ONE node, so its source names it. The
+        // CAMERA portal grants a remote in which only camera nodes are
+        // visible and the node is chosen by connecting (`autoconnect`, on by
+        // default). A node id here could only have come from the HOST's own
+        // PipeWire remote, and naming it inside the portal's remote resolves
+        // to nothing: a pipeline that plays and emits no buffer, which is the
+        // exact failure the screen share shipped once.
+        QVERIFY2(!portal.contains(QStringLiteral("path=")),
+                 qPrintable(QStringLiteral(
+                     "a node id from another remote cannot name a node in the "
+                     "portal's: %1").arg(portal)));
+        QVERIFY2(!portal.contains(QStringLiteral("autoconnect=false")),
+                 "autoconnect is what selects the camera on this route; "
+                 "turning it off leaves the stream connected to nothing");
+
+        // MIN-BUFFERS IS PINNED HERE TOO, and for the same reason it is
+        // pinned on the share: gst-plugin-pipewire's DEFAULT_MIN_BUFFERS was
+        // 8 through 1.4.x and is 1 from 1.6, the element asks for
+        // RANGE(default, min-buffers, max-buffers), and PipeWire >= 1.6
+        // rejects a range it cannot intersect with the source's. Inheriting
+        // the default lets whichever plugin version a package happens to
+        // bundle decide whether the camera negotiates at all. 1 intersects
+        // every ceiling a source can offer.
+        QVERIFY2(portal.contains(QStringLiteral("min-buffers=1")),
+                 "the portal camera must pin min-buffers, not inherit the "
+                 "bundled plugin's version-dependent default");
+        for (const QString &banned : { QStringLiteral("min-buffers=5"),
+                                       QStringLiteral("min-buffers=8") }) {
+            QVERIFY2(!portal.contains(banned),
+                     qPrintable(QStringLiteral(
+                         "%1 exceeds the buffer ceiling a source can offer; "
+                         "measured to stop a PipeWire capture entirely")
+                                    .arg(banned)));
+        }
+        // The property that froze the screen share on its first frame. It was
+        // shipped on reasoning alone once; it must not arrive here the same
+        // way.
+        QVERIFY2(!portal.contains(QStringLiteral("keepalive-time")),
+                 "keepalive-time is back; it was measured to freeze a "
+                 "PipeWire capture on its first frame");
+#endif
+    }
+
+    // A PORTAL CAMERA MUST NOT BE OFFERED THE MJPG CHAIN, and the reason is
+    // that the ladder cannot catch its own failure.
+    //
+    // `cameraJpegEntry()` is an `image/jpeg` capsfilter, and the fallback
+    // beside it triggers on a description that fails to PARSE. A description
+    // containing that capsfilter parses perfectly against any source; what
+    // fails is NEGOTIATION, at PLAYING, by which point the ladder is over and
+    // the camera is simply dead. The direct elements are known to advertise
+    // MJPG beside raw — that is the measured justification for the chain
+    // existing. What a portal camera node offers is not known and is not
+    // testable from this machine, so it gets the raw entry.
+    void thePortalCameraIsNotOfferedTheMjpgChain()
+    {
+        const QByteArray source = SOURCE_UNDER_TEST;
+        QVERIFY(!source.isEmpty());
+        const int at = source.indexOf("const bool tryJpeg");
+        QVERIFY2(at > 0, "the MJPG gate has been renamed; this case is "
+                         "asserting against nothing");
+        const QByteArray gate = source.mid(at, 120);
+        QVERIFY2(gate.contains("pipewireFd < 0"),
+                 qPrintable(QStringLiteral(
+                     "the MJPG chain is still tried for a portal camera, and "
+                     "its fallback cannot catch a negotiation failure: %1")
+                                .arg(QString::fromUtf8(gate))));
+    }
+
+    // THE STORED DEVICE CHOICE MUST NOT BE APPLIED TO A PORTAL CAMERA.
+    //
+    // The choice comes from QMediaDevices, which enumerates the HOST's
+    // devices; the portal's pipewiresrc is connected to a DIFFERENT PipeWire
+    // remote whose node ids and serials are the portal's own. Resolving a
+    // host id into `target-object=` there names a node that does not exist in
+    // that remote, which kills the camera outright — the precise hazard
+    // CaptureDeviceSelection.h refuses to take when it says Qt and GStreamer
+    // ids are not one namespace.
+    void aPortalCameraIsNotBoundToAHostDeviceId()
+    {
+        const QByteArray source = SOURCE_UNDER_TEST;
+        QVERIFY(!source.isEmpty());
+        const int at = source.indexOf("const DeviceChoice camera = cameraChoice()");
+        QVERIFY2(at > 0, "the camera device-binding site has moved; this case "
+                         "is asserting against nothing");
+        const QByteArray guard = source.mid(at, 160);
+        QVERIFY2(guard.contains("pipewireFd < 0"),
+                 qPrintable(QStringLiteral(
+                     "a host device id is still bound onto the portal's "
+                     "pipewiresrc: %1").arg(QString::fromUtf8(guard))));
+    }
+
     void aScreenShareCaptureUsesThePortalsOwnPipeWireRemote()
     {
         const QString withFd = SfuMediaEngine::screenShareSource(42, 7);

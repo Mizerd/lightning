@@ -2890,8 +2890,49 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd,
 #endif
 }
 
-QString SfuMediaEngine::cameraSource()
+QString SfuMediaEngine::cameraSource(int pipewireFd)
 {
+#if !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
+    // ── THE SANDBOXED ROUTE: A CAMERA GRANTED BY THE xdg CAMERA PORTAL ──
+    //
+    // Taken only when a descriptor was actually granted, so a desktop build
+    // cannot reach it by accident and the measured `v4l2src` reasoning below
+    // is untouched on every machine that has a device node to open.
+    //
+    // `fd` AND NO PATH, which is the difference from the screen share and is
+    // deliberate. The ScreenCast portal grants ONE node and `pipewiresrc
+    // path=` without the remote resolves it against our own default remote,
+    // where it need not exist — that was the black share. The CAMERA portal
+    // grants a whole remote in which only camera nodes are visible, and the
+    // node inside it is chosen by connecting: `autoconnect` (on by default)
+    // is the selection. There is no node id to pass, and inventing one would
+    // name a node in the wrong remote.
+    //
+    // `min-buffers=1`, EXPLICITLY, for the reason spelled out at length in
+    // screenShareSource(): gst-plugin-pipewire's DEFAULT_MIN_BUFFERS was 8
+    // through 1.4.x and is 1 from 1.6, the element asks for
+    // RANGE(default, min-buffers, max-buffers), and PipeWire >= 1.6 rejects a
+    // range it cannot intersect with the source's. A bundled 1.4.x element
+    // meeting a 1.6 daemon then fails to negotiate at all. 1 intersects
+    // every ceiling a source can offer, and setting it makes the request
+    // independent of whichever default the plugin we shipped happens to
+    // carry. INHERITING THE DEFAULT IS THE BUG, not a tidier line.
+    //
+    // `do-timestamp=true` mirrors the screen share's pipewiresrc line, which
+    // is live-validated. The hazard it sits next to — a source stamping
+    // pipeline RUNNING TIME makes `videorate` back-fill one duplicate per
+    // frame of call age, which is what froze the Windows camera on a single
+    // picture — is already closed at the rate stage by
+    // `videorate skip-to-first=true` (videoRateStage()), and that fix is
+    // source-independent.
+    if (pipewireFd >= 0) {
+        return QStringLiteral(
+                   "pipewiresrc fd=%1 min-buffers=1 do-timestamp=true")
+            .arg(pipewireFd);
+    }
+#else
+    Q_UNUSED(pipewireFd);
+#endif
 #if defined(Q_OS_WIN)
     // ksvideosrc (Kernel Streaming), and NOT by preference either: mfvideosrc
     // is the more modern path and sees devices KS does not, but the
@@ -3011,7 +3052,23 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         // v4l2src); everything above is the Linux reasoning for why it is not
         // `autovideosrc`, and it is kept because that is the branch it
         // describes.
-        source = cameraSource();
+        //
+        // ...OR a PipeWire remote the xdg Camera portal granted, when one was
+        // passed. A sandboxed build has no `/dev/video*` to open, so that is
+        // the only camera it can have; see cameraSource().
+        source = cameraSource(pipewireFd);
+        // WHICH ROUTE THE CAMERA TOOK, said once, before anything can fail.
+        //
+        // Graceful fallback and silent absence are the same observable unless
+        // something asserts the positive (§16, four times over in packaging),
+        // and this is exactly that shape: a Flatpak whose portal request quietly
+        // failed would build a `v4l2src` against a device node that is not in
+        // the sandbox and report "camera failed", indistinguishable from a
+        // camera that is genuinely broken. One line separates them.
+        qCInfo(lcSfuMedia) << "camera source="
+                           << (pipewireFd >= 0 ? "xdg camera portal "
+                                                 "(pipewiresrc)"
+                                               : "direct device");
     }
 
     // Resolution and rate CEILINGS, matching livekit-client's own presets:
@@ -3171,7 +3228,22 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     // a camera with no MJPG mode, or a build with no jpegdec, simply fails to
     // parse or to negotiate and gets today's raw chain. Nothing that works
     // now can stop working.
-    const bool tryJpeg = !screenShare && jpegCameraChainAvailable();
+    // ...BUT NOT FOR A PORTAL CAMERA, and this one is a refusal to guess.
+    //
+    // The MJPG ladder falls back on a description that fails to PARSE. It
+    // cannot catch a description that parses and then fails to NEGOTIATE,
+    // which is what an `image/jpeg` capsfilter in front of a source offering
+    // only raw produces — a camera that is simply dead. The direct elements
+    // are known to advertise MJPG beside raw (that is the whole reason the
+    // ladder exists, measured against the Windows 10 fps report). What a
+    // PORTAL camera node offers is NOT known here and is not testable from
+    // this machine: PipeWire's own camera source negotiates the device mode
+    // on our behalf, so the bandwidth argument that justifies MJPG may not
+    // even apply. Offering a chain on reasoning alone is how this lane lost
+    // two rounds to `min-buffers=8` and `keepalive-time=100`; the raw entry
+    // is what the portal path takes until somebody measures a real one.
+    const bool tryJpeg =
+        !screenShare && pipewireFd < 0 && jpegCameraChainAvailable();
     QString entryInUse =
         tryJpeg ? cameraJpegEntry() : captureEntryFilter(useGpu);
     if (!screenShare) {
@@ -3289,8 +3361,21 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     // applied HERE because the bin exists and has not been set playing yet.
     // A share has no device choice: it is a portal node, chosen by the user in
     // the portal dialog itself.
+    //
+    // AND NEITHER HAS A PORTAL CAMERA (`pipewireFd >= 0`), for a sharper
+    // reason than "there is nothing to choose". The stored choice comes from
+    // QMediaDevices, which enumerates the HOST's devices; the portal's
+    // pipewiresrc is connected to a DIFFERENT PipeWire remote, in which node
+    // ids and object serials are the portal's own. Resolving a host id into
+    // `target-object=` there would name a node that does not exist in that
+    // remote and kill the camera outright — precisely the failure
+    // CaptureDeviceSelection.h refuses to risk when it says Qt and GStreamer
+    // ids are not one namespace. Inside a sandbox the picker is empty anyway
+    // (no `/dev/video*` for Qt to enumerate), so today this is belt and
+    // braces; it stops being belt and braces the moment a host build takes
+    // the portal route.
     if (const DeviceChoice camera = cameraChoice();
-        !screenShare && !camera.id.isEmpty()) {
+        !screenShare && pipewireFd < 0 && !camera.id.isEmpty()) {
         applyBindingTo(bin, "capsrc",
                        lightning::calls::resolveDeviceBinding(
                            lightning::calls::CaptureKind::Camera,

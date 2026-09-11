@@ -86,6 +86,7 @@
 class MatrixClient;
 class QScreen;
 class RtcController;
+class CameraPortal;
 class ScreenCastPortal;
 class SettingsManager;
 class SfuVideoRouter;
@@ -186,6 +187,11 @@ public:
     void setMediaEngine(SfuMediaEngine *engine);
     /// Not owned. Absent means screen sharing refuses honestly.
     void setScreenCastPortal(ScreenCastPortal *portal);
+    /// Not owned. Absent means the camera keeps the DIRECT route it has
+    /// always taken — which is correct on a desktop and is no camera at all
+    /// inside a sandbox, where there is no device node to open. Registered by
+    /// AppController only when a Camera portal answers on the session bus.
+    void setCameraPortal(CameraPortal *portal);
     /// Not owned. WHERE THE VOLUMES LIVE.
     ///
     /// Absent means volumes still WORK for the duration of a call — the
@@ -439,6 +445,52 @@ public:
     /// must keep saying it.
     static QString linuxShareRefusal(LinuxShareRoute route);
 
+    /// WHERE A LINUX CAMERA GETS ITS PIXELS.
+    ///
+    /// The screen-share sibling above, for the capture that has always gone
+    /// straight at the device. Two routes and no refusal state: unlike a
+    /// screen share, `v4l2src` is always a thing that can be attempted, and a
+    /// camera that fails to open reports itself.
+    enum class LinuxCameraRoute {
+        /// `v4l2src` on the device node. What every desktop build has always
+        /// done and the only route that has ever been live-validated.
+        Direct,
+        /// A PipeWire remote from `org.freedesktop.portal.Camera`. Required
+        /// inside a sandbox, where there is no `/dev/video*` to open at all.
+        Portal,
+    };
+
+    /// Choose between them. Pure, every input passed in, compiled on every
+    /// platform — same discipline as `linuxShareRoute`, and for the same
+    /// reason: each clause is a claim about the machine and none of them can
+    /// be tested on the machine that made it.
+    ///
+    /// The clauses, in order, and why each one is where it is:
+    ///
+    ///  1. SANDBOXED ALWAYS TAKES THE PORTAL, even when the portal looks
+    ///     unusable. A Flatpak has no camera-only device permission and
+    ///     `--device=all` is the only static route to one, which Flathub
+    ///     rejects — so the direct element cannot work there under any
+    ///     circumstances, and choosing it would trade a portal error the user
+    ///     can act on ("allow the camera") for a device-open failure they
+    ///     cannot.
+    ///  2. A VISIBLE DEVICE NODE KEEPS THE DIRECT ROUTE. This is the path
+    ///     that works today; the portal must not take it over on a machine
+    ///     where nothing was wrong.
+    ///  3. NO DEVICE NODE AND A USABLE PORTAL takes the portal. There is
+    ///     nothing to regress — the direct element has no device to open —
+    ///     and the portal may reach a camera the caller cannot see directly.
+    ///  4. Otherwise Direct, which is exactly today's behaviour including
+    ///     today's honest failure.
+    ///
+    /// `portalUsable` folds two separate probes (`CameraPortal::available()`
+    /// and `CameraPortal::cameraPresent()`) because a portal that reports no
+    /// camera cannot help clause 3, and raising a permission dialog for a
+    /// camera that does not exist is worse than the failure it replaces. Both
+    /// probes are logged at the call site, so the fold costs no diagnosis.
+    static LinuxCameraRoute linuxCameraRoute(bool sandboxed, bool portalUsable,
+                                             bool directDeviceVisible);
+
     /// Accept a NATIVE screen rectangle for use as an X11 capture region, or
     /// reject it.
     ///
@@ -596,6 +648,29 @@ public:
     /// test prove the timer reaches it at all -- the defect was that nothing
     /// did.
     int keyLaneReconcilesForTest() const { return m_keyLaneReconciles; }
+    /// WHAT THE MEDIA ENGINE WAS LAST TOLD for one participant, by identity,
+    /// and -1 for one it was never told about at all. Same for a share, by
+    /// share id.
+    ///
+    /// These exist because the defect they pin is an ORDERING one and the
+    /// suite that can drive that ordering is built with NO media engine, so
+    /// the real `m_engine->…` call is compiled out of it. The record is
+    /// therefore kept outside the media guard, beside the call it shadows.
+    ///
+    /// ASSERTING ON `participantVolume()` OR `shareVolume()` INSTEAD CANNOT
+    /// WORK, and that is not a style preference: both fall back to the store,
+    /// so both answer correctly on code where nothing ever reached the audio
+    /// graph. That fallback is exactly how a stored level that never reached
+    /// an element survived a hand-driven check — the popup read 200%, which
+    /// is the half that was never broken.
+    int engineParticipantVolumeForTest(const QString &identity) const
+    {
+        return m_engineParticipantVolume.value(identity, -1);
+    }
+    int engineShareVolumeForTest(const QString &shareId) const
+    {
+        return m_engineShareVolume.value(shareId, -1);
+    }
     /// Drive the refresh tick without waiting five seconds for it. Starts the
     /// REAL timer at `ms`, so what a test observes is the real connection.
     void startRefreshTickForTest(int ms)
@@ -859,6 +934,17 @@ private:
     /// calls ago must not come back loud.
     void applyStoredVolumes();
     void applyStoredShareVolumes();
+    /// THE ONE PLACE a participant level reaches the audio graph, and the one
+    /// place that fact is recorded. Does nothing when the stream id is not
+    /// known yet, which is the state every guard above it has to survive.
+    /// Returns whether the ENGINE was actually told — false when the stream
+    /// id is not known yet, and false in a build with no media engine.
+    bool applyEngineParticipantVolume(const QString &identity, int percent);
+    /// Its share sibling. A share's audio is a DIFFERENT track from the
+    /// sharer's microphone, so it is addressed by track key as well as by
+    /// stream id, and either being unknown means there is nothing to set yet.
+    void applyEngineShareVolume(const QString &shareId,
+                                const QString &identity, int percent);
     /// Mute every track of `source` ("camera" / "screen_share") that the SFU
     /// still reports as LIVE. MUTE ONLY — it never unmutes, deliberately.
     ///
@@ -879,6 +965,25 @@ private:
     /// listing an unmuted screen_share track for us — forwarded to everyone
     /// else, and read back by rebuildModels() as "still sharing".
     void applyVideoState();
+    /// Begin capturing the camera, by whichever route this machine needs.
+    ///
+    /// Synchronous on the DIRECT route, which is every desktop build and the
+    /// only one that has ever been live-validated. On the PORTAL route it
+    /// dispatches an `AccessCamera` request and returns: the publish happens
+    /// in the portal's `ready` handler, so `m_cameraOn` is true with no track
+    /// published for as long as the user takes to answer the dialog. That
+    /// window is what `m_cameraAwaitingPortal` exists for — a second press,
+    /// a leave, or a cancelled dialog all have to be able to unwind it.
+    void startCameraCapture();
+    /// Declare and publish the camera track. `pipewireFd` is a portal
+    /// descriptor, or -1 for a direct capture; OWNERSHIP PASSES to the engine
+    /// (SfuMediaEngine::publishVideo), which closes it when the bin goes.
+    void publishCameraTrack(int pipewireFd);
+    /// Give up on a camera that was turned on and never published — a
+    /// declined portal dialog, a failed one, or a call that ended while it
+    /// was open. Puts `cameraOn` back to false and tells the SFU, or the
+    /// button stays lit over a camera that is not running.
+    void abandonPendingCamera();
     /// Hand one LOCAL self-view surface an empty frame, so it stops painting
     /// the last picture the capture gave it. See the definition.
     void clearLocalVideoSurface(const QString &streamId);
@@ -897,6 +1002,11 @@ private:
     SfuVideoRouter *m_videoRouter = nullptr;
     QPointer<SfuMediaEngine> m_engine;
     QPointer<ScreenCastPortal> m_portal;
+    QPointer<CameraPortal> m_cameraPortal;
+    /// A camera the user has switched ON whose portal grant has not come back
+    /// yet. `m_cameraOn` is already true (the control must respond), but no
+    /// track is declared and none is published.
+    bool m_cameraAwaitingPortal = false;
     QPointer<SettingsManager> m_settings;
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
@@ -924,6 +1034,11 @@ private:
     /// re-applies it to a track that appears later, and a restarted share
     /// gets a new id.
     QHash<QString, int> m_shareVolumes;
+    /// Shadow records of what reached the engine. See
+    /// engineParticipantVolumeForTest(). Bounded by the number of people in
+    /// the call and cleared with it.
+    QHash<QString, int> m_engineParticipantVolume;
+    QHash<QString, int> m_engineShareVolume;
     /// Sampled BEFORE our membership publishes: were we the first in?
     /// Announce only then, or every joiner posts a "started a call" row.
     bool m_announceOnPublish = false;
