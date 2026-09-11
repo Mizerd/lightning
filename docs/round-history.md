@@ -135,6 +135,76 @@ GENERALISE: a label that says how many MESSAGES there are must never be
 derived from a row count, in any view that synthesises rows. Lightning
 synthesises three kinds.
 
+#### 2026-09-11 (evening), a share volume nobody saved, and a hypothesis the instrument refuted
+
+**THE REPORT WAS "PARTICIPANT VOLUME IS NOT SAVED"; THE PARTICIPANT VOLUME WAS
+FINE.** Tested before assuming, twice: the value reaches DISK (asserted against
+the ini file itself, because reading it back through the same QSettings would
+be answered from the cache) and it survives a fresh controller. What was never
+saved is the SHARE volume — `m_shareVolumes` is a per-process QHash keyed by
+share id, and shares render as their own tiles, so "another person's volume"
+covers that control too. It failed twice over: across a restart, and WITHIN one
+call, because a share that stops and restarts returns under a NEW share id, so
+the level applied to exactly one share and then evaporated. Now stored under
+the OWNER's user id, in its own namespace — turning down someone's noisy game
+share is not the same wish as turning down their voice, and one key for both
+would make each control silently move the other.
+GENERALISE: when a report names a control, check the NEIGHBOURING controls that
+look the same to the user. The reporter describes what they see, not which
+class handles it.
+
+**AND MY FIRST TESTS FOR IT PASSED ON BROKEN CODE — the fourth time today.**
+The test config file outlives the process, so a value written by an earlier
+successful run was still there, and the mutated build read THAT. Both tests now
+reset to the neutral point and assert the fixture is clean before trusting
+anything after it. A store that outlives the process is shared mutable state
+between test RUNS, which is the same hazard as sharing it between cases.
+
+**THE OPEN "sending… until a room switch" DEFECT: THE LEADING HYPOTHESIS IS
+REFUTED BY MEASUREMENT.** The reconciliation watcher was built to separate two
+explanations, and it did. Two cut/restore cycles against a real homeserver
+through a throttled CONNECT proxy, on a second machine so nothing touched the
+maintainer's desktop:
+
+    in_flight=1 queued=1 orphaned=0     during the outage AND after restore
+    orphaned>0 ever:            0
+    missed-echo warnings ever:  0
+
+`queued=1` throughout means the send queue still OWED the message at every
+sample — no terminal update was lost, which is exactly what the lagged
+`broadcast::channel(32)` theory predicted would happen. The watcher would have
+printed `queued=0`. Both times the message eventually sent and the trace went
+quiet on its own.
+So: the defect did NOT reproduce on the current build under its own recipe, and
+the mechanism this file recorded as the leading explanation has no support.
+That is not proof of absence — two runs, one machine, one network shape — but
+it is evidence where there was none, and it means a fix aimed at the broadcast
+lane would have been aimed at nothing.
+
+**LIVE-VALIDATED PASS, same session:** the thread root card now follows an
+in-place change. Editing a thread ROOT from the room timeline with the panel
+open updated the card to the new body without a reopen — the defect fixed
+earlier today, seen working rather than argued.
+
+**AND THE SECOND MACHINE IS THE REAL UNLOCK HERE.** GUI tests now run on a
+laptop over SSH, so they neither touch the maintainer's desktop nor wait for
+him to be away. What that took, all of it non-obvious:
+- `systemd-run --user --unit=…` and NOT `setsid`/`nohup`: an app started from
+  an SSH session lives in that session's scope and logind kills it on
+  disconnect. It died twice, silently, with a clean log ending at window
+  placement.
+- `QT_QPA_PLATFORM=wayland`: an SSH session has `DISPLAY` but no Xauthority, so
+  Qt tried XWayland and aborted on `xcb_connection_has_error`. Forcing Wayland
+  also exercises the shell integration this release staged.
+- KWin scripting over qdbus works fine from SSH once
+  `DBUS_SESSION_BUS_ADDRESS` is exported, and that is what gives geometry, the
+  focus guard and the window list.
+- `ydotool` and `magick` need not be installed: `nix shell nixpkgs#ydotool`
+  covers input, and screenshots can be cropped on the other machine.
+- The uinput device needs ~12 s after `ydotoold` starts before the compositor
+  routes to it. [[ydotoold-keyboard-dies-silently]] says "restart the daemon";
+  a restart alone is not enough.
+
 #### 2026-09-11 (later), four defects an analyst found by looking for known shapes
 
 A read-only pass whose brief was "look for a test that cannot fail, a
