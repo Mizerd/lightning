@@ -183,6 +183,12 @@ pub const SHUTDOWN_JOIN_TIMEOUT_SECS: u64 = 15;
 /// Safe: an unrecoverable failure is marked WEDGED and persisted, and
 /// `peek_next_to_send` skips wedged items (:1468), so this can never resend
 /// something the server already rejected.
+///
+/// REDACTION IS THE ONE SEND THAT DOES NOT NEED THIS, and the reason is which
+/// function Lightning calls: `Room::redact`, which is a direct
+/// `client.send(...)` and never reaches the queue. (`Timeline::redact` is a
+/// different matter — it has a local-echo branch that DOES abort through the
+/// send queue — but nothing here calls it.)
 fn unwedge_send_queue(timeline: &Timeline) {
     timeline.room().send_queue().set_enabled(true);
 }
@@ -1921,26 +1927,10 @@ impl TimelineRegistry {
                 return;
             };
             // RE-ENABLE THE ROOM'S QUEUE FIRST, or this whole function is a
-            // no-op — which is what it was until 2026-09-10.
-            //
-            // matrix-sdk disables a room's send queue after ANY send error,
-            // recoverable or not: `locally_enabled.store(false)` at
-            // send_queue/mod.rs:1012, whose own comment reads "Disable the
-            // queue for this room after any kind of error happened". The
-            // sending task then parks on `notifier.notified()` and re-checks
-            // that flag before doing anything (:691). NOTHING inside the SDK
-            // ever sets it back — only RoomSendQueue::set_enabled(true) does,
-            // and Lightning called it nowhere.
-            //
-            // `unwedge()` does not touch it. It marks the request unwedged and
-            // notifies, so it wakes a loop that immediately goes back to
-            // sleep. The Retry link in MessageDelegate.qml therefore did
-            // nothing, for the life of the process, every time.
-            //
-            // Safe by construction: an UNRECOVERABLE failure is marked wedged,
-            // and `peek_next_to_send` skips wedged items — so re-enabling
-            // cannot resend something the server already rejected.
-            timeline.room().send_queue().set_enabled(true);
+            // no-op — which is what it was until 2026-09-10. `unwedge_send_queue`
+            // carries the reasoning; Retry is the one path where the queue is
+            // KNOWN to be disabled, because a failed send is what disabled it.
+            unwedge_send_queue(&timeline);
             let _ = handle.unwedge().await;
         });
         Ok(())
@@ -4773,6 +4763,73 @@ mod tests {
     };
     use matrix_sdk::ruma::events::AnySyncTimelineEvent;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+    /// EVERY QUEUE-BACKED SEND UNWEDGES THE ROOM FIRST.
+    ///
+    /// A source scan, and it earns its keep: this fix shipped TWICE with call
+    /// sites missing. The first revision guarded only
+    /// `send_content_to_timeline`, whose callers are stickers and polls, so
+    /// the ordinary composer was never covered and the commit said it was.
+    /// Nothing in the tree could catch that. This can.
+    ///
+    /// Guarded both ways, the shape `no_ffi_entry_point_...` uses in lib.rs:
+    /// the helper must exist, the scan must find a floor of real sends, and
+    /// EVERY send must be preceded by the unwedge within a few lines. A
+    /// rename, a deletion or a new unguarded send all fail here.
+    ///
+    /// `Timeline::redact` is deliberately absent from the send list because
+    /// Lightning calls `Room::redact` (`timeline.rs`'s redact path), which is
+    /// a direct `client.send(...)` and never reaches the send queue.
+    #[test]
+    fn every_queue_backed_send_unwedges_the_room_first() {
+        let source = include_str!("timeline.rs");
+        assert!(
+            source.contains("fn unwedge_send_queue"),
+            "the scan is not reading the file it thinks it is"
+        );
+        // The SDK calls that enqueue onto the room's send queue.
+        const SENDS: [&str; 5] = [
+            ".send(",
+            ".send_reply(",
+            ".send_attachment(",
+            ".edit(",
+            ".toggle_reaction(",
+        ];
+        let lines: Vec<&str> = source.lines().collect();
+        let mut checked = 0usize;
+        for (i, line) in lines.iter().enumerate() {
+            let is_send = SENDS.iter().any(|needle| line.contains(needle))
+                && line.contains("timeline")
+                // definitions and doc comments are not call sites
+                && !line.trim_start().starts_with("//")
+                && !line.trim_start().starts_with("///")
+                && !line.contains("fn ");
+            if !is_send {
+                continue;
+            }
+            checked += 1;
+            // The unwedge sits within the few lines above the send: the
+            // builder chains here span several lines.
+            let from = i.saturating_sub(12);
+            let guarded = lines[from..i]
+                .iter()
+                .any(|prior| prior.contains("unwedge_send_queue("));
+            assert!(
+                guarded,
+                "queue-backed send at timeline.rs:{} is not preceded by \
+                 unwedge_send_queue — a send-only failure would leave this \
+                 room unable to send for the life of the process:\n  {}",
+                i + 1,
+                line.trim()
+            );
+        }
+        assert!(
+            checked >= 8,
+            "the scan matched only {checked} sends; it has stopped reading \
+             what it thinks it reads"
+        );
+    }
+
     use std::sync::{Arc, Mutex};
 
     // 2026-08-18 tester report: rapid reaction clicks used to spawn one

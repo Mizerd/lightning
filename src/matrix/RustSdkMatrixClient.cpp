@@ -4730,10 +4730,29 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // THE CATEGORY DECIDES THE WORDS. Telling someone a REACTION "could
         // not be sent as a thread reply" is the same wrong-text defect the
         // redaction path had, and it arrives on a surface with no retry.
-        Q_EMIT errorOccurred(
-            category == QLatin1String("reaction_rejected")
-                ? tr("The reaction could not be applied.")
-                : tr("The thread reply could not be sent."));
+        //
+        // The thread branch carries the SAME categories as the room branch —
+        // a sticker or a poll vote sent inside a thread lands here — so the
+        // ones that are not thread replies get their own words, exactly as
+        // they do for `timeline_send_failed`. One branch away from the defect
+        // that fix was about.
+        if (category == QLatin1String("reaction_rejected")) {
+            Q_EMIT errorOccurred(tr("The reaction could not be applied."));
+            return;
+        }
+        if (category == QLatin1String("edit_rejected")) {
+            Q_EMIT errorOccurred(tr("The edit could not be applied."));
+            return;
+        }
+        if (category == QLatin1String("sticker_send_failed")) {
+            Q_EMIT errorOccurred(tr("The sticker could not be sent."));
+            return;
+        }
+        if (category.startsWith(QLatin1String("poll_"))) {
+            Q_EMIT errorOccurred(tr("The poll action could not be completed."));
+            return;
+        }
+        Q_EMIT errorOccurred(tr("The thread reply could not be sent."));
         return;
     }
     if (type == QLatin1String("timeline_retry_decryption")) {

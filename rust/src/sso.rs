@@ -300,6 +300,11 @@ pub unsafe extern "C" fn mx_rust_sso_finish(
                     return;
                 }
 
+                // Fresh session on the SHARED runtime — see
+                // resume_unsent_requests. The sync lanes' set_enabled(true)
+                // ends in the same respawn and they run on a throwaway
+                // current-thread runtime, so the queues must be built here.
+                crate::resume_unsent_requests(&client).await;
                 let session = match client.matrix_auth().session() {
                     Some(session) => session,
                     None => {

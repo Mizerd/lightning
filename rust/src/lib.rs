@@ -1490,6 +1490,15 @@ pub unsafe extern "C" fn mx_rust_login(
                         match login {
                             Ok(response) => {
                                 let session = MatrixSession::from(&response);
+                                // A fresh session on a store that may still
+                                // hold unsent requests. Here, on the SHARED
+                                // runtime, so the sync lanes' set_enabled(true)
+                                // finds the queues already built — that call
+                                // ends in respawn_tasks_for_rooms_with_unsent_
+                                // requests() itself (send_queue/mod.rs:286),
+                                // and those lanes run on a throwaway
+                                // current-thread runtime.
+                                crate::resume_unsent_requests(&client).await;
                                 if let Some(path) = configured_session_file(&session_file) {
                                     if let Err(err) =
                                         save_persistent_session(&path, &homeserver, &session)
