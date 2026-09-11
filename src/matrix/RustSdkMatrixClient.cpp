@@ -5115,12 +5115,35 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("queue_overflow")) {
-        // Rust dropped events because the poll timer stalled. Surface once
-        // as an error banner so users know some events were lost; do not
-        // treat as fatal.
-        qCWarning(lcRust) << event.value(QStringLiteral("message")).toString();
+        // Rust dropped events because the poll timer stalled.
+        //
+        // REPORTING THIS IS NOT ENOUGH, AND THE BANNER ALONE WAS A LIE OF
+        // OMISSION. What the queue carries is POSITIONAL: timeline diffs
+        // that insert/set/remove at an index, and room-list index diffs.
+        // Dropping the OLDEST entries means every later positional op
+        // addresses a vector that never received the earlier ones — and only
+        // SOME of that is detectable. An out-of-range index is caught by
+        // DiffOutcome::Invalid; a dropped `Set` (a send-state update, a
+        // decryption, an edit) or a dropped insert followed by in-range
+        // operations passes every bounds check silently, and nothing in the
+        // payload carries a sequence number that would reveal the gap.
+        //
+        // So treat an overflow as what it is — the stream is no longer
+        // trustworthy — and re-snapshot with the two primitives this file
+        // already uses for DETECTED damage: resync the room list (as a
+        // rejected room-list diff does) and reload the open room's timeline
+        // (as DiffOutcome::Invalid does). Both are idempotent, and the
+        // producer injects at most one marker per overflow episode, so this
+        // cannot chase its own tail.
+        qCWarning(lcRust) << event.value(QStringLiteral("message")).toString()
+                          << "— resyncing rooms and reloading the open room";
         Q_EMIT errorOccurred(event.value(QStringLiteral("message")).toString(
             tr("Rust SDK event queue overflowed.")));
+        if (m_rustHandle)
+            takeRustString(mx_rust_resync_rooms(m_rustHandle));
+        const QString openRoom = m_timelineTracker.activeRoom();
+        if (!openRoom.isEmpty())
+            openRoomTimeline(openRoom);
     }
 }
 
