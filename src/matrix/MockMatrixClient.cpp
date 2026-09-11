@@ -320,19 +320,22 @@ void MockMatrixClient::finalizeDemoMedia(DemoAccount &acct)
 TimelineEvent *MockMatrixClient::findEvent(const QString &roomId,
                                            const QString &eventId)
 {
-    // A COMPOSITE THREAD-TIMELINE ID RESOLVES TO ITS ROOM. The mock keys
-    // m_timelines by the real room id and has no separate thread timeline —
-    // it reports supportsThreadTimelines() true and serves thread replies
-    // from the same list — so a caller handing it `room ␟ thread ␟ root`
-    // found nothing and the action failed with "original message not found".
+    // DO NOT "FIX" THIS BY REDUCING A COMPOSITE TO ITS ROOM. It was tried on
+    // 2026-09-11 and reverted the same day: the mock DOES key m_timelines by
+    // the §8 composite, for exactly as long as a thread panel is open —
+    // rebuildOpenThreadTimeline() stores `m_timelines[composite]`, a list of
+    // COPIES, and closeThread() removes the key. So a composite arriving here
+    // while its panel is open already resolves, and resolving it to the room
+    // instead mutates the wrong list: TimelineModel::onEventEdited and
+    // onReactionsChanged re-read client->timeline(m_roomId) with m_roomId
+    // being the composite, get the untouched thread copy, and write the
+    // PRE-EDIT body back over the row. An edit that worked would have started
+    // showing the old text.
     //
-    // redactEvent and toggleReaction have passed the composite from
-    // TimelineModel since threads landed, and editMessage joined them on
-    // 2026-09-11; all three were affected, and one reduction here fixes all
-    // three. Identity for an ordinary room id (threadTimelineRoomId returns
-    // its input unchanged with no separator present).
-    const QString realRoom = MatrixClient::threadTimelineRoomId(roomId);
-    auto it = m_timelines.find(realRoom);
+    // A composite whose panel is CLOSED genuinely misses — and that is the
+    // honest outcome, not a bug to paper over: the edit is reported as
+    // failing rather than silently applied to a list nothing is showing.
+    auto it = m_timelines.find(roomId);
     if (it == m_timelines.end())
         return nullptr;
     for (auto &e : *it) {

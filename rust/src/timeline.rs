@@ -4960,18 +4960,47 @@ mod tests {
         );
         let body = after.split(bound).next().unwrap();
 
-        // The PAIRING is the invariant: each lane's generation checked
-        // against the counter that issued it. `if in_thread {` alone proves
-        // nothing — edit() already branches on it twice for other reasons.
+        // THE PAIRING IS ORDERED, AND THE SCAN MUST READ IT THAT WAY. Two
+        // independent `contains` checks — one for each call — survive the
+        // single likeliest mutation there is: swapping the two arms restores
+        // the original defect verbatim while both substrings remain present.
+        // So each arm is isolated and asserted on its own.
+        let (then_arm, else_arm) = {
+            let head = "let current = if in_thread {";
+            let split = "} else {";
+            let rest = body
+                .split(head)
+                .nth(1)
+                .expect("edit() no longer branches its staleness test by lane");
+            let mut halves = rest.split(split);
+            let then_arm = halves
+                .next()
+                .expect("the in_thread arm is empty");
+            let else_arm = halves
+                .next()
+                .expect("edit()'s staleness test has no else arm")
+                .split("};")
+                .next()
+                .expect("the else arm is unterminated");
+            (then_arm, else_arm)
+        };
         assert!(
-            body.contains("registry.thread_current(timeline_gen, lifecycle)"),
-            "a thread edit's failure report is not checked against the THREAD \
-             generation, so it can never fire"
+            then_arm.contains("registry.thread_current(timeline_gen, lifecycle)"),
+            "the THREAD arm does not check the thread generation, so a \
+             rejected thread edit reports nothing: {then_arm:?}"
         );
         assert!(
-            body.contains("registry.is_current(timeline_gen, lifecycle)"),
-            "a room edit's failure report is not checked against the room \
-             generation"
+            !then_arm.contains("registry.is_current("),
+            "the THREAD arm checks the ROOM counter — this IS the original \
+             defect: {then_arm:?}"
+        );
+        assert!(
+            else_arm.contains("registry.is_current(timeline_gen, lifecycle)"),
+            "the ROOM arm does not check the room generation: {else_arm:?}"
+        );
+        assert!(
+            !else_arm.contains("registry.thread_current("),
+            "the ROOM arm checks the thread counter: {else_arm:?}"
         );
         // And the resolved binding must not be NAMED room_gen while holding a
         // thread generation — that name is what made the defect invisible.

@@ -84,6 +84,55 @@ private:
     }
 
 private Q_SLOTS:
+    // AN EDIT ADDRESSED TO THE OPEN THREAD MUST LAND IN THE THREAD'S OWN
+    // LIST, because that is the list the panel reads back.
+    //
+    // The mock keeps TWO lists while a thread panel is open: the room's, and
+    // a list of COPIES under the §8 composite that rebuildOpenThreadTimeline()
+    // writes and closeThread() removes. Only the second is what
+    // TimelineModel::onEventEdited re-reads (it asks for
+    // client->timeline(m_roomId), and a thread model's m_roomId IS the
+    // composite). So an edit that mutated the ROOM copy would be applied,
+    // announced, and then overwritten by the stale thread copy — the panel
+    // would show the pre-edit body.
+    //
+    // That is not hypothetical: findEvent() was changed on 2026-09-11 to
+    // reduce a composite to its room, on the false premise that the mock has
+    // no thread timeline of its own, and reverted the same day. Nothing
+    // failed, because no test opened a thread and then edited through it.
+    // This is that test.
+    void anEditThroughTheOpenThreadLandsInTheThreadsOwnList()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QString rootId;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &rootId));
+
+        const QString composite =
+            MatrixClient::threadTimelineId(kGeneral, rootId);
+        const auto before = client.timeline(composite);
+        QVERIFY2(before.size() > 1,
+                 "fixture assumption: the thread holds the root and a reply");
+        // A REPLY, never the root: the root also lives in the room list, so
+        // editing it could pass on the reduced lookup by coincidence.
+        const QString replyId = before.at(1).eventId;
+        QVERIFY(!replyId.isEmpty());
+
+        const QString edited = QStringLiteral("edited through the thread");
+        client.editMessage(composite, replyId, edited);
+
+        const auto after = client.timeline(composite);
+        QCOMPARE(after.size(), before.size());
+        const auto row = std::find_if(
+            after.cbegin(), after.cend(),
+            [&](const TimelineEvent &e) { return e.eventId == replyId; });
+        QVERIFY2(row != after.cend(),
+                 "the edited reply left the thread timeline entirely");
+        QCOMPARE(row->body, edited);
+    }
+
     void mockBackendSupportsThreadTimelines()
     {
         MockMatrixClient client;
