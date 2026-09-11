@@ -9378,7 +9378,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3494"/>
+        <location line="+3513"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+51"/>
@@ -9387,15 +9387,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-3888"/>
+        <location line="-3907"/>
         <location line="+64"/>
         <location line="+140"/>
-        <location line="+3690"/>
+        <location line="+3709"/>
         <source>Unknown room: %1</source>
         <translation>অজানা রুম: %1</translation>
     </message>
     <message>
-        <location line="-3890"/>
+        <location line="-3909"/>
         <location line="+64"/>
         <location line="+140"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9403,12 +9403,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+542"/>
-        <location line="+1943"/>
+        <location line="+1899"/>
+        <location line="+63"/>
         <source>The sticker could not be sent.</source>
         <translation>স্টিকার পাঠানো যায়নি।</translation>
     </message>
     <message>
-        <location line="-930"/>
+        <location line="-949"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9443,8 +9444,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>আমন্ত্রণ ক্রিয়া ব্যর্থ হয়েছে। আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+268"/>
-        <location line="+16"/>
+        <location line="+273"/>
+        <location line="+30"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9474,12 +9475,14 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="-56"/>
+        <location line="+63"/>
         <source>The edit could not be applied.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="-55"/>
+        <location line="+63"/>
         <source>The poll action could not be completed.</source>
         <translation type="unfinished"></translation>
     </message>

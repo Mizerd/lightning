@@ -1066,8 +1066,11 @@ const SHUTDOWN_IMPORT_JOIN_MS: u64 = 500;
 /// above can be checked by the compiler.
 ///
 /// SOURCE OF TRUTH IS THE C++ CONSTANT (src/matrix/RustSdkMatrixClient.h).
-/// If it moves, move this one with it — and if it moves DOWN, the assertion
-/// below will say so.
+/// This is a MIRROR of it, and nothing in the language connects the two: the
+/// compile-time assertion below bounds the Rust budgets against THIS value,
+/// so if the C++ side moved and this did not, the assertion would happily
+/// check the wrong number. `the_store_close_budget_mirrors_the_cpp_constant`
+/// pins them together by scanning the header.
 const STORE_CLOSE_BUDGET_MS: u64 = 15_000;
 
 /// What `waitForRustRetirement` must still have left for `mx_rust_destroy`
@@ -12907,6 +12910,40 @@ mod tests {
         assert!(!super::panic_payload_requested(None));
         assert!(!super::panic_payload_requested(Some("")));
         assert!(!super::panic_payload_requested(Some("   ")));
+    }
+
+    /// The Rust budget and its C++ owner are one number in two files.
+    ///
+    /// `STORE_CLOSE_BUDGET_MS` exists so the compile-time assertion can bound
+    /// the shutdown chain against what `waitForRustRetirement` actually
+    /// allows. That assertion is only as true as the mirror: raise
+    /// `kStoreCloseBudgetMs` without touching the Rust copy and the budgets
+    /// are still checked against the old, smaller number — which fails SAFE —
+    /// but LOWER it and the check silently permits a chain that can outlast
+    /// the C++ wait, which is the case that deletes a store under a live
+    /// SQLite writer.
+    #[test]
+    fn the_store_close_budget_mirrors_the_cpp_constant() {
+        let header = include_str!("../../src/matrix/RustSdkMatrixClient.h");
+        let needle = "static constexpr int kStoreCloseBudgetMs = ";
+        let value: u64 = header
+            .split(needle)
+            .nth(1)
+            .expect("kStoreCloseBudgetMs is gone from the header, or was renamed")
+            .split(';')
+            .next()
+            .expect("kStoreCloseBudgetMs has no terminating semicolon")
+            .trim()
+            .parse()
+            .expect("kStoreCloseBudgetMs is not a plain integer any more");
+        assert_eq!(
+            value, super::STORE_CLOSE_BUDGET_MS,
+            "src/matrix/RustSdkMatrixClient.h says kStoreCloseBudgetMs = {value}, \
+             but STORE_CLOSE_BUDGET_MS here is {}. The \
+             compile-time shutdown-budget assertion is checking the wrong \
+             number; move them together.",
+            super::STORE_CLOSE_BUDGET_MS
+        );
     }
 
     #[test]

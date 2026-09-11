@@ -4859,6 +4859,11 @@ mod tests {
         // EXACT, not a floor: a floor cannot tell "a site was removed" from
         // "the scan stopped seeing it", and the first version sat exactly on
         // its own floor with no headroom.
+        // WHAT THIS COUNT BUYS, AND WHAT IT DOES NOT. It catches a site being
+        // REMOVED or the scan going blind. It cannot catch a site that
+        // ESCAPES the needles — a send on a receiver not named `timeline`
+        // (this file already binds one to `thread`) matches nothing, so the
+        // count stays 11 and this passes. A new send must still be read.
         assert_eq!(
             sends, 11,
             "expected 11 queue-backed sends in timeline.rs; found {sends}. \
@@ -4877,10 +4882,18 @@ mod tests {
     #[test]
     fn retry_send_re_enables_before_unwedging() {
         let source = include_str!("timeline.rs");
+        // BOUNDED AT THE NEXT ITEM, or the slice runs to end of file and
+        // picks up this test's own doc comments — which quote
+        // `handle.unwedge()` verbatim. Measured: unbounded, deleting the real
+        // call still left two prose matches and the .expect below passed while
+        // claiming to catch exactly that.
         let body = source
             .split("pub fn retry_send(")
             .nth(1)
-            .expect("retry_send not found — the scan is reading the wrong file");
+            .expect("retry_send not found — the scan is reading the wrong file")
+            .split("\n    pub fn ")
+            .next()
+            .expect("retry_send has no following item to bound it");
         let unwedge = body
             .find("unwedge_send_queue(")
             .expect("retry_send no longer re-enables the queue; handle.unwedge() alone parks");
