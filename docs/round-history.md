@@ -15,6 +15,74 @@ By THEME, not chronology, and reduced to rules, refutations, deliberate
 decisions, measured numbers and live status. Features are §7; the caps
 contract, the refutation rule and the probe rule are in the standing warnings.
 
+#### 2026-09-11, the live tests that were "impossible", and the fourth thread defect
+
+**A LOCAL CONNECT PROXY TURNS TWO UNTESTABLE THINGS INTO ORDINARY TESTS.** Two
+validations had been recorded as out of reach: the send-queue wedge needs a
+mid-send NETWORK FAILURE, and the upload-progress percentage needs an upload
+slow enough to sample (21 MB goes out in under two seconds on this LAN). Both
+were framed as "cannot be staged for one app without root". That framing was
+wrong. reqwest — which matrix-sdk uses — honours `HTTPS_PROXY`, so pointing
+ONLY Lightning at a local CONNECT tunnel puts that one app's network under
+test control while the machine's own networking is untouched. The tunnel
+copies bytes and never inspects TLS. `scripts/test-netproxy.py`: `--kbps` to
+throttle, `touch <ctl>/cut` to drop every tunnel and refuse new ones.
+
+**LIVE PASS — the upload-progress percentage.** Throttled to 120 KB/s, a 21 MB
+attachment reported `sending… 13%`, then `20%`, then `43%`, then `66%`, with a
+DETERMINATE bar advancing. That is `enable_upload_progress(true)` working:
+before that opt-in `report_media_upload_progress` defaulted to false, so
+`EventSendState::NotSentYet` carried no progress, `UploadProgressRole` stayed
+-1, the bar was permanently indeterminate and the `"%1 • sending… %2%"` string
+was unreachable. Both sides of that seam were unit-tested with synthetic
+values, which is exactly why nothing caught that the SDK was never asked to
+produce them.
+
+**LIVE PASS — `cancel_too_late` says the true thing.** Cancelling that upload
+at 66% produced `category= "cancel_too_late"` and the status bar read *"That
+message had already been sent, so it could not be cancelled."* Before this
+round every cancel category fell through to *"Message could not be sent. You
+can retry from the message's Retry action."* — wrong twice over for that case,
+since the message DID reach the server and there is nothing to retry.
+
+**LIVE PASS — Retry recovers a wedged room.** With the tunnel cut, a send
+failed and the row went to `failed · Retry · Cancel` — which is matrix-sdk
+having disabled that room's whole send queue (`locally_enabled.store(false)`,
+send_queue/mod.rs:1012). Restoring the tunnel and clicking Retry moved it to
+`sending…` and the server got it. **A wedged item is skipped by
+`peek_next_to_send` even on an enabled queue, so Retry is the ONLY thing that
+can recover one** — which makes this a clean test of the fix rather than of
+the sync-recovery edge. Before it, `unwedge()` woke a loop that immediately
+re-parked on the still-false flag.
+
+**OPEN, AND NEWLY REPRODUCIBLE — a local echo can stay at "sending…" after the
+server already has the event.** In the same session, after the outage and
+retry, both the retried message and the interrupted attachment sat at
+`sending…` / `failed` in the open timeline for over five minutes while the
+ROOM LIST preview already showed them. Switching away and back resolved both
+at once: the attachment had in fact completed at 09:04 and the text message
+had sent. So the sends were fine and the open timeline's echo state was stale.
+WHAT IS NOT ESTABLISHED is the cause. It is consistent with the per-room
+`broadcast::channel(32)` dropping a terminal update — matrix-sdk-ui warns
+`missed {n} local echoes, ignoring those missed` and does NOT resync, unlike
+every event-cache stream in that same file — but it is equally consistent with
+the throttled link simply not having delivered the remote echoes yet. Do not
+quote a cause; the recipe now exists to find one: throttle to ~120 KB/s, cut,
+send, restore, retry, and watch the row against the room-list preview.
+
+**AND THE FOURTH THREAD DEFECT, fixed.** Editing a thread reply failed every
+time, for the same reason reacting to one did, and redacting one did, and
+retrying one did: `Timeline::edit` resolves against the timeline's own items
+and the live room timeline hides threaded events. Edit was the last one left
+because it was the only one whose caller had no thread identity to pass — the
+thread panel's Edit routes through the ROOM composer. `beginEdit` now takes
+the timeline that holds the event, the composer remembers it, and the
+composite is decomposed at the FFI boundary exactly as `toggleReaction` does.
+**GENERALISE, because this is now four for four: any operation that addresses
+an event through `Timeline` must be issued on the timeline that HOLDS it, and
+in this client that means every such call needs the thread root threaded
+through to it. Before adding a fifth, check the caller can supply one.**
+
 #### 2026-09-10 (night), live GUI validation above 0.9.4
 
 **2026-09-10, the first GUI validation of anything above 0.9.4.** Driven by

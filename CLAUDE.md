@@ -100,11 +100,9 @@ secret it had just returned. Validation: Rust 413 passed, `WEBRTC=OFF` over
 every target, and both CTest trees green but for the recorded
 `timeline-pane-qml` anchor flake. NOTHING in it is live-validated.
 
-**The 2026-09-08/09 four-audit hardening round (`5d9fa37..820d368`, 15
-commits) SHIPPED IN 0.9.4** — `820d368` is an ancestor of `bcea599`, so it is
-no longer "on `main` above a release". Its fifteen fixes, and the lessons that
-generalise, are in `docs/round-history.md` under 2026-09-08. Nothing in it was
-live-validated; every claim is code plus the headless suites.
+**The 2026-09-08/09 four-audit round SHIPPED IN 0.9.4** (`5d9fa37..820d368`;
+`820d368` is an ancestor of `bcea599`). See `docs/round-history.md`,
+2026-09-08. Not live-validated.
 
 **THE PIPELINE NOW LIVES IN THIS REPOSITORY.** 0.9.2 is the first release cut
 from project 6: the packaging project was folded in under `packaging-ci/` on
@@ -1611,6 +1609,16 @@ re-proposed without stating which claim was refuted and whether yours is the
 same claim.
 
 ### Live validation: what Rokas has actually confirmed
+
+**2026-09-11 — the send path, live, with `scripts/test-netproxy.py` instead of
+root.** reqwest honours `HTTPS_PROXY`, so one app's network becomes
+controllable: throttle it and an upload is samplable, cut it and that app
+alone goes offline. PASSES: the upload percentage advances on a determinate
+bar; `cancel_too_late` says the message had already been sent; and Retry
+recovers a room whose send queue matrix-sdk had disabled. STILL OPEN and now
+reproducible: a local echo can sit at "sending…" after the server has the
+event, resolving only on a timeline reload — cause NOT established. Detail in
+`docs/round-history.md`, 2026-09-11.
 
 **2026-09-10 — the first GUI validation of anything above 0.9.4, and it was
 AUTOMATION-driven on a throwaway fixture account, not Rokas.** Four PASSes,
