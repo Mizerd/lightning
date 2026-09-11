@@ -285,6 +285,12 @@ bool SettingsManager::secretBackendUnavailable() const
     return !m_secretStore->isAvailable() || m_secretStore->lastReadFailed();
 }
 
+bool SettingsManager::secretMissesAreInconclusive() const
+{
+    // No store at all is the most inconclusive case there is.
+    return !m_secretStore || m_secretStore->missesAreInconclusive();
+}
+
 QString SettingsManager::accountOwningStoreSlug(const QString &storeSlug) const
 {
     const QString slug = storeSlug.trimmed();

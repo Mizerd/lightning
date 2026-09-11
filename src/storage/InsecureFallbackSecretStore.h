@@ -87,6 +87,14 @@ public:
     // a permissions change or a half-written config makes QSettings answer
     // every value() with an empty QVariant and report it only through
     // status(), which readSecret() asks. That outcome outranks everything.
+    /// Structural, and unlike lastReadFailed() it never softens: whatever a
+    /// given read concluded, a store standing in for a native backend it
+    /// could not open may always be missing something that backend holds.
+    bool missesAreInconclusive() const override
+    {
+        return m_substitutedForNative;
+    }
+
     bool lastReadFailed() const override
     {
         if (m_lastReadFailed)

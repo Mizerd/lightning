@@ -933,6 +933,10 @@ public:
     // conflation that let the login path destroy a live crypto store.
     // Anything that classifies a missing token MUST consult this first.
     bool secretBackendUnavailable() const;
+    /// Whether a MISS could be hiding a secret this store cannot see —
+    /// structural, and never softened by an individual read. Destructive
+    /// decisions key on this; see SecretStore::missesAreInconclusive().
+    bool secretMissesAreInconclusive() const;
     void setStoreSlugFor(const QString &userId, const QString &storeSlug);
     // Resolve a saved account into a full identity whose on-disk paths point
     // at the recorded store. Use this anywhere an account's files are read,

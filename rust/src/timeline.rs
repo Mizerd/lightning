@@ -4770,16 +4770,30 @@ mod tests {
     /// sites missing. The first revision guarded only
     /// `send_content_to_timeline`, whose callers are stickers and polls, so
     /// the ordinary composer was never covered and the commit said it was.
-    /// Nothing in the tree could catch that. This can.
     ///
-    /// Guarded both ways, the shape `no_ffi_entry_point_...` uses in lib.rs:
-    /// the helper must exist, the scan must find a floor of real sends, and
-    /// EVERY send must be preceded by the unwedge within a few lines. A
-    /// rename, a deletion or a new unguarded send all fail here.
+    /// THE FIRST VERSION OF THIS TEST WAS ITSELF WRONG, and review caught it:
+    /// it matched per LINE and required the word `timeline` on the same line,
+    /// so rustfmt's builder-chain continuations hid five of the twelve sites —
+    /// `.send_attachment(` matched nothing at all, which is both attachment
+    /// paths. It also used a fixed look-back, so one send's unwedge could
+    /// satisfy a neighbour's. It now splits on braces as well as semicolons —
+    /// a send that is a block's TAIL EXPRESSION has no trailing `;`, which
+    /// merged it with the next block — and requires the unwedge in the
+    /// IMMEDIATELY preceding statement rather than anywhere in a window.
     ///
-    /// `Timeline::redact` is deliberately absent from the send list because
-    /// Lightning calls `Room::redact` (`timeline.rs`'s redact path), which is
-    /// a direct `client.send(...)` and never reaches the send queue.
+    /// MUTATION-PROVEN SITE BY SITE, not once: every one of the twelve
+    /// `unwedge_send_queue` calls was deleted in turn. This test catches 11;
+    /// `retry_send`'s is the twelfth and is caught by
+    /// `retry_send_re_enables_before_unwedging` below. The first revision
+    /// caught 7 of 12, and the single mutation used to "prove" it happened to
+    /// pick one of the 7.
+    ///
+    /// `retry_send` is deliberately not in the send set: its "send" is
+    /// `handle.unwedge()`, not a queue-backed send. It is covered by
+    /// `retry_send_re_enables_before_unwedging` below.
+    ///
+    /// `Timeline::redact` is absent because Lightning calls `Room::redact`,
+    /// a direct `client.send(...)` that never reaches the send queue.
     #[test]
     fn every_queue_backed_send_unwedges_the_room_first() {
         let source = include_str!("timeline.rs");
@@ -4787,7 +4801,27 @@ mod tests {
             source.contains("fn unwedge_send_queue"),
             "the scan is not reading the file it thinks it is"
         );
-        // The SDK calls that enqueue onto the room's send queue.
+        // Collapse each statement onto one logical line, so a builder chain
+        // that rustfmt split across lines is matched as a whole. Comments are
+        // dropped first: this file quotes these method names in prose.
+        let code: String = source
+            .lines()
+            .map(|l| {
+                let trimmed = l.trim();
+                if trimmed.starts_with("//") { "" } else { l }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        // Split on braces as well as semicolons. A send that is the TAIL
+        // EXPRESSION of a block has no trailing `;`, so `;` alone merges it
+        // with the following block and a neighbour's unwedge then satisfies
+        // it — measured, that masked two of the twelve sites.
+        let statements: Vec<String> = code
+            .split(|c| c == ';' || c == '{' || c == '}')
+            .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|s| !s.is_empty())
+            .collect();
+
         const SENDS: [&str; 5] = [
             ".send(",
             ".send_reply(",
@@ -4795,38 +4829,67 @@ mod tests {
             ".edit(",
             ".toggle_reaction(",
         ];
-        let lines: Vec<&str> = source.lines().collect();
-        let mut checked = 0usize;
-        for (i, line) in lines.iter().enumerate() {
-            let is_send = SENDS.iter().any(|needle| line.contains(needle))
-                && line.contains("timeline")
-                // definitions and doc comments are not call sites
-                && !line.trim_start().starts_with("//")
-                && !line.trim_start().starts_with("///")
-                && !line.contains("fn ");
+        // A send enqueues onto the room's queue; the unwedge must appear in
+        // the same statement run, which is what `;`-splitting gives us — the
+        // unwedge is its own statement immediately before.
+        let mut sends = 0usize;
+        for (i, stmt) in statements.iter().enumerate() {
+            let is_send = SENDS.iter().any(|n| stmt.contains(n))
+                && stmt.contains("timeline")
+                && !stmt.contains("fn ")
+                && !stmt.contains("const SENDS");
             if !is_send {
                 continue;
             }
-            checked += 1;
-            // The unwedge sits within the few lines above the send: the
-            // builder chains here span several lines.
-            let from = i.saturating_sub(12);
-            let guarded = lines[from..i]
+            sends += 1;
+            // The IMMEDIATELY preceding statement, not a window. A window
+            // lets one send's unwedge satisfy its neighbour's — measured: a
+            // three-statement look-back masked two of the twelve sites.
+            let guarded = statements[i.saturating_sub(1)..=i]
                 .iter()
-                .any(|prior| prior.contains("unwedge_send_queue("));
+                .any(|s| s.contains("unwedge_send_queue("));
             assert!(
                 guarded,
-                "queue-backed send at timeline.rs:{} is not preceded by \
-                 unwedge_send_queue — a send-only failure would leave this \
+                "queue-backed send #{sends} is not preceded by \
+                 unwedge_send_queue — a send-only failure would leave that \
                  room unable to send for the life of the process:\n  {}",
-                i + 1,
-                line.trim()
+                stmt.chars().take(140).collect::<String>()
             );
         }
+        // EXACT, not a floor: a floor cannot tell "a site was removed" from
+        // "the scan stopped seeing it", and the first version sat exactly on
+        // its own floor with no headroom.
+        assert_eq!(
+            sends, 11,
+            "expected 11 queue-backed sends in timeline.rs; found {sends}. \
+             If a send was added or removed, update this number AND confirm \
+             every site is still guarded."
+        );
+    }
+
+    /// Retry's own re-enable, which the scan above cannot see.
+    ///
+    /// `retry_send` does not issue a queue-backed send — it calls
+    /// `handle.unwedge()` — so it has no `.send(` for the scan to match. It is
+    /// nonetheless the one path where the queue is KNOWN to be disabled,
+    /// because a failed send is what disabled it, and without the re-enable
+    /// `unwedge()` wakes a loop that immediately parks again.
+    #[test]
+    fn retry_send_re_enables_before_unwedging() {
+        let source = include_str!("timeline.rs");
+        let body = source
+            .split("pub fn retry_send(")
+            .nth(1)
+            .expect("retry_send not found — the scan is reading the wrong file");
+        let unwedge = body
+            .find("unwedge_send_queue(")
+            .expect("retry_send no longer re-enables the queue; handle.unwedge() alone parks");
+        let call = body
+            .find("handle.unwedge()")
+            .expect("retry_send no longer calls unwedge()");
         assert!(
-            checked >= 8,
-            "the scan matched only {checked} sends; it has stopped reading \
-             what it thinks it reads"
+            unwedge < call,
+            "retry_send re-enables the queue AFTER unwedge(), so the wake is lost"
         );
     }
 

@@ -688,8 +688,19 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     // problem deletion cannot fix, and costs them their room keys. This is
     // the same "unreadable token is not a missing account" rule the orphan
     // branch above follows, applied to the classification.
+    // OR missesAreInconclusive(): the two answer different questions and this
+    // gate needs both. secretBackendUnavailable() catches a keyring that
+    // locked after startup. The structural one catches a fallback standing in
+    // for a native backend it could not open — which USED to be covered here
+    // only because that store reported every read as failed, a behaviour
+    // corrected on 2026-09-10 so the account switcher could tell an expired
+    // sign-in from an unreadable one. That correction is right, and it must
+    // not reach this decision: the branch below arms a repair that deletes a
+    // real crypto store, and it is not allowed to become reachable because a
+    // read happened to be conclusive.
     if (storeExists && targetHasRecord && !targetTokenReadable
-        && m_settings->secretBackendUnavailable()) {
+        && (m_settings->secretBackendUnavailable()
+            || m_settings->secretMissesAreInconclusive())) {
         failWithBlockReason(
             matrix::rust_session::StoreBlockReason::SecretBackendUnavailable,
             identity);
@@ -4731,17 +4742,17 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // not be sent as a thread reply" is the same wrong-text defect the
         // redaction path had, and it arrives on a surface with no retry.
         //
-        // The thread branch carries the SAME categories as the room branch —
-        // a sticker or a poll vote sent inside a thread lands here — so the
-        // ones that are not thread replies get their own words, exactly as
-        // they do for `timeline_send_failed`. One branch away from the defect
-        // that fix was about.
+        // A STICKER OR A POLL VOTE SENT INSIDE A THREAD LANDS HERE, so those
+        // get their own words rather than "the thread reply could not be
+        // sent". One branch away from the defect the room lane's fix was
+        // about.
+        //
+        // Deliberately NOT edit_rejected: TimelineRegistry::edit always
+        // resolves the ROOM timeline and always emits timeline_send_failed,
+        // so that category cannot reach this handler. A branch for it here
+        // would be dead code claiming coverage it does not have.
         if (category == QLatin1String("reaction_rejected")) {
             Q_EMIT errorOccurred(tr("The reaction could not be applied."));
-            return;
-        }
-        if (category == QLatin1String("edit_rejected")) {
-            Q_EMIT errorOccurred(tr("The edit could not be applied."));
             return;
         }
         if (category == QLatin1String("sticker_send_failed")) {

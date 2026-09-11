@@ -76,4 +76,19 @@ public:
     //
     // Default false: a backend that cannot fail this way need not override.
     virtual bool lastReadFailed() const { return false; }
+
+    /// Whether a MISS from this store is inconclusive by construction.
+    ///
+    /// Separate from lastReadFailed() on purpose. That predicate answers "was
+    /// the read I just made trustworthy", and a substituted fallback can now
+    /// answer YES for a hit and for a miss on an account it already holds.
+    /// This one answers the structural question — "could the secret be
+    /// somewhere I cannot see" — which stays true for the WHOLE life of a
+    /// store that stood in for a native backend it could not open.
+    ///
+    /// It exists so a DESTRUCTIVE decision can key on the structural fact
+    /// rather than on the per-read refinement: a repair that deletes a crypto
+    /// store must not become reachable because a read happened to be
+    /// conclusive.
+    virtual bool missesAreInconclusive() const { return false; }
 };

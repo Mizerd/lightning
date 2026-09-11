@@ -229,14 +229,7 @@ pub(crate) fn grant_generate(bridge: &RustClient) -> Result<u64, String> {
             *guard = None;
         }
         match outcome {
-            Ok(()) => {
-                // Fresh session on the SHARED runtime — see
-                // resume_unsent_requests. The sync lanes' set_enabled(true)
-                // ends in the same respawn and they run on a throwaway
-                // current-thread runtime, so the queues must be built here.
-                crate::resume_unsent_requests(&client).await;
-                emit(&events, gen, json!({ "step": "done" }));
-            }
+            Ok(()) => emit(&events, gen, json!({ "step": "done" })),
             // The CATEGORY crosses; the error TEXT never does, because these
             // errors quote channel state and URLs. The C++ side logs the
             // category (QrLoginController::fail) — without that a failure was
@@ -326,14 +319,7 @@ pub(crate) fn grant_scan(bridge: &RustClient, payload: String) -> Result<u64, St
         let outcome = grant.await;
         pump.abort();
         match outcome {
-            Ok(()) => {
-                // Fresh session on the SHARED runtime — see
-                // resume_unsent_requests. The sync lanes' set_enabled(true)
-                // ends in the same respawn and they run on a throwaway
-                // current-thread runtime, so the queues must be built here.
-                crate::resume_unsent_requests(&client).await;
-                emit(&events, gen, json!({ "step": "done" }));
-            }
+            Ok(()) => emit(&events, gen, json!({ "step": "done" })),
             Err(err) => emit(
                 &events,
                 gen,

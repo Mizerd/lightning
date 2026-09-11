@@ -55,6 +55,7 @@ private Q_SLOTS:
     void aSubstitutedFallbackStillRefusesToVouchForAMiss();
     void anUnsubstitutedFallbackTreatsAMissAsAFact();
     void aSubstitutedFallbackTrustsAMissForAnAccountItAlreadyHolds();
+    void aSubstitutedStoreNeverSoftensTheStructuralVerdict();
 
 private:
     static QString secretsDirIn(const QTemporaryDir &root);
@@ -758,6 +759,48 @@ void PortableSecretStoreTest::aSubstitutedFallbackTrustsAMissForAnAccountItAlrea
     QVERIFY(store.clearAccountSecrets(known));
     QVERIFY(store.readSecret(known, QStringLiteral("access_token")).isEmpty());
     QVERIFY(store.lastReadFailed());
+}
+
+void PortableSecretStoreTest::aSubstitutedStoreNeverSoftensTheStructuralVerdict()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    useTemporarySettings(root, QStringLiteral("fallback-structural"));
+
+    // TWO PREDICATES, AND THE DIFFERENCE PROTECTS A CRYPTO STORE.
+    //
+    // lastReadFailed() is per-READ and is allowed to soften: a substituted
+    // store vouches for a hit, and for a miss on an account it already holds.
+    // missesAreInconclusive() is STRUCTURAL and must never soften, because
+    // RustSdkMatrixClient's sign-in gate keys a destructive local reset on it
+    // — a repair that deletes real room keys must not become reachable just
+    // because one read happened to be conclusive.
+    InsecureFallbackSecretStore substituted(nullptr,
+                                            /*substitutedForNative=*/true);
+    QVERIFY(substituted.missesAreInconclusive());
+
+    const QString user = QStringLiteral("@known:example.org");
+    QVERIFY(substituted.storeSecret(user, QStringLiteral("access_token"),
+                                    QStringLiteral("syt_real")));
+    QCOMPARE(substituted.readSecret(user, QStringLiteral("access_token")),
+             QStringLiteral("syt_real"));
+    // The per-read verdict softened...
+    QVERIFY(!substituted.lastReadFailed());
+    // ...and the structural one did NOT. This is the whole point.
+    QVERIFY2(substituted.missesAreInconclusive(),
+             "a successful read softened the STRUCTURAL verdict, which is what "
+             "a destructive repair keys on");
+
+    // A miss for an account it holds is conclusive per-read, and still does
+    // not change the structural answer.
+    QVERIFY(substituted.readSecret(user, QStringLiteral("refresh_token")).isEmpty());
+    QVERIFY(!substituted.lastReadFailed());
+    QVERIFY(substituted.missesAreInconclusive());
+
+    // And a store that is NOT standing in for anything says so: its misses
+    // are facts, so the destructive gate is not armed by it.
+    InsecureFallbackSecretStore own(nullptr);
+    QVERIFY(!own.missesAreInconclusive());
 }
 
 QTEST_MAIN(PortableSecretStoreTest)

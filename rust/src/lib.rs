@@ -9914,9 +9914,24 @@ pub unsafe extern "C" fn mx_rust_set_strict_device_trust(enabled: c_int) -> *mut
 /// round exists to remove. `lib.rs`'s own `run_async_on` note already states
 /// this rule for `restore_session`'s spawned tasks; these are the same class.
 ///
-/// So: here, immediately after the restore that loads the rooms, on the
-/// SHARED runtime. The two sync-lane `set_enabled(true)` recovery edges then
-/// find the queues already built and simply return the cached ones.
+/// So: immediately after a session is established, on the SHARED runtime. The
+/// two sync-lane `set_enabled(true)` recovery edges then find the queues
+/// already built and simply return the cached ones.
+///
+/// THERE ARE EXACTLY THREE CALLERS, and the list is worth stating because a
+/// previous revision of this added four more that could not do anything:
+///
+///   * `mx_rust_login`             — password login
+///   * `restore_client_with_session` — every restore, incl. the SSO handoff
+///   * `mx_rust_oauth_restore`     — the OAuth restore
+///
+/// NOT `mx_rust_oauth_finish` or `mx_rust_sso_finish`: those run on the Phase
+/// A BOOTSTRAP client, which has an in-memory store (`build_client` with an
+/// empty path) and is explicitly dropped a few lines later — a store that has
+/// never sent anything has nothing to respawn. NOT the QR paths either: those
+/// sign ANOTHER device in from this one, so the client there is the
+/// already-restored account client, which came through one of the three
+/// above.
 pub(crate) async fn resume_unsent_requests(client: &Client) {
     client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
 }
