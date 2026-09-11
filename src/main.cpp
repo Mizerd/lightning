@@ -2113,9 +2113,20 @@ int main(int argc, char *argv[])
         }
         if (!glUsable) {
             QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
+            // "SLOWER" WAS WRONG, AND IT SENT TWO ROUNDS OF TESTING DOWN
+            // THE WRONG PATH. Measured 2026-09-12 on one Linux client,
+            // same machine and same call, with QT_QUICK_BACKEND=software as
+            // the ONLY change: call video does not render AT ALL. Qt Quick's
+            // software adaptation cannot draw VideoOutput's node, so the
+            // tile CHROME paints and the picture never does — while the
+            // engine's own `frames in the clear in` counter climbs happily,
+            // because frames are arriving and being decrypted. That counter
+            // is why a Windows share was repeatedly recorded as working: it
+            // counts frames nobody can see.
             qWarning("lightning: no usable OpenGL context on the \"%s\" "
                      "platform - falling back to the software renderer. "
-                     "Video and screen sharing will be slower. Set "
+                     "CALL AND SCREEN-SHARE VIDEO WILL NOT BE DISPLAYED on "
+                     "this renderer; audio is unaffected. Set "
                      "QT_QUICK_BACKEND to override.",
                      qUtf8Printable(QGuiApplication::platformName()));
         }
