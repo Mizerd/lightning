@@ -86,9 +86,18 @@ cp -a "$SNAP_WORK/appdir/usr" "$TREE/usr"
 # exactly as they come from the host for an AppImage.
 stage_unresolved_libs() {
     local probe want src staged=0
+    # EVERY PLUGIN, NOT JUST THE PLATFORM ONES. A plugin is dlopened, so its
+    # dependencies are invisible to the BINARY's ldd — which is how the shipped
+    # snap came to carry a `libqxcb.so` that could not load (libSM), a
+    # `libgstalsa.so` that could not load (libasound) and a `libgstopengl.so`
+    # that could not load (libGL), all three measured on a real snapd install
+    # on 2026-09-12. The last one is why that snap fell back to the software
+    # renderer, and on the software renderer Qt Quick draws no call video at
+    # all. Probing only `platforms` and `xcbglintegrations` found the first
+    # kind and neither of the others.
     local -a probes=("$TREE/usr/bin/lightning-matrix")
     while IFS= read -r probe; do probes+=("$probe"); done < <(
-        find "$TREE/usr/plugins/platforms" "$TREE/usr/plugins/xcbglintegrations" \
+        find "$TREE/usr/plugins" "$TREE/usr/lib/gstreamer-1.0" \
              -name '*.so' 2>/dev/null)
     for probe in "${probes[@]}"; do
         [ -e "$probe" ] || continue
@@ -103,7 +112,8 @@ stage_unresolved_libs() {
                 libX*.so.*|libxcb*.so.*|libGL*.so.*|libEGL*.so.*|\
                 libGLdispatch.so.*|libGLX*.so.*|libOpenGL.so.*|\
                 libxkbcommon*.so.*|libwayland-*.so.*|libdrm.so.*|libgbm.so.*|\
-                libasound.so.*) ;;
+                libasound.so.*|\
+                libSM.so.*|libICE.so.*) ;;
                 *) continue ;;
             esac
             cp -Ln "$src" "$TREE/usr/lib/$want" 2>/dev/null && staged=$((staged+1))
@@ -121,8 +131,21 @@ echo "snap: staged $snap_staged base libraries the AppDir deliberately omits"
 # is the same shape as the GStreamer-plugin and image-format guards above,
 # and it exists for the same reason: graceful fallback and silent absence are
 # the same observable unless something asserts the payload.
+# libSM/libICE: X SESSION MANAGEMENT, and the one that actually shipped
+# broken. MEASURED 2026-09-12 on a real `snap install --dangerous` in an
+# Ubuntu 24.04 guest under snapd 2.76.3 — the only way this can be measured at
+# all — the snap installed, `lightning --version` and `--call-media-status`
+# both answered correctly, and the GUI could not start:
+#
+#   cannot load: ... libqxcb.so: libSM.so.6: cannot open shared object file
+#   qt.qpa.plugin: Could not load the Qt platform plugin "xcb" ... even though
+#   it was found.
+#
+# Qt's own advice on that path names xcb-cursor0, which IS staged, so the
+# message sends you looking at the wrong library.
 for base_lib in libEGL.so.1 libGLX.so.0 libGLdispatch.so.0 \
-                libX11.so.6 libX11-xcb.so.1 libxcb.so.1; do
+                libX11.so.6 libX11-xcb.so.1 libxcb.so.1 \
+                libSM.so.6 libICE.so.6; do
     test -f "$TREE/usr/lib/$base_lib" || \
         die "the snap payload has no $base_lib; it would install and then fail to start"
 done
@@ -131,6 +154,54 @@ still_missing=$(LD_LIBRARY_PATH="$TREE/usr/lib" ldd "$TREE/usr/bin/lightning-mat
                 | awk '/not found/ { print $1 }' | tr '\n' ' ')
 [ -z "$still_missing" ] || \
     die "the snap payload cannot resolve: $still_missing"
+
+# AND THE SAME QUESTION OF EVERY PLUGIN, WHICH IS WHAT libSM ESCAPED THROUGH.
+#
+# A Qt platform plugin is dlopened, so its dependencies are NOT the binary's:
+# the loop above is perfectly satisfied while `libqxcb.so` cannot load at all,
+# and the app then exits with "no Qt platform plugin could be initialized".
+# The named-library list above cannot cover this on its own either — it only
+# ever names what someone has already been bitten by.
+#
+# Nor can any job on the runner fleet: validate-snap.sh runs the binary with
+# QT_QPA_PLATFORM=offscreen, which never loads xcb, so a snap whose windowing
+# is completely broken passes every check we have and installs cleanly. This
+# is the fourth appearance of "a library loads its own plugins" in this
+# project, and the first one a build-time check catches by itself.
+# A Qt plugin that cannot load is FATAL and a GStreamer one is a feature lost,
+# so they are judged differently — but both are reported, because neither is
+# visible any other way.
+qt_unresolved=""
+gst_unresolved=""
+gst_fatal=""
+while IFS= read -r plugin; do
+    missing=$(LD_LIBRARY_PATH="$TREE/usr/lib" ldd "$plugin" 2>/dev/null \
+              | awk '/not found/ { print $1 }' | sort -u | tr '\n' ' ')
+    [ -n "$missing" ] || continue
+    case "$plugin" in
+        "$TREE"/usr/plugins/*)
+            qt_unresolved="$qt_unresolved
+    $(basename "$plugin"): $missing" ;;
+        *)
+            gst_unresolved="$gst_unresolved
+    $(basename "$plugin"): $missing"
+            # These two are not optional: libgstopengl is the GPU share chain
+            # AND the reason Qt gets a usable GL context here at all, and
+            # libgstwebrtc is every call.
+            case "$(basename "$plugin")" in
+                libgstopengl.so|libgstwebrtc.so)
+                    gst_fatal="$gst_fatal $(basename "$plugin")" ;;
+            esac ;;
+    esac
+done < <(find "$TREE/usr/plugins" "$TREE/usr/lib/gstreamer-1.0" \
+             -name '*.so' 2>/dev/null | sort)
+
+[ -z "$qt_unresolved" ] || \
+    die "snap Qt plugins cannot resolve against the payload:$qt_unresolved"
+[ -z "$gst_unresolved" ] || \
+    echo "snap: WARNING - GStreamer plugins that will not load:$gst_unresolved"
+[ -z "$gst_fatal" ] || \
+    die "snap: these GStreamer plugins are load-bearing and cannot resolve:$gst_fatal"
 
 # Launcher: point Qt at the bundled runtime under $SNAP -- and GStreamer too.
 # The snap takes only usr/ from the AppDir, so linuxdeploy's AppRun and its
