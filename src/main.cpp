@@ -48,6 +48,7 @@
 #include <QOpenGLContext>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
+#include <QScreen>
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
 #include <QImage>
 #include <QTimer>
@@ -2380,6 +2381,61 @@ int main(int argc, char *argv[])
             });
     }
 #endif
+
+    // ONE LINE THAT SAYS WHAT THE SCENE GRAPH ACTUALLY GOT.
+    //
+    // The probe higher up can move the whole application onto the CPU
+    // rasteriser, and until now its warning was the ONLY observable — so a
+    // report of "everything is slow", or of a frame counter "bouncing up to
+    // 9999 fps", had nothing to check against. Two reasons that is not
+    // enough. `setGraphicsApi()` is a REQUEST, and Qt can end up somewhere
+    // else; and a reader of a log cannot tell "the fallback did not fire"
+    // from "the line was never written", which is the same
+    // silent-absence-versus-graceful-fallback trap §16 records four times
+    // over in packaging. So state the positive.
+    //
+    // Deliberately plain qInfo rather than a logging category: a diagnostic
+    // that needs QT_LOGGING_RULES to appear is a diagnostic a remote tester
+    // does not have, and PresenceManager::traceRound sets the precedent. The
+    // screen's refresh rate rides along because it is what makes a reported
+    // frame rate legible at all — an overlay claiming thousands of frames a
+    // second against a 60 Hz panel is either measuring something that is not
+    // presentation, or the swap chain is not throttling.
+    QObject::connect(
+        &engine, &QQmlApplicationEngine::objectCreated, &app,
+        [](QObject *obj, const QUrl &) {
+            auto *win = qobject_cast<QQuickWindow *>(obj);
+            if (!win)
+                return;
+            // Emitted on the RENDER thread; `win` as the context object
+            // makes the delivery queued onto the GUI thread, where the
+            // renderer interface and the screen are safe to read.
+            QObject::connect(
+                win, &QQuickWindow::sceneGraphInitialized, win, [win] {
+                    const char *name = "unknown";
+                    bool software = false;
+                    if (auto *ri = win->rendererInterface()) {
+                        switch (ri->graphicsApi()) {
+                        case QSGRendererInterface::Software:
+                            name = "software"; software = true; break;
+                        case QSGRendererInterface::OpenGL:  name = "opengl"; break;
+                        case QSGRendererInterface::Vulkan:  name = "vulkan"; break;
+                        case QSGRendererInterface::Metal:   name = "metal"; break;
+                        case QSGRendererInterface::Direct3D11: name = "d3d11"; break;
+                        case QSGRendererInterface::Direct3D12: name = "d3d12"; break;
+                        default: break;
+                        }
+                    }
+                    const QScreen *screen = win->screen();
+                    qInfo("lightning: scene graph backend=%s software=%d "
+                          "platform=%s refreshHz=%.1f dpr=%.2f",
+                          name, software ? 1 : 0,
+                          qUtf8Printable(QGuiApplication::platformName()),
+                          screen ? screen->refreshRate() : 0.0,
+                          win->effectiveDevicePixelRatio());
+                },
+                Qt::SingleShotConnection);
+        });
 
     engine.loadFromModule("MatrixClient", "Main");
 

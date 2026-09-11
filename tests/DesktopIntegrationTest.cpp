@@ -45,6 +45,49 @@ private Q_SLOTS:
             QStringLiteral("StartupWMClass=lightning-matrix")));
     }
 
+    // THE RENDERER MUST ANNOUNCE ITSELF, NOT ONLY ITS FAILURE.
+    //
+    // src/main.cpp probes for a usable OpenGL context and falls back to the
+    // CPU rasteriser when there is none. That fallback is a real degradation
+    // and its warning used to be the only observable, which means a log with
+    // no such line is indistinguishable from a log whose line was never
+    // written — the silent-absence trap §16 records from packaging. It also
+    // cannot be read against `setGraphicsApi()`, which is a REQUEST rather
+    // than an answer.
+    //
+    // So the positive line is the contract: whatever the scene graph ends up
+    // on, one startup line names it. A report of "everything is slow" or a
+    // frame counter "bouncing up to 9999 fps" is then one grep, not a theory.
+    void theSceneGraphBackendIsReportedWhateverItTurnsOutToBe()
+    {
+        const QString main = readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
+        QVERIFY2(!main.isEmpty(), "src/main.cpp missing");
+        // The failure branch stays — this is an addition, not a swap.
+        QVERIFY2(main.contains(QStringLiteral("falling back to the software "
+                                              "renderer")),
+                 "the OpenGL probe no longer warns when it degrades");
+        // And the positive one exists, is driven by the scene graph actually
+        // coming up, and reads the renderer interface rather than the request.
+        QVERIFY2(main.contains(QStringLiteral("scene graph backend=")),
+                 "nothing reports which backend the scene graph got, so a "
+                 "silent software fallback is unreadable from a log");
+        QVERIFY2(main.contains(QStringLiteral("sceneGraphInitialized")),
+                 "the backend line is not tied to the scene graph coming up, "
+                 "so it cannot be reporting what Qt actually chose");
+        QVERIFY2(main.contains(QStringLiteral("rendererInterface()")),
+                 "the backend line reads the requested API rather than the "
+                 "one in use; setGraphicsApi is a request, not an answer");
+        // Every backend Qt can hand back is named. A new one added to
+        // QSGRendererInterface reports as "unknown", which is honest, but
+        // these five must never silently become it.
+        for (const char *api : { "Software", "OpenGL", "Vulkan", "Metal",
+                                 "Direct3D11" }) {
+            QVERIFY2(main.contains(QLatin1String(api)),
+                     qPrintable(QStringLiteral("the backend line does not "
+                                               "name %1").arg(QLatin1String(api))));
+        }
+    }
+
     // The application binary and CMake target are `lightning-matrix`; the
     // generic `matrix-client` build identity is retired. The PERSISTENT
     // identity (QSettings organization/application names, store roots) is a
