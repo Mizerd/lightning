@@ -967,11 +967,23 @@ controls Loader, no `Layout.minimumWidth` floor at all, so it is squeezed below
 its natural width. That it fires at 1280 maximised is independent evidence the
 header row was over-full even at full width.
 
-The control-overflow fix in the same round may close it as a side effect, since
-a compact bar stops demanding the width the bubbles are losing. **Unverified —
-the guest runs released 0.9.4.** Re-check on a build carrying the fix before
-touching `CallSpeakerBubbles`; do NOT add a floor to the bubbles host on a
-hunch, because a floor is what put Leave call off the edge of the window.
+**ROOT-CAUSED AND FIXED, 2026-09-12, and this diagnosis was wrong.** The host
+was never the problem and neither was the control overflow. The owner is
+`CallSpeakerBubbles.qml`'s own `implicitWidth`, which said
+`N * (bubbleSize + spacing6)` while the delegate's cell is `bubbleSize + 8` —
+the width the SPEAKING RING needs, which the delegate's comment records
+widening it to. So with two people the strip asked for 80 px, drew 90, and its
+own `clip: true` cut ~10 px off the last avatar. Measured, not argued: the
+regression case reports "the strip asks for 80 px and draws 90 px" on the old
+formula. The cell is one `cellWidth` property now, read by both.
+
+The instinct NOT to add a floor to the host was right, for the wrong reason —
+a floor would have masked an arithmetic error with extra space. What hid it
+from every existing test is that the COLLAPSED header fills the strip's width
+from its host, so the defect only appears on the spotlight branch where the
+strip takes its own implicit width. NOT TESTED live on a packaged build with
+two people; it is a two-line arithmetic change with a measured test, and the
+next AppImage can confirm the picture.
 
 **2. The room-header title elides with room to spare, and the obvious
 candidate is REFUTED.** At 640 px: header ~338 px, so `header.width * 0.5`
@@ -981,13 +993,26 @@ not the binding constraint — the title elides at roughly a third of what the
 cap allows — and a layout squeeze cannot leave 60 px unused beside the thing it
 squeezed.
 
-HYPOTHESIS, not measured: the other term, `Math.ceil(implicitWidth)`.
-`QQuickText.implicitWidth` reflects the ELIDED content once eliding is active,
-which would make `Layout.maximumWidth` self-referential and ratchet the width
-down. The comment on that line records that it already produced a
-fractional-elide bug once. WHAT WOULD SETTLE IT: an offscreen probe logging the
-Text's `width`, `implicitWidth`, `truncated` and `header.width` at a fixed
-size. Do not edit that line on the hypothesis alone.
+**THE HYPOTHESIS IS REFUTED, 2026-09-12, on the real component.** It was that
+`Math.ceil(implicitWidth)` reflects the ELIDED content once eliding is active,
+making `Layout.maximumWidth` self-referential and ratcheting the width down.
+If that were true the title could not recover without something resetting it,
+and it does: driven on the laptop rig with "Lightning search fixture" open, the
+title elides to "Light…" at a 640 px window and renders IN FULL at both 1200
+and 1707 — no reset, no reload, just a resize. A self-referential bound cannot
+un-ratchet. `Math.ceil(implicitWidth)` is not the cause and that line should be
+left alone.
+
+**And the symptom did not reproduce either.** At 640 px the gap between the
+elided title and the first header icon measured ~17 logical px, not the ~60 px
+the original sweep recorded — a normal layout gap. The title ink matched (~54
+px). The likeliest explanation for the difference is the ICON COUNT: the
+original was measured on the Windows guest in an ENCRYPTED room, which carries
+the padlock this one does not. So what is left of this item is "the title
+elides at a 640 px window", which is a genuine squeeze — the header has about
+277 logical px for an avatar, a title and four icons at that size — and not
+obviously a defect. Re-open it only with a capture showing real empty space
+beside an elided title, and say what the icon cluster held.
 
 NOT TESTED in that sweep and worth covering: code blocks and wide tables (the
 one attempt was void — shell quoting truncated the message before it reached
