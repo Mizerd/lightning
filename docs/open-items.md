@@ -686,6 +686,14 @@ PASS, each on evidence the layout cannot fake:
   row appears — all of which are gated on being off neutral.
 * **Reset input volume** applies 100 to the engine (`percent= 100 gst= 1
   elements= 1`) and writes 100 to disk.
+* **BOTH SURFACES WRITE, independently.** Dragging the SETTINGS slider during
+  a live call logs `microphone gain applied: percent= 151 gst= 5.59
+  elements= 1` and stores 151, and reopening the in-call chevron menu then
+  reads 151%. The reviewer's warning applies and was answered: two sliders
+  agreeing proves only that they READ the same value, because Qt does not
+  break a QML binding on a C++-side `setValue` — so each surface was driven
+  separately and checked against the engine line and the disk, not against
+  the other slider.
 * **Ctrl+Shift+C is INERT during a live call**, pressed in a different
   RTC-capable room: no `call start requested` line of any kind, and the call
   kept running (17500 -> 19000 frames out). WITH A POSITIVE CONTROL, because
@@ -711,14 +719,30 @@ PASS, each on evidence the layout cannot fake:
 STILL NOT TESTED: **audibility** — nobody listened, and what is proven is that
 the value reaches a real GStreamer `volume` element, exactly the split the
 per-participant volume carries; a slow or diagonal human drag on the menu
-slider; setting the same value from both surfaces mid-call; the account switch
-(mic is account-scoped, media is global, and nothing on screen says so);
-restart with a call; the PiP window, which declares none of the call keys and
+slider; restart with a call; the PiP window, which declares none of the call keys and
 so should be dead for all of them; media playback volume against a real video;
 and Windows/macOS, where `requestScreenShare()` takes a different code path
 this key has never exercised. Plan, with what would make each look like a pass
 while broken: vault note "Lightning/Testing/Sound and shortcuts round — live
 test plan".
+
+**THE ACCOUNT SWITCH IS LIVE-VALIDATED — PASS, and it closed one of the
+review's follow-ups by finding the UI said the wrong thing.** Driven inside
+ONE client on the laptop rig, which has both fixture accounts saved: the
+microphone level read 151% for `lightningtest`, 60% for `lightningtest2`, and
+151% again on switching back — while the GLOBAL fallback key held 60 the whole
+time, so the UI is reading the account key and not the fallback. A fresh
+account inherits the last value rather than snapping to a default, which is
+`appearanceValue`'s design and is what a user would want. Set different values
+on each account first: the reviewer's warning that two untouched accounts both
+read 100 and make the scoping invisible is exactly right.
+
+That run also showed the section's own explainer was wrong. "These devices
+belong to this computer, not to your account" sat directly under the
+microphone LEVEL, which is account-scoped — so the one sentence telling anyone
+which of the two they are changing was backwards about one of them. Fixed, and
+pinned from both ends by
+`theSoundSectionsScopeSentenceMatchesWhereThingsActuallyLive`.
 
 ACCEPTED FOLLOW-UPS from that round's review, none blocking: the in-call level
 slider cannot be reached by keyboard (`QQuickMenu` arrow navigation visits
