@@ -60,12 +60,30 @@ Item {
     // all, which is the "call bubbles should be here" report: the host was
     // active and the component was invisible.
     //
+    /// One bubble's CELL, which is wider than the avatar: the speaking ring
+    /// is `bubbleSize + 8` and centred, so the cell has to carry it or the
+    /// ListView's clip cuts the ring off. Declared ONCE because the delegate
+    /// and the implicit width below both need it, and having it written out
+    /// twice is exactly how they came to disagree — see implicitWidth.
+    readonly property int cellWidth: root.bubbleSize + 8
+
     // Content width, capped: a large call must not push the title and the
     // controls out of the header. Past the cap the strip scrolls, which it
     // already supports — it is a ListView, and truncating instead would put
     // a second, disagreeing count next to the header's.
+    //
+    // THIS UNDER-REPORTED BY 8 px PER BUBBLE AND THAT IS THE SLICED AVATAR.
+    // The delegate's cell was widened from `bubbleSize + 4` to
+    // `bubbleSize + 8` to stop the speaking ring being clipped; this formula
+    // still said `bubbleSize + spacing6`. With two people it asked for 80 px
+    // and needed 90, so the ListView's own `clip: true` cut ~10 px off the
+    // last avatar — visible in a real two-person call on Windows and on
+    // Linux, and reported as a sliced facepile. The real content is N cells
+    // plus the N-1 gaps BETWEEN them; the last bubble has no trailing gap,
+    // and including one would leave a dead strip the pill could sit in.
     implicitWidth: root._count > 0
-        ? Math.min(root._count * (root.bubbleSize + AppTheme.spacing6),
+        ? Math.min(root._count * root.cellWidth
+                   + (root._count - 1) * AppTheme.spacing6,
                    root.maxImplicitWidth)
         : 0
     /// How wide this strip may get before it starts scrolling. A host that
@@ -104,7 +122,12 @@ Item {
             // `bubbleSize + 4` left it 2 px wider than its own cell — which
             // the ListView's clip then cut off the first and last bubble,
             // and only while someone was talking.
-            width: root.bubbleSize + 8
+            //
+            // `root.cellWidth`, not the arithmetic again: this value and the
+            // strip's implicitWidth MUST agree, and the last time they were
+            // written out separately one of them was updated and the other
+            // was not.
+            width: root.cellWidth
             height: strip.height
 
             readonly property bool muted: bubble.micKnown && bubble.micMuted

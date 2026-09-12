@@ -751,6 +751,91 @@ Item {
         }
     }
 
+    // THE STRIP MUST ASK FOR AS MUCH ROOM AS IT ACTUALLY DRAWS, or its own
+    // `clip: true` slices the last avatar.
+    //
+    // It under-reported by 8 px per bubble for as long as the speaking ring
+    // has existed: the delegate's cell was widened from `bubbleSize + 4` to
+    // `bubbleSize + 8` so the ring would fit, and `implicitWidth` was left
+    // saying `bubbleSize + spacing6`. With two people it asked for 80 and
+    // drew 90. Seen in a real two-person call as a sliced facepile avatar on
+    // Windows and on Linux, and invisible to every test here because they all
+    // either filled the width from the host or only asked whether the strip
+    // had a HEIGHT.
+    //
+    // MEASURED, not read: the assertion is the right edge of the last
+    // delegate against the strip's own implicitWidth, so any future way of
+    // getting the arithmetic wrong fails too.
+    void theBubbleStripAsksForTheWidthItDraws()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(QByteArray(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+Item {
+    width: 900
+    height: 80
+    property alias bubbles: strip
+    ListModel {
+        id: people
+        ListElement {
+            identity: "PA_one"; userId: "@alice:mock.local"
+            displayName: "Alice"; avatarMxc: ""; local: true
+            speaking: true; micKnown: false; micMuted: false
+            screenSharing: false
+        }
+        ListElement {
+            identity: "PA_two"; userId: "@bob:mock.local"
+            displayName: "Bob"; avatarMxc: ""; local: false
+            speaking: false; micKnown: true; micMuted: true
+            screenSharing: true
+        }
+    }
+    CallSpeakerBubbles {
+        id: strip
+        objectName: "fixtureBubbles"
+        model: people
+    }
+}
+)"), QUrl(QStringLiteral("qrc:/callbubblewidth.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        auto *outer = qobject_cast<QQuickItem *>(owner.get());
+        QVERIFY(outer != nullptr);
+        QCoreApplication::processEvents();
+        outer->polish();
+        QCoreApplication::processEvents();
+
+        auto *bubbles = qobject_cast<QQuickItem *>(
+            outer->property("bubbles").value<QObject *>());
+        QVERIFY(bubbles != nullptr);
+        // The host here does NOT set a width, so the strip takes its own
+        // implicit one — which is the case the header's spotlight branch
+        // hits and the collapsed strip never does.
+        const double want = bubbles->property("implicitWidth").toDouble();
+        QVERIFY2(want > 0.0, "the strip reports no implicit width at all");
+
+        auto *strip =
+            outer->findChild<QQuickItem *>(QStringLiteral("callSpeakerBubbles"));
+        QVERIFY(strip != nullptr);
+        QCOMPARE(strip->property("count").toInt(), 2);
+
+        // The delegates, by their real geometry. contentWidth is the
+        // ListView's own sum of cells and spacings.
+        const double drawn = strip->property("contentWidth").toDouble();
+        QVERIFY2(drawn > 0.0, "the ListView reports no content width — the "
+                              "delegates never built, so this case would "
+                              "pass on anything");
+        QVERIFY2(want >= drawn,
+                 qPrintable(QStringLiteral(
+                                "the strip asks for %1 px and draws %2 px, so "
+                                "its own clip cuts %3 px off the last avatar")
+                                .arg(want).arg(drawn).arg(drawn - want)));
+    }
+
     // The share picker LOADS, it classifies a row the same way the capture
     // does, and it NAMES a window the way a person can act on.
     //
