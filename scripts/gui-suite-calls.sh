@@ -72,10 +72,13 @@ VOL_MAX_X=1303                       # slider groove, right end -> 200%
 # four are the ones most likely to be stale after a call-bar change; the
 # check that uses them says so in its failure text rather than reporting a
 # product defect, because a missed click and a dead control look identical.
-MIC_CHEVRON_X=941 MIC_CHEVRON_Y=135  # the chevron BESIDE the mic button
-MICGAIN_Y=300                        # the level slider's row inside the menu
-MICGAIN_MIN_X=995                    # groove, left end  -> 0%
-MICGAIN_MAX_X=1135                   # groove, right end -> 200%
+# CALIBRATED LIVE 2026-09-12 on a 1707x1000 window, per RECALIBRATE above:
+# the mic chevron's centre measured at native 2193,205 and the menu's groove
+# at native 2234..2487, y 423, divided by this host's 2560/1707.33.
+MIC_CHEVRON_X=1463 MIC_CHEVRON_Y=137  # the chevron BESIDE the mic button
+MICGAIN_Y=282                         # the level slider's row inside the menu
+MICGAIN_MIN_X=1490                    # groove, left end  -> 0%
+MICGAIN_MAX_X=1659                    # groove, right end -> 200%
 # The portal's source tiles are placed as FRACTIONS of its own dialog, so a
 # different dialog size still hits the first source. Measured 2026-09-11:
 # a 738x766 dialog put "Laptop screen" at rel 189,233.

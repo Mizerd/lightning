@@ -616,26 +616,68 @@ read-withdrawal of a balloon (Qt cannot do it; it needs WinRT
 `ToastNotificationHistory.Remove`) and the notification SOUND. macOS remains
 untested entirely.
 
-**2026-09-12, the sound/shortcuts round — what is PASS and what is not.** PASS
-on an isolated Xvfb display (`DISPLAY=:99` + xdotool, which cannot reach the
-maintainer's session): the new Sound & video section renders with every
-control; the media-playback and microphone sliders write through to disk
-(`volume=0.15`, `microphoneGain=168`); the device pickers LEFT Notifications;
-the quick switcher reaches Sound & video and Updates; Ctrl+Shift+T opens the
-DM dialog and Ctrl+Shift+I the Activity Center; and the four new call/room
-keys pressed with a draft in the composer leave it intact and open nothing.
+**2026-09-12, the sound/shortcuts round — LIVE-VALIDATED on a packaged
+AppImage, two real clients, a real homeserver.** Driven on the laptop rig
+against `matrix.smetonis.net` with the two throwaway fixture accounts, on the
+project-6 pipeline 203 artifact (`0.9.4+git20260912.05008f9`). **That AppImage
+bundles Qt 6.8.2** — measured from the running process, not assumed — so this
+run also answers the standing worry that nothing new here had ever been
+rendered on the Qt every deb/rpm/AppImage user actually has, in the one area
+(Quick Controls layout inside a `QQuickMenu`) where this project has been bitten
+by the 6.8/6.11 split twice.
 
-NOT TESTED, and the first of these is the round's headline claim: whether the
-in-call microphone slider REACHES THE AUDIO GRAPH (the readout is computed
-from the slider's own value, so it is not evidence — this is the exact shape
-of the 2026-09-11 claim that had to be withdrawn); whether a `Slider` inside a
-`QQuickMenu` survives a slow or diagonal drag; the seven keys during a live
-call; the same value set from both surfaces; the account switch (mic is
-account-scoped, media is global, and nothing on screen says so); restart with
-a call; Qt 6.8.2 layout of that menu; and Windows/macOS, where
-`requestScreenShare()` takes a different code path the new key has never
-exercised. Plan, with what would make each look like a pass while broken:
-vault note "Lightning/Testing/Sound and shortcuts round — live test plan".
+PASS, each on evidence the layout cannot fake:
+
+* **The in-call microphone level reaches the audio graph.** `microphone gain
+  applied: percent= 0 gst= 0 elements= 1` and `percent= 200 gst= 10
+  elements= 1`, emitted only after `g_object_set` succeeded on a real named
+  `volume` element. This is the round's headline claim and the exact shape of
+  the 2026-09-11 claim that had to be withdrawn ("the slider read 200% and
+  nothing had reached the audio graph"); the readout is computed from the
+  slider's own value and is NOT evidence, which is why the instrument was
+  added first. `scripts/gui-suite-calls.sh micgain` is the tracked form.
+* **A `Slider` inside a `QQuickMenu` can be dragged** — the menu's ListView
+  did not steal it. Driven drags only; a slow or deliberately diagonal HUMAN
+  drag is still unexercised.
+* **The menu's whole design appears at 200%**: the `mic` glyph swaps to
+  `graphic_eq`, the readout tracks, the neutral mark sits at 100, the "Above
+  100% amplifies and can clip" warning appears, and the "Reset input volume"
+  row appears — all of which are gated on being off neutral.
+* **Reset input volume** applies 100 to the engine (`percent= 100 gst= 1
+  elements= 1`) and writes 100 to disk.
+* **Ctrl+Shift+C is INERT during a live call**, pressed in a different
+  RTC-capable room: no `call start requested` line of any kind, and the call
+  kept running (17500 -> 19000 frames out). WITH A POSITIVE CONTROL, because
+  a dead key and a correctly-gated key look identical — the same key with no
+  call running logged `call start requested lane= "matrixrtc"` and
+  `sfu joined`. That is the H1 defect's live regression check.
+* **Ctrl+Shift+Y leaves the call** (`teardown state= 6`, `membership
+  retracted attempts= 1`).
+* **Ctrl+Shift+S opens the portal picker and publishes NOTHING** — the portal
+  window appeared and no `screen share publishing` line followed. That is the
+  privacy-critical half of that key.
+* **Ctrl+Shift+A marks every conversation read** and **Ctrl+Shift+R marks the
+  open one unread**, both against the real backend with a real unread state
+  created by the other client. The mock backend cannot answer either — it does
+  not clear unread badges even from its OWN context menu, which is the control
+  that proved the fixture rather than the feature was the limitation.
+* Ctrl+Shift+T (DM dialog) and Ctrl+Shift+I (Activity Center), the Sound &
+  video section, the media-playback and microphone sliders writing to disk,
+  the devices leaving Notifications, and the quick switcher reaching the new
+  sections: PASS on an isolated Xvfb display (`DISPLAY=:99` + xdotool, which
+  cannot reach the maintainer's session).
+
+STILL NOT TESTED: **audibility** — nobody listened, and what is proven is that
+the value reaches a real GStreamer `volume` element, exactly the split the
+per-participant volume carries; a slow or diagonal human drag on the menu
+slider; setting the same value from both surfaces mid-call; the account switch
+(mic is account-scoped, media is global, and nothing on screen says so);
+restart with a call; the PiP window, which declares none of the call keys and
+so should be dead for all of them; media playback volume against a real video;
+and Windows/macOS, where `requestScreenShare()` takes a different code path
+this key has never exercised. Plan, with what would make each look like a pass
+while broken: vault note "Lightning/Testing/Sound and shortcuts round — live
+test plan".
 
 ACCEPTED FOLLOW-UPS from that round's review, none blocking: the in-call level
 slider cannot be reached by keyboard (`QQuickMenu` arrow navigation visits

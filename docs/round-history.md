@@ -105,17 +105,36 @@ asks the two sets to be equal — so with ten sections, two could vanish from
 BOTH files and it would still pass. Same shape as a sweep that matches
 nothing: the guard has to be tight enough to be a guard.
 
-Live status of the round: the Sound & video section, the media-playback and
-microphone levels writing through to disk, the devices leaving Notifications,
-the quick switcher reaching the new sections, and Ctrl+Shift+T / Ctrl+Shift+I
-are **PASS**, driven on an isolated Xvfb display with xdotool (`DISPLAY=:99`,
-which cannot reach the maintainer's session — that is how a GUI is driven on
-this host while he is at the PC). **NOT TESTED: everything that needs a real
-call** — above all whether the in-call slider reaches the audio graph, which
-is the round's headline claim and the exact shape of a claim this project has
-already had to withdraw. The full plan, with what would make each observation
-look like a pass while the feature is broken, is the vault note "Lightning/
-Testing/Sound and shortcuts round — live test plan".
+**AND THE CLAIM WAS NOT ASSERTABLE UNTIL AN INSTRUMENT WAS ADDED FOR IT.**
+`SfuMediaEngine::setMicrophoneGain` walked the published bins, set `volume` on
+any `micvol` it found and SAID NOTHING, so whether the new control reached the
+audio graph was unobservable — the identical state the per-participant volume
+was in when a live run produced "the slider read 200% and nothing had reached
+the audio graph". The menu's readout is computed from the slider's own value
+and the stored number only proves the SETTING was written; neither is
+evidence. `microphone gain applied: percent= N gst= F elements= K` plus a
+"nowhere to land" warning is the twin of the line `e07a663` gave the other
+path. GENERALISE: before testing a claim, ask what observation could
+distinguish it from its failure — and if there is none, the first commit of
+the round is the instrument, not the feature.
+
+**Live status: the round is validated, on a packaged AppImage that bundles Qt
+6.8.2.** Two real clients, a real homeserver, the pipeline-203 artifact. PASS:
+the microphone level reaches a real `volume` element at 0%, 100% and 200%; a
+`Slider` inside a `QQuickMenu` can be dragged at all; the >100% glyph swap,
+clipping warning and Reset row all appear; Ctrl+Shift+C is INERT during a live
+call **with a positive control**, because a dead key and a correctly-gated key
+look identical; Ctrl+Shift+Y leaves; Ctrl+Shift+S opens the picker and
+publishes nothing; and Ctrl+Shift+A / Ctrl+Shift+R work against a real unread
+state — which the MOCK backend could not have answered, since it does not
+clear unread badges even from its own context menu. That last point is worth
+keeping on its own: **the control that proved the fixture was the limitation
+was the pointer-driven path failing the same way.** NOT TESTED: audibility
+(nobody listened), a slow or diagonal HUMAN drag, the account switch, restart
+with a call, and the PiP window, which declares none of the call keys. The
+full plan, with what would make each observation look like a pass while the
+feature is broken, is the vault note "Lightning/Testing/Sound and shortcuts
+round — live test plan".
 
 #### 2026-09-12, the overnight live round: three defects the harness could not see
 
