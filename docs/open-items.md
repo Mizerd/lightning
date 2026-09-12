@@ -21,6 +21,42 @@ says NOT TESTED has not been tested, however plausible the code reads.
 
 OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
 
+- **THE macOS ASSET CANNOT BE UPLOADED, AND A RELEASE WOULD SHIP WITHOUT IT
+  IN SILENCE (found 2026-09-12, pipeline 208).** `macos-package-test` BUILDS
+  and VALIDATES perfectly — "macOS bundle validation passed (arm64,
+  289443840 bytes)", every check green — and then dies on
+  `Uploading artifacts as "archive" to coordinator... 413 Payload Too Large`.
+
+  The cause is **Cloudflare**. `gitlab.smetonis.net` resolves to Cloudflare
+  addresses and answers `server: cloudflare`; a deliberate 150 MB POST to it
+  returns 413, which is the free plan's 100 MB request-body cap. That is the
+  same "approximately 100 MiB request limit" `docs/windows-runner-operations.md`
+  already records, and the Windows manager was moved to the host-internal
+  `http://10.195.35.2` endpoint precisely because of it — it uploaded a 345 MB
+  artifact through that route today without complaint. GitLab's own nginx is
+  `client_max_body_size 0` and the external nginx allows `2000m`, so neither of
+  those is the limiter.
+
+  **WHY IT MATTERS MORE THAN A RED JOB.** The job is `allow_failure: true` and
+  `publish-packages` needs it `optional` — deliberately, so one sleeping Mac
+  cannot block a release. With this failure that safety valve is now permanent
+  and silent: the pipeline goes green and publishes every other artifact, and
+  macOS just is not there. It is the only lane whose absence a green pipeline
+  will not report.
+
+  **WHAT IS NOT EXPLAINED.** The same job with the same ~289 MB bundle
+  SUCCEEDED at the 0.9.4 release (pipeline 186, 2026-09-09, upload
+  `201 Created`, bundle 289,222,656 bytes against 289,443,840 now — 221 KB
+  apart, which cannot cross a 100 MB line). So the artifact did not change and
+  the path did. GitLab moved 19.2.4 -> 19.2.6 in that window, and the Mac
+  mini's runner URL has not been inspected. Do not guess: read the Mac
+  runner's `config.toml` `url` first.
+
+  **THE FIX IS KNOWN AND ALREADY PROVEN ON ANOTHER RUNNER**: point the Mac
+  mini's runner at the host-internal GitLab endpoint for coordinator traffic,
+  exactly as the Windows manager does, keeping source clones on HTTPS. It
+  needs access to the Mac mini, which this session does not have.
+
 - ~~**The camera does not work at all**~~ — **FIXED and LIVE-CONFIRMED on
   Windows 2026-08-27** (`31e6048`), as is the window share's aspect ratio and
   resizing a shared window mid-share. It was never the camera, and "screen share
@@ -101,8 +137,19 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
 - **The screen share's startup is still VARIABLE**, though far less so, and
   there is now a MEASUREMENT: one live share on 2026-08-26 reported
   `afterPublishMs=135 firstCaptureMs=58 rateStageHoldMs=77` — 77 ms of
-  `videorate` hold, not seconds. That is ONE capture on ONE desktop and the
-  cause is unchanged, so it bounds the problem rather than closing it; a
+  `videorate` hold, not seconds. **THREE MORE CAPTURES ON A SECOND MACHINE,
+  2026-09-12** (the laptop, packaged AppImage): `122/59/63`, `124/62/62` and
+  `127/61/66`. So the bound now rests on four captures across two hosts and
+  they are tightly clustered — 122-135 ms to the first encoded frame, 58-62 ms
+  to first capture, 62-77 ms of rate-stage hold — rather than on a single
+  reading. OBSERVATION, not a conclusion: every one of those shares was started
+  through the portal picker, and the picker's own dismissal damages the screen
+  immediately before capture begins, which is exactly the second buffer
+  `videorate` is waiting for. That may be why the hold is so consistent here
+  and why the originally reported 5-10 s has not been reproducible on either
+  machine. It is NOT a measurement of a genuinely still desktop, which remains
+  the case the mechanism predicts is slow and which nothing has yet captured.
+  The cause is unchanged, so it bounds the problem rather than closing it; a
   desktop that is genuinely still (no damage) still has nothing to deliver.
   Previously live-confirmed as near-instant on the first share and 1-2 s on a
   restart, against the 5-10 s originally reported. The cause is unchanged and
