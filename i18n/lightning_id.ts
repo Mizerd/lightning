@@ -1067,7 +1067,7 @@
 <context>
     <name>CallDeviceMenu</name>
     <message>
-        <location filename="../qml/CallDeviceMenu.qml" line="+53"/>
+        <location filename="../qml/CallDeviceMenu.qml" line="+75"/>
         <source>Output device</source>
         <translation>Perangkat keluaran</translation>
     </message>
@@ -1095,6 +1095,27 @@
         <location line="+14"/>
         <source>Your chosen microphone isn&apos;t connected</source>
         <translation>Mikrofon pilihan Anda tidak tersambung</translation>
+    </message>
+    <message>
+        <location line="+52"/>
+        <location line="+32"/>
+        <source>Input volume</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+58"/>
+        <source>Above 100% amplifies and can clip.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Reset input volume</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Sound settings…</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -1402,7 +1423,7 @@
 <context>
     <name>CallParticipantTile</name>
     <message>
-        <location filename="../qml/CallParticipantTile.qml" line="+187"/>
+        <location filename="../qml/CallParticipantTile.qml" line="+186"/>
         <source>You</source>
         <translation>kamu</translation>
     </message>
@@ -1584,7 +1605,7 @@
 <context>
     <name>CallShareTile</name>
     <message>
-        <location filename="../qml/CallShareTile.qml" line="+96"/>
+        <location filename="../qml/CallShareTile.qml" line="+95"/>
         <source>Your screen</source>
         <translation>Layar Anda</translation>
     </message>
@@ -1696,7 +1717,7 @@
         <translation>Tutup panggilannya</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+55"/>
         <source>Video can&apos;t be shown on this computer — there is no working graphics acceleration, so cameras and shared screens won&apos;t appear. Audio is unaffected.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4778,7 +4799,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+476"/>
+        <location filename="../qml/MainScreen.qml" line="+581"/>
         <source>Switching account…</source>
         <translation>Berganti akun…</translation>
     </message>
@@ -9126,7 +9147,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomsPanel</name>
     <message>
-        <location filename="../qml/RoomsPanel.qml" line="+185"/>
+        <location filename="../qml/RoomsPanel.qml" line="+195"/>
         <location line="+3"/>
         <location line="+5"/>
         <source>Lightning</source>
@@ -10122,36 +10143,36 @@ Signing out and signing in again is the only fix.</source>
         <location filename="../qml/SettingsScreen.qml" line="+53"/>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+563"/>
-        <location line="+658"/>
-        <location line="+3261"/>
+        <location line="+579"/>
+        <location line="+663"/>
+        <location line="+3377"/>
         <source>Account</source>
         <translation>Akun</translation>
     </message>
     <message>
-        <location line="-4485"/>
+        <location line="-4622"/>
         <source>account profile</source>
         <translation>akun profil</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5493"/>
+        <location line="+5630"/>
         <source>Homeserver</source>
         <translation>Homeserver</translation>
     </message>
     <message>
-        <location line="-5493"/>
+        <location line="-5630"/>
         <source>homeserver server url</source>
         <translation>homeserver url server</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5527"/>
+        <location line="+5664"/>
         <source>Start minimized</source>
         <translation>Mulai terminimalkan</translation>
     </message>
     <message>
-        <location line="-5527"/>
+        <location line="-5664"/>
         <source>startup minimized</source>
         <translation>mulai terminimalkan</translation>
     </message>
@@ -10162,12 +10183,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1366"/>
+        <location line="+1392"/>
         <source>Theme</source>
         <translation>Tema</translation>
     </message>
     <message>
-        <location line="-1365"/>
+        <location line="-1391"/>
         <source>theme moss indigo teal light dark graphite midnight nordic purple warm</source>
         <translation>tema moss indigo teal terang gelap graphite midnight nordic purple warm</translation>
     </message>
@@ -10178,22 +10199,22 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+2"/>
         <location line="+8"/>
-        <location line="+536"/>
-        <location line="+662"/>
-        <location line="+128"/>
+        <location line="+552"/>
+        <location line="+667"/>
+        <location line="+133"/>
         <source>Appearance</source>
         <translation>Tampilan</translation>
     </message>
     <message>
-        <location line="-1347"/>
-        <location line="+1058"/>
-        <location line="+825"/>
+        <location line="-1373"/>
+        <location line="+1079"/>
+        <location line="+830"/>
         <location line="+83"/>
         <source>Match system light/dark</source>
         <translation>Ikuti terang/gelap sistem</translation>
     </message>
     <message>
-        <location line="-1965"/>
+        <location line="-1991"/>
         <source>match system auto theme</source>
         <translation>ikuti sistem tema otomatis</translation>
     </message>
@@ -10204,57 +10225,57 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+2037"/>
+        <location line="+2063"/>
         <source>Message layout</source>
         <translation>Tata letak pesan</translation>
     </message>
     <message>
-        <location line="-2036"/>
+        <location line="-2062"/>
         <source>message layout modern bubbles compact</source>
         <translation>tata letak pesan modern gelembung ringkas</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2058"/>
+        <location line="+2084"/>
         <source>Text size</source>
         <translation>Ukuran teks</translation>
     </message>
     <message>
-        <location line="-2058"/>
+        <location line="-2084"/>
         <source>text size font scale</source>
         <translation>ukuran teks fon skala</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2152"/>
+        <location line="+2178"/>
         <location line="+16"/>
         <source>Interface zoom</source>
         <translation>Zoom antarmuka</translation>
     </message>
     <message>
-        <location line="-2167"/>
+        <location line="-2193"/>
         <source>interface zoom scale bigger ui size</source>
         <translation>zoom antarmuka skala ukuran ui lebih besar</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2236"/>
+        <location line="+2262"/>
         <source>Font</source>
         <translation>Fon</translation>
     </message>
     <message>
-        <location line="-2236"/>
+        <location line="-2262"/>
         <source>font family typeface</source>
         <translation>fon keluarga huruf</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2411"/>
+        <location line="+2437"/>
         <source>Code font</source>
         <translation>Font kode</translation>
     </message>
     <message>
-        <location line="-2410"/>
+        <location line="-2436"/>
         <source>code font monospace mono fixed width typeface</source>
         <translation>kode font monospace mono jenis huruf dengan lebar tetap</translation>
     </message>
@@ -10266,35 +10287,35 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+2477"/>
+        <location line="+2503"/>
         <source>Your own fonts</source>
         <translation>Font Anda sendiri</translation>
     </message>
     <message>
-        <location line="-2476"/>
+        <location line="-2502"/>
         <source>import font file ttf otf install custom typeface</source>
         <translation>impor file font ttf otf instal jenis huruf khusus</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2889"/>
+        <location line="+2915"/>
         <source>Language</source>
         <translation>Bahasa</translation>
     </message>
     <message>
-        <location line="-2889"/>
+        <location line="-2915"/>
         <source>language locale</source>
         <translation>bahasa lokal</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1045"/>
-        <location line="+1646"/>
+        <location line="+1066"/>
+        <location line="+1651"/>
         <source>Show room activity</source>
         <translation>Tampilkan aktivitas ruang</translation>
     </message>
     <message>
-        <location line="-2690"/>
+        <location line="-2716"/>
         <source>room activity membership joins leaves profile</source>
         <translation>aktivitas ruang keanggotaan bergabung keluar profil</translation>
     </message>
@@ -10308,48 +10329,48 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-9"/>
-        <location line="+2734"/>
+        <location line="+2760"/>
         <source>Mouse-wheel speed</source>
         <translation>Kecepatan roda tetikus</translation>
     </message>
     <message>
-        <location line="-2733"/>
+        <location line="-2759"/>
         <source>wheel speed scroll timeline</source>
         <translation>kecepatan roda gulir linimasa</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1073"/>
-        <location line="+1639"/>
+        <location line="+1094"/>
+        <location line="+1644"/>
         <source>Joins, leaves and invites</source>
         <translation>Bergabung, keluar, dan mengundang</translation>
     </message>
     <message>
-        <location line="-2711"/>
+        <location line="-2737"/>
         <source>membership join leave invite kick ban activity hide</source>
         <translation>keanggotaan gabung cuti undang tendangan larangan aktivitas sembunyikan</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1078"/>
-        <location line="+1641"/>
+        <location line="+1099"/>
+        <location line="+1646"/>
         <source>Display name and avatar changes</source>
         <translation>Tampilan nama dan perubahan avatar</translation>
     </message>
     <message>
-        <location line="-2718"/>
+        <location line="-2744"/>
         <source>profile change display name avatar activity hide</source>
         <translation>ubah profil nama tampilan aktivitas avatar sembunyikan</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1082"/>
-        <location line="+1871"/>
+        <location line="+1103"/>
+        <location line="+1876"/>
         <source>Reduce motion</source>
         <translation>Kurangi gerakan</translation>
     </message>
     <message>
-        <location line="-2952"/>
+        <location line="-2978"/>
         <source>reduced motion animation accessibility vestibular</source>
         <translation>berkurangnya aksesibilitas animasi gerak vestibular</translation>
     </message>
@@ -10362,36 +10383,36 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-8"/>
-        <location line="+1085"/>
-        <location line="+1878"/>
+        <location line="+1106"/>
+        <location line="+1883"/>
         <source>Smooth scrolling</source>
         <translation>Pengguliran halus</translation>
     </message>
     <message>
-        <location line="-2962"/>
+        <location line="-2988"/>
         <source>smooth scrolling scroll wheel glide animation instant jumpy mouse</source>
         <translation>animasi luncuran roda gulir yang mulus dan mouse gelisah instan</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2983"/>
+        <location line="+3009"/>
         <source>Clock</source>
         <translation>Jam</translation>
     </message>
     <message>
-        <location line="-2982"/>
+        <location line="-3008"/>
         <source>clock 24 hour time format am pm timestamp</source>
         <translation>jam format waktu 24 jam am pm stempel waktu</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1084"/>
-        <location line="+1954"/>
+        <location line="+1105"/>
+        <location line="+1959"/>
         <source>Show Space banners</source>
         <translation>Tampilkan spanduk Luar Angkasa</translation>
     </message>
     <message>
-        <location line="-3037"/>
+        <location line="-3063"/>
         <source>space banner header image hide show</source>
         <translation>tampilan sembunyikan gambar header spanduk spasi</translation>
     </message>
@@ -10404,35 +10425,35 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+3070"/>
+        <location line="+3096"/>
         <source>Conversation list width</source>
         <translation>Lebar daftar percakapan</translation>
     </message>
     <message>
-        <location line="-3069"/>
+        <location line="-3095"/>
         <source>room list width panel size sidebar</source>
         <translation>sidebar ukuran panel lebar daftar ruangan</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3084"/>
+        <location line="+3110"/>
         <source>Side panel width</source>
         <translation>Lebar panel samping</translation>
     </message>
     <message>
-        <location line="-3083"/>
+        <location line="-3109"/>
         <source>side panel width members threads size</source>
         <translation>ukuran ulir anggota lebar panel samping</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1082"/>
-        <location line="+2017"/>
+        <location line="+1103"/>
+        <location line="+2022"/>
         <source>Enter starts a new line</source>
         <translation>Enter memulai baris baru</translation>
     </message>
     <message>
-        <location line="-3098"/>
+        <location line="-3124"/>
         <source>enter newline send composer message box return</source>
         <translation>masukkan baris baru, kirim kotak pesan komposer kembali</translation>
     </message>
@@ -10447,47 +10468,47 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-14"/>
-        <location line="+1086"/>
-        <location line="+2124"/>
+        <location line="+1107"/>
+        <location line="+2129"/>
         <source>Send text with an attachment as its caption</source>
         <translation>Kirim teks dengan lampiran sebagai keterangannya</translation>
     </message>
     <message>
-        <location line="-3209"/>
+        <location line="-3235"/>
         <source>caption attachment upload text description</source>
         <translation>deskripsi teks unggahan lampiran keterangan</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3243"/>
+        <location line="+3269"/>
         <source>Message box buttons</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3242"/>
+        <location line="-3268"/>
         <source>composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3114"/>
+        <location line="+3140"/>
         <source>Check spelling as you type</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3113"/>
+        <location line="-3139"/>
         <source>spell spelling checker dictionary typo underline language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3121"/>
+        <location line="+3147"/>
         <location line="+13"/>
         <source>Spelling language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3133"/>
+        <location line="-3159"/>
         <source>spell spelling language dictionary automatic system</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10495,25 +10516,25 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+2"/>
         <location line="+3"/>
-        <location line="+472"/>
-        <location line="+666"/>
-        <location line="+2169"/>
+        <location line="+488"/>
+        <location line="+671"/>
+        <location line="+2174"/>
         <source>Keyboard shortcuts</source>
         <translation>Pintasan keyboard</translation>
     </message>
     <message>
-        <location line="-3311"/>
+        <location line="-3337"/>
         <source>keyboard shortcut shortcuts key keys binding rebind hotkey</source>
         <translation>pintasan keyboard pintasan tombol kunci yang mengikat tombol pintas rebind</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3442"/>
+        <location line="+3468"/>
         <source>Reset all shortcuts</source>
         <translation>Setel ulang semua pintasan</translation>
     </message>
     <message>
-        <location line="-3441"/>
+        <location line="-3467"/>
         <source>reset shortcuts default keys</source>
         <translation>setel ulang pintasan tombol default</translation>
     </message>
@@ -10538,29 +10559,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Mikrofon</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>microphone mic input device voice call audio</source>
-        <translation>mikrofon, mikrofon, perangkat input, audio panggilan suara</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <location line="+5"/>
-        <location line="+5"/>
-        <source>Notifications · Voice &amp; video</source>
-        <translation>Pemberitahuan · Suara &amp; video</translation>
-    </message>
-    <message>
-        <location line="-8"/>
+        <location line="+9"/>
         <source>Output device</source>
         <translation>Perangkat keluaran</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>speaker output headphones device voice call audio</source>
-        <translation>keluaran speaker headphone perangkat audio panggilan suara</translation>
-    </message>
-    <message>
-        <location line="+4"/>
+        <location line="+9"/>
         <source>Camera</source>
         <translation>Kamera</translation>
     </message>
@@ -10570,36 +10574,37 @@ Signing out and signing in again is the only fix.</source>
         <translation>panggilan perangkat video webcam kamera</translation>
     </message>
     <message>
-        <location line="+4"/>
-        <location line="+977"/>
-        <location line="+3213"/>
+        <location line="+11"/>
+        <location line="+983"/>
+        <location line="+3218"/>
         <source>Desktop notifications</source>
         <translation>Notifikasi desktop</translation>
     </message>
     <message>
-        <location line="-4189"/>
+        <location line="-4200"/>
         <source>notifications desktop enable</source>
         <translation>notifikasi desktop aktifkan</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-2"/>
+        <location line="+3"/>
         <location line="+4"/>
         <location line="+5"/>
         <location line="+3"/>
-        <location line="+438"/>
-        <location line="+670"/>
-        <location line="+3057"/>
+        <location line="+439"/>
+        <location line="+675"/>
+        <location line="+3062"/>
         <source>Notifications</source>
         <translation>Notifikasi</translation>
     </message>
     <message>
-        <location line="-4175"/>
-        <location line="+4192"/>
+        <location line="-4186"/>
+        <location line="+4203"/>
         <source>Notification preview</source>
         <translation>Pratinjau notifikasi</translation>
     </message>
     <message>
-        <location line="-4191"/>
+        <location line="-4202"/>
         <source>notification preview privacy sender message</source>
         <translation>pratinjau notifikasi privasi pengirim pesan</translation>
     </message>
@@ -10615,23 +10620,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4253"/>
+        <location line="+4264"/>
         <source>Notification sound</source>
         <translation>Suara notifikasi</translation>
     </message>
     <message>
-        <location line="-4252"/>
+        <location line="-4263"/>
         <source>notification sound mute</source>
         <translation>suara notifikasi bisu</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3454"/>
+        <location line="+3465"/>
         <source>Only exchange messages with verified devices</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3453"/>
+        <location line="-3464"/>
         <source>invisible crypto msc4153 cross-signed verified device trust insecure exclude encryption</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10642,12 +10647,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3506"/>
+        <location line="+3517"/>
         <source>Read receipts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3505"/>
+        <location line="-3516"/>
         <source>read receipt receipts private seen ticks blue m.read.private privacy</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10659,23 +10664,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-4"/>
-        <location line="+3545"/>
+        <location line="+3556"/>
         <source>Let others see when I am typing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3544"/>
+        <location line="-3555"/>
         <source>typing notice notification composing indicator privacy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+3586"/>
+        <location line="+3597"/>
         <source>Share my online status</source>
         <translation>Bagikan status daring saya</translation>
     </message>
     <message>
-        <location line="-3585"/>
+        <location line="-3596"/>
         <source>presence online idle offline status share</source>
         <translation>kehadiran daring menganggur luring status bagikan</translation>
     </message>
@@ -10686,12 +10691,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3608"/>
+        <location line="+3619"/>
         <source>Ignored users</source>
         <translation>Pengguna yang diabaikan</translation>
     </message>
     <message>
-        <location line="-3607"/>
+        <location line="-3618"/>
         <source>ignore ignored block user mute person hide</source>
         <translation>abaikan diabaikan blokir pengguna sembunyikan orang</translation>
     </message>
@@ -10717,22 +10722,22 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+4"/>
         <location line="+4"/>
-        <location line="+363"/>
-        <location line="+678"/>
-        <location line="+4723"/>
+        <location line="+365"/>
+        <location line="+687"/>
+        <location line="+4834"/>
         <location line="+485"/>
         <source>Sessions</source>
         <translation>Sesi</translation>
     </message>
     <message>
-        <location line="-6293"/>
-        <location line="+921"/>
-        <location line="+2877"/>
+        <location line="-6415"/>
+        <location line="+927"/>
+        <location line="+2882"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation>Muat pratinjau otomatis di ruang tanpa enkripsi</translation>
     </message>
     <message>
-        <location line="-3797"/>
+        <location line="-3808"/>
         <source>link preview privacy</source>
         <translation>pratinjau tautan privasi</translation>
     </message>
@@ -10744,24 +10749,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+3800"/>
+        <location line="+3811"/>
         <source>Load previews in encrypted rooms</source>
         <translation>Muat pratinjau di ruang terenkripsi</translation>
     </message>
     <message>
-        <location line="-3799"/>
+        <location line="-3810"/>
         <source>link preview encrypted</source>
         <translation>pratinjau tautan terenkripsi</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3871"/>
+        <location line="+3882"/>
         <location line="+7"/>
         <source>Autoplay and prefetch media</source>
         <translation>Putar otomatis dan prapengambilan media</translation>
     </message>
     <message>
-        <location line="-3877"/>
+        <location line="-3888"/>
         <source>gif autoplay prefetch video audio media</source>
         <translation>gif putar otomatis prapengambilan video audio media</translation>
     </message>
@@ -10772,12 +10777,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3914"/>
+        <location line="+3925"/>
         <source>GIF safe search</source>
         <translation>Pencarian aman GIF</translation>
     </message>
     <message>
-        <location line="-3913"/>
+        <location line="-3924"/>
         <source>gif safe search rating</source>
         <translation>gif pencarian aman peringkat</translation>
     </message>
@@ -10790,56 +10795,56 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+3939"/>
+        <location line="+3950"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation>Penyedia GIF pilihan</translation>
     </message>
     <message>
-        <location line="-3945"/>
+        <location line="-3956"/>
         <source>gif provider giphy klipy</source>
         <translation>penyedia gif giphy klipy</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3978"/>
+        <location line="+3989"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation>Simpan GIF yang baru digunakan</translation>
     </message>
     <message>
-        <location line="-3980"/>
+        <location line="-3991"/>
         <source>gif recents store</source>
         <translation>gif terbaru simpan</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5424"/>
+        <location line="+5546"/>
         <source>Security status</source>
         <translation>Status keamanan</translation>
     </message>
     <message>
-        <location line="-5423"/>
+        <location line="-5545"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>e2ee enkripsi status penandatanganan silang cadangan</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+385"/>
-        <location line="+674"/>
+        <location line="+387"/>
+        <location line="+683"/>
         <location line="+2307"/>
         <source>Privacy &amp; security</source>
         <translation>Privasi &amp; keamanan</translation>
     </message>
     <message>
-        <location line="-3365"/>
-        <location line="+6805"/>
+        <location line="-3376"/>
+        <location line="+6927"/>
         <location line="+19"/>
         <source>Recovery key or passphrase</source>
         <translation>Kunci pemulihan atau frasa sandi</translation>
     </message>
     <message>
-        <location line="-6823"/>
+        <location line="-6945"/>
         <source>recovery key passphrase backup restore</source>
         <translation>kunci pemulihan frasa sandi cadangan pulihkan</translation>
     </message>
@@ -10852,23 +10857,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+6889"/>
+        <location line="+7011"/>
         <source>Import room keys</source>
         <translation>Impor kunci ruang</translation>
     </message>
     <message>
-        <location line="-6888"/>
+        <location line="-7010"/>
         <source>import room keys export</source>
         <translation>impor kunci ruang ekspor</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+7112"/>
+        <location line="+7234"/>
         <source>Danger Zone</source>
         <translation>Zona Berbahaya</translation>
     </message>
     <message>
-        <location line="-7111"/>
+        <location line="-7233"/>
         <source>reset danger local session</source>
         <translation>reset bahaya sesi lokal</translation>
     </message>
@@ -10879,34 +10884,34 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6574"/>
+        <location line="+6696"/>
         <source>Current session</source>
         <translation>Sesi saat ini</translation>
     </message>
     <message>
-        <location line="-6573"/>
+        <location line="-6695"/>
         <source>device id session status</source>
         <translation>id perangkat status sesi</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5798"/>
+        <location line="+5920"/>
         <source>Sign in another device</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5797"/>
+        <location line="-5919"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+6627"/>
+        <location line="+6749"/>
         <source>Verify this session</source>
         <translation>Verifikasi sesi ini</translation>
     </message>
     <message>
-        <location line="-6626"/>
+        <location line="-6748"/>
         <source>verify verification sas cross-signing</source>
         <translation>verifikasi sas penandatanganan silang</translation>
     </message>
@@ -10925,14 +10930,14 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <location line="+2"/>
         <location line="+3"/>
-        <location line="+354"/>
-        <location line="+685"/>
-        <location line="+6143"/>
+        <location line="+356"/>
+        <location line="+694"/>
+        <location line="+6254"/>
         <source>Labs</source>
         <translation>Labs</translation>
     </message>
     <message>
-        <location line="-7188"/>
+        <location line="-7310"/>
         <source>Sync mode</source>
         <translation>Mode sinkronisasi</translation>
     </message>
@@ -10953,39 +10958,39 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+7230"/>
+        <location line="+7352"/>
         <source>Refresh current room</source>
         <translation>Segarkan ruang saat ini</translation>
     </message>
     <message>
-        <location line="-7229"/>
+        <location line="-7351"/>
         <source>refresh reload timeline</source>
         <translation>segarkan muat ulang linimasa</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+1"/>
-        <location line="+353"/>
-        <location line="+732"/>
-        <location line="+6178"/>
+        <location line="+355"/>
+        <location line="+741"/>
+        <location line="+6289"/>
         <source>About</source>
         <translation>Tentang</translation>
     </message>
     <message>
-        <location line="-7264"/>
+        <location line="-7386"/>
         <source>about version license</source>
         <translation>tentang versi lisensi</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+2"/>
-        <location line="+348"/>
-        <location line="+689"/>
+        <location line="+350"/>
+        <location line="+698"/>
         <source>Updates</source>
         <translation>Pembaruan</translation>
     </message>
     <message>
-        <location line="-1038"/>
+        <location line="-1049"/>
         <source>update version upgrade check download install</source>
         <translation>pembaruan versi tingkatkan periksa unduh pasang</translation>
     </message>
@@ -11011,30 +11016,30 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+4424"/>
+        <location line="+4546"/>
         <location line="+198"/>
         <location line="+1293"/>
         <source>Cancel</source>
         <translation>Batal</translation>
     </message>
     <message>
-        <location line="-5760"/>
+        <location line="-5882"/>
         <source>Needs attention</source>
         <translation>Perlu perhatian</translation>
     </message>
     <message>
-        <location line="+200"/>
+        <location line="+206"/>
         <source>Clear the search index?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3197"/>
+        <location line="+3202"/>
         <source>Clear index</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3184"/>
+        <location line="-3189"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11050,14 +11055,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4052"/>
+        <location line="+4168"/>
         <location line="+416"/>
         <location line="+1918"/>
         <source>Clear</source>
         <translation>Bersihkan</translation>
     </message>
     <message>
-        <location line="-6376"/>
+        <location line="-6492"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>Hapus setiap GIF penyedia yang Anda simpan di perangkat ini? GIF yang Anda simpan dari obrolan tidak terpengaruh. Ini tidak dapat dibatalkan.</translation>
     </message>
@@ -11129,24 +11134,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+68"/>
-        <location line="+1005"/>
+        <location line="+1010"/>
         <source>Modern</source>
         <translation>Modern</translation>
     </message>
     <message>
-        <location line="-1004"/>
-        <location line="+1005"/>
+        <location line="-1009"/>
+        <location line="+1010"/>
         <source>Bubbles</source>
         <translation>Gelembung</translation>
     </message>
     <message>
-        <location line="-1004"/>
-        <location line="+1005"/>
+        <location line="-1009"/>
+        <location line="+1010"/>
         <source>Compact</source>
         <translation>Ringkas</translation>
     </message>
     <message>
-        <location line="-876"/>
+        <location line="-881"/>
         <source>theme</source>
         <translation>tema</translation>
     </message>
@@ -11171,7 +11176,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Cari %1</translation>
     </message>
     <message>
-        <location line="+76"/>
+        <location line="+81"/>
         <source>Matches · %1 sections · %2 settings</source>
         <translation>Kecocokan · %1 bagian · %2 pengaturan</translation>
     </message>
@@ -11278,7 +11283,17 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+474"/>
+        <location line="+138"/>
+        <source>Media playback</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+72"/>
+        <source>The level voice messages, audio files and videos start at. Changing the volume on a player remembers it here too.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+375"/>
         <source>Name colour</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11353,12 +11368,92 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5913"/>
+        <location line="-6024"/>
         <source>Moss Light</source>
         <translation>Moss Light</translation>
     </message>
     <message>
-        <location line="-1"/>
+        <location line="-1337"/>
+        <source>microphone mic input device voice call audio sound</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <location line="+5"/>
+        <source>Sound &amp; video · Microphone</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3"/>
+        <source>Microphone volume</source>
+        <translation type="unfinished">Volume mikrofon</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>microphone volume gain mic input level loud quiet boost amplify sound</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>speaker output headphones headset device voice call audio sound</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Sound &amp; video · Output</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <location line="+4452"/>
+        <location line="+26"/>
+        <source>Media playback volume</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-4477"/>
+        <source>volume sound audio video voice message playback level media loud</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Sound &amp; video · Media</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Sound &amp; video · Camera</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Float the call when Lightning is minimised</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>float picture in picture pip call window minimised</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Sound &amp; video · Calls</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>ring ringer ringtone sound incoming call alert</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+456"/>
+        <location line="+679"/>
+        <location line="+3249"/>
+        <source>Sound &amp; video</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3075"/>
         <source>Indigo Night</source>
         <translation>Indigo Night</translation>
     </message>
@@ -11691,12 +11786,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+2506"/>
+        <location line="+2617"/>
         <source>Choose image…</source>
         <translation>Pilih gambar…</translation>
     </message>
     <message>
-        <location line="-2499"/>
+        <location line="-2610"/>
         <source>Reset to Lightning default</source>
         <translation>Kembalikan ke ikon bawaan Lightning</translation>
     </message>
@@ -12109,12 +12204,8 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
         <translation>Suara hanya berbunyi saat notifikasi ditampilkan, jadi ruang yang dibisukan dan sedang aktif tetap senyap. Ledakan notifikasi digabungkan menjadi satu peringatan.</translation>
     </message>
     <message>
-        <location line="+11"/>
-        <source>Voice &amp; video</source>
-        <translation>Suara &amp; video</translation>
-    </message>
-    <message>
-        <location line="+17"/>
+        <location line="-4305"/>
+        <location line="+4319"/>
         <source>Ring for incoming voice calls</source>
         <translation>Bunyikan dering untuk panggilan suara masuk</translation>
     </message>
@@ -12139,7 +12230,7 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
         <translation>Pendaftaran push untuk notifikasi bergaya seluler belum diimplementasikan.</translation>
     </message>
     <message>
-        <location line="+133"/>
+        <location line="+258"/>
         <source>(signed out)</source>
         <translation>(telah keluar)</translation>
     </message>
@@ -12171,13 +12262,13 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
         <translation>Belum diatur</translation>
     </message>
     <message>
-        <location line="-2872"/>
-        <location line="+2881"/>
+        <location line="-2983"/>
+        <location line="+2992"/>
         <source>Edit</source>
         <translation>Sunting</translation>
     </message>
     <message>
-        <location line="-2727"/>
+        <location line="-2838"/>
         <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
         <translation>Saat menyala, Lightning mengikuti skema sistem: Moss Light dalam mode terang, Indigo Night dalam mode gelap.</translation>
     </message>
@@ -12217,7 +12308,7 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
         <translation>Server rumah Anda memuat pratinjau, sehingga situs tertaut melihat server Anda, bukan Anda. Jika server Anda tidak bisa — banyak pratinjau yang dinonaktifkan — Lightning akan memuatnya secara langsung, yang mungkin mengungkapkan alamat IP Anda dan meminta waktu ke situs yang dipilih pengirim. Menanyakan server rumah Anda juga memberi tahu tautan mana yang telah dipratinjau, yang mana di ruang terenkripsi tidak akan diketahui jika tidak. Tidak ada JavaScript yang dijalankan. Kedua sakelar dinonaktifkan secara default; biarkan saja dan gunakan tombol “Tampilkan” pada kartu tautan setiap pesan untuk memutuskan satu per satu.</translation>
     </message>
     <message>
-        <location line="+717"/>
+        <location line="+828"/>
         <source>Edit display name</source>
         <translation>Sunting nama tampilan</translation>
     </message>
@@ -12320,8 +12411,8 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
         <translation>Tidak ada banner</translation>
     </message>
     <message>
-        <location line="-2826"/>
-        <location line="+2536"/>
+        <location line="-2937"/>
+        <location line="+2647"/>
         <location line="+309"/>
         <source>Remove</source>
         <translation>Hapus</translation>
@@ -13375,6 +13466,16 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Buat ruangan atau Space</translation>
     </message>
     <message>
+        <location line="+8"/>
+        <source>Start a direct message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Open the Activity Center</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+5"/>
         <source>Show or hide the conversation list</source>
         <translation>Menampilkan atau menyembunyikan daftar percakapan</translation>
@@ -13410,6 +13511,16 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Tandai percakapan terbuka sebagai sudah dibaca</translation>
     </message>
     <message>
+        <location line="+13"/>
+        <source>Mark every conversation as read</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Mark the open conversation as unread</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+10"/>
         <source>Show or hide the people in this conversation</source>
         <translation type="unfinished"></translation>
@@ -13437,6 +13548,21 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+6"/>
         <source>Return to the active call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Start a call in this conversation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Leave the call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Share your screen, or stop sharing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -17476,7 +17602,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2211"/>
+        <location filename="../src/main.cpp" line="+2252"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Klien Matrix Qt/QML asli. Backend: --backend={mock,http,rust}. Bawaan: rust (http pada build tanpa Rust SDK).</translation>
     </message>
