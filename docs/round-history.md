@@ -15,6 +15,108 @@ By THEME, not chronology, and reduced to rules, refutations, deliberate
 decisions, measured numbers and live status. Features are §7; the caps
 contract, the refutation rule and the probe rule are in the standing warnings.
 
+#### 2026-09-12 (afternoon), the sound/shortcuts round and what the review caught
+
+**THE D3D11 VERDICT IS IN AND IT IS A PICTURE, NOT A COUNTER.** The Windows
+guest, upgraded in place to the `Direct3D11` build, RENDERS a remote screen
+share: the receiving tile carries the sending laptop's live desktop, complete
+with the mirror recursion only a live feed produces. Same guest, same share,
+the same `frames in the clear in … video= true` counters that this morning's
+entry records advancing past 1000 against an empty rectangle — the renderer
+was the only variable. The Windows "no video" defect is CLOSED and it was
+never packaging: it was our own GL probe choosing Qt Quick's software
+adaptation. Sender was the laptop's Linux client A, receiver the guest, which
+is the split to reuse: the guest holds ONE portable install and its store
+travels with the exe folder, so two clients there are one account, one device
+and two processes on one sqlite store.
+
+**AND FOUR CONVINCING DEFECTS ON THAT GUEST WERE ITS CLOCK.** Its timezone was
+`Pacific Standard Time` against a UTC hardware clock, so it computed UTC SEVEN
+HOURS IN THE FUTURE. An `m.call.member` expiry is `created_ts + expires`, so
+every membership in the room read as expired: `RtcController` logged
+`participants= 0 source= "server" rawEvents= 6` for a room with a live call,
+and the client showed no call banner, no Join button, no room-list call glyph,
+and drew the in-call facepile as `?`. All four look exactly like product
+defects. `tzutil /s "UTC"` and the very next read was `participants= 1 source=
+"store"` with all four correct. GENERALISE: before reading ANY call-state or
+expiry behaviour off a VM guest, check `date -u` on the host against the guest
+log's own `Z` stamps. Treat every Windows call-state observation made on that
+guest before 2026-09-12 13:16 EEST as unreliable.
+
+**WINDOWS TRAY NOTIFICATIONS ARE LIVE-VALIDATED AT LAST.** A real toast, with
+the room avatar and "lightningtest in Design Review"; clicking it raises the
+app from minimised and opens that room. `CLAUDE.md` §16 has recorded that path
+as NOT LIVE-TESTED on Windows since the day it was written. Read-withdrawal of
+a balloon (WinRT `ToastNotificationHistory.Remove`) and notification SOUND
+remain untested.
+
+**A SHORTCUT GATED ON A PREDICATE THAT CANNOT SAY "NOT RIGHT NOW".**
+`AppController::canStartCall` is one line over `preferredCallLane()` — "does
+this room have a lane" — and `SfuCallController::join` opens by tearing down
+whatever call is running. A new Ctrl+Shift+C gated on `canStartCall` alone was
+therefore live in every other RTC-capable room DURING a call, and would have
+ended it. The timeline button never had the hole because it also asks
+`!app.groupCall.active` and that the legacy lane is idle; two comments claimed
+the key used the same predicate. **The predicate cannot be hoisted into C++**:
+a `Q_INVOKABLE` has no `NOTIFY`, so a binding on it would never re-evaluate
+when a call starts — stale in the dangerous direction. It lives in two files
+and a contract case asserts they agree, DERIVING the clause list from the
+button's own `visible:` expression (split on `&&` at paren depth zero) rather
+than hand-keeping it — because a hand-kept list only sees a clause LEAVING the
+button, and the button GAINING one is the same defect mirrored. Proved failing
+in both directions. GENERALISE: when one predicate must exist twice, test that
+the two agree, not that either one has particular text.
+
+**A CONTROL THAT WROTE A SETTING AND NEVER READ IT.** `VideoPlayerCard.qml`
+hard-coded `volume: 0.8` while its control bar reached the shared
+`MediaVolumeControl`, whose slider calls `rememberVolume()`. So dragging a
+video's volume stored the level globally and no video ever started at it —
+the 2026-08-18 tester report a second time, because that fix landed on the
+audio card and the case that pinned it NAMED ONE FILE. Invisible for months
+because `mediaVolume` defaults to the same 0.8 the literal was. The
+replacement sweep derives the surface list from the tree (`AudioOutput {`)
+instead of naming files. Behaviour change worth a release note: anyone who
+ever dragged a video's volume has been accumulating a value nothing read back,
+and their videos now start at it.
+
+**Ctrl+Alt IS AltGr ON WINDOWS AND ⌘⌥ ON macOS, and an audit scoped to
+`i18n/` sees neither.** Two new rows shipped on Ctrl+Alt for one review cycle.
+Windows delivers AltGr as Ctrl+Alt, so Ctrl+Alt+M fires while a German T1 user
+types µ; and portable Ctrl/Alt map to Command/Option, so Ctrl+Alt+H shipped as
+⌘⌥H — the system "Hide Others" Qt's own application menu installs. The set
+that matters is the layouts users HAVE, not the catalogs we ship. Both moved
+to Ctrl+Shift. The pre-existing `call.returnToCall` = Ctrl+Alt+A breaks both
+rules and is now recorded as knowingly accepted rather than left unmentioned,
+because moving a shipped default silently rebinds it for every install.
+Ctrl+Shift+W was rejected for `call.leave` in the same pass: it collides with
+nothing, but it is the reflex chord for CLOSE THE WINDOW and `CallHeaderBar`
+shapes leaving as the one irreversible action on that bar.
+
+**A HAND-KEPT COPY OF A LIST IS A LIST THAT DRIFTS.** `QuickSwitcher.qml`
+builds its "Open <section>" rows from a local array that had fallen THREE
+sections behind Settings' nav rows — `shortcuts` and `updates` had never been
+in it. The one surface whose entire job is "type a name and land on it" could
+not reach three of ten sections, and nothing could notice because every row it
+does build works.
+
+**AND A FLOOR UNDER AN EQUALITY TEST MUST BE THE REAL COUNT.** The case added
+for that required "at least 8" matches on each side of a comparison that only
+asks the two sets to be equal — so with ten sections, two could vanish from
+BOTH files and it would still pass. Same shape as a sweep that matches
+nothing: the guard has to be tight enough to be a guard.
+
+Live status of the round: the Sound & video section, the media-playback and
+microphone levels writing through to disk, the devices leaving Notifications,
+the quick switcher reaching the new sections, and Ctrl+Shift+T / Ctrl+Shift+I
+are **PASS**, driven on an isolated Xvfb display with xdotool (`DISPLAY=:99`,
+which cannot reach the maintainer's session — that is how a GUI is driven on
+this host while he is at the PC). **NOT TESTED: everything that needs a real
+call** — above all whether the in-call slider reaches the audio graph, which
+is the round's headline claim and the exact shape of a claim this project has
+already had to withdraw. The full plan, with what would make each observation
+look like a pass while the feature is broken, is the vault note "Lightning/
+Testing/Sound and shortcuts round — live test plan".
+
 #### 2026-09-12, the overnight live round: three defects the harness could not see
 
 **A COUNTER THAT COUNTS FRAMES NOBODY CAN SEE.** The engine's

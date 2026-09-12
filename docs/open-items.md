@@ -415,14 +415,34 @@ rather than assumed: `Qt6Gui.dll` in the builder image carries
 `Direct3D11` is an unconditional enumerator in that Qt's
 `qsgrendererinterface.h`.
 
-**NOT TESTED, AND ONE PREMISE IS STILL UNMEASURED.** Qt performs no
-cross-backend fallback once `setGraphicsApi()` is called, so a D3D11 creation
-failure would be worse than the defect it fixes — an app that does not start.
-Whether D3D11 is ALREADY Qt's Windows default decides whether this restores a
-shipping-proven configuration or selects a new one, and it is settled by one
-line on any Windows box whose GL works: the probe does not fire, nothing is
-forced, and `lightning: scene graph backend=…` reports Qt's own choice.
-`backend=d3d11` confirms it.
+**LIVE-VALIDATED PASS, 2026-09-12 afternoon, and the evidence is a PICTURE.**
+On the same Windows 11 guest that counted 1000+ received frames against an
+empty rectangle, running the D3D11 build (`lightning: scene graph
+backend=d3d11 software=0 platform=windows`), the receiving tile carries the
+sending machine's live desktop — the room list, the call bar, the clock, and
+the mirror recursion only a live feed produces. Same share, same counters, the
+renderer the only variable. The app starts, so the D3D11 creation-failure
+worry did not materialise on this guest. Sender was the laptop's Linux client;
+the guest holds ONE portable install whose store travels with the exe folder,
+so it cannot host two accounts.
+
+**ONE PREMISE IS STILL UNMEASURED.** Whether D3D11 is ALREADY Qt's Windows
+default decides whether this restores a shipping-proven configuration or
+selects a new one, and the guest cannot answer it — its GL is unusable, so the
+probe fires there by construction. It is settled by one line on any Windows box
+whose GL works: the probe does not fire, nothing is forced, and `lightning:
+scene graph backend=…` reports Qt's own choice. `backend=d3d11` confirms it.
+ASK ROKAS for that line from his own Windows machine.
+
+**AND THE GUEST'S CLOCK WAS SEVEN HOURS AHEAD IN UTC** while the earlier
+observations on it were made (`Pacific Standard Time` against a UTC hardware
+clock). Every `m.call.member` expiry is `created_ts + expires`, so every
+membership read as expired and the guest showed no call banner, no Join, no
+room-list glyph and a `?` facepile — four things that look like defects and are
+not. Fixed with `tzutil /s "UTC"`; the next read went from `participants= 0` to
+`participants= 1`. Treat guest call-state observations from before
+2026-09-12 13:16 EEST as unreliable, and check `date -u` on the host against a
+guest log's own `Z` stamps before believing the next one.
 
 **REJECTED, with the reason, so it is not re-proposed:** "on Windows and macOS
 log and call nothing, and inherit Qt's default". That makes behaviour depend on
@@ -583,6 +603,47 @@ page claims.
 
 **NOT TESTED, 2026-09-02 audit:** six items in
 `docs/security-audit-2026-09-02.md`.
+
+**2026-09-12: THE WINDOWS TRAY-BALLOON NOTIFICATION PATH IS LIVE-VALIDATED —
+PASS**, on the Windows 11 guest, driven by a message from a Linux client while
+Lightning was minimised. A real toast appears ("Lightning Matrix client" /
+"lightningtest in Design Review" with the room avatar), the app logs
+`notification delivered through the tray balloon`, and CLICKING IT raises the
+app from minimised and opens that room with the unread divider in place. §16
+has carried this path as "NOT LIVE-TESTED on Windows or macOS (needs a
+packaged build)" since the day it was written. STILL NOT TESTED on Windows:
+read-withdrawal of a balloon (Qt cannot do it; it needs WinRT
+`ToastNotificationHistory.Remove`) and the notification SOUND. macOS remains
+untested entirely.
+
+**2026-09-12, the sound/shortcuts round — what is PASS and what is not.** PASS
+on an isolated Xvfb display (`DISPLAY=:99` + xdotool, which cannot reach the
+maintainer's session): the new Sound & video section renders with every
+control; the media-playback and microphone sliders write through to disk
+(`volume=0.15`, `microphoneGain=168`); the device pickers LEFT Notifications;
+the quick switcher reaches Sound & video and Updates; Ctrl+Shift+T opens the
+DM dialog and Ctrl+Shift+I the Activity Center; and the four new call/room
+keys pressed with a draft in the composer leave it intact and open nothing.
+
+NOT TESTED, and the first of these is the round's headline claim: whether the
+in-call microphone slider REACHES THE AUDIO GRAPH (the readout is computed
+from the slider's own value, so it is not evidence — this is the exact shape
+of the 2026-09-11 claim that had to be withdrawn); whether a `Slider` inside a
+`QQuickMenu` survives a slow or diagonal drag; the seven keys during a live
+call; the same value set from both surfaces; the account switch (mic is
+account-scoped, media is global, and nothing on screen says so); restart with
+a call; Qt 6.8.2 layout of that menu; and Windows/macOS, where
+`requestScreenShare()` takes a different code path the new key has never
+exercised. Plan, with what would make each look like a pass while broken:
+vault note "Lightning/Testing/Sound and shortcuts round — live test plan".
+
+ACCEPTED FOLLOW-UPS from that round's review, none blocking: the in-call level
+slider cannot be reached by keyboard (`QQuickMenu` arrow navigation visits
+menu ITEMS and it sits in a plain `Item`), so not by a screen reader either;
+the menu changes height mid-drag when the value crosses 100%; `call.returnToCall`
+= Ctrl+Alt+A is Polish AltGr+ą and macOS ⌘⌥A and stays because moving a
+shipped default silently rebinds it for every install; and Ctrl+Shift+A
+shadows `QKeySequence::Deselect` in every X11 text field.
 
 **2026-09-04, local search and widgets.** Both are LIVE-VALIDATED against
 `matrix.smetonis.net` with throwaway fixture accounts (credentials in the

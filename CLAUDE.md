@@ -1165,7 +1165,9 @@ freedesktop daemon; the `#else` logged a line. The tray icon's balloon is
 Qt's only other delivery and it needs a VISIBLE icon, so on those platforms
 `refreshTrayState` shows the icon while notifications are enabled, the
 manager keeps the one payload a balloon carries, and a click routes to its
-room. NOT LIVE-TESTED on Windows or macOS (needs a packaged build). A
+room. **LIVE-VALIDATED PASS ON WINDOWS, 2026-09-12**: a real toast with the
+room avatar, and a click that raises the app from minimised and opens that
+room (`docs/open-items.md`). macOS remains NOT LIVE-TESTED. A
 balloon cannot be withdrawn through Qt — read-dismissal there needs the
 native toast APIs (WinRT `ToastNotificationHistory.Remove`,
 `UNUserNotificationCenter removeDeliveredNotifications`), a follow-up.
@@ -1578,6 +1580,22 @@ re-proposed without stating which claim was refuted and whether yours is the
 same claim.
 
 ### Live validation: what Rokas has actually confirmed
+
+**2026-09-12 (afternoon) — THE WINDOWS "NO VIDEO" DEFECT IS CLOSED, on a
+PICTURE: PASS.** Automation-driven on the laptop's Windows 11 guest, not
+Rokas. With the GL probe choosing `Direct3D11` the guest RENDERS a remote
+screen share — the receiving tile carries the sending machine's live desktop —
+where the same guest, same share and same clear-frame counters previously
+advanced past 1000 against an empty rectangle. The renderer was the only
+variable, and the defect was our own probe, never packaging. In the same
+session: the WINDOWS TRAY-BALLOON notification displays and its CLICK routes to
+the right room, both live for the first time. And FOUR convincing "defects" on
+that guest — no call banner, no Join, no room-list glyph, a `?` facepile —
+were its CLOCK, seven hours ahead in UTC, which made every `m.call.member`
+expiry read as past. Check `date -u` on the host against a guest log's own `Z`
+stamps before believing anything about call state on a VM. Detail in
+`docs/round-history.md` and `docs/open-items.md`.
+
 
 **2026-09-11 (evening) — CALLS AND PER-PARTICIPANT VOLUME, LIVE ON TWO
 CLIENTS: PASS — AND TWO OF THIS ENTRY'S ORIGINAL CLAIMS WERE WITHDRAWN ON
