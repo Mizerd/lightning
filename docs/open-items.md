@@ -981,9 +981,33 @@ The instinct NOT to add a floor to the host was right, for the wrong reason —
 a floor would have masked an arithmetic error with extra space. What hid it
 from every existing test is that the COLLAPSED header fills the strip's width
 from its host, so the defect only appears on the spotlight branch where the
-strip takes its own implicit width. NOT TESTED live on a packaged build with
-two people; it is a two-line arithmetic change with a measured test, and the
-next AppImage can confirm the picture.
+strip takes its own implicit width.
+
+**LIVE-VALIDATED PASS** on the pipeline-204 AppImage
+(`0.9.4+git20260912.8943ae9`), two clients in a real call with a share running
+— which is what puts the strip in the header at all, since the facepile is
+absent without a spotlight. Before and after captures at the same window size
+and the same crop: the second avatar's right side is cut flat on the old build
+and is a complete circle on the new one.
+
+**3. The floating call window's hang-up button did nothing on a 1:1 call, and
+its keyboard is still dead.** `qml/CallPipWindow.qml` called
+`app.calls.hangUp()` where the invokable is `hangup()`; every other call site
+in the tree spells it correctly. On the LEGACY lane the button threw a
+TypeError, so the one surface that exists for a minimised window could not
+leave the call. FIXED, with a sweep that now checks every `app.calls.X` and
+`app.groupCall.X` in `qml/` against the two headers' actual members, because a
+QML→C++ name is only checked when the line RUNS and nothing here had ever run
+that handler.
+
+STILL OPEN, and an accepted follow-up rather than a defect: `CallPipWindow`
+declares exactly ONE `Shortcut` (Escape, for the share-fill mode), and a QML
+`Shortcut` is matched by WINDOW — so with the floating window focused, mute,
+deafen, camera, leave and screen-share are all dead keys. Its pointer controls
+cover every one of those actions, and three of the five predate the 2026-09-12
+round. Worth closing when someone can drive the PiP in a test; it is the
+window a keyboard user is most likely to be looking at, since the main one is
+minimised by definition.
 
 **2. The room-header title elides with room to spare, and the obvious
 candidate is REFUTED.** At 640 px: header ~338 px, so `header.width * 0.5`
