@@ -832,6 +832,36 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                 << "the bitstream. Video send is not carried in an encrypted"
                 << "room until a non-parsing payloader lands.";
         }
+    } else if (error && error->domain == GST_RESOURCE_ERROR
+               && (element.startsWith(QLatin1String("micsrc"))
+                   || element.startsWith(QLatin1String("capsrc"))
+                   || element.startsWith(QLatin1String("sharesrc")))) {
+        // A CAPTURE SOURCE THAT CANNOT OPEN ITS DEVICE IS NOT ROUTINE INFO.
+        //
+        // GStreamer posts this as a WARNING, not an ERROR, so `publishFailed`
+        // is never raised and the call proceeds — with nothing behind the
+        // track. On Windows a microphone held exclusively by another
+        // application produces exactly this, and the user joins, is
+        // inaudible. Seen on the Windows test guest as `micsrc ... "Could not
+        // open resource for reading and writing."` while audio happened to
+        // flow from another device.
+        //
+        // WHAT THIS ADDS IS A NAME AND A LEVEL, NOT VISIBILITY. The generic
+        // `else` branch below already logged the same facts, and lcSfuMedia's
+        // two-argument Q_LOGGING_CATEGORY means qCInfo is emitted by default,
+        // so nothing here was previously invisible. The gain is a message
+        // that SAYS the device did not open, at a level that survives any
+        // future filtering rule.
+        //
+        // DELIBERATELY ONLY A LOG LEVEL. Whether this should also reach the
+        // UI depends on evidence nobody has yet — the one observation was
+        // benign — and building a user-visible state on it would be guessing.
+        // What it costs to find out is a support log that SAYS the device did
+        // not open, which is what this line now is.
+        qCWarning(lcSfuMedia)
+            << "capture source could not open its device: element=" << element
+            << "code=" << error->code << "reason=" << reason
+            << "— this track will carry nothing";
     } else {
         qCInfo(lcSfuMedia) << "pipeline warning element=" << element
                            << "code=" << (error ? error->code : 0)
@@ -1491,7 +1521,12 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
     //    default is voice-tuned at 64 kbit/s mono, which is audibly wrong on
     //    a music bed.
     const QString description =
-        QStringLiteral("%1 ! queue ! audioconvert ! audioresample "
+        // NAMED, so a device that will not open is reportable. Without a
+        // `name=` GStreamer auto-names this (`wasapi2src0`, `pulsesrc0`) and
+        // the capture-open warning below cannot recognise it — which would
+        // have missed the case that deserves it most, a WASAPI loopback
+        // device held by another application.
+        QStringLiteral("%1 name=sharesrc ! queue ! audioconvert ! audioresample "
                        "! audio/x-raw,channels=2,rate=48000 "
                        // Its own valve. Muting the share's audio must not
                        // touch the microphone, and vice versa — they are two
