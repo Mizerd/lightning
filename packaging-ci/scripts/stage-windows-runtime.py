@@ -82,19 +82,26 @@ GSTREAMER_PLUGIN_DIR = "gstreamer-1.0"
 # Plugins the builder image MAY carry. Staged when present, logged when not,
 # never fatal — for a plugin the shipped app does not yet use.
 #
-# libgstjpeg.dll was added to packaging/windows/Dockerfile on 2026-09-02 and
+# 2026-09-12: EMPTY, and that is the end of a two-week story worth keeping.
+#
+# `libgstjpeg.dll` was added to packaging/windows/Dockerfile on 2026-09-02 and
 # to the required list at the same time, but the builder image on the runner
 # host is built by hand under a fixed tag (docs/windows-runner-operations.md,
 # "Changing the builder image") and was never rebuilt — so the 0.9.0 release
 # died twice in `build-windows` on "required GStreamer plugin is missing from
-# the builder image". Requiring it was premature: Lightning's camera chain
-# (src/calls/SfuMediaEngine.cpp, captureEntryFilter) still cannot negotiate
-# image/jpeg, so the decoder would be staged and never loaded. Move it back
-# to GSTREAMER_PLUGINS the moment the app half lands AND the image is rebuilt
-# under a new tag; both, or the next release dies the same way.
-OPTIONAL_GSTREAMER_PLUGINS = (
-    "libgstjpeg.dll",              # jpegdec (MJPG camera modes)
-)
+# the builder image", and requiring it was rolled back to this list. It sat
+# here because BOTH halves were needed: the app had to be able to negotiate
+# image/jpeg, and the image had to actually carry the plugin.
+#
+# Both are now true. The app half is in `SfuMediaEngine.cpp`
+# (`cameraJpegEntry()`, `jpegCameraChainAvailable()`, the MJPG-then-raw
+# fallback) and has been for longer than the record said; the image half is
+# builder `...-v6`, built 2026-09-12 and proven by a green `windows-package-
+# test`. So the plugin moves back to GSTREAMER_PLUGINS, where its ABSENCE is
+# fatal again — which is what you want once the app will actually try to load
+# it, because a missing decoder then means every camera silently falls back to
+# raw and nobody finds out until a USB 2.0 camera cannot reach 720p30.
+OPTIONAL_GSTREAMER_PLUGINS: tuple[str, ...] = ()
 
 GSTREAMER_PLUGINS = (
     "libgstapp.dll",               # appsink, appsrc
@@ -136,7 +143,8 @@ GSTREAMER_PLUGINS = (
     # of Qt and libgstopengl. A DLL of the right name is not the element: the
     # same distinction that shipped Windows for months with libgstsctp-1.0-0
     # present and `sctpenc` missing.
-    # jpegdec (libgstjpeg.dll) is OPTIONAL below, not here — see
+    "libgstjpeg.dll",              # jpegdec (MJPG camera modes)
+    # jpegdec was OPTIONAL until 2026-09-12 — see
     # OPTIONAL_GSTREAMER_PLUGINS.
     "libgstsrtp.dll",              # srtpenc, srtpdec, used inside dtlssrtp*
     # glupload, glcolorconvert, glcolorscale, gldownload — the opt-in GPU
