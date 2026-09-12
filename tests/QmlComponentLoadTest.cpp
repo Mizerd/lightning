@@ -46,6 +46,13 @@ constexpr const char *kComponents[] = {
     "AddWidgetDialog",       // widget kind picker
     "MemberProfilePopover",  // carries the policy-list notice and its Connections
     "CallPipWindow",         // the floating call window
+    // 2026-09-12: the in-call device menu now carries the microphone LEVEL
+    // as well as the device list — a Slider, two Labels and a Layout inside
+    // a Menu, which is exactly the shape whose load-time errors nothing else
+    // in this repository can see. Its sibling in Settings is listed beside
+    // it for the same reason.
+    "CallDeviceMenu",
+    "CallDeviceSettings",
     "MediaBrowser",          // room media/files/links over all history
     "ForwardSelectionDialog",
     "EmojiCompletionPopup",
