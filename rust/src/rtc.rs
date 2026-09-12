@@ -65,9 +65,9 @@
 //!   downgrade the signalling channel that carries call authorization.
 //! * Nothing here logs a sender-chosen string, a URL, or a member id.
 
-use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use matrix_sdk::deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState};
@@ -1664,43 +1664,76 @@ fn fallback_expires_ms(created_ts: Option<u64>, now_ms: u64) -> u64 {
 /// crash, a kill, or a lost network.
 const DELAYED_LEAVE_TIMEOUT_MS: u64 = 8_000;
 
-/// Has this process seen a homeserver REFUSE to arm a delayed retraction?
+/// Which homeservers have REFUSED to arm a delayed retraction.
 ///
-/// It decides which `expires` the FIRST write of a publish carries, so that a
-/// server known to lack MSC4140 does not cost two state events on every single
-/// refresh. It is also read by the scheduled-send probe.
+/// PER SERVER, and that scoping is the whole point of the type. It decides
+/// which `expires` the FIRST write of a publish carries, so a server known to
+/// lack MSC4140 does not cost two state events on every refresh, and it is
+/// read by the scheduled-send probe.
 ///
-/// THE OLD COMMENT HERE — "purely an optimisation … every publish still
-/// verifies the assumption and corrects it" — WAS MADE FALSE BY `b146b22`,
-/// which removed the correcting branch, and this is a `static`: one value for
-/// every room and every account in the process, with no route back. So the two
-/// properties below are what keeps it honest, and both are load-bearing:
+/// IT USED TO BE A PROCESS-GLOBAL `AtomicBool`, and that was a live defect,
+/// not a simplification. MSC4140 is a property of a HOMESERVER; the flag was a
+/// property of the PROCESS. So signing in to an account on an old Synapse
+/// latched it, and every other account — on servers that implement MSC4140
+/// perfectly — then lost server-side call cleanup for the rest of the session:
+/// a five-minute ghost participant on every unclean exit, and a scheduled-send
+/// probe reporting the feature unsupported so sends silently fell back to the
+/// local queue. Keyed by server, an account switch simply asks a different
+/// question.
 ///
-///   * It latches ONLY on a category that means THE ENDPOINT IS NOT THERE
-///     (`delayed_refusal_is_permanent`). A timeout, a 429 and a 5xx all arrive
-///     here as an empty delay id too, and latching on one of those would
-///     permanently disable MSC4140 cleanup — process-wide — because of a
-///     single blip. That is a crash-safety mechanism, so losing it silently
-///     strands memberships on every unclean exit thereafter.
-///   * A successful arm clears it — but DO NOT READ THAT AS A RECOVERY PATH,
-///     because it is very nearly unreachable and an earlier version of this
-///     comment wrongly claimed three. Once the latch is set,
-///     `assumed_no_delayed` is true, `delayed_retraction_is_repairable(true)`
-///     is false, the gate blocks the arm, and `schedule_delayed_leave` is
-///     never called — so the `store(false)` only ever runs when the latch was
-///     already false. **The latch is one-way for the life of the process.**
+/// Two properties the entries themselves must keep:
 ///
-/// THAT IS CORRECT FOR A GENUINE SERVER PROPERTY AND WRONG ACROSS ACCOUNTS,
-/// and the second half is an open defect rather than a subtlety. This is a
-/// process-global `static`: sign in to an account on an old Synapse, latch it,
-/// then switch to an account on a server that DOES implement MSC4140, and for
-/// the rest of the process the second account gets no delayed cleanup — a
-/// five-minute ghost participant on every unclean exit — while
-/// `rooms.rs`'s scheduled-send probe reports the feature unsupported and
-/// silently falls back to the local queue. The fix is to scope the latch PER
-/// HOMESERVER, which would also make "a server that gains support" and "a
-/// mis-latch" genuinely recoverable. See `docs/open-items.md`.
-static DELAYED_EVENTS_REFUSED: AtomicBool = AtomicBool::new(false);
+///   * an entry is added ONLY for a category that means THE ENDPOINT IS NOT
+///     THERE (`delayed_refusal_is_permanent`). A timeout, a 429 and a 5xx all
+///     reach that code as an empty delay id too, and latching on one of those
+///     would disable MSC4140 cleanup for a whole server because of a single
+///     blip. It is a crash-safety mechanism, so losing it silently strands
+///     memberships on every unclean exit thereafter.
+///   * a successful arm REMOVES the entry. For one server that is close to
+///     unreachable in practice — once recorded, the gate stops arming, so
+///     nothing calls `schedule_delayed_leave` again — and it is kept because
+///     it costs nothing and makes a server that gains support recoverable the
+///     moment anything does reach it.
+static DELAYED_EVENTS_REFUSED: Mutex<BTreeSet<String>> =
+    Mutex::new(BTreeSet::new());
+
+/// Record — or clear — the refusal for ONE homeserver.
+///
+/// Takes the server as a plain string rather than a `Client` so the
+/// per-server behaviour can be tested without one; the `_for_client` wrappers
+/// below are the only callers in production.
+fn mark_delayed_refusal(server: &str, refused: bool) {
+    let Ok(mut seen) = DELAYED_EVENTS_REFUSED.lock() else {
+        return;
+    };
+    if refused {
+        seen.insert(server.to_owned());
+    } else {
+        seen.remove(server);
+    }
+}
+
+/// Has THIS homeserver refused? A different one's answer is not evidence.
+fn delayed_refusal_recorded(server: &str) -> bool {
+    DELAYED_EVENTS_REFUSED
+        .lock()
+        .map(|seen| seen.contains(server))
+        .unwrap_or(false)
+}
+
+/// The key. The homeserver's own URL, because that is what the property
+/// belongs to — not the account, and certainly not the process.
+fn delayed_refusal_key(client: &Client) -> String {
+    client.homeserver().to_string()
+}
+
+fn mark_delayed_refusal_for_client(client: &Client, refused: bool) {
+    mark_delayed_refusal(&delayed_refusal_key(client), refused);
+}
+
+fn delayed_refusal_recorded_for_client(client: &Client) -> bool {
+    delayed_refusal_recorded(&delayed_refusal_key(client))
+}
 
 /// Does this refusal category mean the homeserver simply does not implement
 /// MSC4140, as opposed to something that may work on the next try?
@@ -1731,8 +1764,8 @@ pub(crate) fn delayed_refusal_is_permanent(category: &str) -> bool {
 /// v0.9 (phase 11): whether this process has seen the homeserver refuse a
 /// delayed event. Read by the scheduled-send probe so a server that
 /// advertises MSC4140 but refuses it in practice is still reported honestly.
-pub(crate) fn delayed_events_assumed_refused() -> bool {
-    DELAYED_EVENTS_REFUSED.load(Ordering::Relaxed)
+pub(crate) fn delayed_events_assumed_refused(client: &Client) -> bool {
+    delayed_refusal_recorded_for_client(client)
 }
 
 /// Build the state key Element writes.
@@ -1883,7 +1916,7 @@ pub(crate) fn publish_membership(
         // learned about the server. Assumption, not fact — it is checked
         // against what the server does with the delayed retraction below, and
         // corrected there.
-        let assumed_no_delayed = DELAYED_EVENTS_REFUSED.load(Ordering::Relaxed);
+        let assumed_no_delayed = delayed_refusal_recorded_for_client(&client);
         let period_ms = if assumed_no_delayed {
             MEMBERSHIP_EXPIRY_NO_DELAYED_MS
         } else {
@@ -1966,10 +1999,13 @@ pub(crate) fn publish_membership(
                                          &state_key).await
             {
                 Ok(id) => {
-                    // THE ONLY ROUTE BACK. Without this the latch is
-                    // one-way for the life of the process.
+                    // THE ROUTE BACK for this server. Close to unreachable
+                    // once an entry exists — the gate then stops arming, so
+                    // nothing reaches here — and kept because it costs
+                    // nothing and makes a server that GAINS support
+                    // recoverable the moment anything does.
                     if !id.is_empty() {
-                        DELAYED_EVENTS_REFUSED.store(false, Ordering::Relaxed);
+                        mark_delayed_refusal_for_client(&client, false);
                     }
                     delay_id = id;
                 }
@@ -2014,7 +2050,7 @@ pub(crate) fn publish_membership(
             // The short re-publish below still happens either way, because the
             // membership must not claim four hours nothing will cut short.
             if delayed_refusal_is_permanent(&delayed_category) {
-                DELAYED_EVENTS_REFUSED.store(true, Ordering::Relaxed);
+                mark_delayed_refusal_for_client(&client, true);
             }
             // A SECOND write, with the short expiry. It replaces our own
             // previous state event under the same state key, so the room sees
@@ -4631,11 +4667,45 @@ mod tests {
     }
 
     #[test]
-    fn only_an_absent_endpoint_disables_msc4140_for_the_process() {
-        // DELAYED_EVENTS_REFUSED is a `static`: one value for every room and
-        // every account, and MSC4140 is the ONLY cleanup that survives a
-        // crash. So the bar for setting it is "this server does not implement
-        // the endpoint", not "a request failed".
+    fn one_servers_refusal_does_not_disable_msc4140_for_another() {
+        // THIS WAS A PROCESS-GLOBAL `AtomicBool`, and MSC4140 is a property of
+        // a HOMESERVER. Signing in to an account on an old Synapse latched it
+        // and every other account lost server-side call cleanup for the rest
+        // of the session — a five-minute ghost participant on every unclean
+        // exit, and scheduled send silently falling back to the local queue.
+        let old = "https://old.example.org/";
+        let modern = "https://modern.example.org/";
+
+        // Start clean, whatever else in this binary has touched the map.
+        mark_delayed_refusal(old, false);
+        mark_delayed_refusal(modern, false);
+        assert!(!delayed_refusal_recorded(old));
+        assert!(!delayed_refusal_recorded(modern));
+
+        mark_delayed_refusal(old, true);
+        assert!(delayed_refusal_recorded(old));
+        assert!(
+            !delayed_refusal_recorded(modern),
+            "a refusal by one homeserver disabled delayed retractions for a \
+             DIFFERENT one, so an account switch costs every later call its \
+             only crash-safe cleanup"
+        );
+
+        // And clearing one leaves the other alone, in both directions.
+        mark_delayed_refusal(modern, true);
+        mark_delayed_refusal(old, false);
+        assert!(!delayed_refusal_recorded(old));
+        assert!(delayed_refusal_recorded(modern));
+
+        mark_delayed_refusal(modern, false);
+    }
+
+    #[test]
+    fn only_an_absent_endpoint_disables_msc4140_for_a_server() {
+        // Recording a refusal disables MSC4140 for a whole HOMESERVER, and
+        // MSC4140 is the ONLY cleanup that survives a crash. So the bar for
+        // recording one is "this server does not implement the endpoint", not
+        // "a request failed".
         //
         // Every one of these reaches the latch as the same observable — an
         // empty delay id — which is why the category has to be consulted.

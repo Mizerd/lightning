@@ -2994,8 +2994,9 @@ pub(crate) fn probe_delayed_events(bridge: &RustClient) -> Result<(), String> {
             "type": "delayed_events_support",
             "lifecycle": lifecycle,
             "advertised": advertised,
-            "refused_before": crate::rtc::delayed_events_assumed_refused(),
-            "supported": advertised && !crate::rtc::delayed_events_assumed_refused(),
+            "refused_before": crate::rtc::delayed_events_assumed_refused(&client),
+            "supported": advertised
+                && !crate::rtc::delayed_events_assumed_refused(&client),
         }));
     });
     Ok(())
