@@ -54,6 +54,13 @@ IS_EXACT_TAG=true
 PUBLISHING=true
 EOF
     printf 'deb-bytes-%s\n' "$RANDOM" >"$TR/dist/lightning_${VER}_amd64.deb"
+    # The SECOND deb lane. Not optional: build-deb-ubuntu runs on every
+    # publishing pipeline and validate-deb-ubuntu is a `needs` edge of
+    # publish-packages, so the file is always there when the manifest is
+    # written — and leaving it out of this fixture made write-manifest.sh die
+    # on a missing input, which is how it took config-tests down.
+    printf 'deb-ubuntu-bytes-%s\n' "$RANDOM" \
+        >"$TR/dist/lightning_${VER}_ubuntu2604_amd64.deb"
     printf 'rpm-bytes-%s\n' "$RANDOM" >"$TR/dist/lightning-${VER}-1.x86_64.rpm"
     printf 'flatpak-bytes-%s\n' "$RANDOM" >"$TR/dist/lightning_${VER}_amd64.flatpak"
     printf 'appimage-bytes-%s\n' "$RANDOM" >"$TR/dist/Lightning-${VER}-x86_64.AppImage"
@@ -106,19 +113,20 @@ printf '== manifest ==\n'
 setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
 run "$ROOT/scripts/write-manifest.sh" || bad "manifest build failed"
 M="$TR/dist/manifest.json"
-[[ "$($JQ '.entries|length' "$M")" == 9 ]] && note "manifest has 9 entries" || bad "manifest entry count"
+[[ "$($JQ '.entries|length' "$M")" == 10 ]] && note "manifest has 10 entries" || bad "manifest entry count"
 [[ "$($JQ -r '.entries[0].filename' "$M")" == "lightning_${VER}_amd64.deb" ]] && note "deb filename" || bad "deb filename"
-[[ "$($JQ -r '.entries[1].filename' "$M")" == "lightning-${VER}-1.x86_64.rpm" ]] && note "rpm filename" || bad "rpm filename"
-[[ "$($JQ -r '.entries[2].filename' "$M")" == "lightning_${VER}_amd64.flatpak" ]] && note "flatpak filename" || bad "flatpak filename"
-[[ "$($JQ -r '.entries[3].filename' "$M")" == "Lightning-${VER}-x86_64.AppImage" ]] && note "appimage filename" || bad "appimage filename"
-[[ "$($JQ -r '.entries[4].filename' "$M")" == "lightning_${VER}_amd64.snap" ]] && note "snap filename" || bad "snap filename"
+[[ "$($JQ -r '.entries[1].filename' "$M")" == "lightning_${VER}_ubuntu2604_amd64.deb" ]] && note "ubuntu deb filename" || bad "ubuntu deb filename"
+[[ "$($JQ -r '.entries[2].filename' "$M")" == "lightning-${VER}-1.x86_64.rpm" ]] && note "rpm filename" || bad "rpm filename"
+[[ "$($JQ -r '.entries[3].filename' "$M")" == "lightning_${VER}_amd64.flatpak" ]] && note "flatpak filename" || bad "flatpak filename"
+[[ "$($JQ -r '.entries[4].filename' "$M")" == "Lightning-${VER}-x86_64.AppImage" ]] && note "appimage filename" || bad "appimage filename"
+[[ "$($JQ -r '.entries[5].filename' "$M")" == "lightning_${VER}_amd64.snap" ]] && note "snap filename" || bad "snap filename"
 # Registry layout: every file shares one package name + version (extensible).
 [[ "$($JQ -r '[.entries[].version]|unique|length' "$M")" == 1 ]] && note "single version layout" || bad "version layout"
-[[ "$($JQ -r '.entries[]|.asset_path' "$M" | grep -c "^/packages/${VER}/")" == 9 ]] && note "asset paths under /packages/<version>/" || bad "asset paths"
+[[ "$($JQ -r '.entries[]|.asset_path' "$M" | grep -c "^/packages/${VER}/")" == 10 ]] && note "asset paths under /packages/<version>/" || bad "asset paths"
 # Full metadata present on each entry (extension-ready schema).
-[[ "$($JQ -r '[.entries[]|select(.sha256 and .size and .architecture and .source_sha and .registry_url and .asset_name)]|length' "$M")" == 9 ]] && note "entries carry full metadata" || bad "entry metadata"
+[[ "$($JQ -r '[.entries[]|select(.sha256 and .size and .architecture and .source_sha and .registry_url and .asset_name)]|length' "$M")" == 10 ]] && note "entries carry full metadata" || bad "entry metadata"
 
-# macOS is the one OPTIONAL input. Absent, the manifest is the nine above —
+# macOS is the one OPTIONAL input. Absent, the manifest is the ten above —
 # which is what every assertion so far just proved, and it is the case that
 # matters most: one Mac being offline must not fail a release. Present, it is
 # published like anything else.
@@ -131,7 +139,7 @@ run "$ROOT/scripts/write-manifest.sh" || bad "manifest build failed with a macOS
 # setup() makes a fresh temp root, so $M from the section above now points at
 # the previous run's file.
 M="$TR/dist/manifest.json"
-[[ "$($JQ '.entries|length' "$M")" == 10 ]] && note "macOS bundle adds a tenth entry" || bad "macOS entry count"
+[[ "$($JQ '.entries|length' "$M")" == 11 ]] && note "macOS bundle adds an eleventh entry" || bad "macOS entry count"
 [[ "$($JQ -r '[.entries[]|select(.format=="macos-arm64")]|first|.filename' "$M")" == "$(basename "$MACZIP")" ]] \
     && note "macOS filename" || bad "macOS filename"
 [[ "$($JQ -r '[.entries[]|select(.format=="macos-arm64")]|first|.architecture' "$M")" == "arm64" ]] \
@@ -143,10 +151,10 @@ rm -f "$MACZIP"
 printf '== publish ==\n'
 setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
 run "$ROOT/scripts/write-manifest.sh" && run "$ROOT/scripts/publish-packages.sh" || bad "publish failed"
-[[ "$(grep -c '^PUT .*/packages/generic/lightning/' "$MLOG")" == 9 ]] && note "9 uploads" || bad "upload count"
-[[ "$($JQ '.entries|length' "$TR/dist/publication.json")" == 9 ]] && note "publication.json" || bad "publication.json"
-# only the five package files are ever PUT (no logs/metadata)
-[[ "$(grep -c '^PUT ' "$MLOG")" == 9 ]] && note "only manifest files uploaded" || bad "extra uploads"
+[[ "$(grep -c '^PUT .*/packages/generic/lightning/' "$MLOG")" == 10 ]] && note "10 uploads" || bad "upload count"
+[[ "$($JQ '.entries|length' "$TR/dist/publication.json")" == 10 ]] && note "publication.json" || bad "publication.json"
+# only the manifest's own files are ever PUT (no logs/metadata)
+[[ "$(grep -c '^PUT ' "$MLOG")" == 10 ]] && note "only manifest files uploaded" || bad "extra uploads"
 
 printf '== internal API base override (PUBLISH_API_BASE) ==\n'
 setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
@@ -155,7 +163,7 @@ run "$ROOT/scripts/write-manifest.sh" && run "$ROOT/scripts/publish-packages.sh"
 MO="$TR/dist/manifest.json"
 [[ "$($JQ -r '[.entries[].registry_url] | all(startswith("https://gitlab.example/api/v4/"))' "$MO")" == true ]] \
     && note "manifest registry URLs stay canonical/public" || bad "manifest URLs not canonical"
-[[ "$(grep -c '^PUT https://internal.example/api/v4/' "$MLOG")" == 9 ]] \
+[[ "$(grep -c '^PUT https://internal.example/api/v4/' "$MLOG")" == 10 ]] \
     && note "uploads routed through the internal API base" || bad "uploads not routed internally"
 [[ "$(grep -c '^PUT https://gitlab.example/' "$MLOG")" == 0 ]] \
     && note "no upload used the public host" || bad "upload leaked to the public host"
@@ -187,7 +195,7 @@ if run "$ROOT/scripts/publish-packages.sh"; then bad "partial upload succeeded";
 # retry now succeeds
 unset MOCK_FAIL_UPLOAD; : >"$MLOG"
 run "$ROOT/scripts/publish-packages.sh" && note "retry published both" || bad "retry failed"
-[[ "$(grep -c '^PUT ' "$MLOG")" == 9 ]] && note "retry uploaded all files" || bad "retry upload count"
+[[ "$(grep -c '^PUT ' "$MLOG")" == 10 ]] && note "retry uploaded all files" || bad "retry upload count"
 
 printf '== verify published ==\n'
 setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
@@ -206,7 +214,7 @@ setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER MOCK_TAG_EXISTS=tr
 run "$ROOT/scripts/write-manifest.sh" && run "$ROOT/scripts/publish-packages.sh" && run "$ROOT/scripts/verify-published-packages.sh"
 : >"$MLOG"
 run "$ROOT/scripts/finalize-release.sh" && note "attach-existing succeeded" || bad "attach-existing failed"
-[[ "$(grep -c '^POST .*/assets/links' "$MLOG")" == 9 ]] && note "9 links created" || bad "link count"
+[[ "$(grep -c '^POST .*/assets/links' "$MLOG")" == 10 ]] && note "10 links created" || bad "link count"
 # duplicate: rerun -> 0 new POSTs
 : >"$MLOG"; run "$ROOT/scripts/finalize-release.sh" && note "rerun idempotent" || bad "rerun failed"
 [[ "$(grep -c '^POST .*/assets/links' "$MLOG")" == 0 ]] && note "no duplicate links" || bad "duplicate links created"

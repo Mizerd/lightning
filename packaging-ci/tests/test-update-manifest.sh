@@ -70,6 +70,13 @@ IS_EXACT_TAG=true
 PUBLISHING=true
 EOF
     printf 'deb-bytes-%s\n' "$RANDOM" >"$TR/dist/lightning_${ver}_amd64.deb"
+    # The Ubuntu lane's deb. A REQUIRED input to write-manifest.sh — the
+    # publication manifest lists it — even though it is deliberately absent
+    # from the SIGNED UPDATE manifest this file is about, because an Ubuntu
+    # deb install reports the same `linux-deb` install type as a Debian one
+    # and the updater would have two candidates it cannot choose between.
+    printf 'deb-ubuntu-bytes-%s\n' "$RANDOM" \
+        >"$TR/dist/lightning_${ver}_ubuntu2604_amd64.deb"
     printf 'rpm-bytes-%s\n' "$RANDOM" >"$TR/dist/lightning-${ver}-1.x86_64.rpm"
     printf 'flatpak-bytes-%s\n' "$RANDOM" >"$TR/dist/lightning_${ver}_amd64.flatpak"
     printf 'appimage-bytes-%s\n' "$RANDOM" >"$TR/dist/Lightning-${ver}-x86_64.AppImage"
