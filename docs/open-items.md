@@ -21,6 +21,33 @@ says NOT TESTED has not been tested, however plausible the code reads.
 
 OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
 
+**EVERY LINUX PACKAGE LANE IS GREEN AND FIVE OF THEM ARE NOW GUI-VALIDATED ON
+THEIR TARGET DISTRO (2026-09-12, pipeline 208 at `cd21193`).** Twelve jobs —
+six builds, six validations — all success. Beyond CI, each package was
+installed in a clean guest on the laptop and launched against the real
+homeserver with an already-signed-in fixture profile, so the packaged binary
+rendered on a real display and synced:
+
+| lane | install | GStreamer | Qt | GUI |
+| --- | --- | --- | --- | --- |
+| Ubuntu deb (26.04) | `apt`, deps resolved | 1.28.2 | — | signed in, synced |
+| Debian deb (13.6) | `apt`, deps resolved | 1.26.2 | **6.8.2** | signed in, synced |
+| Fedora rpm (44) | `dnf` | 1.28.7 | — | signed in, synced |
+| Flatpak | `flatpak install` | 1.26.11 | — | CLI only |
+| AppImage | n/a | bundled | 6.8.2 | validated earlier the same day |
+
+All report `call media engine built in: yes` with both the 1:1 and SFU engines
+available, across **four different GStreamer versions** — which is exactly the
+split that has bitten this project before. The Debian run is the one worth
+keeping: it is Qt **6.8.2**, the version that produced the
+`QConcatenateTablesProxyModel::roleNames()` and inline-`QPointer` defects.
+
+**THE SNAP IS THE ONE LANE WITH NO LIVE INSTALL ANYWHERE.** `validate-snap`
+says so itself — "structural + payload; live snapd install is [not done]" —
+and the laptop has no snapd, so nothing has ever run that artifact. It is not
+a defect, it is an untested lane, and it should be named as such rather than
+counted with the others.
+
 - **THE macOS ASSET CANNOT BE UPLOADED, AND A RELEASE WOULD SHIP WITHOUT IT
   IN SILENCE (found 2026-09-12, pipeline 208).** `macos-package-test` BUILDS
   and VALIDATES perfectly — "macOS bundle validation passed (arm64,

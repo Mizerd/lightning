@@ -85,6 +85,25 @@ the lightning-deploy pipeline only after packages publish and verify
   `glab api --method PUT runners/<id> --raw-field paused=false` once that
   host has more memory. Do NOT "fix" this by weakening LTO: every release
   since 0.6.x shipped fat LTO and 0.9.2 would become the odd one out.
+  **MEASURED AGAIN 2026-09-12, and un-pausing is still the wrong move — for a
+  reason the original note did not give.** The two hosts now look comparable
+  on paper: 10.195.35.2 has 25 GB total with **11 GB available** and 10 CPUs,
+  10.195.35.6 has 11 GB total with **10 GB available** and 4. So "more memory"
+  has arguably arrived. What has not changed is WHAT ELSE lives on
+  10.195.35.2: GitLab itself, plus the Windows cross-package runner. The 14 GB
+  already in use there IS GitLab. A fat-LTO link that OOMs on that host does
+  not just lose a job — it can take the coordinator down with it, which is a
+  far worse outcome than a slow pipeline, and it is why "both hosts have
+  similar free memory" is not sufficient grounds.
+  Pipeline 208 (2026-09-12, every Linux lane) ran **all twelve jobs on
+  10.195.35.6** and took ~90 minutes wall for that reason: three resource
+  groups serialising onto one 4-CPU host.
+  **IF THROUGHPUT MATTERS, THE SAFE SPLIT IS BY WEIGHT, NOT BY HOST.** The
+  `validate-*` jobs cost 50-94 s each and link nothing; the `build-*` jobs are
+  the fat-LTO ones. Giving the validators their own tag and letting the local
+  runners serve only those adds a second host without putting a link peak next
+  to GitLab. Raising 10.195.35.6's CPU/RAM is the other lever and touches no
+  risk at all.
 - **The GitHub update slot is a tag that exists ONLY on GitHub, and the
   mirror was deleting it.** `update-latest` carries the signed manifest that
   installed clients read when GitLab is unreachable. The push mirror ran with
