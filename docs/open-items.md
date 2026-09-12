@@ -164,6 +164,26 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   carries `image/jpeg`, rather than a raw source that would link past the
   capsfilter and prove nothing — the trap below, applied in advance for once.
 
+  **EVERY PACKAGING PRECONDITION IS NOW SATISFIED AND PROVEN IN CI
+  (2026-09-12).** Builder `...-v6` is built and deployed on the runner host
+  (`sha256:5c628d4b`, `jpegenc` and `jpegdec` both in `libgstjpeg.dll`), the
+  plugin is REQUIRED again rather than optional, and `jpegdec` is in the
+  element set the Wine probe runs against the EXTRACTED package — because
+  staging the DLL is not the same claim as the element registering. Three
+  green `windows-package-test` runs walk the chain: pipeline 205 on v6 at 27
+  bundled plugins, 206 with the plugin required at 28, and 207 with the
+  element probed at 41 elements.
+
+  Getting there found that the builder Dockerfile had been UNBUILDABLE for ten
+  days — its verify stage asserted 27 staged plugins while the install loop
+  staged 28 — so the operator step recorded as open could not have succeeded
+  if anyone had attempted it.
+
+  **WHAT IS LEFT IS THE ONE THING CI CANNOT DO: a real camera.** The VM has no
+  webcam passthrough, so the 10 fps claim can only be closed on a physical
+  Windows machine with a USB camera. The evidence to ask for is one log line,
+  `camera chain= mjpg (jpeg elements present)`, and a frame rate above 10.
+
   WHAT REMAINS IS THE IMAGE, and only that. `libgstjpeg.dll` went into
   `packaging/windows/Dockerfile` and `stage-windows-runtime.py`'s required list
   on 2026-09-02 and the image was never rebuilt, so the plugin has been in the

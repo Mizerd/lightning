@@ -1184,9 +1184,28 @@ rebuilt only by the four-step operator procedure in lightning-deploy
 `docs/windows-runner-operations.md`, which never ran. Deploy `37a4dd1` makes
 the plugin OPTIONAL (staged when present, a WARNING when not) because the
 app's camera chain cannot negotiate `image/jpeg` yet, so it would be staged
-and never loaded. OPEN OPERATOR STEP: rebuild the image under a new tag
-before the MJPG app half lands, then move `libgstjpeg.dll` back to the
-required list — both, or the next release dies the same way.
+and never loaded.
+
+**THAT OPERATOR STEP IS DONE, 2026-09-12 — AND ATTEMPTING IT FOUND THAT THE
+DOCKERFILE HAD BEEN UNBUILDABLE FOR TEN DAYS.** Its verify stage asserts the
+staged plugin count with a literal (`= 27`) and the install loop above it
+stages 28: `libgstjpeg.dll` was added to the loop on 2026-09-02 and the number
+was not bumped with it. Nobody could have found out, because the image is
+built by hand and was not rebuilt in that window — so the very step this
+paragraph asked for could not have succeeded if anyone had tried. It fails
+with NO diagnostic, because a bare `test` in an `&&` chain prints nothing.
+GENERALISE: a hand-built artefact's recipe is only as true as its last build;
+"the change is committed" is not "the change works".
+
+Builder `...-v6` is now built on 10.195.35.2 (image `sha256:5c628d4b`, 28
+plugins, `jpegenc` and `jpegdec` both in `libgstjpeg.dll`), the host's
+`config.toml` points at it with v5 kept in `allowed_images` for rollback, the
+runner verifies, and `windows-package-test` is green on it (pipeline 205).
+`libgstjpeg.dll` is back on the REQUIRED list and `jpegdec` is in the probed
+element set — staging the DLL is not the same claim as the element
+registering, which is the distinction that shipped Windows for months with
+`libgstsctp-1.0-0.dll` present and `sctpenc` missing. Do not remove the v5
+image; removing it is what makes the rollback impossible.
 
 **THE 0.9.0 APPIMAGE SHIPPED WITHOUT QT'S TLS BACKEND AND WITHOUT THE
 WAYLAND SHELL INTEGRATION, and nothing could have caught it.**

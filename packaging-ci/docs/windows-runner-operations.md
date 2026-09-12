@@ -111,6 +111,35 @@ printed or copied anywhere.
 Keep the previous builder image on the host until the new one has produced a
 green `build-windows`. Removing it is what makes the rollback impossible.
 
+**v6 IS BUILT AND DEPLOYED (2026-09-12).** Image `sha256:5c628d4b`, 7.23 GB,
+28 staged plugins, `jpegenc` and `jpegdec` both present in `libgstjpeg.dll`.
+The host's `config/config.toml` sets `image` to v6 and adds it to
+`allowed_images` with v1-v5 retained; the pre-change file is kept beside it as
+`config.toml.pre-v6-<timestamp>`. `gitlab-runner verify` reports the runner
+valid and the container healthy. `windows-package-test` is green on it twice
+(pipelines 205 and 206, ~1450 s each). **Do not remove the v5 image** — that
+is what makes the rollback impossible.
+
+**AND THE BUILD FAILED THE FIRST TIME, ON THE DOCKERFILE'S OWN ASSERTION.**
+The verify stage checks the staged plugin count against a literal, and that
+literal said 27 while the install loop staged 28 — `libgstjpeg.dll` was added
+to the loop on 2026-09-02 and the number was not bumped with it. So this
+Dockerfile had been unbuildable for ten days and nobody knew, because the
+image is built by hand and was not rebuilt in that window: the operator step
+recorded as open could not have succeeded if it had been attempted. Worse, it
+fails SILENTLY — a bare `test` inside an `&&` chain prints nothing, so the
+build log ends at the last command that did produce output and the reader has
+to work backwards through the chain to find which assertion it was. Fixed in
+the same session; the coupling is now stated above the instruction that owns
+the list.
+
+TWO THINGS TO CARRY FORWARD. A hand-built artefact's recipe is only as true as
+its last build, so "the change is committed" is not "the change works" —
+rebuild the image in the same session that changes the Dockerfile, even when
+nothing else needs the new tag yet. And when adding an assertion to that
+verify chain, prefer one that says what it checked: every `echo ... >&2; exit
+1` in that stage is readable in a failure, and every bare `test` is not.
+
 **WHY v6 EXISTS, AND WHY THE DOCKERFILE DID NOT CHANGE FOR IT (2026-09-12).**
 `libgstjpeg.dll` was added to this Dockerfile and to
 `stage-windows-runtime.py`'s required list on 2026-09-02, and the image was
