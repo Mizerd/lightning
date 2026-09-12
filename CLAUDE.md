@@ -1600,6 +1600,24 @@ same claim.
 
 ### Live validation: what Rokas has actually confirmed
 
+**2026-09-13 (night) — A SHARED WINDOW THAT NEVER REPAINTS NOW PUBLISHES:
+PASS, and it published NOTHING before.** Automation-driven on the laptop, same
+static window and same peer either side of the fix. A PipeWire screencast
+delivers ON DAMAGE and `videorate` emits nothing until a SECOND buffer
+arrives, so a window that does not repaint gave `capture delivered frames
+count= 1`, no `publish first encoded frame` line at all, and a far end stuck on
+"Waiting for the picture" indefinitely. §16's `videorate` block described this
+as a WAIT ("~1 s to 10 s"); for a still window it is unbounded. Fixed in
+`5abcc81` by handing videorate the second buffer it is waiting for — measured
+after: `keep-alive … quietMs= 506` then `afterPublishMs= 595`, and the far end
+RENDERS the window. A moving share is unchanged (141 ms, keep-alive fires
+zero times). A GAP event joins the do-not-retry list (0 buffers out), and the
+injected PTS must come from the SAMPLED BUFFER, never the pipeline clock —
+`LightningWindowCaptureSrc` and `ximagesrc` are zero-based, and the
+running-time version was measured in review at 2612 buffers from one
+injection and a permanently dead share. Full account in
+`docs/round-history.md`, 2026-09-12 (night).
+
 **2026-09-12 (evening) — THE WINDOWS CAMERA'S 10-FPS CEILING IS CLOSED: PASS.**
 On the laptop's Windows guest with its USB webcam passed through, the portable
 build that carries `libgstjpeg.dll` negotiates `image/jpeg 1920x1080 @ 30/1`

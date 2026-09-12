@@ -1,5 +1,99 @@
 # Round history
 
+## 2026-09-12 (night) — a shared window that never repaints published nothing
+
+**LIVE-VALIDATED PASS**, on the laptop, same window and same peer before and
+after — the only variable was the build.
+
+**The defect.** Sharing a window that does not repaint (a file manager showing
+a static list) published NO video at all. Measured on the packaged Debian deb:
+
+```
+capture negotiated caps= video/x-raw, format=BGRx, width=1140, height=869,
+    framerate=(fraction)0/1, max-framerate=(fraction)60/1
+capture delivered frames count= 1
+```
+
+and no `publish first encoded frame` line ever. The receiving client sat on
+"Waiting for the picture" indefinitely. The same share switched to the whole
+screen reached `afterPublishMs=269` and rendered, which is why this had never
+been seen: every share anyone had tested was of something that moves.
+
+So it is the §16 `videorate` hold, and **its worst case is not a wait, it is
+never**: PipeWire delivers ON DAMAGE, videorate emits nothing until a SECOND
+buffer arrives, and a still window never produces one. The block in
+`videoRateStage()` described the wait ("~1 s busy desktop to 10 s still
+desktop") and that description was incomplete rather than wrong.
+
+**One new refutation.** A GAP event was the cheapest candidate — videorate
+handles GAP at all — and it does nothing here. Measured in the dev shell, one
+buffer and no EOS into the real rate stage, GStreamer 1.26.11:
+
+```
+nothing                            ->  0 buffers out
+GAP every 100 ms for 2 s           ->  0 buffers out
+re-push the last picture, 100 ms   -> 59 buffers out
+```
+
+Every entry already on that function's do-not-retry list fails for one reason:
+none of them is a buffer. The fix is to hand videorate an actual second one.
+
+**The fix** (`5abcc81`). A throttled probe on the rate stage's upstream peer
+keeps a deep copy of the last frame, and a 200 ms timer chains it into
+`videorate` whenever the capture has been quiet for >500 ms. Screen share
+only. The copy is taken DOWNSTREAM of the scale stage (so ~3 MB five times a
+second, not a 4K BGRA frame) and DEEP (so the source's pool buffer returns to
+PipeWire immediately — holding one is how `min-buffers=8` and
+`keepalive-time=100` each killed the capture outright).
+
+**Two shapes were wrong first; both are recorded in-source so they are not
+retried.**
+
+1. `gst_pad_push()` from an IDLE probe on the upstream peer DEADLOCKS against
+   itself. An IDLE probe is a BLOCKING probe, so the pad stays flagged blocked
+   for the callback's duration and the push waits in `do_probe_callbacks` for
+   a block only that callback can lift. The regression test caught it by
+   hanging for 300 s; no review would have. `gst_pad_chain()` on videorate's
+   sink pad, dispatched through `gst_element_call_async`, is the right shape.
+
+2. **The injected PTS must come from the SAMPLED BUFFER, never the pipeline
+   clock** — found in review, and this one would have shipped a worse defect
+   than it fixed. The first version took `gst_element_get_current_running_time`
+   on the stated premise that "the source stamps its buffers the same way".
+   True of `pipewiresrc` and `gdiscreencapsrc`; FALSE of the other two share
+   sources — `LightningWindowCaptureSrc` and `ximagesrc` are both deliberately
+   zero-based, and this repository says so in two places. Measured by the
+   reviewer at **2612 buffers out of ONE injection** at a 174 s call age,
+   after which every real frame was behind `prevbuf` and dropped: a transient
+   stall would have become a permanently dead share, on the two platforms that
+   never had the defect being fixed. Anchoring on the sampled frame's own PTS
+   plus elapsed wall time is timebase-agnostic and cancels pipeline latency.
+
+**Live validation, 2026-09-13 00:40.** Same static Dolphin window, same two
+clients, same machine:
+
+| | before (`bdba9f0`) | after (`5abcc81`) |
+|---|---|---|
+| capture | `delivered frames count= 1` | `delivered frames count= 1` |
+| keep-alive | — | `re-pushed the last picture count= 1 quietMs= 506` |
+| publish | **no line, ever** | `first encoded frame afterPublishMs= 595` |
+| far end | "Waiting for the picture", indefinitely | **the window, rendered and readable** |
+
+No regression on a moving share: a full-screen share published in 141 ms
+(`rateStageHoldMs= 77`, the ordinary hold) and the keep-alive fired **zero**
+times, which is the whole design — it acts only when the capture goes quiet.
+
+Tests: `theKeepAlivePtsNeverLeavesTheSourcesTimebase` (the arithmetic —
+anchored to the sample, strictly increasing, refuses an invalid source PTS),
+`aStillScreenStillPublishesAPicture` (the real rate stage, one buffer, no EOS;
+the control asserts ZERO without the injection, which is the defect itself),
+`theRealPublishDescriptionStillOffersAnInjectionPad` (both pads the feature
+needs, against the REAL publish description). All mutation-checked. What is
+NOT covered is stated in the test rather than implied: arming needs a live
+publish. `sfu-media-engine-test` 73 passed, 0 failed, 0 skipped.
+`-DLIGHTNING_ENABLE_WEBRTC=OFF` over every target: clean.
+
+
 Moved out of `CLAUDE.md` §16 on 2026-09-03: that file had reached 150,397
 characters against a 150,000 limit and was being truncated, silently dropping
 its own tail — sections 17 to 19 — from agent context, exactly as §7 was moved
