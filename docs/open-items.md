@@ -374,13 +374,68 @@ absence is invisible until a host with no driver meets it — the recorded
 "graceful fallback and silent absence are the same observable" shape, now for
 the sixth time.
 
-NOT DONE, and the blocker is not the code: the Windows builder image is
-hand-built under a fixed tag (§16), so the file has to BE in that image before
-any staging line can copy it. Check whether the image's Qt carries
-`bin/opengl32sw.dll` — the official Qt binaries do, an MSYS2/mingw Qt does
-not — and if it does not, the software-GL rung has to be sourced deliberately
-rather than by editing a list. Until then the call UI should say why the
-picture is missing instead of showing an empty frame.
+**SUPERSEDED 2026-09-12 ON WINDOWS — AND THE ANSWER WAS NOT PACKAGING AT ALL.**
+This entry used to end "FIX: stage `opengl32sw.dll`". That is no longer the
+outstanding work, and two measurements moved it:
+
+* the builder image was inspected and has NO `opengl32sw.dll`, and never will —
+  Fedora's mingw Qt does not ship Qt's Mesa-llvmpipe twin, so there was no list
+  to edit;
+* and the fallback was OURS. `src/main.cpp`'s probe asks about OPENGL, which is
+  right for the AppImage/Wayland case it was written for, and then forced
+  `QSGRendererInterface::Software` on EVERY platform. Qt DOCUMENTS Windows'
+  default as
+  **Direct3D 11** — no OpenGL, WARP when there is no GPU, RHI-backed so
+  `QSGVideoNode` renders normally. A Windows box with no WGL was already fine,
+  and this code overrode that with the one backend that cannot draw video.
+
+The probe now prefers D3D11 on Windows and Metal on macOS; Software stays the
+last resort only where there is no such backend. Verified in the SHIPPED Qt
+rather than assumed: `Qt6Gui.dll` in the builder image carries
+`QD3D11SwapChain`/`QD3D11Adapter` and imports `d3d11.dll` and `dxgi.dll`, and
+`Direct3D11` is an unconditional enumerator in that Qt's
+`qsgrendererinterface.h`.
+
+**NOT TESTED, AND ONE PREMISE IS STILL UNMEASURED.** Qt performs no
+cross-backend fallback once `setGraphicsApi()` is called, so a D3D11 creation
+failure would be worse than the defect it fixes — an app that does not start.
+Whether D3D11 is ALREADY Qt's Windows default decides whether this restores a
+shipping-proven configuration or selects a new one, and it is settled by one
+line on any Windows box whose GL works: the probe does not fire, nothing is
+forced, and `lightning: scene graph backend=…` reports Qt's own choice.
+`backend=d3d11` confirms it.
+
+**REJECTED, with the reason, so it is not re-proposed:** "on Windows and macOS
+log and call nothing, and inherit Qt's default". That makes behaviour depend on
+a default nobody here has measured and which differs between the dev shell's Qt
+and the Windows SDK's — the exact class §16 records five times over (Qt 6.8 vs
+6.11 proxy `roleNames`, the font fallback, `pipewiresrc min-buffers`, the
+GStreamer split, the inline `QPointer`), whose own generalisation is PIN IT.
+Inheriting a default is not pinning. It also removes no risk: if the default IS
+D3D11 you get the same device creation and the same absence of cross-backend
+fallback, with no log line saying what was chosen; and if it is NOT, a failed GL
+probe plus no override means Qt tries a backend just proven dead.
+
+ACCEPTED FOLLOW-UP, deliberately not folded into the same change: the GL probe
+is the wrong question on Windows and macOS and should eventually be SKIPPED
+there outright, so each platform has one pinned configuration rather than two
+(GL works -> Qt's unpinned default; GL dead -> pinned D3D11), and so a throwaway
+`QOpenGLContext` — itself a hang surface on a broken ICD — is never created.
+That moves every Windows user off field-proven behaviour, where today's change
+touches only machines with no usable GL. Separate round, separate evidence.
+
+**HOW TO READ THE FIRST WINDOWS RUN, so the result is measured and not
+interpreted.** A D3D11 failure looks like `Failed to create RHI (backend …)`
+and a process that exits BEFORE a window — not a blank window; if that appears,
+`QSG_RHI_BACKEND=software` confirms the backend is the variable, because the
+probe block yields to that env var. And **"it starts" is not the PASS**: the
+PASS is a tile carrying a remote picture on the same guest that previously
+counted 1000+ received frames against an empty rectangle, with the backend as
+the only change.
+
+The software-renderer NOTICE is unaffected and still earns its place: a Linux
+AppImage host with no usable GL still lands on Software, and that is what it
+explains.
 
 **THE SNAP HAS NEVER WORKED. IT INSTALLS AND CANNOT START (found 2026-09-11,
 first execution under a real snapd).**
@@ -741,10 +796,12 @@ guard — and the state machine becomes drivable without a media engine.
 
 ---
 
-**`DELAYED_EVENTS_REFUSED` IS PROCESS-GLOBAL, SO ONE ACCOUNT'S OLD HOMESERVER
-DISABLES MSC4140 FOR EVERY OTHER ACCOUNT UNTIL RESTART.** Raised in review
-2026-09-12, recorded rather than fixed: the behaviour is correct for a single
-account and the fix is a scoping change that deserves its own round.
+**~~`DELAYED_EVENTS_REFUSED` IS PROCESS-GLOBAL~~ — FIXED 2026-09-12, kept for
+the reasoning.** It is now a `Mutex<BTreeSet<String>>` keyed by the
+homeserver's own URL, so an account switch simply asks a different question.
+`one_servers_refusal_does_not_disable_msc4140_for_another` pins it and is
+mutation-proven against the old process-global behaviour. What follows is why
+it mattered.
 
 `rust/src/rtc.rs` keeps it as a `static AtomicBool`. It latches when a
 homeserver proves it will not arm a delayed retraction, and that is a real,
@@ -763,9 +820,9 @@ that implements MSC4140, and for the rest of the process the second account:
 * is told scheduled send is unsupported (`rust/src/rooms.rs` reads the same
   flag), so it silently falls back to the local queue.
 
-FIX: scope the latch per homeserver rather than per process. That also makes
-the two recoveries the old doc comment claimed — a server that GAINS support,
-and a mis-latch — genuinely true, which they are not today.
+FIXED exactly that way. The two recoveries the old doc comment claimed — a
+server that GAINS support, and a mis-latch — are now genuinely reachable,
+because the entry that would have to be cleared belongs to one server.
 
 ---
 
@@ -815,3 +872,71 @@ one attempt was void — shell quoting truncated the message before it reached
 the composer, and the "clipped code block" it appeared to show was simply the
 message the app had received), and the call stage's tile grid, which cannot be
 judged on a machine that renders no video.
+
+---
+
+**THE SNAP'S STAGED-LIBRARY LIST AND ITS JOB'S APT LIST HAVE TO AGREE, AND
+THEY DID NOT (2026-09-12).** A follow-up to the libSM fix, and it would have
+turned that fix into a red build rather than a working snap.
+
+`stage_unresolved_libs` copies from what `ldd` RESOLVES ON THE BUILD HOST. So a
+family named in `build-snap.sh` that is not installed in the `build-snap` job's
+image stages **nothing** — and the payload guard added in the same round then
+fails the build. Loud rather than silent, which is the right failure, but still
+a failure. `libsm6`/`libice6` were not in that job's apt list.
+
+Found by simulating the staging against pipeline 198's real payload rather than
+by reading: copy the named libraries into an unsquashed copy, re-run the guard,
+and see what the NEXT layer asks for. That surfaced one more, and it is the
+kind nobody guesses — **`libSM` needs `libuuid`**, so `libqxcb.so` would STILL
+have failed to load with libSM and libICE both present.
+
+Now in the job's apt list: `libsm6 libice6 libuuid1`, plus `libasound2t64`,
+`libdrm2`, `libgbm1`, `libwayland-cursor0`, `libwayland-egl1`, `libfribidi0`,
+`libthai0` — the set the widened plugin sweep reported once a window opened.
+`libuuid.so.*`, `libfribidi.so.*` and `libthai.so.*` join the staged families.
+
+**AND MY FIRST SWEEP OF THAT WAS A PROBE THAT COULD NOT FAIL.** I reported "no
+fatal entry" from a tree into which I had hand-copied `libGL.so.1` and
+`libgbm.so.1` — the exact two libraries the staging step turns out to be unable
+to produce. The probe did not share the property under test, which §16 records
+as a standing trap and which I walked into anyway. Caught in review by running
+the REAL functions in the job's own pinned image against the PRISTINE payload.
+
+Two things that run found, both since fixed:
+
+* **`ubuntu:24.04` ships no `readelf`**, and the guard walks each plugin's
+  NEEDED graph with it. Without `binutils` the walk yields nothing, every probe
+  reports nothing missing, and the guard passes VACUOUSLY on a payload whose
+  plugins cannot load — the same silent-absence shape it was written to end.
+  `binutils` is now in that job's apt list.
+* **`ldd` could not see a GStreamer plugin's own dependencies.** Qt's plugins
+  carry `RUNPATH=$ORIGIN/../../lib`, so `ldd` walks into the AppDir and reaches
+  libSM; a gst plugin carries `$ORIGIN` alone, so the walk stopped at
+  `libgstgl-1.0.so.0 => not found` and never reached `libGL`/`libgbm`. Naming
+  those families therefore staged NOTHING and `libgstopengl.so` stayed
+  unloadable — meaning the snap kept reproducing the very software-renderer
+  condition the call UI's new notice exists to explain. Staging now resolves
+  with `LD_LIBRARY_PATH="$TREE/usr/lib"`; measured in the job's image against
+  pipeline 198's payload, 10 staged before and 12 after, and the guard then
+  passes with no fatal entry and no warnings.
+
+Worth keeping beside that: the family list is not self-sufficient, it is
+self-sufficient GIVEN THIS AppDir. `libICE` needs `libbsd`→`libmd`, `libthai`
+needs `libdatrie`, `libgbm` needs `libexpat`, and all four resolve only because
+linuxdeploy already bundled them.
+
+**NOT TESTED: the resulting build.** None of this has run in CI. What the
+review's docker runs establish is that the staging and the guard now behave
+correctly on the real image against the real payload; a pipeline is still what
+proves the job goes green.
+
+---
+
+**THE SOFTWARE-RENDERER NOTICE COVERS THE CALL UI ONLY.** `qml/CallStage.qml`
+explains why no video appears during a call; `VideoPlayerCard.qml`,
+`VideoViewerOverlay.qml` and `MessageComposerBar.qml`'s preview will still show
+an unexplained empty rectangle on the same machine, because they draw video the
+same way and nothing tells them either. Pre-existing and deliberately out of
+scope for the round that added the notice — recorded so it is not later read as
+closed. `app.softwareRenderer` is already available to all three.

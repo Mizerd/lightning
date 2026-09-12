@@ -15,6 +15,73 @@ By THEME, not chronology, and reduced to rules, refutations, deliberate
 decisions, measured numbers and live status. Features are §7; the caps
 contract, the refutation rule and the probe rule are in the standing warnings.
 
+#### 2026-09-12, the overnight live round: three defects the harness could not see
+
+**A COUNTER THAT COUNTS FRAMES NOBODY CAN SEE.** The engine's
+`frames in the clear in` climbs whenever frames are decrypted, which says
+nothing about whether a picture was drawn — and on Qt Quick's software
+adaptation nothing IS drawn, because `QSGSoftwareRenderableNode::NodeType` is a
+closed list of rectangles, glyphs, images and nine-patches and Qt Multimedia's
+`QSGVideoNode` is none of them (the path is RHI-only besides, and that context
+has no RHI). Measured on Windows, then reproduced on Linux with
+`QT_QUICK_BACKEND=software` as the ONLY variable: the counter passed 500
+against an empty rectangle where the same client on the default backend
+rendered the remote desktop perfectly. Every "screen share PASS" that rested on
+that counter was withdrawn.
+
+**AND THE FALLBACK THAT PUT WINDOWS THERE WAS OURS.** `src/main.cpp` probes for
+OPENGL — correct for the AppImage/Wayland case it was written for — and then
+forced `Software` on every platform. Qt documents Windows' default as Direct3D
+11: no
+OpenGL, WARP without a GPU, RHI-backed so video renders. So the packaging item
+this was blamed on (`opengl32sw.dll` absent) was not the fix; the image has no
+such DLL and Fedora's mingw Qt never ships one. GENERALISE: a probe for ONE
+graphics API must not choose the fallback for platforms that have a different
+native one.
+
+**A MEMBERSHIP NAMING THIS DEVICE IS NOT EVIDENCE THE DEVICE IS IN A CALL.**
+Three surfaces asked `app.rtc.ownDeviceInSession()` and treated it as "am I in
+this call". A device id survives a restart, so an unclean exit left a ghost that
+hid the only Join affordance for five minutes — from exactly the user who had
+just been dropped. Confirmed by waiting: the banner returned by itself when the
+ghost expired. The local call controller is the authority; the C++ declaration
+now says so.
+
+**A LAYOUT FLOOR DOES NOT CREATE ROOM.** `Layout.minimumWidth: implicitWidth`
+on the call controls meant that once the row's minimums exceeded the panel the
+RowLayout handed every child its minimum and OVERFLOWED — and the end of that
+row is the hang-up button, so below ~1100 px a user could not leave a call. The
+fix drives `compact` from available width, as a LATCH: `compact` changes
+`implicitWidth`, so a plain `width < implicitWidth` binding oscillates. It
+learns the expanded requirement while expanded and freezes it on the way in.
+
+**A PROCESS-GLOBAL FLAG FOR A PER-SERVER PROPERTY.**
+`DELAYED_EVENTS_REFUSED` was an `AtomicBool`; MSC4140 belongs to a HOMESERVER.
+One account on an old Synapse disabled crash-safe call cleanup for every other
+account until restart. Now keyed by `client.homeserver()`. In the same area, a
+server that IGNORES `?org.matrix.msc4140.delay=` answers **200 with no
+`delay_id`** — not a 404 — so a "latch only on a permanent refusal" rule that
+matched on 404s alone never latched on the one server class GitHub #10 came
+from, and would have armed a naked retraction every 60 s. Classified on
+matrix-sdk's error VARIANT, never on message text.
+
+**AND THE PACKAGING CHECKS TAUGHT THE SAME LESSON THREE TIMES.** A snap that
+installs, runs `--version`, and cannot open a window (`libSM` unstaged, reached
+through `libQt6XcbQpa`, with `libuuid` behind it). A guard written to catch that
+which was a SILENT NO-OP in CI because ubuntu:24.04 ships no `readelf`. And a
+staging step that could not see a GStreamer plugin's own dependencies, because
+Qt's plugins carry `RUNPATH=$ORIGIN/../../lib` and gst plugins carry `$ORIGIN`
+alone — so naming `libGL`/`libgbm` staged nothing and `libgstopengl` stayed
+unloadable. Measured in the job's own pinned image against a real payload:
+staged 10 before, 12 after, guard green.
+
+**MY OWN PROBE COULD NOT FAIL.** I reported "no fatal entry" from a tree into
+which I had hand-copied the two libraries the staging step cannot produce. §16
+records that trap and I walked into it anyway; the review caught it by running
+the real functions against the PRISTINE payload. Ask what would make a probe
+pass on broken code BEFORE trusting it — every time, not just when it is
+convenient.
+
 #### 2026-09-11 (evening), four user reports, and a bell that hid real unreads
 
 **THE SIGNAL THAT ANNOUNCES A CHANGE IS NOT NECESSARILY THE SIGNAL THAT
