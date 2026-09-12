@@ -1059,14 +1059,25 @@ private slots:
         while (defIt.hasNext())
             switcherKeys.insert(defIt.next().captured(1));
 
-        QVERIFY2(navKeys.size() >= 8,
-                 qPrintable(QStringLiteral("only %1 nav rows matched — the "
-                                           "scan has stopped working")
-                                .arg(navKeys.size())));
-        QVERIFY2(switcherKeys.size() >= 8,
-                 qPrintable(QStringLiteral("only %1 switcher rows matched — "
-                                           "the scan has stopped working")
-                                .arg(switcherKeys.size())));
+        // THE FLOOR IS THE NAV-ROW COUNT, not a comfortable margin under it.
+        // The two sets only have to be EQUAL below, so a floor of 8 against
+        // ten real sections would let two sections vanish from BOTH files and
+        // still pass — which is the same vacuity the floor exists to prevent.
+        // Raise this with the sections; `SettingsScreen.qml`'s
+        // `sectionTitle()` is the list.
+        static constexpr int kSections = 10;
+        QVERIFY2(navKeys.size() >= kSections,
+                 qPrintable(QStringLiteral("only %1 nav rows matched, expected "
+                                           "at least %2 — either the scan has "
+                                           "stopped working or a section was "
+                                           "dropped")
+                                .arg(navKeys.size())
+                                .arg(kSections)));
+        QVERIFY2(switcherKeys.size() >= kSections,
+                 qPrintable(QStringLiteral("only %1 switcher rows matched, "
+                                           "expected at least %2")
+                                .arg(switcherKeys.size())
+                                .arg(kSections)));
 
         const QSet<QString> missing = navKeys - switcherKeys;
         const QSet<QString> extra = switcherKeys - navKeys;
