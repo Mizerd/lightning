@@ -381,10 +381,16 @@ Window {
                     glyphSize: 17
                     tooltip: qsTr("Leave the call")
                     onClicked: {
+                        // `hangup`, not `hangUp`. CallController's invokable
+                        // is all-lowercase and every other call site in the
+                        // tree spells it that way; this one did not, so on
+                        // the LEGACY 1:1 lane the floating window's hang-up
+                        // button threw a TypeError and did nothing at all.
+                        // A QML->C++ name is only checked when the line runs.
                         if (root.groupLive)
                             app.groupCall.leave()
                         else
-                            app.calls.hangUp()
+                            app.calls.hangup()
                     }
                 }
             }

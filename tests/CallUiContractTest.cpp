@@ -836,6 +836,110 @@ Item {
                                 .arg(want).arg(drawn).arg(drawn - want)));
     }
 
+    // EVERY `app.calls.X` AND `app.groupCall.X` IN qml/ MUST EXIST ON THE
+    // CONTROLLER, because QML only finds out when the line RUNS.
+    //
+    // `qml/CallPipWindow.qml` called `app.calls.hangUp()` where the invokable
+    // is `hangup()` — all-lowercase, and every other call site in the tree
+    // spelled it correctly. On the legacy 1:1 lane the floating window's
+    // hang-up button therefore threw a TypeError and did nothing, and nothing
+    // could have noticed: the PiP is a separate Window that only exists while
+    // a call is floated, the branch is the non-SFU one, and a `qmlformat` or
+    // a component-load test sees a syntactically perfect property access.
+    //
+    // A SOURCE SWEEP OVER BOTH SIDES, not a list of known-good names: the
+    // members are collected from the two headers (Q_PROPERTY names,
+    // Q_INVOKABLE methods, signals) and every QML use is checked against
+    // them, so a member RENAMED in C++ fails here too rather than at the
+    // moment a user presses the button.
+    void everyCallControllerMemberQmlUsesActuallyExists()
+    {
+        auto members = [&](const QString &header) {
+            const QString src = read(QStringLiteral(QML_DIR "/../src/calls/")
+                                     + header);
+            QSet<QString> out;
+            // Q_PROPERTY(<type> name READ ...) — the name is the token before
+            // READ/MEMBER, which survives template commas in <type>.
+            QRegularExpression prop(
+                QStringLiteral("Q_PROPERTY\\s*\\([^)]*?([A-Za-z_][A-Za-z0-9_]*)"
+                               "\\s+(?:READ|MEMBER)"));
+            auto pi = prop.globalMatch(src);
+            while (pi.hasNext())
+                out.insert(pi.next().captured(1));
+            // Q_INVOKABLE <ret> name(   — and plain declarations that follow
+            // a Q_SIGNALS / slots section are caught by the same shape.
+            QRegularExpression inv(
+                QStringLiteral("Q_INVOKABLE[^;{]*?([A-Za-z_][A-Za-z0-9_]*)"
+                               "\\s*\\("));
+            auto ii = inv.globalMatch(src);
+            while (ii.hasNext())
+                out.insert(ii.next().captured(1));
+            // Signals are callable from QML too (and are how several of these
+            // surfaces are wired), so a bare declaration in the signals
+            // section counts. Collected loosely on purpose: this set is only
+            // ever used to ACCEPT a name, so being generous here can only
+            // produce a false pass, never a false failure.
+            QRegularExpression sig(
+                QStringLiteral("(?m)^\\s*(?:void|bool|int|QString)\\s+"
+                               "([A-Za-z_][A-Za-z0-9_]*)\\s*\\("));
+            auto si = sig.globalMatch(src);
+            while (si.hasNext())
+                out.insert(si.next().captured(1));
+            return out;
+        };
+
+        const QSet<QString> calls = members(QStringLiteral("CallController.h"));
+        const QSet<QString> group =
+            members(QStringLiteral("SfuCallController.h"));
+        // PRESENT-TOKEN CONTROL on the C++ side: if the header moved or the
+        // patterns stopped matching, every QML name would be "missing" and
+        // this would fail loudly — but an EMPTY set with an empty QML sweep
+        // would pass, so both sides are floored.
+        QVERIFY2(calls.size() > 10 && group.size() > 10,
+                 qPrintable(QStringLiteral("parsed only %1/%2 members out of "
+                                           "the two headers — the scan is "
+                                           "broken, not the code")
+                                .arg(calls.size()).arg(group.size())));
+
+        QDir dir(QStringLiteral(QML_DIR));
+        const auto files =
+            dir.entryList({ QStringLiteral("*.qml") }, QDir::Files);
+        QVERIFY(!files.isEmpty());
+        QRegularExpression use(
+            QStringLiteral("app\\.(calls|groupCall)\\."
+                           "([A-Za-z_][A-Za-z0-9_]*)"));
+        QStringList missing;
+        int seen = 0;
+        for (const QString &name : files) {
+            const QString body = code(read(dir.filePath(name)));
+            auto it = use.globalMatch(body);
+            while (it.hasNext()) {
+                const auto m = it.next();
+                ++seen;
+                const bool isGroup = m.captured(1) == QLatin1String("groupCall");
+                const QSet<QString> &have = isGroup ? group : calls;
+                if (!have.contains(m.captured(2))) {
+                    const QString entry =
+                        QStringLiteral("%1: app.%2.%3")
+                            .arg(name, m.captured(1), m.captured(2));
+                    if (!missing.contains(entry))
+                        missing.append(entry);
+                }
+            }
+        }
+        QVERIFY2(seen > 30,
+                 qPrintable(QStringLiteral("only %1 controller uses found in "
+                                           "qml/ — the sweep is matching the "
+                                           "wrong thing")
+                                .arg(seen)));
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QStringLiteral(
+                                "these QML lines name something the "
+                                "controller does not have, and will throw the "
+                                "moment they run: %1")
+                                .arg(missing.join(QStringLiteral("; ")))));
+    }
+
     // The share picker LOADS, it classifies a row the same way the capture
     // does, and it NAMES a window the way a person can act on.
     //
