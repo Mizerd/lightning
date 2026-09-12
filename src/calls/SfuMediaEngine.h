@@ -46,6 +46,7 @@
 typedef struct _GstElement GstElement;
 typedef struct _GstPromise GstPromise;
 typedef struct _GstPad GstPad;
+typedef struct _GstBuffer GstBuffer;
 
 class CallFrameCryptor;
 class SfuVideoRouter;
@@ -143,6 +144,42 @@ public:
     /// forgot one plugin is the likeliest way this path dies, and "GPU
     /// unavailable" would send the next person hunting the driver.
     static QString missingGpuShareElement();
+    /// Where the next keep-alive frame's PTS must land.
+    ///
+    /// STATIC AND PURE, for the reason shareLimitsCaps() is: this is the one
+    /// piece of the keep-alive that can be wrong in a way no fixture built
+    /// around a live capture would notice, and the first version WAS wrong.
+    ///
+    /// It took the PIPELINE's running time, on the stated premise that "the
+    /// source stamps its buffers the same way". That is true of `pipewiresrc`
+    /// and `gdiscreencapsrc` and FALSE of the other two share sources: both
+    /// `LightningWindowCaptureSrc` (see its `frameIndex`) and `ximagesrc`
+    /// (measured, screenShareSource()) are deliberately ZERO-BASED, because a
+    /// source stamping running time makes videorate back-fill one duplicate
+    /// per frame across the whole call age. Injecting a running-time PTS into
+    /// a zero-based stream did exactly that — measured in review at 2612
+    /// buffers out of one injection at a 174 s call age, after which EVERY
+    /// real frame was behind `prevbuf` and dropped: a transient stall turned
+    /// into a permanently dead share, on the two platforms that never had the
+    /// defect this keep-alive exists to fix.
+    ///
+    /// So it is anchored to the SAMPLED BUFFER'S OWN PTS and advanced by
+    /// elapsed wall time, which is timebase-agnostic, plus a floor at the
+    /// last value emitted so successive injections strictly increase. Returns
+    /// GST_CLOCK_TIME_NONE (checked by the caller) when the source gave no
+    /// usable PTS at all.
+    static quint64 keepAlivePts(quint64 sampledPts, bool sampledPtsValid,
+                                qint64 elapsedMs, quint64 lastInjectedPts,
+                                bool lastInjectedPtsValid);
+    /// The pad a keep-alive frame is chained into: `videorate`'s sink.
+    ///
+    /// Public and static so a test can ask the REAL publish description for
+    /// it. The injection point is found by the element's NAME, so it is
+    /// exactly the kind of coupling that breaks silently when the pipeline is
+    /// rearranged — and the feature degrades to "a still share publishes
+    /// nothing", which is the defect it was written for. Returns a pad the
+    /// caller owns, or nullptr.
+    static GstPad *keepAliveInjectionPad(GstElement *bin);
     /// The first name in `names` with no registered factory, or empty.
     ///
     /// SPLIT OUT SO IT CAN ACTUALLY BE TESTED. With the element list baked
@@ -837,6 +874,75 @@ private:
         /// Written once, before the bin is set playing, and only read after.
         qint64 startedMs = 0;
         bool screenShare = false;
+
+        // KEEP-ALIVE FOR AN ON-DAMAGE CAPTURE THAT HAS GONE QUIET.
+        //
+        // A PipeWire screencast delivers a buffer when the content CHANGES,
+        // and `videorate` emits nothing until a SECOND buffer arrives. Share
+        // a window that never repaints and the two meet: exactly one frame is
+        // captured, nothing is ever encoded, and the far end sits on "Waiting
+        // for the picture" forever. Measured live on 2026-09-12 sharing a
+        // static file manager — `capture delivered frames count= 1` and no
+        // `publish first encoded frame` line at all.
+        //
+        // These fields let tickShareKeepAlive() hand videorate that second
+        // buffer. The copy is taken DOWNSTREAM of the scale stage, so it is
+        // already at or below the publish ceiling (a 1080p I420 frame, ~3 MB)
+        // rather than the capture's native 4K BGRA, and it is a DEEP copy so
+        // the source's pool buffer goes straight back to PipeWire — holding a
+        // pool buffer is how `min-buffers` and `keepalive-time` each killed
+        // the capture outright (see screenShareBinDescription()).
+        //
+        // `keepMutex` guards the sampled TRIPLE — `lastFrame`, its
+        // `lastFramePts`/`lastFramePtsValid` and `lastSampleAtMs` — which are
+        // only meaningful together: a GStreamer streaming thread writes them
+        // from a pad probe while the GUI thread reads them from the timer,
+        // and pairing one frame's PTS with another frame's arrival time
+        // produces an injection that advances nothing. Raised in review.
+        QMutex keepMutex;
+        GstBuffer *lastFrame = nullptr;
+        /// The PTS the SOURCE gave that frame. The injected frame is stamped
+        /// from THIS, never from the pipeline clock — see keepAlivePts().
+        quint64 lastFramePts = 0;
+        bool lastFramePtsValid = false;
+        /// videorate's SINK pad, ref'd while set: the keep-alive frame is
+        /// chained straight into it.
+        ///
+        /// NOT pushed on the upstream peer, and that is not a detail. A
+        /// `gst_pad_push()` from inside an IDLE probe on that peer deadlocks
+        /// against itself — an IDLE probe is a BLOCKING probe, so the pad is
+        /// flagged blocked for the duration of the callback and the push
+        /// waits in `do_probe_callbacks` for a block that only the callback
+        /// can lift. Written that way first and caught by
+        /// aStillScreenStillPublishesAPicture hanging, not by review.
+        GstPad *keepSink = nullptr;
+        /// Monotonic ms of the last REAL buffer; -1 means none yet.
+        std::atomic<qint64> lastFrameMs{-1};
+        /// Monotonic ms the last sampled copy was taken, to throttle copying.
+        std::atomic<qint64> lastSampleMs{-1};
+        std::atomic<quint64> keepAliveInjected{0};
+        /// The last PTS this keep-alive emitted, so successive injections are
+        /// strictly increasing even if the source's clock does not move.
+        /// GUI thread only — written and read solely by tickShareKeepAlive().
+        quint64 lastInjectedPts = 0;
+        bool lastInjectedPtsValid = false;
+        /// Monotonic ms at which `lastFrame` was sampled. Guarded by
+        /// `keepMutex` with the frame itself, NOT by the atomic throttle
+        /// above: that one is deliberately written outside the swap.
+        qint64 lastSampleAtMs = -1;
+
+        // OWNERSHIP-BASED CLEANUP, not only the explicit release.
+        //
+        // releaseKeepAlive() runs from unpublish() and stop() while the bin is
+        // STILL PLAYING — the real teardown is deferred behind an IDLE probe —
+        // so the sampling probe can run once more afterwards and put a fresh
+        // frame back in `lastFrame`, on a state no longer in m_publishWatch
+        // and so never released again. That leaked one full-size frame per
+        // losing race. The state is destroyed only when the probe's own
+        // shared_ptr is gone, i.e. when no probe can run, so this is the
+        // backstop that cannot race; the explicit release is an early
+        // optimisation on top of it. Raised in review.
+        ~PublishProbeState();
     };
     struct PublishWatch {
         std::shared_ptr<PublishProbeState> state;
@@ -1020,6 +1126,24 @@ private:
     // live pipeline, which is the manoeuvre this lane already lost a round
     // to (the unpublish deadlock, §16).
     void rescanShareAudioSources();
+
+    // THE SECOND BUFFER `videorate` IS WAITING FOR, when the screen is still.
+    //
+    // One timer for every share, not one per publish: a share is a single
+    // publish in practice and a poll that walks an empty hash costs nothing.
+    // It is armed only by a SCREEN SHARE publish — a camera delivers on a
+    // clock and needs none of this, and injecting into a camera's timeline
+    // would be manufacturing frames nobody asked for.
+    void tickShareKeepAlive();
+    /// Releases the injection pad and sampled frame a publish is holding.
+    static void releaseKeepAlive(const std::shared_ptr<PublishProbeState> &s);
+    /// Runs the timer exactly while some watched share still holds a pad.
+    /// ONE rule, called from every site that can change the answer — the
+    /// link-failure path had its own half of it and left the timer running
+    /// for the rest of the call.
+    void updateShareKeepAliveTimer();
+    QTimer m_shareKeepAliveTimer;
+
     lightning::shareaudio::SourceMonitor m_shareAudioSources;
     QTimer m_shareAudioScanTimer;
     QString m_shareAudioCid;

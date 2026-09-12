@@ -665,6 +665,13 @@ SfuMediaEngine::SfuMediaEngine(QObject *parent)
     : QObject(parent)
     , m_sendCryptor(std::make_unique<CallFrameCryptor>())
 {
+    // Armed only by a screen-share publish and stopped when the last one
+    // goes; see tickShareKeepAlive(). The interval is the poll, not the
+    // threshold — a quiet share is woken within one tick of crossing it.
+    m_shareKeepAliveTimer.setInterval(200);
+    m_shareKeepAliveTimer.setSingleShot(false);
+    connect(&m_shareKeepAliveTimer, &QTimer::timeout, this,
+            &SfuMediaEngine::tickShareKeepAlive);
     QMutexLocker lock(&g_aliveMutex);
     g_aliveEngines.insert(this);
 }
@@ -722,6 +729,9 @@ void SfuMediaEngine::stop()
     m_generation.fetch_add(1);
     m_active = false;
     m_publishedBins.clear();
+    m_shareKeepAliveTimer.stop();
+    for (auto it = m_publishWatch.cbegin(); it != m_publishWatch.cend(); ++it)
+        releaseKeepAlive(it->state);
     m_publishWatch.clear();
     m_pendingTrackVolume.clear();
     m_volumeMissWarned.clear();
@@ -1642,6 +1652,222 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
                        << perApplication;
 }
 
+SfuMediaEngine::PublishProbeState::~PublishProbeState()
+{
+    // No lock: nothing can still be holding one, because the destructor only
+    // runs once the last shared_ptr — including every probe's — is gone.
+    if (lastFrame)
+        gst_buffer_unref(lastFrame);
+    if (keepSink)
+        gst_object_unref(keepSink);
+}
+
+quint64 SfuMediaEngine::keepAlivePts(quint64 sampledPts, bool sampledPtsValid,
+                                     qint64 elapsedMs, quint64 lastInjectedPts,
+                                     bool lastInjectedPtsValid)
+{
+    // A source that gave us no PTS gives us nothing to anchor to, and
+    // GUESSING one is what the running-time version was. Refuse instead: a
+    // still share that stays still is a far smaller fault than a moving share
+    // that dies.
+    if (!sampledPtsValid)
+        return GST_CLOCK_TIME_NONE;
+    const quint64 elapsed =
+        static_cast<quint64>(qMax<qint64>(0, elapsedMs)) * GST_MSECOND;
+    quint64 at = sampledPts + elapsed;
+    // STRICTLY INCREASING. The anchor is the last SAMPLE, so two injections
+    // between one pair of samples would otherwise be able to tie — and
+    // videorate treats a non-advancing PTS as nothing to interpolate across.
+    if (lastInjectedPtsValid && at <= lastInjectedPts)
+        at = lastInjectedPts + 1;
+    return at;
+}
+
+GstPad *SfuMediaEngine::keepAliveInjectionPad(GstElement *bin)
+{
+    if (!bin)
+        return nullptr;
+    GstElement *rate = gst_bin_get_by_name(GST_BIN(bin), "vidrate");
+    if (!rate)
+        return nullptr;
+    GstPad *sink = gst_element_get_static_pad(rate, "sink");
+    gst_object_unref(rate);
+    return sink;
+}
+
+/// Drop the frame and the pad a finished share was holding.
+///
+/// Static because it runs from teardown paths that have already taken the
+/// watch out of the hash, so there is no engine state left to consult.
+void SfuMediaEngine::releaseKeepAlive(
+    const std::shared_ptr<PublishProbeState> &state)
+{
+    if (!state)
+        return;
+    GstBuffer *frame = nullptr;
+    {
+        QMutexLocker lock(&state->keepMutex);
+        frame = state->lastFrame;
+        state->lastFrame = nullptr;
+    }
+    if (frame)
+        gst_buffer_unref(frame);
+    if (GstPad *pad = state->keepSink) {
+        state->keepSink = nullptr;
+        gst_object_unref(pad);
+    }
+}
+
+namespace {
+/// One keep-alive frame on its way to `videorate`, owned until it is chained.
+struct KeepAliveInjection {
+    GstPad *pad = nullptr;
+    GstBuffer *buffer = nullptr;
+};
+}   // namespace
+
+/// Run the keep-alive timer exactly while some watched share still holds a pad.
+void SfuMediaEngine::updateShareKeepAliveTimer()
+{
+    bool wanted = false;
+    for (auto it = m_publishWatch.cbegin(); it != m_publishWatch.cend(); ++it) {
+        if (it->state && it->state->screenShare && it->state->keepSink)
+            wanted = true;
+    }
+    if (wanted && !m_shareKeepAliveTimer.isActive())
+        m_shareKeepAliveTimer.start();
+    else if (!wanted && m_shareKeepAliveTimer.isActive())
+        m_shareKeepAliveTimer.stop();
+}
+
+/// Hand `videorate` the second buffer a still screen never produces.
+///
+/// The whole argument for this is in videoRateStage(): a PipeWire screencast
+/// delivers ON DAMAGE, videorate emits nothing until a second buffer arrives,
+/// and a window that does not repaint therefore publishes no video AT ALL —
+/// measured live, not reasoned. Every cheaper thing has been tried and is on
+/// that function's refuted list; a GAP event was the last of them and moved
+/// the count not at all.
+///
+/// Re-pushing the last picture is not a workaround for the encoder's benefit:
+/// repeating the last frame while the screen is still is what a screen share
+/// IS, and is what videorate would be doing on its own if it had ever been
+/// given the interval it needs to start.
+void SfuMediaEngine::tickShareKeepAlive()
+{
+    // The threshold has to sit ABOVE the sampling throttle in the pad probe,
+    // or a share at a healthy frame rate would still look quiet between two
+    // samples. 500 ms of genuine silence is far shorter than any wait a user
+    // would notice and far longer than any gap a moving screen produces.
+    constexpr qint64 kQuietMs = 500;
+    const qint64 now = monotonicMs();
+    for (auto it = m_publishWatch.cbegin(); it != m_publishWatch.cend(); ++it) {
+        const auto &state = it->state;
+        if (!state || !state->screenShare || !state->keepSink)
+            continue;
+        const qint64 last = state->lastFrameMs.load();
+        if (last < 0 || now - last < kQuietMs)
+            continue;
+        GstBuffer *sample = nullptr;
+        quint64 sampledPts = 0;
+        bool sampledPtsValid = false;
+        qint64 sampledAtMs = -1;
+        {
+            // THE TRIPLE IS READ UNDER ONE LOCK. `lastSampleMs` was read
+            // outside it at first, and the probe writes it either side of its
+            // own swap — so a tick could pair an old PTS with a new
+            // sampled-at, collapse `elapsed` to zero and emit a frame 1 ns
+            // ahead of the last one, which advances videorate by nothing.
+            // Self-correcting, but free to prevent. Raised in review.
+            QMutexLocker lock(&state->keepMutex);
+            if (state->lastFrame)
+                sample = gst_buffer_ref(state->lastFrame);
+            sampledPts = state->lastFramePts;
+            sampledPtsValid = state->lastFramePtsValid;
+            sampledAtMs = state->lastSampleAtMs;
+        }
+        if (!sample)
+            continue;
+        // ANCHORED TO THE SAMPLED FRAME'S OWN PTS. keepAlivePts() carries the
+        // whole argument, including the measurement that killed the obvious
+        // version — the pipeline clock is the WRONG timebase for two of the
+        // four share sources, and using it strands them permanently.
+        const quint64 at = keepAlivePts(
+            sampledPts, sampledPtsValid,
+            sampledAtMs >= 0 ? now - sampledAtMs : 0,
+            state->lastInjectedPts, state->lastInjectedPtsValid);
+        if (!GST_CLOCK_TIME_IS_VALID(at)) {
+            gst_buffer_unref(sample);
+            continue;
+        }
+        GstBuffer *inject = gst_buffer_copy(sample);
+        gst_buffer_unref(sample);
+        if (!inject)
+            continue;
+        state->lastInjectedPts = at;
+        state->lastInjectedPtsValid = true;
+        GST_BUFFER_PTS(inject) = at;
+        GST_BUFFER_DTS(inject) = at;
+        GST_BUFFER_DURATION(inject) = GST_CLOCK_TIME_NONE;
+        // CHAINED INTO videorate, ON A GSTREAMER THREAD. Two decisions, both
+        // of which were made the wrong way first and corrected by evidence.
+        //
+        // NOT `gst_pad_push()` from an IDLE probe on the upstream peer, which
+        // is the obvious shape and DEADLOCKS: an IDLE probe is a BLOCKING
+        // probe, so the pad stays flagged blocked for the whole callback and
+        // the push inside it waits in `do_probe_callbacks` for a block only
+        // that callback can lift. `gst_pad_chain()` enters the element
+        // directly, takes the stream lock itself, and answers FLUSHING rather
+        // than blocking if the pad is not in a state to take data.
+        //
+        // NOT on this thread either. `gst_pad_chain()` runs videorate and the
+        // capsfilter synchronously before it returns, and this is the GUI
+        // thread. (It does NOT reach VP8 — the encoder sits behind the tee's
+        // own queue, so that leg is decoupled; an earlier revision of this
+        // comment claimed otherwise and was corrected in review. The
+        // conversion and scaling it does run are enough to be worth keeping
+        // off the GUI thread five times a second.) `gst_element_call_async`
+        // is the same escape hatch the teardown path uses, and it holds its
+        // own ref on the element for the duration.
+        if (GstElement *rate = gst_pad_get_parent_element(state->keepSink)) {
+            auto *carried = new KeepAliveInjection{
+                GST_PAD(gst_object_ref(state->keepSink)), inject};
+            gst_element_call_async(
+                rate,
+                [](GstElement *, gpointer data) {
+                    auto *job = static_cast<KeepAliveInjection *>(data);
+                    // The return is deliberately ignored: FLUSHING here means
+                    // the share was stopped between the timer firing and this
+                    // running, which is ordinary and not worth a log line.
+                    gst_pad_chain(job->pad, job->buffer);
+                    job->buffer = nullptr;   // chain consumed it
+                },
+                carried,
+                [](gpointer data) {
+                    auto *job = static_cast<KeepAliveInjection *>(data);
+                    if (job->buffer)
+                        gst_buffer_unref(job->buffer);
+                    gst_object_unref(job->pad);
+                    delete job;
+                });
+            gst_object_unref(rate);
+        } else {
+            gst_buffer_unref(inject);
+            continue;
+        }
+        const quint64 n = state->keepAliveInjected.fetch_add(1) + 1;
+        // Rate-limited exactly like the frame counters: the first one is the
+        // interesting one, because it says the share was about to show
+        // nothing at all.
+        if (n == 1 || n % 100 == 0) {
+            qCInfo(lcSfuMedia)
+                << "screen share keep-alive: the capture has been quiet, "
+                   "re-pushed the last picture count=" << n
+                << "quietMs=" << (now - last);
+        }
+    }
+}
+
 /// Give an application that started playing DURING a share its own branch.
 ///
 /// Addition only. A branch that ends retires itself through
@@ -2557,21 +2783,39 @@ QString SfuMediaEngine::videoRateStage(bool screenShare)
     // mean driving the sink pad's `sizing-policy`/width/height per capture,
     // which hardcodes an aspect this code does not know.
     //
-    // So the hold is back, and it is the lesser fault: a share that takes
-    // ~1 s (busy desktop) to 10 s (still desktop) to appear is annoying; a
-    // share that shows a quarter of the screen is broken. The hold is real
-    // and still open — videorate emits nothing until a SECOND input buffer
-    // arrives, and PipeWire delivers on damage, so the wait IS "how long
-    // until something on screen changes". Whatever fixes it must be measured
-    // on a REAL 4K capture and must assert the negotiated output size.
+    // So the compositor went, and the hold came back with it.
+    //
+    // THE HOLD'S WORST CASE IS NOT A WAIT, IT IS NEVER (measured live
+    // 2026-09-12, and this block used to describe only the wait). Sharing a
+    // window that does not repaint — a file manager showing a static list —
+    // delivered `capture delivered frames count= 1` and then nothing: no
+    // `publish first encoded frame` line was ever logged and the receiving
+    // client sat on "Waiting for the picture" indefinitely. The same share
+    // switched to the whole screen reached `publish first encoded frame
+    // screenShare=true afterPublishMs=269` and rendered at the far end. So
+    // the wait IS "how long until something on screen changes", exactly as
+    // written above, and for a still window that is unbounded.
     //
     // Refuted and not to be retried AGAINST THE HOLD: `queue
     // min-threshold-buffers=0` and `identity` in front of videorate (neither
     // can manufacture the second buffer); `capssetter`
     // (gst_util_fraction_multiply CRITICAL, zero frames out);
-    // `max-duplication-time`; and the two SOURCE-level properties
+    // `max-duplication-time`; the two SOURCE-level properties
     // `min-buffers=8` and `keepalive-time=100`, each of which killed the
-    // capture outright.
+    // capture outright; and — added 2026-09-12 — a **GAP event**, which looked
+    // like the cheapest possible answer because videorate handles GAP at all.
+    // Measured, one buffer and no EOS into `videorate skip-to-first=true !
+    // video/x-raw,framerate=30/1 ! fakesink`, on GStreamer 1.26.11:
+    //
+    //   nothing                            ->  0 buffers out
+    //   GAP every 100 ms for 2 s           ->  0 buffers out
+    //   re-push the last picture, 100 ms   -> 59 buffers out
+    //
+    // Every refuted entry above fails for ONE reason — none of them is a
+    // buffer — and the third line is the whole fix: hand videorate an actual
+    // second buffer. That is tickShareKeepAlive(), which is why this element
+    // is NAMED: the injection point is its upstream peer, which is downstream
+    // of the scale stage and therefore already at the publish ceiling.
     //
     // `skip-to-first` IS ON THAT LIST AND IS NOW SET ANYWAY, because it was
     // tried against the wrong problem. It does nothing for the hold — videorate
@@ -2609,7 +2853,7 @@ QString SfuMediaEngine::videoRateStage(bool screenShare)
     // from ZERO and therefore never back-filled — which is why a WINDOW share
     // worked while the camera did not, and why that element must keep its
     // zero-based timeline (see the `frameIndex` field there).
-    return QStringLiteral("videorate skip-to-first=true");
+    return QStringLiteral("videorate name=vidrate skip-to-first=true");
 }
 
 QString SfuMediaEngine::videoPipelineDescription(const QString &source,
@@ -3508,6 +3752,95 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         }
         gst_object_unref(capture);
     }
+    // SAMPLE WHAT REACHES `videorate`, SO THE QUIET-SCREEN TIMER HAS
+    // SOMETHING TO RE-PUSH.
+    //
+    // videoRateStage() names the element for this. The pad taken is its
+    // upstream PEER — the src pad of whatever the scale stage ends in — for
+    // two reasons: a buffer may only be pushed on a SRC pad, and by this
+    // point the frame has already been scaled to the publish ceiling and
+    // converted out of any DMABuf the compositor handed us, so a copy costs
+    // a 1080p memcpy rather than a 4K one and cannot hold a PipeWire pool
+    // buffer hostage.
+    //
+    // Screen share only. A camera delivers on a clock: it needs no second
+    // buffer and inventing frames in its timeline is the shape of the defect
+    // `skip-to-first` exists to prevent.
+    if (screenShare) {
+        {
+            if (GstPad *rateSink = keepAliveInjectionPad(bin)) {
+                // The SINK pad is what gets chained into; the SAMPLING probe
+                // goes on its upstream peer instead, and deliberately so. A
+                // probe on the sink pad would also see the keep-alive's own
+                // injected frames, refresh `lastFrameMs` from them, and so
+                // report a dead capture as a live one — the timer would inject
+                // once and then believe the screen had started moving.
+                probeState->keepSink = rateSink;   // ref moves to the state
+                if (GstPad *feed = gst_pad_get_peer(rateSink)) {
+                    auto *held =
+                        new std::shared_ptr<PublishProbeState>(probeState);
+                    gst_pad_add_probe(
+                        feed, GST_PAD_PROBE_TYPE_BUFFER,
+                        [](GstPad *, GstPadProbeInfo *info, gpointer data) {
+                            auto &state = *static_cast<
+                                std::shared_ptr<PublishProbeState> *>(data);
+                            GstBuffer *buffer =
+                                GST_PAD_PROBE_INFO_BUFFER(info);
+                            if (!buffer)
+                                return GST_PAD_PROBE_OK;
+                            const qint64 now = monotonicMs();
+                            state->lastFrameMs.store(now);
+                            // THROTTLED, because this is the one copy on the
+                            // path. A moving screen never needs the sample at
+                            // all — it is only read once the source has gone
+                            // quiet — so taking one five times a second is
+                            // ample and keeps a 30 fps share at ~15 MB/s of
+                            // memcpy instead of ~90.
+                            const qint64 sampled = state->lastSampleMs.load();
+                            if (sampled >= 0 && now - sampled < 200)
+                                return GST_PAD_PROBE_OK;
+                            // DEEP, not gst_buffer_copy: a shallow copy REFS
+                            // the source's memory, and keeping that alive is
+                            // precisely what `min-buffers=8` and
+                            // `keepalive-time=100` did when they killed the
+                            // capture.
+                            GstBuffer *kept = gst_buffer_copy_deep(buffer);
+                            if (!kept)
+                                return GST_PAD_PROBE_OK;
+                            state->lastSampleMs.store(now);
+                            GstBuffer *old = nullptr;
+                            {
+                                QMutexLocker lock(&state->keepMutex);
+                                old = state->lastFrame;
+                                state->lastFrame = kept;
+                                // THE SOURCE'S OWN PTS TRAVELS WITH THE
+                                // FRAME. It is the only timebase the
+                                // injection may use — the pipeline clock is
+                                // a different one on two of the four share
+                                // sources. See keepAlivePts().
+                                state->lastFramePtsValid =
+                                    GST_BUFFER_PTS_IS_VALID(kept);
+                                state->lastFramePts =
+                                    state->lastFramePtsValid
+                                        ? GST_BUFFER_PTS(kept)
+                                        : 0;
+                                state->lastSampleAtMs = now;
+                            }
+                            if (old)
+                                gst_buffer_unref(old);
+                            return GST_PAD_PROBE_OK;
+                        },
+                        held,
+                        [](gpointer data) {
+                            delete static_cast<
+                                std::shared_ptr<PublishProbeState> *>(data);
+                        });
+                    gst_object_unref(feed);
+                }
+            }
+        }
+        updateShareKeepAliveTimer();
+    }
     if (GstElement *selfSink = gst_bin_get_by_name(GST_BIN(bin),
                                                    "selfvidsink")) {
         auto *ctx = new VideoSinkCtx{this, QString(),
@@ -3575,7 +3908,12 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         qCWarning(lcSfuMedia) << "publisher link failed code=" << linked;
         releaseFailedPublishPad(sinkPad);
         m_publishedBins.remove(cid);
-        m_publishWatch.remove(cid);
+        if (const auto dead = m_publishWatch.take(cid); dead.state)
+            releaseKeepAlive(dead.state);
+        // The timer was armed before the link was attempted, so the failure
+        // branch owes the same disarm the success path does — without this it
+        // ran at 5 Hz for the rest of the call. Raised in review.
+        updateShareKeepAliveTimer();
         releasePublishedFd(cid);
         gst_element_set_state(bin, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
@@ -3754,7 +4092,9 @@ void SfuMediaEngine::unpublish(const QString &cid)
     // reportable as a publish failure. Same reason stop() clears the bus sync
     // handler before it destroys the pipelines.
     GstElement *bin = m_publishedBins.take(cid);
-    m_publishWatch.remove(cid);
+    if (const auto dead = m_publishWatch.take(cid); dead.state)
+        releaseKeepAlive(dead.state);
+    updateShareKeepAliveTimer();
     if (cid == m_shareAudioCid) {
         // The share audio track is what the device scan exists for. Stopping
         // a share must stop the poll and let go of the device monitor, or an

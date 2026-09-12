@@ -2466,7 +2466,13 @@ private slots:
                 QStringLiteral(
                     "videotestsrc num-buffers=2 "
                     "! video/x-raw,width=3840,height=2160,framerate=30/1 "
-                    "! videoconvert ! videoscale ! %1 name=ratestage "
+                    // NO `name=` OF ITS OWN. The stage names its own element
+                    // now (videoRateStage() — tickShareKeepAlive() finds the
+                    // injection point by that name), and gst_parse takes the
+                    // FIRST `name=` in an element spec, so appending a second
+                    // one here left the element called `vidrate` and this
+                    // test looking up a name nothing had.
+                    "! videoconvert ! videoscale ! %1 "
                     "! video/x-raw,width=[1,1920],height=[1,1080],"
                     "framerate=30/1 ! fakesink name=out")
                     .arg(stage);
@@ -2487,8 +2493,10 @@ private slots:
                                   5 * GST_SECOND);
 
             GstElement *rate = gst_bin_get_by_name(GST_BIN(pipeline),
-                                                   "ratestage");
-            QVERIFY(rate);
+                                                   "vidrate");
+            QVERIFY2(rate,
+                     "the rate stage no longer builds an element called "
+                     "`vidrate` — see videoRateStage()");
             // ITERATE the pads; do NOT ask for a static "sink". compositor's
             // sink pads are REQUEST pads named sink_%u, so
             // gst_element_get_static_pad(rate, "sink") returns null for
@@ -3242,6 +3250,263 @@ private slots:
                                            "back-filling from segment start")
                                 .arg(late)
                                 .arg(fresh)));
+    }
+
+    // A SHARED WINDOW THAT NEVER REPAINTS STILL HAS TO REACH THE FAR END.
+    //
+    // A PipeWire screencast delivers ON DAMAGE and `videorate` emits nothing
+    // until a SECOND buffer arrives, so a still window is one captured frame
+    // and no published video at all — measured live on 2026-09-12 against a
+    // static file manager, where the receiving client sat on "Waiting for the
+    // picture" indefinitely while `capture delivered frames count= 1`.
+    //
+    // This drives the REAL rate stage and chains into the REAL injection pad
+    // (`SfuMediaEngine::keepAliveInjectionPad`, the same call production
+    // makes), so it fails if the element loses its name or the injection
+    // point moves. The control case in the same run is what makes it a
+    // regression test rather than a demonstration: without the injection the
+    // count must be ZERO, which is the defect itself.
+    //
+    // WHAT IT DOES NOT COVER, stated rather than implied: it does not call
+    // tickShareKeepAlive(), so it would pass if the timer were never armed.
+    // theKeepAlivePtsNeverLeavesTheSourcesTimebase covers the arithmetic and
+    // theRealPublishDescriptionStillOffersAnInjectionPad covers the lookup;
+    // arming is reachable only from a live publish and stays uncovered.
+    void aStillScreenStillPublishesAPicture()
+    {
+        struct Counter {
+            int frames = 0;
+        };
+        const auto measure = [](bool inject) {
+            const QString stage = SfuMediaEngine::videoRateStage(true);
+            GstElement *pipeline = gst_pipeline_new(nullptr);
+            GstElement *src = gst_element_factory_make("appsrc", "src");
+            GError *error = nullptr;
+            GstElement *rate = gst_parse_bin_from_description(
+                stage.toUtf8().constData(), TRUE, &error);
+            GstElement *caps = gst_element_factory_make("capsfilter", "caps");
+            GstElement *sink = gst_element_factory_make("fakesink", "sink");
+            if (error) {
+                g_error_free(error);
+                return -1;
+            }
+            if (!pipeline || !src || !rate || !caps || !sink)
+                return -1;
+            // framerate=0/1 IS the screencast's own shape: variable, on
+            // damage. A fixed input rate would let videorate start from the
+            // caps alone and the defect would not reproduce.
+            GstCaps *inCaps = gst_caps_new_simple(
+                "video/x-raw", "format", G_TYPE_STRING, "BGRA", "width",
+                G_TYPE_INT, 64, "height", G_TYPE_INT, 64, "framerate",
+                GST_TYPE_FRACTION, 0, 1, nullptr);
+            g_object_set(src, "caps", inCaps, "format", GST_FORMAT_TIME,
+                         "is-live", TRUE, "do-timestamp", FALSE, nullptr);
+            gst_caps_unref(inCaps);
+            GstCaps *outCaps = gst_caps_new_simple(
+                "video/x-raw", "framerate", GST_TYPE_FRACTION, 30, 1, nullptr);
+            g_object_set(caps, "caps", outCaps, nullptr);
+            gst_caps_unref(outCaps);
+            g_object_set(sink, "sync", FALSE, "async", FALSE, nullptr);
+            gst_bin_add_many(GST_BIN(pipeline), src, rate, caps, sink,
+                             nullptr);
+            if (!gst_element_link_many(src, rate, caps, sink, nullptr)) {
+                gst_object_unref(pipeline);
+                return -1;
+            }
+            auto *counter = new Counter;
+            GstPad *sinkPad = gst_element_get_static_pad(sink, "sink");
+            gst_pad_add_probe(
+                sinkPad, GST_PAD_PROBE_TYPE_BUFFER,
+                [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                    static_cast<Counter *>(data)->frames++;
+                    return GST_PAD_PROBE_OK;
+                },
+                counter, nullptr);
+            gst_object_unref(sinkPad);
+            gst_element_set_state(pipeline, GST_STATE_PLAYING);
+            gst_element_get_state(pipeline, nullptr, nullptr,
+                                  GST_CLOCK_TIME_NONE);
+
+            const auto push = [src](GstClockTime pts) {
+                GstBuffer *buffer =
+                    gst_buffer_new_allocate(nullptr, 64 * 64 * 4, nullptr);
+                gst_buffer_memset(buffer, 0, 0, 64 * 64 * 4);
+                GST_BUFFER_PTS(buffer) = pts;
+                GST_BUFFER_DTS(buffer) = pts;
+                gst_app_src_push_buffer(GST_APP_SRC(src), buffer);
+            };
+            // The ONE frame a still window produces, and nothing else — no
+            // EOS, because a live share never sends one.
+            push(0);
+            QTest::qWait(200);
+
+            if (inject) {
+                GstPad *rateSink =
+                    SfuMediaEngine::keepAliveInjectionPad(pipeline);
+                if (!rateSink) {
+                    gst_element_set_state(pipeline, GST_STATE_NULL);
+                    gst_object_unref(pipeline);
+                    delete counter;
+                    return -2;   // the injection point is gone
+                }
+                // The rate stage's OWN SINK PAD, chained into exactly as
+                // tickShareKeepAlive() does it — not its upstream peer, which
+                // is where the sampling probe goes.
+                // gst_pad_push from an IDLE probe on the upstream peer is the
+                // obvious alternative and it DEADLOCKS — an IDLE probe is a
+                // blocking probe, so the push waits inside the callback for a
+                // block only that callback can lift. This test hung for 300 s
+                // on that shape before the engine was corrected, which is the
+                // reason it drives the real mechanism rather than asserting
+                // on a string.
+                for (int i = 1; rateSink && i <= 10; ++i) {
+                    GstBuffer *repeat =
+                        gst_buffer_new_allocate(nullptr, 64 * 64 * 4, nullptr);
+                    gst_buffer_memset(repeat, 0, 0, 64 * 64 * 4);
+                    const GstClockTime at =
+                        GstClockTime(i) * (GST_SECOND / 10);
+                    GST_BUFFER_PTS(repeat) = at;
+                    GST_BUFFER_DTS(repeat) = at;
+                    GST_BUFFER_DURATION(repeat) = GST_CLOCK_TIME_NONE;
+                    gst_pad_chain(rateSink, repeat);
+                    QTest::qWait(30);
+                }
+                if (rateSink)
+                    gst_object_unref(rateSink);
+            } else {
+                QTest::qWait(300);
+            }
+            const int frames = counter->frames;
+            gst_element_set_state(pipeline, GST_STATE_NULL);
+            gst_object_unref(pipeline);
+            delete counter;
+            return frames;
+        };
+
+        // THE CONTROL IS THE DEFECT. One buffer and no help publishes
+        // nothing whatever, which is why the keep-alive exists at all.
+        const int alone = measure(false);
+        QCOMPARE(alone, 0);
+
+        const int helped = measure(true);
+        QVERIFY2(helped != -2,
+                 "the rate stage is no longer named `vidrate`, so the "
+                 "keep-alive has no pad to inject on and a still screen "
+                 "publishes nothing");
+        QVERIFY2(helped > 0,
+                 qPrintable(QStringLiteral("re-pushing the last picture "
+                                           "produced %1 buffers — videorate "
+                                           "is no longer started by a second "
+                                           "buffer, so the keep-alive no "
+                                           "longer fixes a still screen")
+                                .arg(helped)));
+    }
+
+    // THE KEEP-ALIVE MUST STAY IN THE SOURCE'S TIMEBASE, AND THE FIRST
+    // VERSION DID NOT.
+    //
+    // It stamped the injected frame with the PIPELINE's running time, on the
+    // stated premise that the source stamps its buffers the same way. Two of
+    // the four screen-share sources do — `pipewiresrc` and
+    // `gdiscreencapsrc` — and two deliberately do NOT:
+    // `LightningWindowCaptureSrc` counts frames from zero, and `ximagesrc`
+    // was measured doing the same (screenShareSource() records both, and
+    // videoRateStage() says outright that the capture element "must keep its
+    // zero-based timeline"). Injecting a running-time PTS into a zero-based
+    // stream makes videorate owe a duplicate for every frame of the whole
+    // call age and then drop every real frame that follows: a transient stall
+    // becomes a permanently dead share, on the two platforms that never had
+    // the defect the keep-alive exists to fix.
+    //
+    // This drives the ARITHMETIC rather than a pipeline, because that is
+    // where the mistake lives and a fixture whose pipeline clock is also ~0
+    // cannot tell the two rules apart — which is exactly why the first
+    // regression test could not see it. Found in review, not by me.
+    void theKeepAlivePtsNeverLeavesTheSourcesTimebase()
+    {
+        // A zero-based source three frames in, at a call that has been up for
+        // 174 s — the real number from the Windows camera log in §16.
+        const quint64 sampled = 3 * (GST_SECOND / 30);
+        const quint64 at = SfuMediaEngine::keepAlivePts(
+            sampled, /*sampledPtsValid=*/true, /*elapsedMs=*/600,
+            /*lastInjectedPts=*/0, /*lastInjectedPtsValid=*/false);
+        QVERIFY2(GST_CLOCK_TIME_IS_VALID(at), "no timestamp was produced");
+        QCOMPARE(at, sampled + 600 * GST_MSECOND);
+        // The whole point: it stays near the SOURCE's clock, so a real frame
+        // arriving afterwards is still ahead of it. A running-time stamp on a
+        // 174 s-old call would be three orders of magnitude further out.
+        QVERIFY2(at < 174 * GST_SECOND,
+                 qPrintable(QStringLiteral(
+                                "the injected PTS is %1 ns for a source whose "
+                                "own clock reads %2 ns — the keep-alive has "
+                                "left the source's timebase and will strand "
+                                "every zero-based capture")
+                                .arg(at)
+                                .arg(sampled)));
+
+        // Strictly increasing, even when two injections fall between one pair
+        // of samples and the anchor has not moved.
+        const quint64 again = SfuMediaEngine::keepAlivePts(
+            sampled, true, 600, at, true);
+        QVERIFY2(again > at, "two injections produced a non-advancing PTS");
+
+        // A source that gave no PTS gives nothing to anchor to, and guessing
+        // one is the bug. Refuse.
+        QVERIFY2(!GST_CLOCK_TIME_IS_VALID(SfuMediaEngine::keepAlivePts(
+                     0, /*sampledPtsValid=*/false, 600, 0, false)),
+                 "the keep-alive invented a timestamp for a source that "
+                 "supplied none");
+    }
+
+    // The injection point is found by NAME in the real publish description,
+    // which is the coupling that breaks silently when the pipeline is
+    // rearranged — and it degrades to "a still share publishes nothing",
+    // the defect the keep-alive was written for. So ask the REAL description
+    // for the pad, exactly as publishVideo() does.
+    void theRealPublishDescriptionStillOffersAnInjectionPad()
+    {
+        const QString description = SfuMediaEngine::videoPipelineDescription(
+            QStringLiteral("videotestsrc is-live=true"),
+            SfuMediaEngine::videoRateStage(/*screenShare=*/true),
+            SfuMediaEngine::shareLimitsCaps(1080, 30),
+            QStringLiteral("vp8enc deadline=1"), QString(), 1234u,
+            SfuMediaEngine::shareScaleStage(1080, /*gpu=*/false),
+            SfuMediaEngine::captureEntryFilter(/*gpu=*/false));
+        GError *error = nullptr;
+        GstElement *bin = gst_parse_bin_from_description(
+            description.toUtf8().constData(), TRUE, &error);
+        if (error) {
+            const QString message = QString::fromUtf8(error->message);
+            g_error_free(error);
+            if (bin)
+                gst_object_unref(bin);
+            QFAIL(qPrintable(QStringLiteral("the publish description will "
+                                            "not parse: %1")
+                                 .arg(message)));
+        }
+        QVERIFY(bin);
+        GstPad *pad = SfuMediaEngine::keepAliveInjectionPad(bin);
+        QVERIFY2(pad,
+                 "the real publish description no longer contains an element "
+                 "called `vidrate`, so the screen-share keep-alive has "
+                 "nowhere to inject and a still window publishes nothing");
+        // AND ITS PEER, because the feature needs BOTH pads and losing the
+        // second one fails silently. publishVideo() installs the sampling
+        // probe on `gst_pad_get_peer(rateSink)`; with no peer at parse time
+        // the probe is never installed, no frame is ever sampled, the tick
+        // never injects — and `keepSink` is still set, so the timer runs at
+        // 5 Hz doing nothing at all. Graceful fallback and silent absence,
+        // which is the shape this lane has shipped four times. Raised in
+        // review; `decodebin`'s delayed linking is how a parse-time peer
+        // actually goes missing here.
+        GstPad *peer = gst_pad_get_peer(pad);
+        QVERIFY2(peer,
+                 "`vidrate` has no upstream peer at parse time, so the "
+                 "keep-alive's sampling probe is never installed and a still "
+                 "window publishes nothing — silently");
+        gst_object_unref(peer);
+        gst_object_unref(pad);
+        gst_object_unref(bin);
     }
 
     // WHAT RESOLUTION A SHARED WINDOW IS PUBLISHED AT.
