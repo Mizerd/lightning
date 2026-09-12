@@ -270,12 +270,24 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
           GlobalContext },
         // Discord ships "Disconnect from Voice" and "Toggle Go Live" as
         // keybind-page actions with NO default at all, so there is no
-        // spelling to keep and both are free choices. W for the universal
-        // close-this-thing chord; S for share. (H for hang up was the first
-        // choice and is ⌘⌥H — the macOS system "Hide Others"; see the Ctrl+Alt
-        // block above. Ctrl+Shift+H is taken by `call.toggleDeafen`.)
+        // spelling to keep and both are free choices. S for share.
+        //
+        // LEAVE HAS NO MNEMONIC, DELIBERATELY, and it took three attempts to
+        // get here. Ctrl+Alt+H (hang up) is ⌘⌥H on macOS — the system "Hide
+        // Others" — see the Ctrl+Alt block above; Ctrl+Shift+H is
+        // `call.toggleDeafen`; and Ctrl+Shift+W, the obvious
+        // close-this-thing chord, is the reflex every desktop and browser
+        // trains for CLOSE THE WINDOW. CallHeaderBar shapes the leave button
+        // differently from every other control on the bar precisely because
+        // leaving is the one irreversible thing there — it disconnects the
+        // user from a live conversation with other people — so putting it on
+        // a chord fingers press without looking contradicts this client's own
+        // stance on it. Ctrl+Shift+Y is free, is nobody's reflex, is not an
+        // AltGr letter, and is not a macOS system chord. Memorability is the
+        // thing to trade away here: the keyboard-shortcuts page is where
+        // anyone finds this, and Discord ships no default at all.
         { QStringLiteral("call.leave"), callCat,
-          tr("Leave the call"), QStringLiteral("Ctrl+Shift+W"), GlobalContext },
+          tr("Leave the call"), QStringLiteral("Ctrl+Shift+Y"), GlobalContext },
         // Ctrl+Shift+S, and note what it does NOT do: requestScreenShare()
         // opens the portal or the source picker rather than sharing
         // immediately, exactly as the call bar's own button does. A key that

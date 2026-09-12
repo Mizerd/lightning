@@ -490,6 +490,15 @@ private Q_SLOTS:
     // DERIVED, not a hand-kept list: a fourth player added tomorrow is
     // covered without editing this. Naming one file is how the first fix
     // reached one of two.
+    //
+    // AND IF A RINGTONE EVER FAILS THIS CASE, THE ANSWER IS AN EXEMPTION
+    // HERE, NOT A BINDING THERE. `mediaVolume` is the level for media the
+    // user chose to play; an alert the client plays AT the user is a
+    // different thing with a different right answer, and the path of least
+    // resistance out of a red test would be to bind the ringer to it.
+    // Today nothing is wrongly caught — the notification sound goes through
+    // NotificationManager's playSound hint rather than a QML player — so
+    // this is a note for whoever adds the first in-app ringtone.
     void everyPlayerStartsAtTheRememberedVolume()
     {
         QDir dir(QStringLiteral(QML_DIR));

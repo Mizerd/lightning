@@ -290,7 +290,7 @@ private Q_SLOTS:
               QStringLiteral("Ctrl+Shift+R") },
             { QStringLiteral("call.startCall"),
               QStringLiteral("Ctrl+Shift+C") },
-            { QStringLiteral("call.leave"), QStringLiteral("Ctrl+Shift+W") },
+            { QStringLiteral("call.leave"), QStringLiteral("Ctrl+Shift+Y") },
             { QStringLiteral("call.toggleScreenShare"),
               QStringLiteral("Ctrl+Shift+S") },
         };

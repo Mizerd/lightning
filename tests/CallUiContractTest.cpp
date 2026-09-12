@@ -4389,6 +4389,57 @@ ApplicationWindow {
         QVERIFY(!button.isEmpty());
         QVERIFY(!shell.isEmpty());
 
+        // THE CLAUSE LIST IS DERIVED FROM THE BUTTON, never hand-kept here.
+        // A hand-kept list only notices a clause DISAPPEARING from the
+        // button; it cannot notice one being ADDED, which is H1's own shape
+        // mirrored — the button grows a fifth condition, the key does not,
+        // and the key can once again act where the button refuses. Deriving
+        // inverts that: a new button clause fails this case until somebody
+        // decides what the key should do about it.
+        const QString vis = QStringLiteral("visible: app.currentRoomId !== \"\""
+                                           " && app.canStartCall");
+        const int from = button.indexOf(vis);
+        QVERIFY2(from >= 0,
+                 "TimelinePane's call button no longer opens with "
+                 "currentRoomId + canStartCall — re-anchor this slice");
+        const int to = button.indexOf(QStringLiteral(" enabled:"), from);
+        QVERIFY2(to > from, "the call button's visible: expression is not "
+                            "terminated by an enabled: property");
+        const QString expr =
+            button.mid(from + int(qstrlen("visible:")), to - from
+                       - int(qstrlen("visible:")))
+                .trimmed();
+
+        // Split on `&&` at PAREN DEPTH ZERO. The last conjunct is itself a
+        // parenthesised `||`, and a naive split would tear it in half and
+        // then "find" both halves in any file that mentions either state.
+        QStringList clauses;
+        int depth = 0;
+        int last = 0;
+        for (int i = 0; i < expr.size(); ++i) {
+            const QChar c = expr.at(i);
+            if (c == QLatin1Char('('))
+                ++depth;
+            else if (c == QLatin1Char(')'))
+                --depth;
+            else if (depth == 0 && c == QLatin1Char('&')
+                     && i + 1 < expr.size()
+                     && expr.at(i + 1) == QLatin1Char('&')) {
+                clauses << expr.mid(last, i - last).trimmed();
+                last = i + 2;
+            }
+        }
+        clauses << expr.mid(last).trimmed();
+        clauses.removeAll(QString());
+
+        // PRESENT-TOKEN CONTROL: if the slice or the split stops working
+        // this case must say so, not silently check nothing.
+        QVERIFY2(clauses.size() >= 4,
+                 qPrintable(QStringLiteral("only %1 conjuncts came out of the "
+                                           "call button's gate — the slice is "
+                                           "wrong and this case is vacuous")
+                                .arg(clauses.size())));
+
         // The Shortcut's own block, not the whole file: MainScreen declares
         // the leave and screen-share keys too, and one of those mentioning
         // groupCall.active would otherwise satisfy this for the wrong row.
@@ -4400,20 +4451,7 @@ ApplicationWindow {
         QVERIFY2(end > at, "the call.startCall Shortcut has no onActivated");
         const QString gate = shell.mid(at, end - at);
 
-        const QStringList clauses = {
-            QStringLiteral("app.canStartCall(app.currentRoomId)"),
-            QStringLiteral("!app.groupCall.active"),
-            QStringLiteral("app.calls.state === CallController.Idle"),
-            QStringLiteral("app.calls.state === CallController.Ended"),
-        };
-        for (const QString &clause : clauses) {
-            // PRESENT-TOKEN CONTROL: if the button stops carrying a clause,
-            // this case must say so rather than quietly stop checking it.
-            QVERIFY2(button.contains(clause),
-                     qPrintable(QStringLiteral(
-                                    "TimelinePane's call button no longer has "
-                                    "'%1' — re-derive this list from it")
-                                    .arg(clause)));
+        for (const QString &clause : std::as_const(clauses)) {
             QVERIFY2(gate.contains(clause),
                      qPrintable(QStringLiteral(
                                     "the call.startCall shortcut is missing "
