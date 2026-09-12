@@ -202,7 +202,20 @@ Item {
             id: audioOut
             muted: root.startMuted && !userUnmuted
             property bool userUnmuted: false
-            volume: 0.8
+            // THE REMEMBERED LEVEL, not a fixed 0.8 every time — the same
+            // binding AudioPlayerCard.qml and VoicePreviewBar.qml carry. The
+            // 2026-08-18 tester report ("neatsimena audio preferencu uzdeda
+            // default visada") was fixed on the audio card and the video card
+            // was missed, so this one WROTE the stored level — the control
+            // bar's slider calls MediaVolumeControl.rememberVolume() — and
+            // never READ it. Invisible at factory settings, because
+            // mediaVolume defaults to the same 0.8 this literal was.
+            //
+            // A live binding, so changing the volume on one card moves every
+            // other card with it; the slider's own direct write
+            // (`root.audio.volume = value`) breaks the binding on THAT card
+            // only, to the same value it just stored.
+            volume: app.settings.mediaVolume
         }
         onErrorOccurred: root.fetchState = "failed"
     }

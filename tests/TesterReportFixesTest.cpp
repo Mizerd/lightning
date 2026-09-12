@@ -8,6 +8,7 @@
 
 #include <QtTest/QtTest>
 
+#include <QDir>
 #include <QFile>
 #include <QGuiApplication>
 #include <QQmlComponent>
@@ -471,6 +472,58 @@ private Q_SLOTS:
                  "playback speed must come from the remembered setting");
         QVERIFY2(card.contains(QStringLiteral("audioSpeedMenu")),
                  "the speed control must be selectable, not cycle-only");
+    }
+
+    // EVERY PLAYER THAT WRITES THE REMEMBERED LEVEL MUST ALSO READ IT — and
+    // for thirteen months the video card did exactly half of that.
+    //
+    // The case above pins the AUDIO card, which is where the 2026-08-18
+    // report ("neatsimena audio preferencu uzdeda default visada") was fixed.
+    // `VideoPlayerCard.qml` hard-coded `volume: 0.8` while its own control
+    // bar reached the SAME shared `MediaVolumeControl`, whose slider calls
+    // `rememberVolume()` — so dragging a video's volume stored the level
+    // globally and no video ever started at it. Invisible at factory
+    // settings, because `mediaVolume` defaults to that same 0.8; only a user
+    // who changes it can see the defect, which is precisely the user the
+    // 2026-09-12 "Media playback volume" setting was added for.
+    //
+    // DERIVED, not a hand-kept list: a fourth player added tomorrow is
+    // covered without editing this. Naming one file is how the first fix
+    // reached one of two.
+    void everyPlayerStartsAtTheRememberedVolume()
+    {
+        QDir dir(QStringLiteral(QML_DIR));
+        QVERIFY2(dir.exists(), QML_DIR);
+        const auto files =
+            dir.entryList({ QStringLiteral("*.qml") }, QDir::Files);
+        QVERIFY(!files.isEmpty());
+
+        QStringList players;
+        QStringList deaf;
+        for (const QString &name : files) {
+            const QString body = read(name);
+            if (!body.contains(QStringLiteral("AudioOutput {")))
+                continue;
+            players.append(name);
+            if (!body.contains(
+                    QStringLiteral("volume: app.settings.mediaVolume")))
+                deaf.append(name);
+        }
+
+        // PRESENT-TOKEN CONTROL. If `AudioOutput {` is ever spelled
+        // differently this sweep would match nothing and pass on a tree where
+        // every player ignored the setting.
+        QVERIFY2(players.size() >= 3,
+                 qPrintable(QStringLiteral("only %1 AudioOutput declarations "
+                                           "found — the sweep is matching the "
+                                           "wrong thing")
+                                .arg(players.size())));
+        QVERIFY2(deaf.isEmpty(),
+                 qPrintable(QStringLiteral(
+                                "these players ignore the remembered media "
+                                "volume and will start at their own literal: "
+                                "%1")
+                                .arg(deaf.join(QStringLiteral(", ")))));
     }
 
     // ── 2026-09-05, the second evening on 0.9.0 ──────────────────────────
