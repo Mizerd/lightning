@@ -246,6 +246,16 @@ COPY packaging/windows/gst-element-probe.c \
 # symbol -- so no Fedora runtime DLL is replaced and the staging script's
 # existing single-source resolution from the sysroot stays correct. The install
 # loop below FAILS if a future Fedora update introduces a new collision.
+#
+# THE PLUGIN LIST BELOW AND THE `wc -l` COUNT IN THE VERIFY STAGE ARE ONE FACT
+# IN TWO PLACES. `libgstjpeg.dll` was added to the list on 2026-09-02 and that
+# number was left at 27, which made this Dockerfile UNBUILDABLE — and nobody
+# found out for ten days, because the image was not rebuilt in that window. So
+# the "rebuild the builder image" operator step CLAUDE.md carried as open could
+# not have succeeded if anyone had tried it. The count is deliberately a
+# hard-coded literal rather than something derived from this list: a derived
+# count would pass however many plugins failed to install, which is the one
+# thing it exists to catch. Change both, in the same commit.
 RUN set -eu; \
     url="https://gstreamer.freedesktop.org/data/pkg/windows/${GSTREAMER_VERSION}/mingw/gstreamer-1.0-mingw-x86_64-${GSTREAMER_VERSION}.exe"; \
     curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
@@ -371,7 +381,7 @@ RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
     && test "$(x86_64-w64-mingw32-pkg-config --modversion gstreamer-webrtc-1.0)" \
          = "${GSTREAMER_VERSION}" \
     && test "$(ls /usr/x86_64-w64-mingw32/sys-root/mingw/lib/gstreamer-1.0/*.dll | wc -l)" \
-         = 27 \
+         = 28 \
     && for plugin in /usr/x86_64-w64-mingw32/sys-root/mingw/lib/gstreamer-1.0/*.dll; do \
          file "$plugin" | grep -F 'PE32+ executable' >/dev/null \
            || { echo "not a PE32+ plugin: $plugin" >&2; exit 1; }; \
