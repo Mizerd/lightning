@@ -315,6 +315,21 @@ export QML_IMPORT_PATH="$SNAP/usr/qml"
 export XDG_DATA_DIRS="$SNAP/usr/share:${XDG_DATA_DIRS:-/usr/share}"
 export GST_PLUGIN_SYSTEM_PATH_1_0="$SNAP/usr/lib/gstreamer-1.0"
 export GST_PLUGIN_PATH_1_0="$SNAP/usr/lib/gstreamer-1.0"
+# THE SCANNER, which this launcher did not point at for as long as the snap
+# has existed. The binary IS in the payload -- it rides along in the AppDir
+# the AppImage job stages -- but libgstreamer looks for it at the path
+# compiled into the BUILD IMAGE, which does not exist inside the snap. The
+# result is "External plugin loader failed" at every launch and an in-process
+# scan, losing the crash isolation a separate process buys. Found 2026-09-12
+# by installing the snap under a REAL snapd for the first time; the
+# structural validation the snap.yaml comment describes cannot see it,
+# because the file it would look for is present and only the pointer is
+# missing. Both spellings, for the reason build-appimage.sh gives: GStreamer
+# reads the versioned one first and falls back to the plain one, so a host
+# value left in the unversioned variable would otherwise win the fallback.
+# These name ONE EXECUTABLE, never a colon-joined list.
+export GST_PLUGIN_SCANNER_1_0="$SNAP/usr/libexec/gstreamer-1.0/gst-plugin-scanner"
+export GST_PLUGIN_SCANNER="$SNAP/usr/libexec/gstreamer-1.0/gst-plugin-scanner"
 # $SNAP is read-only and its revision changes on every refresh, so the plugin
 # registry cache has to live in the user's own (snap-confined) cache dir.
 export GST_REGISTRY_1_0="${XDG_CACHE_HOME:-$HOME/.cache}/lightning/gst-registry.bin"

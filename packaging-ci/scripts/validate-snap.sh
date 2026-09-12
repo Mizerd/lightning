@@ -99,6 +99,25 @@ set -e
 assert_image_formats snap dist/snap-image-format-status.txt "$image_format_status" jxl
 grep -q 'GST_PLUGIN_SYSTEM_PATH_1_0' "$audit/prime/bin/lightning-launch" \
     || die "the snap launcher does not point GStreamer at the bundled plugins"
+# AND AT THE SCANNER. The binary rides along in the AppDir, so a payload check
+# finds it and passes while the launcher points nowhere: libgstreamer then
+# looks at the path compiled into the BUILD image, which does not exist inside
+# the snap. Missed for the life of the snap because the engine still reports
+# "available" — the in-process fallback works, it just loses the crash
+# isolation a separate scanner process buys. Caught 2026-09-12 by installing
+# the snap under a real snapd and READING THE WARNING, which is why the
+# second assertion below is on the artifact's own output rather than on a file
+# existing.
+test -x "$audit/prime/usr/libexec/gstreamer-1.0/gst-plugin-scanner" \
+    || die "gst-plugin-scanner is not in the snap payload"
+grep -q 'GST_PLUGIN_SCANNER_1_0' "$audit/prime/bin/lightning-launch" \
+    || die "the snap launcher does not point GStreamer at the bundled gst-plugin-scanner: every launch prints 'External plugin loader failed' and scans in-process"
+# `if`, not `grep ... && die`: under `set -e` an AND-list whose left side
+# fails is safe by the letter of the standard and is still the shape that
+# gets misread and "fixed" into a script that exits on the GOOD path.
+if grep -qi 'External plugin loader failed' dist/snap-call-media-status.txt; then
+    die "the snap still prints 'External plugin loader failed' when run through its own launcher — the scanner pointer is wrong, not merely absent"
+fi
 # libgstximagesrc is the X11 screen-share fallback: not in the engine's
 # required-element list, so the check above is green without it while the
 # feature is dead — the launcher REPLACES the system plugin path, so the host's
