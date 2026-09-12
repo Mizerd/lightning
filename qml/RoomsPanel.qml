@@ -18,6 +18,16 @@ Rectangle {
         newConversationDialog.openDialog(mode, options)
     }
 
+    // The Activity Center, for the shell's keyboard shortcut.
+    //
+    // The panel is this host's (`activityPanel`, below), so MainScreen asks
+    // for it through a function rather than reaching across into another
+    // component's ids — the same rule the presenters already follow toward
+    // this host. The bell at the top of this header opens the same one.
+    function openActivityCenter() {
+        activityPanel.openPanel()
+    }
+
     // v0.7.x: open the Discover / Join dialog ("browse" | "address").
     function openDiscover(startMode) {
         discoverJoinDialog.openDialog(startMode)

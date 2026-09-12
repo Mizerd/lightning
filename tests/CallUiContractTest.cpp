@@ -26,6 +26,7 @@
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
+#include "app/ShortcutRegistry.h"
 #include "auth/AuthManager.h"
 #include "calls/CallController.h"
 #include "calls/CallMediaBackend.h"
@@ -4175,115 +4176,6 @@ ApplicationWindow {
                  "the gain slider must react to onMoved, not onValueChanged");
         QVERIFY2(!code(raw).contains(QStringLiteral("QSettings")),
                  "no QML surface may touch QSettings");
-    }
-
-    // THE INPUT LEVEL IS REACHABLE FROM THE CALL, not only from Settings.
-    //
-    // UNFIXED TREE: fails on every assertion — CallDeviceMenu.qml was a
-    // device list and nothing else, so changing how loud you were mid-call
-    // meant leaving the conversation for Settings.
-    //
-    // The load-bearing part is the LAST pair. The menu must write the same
-    // stored value Settings writes, because SfuCallController connects
-    // `microphoneGainChanged` to applyAudioState() and that is the ONLY path
-    // to the engine's volume element. A slider that kept a level of its own
-    // would move, read correctly, and reach nothing — which is the exact
-    // defect this project found on 2026-09-11 and the reason these two
-    // assertions are here rather than a screenshot.
-    void theCallMenuCarriesTheMicrophoneLevelAndWritesTheSharedSetting()
-    {
-        const QString raw = read(QStringLiteral(QML_DIR "/CallDeviceMenu.qml"));
-        QVERIFY2(!raw.isEmpty(), "CallDeviceMenu.qml is missing");
-        const QString menu = normalized(raw);
-
-        QVERIFY2(menu.contains(
-                     QStringLiteral("objectName: \"callMenuMicGainSlider\"")),
-                 "the in-call device menu has no level control");
-        // The same range and the same MARKED neutral point as the Settings
-        // control and the per-participant control. Two level sliders in one
-        // application that disagree about what 100 means is worse than either
-        // being wrong.
-        QVERIFY(menu.contains(QStringLiteral("to: 200")));
-        QVERIFY(menu.contains(QStringLiteral(
-            "objectName: \"callMenuMicGainNeutralMark\"")));
-        // Off the neutral point only, so it is not permanent furniture — and
-        // a real row, because a reset nobody can find is not a reset.
-        QVERIFY(menu.contains(
-            QStringLiteral("objectName: \"callMenuMicGainReset\"")));
-
-        // ONE stored value, two surfaces.
-        QVERIFY2(menu.contains(
-                     QStringLiteral("value: app.settings.microphoneGain")),
-                 "the menu's level is not bound to the stored setting, so it "
-                 "cannot follow a change made in Settings");
-        QVERIFY2(menu.contains(QStringLiteral(
-                     "onMoved: app.settings.microphoneGain = Math.round(value)")),
-                 "the menu's level does not WRITE the stored setting — "
-                 "SfuCallController reaches the engine's volume element only "
-                 "through microphoneGainChanged, so a local-only slider would "
-                 "move and change nothing");
-        QVERIFY2(!code(raw).contains(QStringLiteral("onValueChanged")),
-                 "the level must react to onMoved, not onValueChanged — the "
-                 "latter also fires when the binding delivers a value that "
-                 "came FROM the store, and writes it straight back");
-        QVERIFY2(!code(raw).contains(QStringLiteral("QSettings")),
-                 "no QML surface may touch QSettings");
-    }
-
-    // The device menu is ALSO the way to the rest of the sound settings, and
-    // it points at the section that now owns them rather than at the one that
-    // used to.
-    void theCallMenuPointsAtTheSoundSectionOfSettings()
-    {
-        const QString menu =
-            normalized(read(QStringLiteral(QML_DIR "/CallDeviceMenu.qml")));
-        QVERIFY(!menu.isEmpty());
-        QVERIFY2(menu.contains(
-                     QStringLiteral("app.showSettingsSection(\"sound\")")),
-                 "the call's device menu offers no way to the rest of the "
-                 "sound settings");
-
-        // And the section it names is a section that EXISTS. A deep link to a
-        // key SettingsScreen does not know resolves to no pane at all: the
-        // screen opens, every pane's `visible` is false, and the user is
-        // looking at an empty page with no error anywhere.
-        const QString screen =
-            normalized(read(QStringLiteral(QML_DIR "/SettingsScreen.qml")));
-        QVERIFY(!screen.isEmpty());
-        QVERIFY2(screen.contains(
-                     QStringLiteral("visible: root.section === \"sound\"")),
-                 "SettingsScreen has no pane for the \"sound\" section the "
-                 "call menu links to");
-        QVERIFY2(screen.contains(QStringLiteral("sectionKey: \"sound\"")),
-                 "the sound section has no navigation row, so it is reachable "
-                 "only by deep link");
-
-        // MOVED, NOT COPIED. Two device pickers writing one stored preference
-        // would leave the user with two places to change one microphone and
-        // no way to tell which one they are looking at. The runtime half of
-        // this — the pickers really do appear under Sound and really do leave
-        // Notifications — is SettingsShellQmlTest::
-        // theCallDevicesLiveInTheSoundSectionAndLeaveNotifications; this is
-        // the count, which a visibility check cannot make.
-        QCOMPARE(screen.count(
-                     QStringLiteral("objectName: \"callDeviceSettings\"")), 1);
-    }
-
-    void everyIconTheVolumeSurfacesAskForIsInTheBundledSubset()
-    {
-        // The bundled Material Symbols font is a SUBSET: a name absent from
-        // Icon.qml's map renders as tofu, and nothing else catches it —
-        // the glyph simply comes out as a box on the maintainer's desktop.
-        // Pinned here for the names THIS round introduced, so a rename in
-        // Icon.qml cannot quietly blank the volume button.
-        const QString icons = read(QStringLiteral(QML_DIR "/Icon.qml"));
-        QVERIFY(!icons.isEmpty());
-        for (const auto &name : {"volume_up", "volume_off"}) {
-            QVERIFY2(icons.contains(
-                         QStringLiteral("\"%1\":").arg(QLatin1String(name))),
-                     qPrintable(QStringLiteral("icon '%1' is not mapped")
-                                    .arg(QLatin1String(name))));
-        }
     }
 
     // THE INPUT LEVEL IS REACHABLE FROM THE CALL, not only from Settings.

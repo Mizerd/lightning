@@ -99,6 +99,23 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
         { QStringLiteral("nav.newConversation"), navCat,
           tr("Create a room or Space"), QStringLiteral("Ctrl+Shift+N"),
           GlobalContext },
+        // 2026-09-12 Discord audit. Discord's own key for "create private
+        // group" is Ctrl+Shift+T and it is free here, so this is one of the
+        // few additions that keeps the spelling as well as the meaning. It
+        // opens the SAME dialog Ctrl+Shift+N does, on its DM tab — the mode
+        // argument is what the two rows differ by.
+        { QStringLiteral("nav.newDirectMessage"), navCat,
+          tr("Start a direct message"), QStringLiteral("Ctrl+Shift+T"),
+          GlobalContext },
+        // Discord's inbox popout is Ctrl+I. Ctrl+I is `composer.italic`
+        // here, and while a Global/Editor pair on one sequence is a legal
+        // SHADOW rather than a conflict, this client has exactly two of
+        // those by design (Ctrl+B and Ctrl+U) and a third one bought nothing
+        // — the Activity Center is not so central that it is worth making a
+        // second key ambiguous. Ctrl+Shift+I is free and keeps the letter.
+        { QStringLiteral("nav.activityCenter"), navCat,
+          tr("Open the Activity Center"), QStringLiteral("Ctrl+Shift+I"),
+          GlobalContext },
 
         // ── View / shell ────────────────────────────────────────────────
         { QStringLiteral("shell.toggleRoomList"), viewCat,
@@ -123,6 +140,35 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
         { QStringLiteral("room.markRead"), roomCat,
           tr("Mark the open conversation as read"),
           QStringLiteral("Ctrl+Shift+M"), GlobalContext },
+        // Discord marks a whole server read with Shift+Esc, which is
+        // STRUCTURALLY unavailable twice over: Esc is in the reserved table,
+        // and Shift alone does not satisfy hasCommandModifier(). Ctrl+Shift+A
+        // instead — A for all, and adjacent to nothing it could be confused
+        // with.
+        //
+        // markAllRoomsRead() RETURNS A COUNT on purpose (RoomListModel), so a
+        // caller can tell "nothing was unread" from "it worked"; §6's rule
+        // that a no-op must not be reported as a success applies to a
+        // keyboard shortcut exactly as it does to a repair.
+        { QStringLiteral("room.markAllRead"), roomCat,
+          tr("Mark every conversation as read"), QStringLiteral("Ctrl+Shift+A"),
+          GlobalContext },
+        // Discord's Alt+Enter is MESSAGE-scoped ("mark this message unread")
+        // and Lightning's capability is ROOM-scoped, so the action is not the
+        // same one and deliberately does not wear Discord's spelling.
+        // Ctrl+Alt+M pairs it with Ctrl+Shift+M above.
+        //
+        // ON Ctrl+Alt AS A DEFAULT, since this table now has two of them.
+        // Windows delivers AltGr as Ctrl+Alt, so a Ctrl+Alt+<letter> default
+        // can fire while a user on a layout that reaches an accented letter
+        // through AltGr is simply typing. That rules out the letters those
+        // layouts actually use — Polish alone claims a c e l n o s x z — and
+        // is why the free Ctrl+Shift space is preferred above. M and H are
+        // not AltGr letters on any layout this client ships a catalog for,
+        // and every one of these is rebindable regardless.
+        { QStringLiteral("room.markUnread"), roomCat,
+          tr("Mark the open conversation as unread"),
+          QStringLiteral("Ctrl+Alt+M"), GlobalContext },
         // A DELIBERATE SECOND DUAL BINDING, and Discord's own arrangement:
         // Ctrl+U opens the member list, and inside the message box Ctrl+U is
         // still Underline (`composer.underline`, EditorContext). That is a
@@ -181,6 +227,33 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
         { QStringLiteral("call.returnToCall"), callCat,
           tr("Return to the active call"), QStringLiteral("Ctrl+Alt+A"),
           GlobalContext },
+        // Discord starts a DM call with Ctrl+' — an apostrophe, which is a
+        // DEAD KEY on several European layouts, so QKeySequence would store a
+        // default some users cannot type at all. Ctrl+Shift+C keeps the
+        // mnemonic on a key everyone has. (Ctrl+C is reserved for the message
+        // menu's Copy; Ctrl+Shift+C is a different sequence and free.)
+        //
+        // GATED, unlike the mute/camera rows: those are inert inside a call
+        // that does not offer them, whereas this one would START something.
+        // The gate is app.canStartCall(), which is the same predicate the
+        // timeline's call button already draws itself behind.
+        { QStringLiteral("call.startCall"), callCat,
+          tr("Start a call in this conversation"), QStringLiteral("Ctrl+Shift+C"),
+          GlobalContext },
+        // Discord ships "Disconnect from Voice" and "Toggle Go Live" as
+        // keybind-page actions with NO default at all, so there is no
+        // spelling to keep and both are free choices. H for hang up; S for
+        // share.
+        { QStringLiteral("call.leave"), callCat,
+          tr("Leave the call"), QStringLiteral("Ctrl+Alt+H"), GlobalContext },
+        // Ctrl+Shift+S, and note what it does NOT do: requestScreenShare()
+        // opens the portal or the source picker rather than sharing
+        // immediately, exactly as the call bar's own button does. A key that
+        // silently started sending a picture of the user's desktop would be a
+        // privacy defect, not a convenience.
+        { QStringLiteral("call.toggleScreenShare"), callCat,
+          tr("Share your screen, or stop sharing"),
+          QStringLiteral("Ctrl+Shift+S"), GlobalContext },
 
         // ── Message box surfaces (Global context) ───────────────────────
         //

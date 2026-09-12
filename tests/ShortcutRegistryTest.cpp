@@ -259,6 +259,73 @@ private Q_SLOTS:
         QVERIFY(!resolved.contains(QStringLiteral("app.settingsSearch")));
     }
 
+    // THE 2026-09-12 DISCORD AUDIT'S ROWS, PINNED BY ID AND BY KEY.
+    //
+    // WHY A PIN AND NOT A SWEEP. Every other case in this file iterates
+    // `rowCount()` and checks a RULE, so all of them pass vacuously on a row
+    // that was never added or whose id was mistyped — the sweep simply has
+    // one fewer row to visit and says nothing. This is the case that fails
+    // when a row is missing, which is the failure mode the seed list's own
+    // comment calls "strictly worse than not offering it".
+    //
+    // Each id here is WIRED in the same commit: nav.newDirectMessage,
+    // nav.activityCenter, room.markAllRead, room.markUnread, call.startCall,
+    // call.leave and call.toggleScreenShare are all declared in
+    // qml/MainScreen.qml, and theShortcutRowsWiredInQmlCoverEveryRegistryId
+    // below is what keeps that true.
+    void theDiscordAuditAdditionsShipOnExactlyTheseKeys()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const auto resolved = resolvedById(registry);
+
+        const QVector<QPair<QString, QString>> expected = {
+            { QStringLiteral("nav.newDirectMessage"),
+              QStringLiteral("Ctrl+Shift+T") },
+            { QStringLiteral("nav.activityCenter"),
+              QStringLiteral("Ctrl+Shift+I") },
+            { QStringLiteral("room.markAllRead"),
+              QStringLiteral("Ctrl+Shift+A") },
+            { QStringLiteral("room.markUnread"), QStringLiteral("Ctrl+Alt+M") },
+            { QStringLiteral("call.startCall"),
+              QStringLiteral("Ctrl+Shift+C") },
+            { QStringLiteral("call.leave"), QStringLiteral("Ctrl+Alt+H") },
+            { QStringLiteral("call.toggleScreenShare"),
+              QStringLiteral("Ctrl+Shift+S") },
+        };
+        for (const auto &row : expected) {
+            QVERIFY2(resolved.contains(row.first),
+                     qPrintable(QStringLiteral("%1 is not a row at all — every "
+                                               "sweep in this file would skip "
+                                               "it silently")
+                                    .arg(row.first)));
+            QCOMPARE(resolved.value(row.first), row.second);
+        }
+        QCOMPARE(registry.conflictCount(), 0);
+
+        // Ctrl+B IS BOLD IN THE MESSAGE BOX AND THE ROOM-LIST TOGGLE
+        // EVERYWHERE ELSE, and the audit that produced the rows above was
+        // told that is not negotiable. Restated here rather than left to
+        // theOnlyCrossContextSharesAreTheTwoDesignedOnes, because that case
+        // would still pass if BOTH of these moved to some third key
+        // together.
+        QCOMPARE(resolved.value(QStringLiteral("composer.bold")),
+                 QStringLiteral("Ctrl+B"));
+        QCOMPARE(resolved.value(QStringLiteral("shell.toggleRoomList")),
+                 QStringLiteral("Ctrl+B"));
+    }
+
+    // WHERE THE "is every row actually WIRED?" CASE LIVES, and why it is not
+    // here. The seed list's contract — "a registry entry whose QML site was
+    // never migrated is a shortcut that reports a key and does nothing" — can
+    // only be checked against the qml/ tree, and THIS target is built without
+    // a QML_DIR definition (CMakeLists: shortcut-registry-test links four
+    // sources and Qt6::Core/Gui/Test, nothing more). The sweep therefore
+    // lives in CallUiContractTest as
+    // everyGlobalShortcutRowIsActuallyBoundInQml, which has QML_DIR and a
+    // temp-dir QSettings environment already. Move it here the day this
+    // target gains QML_DIR.
+
     // NAIVE IMPLEMENTATION THIS CATCHES: adding the picker/attach actions in
     // EditorContext because their ids begin with "composer.". Both composers
     // route an EditorContext hit straight into applyFormat() by stripping

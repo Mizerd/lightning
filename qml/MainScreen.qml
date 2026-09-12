@@ -147,6 +147,57 @@ Item {
         }
     }
 
+    // Start a call in the open conversation. GATED, unlike mute/deafen/camera
+    // above: those are inert inside a call that does not offer them, whereas
+    // this one would START something — and canStartCall() is the same
+    // predicate the timeline header's call button draws itself behind, so the
+    // key is live exactly when the button is.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.startCall")]
+        }
+        enabled: app.loggedIn && app.currentRoomId !== ""
+                 && app.canStartCall(app.currentRoomId)
+        onActivated: app.startCall(app.currentRoomId, false)
+    }
+    // Hang up, on whichever lane is live — the same selection the call bar's
+    // own leave button makes (qml/CallHeaderBar.qml). Inert with no call, for
+    // the reason the block above gives.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.leave")]
+        }
+        onActivated: {
+            if (app.groupCall.active)
+                app.groupCall.leave()
+            else if (app.calls.activeRoomId !== "")
+                app.calls.hangup()
+        }
+    }
+    // Screen share. SFU lane only, exactly like the camera above: the legacy
+    // 1:1 lane is audio-only by design, so there is nothing to fall through
+    // to.
+    //
+    // requestScreenShare() OPENS THE PICKER — it does not begin sending. A
+    // key that silently started transmitting a picture of the user's desktop
+    // would be a privacy defect wearing a convenience's clothes.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("call.toggleScreenShare")]
+        }
+        onActivated: {
+            if (!app.groupCall.active)
+                return
+            if (app.groupCall.screenSharing)
+                app.groupCall.stopScreenShare()
+            else
+                app.groupCall.requestScreenShare()
+        }
+    }
+
     // v0.6.1: Ctrl+K quick switcher over rooms / DMs / Spaces / invites.
     Shortcut {
         sequences: {
@@ -204,6 +255,60 @@ Item {
         }
         enabled: app.loggedIn && app.currentRoomId !== ""
         onActivated: app.roomList.markRoomRead(app.currentRoomId)
+    }
+
+    // ── 2026-09-12 Discord audit: the keys Discord has and Lightning had a
+    //    capability for but no shortcut. Every one of these drives a method
+    //    that ALREADY has a pointer-driven caller; none of them is a new
+    //    behaviour, and that is deliberate — a registry row wired to
+    //    something invented in the same change has nothing to be compared
+    //    against.
+    //
+    //    All GLOBAL-context and declared here for the same reason the call
+    //    keys above are: MainScreen is the one item that is alive for the
+    //    whole session, and a Shortcut is matched by WINDOW rather than by
+    //    its item's visibility.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.newDirectMessage")]
+        }
+        enabled: app.loggedIn
+        onActivated: roomsPanel.startConversation("dm")
+    }
+    // The gate mirrors the bell that opens the same panel
+    // (qml/RoomsPanel.qml `activityCenterButton`): `app.activity` is null on
+    // a backend that has no activity model, and openPanel() would then throw
+    // rather than do nothing.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("nav.activityCenter")]
+        }
+        enabled: app.loggedIn && !!app.activity
+        onActivated: roomsPanel.openActivityCenter()
+    }
+    // Every conversation, not the open one. Ungated beyond being logged in:
+    // markAllRoomsRead() walks whatever is unread and returns how many rooms
+    // it touched, so "nothing was unread" is already a no-op rather than an
+    // error.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("room.markAllRead")]
+        }
+        enabled: app.loggedIn
+        onActivated: app.roomList.markAllRoomsRead()
+    }
+    // The come-back-to-this-later gesture, which until now existed only in
+    // the room row's context menu.
+    Shortcut {
+        sequences: {
+            var _rev = app.shortcuts.bindingRevision
+            return [app.shortcuts.sequenceFor("room.markUnread")]
+        }
+        enabled: app.loggedIn && app.currentRoomId !== ""
+        onActivated: app.roomList.markRoomUnread(app.currentRoomId)
     }
     MessageSearchDialog {
         id: messageSearchDialog
