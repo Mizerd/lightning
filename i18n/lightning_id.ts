@@ -1103,7 +1103,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+58"/>
+        <location line="+59"/>
         <source>Above 100% amplifies and can clip.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4799,7 +4799,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+581"/>
+        <location filename="../qml/MainScreen.qml" line="+601"/>
         <source>Switching account…</source>
         <translation>Berganti akun…</translation>
     </message>
@@ -7573,21 +7573,31 @@ Signing out and signing in again is the only fix.</source>
         <translation>Pencarian riwayat di sisi server (Ctrl+Shift+F)</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+15"/>
         <source>Account</source>
         <translation>Akun</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+37"/>
+        <location line="+40"/>
         <location line="+14"/>
         <source>Appearance</source>
         <translation>Tampilan</translation>
     </message>
     <message>
-        <location line="-50"/>
+        <location line="-53"/>
+        <source>Keyboard shortcuts</source>
+        <translation type="unfinished">Pintasan keyboard</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Notifications</source>
         <translation>Notifikasi</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Sound &amp; video</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -7603,6 +7613,11 @@ Signing out and signing in again is the only fix.</source>
         <location line="+1"/>
         <source>Labs</source>
         <translation>Labs</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Updates</source>
+        <translation type="unfinished">Pembaruan</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -13511,12 +13526,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Tandai percakapan terbuka sebagai sudah dibaca</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+22"/>
         <source>Mark every conversation as read</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+32"/>
         <source>Mark the open conversation as unread</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13551,12 +13566,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+16"/>
         <source>Start a call in this conversation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+9"/>
         <source>Leave the call</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17306,7 +17321,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>VideoPlayerCard</name>
     <message>
-        <location filename="../qml/VideoPlayerCard.qml" line="+324"/>
+        <location filename="../qml/VideoPlayerCard.qml" line="+337"/>
         <source>This video cannot be played</source>
         <translation>Video ini tidak dapat diputar</translation>
     </message>

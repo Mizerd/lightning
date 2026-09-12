@@ -1105,7 +1105,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+58"/>
+        <location line="+59"/>
         <source>Above 100% amplifies and can clip.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4809,7 +4809,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+581"/>
+        <location filename="../qml/MainScreen.qml" line="+601"/>
         <source>Switching account…</source>
         <translation>অ্যাকাউন্ট পাল্টানো হচ্ছে…</translation>
     </message>
@@ -7592,21 +7592,31 @@ Signing out and signing in again is the only fix.</source>
         <translation>সার্ভার-সাইড ইতিহাস অনুসন্ধান (Ctrl+Shift+F)</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+15"/>
         <source>Account</source>
         <translation>অ্যাকাউন্ট</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+37"/>
+        <location line="+40"/>
         <location line="+14"/>
         <source>Appearance</source>
         <translation>চেহারা</translation>
     </message>
     <message>
-        <location line="-50"/>
+        <location line="-53"/>
+        <source>Keyboard shortcuts</source>
+        <translation type="unfinished">কীবোর্ড শর্টকাট</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Notifications</source>
         <translation>বিজ্ঞপ্তি</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Sound &amp; video</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -7622,6 +7632,11 @@ Signing out and signing in again is the only fix.</source>
         <location line="+1"/>
         <source>Labs</source>
         <translation>Labs</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Updates</source>
+        <translation type="unfinished">হালনাগাদ</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -13537,12 +13552,12 @@ Note: importing keys does not verify this session.</source>
         <translation>খোলা কথোপকথনটি পঠিত হিসাবে চিহ্নিত করুন</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+22"/>
         <source>Mark every conversation as read</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+32"/>
         <source>Mark the open conversation as unread</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13577,12 +13592,12 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+16"/>
         <source>Start a call in this conversation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+9"/>
         <source>Leave the call</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17346,7 +17361,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VideoPlayerCard</name>
     <message>
-        <location filename="../qml/VideoPlayerCard.qml" line="+324"/>
+        <location filename="../qml/VideoPlayerCard.qml" line="+337"/>
         <source>This video cannot be played</source>
         <translation>এই ভিডিওটি চালানো যাচ্ছে না</translation>
     </message>
