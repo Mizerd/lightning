@@ -4231,13 +4231,40 @@ void SfuMediaEngine::setMicrophoneGain(int percent)
     // Every published bin is walked rather than only the audio one, because
     // the engine does not index bins by kind — a video bin simply has no
     // element with this name, so the loop is a no-op there.
+    int elements = 0;
     for (auto it = m_publishedBins.cbegin(); it != m_publishedBins.cend();
          ++it) {
         if (GstElement *gain =
                 gst_bin_get_by_name(GST_BIN(it.value()), "micvol")) {
             g_object_set(gain, "volume", factor, nullptr);
             gst_object_unref(gain);
+            ++elements;
         }
+    }
+    // COUNT THE ELEMENTS, AND SAY SO. Without this the microphone level was
+    // the one audio control in this client with no instrument at all: the
+    // slider moved, the value reached the store, and whether it reached a
+    // real `volume` element was unobservable — which is precisely the state
+    // the per-participant volume was in when a live run showed "the slider
+    // read 200% and nothing had reached the audio graph" (the 2026-09-11
+    // claim withdrawn on 2026-09-12). `e07a663` gave that path this same
+    // line; this is its twin, deliberately in the same shape so
+    // `scripts/gui-suite-calls.sh` can read both the same way.
+    //
+    // `qCInfo`, not debug, for the reason recorded beside the participant
+    // line: a suite running with `*.debug=false` would turn its absence into
+    // a confident false FAIL.
+    if (elements > 0) {
+        qCInfo(lcSfuMedia) << "microphone gain applied: percent=" << clamped
+                           << "gst=" << factor << "elements=" << elements;
+    } else {
+        // A PUBLISHER WITH NO micvol IS NOT "nothing to do". The pipeline
+        // exists — we returned early above when it did not — so the stage
+        // this control was built to reach is missing, and the level the user
+        // set is going nowhere.
+        qCWarning(lcSfuMedia)
+            << "microphone gain had nowhere to land: percent=" << clamped
+            << "publishedBins=" << m_publishedBins.size();
     }
 }
 

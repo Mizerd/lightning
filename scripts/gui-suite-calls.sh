@@ -17,8 +17,8 @@
 # NOT TESTED and do not round it up.
 #
 # USE (on the GUI host, not over a bare ssh exec — see the env block):
-#     scripts/gui-suite-calls.sh                 # every check
-#     scripts/gui-suite-calls.sh volume share    # just those
+#     scripts/gui-suite-calls.sh                    # every check
+#     scripts/gui-suite-calls.sh volume micgain     # just those
 #
 # PREREQUISITES
 #   * TWO Lightning instances already running and already IN A CALL WITH EACH
@@ -68,6 +68,14 @@ PEOPLE_BTN_X=1063 PEOPLE_BTN_Y=201   # call bar's participants button
 VOL_Y=300                            # the volume slider's row in the popup
 VOL_MIN_X=1073                       # slider groove, left end  -> 0%
 VOL_MAX_X=1303                       # slider groove, right end -> 200%
+# The MICROPHONE chevron and the level inside its menu (2026-09-12). These
+# four are the ones most likely to be stale after a call-bar change; the
+# check that uses them says so in its failure text rather than reporting a
+# product defect, because a missed click and a dead control look identical.
+MIC_CHEVRON_X=941 MIC_CHEVRON_Y=135  # the chevron BESIDE the mic button
+MICGAIN_Y=300                        # the level slider's row inside the menu
+MICGAIN_MIN_X=995                    # groove, left end  -> 0%
+MICGAIN_MAX_X=1135                   # groove, right end -> 200%
 # The portal's source tiles are placed as FRACTIONS of its own dialog, so a
 # different dialog size still hits the first source. Measured 2026-09-11:
 # a 738x766 dialog put "Laptop screen" at rel 189,233.
@@ -357,6 +365,54 @@ check_volume_persists() {
     ok volume-persists
 }
 
+# THE MICROPHONE LEVEL REACHING THE AUDIO GRAPH — the 2026-09-12 round's
+# headline claim, and the one this project has already had to withdraw once in
+# this exact shape ("the slider read 200% and nothing had reached the audio
+# graph", 2026-09-11, fixed in `21f4a1a`).
+#
+# THE READOUT IS NOT EVIDENCE. It is computed from the slider's own value, so
+# it tracks the thumb whether or not anything downstream exists. Neither is
+# the stored value: `microphoneGain` on disk proves the SETTING was written.
+# The only evidence is `microphone gain applied: … elements=N` with N>0, which
+# SfuMediaEngine emits after `g_object_set` succeeded on a real named element,
+# and its sibling warning when the pipeline had nowhere to put it.
+#
+# IT DRIVES THE IN-CALL MENU, not Settings, so one run covers two claims: that
+# the value reaches the engine AND that a Slider inside a QQuickMenu can be
+# dragged at all (the menu lays its rows out in a ListView, which may steal a
+# drag). When it fails, those two causes are told apart by the failure text:
+# no `microphone gain` line of EITHER kind means the click or the drag never
+# reached the control, while the warning means the drag worked and the engine
+# had nowhere to land it.
+_micgain_case() {   # _micgain_case <name> <from-x> <to-x> <expected-percent>
+    local name="$1" from="$2" to="$3" want="$4" mark applied nowhere
+    mark=$(mark_of "$LT_A_LOG")
+    pidclick "$A" "$MIC_CHEVRON_X" "$MIC_CHEVRON_Y" >/dev/null 2>&1
+    sleep 2
+    pdrag "$A" "$from" "$MICGAIN_Y" "$to" "$MICGAIN_Y" >/dev/null 2>&1
+    sleep 3
+    applied=$(lines_since "$LT_A_LOG" "$mark" 'microphone gain applied' | tail -1)
+    nowhere=$(lines_since "$LT_A_LOG" "$mark" 'microphone gain had nowhere' | tail -1)
+    note "applied: ${applied:-<none>}"
+    shot "$A" "micgain-$want"
+    if [[ -z "$applied" ]]; then
+        if [[ -n "$nowhere" ]]; then
+            bad "$name" "the drag reached the engine and it had no micvol element to set: $nowhere"
+        else
+            bad "$name" "no 'microphone gain' line of either kind — the chevron click or the in-menu drag never reached the slider, which says nothing yet about the engine. Re-derive MIC_CHEVRON_* / MICGAIN_* per RECALIBRATE, and check the menu did not steal the drag"
+        fi
+        return 1
+    fi
+    grep -q "percent= $want" <<<"$applied" \
+        || { bad "$name" "the engine applied a different percentage: $applied"; return 1; }
+    grep -qE 'elements= [1-9]' <<<"$applied" \
+        || { bad "$name" "the engine reported ZERO elements, so nothing was set: $applied"; return 1; }
+    ok "$name"
+}
+
+check_micgain_mute()  { _micgain_case micgain-0%-reaches-the-graph "$MICGAIN_MAX_X" "$MICGAIN_MIN_X" 0; }
+check_micgain_boost() { _micgain_case micgain-200%-reaches-the-graph "$MICGAIN_MIN_X" "$MICGAIN_MAX_X" 200; }
+
 # The portal picker is a WINDOW of xdg-desktop-portal-kde, not a popup, so it
 # is addressed by its own pid. Lightning gives it 120 s (kRequestTimeoutMs)
 # and then releases — answer it in one pass, never across two ssh round trips.
@@ -445,7 +501,7 @@ check_share() {
 # ---------------------------------------------------------------------- run
 main() {
     local want=("$@")
-    (( ${#want[@]} )) || want=(call volume share)
+    (( ${#want[@]} )) || want=(call volume micgain share)
     check_preflight || { echo; echo "0 passed, 1 failed"; return 1; }
     check_geometry  || { echo; echo "0 passed, 1 failed"; return 1; }
     local w
@@ -453,8 +509,9 @@ main() {
         case "$w" in
             call)   check_call ;;
             volume) check_volume_mute; check_volume_boost; check_volume_persists ;;
+            micgain) check_micgain_mute; check_micgain_boost ;;
             share)  check_share ;;
-            *) bad "$w" "no such check (call|volume|share)" ;;
+            *) bad "$w" "no such check (call|volume|micgain|share)" ;;
         esac
     done
     echo
