@@ -150,28 +150,47 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   dependency of Qt and libgstopengl: a DLL of the right name is not the
   element, the same distinction that shipped Windows for months with
   `libgstsctp-1.0-0` present and `sctpenc` missing.
-  **THE APP HALF IS STILL OPEN, and the exact blocking line is now known.**
-  It is not `videoconvert`: `captureEntryFilter(false)`
-  (`src/calls/SfuMediaEngine.cpp`) is
-  `capsfilter caps="video/x-raw,pixel-aspect-ratio=(fraction)1/1"` and it sits
-  DIRECTLY after `%1 name=capsrc`, so `image/jpeg` cannot satisfy the very
-  first element downstream of the source and no MJPG mode can ever negotiate.
-  **`decodebin` there is REFUTED, with evidence — do not re-propose it.**
-  Inserting `decodebin ! ` in front of that capsfilter builds, but the bin
-  logs `element="decodebin0" ... "Delayed linking failed."` and then
-  `element="capsrc" ... "Internal data stream error."`, and
+  **THE APP HALF IS DONE — CORRECTED 2026-09-12, this paragraph claimed
+  otherwise for ten days.** It is IN HEAD and has been waiting on the image:
+  `cameraJpegEntry()` builds the `image/jpeg` chain,
+  `jpegCameraChainAvailable()` probes whether the decoder exists and links, the
+  capture FALLS BACK to the raw entry when it does not, and `camera chain=
+  mjpg|raw (jpeg elements present|absent)` says which was built — so the two
+  ways a camera can sit at 10 fps are finally distinguishable in a log. That
+  probe is exactly what the Windows guest reported: `camera MJPG chain
+  unavailable … no element "jpegenc"`.
+
+  The probe puts `jpegenc ! ` in front of the chain under test so it actually
+  carries `image/jpeg`, rather than a raw source that would link past the
+  capsfilter and prove nothing — the trap below, applied in advance for once.
+
+  WHAT REMAINS IS THE IMAGE, and only that. `libgstjpeg.dll` went into
+  `packaging/windows/Dockerfile` and `stage-windows-runtime.py`'s required list
+  on 2026-09-02 and the image was never rebuilt, so the plugin has been in the
+  recipe and not in the tin. Verified by inspecting `…-v5` directly: neither
+  `libgstjpeg.dll` nor `opengl32sw.dll` is in it. Builder tag **v6** exists to
+  carry a rebuild and has NO Dockerfile change, because the runner pins by
+  exact tag with `pull_policy = "if-not-present"` and a same-tag rebuild would
+  never be picked up.
+
+  **`decodebin` in front of that capsfilter is REFUTED, with evidence — do not
+  re-propose it.** It builds, then logs `element="decodebin0" … "Delayed
+  linking failed."` and `element="capsrc" … "Internal data stream error."`, and
   `aBusErrorFromALiveOrUnknownBinIsNotAPublishFailure` fails because the
-  capture is retired. It is NOT a latency cost: measured one-buffer wall time
-  is 497 ms without the decoder, 478 ms through `decodebin`, 486 ms through
-  `jpegenc ! decodebin`. A bare `gst-launch` probe of the same three chains
-  PASSES, because it negotiates a different format than the engine does
-  (the engine's capture came up `A444_16LE`) — the recorded "a probe is
-  evidence only if it shares the property under test" trap, third occurrence.
-  What is left to try, in order: build the camera chain for `image/jpeg`
-  explicitly and FALL BACK to today's raw chain when it will not build, which
-  is the idiom the GPU share path already uses and logs; or resolve the
-  device's caps first and choose. Either needs a real webcam, so it is not
-  landing from this machine.
+  capture is retired. NOT a latency cost: one-buffer wall time 497 ms without
+  the decoder, 478 ms through `decodebin`, 486 ms through `jpegenc ! decodebin`.
+  A bare `gst-launch` probe of the same three chains PASSES, because it
+  negotiates a different format than the engine does (the engine's capture came
+  up `A444_16LE`) — "a probe is evidence only if it shares the property under
+  test", third occurrence.
+
+  AND THE 10 fps NUMBER IS NOT ANSWERABLE ON THE VM. The claimed cause is a
+  USB 2.0 ceiling (raw YUY2 at 1280x720 is 18.4 MB/s); a virtualised
+  passthrough does not reproduce it, and the device's mode list can differ
+  through the hypervisor. What the guest CAN answer is whether MJPG negotiates
+  at all — `camera chain= mjpg` plus `capture negotiated caps=` naming
+  `image/jpeg` — and whether the raw fallback still publishes when it cannot.
+  The ceiling itself needs Rokas's own hardware.
 - ~~**Raise hand is invisible to Element**~~ — **FIXED and LIVE-CONFIRMED
   2026-08-26** in both directions. The wire representation was established by
   READING element-call's own source rather than guessing: an `m.reaction`
