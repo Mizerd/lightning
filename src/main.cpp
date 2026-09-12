@@ -2112,6 +2112,46 @@ int main(int argc, char *argv[])
             }
         }
         if (!glUsable) {
+            // THE SOFTWARE RASTERISER IS THE LAST RESORT, AND ON WINDOWS AND
+            // macOS IT IS NOT THE ONLY ONE — which is how this probe turned a
+            // working Windows install into one that draws no call video.
+            //
+            // The probe above asks about OPENGL because that is what the
+            // AppImage case is about. Windows has a NATIVE RHI backend,
+            // Direct3D 11, that needs no OpenGL at all and falls back to
+            // WARP — Microsoft's own software rasteriser — when there is no
+            // usable GPU. Qt DOCUMENTS it as the Windows default — which is
+            // documentation, not a measurement here; the line that settles it
+            // is `scene graph backend=` on a Windows box whose GL WORKS, where
+            // this probe never fires. So a machine
+            // with no WGL (a VM, an RDP session, a broken driver) was already
+            // fine, and this code overrode that default with the one backend
+            // that cannot draw a video node. Measured 2026-09-12 on a Windows
+            // 11 guest: `Failed to load opengl32sw` -> this branch ->
+            // software -> 1000+ frames received and an empty rectangle.
+            //
+            // Verified in the SHIPPED Qt rather than assumed: Qt6Gui.dll in
+            // the Windows builder image carries QD3D11SwapChain/QD3D11Adapter
+            // and imports d3d11.dll and dxgi.dll.
+            //
+            // macOS is the same shape — Metal is Qt's default there and
+            // OpenGL is deprecated, so a failed GL probe must not drag it
+            // onto the CPU either.
+            //
+            // Only the platforms with no such backend fall through to
+            // Software, which is the case this probe was written for and
+            // where it remains correct: starting degraded beats not starting.
+#if defined(Q_OS_WIN)
+            QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
+            qInfo("lightning: no usable OpenGL context on the \"%s\" platform "
+                  "- using Direct3D 11, which renders video normally.",
+                  qUtf8Printable(QGuiApplication::platformName()));
+#elif defined(Q_OS_MACOS)
+            QQuickWindow::setGraphicsApi(QSGRendererInterface::Metal);
+            qInfo("lightning: no usable OpenGL context on the \"%s\" platform "
+                  "- using Metal, which renders video normally.",
+                  qUtf8Printable(QGuiApplication::platformName()));
+#else
             QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
             // "SLOWER" WAS WRONG, AND IT SENT TWO ROUNDS OF TESTING DOWN
             // THE WRONG PATH. Measured 2026-09-12 on one Linux client,
@@ -2129,6 +2169,7 @@ int main(int argc, char *argv[])
                      "this renderer; audio is unaffected. Set "
                      "QT_QUICK_BACKEND to override.",
                      qUtf8Printable(QGuiApplication::platformName()));
+#endif
         }
     }
     // Qt has read the scale factor now; drop it from the environment so it
@@ -2456,7 +2497,7 @@ int main(int argc, char *argv[])
     // presentation, or the swap chain is not throttling.
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreated, &app,
-        [](QObject *obj, const QUrl &) {
+        [&controller](QObject *obj, const QUrl &) {
             auto *win = qobject_cast<QQuickWindow *>(obj);
             if (!win)
                 return;
@@ -2464,7 +2505,8 @@ int main(int argc, char *argv[])
             // makes the delivery queued onto the GUI thread, where the
             // renderer interface and the screen are safe to read.
             QObject::connect(
-                win, &QQuickWindow::sceneGraphInitialized, win, [win] {
+                win, &QQuickWindow::sceneGraphInitialized, win,
+                [win, &controller] {
                     const char *name = "unknown";
                     bool software = false;
                     if (auto *ri = win->rendererInterface()) {
@@ -2486,6 +2528,11 @@ int main(int argc, char *argv[])
                           qUtf8Printable(QGuiApplication::platformName()),
                           screen ? screen->refreshRate() : 0.0,
                           win->effectiveDevicePixelRatio());
+                    // AND TELL THE UI, not just the log. On this backend a
+                    // call tile paints its chrome and never paints a picture,
+                    // so the surfaces that would show video say why instead of
+                    // presenting an empty frame the user cannot interpret.
+                    controller.setSoftwareRenderer(software);
                 },
                 Qt::SingleShotConnection);
         });

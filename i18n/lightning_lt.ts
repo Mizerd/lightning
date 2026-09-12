@@ -398,7 +398,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+889"/>
+        <location filename="../src/app/AppController.cpp" line="+890"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -545,24 +545,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1972"/>
+        <location line="+1989"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning nepavyko nuskaityti pasirinkto failo.</translation>
     </message>
     <message>
-        <location line="-1978"/>
+        <location line="-1995"/>
         <source>A room-key import is already in progress.</source>
         <translation>Jau vyksta kambario rakto importavimas.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2699"/>
+        <location line="+2716"/>
         <source>Not signed in.</source>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-2697"/>
+        <location line="-2714"/>
         <source>Room-key import failed.</source>
         <translation>Nepavyko importuoti kambario rakto.</translation>
     </message>
@@ -602,7 +602,7 @@
         <translation>Skambinti čia negalima.</translation>
     </message>
     <message>
-        <location line="+156"/>
+        <location line="+173"/>
         <source>Modern room list</source>
         <translation>Šiuolaikinių kambarių sąrašas</translation>
     </message>
@@ -1178,7 +1178,7 @@
 <context>
     <name>CallEventDelegate</name>
     <message>
-        <location filename="../qml/CallEventDelegate.qml" line="+117"/>
+        <location filename="../qml/CallEventDelegate.qml" line="+121"/>
         <source>This build can&apos;t join Matrix calls</source>
         <translation type="unfinished">Ši versija negali prisijungti prie Matrix skambučių</translation>
     </message>
@@ -1406,7 +1406,7 @@
 <context>
     <name>CallParticipantTile</name>
     <message>
-        <location filename="../qml/CallParticipantTile.qml" line="+169"/>
+        <location filename="../qml/CallParticipantTile.qml" line="+187"/>
         <source>You</source>
         <translation>Jūs</translation>
     </message>
@@ -1446,7 +1446,7 @@
         <translation>Prastas ryšys</translation>
     </message>
     <message>
-        <location line="+541"/>
+        <location line="+542"/>
         <location line="+122"/>
         <source>Volume for %1</source>
         <translation>%1 tomas</translation>
@@ -1590,7 +1590,7 @@
 <context>
     <name>CallShareTile</name>
     <message>
-        <location filename="../qml/CallShareTile.qml" line="+78"/>
+        <location filename="../qml/CallShareTile.qml" line="+96"/>
         <source>Your screen</source>
         <translation>Jūsų ekranas</translation>
     </message>
@@ -1606,7 +1606,7 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+370"/>
+        <location line="+371"/>
         <source>Screen share</source>
         <translation>Ekrano bendrinimas</translation>
     </message>
@@ -1682,7 +1682,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+150"/>
         <source>Show screen shares (%1)</source>
         <translation>Rodyti ekrano bendrinimus (%1)</translation>
     </message>
@@ -1700,6 +1700,11 @@
         <location line="+1"/>
         <source>Collapse the call</source>
         <translation>Sutraukti skambutį</translation>
+    </message>
+    <message>
+        <location line="+49"/>
+        <source>Video can&apos;t be shown on this computer — there is no working graphics acceleration, so cameras and shared screens won&apos;t appear. Audio is unaffected.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+141"/>
@@ -2625,7 +2630,7 @@
         <translation>Laukų kontūrai ir slinkties juostos slankiklis</translation>
     </message>
     <message>
-        <location line="+302"/>
+        <location line="+311"/>
         <location line="+108"/>
         <location line="+29"/>
         <source>My theme</source>
@@ -4654,7 +4659,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+604"/>
+        <location line="+619"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -5864,12 +5869,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+117"/>
         <location line="+1114"/>
-        <location line="+1012"/>
+        <location line="+1016"/>
         <source>Reply</source>
         <translation>Atsakyti</translation>
     </message>
     <message>
-        <location line="-2106"/>
+        <location line="-2110"/>
         <source>(original message not loaded)</source>
         <translation>(originali žinutė neįkelta)</translation>
     </message>
@@ -5975,29 +5980,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+2341"/>
+        <location line="+2346"/>
         <source>Retry</source>
         <translation>Bandykite dar kartą</translation>
     </message>
     <message>
-        <location line="-2304"/>
-        <location line="+1118"/>
+        <location line="-2309"/>
+        <location line="+1121"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-1113"/>
+        <location line="-1116"/>
         <source>Cancel sending this message</source>
         <translation>Atšaukti šio pranešimo siuntimą</translation>
     </message>
     <message>
         <location line="+215"/>
-        <location line="+1308"/>
+        <location line="+1312"/>
         <source>Hide image</source>
         <translation>Slėpti vaizdą</translation>
     </message>
     <message>
-        <location line="-1304"/>
+        <location line="-1308"/>
         <source>Hide</source>
         <translation>Slėpti</translation>
     </message>
@@ -6022,7 +6027,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+29"/>
         <source>More message actions</source>
         <translation>Daugiau pranešimų veiksmų</translation>
     </message>
@@ -6108,7 +6113,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Pranešimas · %1 · %2</translation>
     </message>
     <message>
-        <location line="+143"/>
+        <location line="+144"/>
         <source>Reply in thread</source>
         <translation>Atsakyti gijoje</translation>
     </message>
@@ -6154,23 +6159,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2280"/>
+        <location line="+2281"/>
         <source>Save as…</source>
         <translation>Išsaugoti kaip…</translation>
     </message>
     <message>
-        <location line="-2250"/>
+        <location line="-2251"/>
         <source>Show image</source>
         <translation>Rodyti vaizdą</translation>
     </message>
     <message>
         <location line="+20"/>
-        <location line="+696"/>
+        <location line="+697"/>
         <source>Show link preview</source>
         <translation>Rodyti nuorodos peržiūrą</translation>
     </message>
     <message>
-        <location line="-687"/>
+        <location line="-688"/>
         <source>Copy image</source>
         <translation>Kopijuoti vaizdą</translation>
     </message>
@@ -6195,13 +6200,13 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1301"/>
-        <location line="+1308"/>
+        <location line="-1305"/>
+        <location line="+1312"/>
         <source>Edit</source>
         <translation>Redaguoti</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+19"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>Pašalinti pakeitimus</translation>
@@ -6587,7 +6592,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MockMatrixClient</name>
     <message>
-        <location filename="../src/matrix/MockMatrixClient.cpp" line="+347"/>
+        <location filename="../src/matrix/MockMatrixClient.cpp" line="+362"/>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+41"/>
@@ -7961,7 +7966,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Prisijungti negalima</translation>
     </message>
     <message>
-        <location line="+138"/>
+        <location line="+142"/>
         <source>You are in a call</source>
         <translation>Dalyvaujate skambutyje</translation>
     </message>
@@ -7984,7 +7989,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomCallGlyph</name>
     <message>
-        <location filename="../qml/RoomCallGlyph.qml" line="+102"/>
+        <location filename="../qml/RoomCallGlyph.qml" line="+105"/>
         <source>You are in a call in this room</source>
         <translation>Šiame kambaryje dalyvaujate skambutyje</translation>
     </message>
@@ -9295,12 +9300,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+466"/>
+        <location line="+473"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Nepavyko sukurti Rust SDK posistemės objekto.</translation>
     </message>
     <message>
-        <location line="-305"/>
+        <location line="-312"/>
         <source>Homeserver, user, and password are required.</source>
         <translation>Reikalingas namų serveris, vartotojas ir slaptažodis.</translation>
     </message>
@@ -9315,7 +9320,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Netinkamos vietinės šios paskyros saugyklos nepavyko perkelti. Patikrinkite failų sistemos leidimus ir bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+60"/>
         <location line="+174"/>
         <location line="+106"/>
         <location line="+398"/>
@@ -9382,12 +9387,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2205"/>
+        <location line="+2228"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>„Lightning“ nepavyko visiškai iš naujo nustatyti šios paskyros vietinės sesijos. Patikrinkite programų žurnalus ir failų sistemos leidimus, tada bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="-2221"/>
+        <location line="-2244"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Atkurta vietinė Lightning sesija. Ankstesnė šifravimo saugykla buvo perkelta, neištrinta ir vis dar yra šios paskyros duomenų kataloge. Galite prisijungti dar kartą.</translation>
     </message>
@@ -9399,8 +9404,8 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+223"/>
         <location line="+64"/>
-        <location line="+140"/>
-        <location line="+3513"/>
+        <location line="+157"/>
+        <location line="+3547"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+51"/>
@@ -9409,29 +9414,29 @@ Signing out and signing in again is the only fix.</source>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-3907"/>
+        <location line="-3958"/>
         <location line="+64"/>
-        <location line="+140"/>
-        <location line="+3709"/>
+        <location line="+157"/>
+        <location line="+3743"/>
         <source>Unknown room: %1</source>
         <translation>Nežinomas kambarys: %1</translation>
     </message>
     <message>
-        <location line="-3909"/>
+        <location line="-3960"/>
         <location line="+64"/>
-        <location line="+140"/>
+        <location line="+157"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Dar negalima siųsti į užšifruotus kambarius: Rust SDK šifruotas siuntimas nepatvirtintas.</translation>
     </message>
     <message>
-        <location line="+542"/>
-        <location line="+1899"/>
+        <location line="+548"/>
+        <location line="+1904"/>
         <location line="+63"/>
         <source>The sticker could not be sent.</source>
         <translation>Nepavyko išsiųsti lipduko.</translation>
     </message>
     <message>
-        <location line="-949"/>
+        <location line="-954"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9466,8 +9471,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>Kvietimo veiksmas nepavyko. Bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="+273"/>
-        <location line="+30"/>
+        <location line="+282"/>
+        <location line="+26"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9497,8 +9502,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-56"/>
-        <location line="+63"/>
+        <location line="+7"/>
         <source>The edit could not be applied.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9544,12 +9548,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Rust SDK posistemės klaida.</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+28"/>
         <source>Rust SDK event queue overflowed.</source>
         <translation>Rust SDK įvykių eilė perpildyta.</translation>
     </message>
     <message>
-        <location line="+245"/>
+        <location line="+250"/>
         <source>[unable to decrypt yet]</source>
         <translation>[dar negaliu iššifruoti]</translation>
     </message>
@@ -13122,15 +13126,15 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+484"/>
-        <location line="+79"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+553"/>
+        <location line="+161"/>
         <location line="+134"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
         <translation>Ekrano bendrinimas šiame darbalaukyje negalimas.</translation>
     </message>
     <message>
-        <location line="-211"/>
-        <location line="+804"/>
+        <location line="-293"/>
+        <location line="+886"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>Nepavyko pradėti bendrinti ekrano.</translation>
     </message>
@@ -13176,12 +13180,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+528"/>
+        <location line="+533"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>Šiame namų serveryje skambinti negalima.</translation>
     </message>
     <message>
-        <location line="-505"/>
+        <location line="-510"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Per daug bandymų. Po akimirkos bandykite dar kartą.</translation>
     </message>
@@ -13247,12 +13251,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+13"/>
-        <location line="+425"/>
+        <location line="+430"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>Nepavyko prisijungti prie skambučio.</translation>
     </message>
     <message>
-        <location line="-423"/>
+        <location line="-428"/>
         <source>The calling service is having trouble.</source>
         <translation>Skambinimo tarnyba turi problemų.</translation>
     </message>
@@ -13340,7 +13344,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Šis kambarys yra užšifruotas, o šifruoti skambučiai šioje versijoje dar nepasiekiami.</translation>
     </message>
     <message>
-        <location line="+173"/>
+        <location line="+178"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>Nepavyko jūsų paskelbti skambučio metu.</translation>
     </message>
@@ -15241,7 +15245,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+595"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+646"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Ši posistemė nepalaiko priedų.</translation>
     </message>
@@ -15281,7 +15285,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>vakar</translation>
     </message>
     <message>
-        <location line="+102"/>
+        <location line="+112"/>
         <source>Back to threads</source>
         <translation>Grįžti į gijas</translation>
     </message>
@@ -15387,7 +15391,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Pradinė žinutė nepasiekiama.</translation>
     </message>
     <message numerus="yes">
-        <location line="+27"/>
+        <location line="+32"/>
         <source>%n reply(s)</source>
         <comment>replies in the open thread</comment>
         <translation>
@@ -15755,7 +15759,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>%1 pradėjo skambutį.</translation>
     </message>
     <message>
-        <location line="+1260"/>
+        <location line="+1269"/>
         <source>%1 is typing…</source>
         <translation>%1 rašo…</translation>
     </message>
@@ -17552,7 +17556,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2157"/>
+        <location filename="../src/main.cpp" line="+2211"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Vietinė Qt/QML Matrix programa. Posistemė: --backend={mock,http,rust}. Numatytoji: rust (versijose be Rust SDK – http).</translation>
     </message>

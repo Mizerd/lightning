@@ -396,7 +396,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+889"/>
+        <location filename="../src/app/AppController.cpp" line="+890"/>
         <source>Room invitation</source>
         <translation>रूम का आमंत्रण</translation>
     </message>
@@ -543,24 +543,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1972"/>
+        <location line="+1989"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning चुनी गई फ़ाइल पढ़ नहीं सका।</translation>
     </message>
     <message>
-        <location line="-1978"/>
+        <location line="-1995"/>
         <source>A room-key import is already in progress.</source>
         <translation>रूम-कुंजी आयात पहले से चल रहा है।</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2699"/>
+        <location line="+2716"/>
         <source>Not signed in.</source>
         <translation>साइन इन नहीं है।</translation>
     </message>
     <message>
-        <location line="-2697"/>
+        <location line="-2714"/>
         <source>Room-key import failed.</source>
         <translation>रूम-कुंजी आयात विफल रहा।</translation>
     </message>
@@ -600,7 +600,7 @@
         <translation>यहां कॉलिंग उपलब्ध नहीं है.</translation>
     </message>
     <message>
-        <location line="+156"/>
+        <location line="+173"/>
         <source>Modern room list</source>
         <translation>आधुनिक रूम सूची</translation>
     </message>
@@ -1176,7 +1176,7 @@
 <context>
     <name>CallEventDelegate</name>
     <message>
-        <location filename="../qml/CallEventDelegate.qml" line="+117"/>
+        <location filename="../qml/CallEventDelegate.qml" line="+121"/>
         <source>This build can&apos;t join Matrix calls</source>
         <translation type="unfinished">यह बिल्ड Matrix कॉल में शामिल नहीं हो सकता</translation>
     </message>
@@ -1404,7 +1404,7 @@
 <context>
     <name>CallParticipantTile</name>
     <message>
-        <location filename="../qml/CallParticipantTile.qml" line="+169"/>
+        <location filename="../qml/CallParticipantTile.qml" line="+187"/>
         <source>You</source>
         <translation>आप</translation>
     </message>
@@ -1444,7 +1444,7 @@
         <translation>ख़राब कनेक्शन</translation>
     </message>
     <message>
-        <location line="+541"/>
+        <location line="+542"/>
         <location line="+122"/>
         <source>Volume for %1</source>
         <translation>%1 के लिए वॉल्यूम</translation>
@@ -1587,7 +1587,7 @@
 <context>
     <name>CallShareTile</name>
     <message>
-        <location filename="../qml/CallShareTile.qml" line="+78"/>
+        <location filename="../qml/CallShareTile.qml" line="+96"/>
         <source>Your screen</source>
         <translation>आपकी स्क्रीन</translation>
     </message>
@@ -1603,7 +1603,7 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+370"/>
+        <location line="+371"/>
         <source>Screen share</source>
         <translation>स्क्रीन शेयर</translation>
     </message>
@@ -1679,7 +1679,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+150"/>
         <source>Show screen shares (%1)</source>
         <translation>स्क्रीन शेयर दिखाएं (%1)</translation>
     </message>
@@ -1697,6 +1697,11 @@
         <location line="+1"/>
         <source>Collapse the call</source>
         <translation>कॉल को संक्षिप्त करें</translation>
+    </message>
+    <message>
+        <location line="+49"/>
+        <source>Video can&apos;t be shown on this computer — there is no working graphics acceleration, so cameras and shared screens won&apos;t appear. Audio is unaffected.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+141"/>
@@ -2620,7 +2625,7 @@
         <translation>फ़ील्ड रूपरेखा और स्क्रॉलबार हैंडल</translation>
     </message>
     <message>
-        <location line="+302"/>
+        <location line="+311"/>
         <location line="+108"/>
         <location line="+29"/>
         <source>My theme</source>
@@ -4644,7 +4649,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+604"/>
+        <location line="+619"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -5850,12 +5855,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+117"/>
         <location line="+1114"/>
-        <location line="+1012"/>
+        <location line="+1016"/>
         <source>Reply</source>
         <translation>जवाब दें</translation>
     </message>
     <message>
-        <location line="-2106"/>
+        <location line="-2110"/>
         <source>(original message not loaded)</source>
         <translation>(मूल संदेश लोड नहीं हुआ)</translation>
     </message>
@@ -5955,29 +5960,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+2341"/>
+        <location line="+2346"/>
         <source>Retry</source>
         <translation>फिर कोशिश करें</translation>
     </message>
     <message>
-        <location line="-2304"/>
-        <location line="+1118"/>
+        <location line="-2309"/>
+        <location line="+1121"/>
         <source>Cancel</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-1113"/>
+        <location line="-1116"/>
         <source>Cancel sending this message</source>
         <translation>इस संदेश को भेजना रद्द करें</translation>
     </message>
     <message>
         <location line="+215"/>
-        <location line="+1308"/>
+        <location line="+1312"/>
         <source>Hide image</source>
         <translation>छवि छिपाएँ</translation>
     </message>
     <message>
-        <location line="-1304"/>
+        <location line="-1308"/>
         <source>Hide</source>
         <translation>छिपाएँ</translation>
     </message>
@@ -6002,7 +6007,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+29"/>
         <source>More message actions</source>
         <translation>संदेश के और विकल्प</translation>
     </message>
@@ -6088,7 +6093,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>संदेश · %1 · %2</translation>
     </message>
     <message>
-        <location line="+143"/>
+        <location line="+144"/>
         <source>Reply in thread</source>
         <translation>थ्रेड में जवाब दें</translation>
     </message>
@@ -6134,23 +6139,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2280"/>
+        <location line="+2281"/>
         <source>Save as…</source>
         <translation>इस रूप में सहेजें…</translation>
     </message>
     <message>
-        <location line="-2250"/>
+        <location line="-2251"/>
         <source>Show image</source>
         <translation>छवि दिखाएँ</translation>
     </message>
     <message>
         <location line="+20"/>
-        <location line="+696"/>
+        <location line="+697"/>
         <source>Show link preview</source>
         <translation>लिंक पूर्वावलोकन दिखाएँ</translation>
     </message>
     <message>
-        <location line="-687"/>
+        <location line="-688"/>
         <source>Copy image</source>
         <translation>इमेज कॉपी करें</translation>
     </message>
@@ -6175,13 +6180,13 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1301"/>
-        <location line="+1308"/>
+        <location line="-1305"/>
+        <location line="+1312"/>
         <source>Edit</source>
         <translation>संपादित करें</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+19"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>संपादन हटाएँ</translation>
@@ -6291,12 +6296,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>जिसका जवाब है</translation>
     </message>
     <message>
-        <location line="-1998"/>
+        <location line="-2003"/>
         <source>Show preview</source>
         <translation>प्रीव्यू दिखाएँ</translation>
     </message>
     <message>
-        <location line="+1808"/>
+        <location line="+1813"/>
         <source>Remove edits?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6570,7 +6575,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MockMatrixClient</name>
     <message>
-        <location filename="../src/matrix/MockMatrixClient.cpp" line="+347"/>
+        <location filename="../src/matrix/MockMatrixClient.cpp" line="+362"/>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+41"/>
@@ -7941,7 +7946,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ज्वाइनिंग उपलब्ध नहीं है</translation>
     </message>
     <message>
-        <location line="+138"/>
+        <location line="+142"/>
         <source>You are in a call</source>
         <translation>आप एक कॉल में हैं</translation>
     </message>
@@ -7964,7 +7969,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomCallGlyph</name>
     <message>
-        <location filename="../qml/RoomCallGlyph.qml" line="+102"/>
+        <location filename="../qml/RoomCallGlyph.qml" line="+105"/>
         <source>You are in a call in this room</source>
         <translation>आप इस कमरे में कॉल पर हैं</translation>
     </message>
@@ -9273,12 +9278,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+466"/>
+        <location line="+473"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Rust SDK बैकएंड हैंडल नहीं बनाया जा सका।</translation>
     </message>
     <message>
-        <location line="-305"/>
+        <location line="-312"/>
         <source>Homeserver, user, and password are required.</source>
         <translation>होमसर्वर, उपयोगकर्ता और पासवर्ड ज़रूरी हैं।</translation>
     </message>
@@ -9293,7 +9298,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>इस खाते के अनुपयोगी स्थानीय स्टोर को अलग नहीं किया जा सका। फ़ाइल सिस्टम की अनुमतियाँ जाँचें और फिर कोशिश करें।</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+60"/>
         <location line="+174"/>
         <location line="+106"/>
         <location line="+398"/>
@@ -9360,12 +9365,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2205"/>
+        <location line="+2228"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning इस खाते का स्थानीय सेशन पूरी तरह रीसेट नहीं कर सका। ऐप्लिकेशन लॉग और फ़ाइल सिस्टम की अनुमतियाँ जाँचें, फिर दोबारा कोशिश करें।</translation>
     </message>
     <message>
-        <location line="-2221"/>
+        <location line="-2244"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>स्थानीय Lightning सेशन फिर से बना दिया गया। पिछला एन्क्रिप्शन स्टोर हटाया नहीं गया, सिर्फ़ अलग रख दिया गया है और अब भी इस खाते की डेटा डायरेक्टरी में है। आप दोबारा साइन इन कर सकते हैं।</translation>
     </message>
@@ -9377,8 +9382,8 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+223"/>
         <location line="+64"/>
-        <location line="+140"/>
-        <location line="+3513"/>
+        <location line="+157"/>
+        <location line="+3547"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+51"/>
@@ -9387,29 +9392,29 @@ Signing out and signing in again is the only fix.</source>
         <translation>साइन इन नहीं हैं।</translation>
     </message>
     <message>
-        <location line="-3907"/>
+        <location line="-3958"/>
         <location line="+64"/>
-        <location line="+140"/>
-        <location line="+3709"/>
+        <location line="+157"/>
+        <location line="+3743"/>
         <source>Unknown room: %1</source>
         <translation>अज्ञात रूम: %1</translation>
     </message>
     <message>
-        <location line="-3909"/>
+        <location line="-3960"/>
         <location line="+64"/>
-        <location line="+140"/>
+        <location line="+157"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>एन्क्रिप्टेड रूम में अभी भेजा नहीं जा सकता: Rust SDK का एन्क्रिप्टेड सेंड सत्यापित नहीं है।</translation>
     </message>
     <message>
-        <location line="+542"/>
-        <location line="+1899"/>
+        <location line="+548"/>
+        <location line="+1904"/>
         <location line="+63"/>
         <source>The sticker could not be sent.</source>
         <translation>स्टीकर नहीं भेजा जा सका.</translation>
     </message>
     <message>
-        <location line="-949"/>
+        <location line="-954"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9444,8 +9449,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>आमंत्रण की कार्रवाई विफल रही। फिर कोशिश करें।</translation>
     </message>
     <message>
-        <location line="+273"/>
-        <location line="+30"/>
+        <location line="+282"/>
+        <location line="+26"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9475,8 +9480,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-56"/>
-        <location line="+63"/>
+        <location line="+7"/>
         <source>The edit could not be applied.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9522,12 +9526,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Rust SDK बैकएंड त्रुटि।</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+28"/>
         <source>Rust SDK event queue overflowed.</source>
         <translation>Rust SDK की इवेंट क्यू भर गई।</translation>
     </message>
     <message>
-        <location line="+245"/>
+        <location line="+250"/>
         <source>[unable to decrypt yet]</source>
         <translation>[अभी डिक्रिप्ट नहीं हो सका]</translation>
     </message>
@@ -13096,15 +13100,15 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+484"/>
-        <location line="+79"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+553"/>
+        <location line="+161"/>
         <location line="+134"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
         <translation>इस डेस्कटॉप पर स्क्रीन शेयरिंग उपलब्ध नहीं है.</translation>
     </message>
     <message>
-        <location line="-211"/>
-        <location line="+804"/>
+        <location line="-293"/>
+        <location line="+886"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>स्क्रीन शेयरिंग प्रारंभ नहीं हो सकी.</translation>
     </message>
@@ -13150,12 +13154,12 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+528"/>
+        <location line="+533"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>इस होमसर्वर पर कॉलिंग उपलब्ध नहीं है.</translation>
     </message>
     <message>
-        <location line="-505"/>
+        <location line="-510"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>बहुत अधिक प्रयास. थोड़ी देर में पुनः प्रयास करें.</translation>
     </message>
@@ -13221,12 +13225,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+13"/>
-        <location line="+425"/>
+        <location line="+430"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>कॉल से कनेक्ट नहीं हो सका.</translation>
     </message>
     <message>
-        <location line="-423"/>
+        <location line="-428"/>
         <source>The calling service is having trouble.</source>
         <translation>कॉलिंग सेवा में दिक्कत आ रही है.</translation>
     </message>
@@ -13314,7 +13318,7 @@ Note: importing keys does not verify this session.</source>
         <translation>यह कमरा एन्क्रिप्टेड है, और इस बिल्ड पर एन्क्रिप्टेड कॉल अभी तक उपलब्ध नहीं हैं।</translation>
     </message>
     <message>
-        <location line="+173"/>
+        <location line="+178"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>कॉल में आपकी घोषणा नहीं की जा सकी.</translation>
     </message>
@@ -15214,7 +15218,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+595"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+646"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>इस बैकएंड पर अटैचमेंट समर्थित नहीं हैं।</translation>
     </message>
@@ -15254,7 +15258,7 @@ Note: importing keys does not verify this session.</source>
         <translation>कल</translation>
     </message>
     <message>
-        <location line="+102"/>
+        <location line="+112"/>
         <source>Back to threads</source>
         <translation>थ्रेड पर वापस</translation>
     </message>
@@ -15359,7 +15363,7 @@ Note: importing keys does not verify this session.</source>
         <translation>मूल संदेश उपलब्ध नहीं है।</translation>
     </message>
     <message numerus="yes">
-        <location line="+27"/>
+        <location line="+32"/>
         <source>%n reply(s)</source>
         <comment>replies in the open thread</comment>
         <translation>
@@ -15724,7 +15728,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 ने कॉल प्रारंभ की.</translation>
     </message>
     <message>
-        <location line="+1260"/>
+        <location line="+1269"/>
         <source>%1 is typing…</source>
         <translation>%1 लिख रहे हैं…</translation>
     </message>
@@ -17512,7 +17516,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2157"/>
+        <location filename="../src/main.cpp" line="+2211"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>नेटिव Qt/QML Matrix क्लाइंट। बैकएंड: --backend={mock,http,rust}। डिफ़ॉल्ट: rust (Rust SDK रहित बिल्ड में http)।</translation>
     </message>

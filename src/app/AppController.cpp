@@ -5491,3 +5491,11 @@ QFont AppController::textFontWithEmoji(const QString &family, int pixelSize,
     font.setFamilies(families);
     return font;
 }
+
+void AppController::setSoftwareRenderer(bool software)
+{
+    if (m_softwareRenderer == software)
+        return;
+    m_softwareRenderer = software;
+    Q_EMIT softwareRendererChanged();
+}

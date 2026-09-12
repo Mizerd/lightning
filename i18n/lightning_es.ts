@@ -396,7 +396,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+889"/>
+        <location filename="../src/app/AppController.cpp" line="+890"/>
         <source>Room invitation</source>
         <translation>Invitación a una sala</translation>
     </message>
@@ -543,24 +543,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1972"/>
+        <location line="+1989"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning no pudo leer el archivo seleccionado.</translation>
     </message>
     <message>
-        <location line="-1978"/>
+        <location line="-1995"/>
         <source>A room-key import is already in progress.</source>
         <translation>Ya hay una importación de claves de sala en curso.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2699"/>
+        <location line="+2716"/>
         <source>Not signed in.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-2697"/>
+        <location line="-2714"/>
         <source>Room-key import failed.</source>
         <translation>Falló la importación de claves de sala.</translation>
     </message>
@@ -600,7 +600,7 @@
         <translation>Las llamadas no están disponibles aquí.</translation>
     </message>
     <message>
-        <location line="+156"/>
+        <location line="+173"/>
         <source>Modern room list</source>
         <translation>Lista de salas moderna</translation>
     </message>
@@ -1176,7 +1176,7 @@
 <context>
     <name>CallEventDelegate</name>
     <message>
-        <location filename="../qml/CallEventDelegate.qml" line="+117"/>
+        <location filename="../qml/CallEventDelegate.qml" line="+121"/>
         <source>This build can&apos;t join Matrix calls</source>
         <translation type="unfinished">Esta compilación no puede unirse a llamadas de Matrix</translation>
     </message>
@@ -1404,7 +1404,7 @@
 <context>
     <name>CallParticipantTile</name>
     <message>
-        <location filename="../qml/CallParticipantTile.qml" line="+169"/>
+        <location filename="../qml/CallParticipantTile.qml" line="+187"/>
         <source>You</source>
         <translation>tu</translation>
     </message>
@@ -1444,7 +1444,7 @@
         <translation>Mala conexión</translation>
     </message>
     <message>
-        <location line="+541"/>
+        <location line="+542"/>
         <location line="+122"/>
         <source>Volume for %1</source>
         <translation>Volumen para %1</translation>
@@ -1587,7 +1587,7 @@
 <context>
     <name>CallShareTile</name>
     <message>
-        <location filename="../qml/CallShareTile.qml" line="+78"/>
+        <location filename="../qml/CallShareTile.qml" line="+96"/>
         <source>Your screen</source>
         <translation>Tu pantalla</translation>
     </message>
@@ -1603,7 +1603,7 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+370"/>
+        <location line="+371"/>
         <source>Screen share</source>
         <translation>compartir pantalla</translation>
     </message>
@@ -1679,7 +1679,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+150"/>
         <source>Show screen shares (%1)</source>
         <translation>Mostrar pantalla compartida (%1)</translation>
     </message>
@@ -1697,6 +1697,11 @@
         <location line="+1"/>
         <source>Collapse the call</source>
         <translation>Contraer la llamada</translation>
+    </message>
+    <message>
+        <location line="+49"/>
+        <source>Video can&apos;t be shown on this computer — there is no working graphics acceleration, so cameras and shared screens won&apos;t appear. Audio is unaffected.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+141"/>
@@ -2620,7 +2625,7 @@
         <translation>Contornos de campo y controlador de la barra de desplazamiento</translation>
     </message>
     <message>
-        <location line="+302"/>
+        <location line="+311"/>
         <location line="+108"/>
         <location line="+29"/>
         <source>My theme</source>
@@ -4644,7 +4649,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+604"/>
+        <location line="+619"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -5850,12 +5855,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+117"/>
         <location line="+1114"/>
-        <location line="+1012"/>
+        <location line="+1016"/>
         <source>Reply</source>
         <translation>Responder</translation>
     </message>
     <message>
-        <location line="-2106"/>
+        <location line="-2110"/>
         <source>(original message not loaded)</source>
         <translation>(el mensaje original no está cargado)</translation>
     </message>
@@ -5955,29 +5960,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+2341"/>
+        <location line="+2346"/>
         <source>Retry</source>
         <translation>Reintentar</translation>
     </message>
     <message>
-        <location line="-2304"/>
-        <location line="+1118"/>
+        <location line="-2309"/>
+        <location line="+1121"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-1113"/>
+        <location line="-1116"/>
         <source>Cancel sending this message</source>
         <translation>Cancelar el envío de este mensaje</translation>
     </message>
     <message>
         <location line="+215"/>
-        <location line="+1308"/>
+        <location line="+1312"/>
         <source>Hide image</source>
         <translation>Ocultar imagen</translation>
     </message>
     <message>
-        <location line="-1304"/>
+        <location line="-1308"/>
         <source>Hide</source>
         <translation>Ocultar</translation>
     </message>
@@ -6002,7 +6007,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+29"/>
         <source>More message actions</source>
         <translation>Más acciones del mensaje</translation>
     </message>
@@ -6088,7 +6093,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Mensaje · %1 · %2</translation>
     </message>
     <message>
-        <location line="+143"/>
+        <location line="+144"/>
         <source>Reply in thread</source>
         <translation>Responder en el hilo</translation>
     </message>
@@ -6134,23 +6139,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2280"/>
+        <location line="+2281"/>
         <source>Save as…</source>
         <translation>Guardar como…</translation>
     </message>
     <message>
-        <location line="-2250"/>
+        <location line="-2251"/>
         <source>Show image</source>
         <translation>Mostrar imagen</translation>
     </message>
     <message>
         <location line="+20"/>
-        <location line="+696"/>
+        <location line="+697"/>
         <source>Show link preview</source>
         <translation>Mostrar vista previa del enlace</translation>
     </message>
     <message>
-        <location line="-687"/>
+        <location line="-688"/>
         <source>Copy image</source>
         <translation>Copiar imagen</translation>
     </message>
@@ -6175,13 +6180,13 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1301"/>
-        <location line="+1308"/>
+        <location line="-1305"/>
+        <location line="+1312"/>
         <source>Edit</source>
         <translation>Editar</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+19"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>Eliminar las ediciones</translation>
@@ -6291,12 +6296,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Mensaje respondido</translation>
     </message>
     <message>
-        <location line="-1998"/>
+        <location line="-2003"/>
         <source>Show preview</source>
         <translation>Mostrar vista previa</translation>
     </message>
     <message>
-        <location line="+1808"/>
+        <location line="+1813"/>
         <source>Remove edits?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6570,7 +6575,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MockMatrixClient</name>
     <message>
-        <location filename="../src/matrix/MockMatrixClient.cpp" line="+347"/>
+        <location filename="../src/matrix/MockMatrixClient.cpp" line="+362"/>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+41"/>
@@ -7941,7 +7946,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Unirse no está disponible</translation>
     </message>
     <message>
-        <location line="+138"/>
+        <location line="+142"/>
         <source>You are in a call</source>
         <translation>estas en una llamada</translation>
     </message>
@@ -7964,7 +7969,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomCallGlyph</name>
     <message>
-        <location filename="../qml/RoomCallGlyph.qml" line="+102"/>
+        <location filename="../qml/RoomCallGlyph.qml" line="+105"/>
         <source>You are in a call in this room</source>
         <translation>Estás en una llamada en esta sala.</translation>
     </message>
@@ -9273,12 +9278,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+466"/>
+        <location line="+473"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>No se pudo crear el manejador del backend del SDK de Rust.</translation>
     </message>
     <message>
-        <location line="-305"/>
+        <location line="-312"/>
         <source>Homeserver, user, and password are required.</source>
         <translation>Se necesitan el servidor doméstico, el usuario y la contraseña.</translation>
     </message>
@@ -9293,7 +9298,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>No se pudo apartar un almacén local inutilizable de esta cuenta. Comprueba los permisos del sistema de archivos y vuelve a intentarlo.</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+60"/>
         <location line="+174"/>
         <location line="+106"/>
         <location line="+398"/>
@@ -9360,12 +9365,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2205"/>
+        <location line="+2228"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning no pudo restablecer por completo la sesión local de esta cuenta. Revisa los registros de la aplicación y los permisos del sistema de archivos, y vuelve a intentarlo.</translation>
     </message>
     <message>
-        <location line="-2221"/>
+        <location line="-2244"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Se ha reconstruido la sesión local de Lightning. El almacén de cifrado anterior se ha apartado, no se ha eliminado, y sigue en la carpeta de datos de esta cuenta. Ya puedes iniciar sesión de nuevo.</translation>
     </message>
@@ -9377,8 +9382,8 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+223"/>
         <location line="+64"/>
-        <location line="+140"/>
-        <location line="+3513"/>
+        <location line="+157"/>
+        <location line="+3547"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+51"/>
@@ -9387,29 +9392,29 @@ Signing out and signing in again is the only fix.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-3907"/>
+        <location line="-3958"/>
         <location line="+64"/>
-        <location line="+140"/>
-        <location line="+3709"/>
+        <location line="+157"/>
+        <location line="+3743"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconocida: %1</translation>
     </message>
     <message>
-        <location line="-3909"/>
+        <location line="-3960"/>
         <location line="+64"/>
-        <location line="+140"/>
+        <location line="+157"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Todavía no se puede enviar a salas cifradas: el envío cifrado del SDK de Rust no está verificado.</translation>
     </message>
     <message>
-        <location line="+542"/>
-        <location line="+1899"/>
+        <location line="+548"/>
+        <location line="+1904"/>
         <location line="+63"/>
         <source>The sticker could not be sent.</source>
         <translation>No se pudo enviar la pegatina.</translation>
     </message>
     <message>
-        <location line="-949"/>
+        <location line="-954"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9444,8 +9449,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>La invitación falló. Inténtalo de nuevo.</translation>
     </message>
     <message>
-        <location line="+273"/>
-        <location line="+30"/>
+        <location line="+282"/>
+        <location line="+26"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9475,8 +9480,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-56"/>
-        <location line="+63"/>
+        <location line="+7"/>
         <source>The edit could not be applied.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9522,12 +9526,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Error del backend del SDK de Rust.</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+28"/>
         <source>Rust SDK event queue overflowed.</source>
         <translation>Se desbordó la cola de eventos del SDK de Rust.</translation>
     </message>
     <message>
-        <location line="+245"/>
+        <location line="+250"/>
         <source>[unable to decrypt yet]</source>
         <translation>[todavía no se puede descifrar]</translation>
     </message>
@@ -13096,15 +13100,15 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+484"/>
-        <location line="+79"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+553"/>
+        <location line="+161"/>
         <location line="+134"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
         <translation>Compartir pantalla no está disponible en este escritorio.</translation>
     </message>
     <message>
-        <location line="-211"/>
-        <location line="+804"/>
+        <location line="-293"/>
+        <location line="+886"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>No se pudo iniciar el uso compartido de pantalla.</translation>
     </message>
@@ -13150,12 +13154,12 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+528"/>
+        <location line="+533"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>Las llamadas no están disponibles en este servidor doméstico.</translation>
     </message>
     <message>
-        <location line="-505"/>
+        <location line="-510"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Demasiados intentos. Inténtalo de nuevo en un momento.</translation>
     </message>
@@ -13221,12 +13225,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+13"/>
-        <location line="+425"/>
+        <location line="+430"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>No se pudo conectar con la llamada.</translation>
     </message>
     <message>
-        <location line="-423"/>
+        <location line="-428"/>
         <source>The calling service is having trouble.</source>
         <translation>El servicio de llamadas está teniendo problemas.</translation>
     </message>
@@ -13314,7 +13318,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Esta sala está cifrada y las llamadas cifradas aún no están disponibles en esta compilación.</translation>
     </message>
     <message>
-        <location line="+173"/>
+        <location line="+178"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>No pude anunciarte en la llamada.</translation>
     </message>
@@ -15214,7 +15218,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+595"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+646"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Este backend no admite archivos adjuntos.</translation>
     </message>
@@ -15254,7 +15258,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Ayer</translation>
     </message>
     <message>
-        <location line="+102"/>
+        <location line="+112"/>
         <source>Back to threads</source>
         <translation>Volver a los hilos</translation>
     </message>
@@ -15359,7 +15363,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>El mensaje original no está disponible.</translation>
     </message>
     <message numerus="yes">
-        <location line="+27"/>
+        <location line="+32"/>
         <source>%n reply(s)</source>
         <comment>replies in the open thread</comment>
         <translation>
@@ -15724,7 +15728,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>%1 inició una llamada.</translation>
     </message>
     <message>
-        <location line="+1260"/>
+        <location line="+1269"/>
         <source>%1 is typing…</source>
         <translation>%1 está escribiendo…</translation>
     </message>
@@ -17512,7 +17516,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2157"/>
+        <location filename="../src/main.cpp" line="+2211"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Cliente Matrix nativo Qt/QML. Backend: --backend={mock,http,rust}. Predeterminado: rust (http en compilaciones sin el Rust SDK).</translation>
     </message>

@@ -45,6 +45,23 @@ import MatrixClient
 Item {
     id: root
 
+    /// THIS RENDERER CANNOT DRAW VIDEO, so the tile must not hand its space
+    /// to a VideoOutput that will paint nothing.
+    ///
+    /// Qt Quick's software adaptation has no node type for video at all, and
+    /// frames still ARRIVE — the sink reports a real videoSize and the
+    /// engine's counters climb — so every "is there a picture" test in this
+    /// file answers yes while the tile shows an empty rectangle. Measured on
+    /// Windows with no usable GL, and reproduced on Linux with
+    /// QT_QUICK_BACKEND=software as the only change.
+    ///
+    /// Staying in the placeholder state is strictly better: the reader sees
+    /// what they see before the first frame, which is at least interpretable,
+    /// and CallStage says once why no video is coming. Defensive `app` lookup
+    /// because this component is loaded standalone in tests.
+    readonly property bool softwareRendererHidesVideo:
+        typeof app !== "undefined" && app && app.softwareRenderer === true
+
     /// Stable identity of this share for one call. Remote: the LiveKit
     /// screen-share track sid. Local: "local:<n>". A share that stops and
     /// restarts is a NEW published track and so a new id — which is why a
@@ -126,6 +143,7 @@ Item {
             anchors.margins: 1
             active: root.ownerIdentity.length > 0
             visible: active && item && item.hasFrame
+                     && !root.softwareRendererHidesVideo
             sourceComponent: Item {
                 /// Nothing has arrived yet: the tile keeps its placeholder
                 /// rather than showing a black hole while the first frame is

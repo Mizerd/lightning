@@ -851,6 +851,61 @@ Rectangle {
             }
         }
 
+        // ── WHY THERE IS NO PICTURE ──────────────────────────────────────
+        //
+        // ONE LINE, ONCE, rather than the same sentence on every tile.
+        //
+        // When Qt Quick falls back to its CPU rasteriser there is no node
+        // type for video at all, so a call carries audio perfectly and draws
+        // no frames — and until this strip existed the user got an empty
+        // rectangle and no way to tell that from a broken call. The tiles
+        // stay in their placeholder state (see
+        // `softwareRendererHidesVideo`) and this says why.
+        //
+        // Not an error: the call is working. The wording says which half is
+        // missing and what would fix it, and it collapses to zero height on
+        // every machine that has a usable GPU, which is nearly all of them.
+        Rectangle {
+            objectName: "callSoftwareRendererNotice"
+            // NOT WHILE COLLAPSED. The collapsed call panel is a FIXED
+            // height (TimelinePane's callPanelCollapsedHeight, 64), so this
+            // strip would be squeezed under its own margins and — with no
+            // clip — paint its text outside the rectangle. Every other
+            // optional strip in this column is gated the same way.
+            visible: !root.collapsed
+                     && typeof app !== "undefined" && app
+                     && app.softwareRenderer === true
+            Layout.fillWidth: true
+            implicitHeight: visible ? noticeRow.implicitHeight
+                                      + AppTheme.spacing8 * 2 : 0
+            color: AppTheme.warningFill
+            radius: AppTheme.radiusSm
+
+            RowLayout {
+                id: noticeRow
+                anchors.fill: parent
+                anchors.margins: AppTheme.spacing8
+                spacing: AppTheme.spacing8
+
+                Icon {
+                    name: "warning"
+                    size: 16
+                    color: AppTheme.warning
+                    Layout.alignment: Qt.AlignVCenter
+                }
+                Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: AppTheme.stormText
+                    font.pixelSize: 12
+                    // ONE STRING LITERAL. `qsTr("a" + "b")` is a runtime
+                    // expression, not a literal, so lupdate cannot extract it
+                    // and the string ships untranslated on every locale.
+                    text: qsTr("Video can't be shown on this computer — there is no working graphics acceleration, so cameras and shared screens won't appear. Audio is unaffected.")
+                }
+            }
+        }
+
         // ── The stage ────────────────────────────────────────────────────
         Item {
             Layout.fillWidth: true

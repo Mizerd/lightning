@@ -1288,6 +1288,95 @@ ApplicationWindow {
                  "given is too small for it");
     }
 
+    // A CALL THAT CARRIES AUDIO AND DRAWS NOTHING MUST SAY SO.
+    //
+    // On a machine with no usable GL the scene graph falls back to Qt Quick's
+    // CPU rasteriser, which has NO NODE TYPE FOR VIDEO — so frames arrive, the
+    // sink reports a real size, every "is there a picture" test in the tiles
+    // answers yes, and the user gets an empty rectangle with no way to tell
+    // that from a broken call. Measured on Windows 2026-09-12 and reproduced
+    // on Linux with QT_QUICK_BACKEND=software as the only change.
+    void aRendererThatCannotDrawVideoSaysSoOnTheStage()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine,
+                              &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallStage"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(5000));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        // Into a window: `visible` is EFFECTIVE visibility and folds in the
+        // parent chain, so an unparented item answers false however its own
+        // binding evaluates.
+        QQuickWindow window;
+        window.resize(900, 600);
+        root->setParentItem(window.contentItem());
+
+        auto *notice = root->findChild<QQuickItem *>(
+            QStringLiteral("callSoftwareRendererNotice"));
+        QVERIFY2(notice != nullptr, "the stage has no software-renderer notice");
+
+        // The overwhelmingly common case: a real GPU, and the strip must not
+        // be there at all — including reserving no height.
+        QVERIFY(!controller.softwareRenderer());
+        QTest::qWait(50);
+        QVERIFY2(!notice->property("visible").toBool(),
+                 "the notice is shown on a machine that renders video fine");
+        QCOMPARE(notice->property("implicitHeight").toReal(), 0.0);
+
+        // And it appears when the scene graph reports the CPU rasteriser —
+        // which main.cpp learns from the renderer interface, not from the
+        // request it made to setGraphicsApi().
+        controller.setSoftwareRenderer(true);
+        QTest::qWait(50);
+        QVERIFY2(notice->property("visible").toBool(),
+                 "a call that cannot draw video shows the user nothing but an "
+                 "empty rectangle and no explanation");
+        QVERIFY2(notice->property("implicitHeight").toReal() > 0.0,
+                 "the notice is visible but has no height");
+    }
+
+    // AND THE TILES MUST STAND DOWN, or the notice explains an empty frame
+    // that is still being drawn over the placeholder. Source-level because a
+    // tile needs a participant model and a live sink to instantiate; what has
+    // to hold is narrow and checkable.
+    void theVideoTilesConsultTheRendererBeforeShowingAFrame()
+    {
+        for (const auto *file : { QML_DIR "/CallParticipantTile.qml",
+                                  QML_DIR "/CallShareTile.qml" }) {
+            const QString src = read(QString::fromUtf8(file));
+            QVERIFY2(!src.isEmpty(), file);
+            const QString code = normalized(src);
+            // THE DECLARATION AS WELL AS THE USE. Renaming or deleting the
+            // property leaves `!root.<undefined>` evaluating to true — video
+            // shows again and a use-only scan still passes.
+            QVERIFY2(code.contains(QStringLiteral(
+                         "property bool softwareRendererHidesVideo")),
+                     qPrintable(QStringLiteral("%1 no longer declares "
+                                               "softwareRendererHidesVideo")
+                                    .arg(QString::fromUtf8(file))));
+            QVERIFY2(code.contains(QStringLiteral(
+                         "&& !root.softwareRendererHidesVideo")),
+                     qPrintable(QStringLiteral(
+                         "%1 shows its VideoOutput without asking whether this "
+                         "renderer can draw one, so it paints an empty "
+                         "rectangle over the placeholder")
+                                    .arg(QString::fromUtf8(file))));
+        }
+    }
+
     void theCallStageComponentActuallyLoads()
     {
         AppController controller(AppController::MockBackend);

@@ -125,6 +125,24 @@ class AppController : public QObject
     // v0.5.11: platform colour-scheme hint for the "System" theme. Reflects
     // QStyleHints::colorScheme(); QML binds AppTheme.systemDark to it.
     Q_PROPERTY(bool systemDarkMode READ systemDarkMode NOTIFY systemDarkModeChanged)
+    // WHETHER THE SCENE GRAPH FELL BACK TO QT QUICK'S CPU RASTERISER.
+    //
+    // A FACT ABOUT THE BACKEND, deliberately, and not a claim like
+    // "videoRenderable" — but the consequence is what the call UI needs it
+    // for, so it is stated once here. Qt Quick's software adaptation has NO
+    // NODE TYPE FOR VIDEO (`QSGSoftwareRenderableNode::NodeType` is a closed
+    // list of rectangles, glyphs, images and nine-patches; Qt Multimedia's
+    // QSGVideoNode is none of them) and the path is RHI-only besides, while
+    // the software context has no RHI. So on this backend a call tile paints
+    // its chrome and never paints a picture, while the engine's own frame
+    // counters climb — measured 2026-09-12 on Windows and reproduced on Linux
+    // with QT_QUICK_BACKEND=software as the only change.
+    //
+    // Written once, from the sceneGraphInitialized handler in main.cpp, which
+    // reads the renderer interface rather than the REQUEST made to
+    // setGraphicsApi(). False until that fires.
+    Q_PROPERTY(bool softwareRenderer READ softwareRenderer
+               NOTIFY softwareRendererChanged)
     Q_PROPERTY(bool initialSyncDone READ initialSyncDone NOTIFY initialSyncDoneChanged)
     Q_PROPERTY(bool localRustResetRequired READ localRustResetRequired
                NOTIFY localRustResetRequiredChanged)
@@ -579,6 +597,9 @@ public:
     QString connectionStatus() const { return m_connectionStatus; }
     QString syncModeLabel() const;
     bool systemDarkMode() const;
+    bool softwareRenderer() const { return m_softwareRenderer; }
+    /// Called once from main.cpp when the scene graph reports what it got.
+    void setSoftwareRenderer(bool software);
     bool initialSyncDone() const;
     QString rustDeviceIdRedacted() const;
     bool localRustResetRequired() const { return m_localRustResetRequired; }
@@ -1247,6 +1268,7 @@ Q_SIGNALS:
     void connectionStatusChanged();
     void syncModeChanged();
     void systemDarkModeChanged();
+    void softwareRendererChanged();
     void errorReported(const QString &message);
     /// A call could not be started, with wording already fit to show.
     void callStartRefused(const QString &message);
@@ -1486,6 +1508,7 @@ private:
     // compile option that enables beginScreenshotDemo cannot coexist with a
     // Rust-only release).
     bool m_screenshotDemoActive = false;
+    bool m_softwareRenderer = false;
     // Development-only demo-session controller (scenarios/panel/window presets).
     // Parented to this AppController; null in non-demo builds. Owned as a raw
     // QObject* so the concrete ScreenshotDemoController type stays behind the
