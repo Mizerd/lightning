@@ -183,6 +183,27 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   webcam passthrough, so the 10 fps claim can only be closed on a physical
   Windows machine with a USB camera. The evidence to ask for is one log line,
   `camera chain= mjpg (jpeg elements present)`, and a frame rate above 10.
+  Note that line fires when a camera is actually STARTED, not at launch — the
+  guest's log carries `camera portal unavailable` and nothing else, so a
+  machine with no camera cannot produce it either.
+
+  **AN IN-PLACE PORTABLE UPGRADE TO THAT BUILD WAS ATTEMPTED ON THE GUEST AND
+  IS INCONCLUSIVE — recorded as unresolved rather than as a result.** The app
+  relaunched and is signed in on D3D11, so the portable session survived a
+  second upgrade. But `dir` then reported `libgstjpeg.dll` ABSENT from
+  `C:\Users\tester\Lightning\gstreamer-1.0`, and the wrapper had echoed
+  "expanded" unconditionally after an `Expand-Archive` whose own output it
+  never captured — so whether the expand failed, partially applied, or
+  succeeded while the file landed elsewhere is NOT established. It says
+  nothing about the package: CI proves the shipped zip carries the plugin and
+  that `jpegdec` registers from the EXTRACTED tree under Wine. What it might
+  say something about is the portable UPDATE path, where a user unzips over an
+  existing install — worth re-running with the expand's stderr captured, on a
+  guest whose VNC is healthy.
+
+  GENERALISE, because this is the third shape of it this week: a wrapper that
+  prints its own success line after a command whose output it discards reports
+  success it did not observe. Redirect the command, not the echo.
 
   WHAT REMAINS IS THE IMAGE, and only that. `libgstjpeg.dll` went into
   `packaging/windows/Dockerfile` and `stage-windows-runtime.py`'s required list
