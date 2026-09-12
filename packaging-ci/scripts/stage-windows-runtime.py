@@ -193,6 +193,12 @@ GSTREAMER_ELEMENTS = (
     # would just quietly stop being a GPU path — which is exactly what the
     # previous artifact did.
     "glcolorconvert", "glcolorscale", "gldownload", "glupload",
+    # jpegdec, the element the MJPG camera chain builds on. Staging
+    # `libgstjpeg.dll` is NOT the same claim: this file's own comment beside
+    # that plugin says so — libgstsctp-1.0-0.dll was present for months while
+    # `sctpenc` was missing, and Windows received no media the whole time. The
+    # DLL is the tin; this list is what asks whether anything is in it.
+    "jpegdec",
     "ksvideosrc", "nicesink", "nicesrc", "opusdec", "opusenc",
     "queue", "rtpbin", "rtpopusdepay", "rtpopuspay", "rtpvp8depay", "rtpvp8pay",
     # Probed even though no Lightning pipeline names them: webrtcbin loads
