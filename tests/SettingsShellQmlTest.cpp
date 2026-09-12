@@ -11,6 +11,10 @@
 #include <QtTest/QtTest>
 
 #include <QColor>
+#include <QFile>
+#include <QRegularExpression>
+#include <QSet>
+#include <QStringList>
 #include <QGuiApplication>
 #include <QImage>
 #include <QQmlApplicationEngine>
@@ -1002,6 +1006,80 @@ private slots:
                                              .arg(QLatin1String(key))));
             QVERIFY2(row, key);
         }
+    }
+
+    // THE QUICK SWITCHER'S SECTION LIST IS A HAND-KEPT COPY, and on
+    // 2026-09-12 it was found three behind: `shortcuts` and `updates` had
+    // never been in it and `sound` had just arrived, so the one surface whose
+    // entire job is "type a name, land on it" could not reach three of the
+    // ten sections. Nothing could have caught that — the switcher builds its
+    // rows from a local array and every row it does build works.
+    //
+    // A SOURCE scan, not a loaded-engine one, deliberately: the engine here
+    // loads the COMPILED module and the two lists are two literals in two
+    // files. Both halves assert a non-zero count first, because a scan whose
+    // pattern stops matching passes vacuously and would then agree with
+    // anything.
+    void theQuickSwitcherOffersEverySettingsSectionTheNavHas()
+    {
+        const QString qmlDir = QStringLiteral(QML_DIR);
+
+        auto read = [&](const QString &name) {
+            QFile file(qmlDir + QLatin1Char('/') + name);
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+                return QString();
+            return QString::fromUtf8(file.readAll());
+        };
+
+        const QString settings = read(QStringLiteral("SettingsScreen.qml"));
+        const QString switcher = read(QStringLiteral("QuickSwitcher.qml"));
+        QVERIFY2(!settings.isEmpty(), "SettingsScreen.qml unreadable");
+        QVERIFY2(!switcher.isEmpty(), "QuickSwitcher.qml unreadable");
+
+        // The nav rows. `property string sectionKey: ""` declares it, so the
+        // pattern requires a non-empty value and skips the declaration.
+        QSet<QString> navKeys;
+        QRegularExpression navRe(
+            QStringLiteral("sectionKey:\\s*\"([A-Za-z]+)\""));
+        auto navIt = navRe.globalMatch(settings);
+        while (navIt.hasNext())
+            navKeys.insert(navIt.next().captured(1));
+
+        // Only the sectionDefs array, not every `key:` in the file.
+        const int start = switcher.indexOf(QStringLiteral("var sectionDefs"));
+        QVERIFY2(start >= 0, "QuickSwitcher.qml has no sectionDefs array");
+        const int end = switcher.indexOf(QStringLiteral("]"), start);
+        QVERIFY2(end > start, "sectionDefs array is not closed");
+        const QString defs = switcher.mid(start, end - start);
+
+        QSet<QString> switcherKeys;
+        QRegularExpression defRe(
+            QStringLiteral("key:\\s*\"([A-Za-z]+)\""));
+        auto defIt = defRe.globalMatch(defs);
+        while (defIt.hasNext())
+            switcherKeys.insert(defIt.next().captured(1));
+
+        QVERIFY2(navKeys.size() >= 8,
+                 qPrintable(QStringLiteral("only %1 nav rows matched — the "
+                                           "scan has stopped working")
+                                .arg(navKeys.size())));
+        QVERIFY2(switcherKeys.size() >= 8,
+                 qPrintable(QStringLiteral("only %1 switcher rows matched — "
+                                           "the scan has stopped working")
+                                .arg(switcherKeys.size())));
+
+        const QSet<QString> missing = navKeys - switcherKeys;
+        const QSet<QString> extra = switcherKeys - navKeys;
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QStringLiteral("the quick switcher cannot reach: %1")
+                                .arg(QStringList(missing.cbegin(),
+                                                 missing.cend())
+                                         .join(QStringLiteral(", ")))));
+        QVERIFY2(extra.isEmpty(),
+                 qPrintable(QStringLiteral("the quick switcher offers sections "
+                                           "Settings has no nav row for: %1")
+                                .arg(QStringList(extra.cbegin(), extra.cend())
+                                         .join(QStringLiteral(", ")))));
     }
 
     void ctrlCommaFocusesSearchThenFiltersNavAndBindsInlineControl()

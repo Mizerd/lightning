@@ -141,13 +141,23 @@ Popup {
                 run: function() { switcher.globalSearchRequested() }
             })
         }
+        // EVERY section SettingsScreen has a nav row for. This list was a
+        // hand-kept copy and had silently fallen three behind — `shortcuts`
+        // and `updates` had never been here, and `sound` arrived on
+        // 2026-09-12 — so the one surface whose whole job is "type a name,
+        // land on it" could not reach them at all. The titles and glyphs
+        // match `sectionTitle()` / `sectionIcon()` there; SettingsShellQmlTest
+        // asserts the two lists agree, because nothing else can.
         var sectionDefs = [
             { key: "account", title: qsTr("Account"), icon: "account_circle" },
             { key: "appearance", title: qsTr("Appearance"), icon: "palette" },
+            { key: "shortcuts", title: qsTr("Keyboard shortcuts"), icon: "keyboard_return" },
             { key: "notifications", title: qsTr("Notifications"), icon: "notifications" },
+            { key: "sound", title: qsTr("Sound & video"), icon: "volume_up" },
             { key: "privacy", title: qsTr("Privacy & security"), icon: "verified_user" },
             { key: "sessions", title: qsTr("Sessions"), icon: "devices" },
             { key: "labs", title: qsTr("Labs"), icon: "science" },
+            { key: "updates", title: qsTr("Updates"), icon: "download" },
             { key: "about", title: qsTr("About"), icon: "info" },
         ]
         for (var s = 0; s < sectionDefs.length; ++s) {

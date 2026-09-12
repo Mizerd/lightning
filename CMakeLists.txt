@@ -4207,6 +4207,11 @@ if(BUILD_TESTING)
     )
     lightning_configure_qml_test(settings-shell-qml-test)
     target_link_libraries(settings-shell-qml-test PRIVATE Qt6::Test)
+    # The SOURCE qml directory, so a case can compare two files that must
+    # agree. The engine here loads the COMPILED module, which cannot answer
+    # "does QuickSwitcher's hand-kept section list still match the nav rows".
+    target_compile_definitions(settings-shell-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     add_test(NAME settings-shell-qml COMMAND settings-shell-qml-test)
     set_tests_properties(settings-shell-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
