@@ -19,7 +19,7 @@ the existing Linux runners.
 | Scope | project 7 only, locked, protected, tagged jobs only |
 | Concurrency | 1 job; 2 polling requests |
 | Job limits | 4 CPU, 8 GiB memory (10 GiB including swap), 2-hour maximum |
-| Builder | `lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v5` |
+| Builder | `lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v6` |
 
 The runner manager mounts `/var/run/docker.sock`, which is root-equivalent host
 access. It is constrained by project scope, protected-ref access, unique tags,
@@ -64,10 +64,10 @@ record the resulting image ID and size:
 ```bash
 sudo docker build \
   --label net.smetonis.lightning.task=windows-packaging \
-  -t lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v5 \
+  -t lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v6 \
   -f packaging/windows/Dockerfile .
 sudo docker image inspect \
-  lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v5
+  lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v6
 ```
 
 Do not use a floating builder image. The official Qt multimedia, FFmpeg and
@@ -97,7 +97,7 @@ printed or copied anywhere.
 1. Commit the `packaging/windows/Dockerfile` change and the NEW tag in
    `.gitlab-ci.yml`, `tests/test-pipeline-config.py`, this file, the README and
    the example config. The tag encodes what changed, e.g.
-   `fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v5`.
+   `fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v6`.
 2. Build the image on `10.195.35.2` from a checkout of that commit, using the
    `docker build` command above with the new tag.
 3. Edit the host's `config/config.toml`: set `[runners.docker] image` to the new
@@ -110,6 +110,22 @@ printed or copied anywhere.
 
 Keep the previous builder image on the host until the new one has produced a
 green `build-windows`. Removing it is what makes the rollback impossible.
+
+**WHY v6 EXISTS, AND WHY THE DOCKERFILE DID NOT CHANGE FOR IT (2026-09-12).**
+`libgstjpeg.dll` was added to this Dockerfile and to
+`stage-windows-runtime.py`'s required list on 2026-09-02, and the image was
+never rebuilt — so for ten days the plugin was in the recipe and not in the
+tin. The app half has been waiting on it: `SfuMediaEngine::jpegCameraChainAvailable()`
+probes for the decoder, logs `camera MJPG chain unavailable` when it is absent,
+and falls back to the raw entry, which is why every Windows camera has been
+pinned at 10 fps (raw YUY2 at 1280x720 is 18.4 MB/s and saturates USB 2.0).
+That probe is exactly what the guest reported: `no element "jpegenc"`.
+
+So v6 carries NO Dockerfile change. The tag exists because the runner pins by
+exact tag with `pull_policy = "if-not-present"`, so rebuilding under the same
+tag would not be picked up — a new tag is the only way to make the fleet take a
+freshly built image. Read that as the general rule: a tag bump here does not
+imply a recipe change, it implies the recipe and the image had drifted apart.
 
 **A pin is only as durable as Fedora's mirrors.** On 2026-08-26 a rebuild of the
 image failed outright: `gcc`, `nasm`, `python3` and `rustup` had all been
