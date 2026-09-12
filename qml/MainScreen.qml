@@ -149,9 +149,26 @@ Item {
 
     // Start a call in the open conversation. GATED, unlike mute/deafen/camera
     // above: those are inert inside a call that does not offer them, whereas
-    // this one would START something — and canStartCall() is the same
-    // predicate the timeline header's call button draws itself behind, so the
-    // key is live exactly when the button is.
+    // this one would START something.
+    //
+    // AND `canStartCall()` ALONE IS NOT THAT GATE — a first version of this
+    // key said it was, and it could have ENDED A LIVE CALL.
+    // `AppController::canStartCall` is one line over `preferredCallLane()`,
+    // which asks only "does this room have a lane"; it has no in-a-call
+    // clause and cannot have one, because a Q_INVOKABLE has no NOTIFY and a
+    // binding on it would never re-evaluate when a call starts. The three
+    // clauses below are what make this reactive, and
+    // `SfuCallController::join` opens with "One call at a time, globally:
+    // tear the previous one down" — so without them, Ctrl+Shift+C in any
+    // other RTC-capable room silently dropped the call you were in. (The
+    // legacy lane was never exposed: `CallController::placeCall` refuses
+    // with `call_in_progress`, which is exactly why a DM-only test could
+    // not have found this.)
+    //
+    // They are the timeline header call button's gate verbatim
+    // (qml/TimelinePane.qml) and `theStartCallKeyIsGatedLikeTheCallButton`
+    // asserts that they stay that way, because the drift between these two
+    // expressions IS the defect.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -159,6 +176,9 @@ Item {
         }
         enabled: app.loggedIn && app.currentRoomId !== ""
                  && app.canStartCall(app.currentRoomId)
+                 && !app.groupCall.active
+                 && (app.calls.state === CallController.Idle
+                     || app.calls.state === CallController.Ended)
         onActivated: app.startCall(app.currentRoomId, false)
     }
     // Hang up, on whichever lane is live — the same selection the call bar's

@@ -143,8 +143,17 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
         // Discord marks a whole server read with Shift+Esc, which is
         // STRUCTURALLY unavailable twice over: Esc is in the reserved table,
         // and Shift alone does not satisfy hasCommandModifier(). Ctrl+Shift+A
-        // instead — A for all, and adjacent to nothing it could be confused
-        // with.
+        // instead — A for all.
+        //
+        // IT IS NOT ADJACENT TO NOTHING, which this comment claimed for one
+        // review cycle: on X11 desktops Ctrl+Shift+A is
+        // `QKeySequence::Deselect`, which QQuickTextInput/QQuickTextControl
+        // handle, and a window-scoped Shortcut wins over the focused item. So
+        // a user in the message box loses Deselect and gets a bulk, silent,
+        // un-undoable mark-everything-read instead. ACCEPTED FOR NOW — the
+        // mnemonic is the right one, Deselect is a chord almost nobody uses,
+        // and the row is rebindable — but it is a real shadow and the honest
+        // place to reconsider it is beside the reserved table, not here.
         //
         // markAllRoomsRead() RETURNS A COUNT on purpose (RoomListModel), so a
         // caller can tell "nothing was unread" from "it worked"; §6's rule
@@ -155,20 +164,36 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
           GlobalContext },
         // Discord's Alt+Enter is MESSAGE-scoped ("mark this message unread")
         // and Lightning's capability is ROOM-scoped, so the action is not the
-        // same one and deliberately does not wear Discord's spelling.
-        // Ctrl+Alt+M pairs it with Ctrl+Shift+M above.
+        // same one and deliberately does not wear Discord's spelling. R for
+        // "unRead"; M would have paired it with Ctrl+Shift+M above and M is
+        // taken by that very row.
         //
-        // ON Ctrl+Alt AS A DEFAULT, since this table now has two of them.
-        // Windows delivers AltGr as Ctrl+Alt, so a Ctrl+Alt+<letter> default
-        // can fire while a user on a layout that reaches an accented letter
-        // through AltGr is simply typing. That rules out the letters those
-        // layouts actually use — Polish alone claims a c e l n o s x z — and
-        // is why the free Ctrl+Shift space is preferred above. M and H are
-        // not AltGr letters on any layout this client ships a catalog for,
-        // and every one of these is rebindable regardless.
+        // WHY NOT Ctrl+Alt, WHICH THIS ROW AND `call.leave` BOTH USED FOR ONE
+        // REVIEW CYCLE. Two independent reasons, and the comment that stood
+        // here saw only half of one of them:
+        //
+        //  * Windows delivers AltGr as Ctrl+Alt, so a Ctrl+Alt+<letter>
+        //    default fires while a user whose layout reaches a character
+        //    through AltGr is simply TYPING. The set that matters is the
+        //    layouts users HAVE, not the catalogs we ship — the earlier
+        //    comment scoped it to `i18n/` and so cleared M, when German T1
+        //    reaches µ with AltGr+M. Polish alone also claims a c e l n o s
+        //    x z.
+        //  * macOS maps portable "Ctrl" to Command and "Alt" to Option, so
+        //    every Ctrl+Alt default ships there as ⌘⌥. ⌘⌥H is the system
+        //    "Hide Others" that Qt's own application menu installs, and ⌘⌥M
+        //    is "Minimize All" in many apps. macOS has been a published
+        //    download since 0.7.5 and the earlier comment did not consider it
+        //    at all.
+        //
+        // KNOWN AND ACCEPTED, not overlooked: `call.returnToCall` below is
+        // still Ctrl+Alt+A, which is Polish AltGr+ą by the first rule and ⌘⌥A
+        // by the second. It predates this round and moving a shipped default
+        // silently re-binds it for every existing install, so it stays until
+        // that is a deliberate decision. Every row here is rebindable.
         { QStringLiteral("room.markUnread"), roomCat,
           tr("Mark the open conversation as unread"),
-          QStringLiteral("Ctrl+Alt+M"), GlobalContext },
+          QStringLiteral("Ctrl+Shift+R"), GlobalContext },
         // A DELIBERATE SECOND DUAL BINDING, and Discord's own arrangement:
         // Ctrl+U opens the member list, and inside the message box Ctrl+U is
         // still Underline (`composer.underline`, EditorContext). That is a
@@ -235,17 +260,22 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
         //
         // GATED, unlike the mute/camera rows: those are inert inside a call
         // that does not offer them, whereas this one would START something.
-        // The gate is app.canStartCall(), which is the same predicate the
-        // timeline's call button already draws itself behind.
+        // The gate is the timeline call button's OWN four-clause expression
+        // (qml/MainScreen.qml) — NOT `canStartCall()` alone, which is one
+        // line over `preferredCallLane()` and would have let this key tear
+        // down a live call. That comment stood here for one review cycle;
+        // read the block in MainScreen.qml before touching either.
         { QStringLiteral("call.startCall"), callCat,
           tr("Start a call in this conversation"), QStringLiteral("Ctrl+Shift+C"),
           GlobalContext },
         // Discord ships "Disconnect from Voice" and "Toggle Go Live" as
         // keybind-page actions with NO default at all, so there is no
-        // spelling to keep and both are free choices. H for hang up; S for
-        // share.
+        // spelling to keep and both are free choices. W for the universal
+        // close-this-thing chord; S for share. (H for hang up was the first
+        // choice and is ⌘⌥H — the macOS system "Hide Others"; see the Ctrl+Alt
+        // block above. Ctrl+Shift+H is taken by `call.toggleDeafen`.)
         { QStringLiteral("call.leave"), callCat,
-          tr("Leave the call"), QStringLiteral("Ctrl+Alt+H"), GlobalContext },
+          tr("Leave the call"), QStringLiteral("Ctrl+Shift+W"), GlobalContext },
         // Ctrl+Shift+S, and note what it does NOT do: requestScreenShare()
         // opens the portal or the source picker rather than sharing
         // immediately, exactly as the call bar's own button does. A key that

@@ -4195,7 +4195,10 @@ ApplicationWindow {
     {
         const QString raw = read(QStringLiteral(QML_DIR "/CallDeviceMenu.qml"));
         QVERIFY2(!raw.isEmpty(), "CallDeviceMenu.qml is missing");
-        const QString menu = normalized(raw);
+        // `code(raw)`, not `raw`: every positive assertion below would
+        // otherwise be satisfied by a COMMENT naming the token, so
+        // deleting the row and leaving its rationale behind would pass.
+        const QString menu = normalized(code(raw));
 
         QVERIFY2(menu.contains(
                      QStringLiteral("objectName: \"callMenuMicGainSlider\"")),
@@ -4237,7 +4240,7 @@ ApplicationWindow {
     void theCallMenuPointsAtTheSoundSectionOfSettings()
     {
         const QString menu =
-            normalized(read(QStringLiteral(QML_DIR "/CallDeviceMenu.qml")));
+            normalized(code(read(QStringLiteral(QML_DIR "/CallDeviceMenu.qml"))));
         QVERIFY(!menu.isEmpty());
         QVERIFY2(menu.contains(
                      QStringLiteral("app.showSettingsSection(\"sound\")")),
@@ -4249,7 +4252,7 @@ ApplicationWindow {
         // screen opens, every pane's `visible` is false, and the user is
         // looking at an empty page with no error anywhere.
         const QString screen =
-            normalized(read(QStringLiteral(QML_DIR "/SettingsScreen.qml")));
+            normalized(code(read(QStringLiteral(QML_DIR "/SettingsScreen.qml"))));
         QVERIFY(!screen.isEmpty());
         QVERIFY2(screen.contains(
                      QStringLiteral("visible: root.section === \"sound\"")),
@@ -4279,7 +4282,12 @@ ApplicationWindow {
         // Icon.qml cannot quietly blank the volume button.
         const QString icons = read(QStringLiteral(QML_DIR "/Icon.qml"));
         QVERIFY(!icons.isEmpty());
-        for (const auto &name : {"volume_up", "volume_off"}) {
+        // `graphic_eq` is the in-call level row's above-100% glyph
+        // (CallDeviceMenu.qml) and was missing from this list for one review
+        // cycle, while the comment above claimed to pin "the names THIS round
+        // introduced".
+        for (const auto &name : {"volume_up", "volume_off", "graphic_eq",
+                                 "mic", "settings"}) {
             QVERIFY2(icons.contains(
                          QStringLiteral("\"%1\":").arg(QLatin1String(name))),
                      qPrintable(QStringLiteral("icon '%1' is not mapped")
@@ -4318,9 +4326,12 @@ ApplicationWindow {
         const auto files =
             dir.entryList({ QStringLiteral("*.qml") }, QDir::Files);
         QVERIFY(!files.isEmpty());
+        // `code()`, not `read()`: a commented-out call site would otherwise
+        // satisfy this, and the rows whose wiring is worth asserting are
+        // exactly the ones somebody might comment out while debugging.
         QString all;
         for (const QString &name : files)
-            all += read(dir.filePath(name));
+            all += code(read(dir.filePath(name)));
 
         // PRESENT-TOKEN CONTROL. Without it a renamed accessor would make
         // this sweep match nothing at all and pass on a completely unwired
@@ -4351,6 +4362,65 @@ ApplicationWindow {
                                 "nothing — no Shortcut in qml/ asks for them: "
                                 "%1")
                                 .arg(unwired.join(QStringLiteral(", ")))));
+    }
+
+    // THE START-CALL KEY MUST CARRY THE CALL BUTTON'S WHOLE GATE, and the
+    // first version of it carried a quarter of that gate.
+    //
+    // `app.canStartCall(roomId)` is one line over `preferredCallLane()` and
+    // answers "does this room have a lane". It has NO in-a-call clause, and
+    // `SfuCallController::join` opens by tearing down whatever call is
+    // running — so a key gated on `canStartCall` alone silently ended a live
+    // call from any other RTC-capable room. The timeline header's button has
+    // never had that hole because it also asks `!app.groupCall.active` and
+    // that the legacy lane is Idle-or-Ended.
+    //
+    // The predicate therefore lives in TWO files, and it cannot be hoisted:
+    // a Q_INVOKABLE has no NOTIFY, so folding the clauses into C++ would give
+    // a binding that never re-evaluates when a call starts — stale in the
+    // dangerous direction. DRIFT BETWEEN THE TWO EXPRESSIONS IS THE DEFECT,
+    // so this asserts they agree rather than asserting either one's text.
+    void theStartCallKeyIsGatedLikeTheCallButton()
+    {
+        const QString button = normalized(
+            code(read(QStringLiteral(QML_DIR "/TimelinePane.qml"))));
+        const QString shell = normalized(
+            code(read(QStringLiteral(QML_DIR "/MainScreen.qml"))));
+        QVERIFY(!button.isEmpty());
+        QVERIFY(!shell.isEmpty());
+
+        // The Shortcut's own block, not the whole file: MainScreen declares
+        // the leave and screen-share keys too, and one of those mentioning
+        // groupCall.active would otherwise satisfy this for the wrong row.
+        const int at = shell.indexOf(
+            QStringLiteral("sequenceFor(\"call.startCall\")"));
+        QVERIFY2(at >= 0, "no Shortcut in MainScreen.qml asks for "
+                          "call.startCall");
+        const int end = shell.indexOf(QStringLiteral("onActivated"), at);
+        QVERIFY2(end > at, "the call.startCall Shortcut has no onActivated");
+        const QString gate = shell.mid(at, end - at);
+
+        const QStringList clauses = {
+            QStringLiteral("app.canStartCall(app.currentRoomId)"),
+            QStringLiteral("!app.groupCall.active"),
+            QStringLiteral("app.calls.state === CallController.Idle"),
+            QStringLiteral("app.calls.state === CallController.Ended"),
+        };
+        for (const QString &clause : clauses) {
+            // PRESENT-TOKEN CONTROL: if the button stops carrying a clause,
+            // this case must say so rather than quietly stop checking it.
+            QVERIFY2(button.contains(clause),
+                     qPrintable(QStringLiteral(
+                                    "TimelinePane's call button no longer has "
+                                    "'%1' — re-derive this list from it")
+                                    .arg(clause)));
+            QVERIFY2(gate.contains(clause),
+                     qPrintable(QStringLiteral(
+                                    "the call.startCall shortcut is missing "
+                                    "'%1', which the call button gates on — "
+                                    "the key can act where the button refuses")
+                                    .arg(clause)));
+        }
     }
 
     void initTestCase()
