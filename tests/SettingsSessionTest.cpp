@@ -135,6 +135,7 @@ private Q_SLOTS:
     // 2026-09-08 audit: five account-scoped values were never re-announced.
     void switchingAccountsReAnnouncesEveryAccountScopedAppearanceValue();
     void everyAccountScopedGetterHasItsSignalInTheAccountSwitch();
+    void theSoundSectionsScopeSentenceMatchesWhereThingsActuallyLive();
     void turningOffCloseToTrayAnnouncesTheStartInTrayItDerives();
 
 private:
@@ -1616,6 +1617,68 @@ void SettingsSessionTest::turningOffCloseToTrayAnnouncesTheStartInTrayItDerives(
     settings.setCloseToTray(true);
     QCOMPARE(settings.startInTray(), true);
     QVERIFY(startSpy.count() >= 1);
+}
+
+// THE SENTENCE UNDER THE SOUND CARD MAKES A CLAIM ABOUT STORAGE, so the
+// claim is pinned to the storage.
+//
+// `CallDeviceSettings.qml` ends with an explainer that said "These devices
+// belong to this computer, not to your account" while sitting directly under
+// the microphone LEVEL — which is account-scoped. A reader takes "these" to
+// cover the card, so one of the two kinds of setting above it was described
+// backwards. Verified live 2026-09-12 by switching accounts inside one
+// client: the level read 151% for one account and 60% for the other, while
+// the global fallback key held 60.
+//
+// Three assertions, because the sentence can go wrong from either end: the
+// gain could be made global, the device could be made account-scoped, or the
+// words could drift away from both.
+void SettingsSessionTest::theSoundSectionsScopeSentenceMatchesWhereThingsActuallyLive()
+{
+    QFile cpp(QStringLiteral(REPO_ROOT "/src/app/SettingsManager.cpp"));
+    QVERIFY2(cpp.open(QIODevice::ReadOnly | QIODevice::Text),
+             qPrintable(cpp.errorString()));
+    const QString src = QString::fromUtf8(cpp.readAll());
+
+    auto body = [&src](const QString &signature) {
+        const int at = src.indexOf(signature);
+        if (at < 0)
+            return QString();
+        const int end = src.indexOf(QStringLiteral("\n}\n"), at);
+        return end > at ? src.mid(at, end - at) : QString();
+    };
+
+    // 1. The LEVEL is account-scoped. `setAppearanceValue` is the account
+    //    key plus a global fallback; a bare `m_store->setValue` is not.
+    const QString gain =
+        body(QStringLiteral("void SettingsManager::setMicrophoneGain("));
+    QVERIFY2(!gain.isEmpty(), "setMicrophoneGain is gone or was renamed");
+    QVERIFY2(gain.contains(QStringLiteral("setAppearanceValue")),
+             "the microphone level is no longer account-scoped, so the Sound "
+             "card's sentence now says the wrong thing about it");
+
+    // 2. The DEVICE is not. If this ever becomes account-scoped the sentence
+    //    is wrong in the other direction.
+    const QString device =
+        body(QStringLiteral("void SettingsManager::setPreferredMicrophoneId("));
+    QVERIFY2(!device.isEmpty(),
+             "setPreferredMicrophoneId is gone or was renamed");
+    QVERIFY2(!device.contains(QStringLiteral("setAppearanceValue")),
+             "the microphone DEVICE became account-scoped, so the Sound "
+             "card's sentence now says the wrong thing about it");
+
+    // 3. The words still say both. Not a style check — this is the only
+    //    place a user is told which of the two they are changing.
+    QFile qml(QStringLiteral(REPO_ROOT "/qml/CallDeviceSettings.qml"));
+    QVERIFY2(qml.open(QIODevice::ReadOnly | QIODevice::Text),
+             qPrintable(qml.errorString()));
+    const QString ui = QString::fromUtf8(qml.readAll());
+    QVERIFY2(ui.contains(QStringLiteral("belong to this computer")),
+             "the Sound card no longer tells the user the devices are "
+             "per-computer");
+    QVERIFY2(ui.contains(QStringLiteral("level belongs to your account")),
+             "the Sound card no longer tells the user the microphone level "
+             "is per-account, which is the half it used to get wrong");
 }
 
 QTEST_MAIN(SettingsSessionTest)

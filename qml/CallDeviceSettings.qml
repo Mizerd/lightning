@@ -340,6 +340,22 @@ ColumnLayout {
         font.pixelSize: AppTheme.textMeta
         // Honest about when a change takes effect, rather than letting the
         // user wonder why a mid-call switch did nothing.
-        text: qsTr("These devices belong to this computer, not to your " + "account. A change applies to your next call; during a " + "call you can switch from the controls at the top of the " + "conversation.")
+        //
+        // AND HONEST ABOUT SCOPE, WHICH IT WAS NOT. This card holds two
+        // different kinds of setting and this sentence used to say "these
+        // devices belong to this computer, not to your account" while sitting
+        // directly under the microphone LEVEL, which is account-scoped
+        // (`SettingsManager::setMicrophoneGain` -> `setAppearanceValue`, an
+        // account key with a global fallback). The device ids are plain
+        // global keys (`calls/microphoneId`). Verified live 2026-09-12 by
+        // switching accounts: the level read 151% for one account and 60% for
+        // the other while the global fallback held 60. A reader takes "these"
+        // to cover the card, so the sentence was actively wrong about one of
+        // the two things above it.
+        text: qsTr("Devices belong to this computer, not to your account. "
+                   + "The microphone level belongs to your account. "
+                   + "A change applies to your next call; during a call you "
+                   + "can switch from the controls at the top of the "
+                   + "conversation.")
     }
 }
