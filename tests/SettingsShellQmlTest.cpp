@@ -69,6 +69,7 @@ class SettingsShellQmlTest : public QObject
 
 private:
     QTemporaryDir m_configHome;
+    QTemporaryDir m_dataHome;
     AppController *m_controller = nullptr;
     QQmlApplicationEngine *m_engine = nullptr;
     QQuickWindow *m_window = nullptr;
@@ -182,6 +183,18 @@ private slots:
     {
         QVERIFY(m_configHome.isValid());
         qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
+        // AND THE DATA HOME, which was missing and is not the same thing.
+        // The org/app names below scope QSettings, but AppDataPaths does not
+        // read them — it composes its own root — so anything this suite
+        // writes through that path landed in the REAL user data directory,
+        // under the account slug `alice_mock.local` that the mock login
+        // produces. Found on 2026-09-12: one interrupted run of
+        // starredGifsSettingsRowReflectsStoreAndClearAllEmptiesIt left a
+        // starred GIF on disk, and every run after it failed that case's
+        // opening "0 image(s), 0 B" comparison — a suite that had made
+        // itself permanently red with no code change anywhere.
+        QVERIFY(m_dataHome.isValid());
+        qputenv("XDG_DATA_HOME", m_dataHome.path().toUtf8());
         QCoreApplication::setOrganizationName(
             QStringLiteral("MatrixClientTests"));
         QCoreApplication::setApplicationName(
@@ -981,7 +994,7 @@ private slots:
     void navRowsExistPerSectionWithIcons()
     {
         static const char *sections[] = {
-            "account", "appearance", "notifications",
+            "account", "appearance", "notifications", "sound",
             "privacy", "sessions", "labs", "about",
         };
         for (const char *key : sections) {
@@ -1038,6 +1051,91 @@ private slots:
         QCoreApplication::processEvents();
         QTRY_VERIFY(!resultsPanel->isVisible());
         QTRY_VERIFY(accountNav->isVisible());
+    }
+
+    // THE CALL DEVICES LIVE IN "Sound & video" AND ARE NOT LEFT BEHIND.
+    //
+    // UNFIXED TREE: fails on the first assertion — there was no "sound"
+    // section at all, and the microphone, output and camera pickers were a
+    // sub-heading at the BOTTOM of Notifications, which is not a place anyone
+    // looks for a microphone.
+    //
+    // Both halves matter. The first proves the pickers ARRIVED; the second
+    // proves they LEFT, because a move that quietly became a copy gives the
+    // application two places to change one device and no way to tell which
+    // one the user is looking at. Driven through real section switches on the
+    // real screen rather than read off the source, so a pane that exists but
+    // never becomes visible still fails.
+    void theCallDevicesLiveInTheSoundSectionAndLeaveNotifications()
+    {
+        m_controller->showSettingsSection(QStringLiteral("sound"));
+        QCoreApplication::processEvents();
+
+        auto *devices = item("callDeviceSettings");
+        QVERIFY2(devices, "there is no callDeviceSettings anywhere in Settings");
+        QTRY_VERIFY2(devices->isVisible(),
+                     "the call device pickers are not shown by the sound "
+                     "section");
+        // Enumeration is lazy on purpose (Qt Multimedia costs real time on a
+        // PipeWire desktop); the section being on screen is what arms it.
+        QVERIFY2(devices->property("activated").toBool(),
+                 "the device pickers were never activated, so they enumerate "
+                 "nothing and render three empty combo boxes");
+
+        // The media playback level had no home in Settings at all before this
+        // — the only way to change it was to find a media card and drag its
+        // hover popup.
+        auto *mediaLevel = item("mediaVolumeSettingSlider");
+        QVERIFY2(mediaLevel, "the sound section has no media playback level");
+        QVERIFY(mediaLevel->isVisible());
+
+        m_controller->showSettingsSection(QStringLiteral("notifications"));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY2(!devices->isVisible(),
+                     "the call device pickers are still shown by Notifications "
+                     "— the move left a copy behind");
+
+        // The ringer deliberately STAYED: it is gated on the desktop
+        // notification switch and sits beside the notification sound, so
+        // Notifications is its real home rather than a leftover.
+        auto *ring = item("ringForCallsCheck");
+        QVERIFY(ring);
+        QTRY_VERIFY(ring->isVisible());
+
+        // DELIBERATELY LEFT OPEN. Cases in this file run in declaration
+        // order and several of the later ones click a nav row without
+        // opening Settings first — they inherit it from whatever ran before.
+        // Closing it here put starredGifsSettingsRowReflectsStoreAnd… on a
+        // hidden screen, whose items map to window coordinates outside the
+        // window ("Mouse event at 421, 1716 occurs outside target window").
+    }
+
+    // The section is reachable by SEARCH, not only by finding its nav row.
+    // A settings page nobody can search is a settings page people ask about
+    // in chat instead, and the words below are the ones they type.
+    void searchingForAMicrophoneFindsTheSoundSection()
+    {
+        m_controller->showSettings();
+        QCoreApplication::processEvents();
+        auto *search = item("settingsSearchField");
+        QVERIFY(search);
+
+        for (const char *term : { "mic", "microphone", "input", "output",
+                                  "speaker", "volume" }) {
+            search->setProperty("text", QString::fromLatin1(term));
+            QCoreApplication::processEvents();
+            auto *nav = item("settingsNavRow_sound");
+            QVERIFY2(nav, "the sound section has no nav row");
+            QTRY_VERIFY2(nav->isVisible(),
+                         qPrintable(QStringLiteral(
+                                        "searching for \"%1\" does not narrow "
+                                        "to the sound section")
+                                        .arg(QLatin1String(term))));
+        }
+
+        // Cleared, and Settings left OPEN — see the note above.
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
     }
 
     // v0.6.6 (review HIGH-2): the client-local starred-GIF store gets its

@@ -153,20 +153,35 @@ Item {
           breadcrumb: qsTr("Keyboard shortcuts · Message formatting") },
 
         { title: qsTr("Microphone"),
-          keywords: qsTr("microphone mic input device voice call audio"),
-          section: "notifications",
-          breadcrumb: qsTr("Notifications · Voice & video"),
+          keywords: qsTr("microphone mic input device voice call audio sound"),
+          section: "sound",
+          breadcrumb: qsTr("Sound & video · Microphone"),
           control: "callDevice_microphone" },
+        { title: qsTr("Microphone volume"),
+          keywords: qsTr("microphone volume gain mic input level loud quiet boost amplify sound"),
+          section: "sound",
+          breadcrumb: qsTr("Sound & video · Microphone") },
         { title: qsTr("Output device"),
-          keywords: qsTr("speaker output headphones device voice call audio"),
-          section: "notifications",
-          breadcrumb: qsTr("Notifications · Voice & video"),
+          keywords: qsTr("speaker output headphones headset device voice call audio sound"),
+          section: "sound",
+          breadcrumb: qsTr("Sound & video · Output"),
           control: "callDevice_speaker" },
+        { title: qsTr("Media playback volume"),
+          keywords: qsTr("volume sound audio video voice message playback level media loud"),
+          section: "sound",
+          breadcrumb: qsTr("Sound & video · Media") },
         { title: qsTr("Camera"),
           keywords: qsTr("camera webcam video device call"),
-          section: "notifications",
-          breadcrumb: qsTr("Notifications · Voice & video"),
+          section: "sound",
+          breadcrumb: qsTr("Sound & video · Camera"),
           control: "callDevice_camera" },
+        { title: qsTr("Float the call when Lightning is minimised"),
+          keywords: qsTr("float picture in picture pip call window minimised"),
+          section: "sound",
+          breadcrumb: qsTr("Sound & video · Calls") },
+        { title: qsTr("Ring for incoming voice calls"),
+          keywords: qsTr("ring ringer ringtone sound incoming call alert"),
+          section: "notifications", breadcrumb: qsTr("Notifications") },
         { title: qsTr("Desktop notifications"),
           keywords: qsTr("notifications desktop enable"),
           section: "notifications", breadcrumb: qsTr("Notifications"),
@@ -611,8 +626,9 @@ Item {
     }
 
     // Design-1d sections: "account" | "appearance" | "shortcuts"
-    // | "notifications" | "privacy" | "sessions" | "labs" | "about". The
-    // design opens on Appearance; deep links still land on their own section.
+    // | "notifications" | "sound" | "privacy" | "sessions" | "labs"
+    // | "about". The design opens on Appearance; deep links still land on
+    // their own section.
     property string section: "appearance"
 
     function sectionTitle(key) {
@@ -620,6 +636,7 @@ Item {
         if (key === "appearance") return qsTr("Appearance")
         if (key === "shortcuts") return qsTr("Keyboard shortcuts")
         if (key === "notifications") return qsTr("Notifications")
+        if (key === "sound") return qsTr("Sound & video")
         if (key === "privacy") return qsTr("Privacy & security")
         if (key === "sessions") return qsTr("Sessions")
         if (key === "labs") return qsTr("Labs")
@@ -636,6 +653,10 @@ Item {
         // mapped key-shaped glyph.
         if (key === "shortcuts") return "keyboard_return"
         if (key === "notifications") return "notifications"
+        // The bundled Material Symbols font is a SUBSET — an unmapped name
+        // renders as tofu and IconChromeTest fails on it. volume_up is
+        // mapped (Icon.qml) and is already this application's level glyph.
+        if (key === "sound") return "volume_up"
         if (key === "privacy") return "verified_user"
         if (key === "sessions") return "devices"
         if (key === "labs") return "science"
@@ -1290,6 +1311,11 @@ Item {
                         sectionKey: "notifications"
                         iconName: "notifications"
                         navLabel: qsTr("Notifications")
+                    }
+                    SettingsNavRow {
+                        sectionKey: "sound"
+                        iconName: "volume_up"
+                        navLabel: qsTr("Sound & video")
                     }
                     SettingsNavRow {
                         sectionKey: "privacy"
@@ -4463,26 +4489,12 @@ Item {
                                                + "active rooms stay silent. Bursts are "
                                                + "coalesced into a single alert.")
                                 }
-                                // Voice & video devices. A separate component:
-                                // this file is already one of the largest in
-                                // the tree, and device pickers are a coherent
-                                // unit of their own.
-                                Label {
-                                    Layout.topMargin: AppTheme.spacing12
-                                    text: qsTr("Voice & video")
-                                    color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.textBody
-                                    font.weight: AppTheme.weightBold
-                                }
-                                CallDeviceSettings {
-                                    objectName: "callDeviceSettings"
-                                    Layout.fillWidth: true
-                                    // Enumeration initialises Qt Multimedia,
-                                    // so it waits until this section is
-                                    // actually on screen.
-                                    activated: visible
-                                }
-
+                                // MOVED OUT on 2026-09-12: the call devices
+                                // and their levels are now the "Sound &
+                                // video" section of their own. The ring
+                                // toggle below deliberately STAYED — it is
+                                // gated on the desktop-notification switch
+                                // and belongs beside the notification sound.
                                 CheckBox {
                                     objectName: "ringForCallsCheck"
                                     palette.windowText: AppTheme.stormText
@@ -4523,6 +4535,131 @@ Item {
                                           + qsTr("Push registration for "
                                                  + "mobile-style notifications is not "
                                                  + "implemented.")
+                                }
+                            }
+                        }
+                    }
+
+                    // ════════════ Sound & video ════════════
+                    //
+                    // 2026-09-12: these controls used to be a sub-heading at
+                    // the BOTTOM of Notifications, which is not where anyone
+                    // looks for a microphone. They are one coherent unit —
+                    // what this computer captures, what it plays back, and
+                    // how loud each is — so they get a section.
+                    //
+                    // MOVED, NOT COPIED. There is exactly one
+                    // `callDeviceSettings` in this file; Notifications keeps
+                    // only "Ring for incoming voice calls", which is gated on
+                    // the desktop-notification switch and sits with the
+                    // notification sound because that is its real home.
+                    //
+                    // Named "Sound & video" rather than "Sound": the same
+                    // component owns the camera picker, and a section that
+                    // says Sound while offering a webcam is lying about its
+                    // own contents.
+                    ColumnLayout {
+                        visible: root.section === "sound"
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing12
+
+                        Label {
+                            text: qsTr("Sound & video")
+                            color: AppTheme.stormText
+                            font.pixelSize: AppTheme.textTitle
+                            font.weight: AppTheme.weightStrong
+                        }
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+
+                                CallDeviceSettings {
+                                    objectName: "callDeviceSettings"
+                                    Layout.fillWidth: true
+                                    // Enumeration initialises Qt Multimedia,
+                                    // which costs real time on a PipeWire
+                                    // desktop, so it waits until this section
+                                    // is actually on screen.
+                                    activated: visible
+                                }
+                            }
+                        }
+
+                        Label {
+                            text: qsTr("Media playback")
+                            color: AppTheme.stormText
+                            font.pixelSize: AppTheme.textBody
+                            font.weight: AppTheme.weightBold
+                        }
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: 4
+
+                                // The level voice messages, audio files and
+                                // videos START at. It has existed as a stored
+                                // setting since v0.6 and has never had a home
+                                // in Settings — the only way to change it was
+                                // to find a media card and drag its popup,
+                                // which is not a place anyone looks for a
+                                // preference. Same two-way binding to a
+                                // SettingsManager Q_PROPERTY as every other
+                                // control here; no QSettings from QML.
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing8
+
+                                    Icon {
+                                        name: mediaVolumeSettingSlider.value <= 0
+                                              ? "volume_off" : "volume_up"
+                                        size: 18
+                                        color: AppTheme.stormTextSecondary
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: qsTr("Media playback volume")
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightMedium
+                                    }
+                                    Label {
+                                        objectName: "mediaVolumeSettingReadout"
+                                        text: Math.round(
+                                            mediaVolumeSettingSlider.value * 100) + "%"
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightMedium
+                                    }
+                                }
+                                SettingsSlider {
+                                    id: mediaVolumeSettingSlider
+                                    objectName: "mediaVolumeSettingSlider"
+                                    Layout.fillWidth: true
+                                    from: 0
+                                    to: 1
+                                    stepSize: 0.05
+                                    // A plain binding, so a level chosen on a
+                                    // media card is reflected here. Qt breaks
+                                    // it on the first drag, which is what the
+                                    // microphone and text-scale sliders do.
+                                    value: app.settings.mediaVolume
+                                    Accessible.name: qsTr("Media playback volume")
+                                    // `onMoved`, never `onValueChanged`: the
+                                    // latter also fires when the binding
+                                    // above delivers a value that came FROM
+                                    // the store, which writes it straight
+                                    // back.
+                                    onMoved: app.settings.mediaVolume = value
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("The level voice messages, audio files and videos start at. Changing the volume on a player remembers it here too.")
                                 }
                             }
                         }
