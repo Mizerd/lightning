@@ -1189,9 +1189,9 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+16"/>
-        <source>These devices belong to this computer, not to your account. A change applies to your next call; during a call you can switch from the controls at the top of the conversation.</source>
-        <translation>Ces appareils appartiennent à cet ordinateur et non à votre compte. Un changement s&apos;applique à votre prochain appel&#xa0;; pendant un appel, vous pouvez basculer entre les commandes en haut de la conversation.</translation>
+        <location line="+28"/>
+        <source>Devices belong to this computer, not to your account. The microphone level belongs to your account. A change applies to your next call; during a call you can switch from the controls at the top of the conversation.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -1642,7 +1642,7 @@
 <context>
     <name>CallSpeakerBubbles</name>
     <message>
-        <location filename="../qml/CallSpeakerBubbles.qml" line="+112"/>
+        <location filename="../qml/CallSpeakerBubbles.qml" line="+135"/>
         <source>You</source>
         <translation>Vous</translation>
     </message>
@@ -13597,7 +13597,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+21"/>
         <source>Leave the call</source>
         <translation type="unfinished"></translation>
     </message>
