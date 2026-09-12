@@ -179,13 +179,35 @@ OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
   staged 28 — so the operator step recorded as open could not have succeeded
   if anyone had attempted it.
 
-  **WHAT IS LEFT IS THE ONE THING CI CANNOT DO: a real camera.** The VM has no
-  webcam passthrough, so the 10 fps claim can only be closed on a physical
-  Windows machine with a USB camera. The evidence to ask for is one log line,
-  `camera chain= mjpg (jpeg elements present)`, and a frame rate above 10.
-  Note that line fires when a camera is actually STARTED, not at launch — the
-  guest's log carries `camera portal unavailable` and nothing else, so a
-  machine with no camera cannot produce it either.
+  **CLOSED — LIVE-VALIDATED PASS on the guest, 2026-09-12, with the laptop's
+  own USB webcam passed through.** (An earlier line here said the VM had no
+  passthrough and the claim could only be closed on physical hardware. That
+  was wrong: `/dev/bus/usb` is mounted into the container, the host's
+  `/dev/video*` is empty because QEMU holds the device, and this item's own
+  paragraph above records the defect being REPRODUCED that way.)
+
+  Before, on the released 0.9.4 portable:
+
+      camera chain= raw (jpeg elements absent )
+      capture negotiated caps= video/x-raw, format=(string)YUY2,
+          width=(int)1920, height=(int)1080, framerate=(fraction)5/1
+
+  After, on the pipeline-207 portable that carries `libgstjpeg.dll`:
+
+      camera chain= mjpg (jpeg elements present )
+      capture negotiated caps= image/jpeg, width=(int)1920,
+          height=(int)1080, framerate=(fraction)30/1,
+          pixel-aspect-ratio=(fraction)1/1
+      capture delivered frames count= 500
+
+  Same guest, same webcam, same 1080p: **5 fps to 30 fps negotiated**, frames
+  sustained (10 -> 500 over ~32 s through the publish stage), and a real
+  picture on screen rather than a counter. The control-lag half improved with
+  it: `firstCaptureMs= 424` against the 794-811 ms this item records for the
+  raw path, because the KS device opens far faster for an MJPG mode.
+
+  The `camera chain=` line fires when a camera is STARTED, not at launch, so a
+  machine with no camera cannot produce it.
 
   **AN IN-PLACE PORTABLE UPGRADE TO THAT BUILD WAS ATTEMPTED ON THE GUEST AND
   IS INCONCLUSIVE — recorded as unresolved rather than as a result.** The app

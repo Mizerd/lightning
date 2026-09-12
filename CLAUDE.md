@@ -1600,6 +1600,18 @@ same claim.
 
 ### Live validation: what Rokas has actually confirmed
 
+**2026-09-12 (evening) — THE WINDOWS CAMERA'S 10-FPS CEILING IS CLOSED: PASS.**
+On the laptop's Windows guest with its USB webcam passed through, the portable
+build that carries `libgstjpeg.dll` negotiates `image/jpeg 1920x1080 @ 30/1`
+where the released 0.9.4 negotiated `video/x-raw YUY2 1920x1080 @ 5/1` —
+`camera chain= mjpg (jpeg elements present)`, 500 frames delivered and
+climbing, a real picture on screen, and `firstCaptureMs= 424` against the
+794-811 ms the raw path cost. Same guest, same camera; the only variable is
+that the shipped package finally contains the plugin. The packaging half of
+that is builder image v6 plus the plugin being REQUIRED again and `jpegdec`
+being probed against the extracted package under Wine.
+
+
 **2026-09-12 (afternoon) — THE WINDOWS "NO VIDEO" DEFECT IS CLOSED, on a
 PICTURE: PASS.** Automation-driven on the laptop's Windows 11 guest, not
 Rokas. With the GL probe choosing `Direct3D11` the guest RENDERS a remote
