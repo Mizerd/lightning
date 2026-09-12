@@ -113,11 +113,26 @@ stage_unresolved_libs() {
                 libGLdispatch.so.*|libGLX*.so.*|libOpenGL.so.*|\
                 libxkbcommon*.so.*|libwayland-*.so.*|libdrm.so.*|libgbm.so.*|\
                 libasound.so.*|\
-                libSM.so.*|libICE.so.*) ;;
+                libSM.so.*|libICE.so.*|libuuid.so.*|\
+                libfribidi.so.*|libthai.so.*) ;;
                 *) continue ;;
             esac
             cp -Ln "$src" "$TREE/usr/lib/$want" 2>/dev/null && staged=$((staged+1))
-        done < <(ldd "$probe" 2>/dev/null | awk '/=> \// { print $3 }')
+            # THROUGH THE PAYLOAD, and this is not the same caution as the
+            # guard below. Qt's plugins carry RUNPATH=$ORIGIN/../../lib so
+            # `ldd` walks into the AppDir and reaches libSM; a GSTREAMER
+            # plugin carries $ORIGIN alone, so without this `ldd` stops at
+            # `libgstgl-1.0.so.0 => not found` and NEVER REACHES libGL or
+            # libgbm — which is why naming those families staged nothing and
+            # libgstopengl stayed unloadable. Measured in the job's own image
+            # against pipeline 198's payload: 10 staged without it, 12 with.
+            #
+            # Taking the HOST's copy is the whole point HERE (the loop already
+            # skips anything the payload carries, so nothing is copied over
+            # itself). The guard further down must NOT do this — there, host
+            # visibility is what makes the check dishonest.
+        done < <(LD_LIBRARY_PATH="$TREE/usr/lib" ldd "$probe" 2>/dev/null \
+                 | awk '/=> \// { print $3 }')
     done
     echo "$staged"
 }

@@ -646,6 +646,36 @@ build-snap:
       libxcb-render-util0 libxcb-shape0 libxcb-shm0 libxcb-sync1
       libxcb-xfixes0 libxcb-xkb1 libxcb-cursor0 libxcb-util1
       libxcb-glx0 libxcb-present0 libxcb-dri3-0
+    # BINUTILS FIRST, AND IT IS NOT OPTIONAL. ubuntu:24.04 ships no `readelf`,
+    # and build-snap.sh's payload guard walks each plugin's NEEDED graph with
+    # it. Without binutils that walk yields nothing, every probe reports
+    # nothing missing, and the guard passes vacuously on a payload whose
+    # plugins cannot load — the exact "graceful fallback and silent absence
+    # are the same observable" shape the guard exists to end. Five other jobs
+    # in this file already install it.
+    #
+    # AND THE LIBRARIES THE STAGING LIST NAMES BUT THIS IMAGE DID NOT HAVE.
+    # `stage_unresolved_libs` copies from what `ldd` RESOLVES on this host, so
+    # a family named in build-snap.sh that is not installed here stages
+    # nothing.
+    #
+    # libsm6/libice6 are the pair that shipped the 0.9.4 snap unable to open a
+    # window at all (Qt's xcb platform plugin needs libSM through
+    # libQt6XcbQpa), and libuuid1 is libSM's own dependency. The rest are what
+    # the widened plugin sweep found once a window opened: libasound2t64 for
+    # libgstalsa, the two libwayland leaves for the wayland platform plugins,
+    # libfribidi0/libthai0 for Qt Multimedia's ffmpeg backend.
+    #
+    # libuuid1, libdrm2 and libgbm1 are ALREADY pulled in by libegl1 ->
+    # libegl-mesa0; they are named because this list should say what the
+    # payload needs rather than rely on another package's dependencies.
+    - >-
+      apt-get install -y --no-install-recommends
+      binutils
+      libsm6 libice6 libuuid1
+      libasound2t64 libdrm2 libgbm1
+      libwayland-cursor0 libwayland-egl1
+      libfribidi0 libthai0
   script:
     - ./packaging-ci/scripts/build-snap.sh
 
