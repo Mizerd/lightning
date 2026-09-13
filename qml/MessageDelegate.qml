@@ -2658,6 +2658,27 @@ Item {
                         Loader {
                             active: model.isThreadRoot === true
                             visible: active
+                            // BOUNDED BY WHAT IS LEFT OF THE ROW, not only by
+                            // its own natural width. This Loader shares
+                            // `metaRow` with the "edited" / "sending…" marker,
+                            // and an edited thread ROOT has both: the marker
+                            // takes the left of the row and the card, sized
+                            // only by its own implicitWidth, then ran off the
+                            // right edge of the bubble and clipped its own
+                            // timestamp. Seen live on the packaged flatpak,
+                            // 2026-09-13 -- edit a message that is a thread
+                            // root and the card loses the last character or
+                            // two of "10:46".
+                            //
+                            // fillWidth makes the layout hand it the space
+                            // that is actually left; maximumWidth keeps it at
+                            // its natural size when there is room, so a row
+                            // WITHOUT the marker looks exactly as before.
+                            // ThreadSummaryCard's own content is anchored to
+                            // fill and its preview Label is fillWidth, so a
+                            // narrower card elides rather than clips.
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: item ? item.implicitWidth : 0
                             sourceComponent: ThreadSummaryCard {
                             id: threadSummaryCard
                             replyCount: model.threadReplyCount !== undefined

@@ -1030,6 +1030,30 @@ private Q_SLOTS:
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY(!delegate.isEmpty());
         QVERIFY(delegate.contains(QStringLiteral("ThreadSummaryCard {")));
+        // THE CARD SHARES ITS ROW WITH THE "edited" MARKER, so it must be
+        // bounded by what is LEFT of the row and not only by its own
+        // implicitWidth. Seen live on the packaged flatpak 2026-09-13: edit a
+        // message that is a thread root and the card ran off the right edge
+        // of the bubble, clipping the last characters of its own timestamp.
+        // Bounded to the Loader's own block -- ending at its `sourceComponent`
+        // rather than at a blank line -- so this cannot pass by picking up a
+        // Layout line from somewhere else in a 5,000-line file.
+        const int cardLoaderAt = delegate.indexOf(QStringLiteral(
+            "active: model.isThreadRoot === true"));
+        QVERIFY2(cardLoaderAt >= 0, "the thread-card Loader gate is gone");
+        const int compAt = delegate.indexOf(
+            QStringLiteral("sourceComponent: ThreadSummaryCard {"), cardLoaderAt);
+        QVERIFY2(compAt > cardLoaderAt,
+                 "could not bound the thread-card Loader block");
+        const QString cardLoader = delegate.mid(cardLoaderAt, compAt - cardLoaderAt);
+        QVERIFY2(cardLoader.contains(QStringLiteral("Layout.fillWidth: true")),
+                 qPrintable(QStringLiteral(
+                     "the thread summary card is not bounded by the space left "
+                     "in its row, so an edited thread root pushes it off the "
+                     "right edge of the bubble:\n") + cardLoader));
+        QVERIFY2(cardLoader.contains(QStringLiteral("Layout.maximumWidth:")),
+                 "fillWidth without a maximum would stretch the card to the "
+                 "full bubble width on every thread root");
         // Gated on the thread-root role. 2026-08-19: the card is now
         // behind a Loader (a never-laid-out Text inside it kept the
         // ItemObservesViewport flag on EVERY row — see the scroll round),
