@@ -1004,12 +1004,21 @@ Item {
                     spacing: 2
 
                     // Storm §4 2f pane title: filled-look bolt + Space
-                    // Grotesk 16-17/700, tight 12px gap to the search field.
+                    // Grotesk 16-17/700, tight gap to the search field.
+                    //
+                    // TIGHTENED 2026-09-13 on a real desktop: the run from the
+                    // title down to the first nav row was carrying four
+                    // separate insets that all pointed the same way -- this
+                    // row's bottom margin, the column's own 2px spacing, and
+                    // the search row's bottom margin -- and they read as one
+                    // slack gap rather than as structure. The title now sits
+                    // against the field it labels; see the search row below
+                    // for the other half.
                     RowLayout {
                         spacing: AppTheme.spacing8
                         Layout.leftMargin: AppTheme.spacing8
                         Layout.topMargin: AppTheme.spacing4
-                        Layout.bottomMargin: AppTheme.spacing4
+                        Layout.bottomMargin: 0
                         Icon {
                             name: "bolt"
                             size: 15
@@ -1025,10 +1034,14 @@ Item {
                     }
 
                     // SPEC 1v: search field directly under the title, with a
-                    // trailing Ctrl+, keycap.
+                    // trailing Ctrl+, keycap. The margin below it is the ONE
+                    // deliberate gap in this run -- it separates the search
+                    // affordance from the section list, which is a real
+                    // boundary -- so it is the one that survived the 2026-09-13
+                    // tightening rather than being removed with the others.
                     RowLayout {
                         Layout.fillWidth: true
-                        Layout.bottomMargin: AppTheme.spacing8
+                        Layout.bottomMargin: AppTheme.spacing4
                         spacing: AppTheme.spacing6
                         AppTextField {
                             id: settingsSearchField
