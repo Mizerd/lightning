@@ -26,22 +26,63 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.9.4** (`v0.9.4` -> `bcea599`), tagged
-2026-09-10 by **project 6** pipeline **186, 20/20 GREEN ON THE FIRST
-ATTEMPT** — the first fully clean release run since 0.7.6's pipeline 111.
-Notes in `docs/releases/v0.9.4.md`. The synchronized version reads **0.9.4**
-in `CMakeLists.txt` (both `project()` and `APP_VERSION_LABEL`),
-`rust/Cargo.toml` and `rust/Cargo.lock`.
+Latest published release: **Lightning 0.9.5** (`v0.9.5` -> `8d5d0ca`), tagged
+2026-09-13 by **project 6** pipeline **215, 23/24** — the one red job is
+`macos-package-test`, `allow_failure`, and it is NOT a false negative: see the
+macOS paragraph below. Notes in `docs/releases/v0.9.5.md`. The synchronized
+version reads **0.9.5** in `CMakeLists.txt` (both `project()` and
+`APP_VERSION_LABEL`), `rust/Cargo.toml`, `rust/Cargo.lock` — and now
+**`README.md`**, which is new: 0.9.4 shipped with a README still advertising
+0.9.3, because nothing compared them. `tests/VersionConsistencyTest.cpp`
+compares all five now, so a bump cannot half-land again.
 
-The anonymous verification bar (§14) was run for **0.9.4** on 2026-09-10 and
-PASSED IN FULL: ten package links 200; the manifest reads 0.9.4 / `v0.9.4`
-with six artifacts all carrying `mirror_url` and macOS correctly ABSENT; the
-Ed25519 signature VERIFIED against the key extracted from the shipped `.deb`
-(`pnNX0yQ…`, key id `lightning-release-2026a`) with a one-field-changed copy
-REJECTED; the GitHub tag peels to `bcea599`; 10 mirror assets; and the
-AppImage fetched FROM THE MIRROR matches the GitLab-signed SHA-256 exactly.
+Source validation at the release commit, run locally rather than quoted from
+CI: `ctest --test-dir build-rust` **204 passed, 0 failed, 0 skipped, 204
+total**, the binary reporting `Lightning 0.9.5`; and the
+`-DLIGHTNING_ENABLE_WEBRTC=OFF` build over every target, `rc=0`.
 
-**AppImage validated as an artifact, not just as a job.** It runs, reports
+The anonymous verification bar (§14) was run for **0.9.5** on 2026-09-13 and
+PASSED IN FULL: nine package links 200 plus `SHA256SUMS`; the manifest reads
+0.9.5 / `v0.9.5` with six artifacts all carrying `mirror_url` and macOS
+correctly ABSENT; the Ed25519 signature VERIFIED against the key extracted from
+the shipped `.deb` (`pnNX0yQ…`, key id `lightning-release-2026a`) with a
+one-field-changed copy REJECTED; the GitHub tag peels to `8d5d0ca`; 10 mirror
+assets; and the `.deb` fetched FROM THE MIRROR matches the GitLab-signed
+SHA-256 exactly.
+
+**0.9.5 SHIPPED WITHOUT macOS, AND THAT IS A LIVE OPERATOR ITEM, NOT A
+FOOTNOTE.** `macos-package-test` built the bundle on the Mac mini and passed
+every check in it (`Lightning 0.9.5`, 289,460,224 bytes, calls, plugin
+directory, registry helper, image formats, signature, no secrets) and then died
+on `413 Payload Too Large` uploading the artifact — the ~100 MiB cap in front
+of `gitlab.smetonis.net`. The job is `allow_failure` and `publish-packages`
+needs it `optional`, deliberately, so one sleeping Mac cannot block a release;
+the price is that the pipeline goes green and macOS simply is not there. **The
+fix is one field and it is the same one the Windows manager already uses** —
+point the Mac runner's `url` at `http://10.195.35.2`; the procedure is in
+`docs/macos-packaging.md` under "The artifact upload". 0.9.4's artifact cleared
+that limit by **2,534 bytes**, so there was never any headroom. Once it is
+applied, 0.9.5 can get its macOS asset with
+`RELEASE_ACTION=attach-existing` — no tag is touched.
+
+**0.9.5 IS THE FIRST RELEASE WITH TWO `.deb` FILES** (Debian 13 and Ubuntu
+26.04). No version-free suffix separates `lightning_X_amd64.deb` from
+`lightning_X_ubuntu2604_amd64.deb`, so the website's asset matching resolves
+the longest `data-lg-match` token first and consumes the asset; it was correct
+at 0.9.5 only by luck of GitHub's listing order before that. See the website
+repo's `tools/check-assets.py`.
+
+**RECOVERY AND KEY BACKUP SHIPPED NOT TESTED, AND DELIBERATELY SO.** §6 forbids
+capturing a recovery key and the setup flow displays one, so the feature was
+audited by READING it — QML to controller to FFI to matrix-sdk 0.18.0's own
+sources. Six defects fixed, two of them able to destroy an account's recovery,
+and both of those are visible only by reading the SDK. Four more are known and
+NOT fixed; none can destroy a key. `docs/round-history.md` (2026-09-13 night)
+and `docs/open-items.md`. Do not promote this feature to tested on the strength
+of the audit.
+
+**AppImage validated as an artifact, not just as a job** (measured at 0.9.4;
+the same checks pass in 215). It runs, reports
 `Lightning 0.9.4`, its media engine is built in, both call engines are
 available, and the recorded 0.9.0 gaps stay closed — Qt's TLS backends
 (`libqopensslbackend.so`) and the Wayland shell integration
@@ -53,7 +94,13 @@ gap this section used to record is **CLOSED, and proven on the artifact**:
 project 6 pipeline **187** builds and validates an AppImage that stages the
 helper, reports its path at launch and logs zero plugin-loader warnings.
 
-Previous release: **Lightning 0.9.3** (`v0.9.3` -> `7306dde`), tagged
+Previous release: **Lightning 0.9.4** (`v0.9.4` -> `bcea599`), tagged
+2026-09-10 by pipeline **186, 20/20 green on the first attempt**; notes in
+`docs/releases/v0.9.4.md`. Its verification bar passed in full on 2026-09-10
+(ten package links, 10 mirror assets, the AppImage fetched from the mirror
+matching the signed SHA-256).
+
+Before it: **Lightning 0.9.3** (`v0.9.3` -> `7306dde`), tagged
 2026-09-08 by **project 6** pipeline **183, 21/22** (the one red job is
 `mirror-update-manifest-to-github`, `allow_failure`, and it was a false
 negative: see below); notes in `docs/releases/v0.9.3.md`. The synchronized

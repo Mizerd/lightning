@@ -605,6 +605,97 @@ pipeline is honest about it rather than implying otherwise:
 
 The bundle always reports `build_kind: unsigned-test`, whatever the pipeline.
 
+## The artifact upload, and the 413 that costs a release
+
+**THE BUNDLE BUILDING IS NOT THE BUNDLE SHIPPING, AND 0.9.5 IS THE PROOF.**
+Pipeline 215 built the macOS bundle on the Mac mini, passed every check in this
+document against it — `Lightning 0.9.5`, 289,460,224 bytes, calls, the bundled
+plugin directory, the registry helper, every image format, the code signature,
+no secrets — and then died:
+
+```text
+macOS bundle validation passed (arm64, 289460224 bytes)
+Uploading artifacts as "archive" to coordinator... 413 Payload Too Large
+FATAL: too large
+```
+
+`gitlab.smetonis.net` is behind a proxy with an **approximately 100 MiB request
+limit**. GitLab's own `max_artifacts_size` is 1024 MB and its internal nginx is
+`client_max_body_size 0`, so neither of those is the limiter — the public
+hostname is. The artifact archive is the ~105 MB zip of the app plus its
+reports, and it does not fit.
+
+**This is `allow_failure: true` and `publish-packages` needs it `optional`, so
+the release publishes anyway, minus macOS, and the pipeline goes green.** That
+is the right trade — one sleeping Mac must not block a release — but it makes
+this the only lane whose absence a green pipeline will not report. Check the
+job, not the pipeline.
+
+### There was never any headroom
+
+0.9.4's artifact uploaded at **104,855,066 bytes**, which is **2,534 bytes
+under 100 MiB**. The lane did not work and then break by any margin anyone
+could have noticed; it cleared the limit by two and a half kilobytes and the
+next build went over. Do not go looking for what changed in the pipeline —
+nothing did.
+
+### The fix: the endpoint the Windows manager already uses
+
+The Windows runner had this exact problem and was moved to GitLab's
+host-internal endpoint, where it uploads a 345 MB artifact without complaint
+(`docs/windows-runner-operations.md`). Coordinator traffic — job polling, the
+trace, artifact upload — then rides the trusted host network, while **source
+clones stay HTTPS** with normal certificate verification, because the runner
+takes the clone URL from the coordinator rather than from this field. Never set
+`GIT_SSL_NO_VERIFY` or `curl -k`; treat access to that internal network as a
+credential-bearing trust boundary.
+
+The Mac mini is `10.195.35.7` and the runner is a **user LaunchAgent** — plist
+`~/Library/LaunchAgents/gitlab-runner.plist`, label `gitlab-runner`, binary
+`/usr/local/bin/gitlab-runner`, config `/Users/runner/.gitlab-runner/config.toml`.
+The account is deliberately non-admin with no sudo, which is why this is a
+`runner`-account action and not a root one.
+
+As `runner` on that host, change only the non-secret `url` field — the file
+also holds the runner authentication token, which must never be printed,
+copied or logged:
+
+1. copy `config.toml` to a timestamped `config.toml.bak-…` beside it (the
+   convention already used on that host);
+2. change the one line `url = "https://gitlab.smetonis.net"` to
+   `url = "http://10.195.35.2"`;
+3. confirm with `grep -n '^[[:space:]]*url' config.toml` — and confirm
+   nothing else moved, by counting differing lines against the backup;
+4. restart: `launchctl kickstart -k "gui/$(id -u)/gitlab-runner"`;
+5. `/usr/local/bin/gitlab-runner verify -c ~/.gitlab-runner/config.toml`.
+
+Roll back by copying the timestamped backup over `config.toml` and kickstarting
+the agent again.
+
+### Proving it, and backfilling a release that missed out
+
+Prove it on a NON-PUBLISHING run before trusting it at a release — the AppImage
+is the cheapest format to pair it with, and `BUILD_FORMATS` must name one:
+
+```sh
+glab api --method POST projects/6/pipeline \
+  -H "Content-Type: application/json" --input - <<'JSON'
+{"ref":"main","variables":[
+  {"key":"BUILD_FORMATS","value":"appimage"},
+  {"key":"BUILD_MACOS_PACKAGES","value":"true"},
+  {"key":"PUBLISH_PACKAGES","value":"false"}]}
+JSON
+```
+
+`macos-package-test` going green, with the artifact upload answering
+`201 Created` instead of `413`, is the whole test.
+
+**A release that already shipped without the asset can be backfilled, and it
+does NOT touch the tag or the notes.** `RELEASE_ACTION=attach-existing` builds,
+validates, publishes and verifies, then adds the link to the existing release
+(§14; it is what backfilled `v0.6.1`). So 0.9.5 can still get its macOS
+download once the runner is corrected.
+
 ## Publication (0.7.5 onwards)
 
 This artifact **is published**, as a download-only release asset, on an
