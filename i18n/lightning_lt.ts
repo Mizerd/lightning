@@ -1199,7 +1199,7 @@
 <context>
     <name>CallEventDelegate</name>
     <message>
-        <location filename="../qml/CallEventDelegate.qml" line="+121"/>
+        <location filename="../qml/CallEventDelegate.qml" line="+141"/>
         <source>This build can&apos;t join Matrix calls</source>
         <translation type="unfinished">Ši versija negali prisijungti prie Matrix skambučių</translation>
     </message>
@@ -1244,7 +1244,7 @@
         <translation type="unfinished">Prisijungti negalima</translation>
     </message>
     <message>
-        <location line="+180"/>
+        <location line="+181"/>
         <source>Join</source>
         <translation>Prisijunk</translation>
     </message>
@@ -4407,9 +4407,9 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-1"/>
-        <source>@alice:matrix.org</source>
-        <extracomment>An EXAMPLE Matrix ID shown as placeholder text. Translate the local part to a name that reads as an example in your language, but keep the @user:server shape - it is the protocol&apos;s syntax, not prose.</extracomment>
-        <translation>@alice:matrix.org</translation>
+        <source>username</source>
+        <extracomment>Placeholder for the sign-in name field. The field takes a plain username - the homeserver is the field above it - so the placeholder says so rather than showing a full @user:server id, which suggested the server had to be typed twice.</extracomment>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+6"/>
@@ -5862,7 +5862,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Nauji pranešimai</translation>
     </message>
     <message>
-        <location line="+220"/>
+        <location line="+226"/>
         <source>Avatar for %1</source>
         <translation>%1 pseudoportretas</translation>
     </message>
@@ -15850,7 +15850,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+933"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+958"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 pakeitė rodomą pavadinimą iš „%2“ į „%3“ ir pakeitė savo avatarą.</translation>
     </message>

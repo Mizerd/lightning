@@ -1197,7 +1197,7 @@
 <context>
     <name>CallEventDelegate</name>
     <message>
-        <location filename="../qml/CallEventDelegate.qml" line="+121"/>
+        <location filename="../qml/CallEventDelegate.qml" line="+141"/>
         <source>This build can&apos;t join Matrix calls</source>
         <translation type="unfinished">यह बिल्ड Matrix कॉल में शामिल नहीं हो सकता</translation>
     </message>
@@ -1242,7 +1242,7 @@
         <translation type="unfinished">ज्वाइनिंग उपलब्ध नहीं है</translation>
     </message>
     <message>
-        <location line="+180"/>
+        <location line="+181"/>
         <source>Join</source>
         <translation>शामिल हों</translation>
     </message>
@@ -4396,13 +4396,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>उपयोगकर्ता</translation>
     </message>
     <message>
-        <location line="-1"/>
-        <source>@alice:matrix.org</source>
-        <extracomment>An EXAMPLE Matrix ID shown as placeholder text. Translate the local part to a name that reads as an example in your language, but keep the @user:server shape - it is the protocol&apos;s syntax, not prose.</extracomment>
-        <translation>@alice:matrix.org</translation>
-    </message>
-    <message>
-        <location line="+6"/>
+        <location line="+5"/>
         <location line="+13"/>
         <source>Password</source>
         <translation>पासवर्ड</translation>
@@ -4467,7 +4461,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>या</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="-111"/>
+        <source>username</source>
+        <extracomment>Placeholder for the sign-in name field. The field takes a plain username - the homeserver is the field above it - so the placeholder says so rather than showing a full @user:server id, which suggested the server had to be typed twice.</extracomment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+144"/>
         <location line="+144"/>
         <source>Continue with %1</source>
         <translation>%1 के साथ जारी रखें</translation>
@@ -5848,7 +5848,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>नए संदेश</translation>
     </message>
     <message>
-        <location line="+220"/>
+        <location line="+226"/>
         <source>Avatar for %1</source>
         <translation>%1 का अवतार</translation>
     </message>
@@ -15819,7 +15819,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+933"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+958"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 ने अपना प्रदर्शित नाम “%2” से बदलकर “%3” किया और अवतार बदला।</translation>
     </message>
