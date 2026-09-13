@@ -57,12 +57,26 @@ directory, registry helper, image formats, signature, no secrets) and then died
 on `413 Payload Too Large` uploading the artifact — the ~100 MiB cap in front
 of `gitlab.smetonis.net`. The job is `allow_failure` and `publish-packages`
 needs it `optional`, deliberately, so one sleeping Mac cannot block a release;
-the price is that the pipeline goes green and macOS simply is not there. **The
-fix is one field and it is the same one the Windows manager already uses** —
-point the Mac runner's `url` at `http://10.195.35.2`; the procedure is in
-`docs/macos-packaging.md` under "The artifact upload". 0.9.4's artifact cleared
-that limit by **2,534 bytes**, so there was never any headroom. Once it is
-applied, 0.9.5 can get its macOS asset with
+the price is that the pipeline goes green and macOS simply is not there.
+0.9.4's artifact cleared that limit by **2,534 bytes**, so there was never any
+headroom.
+
+**AND THE OBVIOUS FIX DOES NOT WORK ON THIS HOST — TRIED AND MEASURED
+2026-09-13.** Pointing the Mac runner's `url` at `http://10.195.35.2`, the way
+the Windows manager already does, makes `gitlab-runner` fail with
+`connect: no route to host` — while `ping`, `nc`, `curl`, `/usr/bin/python3`
+and Homebrew's `openssl` all reach that address from the same shell in the same
+minute. The runner reaches LOOPBACK (connection refused on a closed port) and
+the PUBLIC internet (`is valid`) and fails on **every** local-subnet address.
+That is macOS 26's **Local Network privacy gate**, which returns `EHOSTUNREACH`
+and is recorded PER BINARY. It needs a GUI grant — System Settings → Privacy &
+Security → Local Network → `gitlab-runner` — which cannot be done over SSH
+(`tccutil` only resets, and the non-admin `runner` account has no Full Disk
+Access to read the TCC record). **Leaving the internal URL in place without the
+grant takes the runner OFFLINE entirely**, which is worse than the 413; it was
+reverted the same session and verifies `is valid`. Full evidence table in
+`docs/macos-packaging.md` under "THE ENDPOINT CHANGE ALONE DOES NOT WORK".
+Once the grant is applied, 0.9.5 can get its macOS asset with
 `RELEASE_ACTION=attach-existing` — no tag is touched.
 
 **0.9.5 IS THE FIRST RELEASE WITH TWO `.deb` FILES** (Debian 13 and Ubuntu

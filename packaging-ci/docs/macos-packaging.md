@@ -639,6 +639,74 @@ could have noticed; it cleared the limit by two and a half kilobytes and the
 next build went over. Do not go looking for what changed in the pipeline —
 nothing did.
 
+### THE ENDPOINT CHANGE ALONE DOES NOT WORK ON THIS HOST — MEASURED 2026-09-13
+
+**Do not follow the procedure below on its own. It was applied, it failed, and
+it takes the runner OFFLINE while it is in place.** Everything in this
+subsection was measured on the Mac mini, not reasoned about.
+
+With `url = "http://10.195.35.2"` in place and the agent kickstarted,
+`gitlab-runner verify` fails, reproducibly, four runs:
+
+```text
+couldn't execute POST against http://10.195.35.2/api/v4/runners/verify:
+dial tcp 10.195.35.2:80: connect: no route to host
+```
+
+**It is not routing, ARP, a proxy or a firewall**, and each of those was ruled
+out by measurement at the same moment the runner was failing:
+
+| probe (same host, same shell, same minute) | result |
+|---|---|
+| `ping 10.195.35.2` | 2/2, 0% loss |
+| `nc -z 10.195.35.2 80` x3 | succeeded x3 |
+| `/usr/bin/curl http://10.195.35.2/api/v4/version` x3 | **401** x3 (GitLab answering) |
+| `/usr/bin/python3` raw socket to `10.195.35.2:80` | CONNECTED |
+| Homebrew `openssl s_client -connect 10.195.35.2:80` | TCP connected (then a TLS version error, which is what speaking TLS at port 80 gets) |
+| `arp -n 10.195.35.2` | resolved, `on en0` |
+| `env \| grep -i proxy`, `scutil --proxy` | no proxy |
+| `systemextensionsctl list` | 0 extensions |
+
+So the host reaches it and other binaries reach it. **The `gitlab-runner`
+binary specifically cannot**, and pointing it at three different addresses
+separates why:
+
+| the runner dialling | result |
+|---|---|
+| `http://127.0.0.1:9` (loopback, closed port) | `connection refused` — **reached it** |
+| `https://gitlab.smetonis.net` (Cloudflare, remote) | `Verifying runner... is valid` |
+| `http://10.195.35.2` (local subnet) | `no route to host` |
+| `http://10.195.35.6` (local subnet, different host) | `no route to host` |
+
+Loopback works, the public internet works, and **every** address on the local
+/28 fails. The binary's networking is fine; the destination being *local* is
+the variable.
+
+That is the signature of **macOS's Local Network privacy gate** (this host is
+macOS **26.6.1**), which returns `EHOSTUNREACH` for a denied process and is
+recorded **per binary** — which is exactly why Apple's own tools and Homebrew's
+openssl are unaffected while `/usr/local/bin/gitlab-runner` is not. The public
+hostname resolves to Cloudflare (`104.21.46.241`, `172.67.143.47`), so it was
+never subject to the gate, which is why this only appears the moment you point
+the runner inward.
+
+**Confidence: the alternatives above are eliminated by measurement; the TCC
+record itself was NOT read.** `sqlite3` on either `TCC.db` returned nothing and
+`log show` answers `Could not open local log store: Operation not permitted`,
+because the `runner` account is non-admin and has no Full Disk Access.
+
+**So the missing step is a GUI grant that cannot be done over SSH**: System
+Settings → Privacy & Security → **Local Network** → enable
+`gitlab-runner`. It appears in that list only after the binary has attempted a
+local connection, which it now has. `tccutil` can only *reset* an entry, never
+grant one; MDM can push it. Apply that first, **then** the procedure below, and
+re-verify.
+
+The config was reverted the same session and the runner is `is valid` and
+online again, byte-identical to its pre-change backup. Leaving the internal URL
+in place with the grant missing does not merely break uploads — it stops the
+runner polling for jobs at all, which is strictly worse than the 413.
+
 ### The fix: the endpoint the Windows manager already uses
 
 The Windows runner had this exact problem and was moved to GitLab's
