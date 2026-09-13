@@ -944,6 +944,22 @@ for package in ("gstreamer1.0-plugins-base", "gstreamer1.0-plugins-good",
     check(package in _appimage_before,
           f"build-appimage installs the runtime plugin package {package}")
 
+# NSS, AND IT IS PINNED BY NAME FOR THE SAME REASON THE OTHERS ARE.
+#
+# Debian builds libsrtp2 against NSS, so libnss3 already arrives as somebody's
+# dependency today -- and that is precisely what makes an explicit pin worth
+# having, because a dependency can stop being one without anybody choosing it.
+# NSS does no crypto itself: it dlopens libsoftokn3 (which dlopens libfreebl3)
+# from a path derived at RUNTIME, so no ELF walk, no ldd check and no NEEDED
+# list can see them. Without them staged, SRTP cannot initialise and the client
+# carries NO CALL MEDIA IN EITHER DIRECTION -- invisible on any host with its
+# own NSS, and deterministic under strict snap confinement where core24 has
+# none. Measured 2026-09-13; the snap had never carried media once.
+check("libnss3" in _appimage_before,
+      "build-appimage installs libnss3, whose nss/ modules build-appimage.sh "
+      "stages beside libnss3.so -- without them libsrtp cannot initialise and "
+      "every call is silent in both directions")
+
 # --- 2. the build refuses to produce an engine-less binary ------------------
 configure_src = _strip_shell_comments(_read("scripts", "configure-build.sh"))
 check("-DLIGHTNING_ENABLE_WEBRTC=ON" in configure_src,

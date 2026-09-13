@@ -211,6 +211,48 @@ for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
     cp "$GST_PLUGIN_SRC/$plugin.so" "$GST_PLUGIN_DEST/"
 done
 
+# NSS's OWN PKCS#11 MODULES, which is the SIXTH time a library has loaded its
+# own plugins out from under every check we have -- and the first time it cost
+# us an entire call lane.
+#
+# Debian builds `libsrtp2` against NSS, not OpenSSL. `ldd libsrtp2.so.1` names
+# libnss3/libnspr4/libnssutil3/libplc4/libplds4, linuxdeploy's ELF walk bundles
+# all five, and every payload assertion passes. But NSS does no crypto itself:
+# it dlopens `libsoftokn3.so` (the PKCS#11 softoken), which in turn dlopens
+# `libfreebl3.so`, from a directory it derives at RUNTIME from libnss3's own
+# path. Nothing in an ELF NEEDED list mentions them, so nothing staged them.
+#
+# UNCONFINED THIS HIDES COMPLETELY, because essentially every desktop Linux has
+# NSS installed for its browser, and NSS finds the host's copy. MEASURED under
+# strict snap confinement 2026-09-13, where `/usr` is the BASE SNAP's and
+# core24 carries no NSS at all: libsrtp cannot initialise a cipher,
+# `srtp_add_stream` returns init_fail (err 5), `srtpenc` posts "Could not
+# initialize SRTP encoder", the publisher pipeline dies and the subscriber
+# never gets a receive pad. The snap has therefore NEVER been able to carry
+# call media in either direction, while its signalling, membership, media-key
+# distribution, SDP and ICE were all perfect -- which is exactly why it looked
+# like anything but packaging.
+#
+# The AppImage carries the identical gap and is one NSS-less host away from the
+# same failure, so this is staged HERE, for both.
+#
+# Beside libnss3.so, which is where upstream NSS ships them and where NSS's own
+# path derivation looks first.
+NSS_MODULE_SRC="/usr/lib/x86_64-linux-gnu/nss"
+NSS_REQUIRED_MODULES=(
+    libsoftokn3     # PKCS#11 softoken: the module libsrtp's ciphers come from
+    libfreebl3      # the primitives softokn itself dlopens
+    libnssdbm3      # legacy DBM database module, probed during init
+    libnssckbi      # built-in roots; cheap, and NSS probes for it
+)
+[[ -d "$NSS_MODULE_SRC" ]] || \
+    die "no NSS modules at $NSS_MODULE_SRC: libsrtp2 is built against NSS on this image, so without them SRTP cannot initialise and every call carries no media"
+for mod in "${NSS_REQUIRED_MODULES[@]}"; do
+    [[ -f "$NSS_MODULE_SRC/$mod.so" ]] || \
+        die "required NSS module $mod.so is not installed in the build image: SRTP would fail to initialise on any host without NSS"
+    cp "$NSS_MODULE_SRC/$mod.so" "$APPDIR/usr/lib/"
+done
+
 # THE REGISTRY HELPER, which is not a plugin and is not found like one.
 #
 # GStreamer builds its registry by dlopen'ing each candidate in a SEPARATE

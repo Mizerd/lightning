@@ -122,6 +122,22 @@ grep -q 'GST_PLUGIN_SYSTEM_PATH_1_0' "$audit/prime/bin/lightning-launch" \
 # existing.
 test -x "$audit/prime/usr/libexec/gstreamer-1.0/gst-plugin-scanner" \
     || die "gst-plugin-scanner is not in the snap payload"
+# AND AT NSS'S OWN PKCS#11 MODULES, which is why this snap could never carry
+# call media. `libsrtp2` is built against NSS on Debian; NSS dlopens
+# `libsoftokn3` (which dlopens `libfreebl3`) from a path it derives at runtime,
+# so no ELF walk and no `ldd` check can see them. Unconfined the host's copy is
+# found and nothing looks wrong. Under STRICT CONFINEMENT `/usr` is core24's,
+# which has NO NSS at all — measured 2026-09-13: libsrtp returns init_fail,
+# `srtpenc` posts "Could not initialize SRTP encoder", and the call carries
+# nothing in either direction while signalling, membership, the media key, SDP
+# and ICE are all correct.
+#
+# Same class as the xkb and fontconfig assertions below, and for exactly the
+# same reason: the base snap cannot supply it, so the payload must.
+for nss_module in libsoftokn3 libfreebl3 libnssdbm3 libnssckbi; do
+    test -f "$audit/prime/usr/lib/$nss_module.so" \
+        || die "$nss_module.so is not in the snap payload and core24 has no NSS: SRTP cannot initialise, so every call carries no media in either direction"
+done
 grep -q 'GST_PLUGIN_SCANNER_1_0' "$audit/prime/bin/lightning-launch" \
     || die "the snap launcher does not point GStreamer at the bundled gst-plugin-scanner: every launch prints 'External plugin loader failed' and scans in-process"
 # `if`, not `grep ... && die`: under `set -e` an AND-list whose left side

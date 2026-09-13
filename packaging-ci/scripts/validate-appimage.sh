@@ -140,6 +140,26 @@ for gst_plugin in libgstwebrtc libgstsctp libgstnice libgstvpx libgstopus \
     test -f "$tree/usr/lib/gstreamer-1.0/$gst_plugin.so" \
         || die "$gst_plugin.so missing from the AppImage payload"
 done
+# NSS'S OWN PKCS#11 MODULES, and this one cost an entire call lane.
+#
+# Debian builds libsrtp2 against NSS. `ldd` names libnss3 and friends, so the
+# ELF walk bundles them and every other assertion here passes — but NSS does no
+# crypto itself: it dlopens libsoftokn3, which dlopens libfreebl3, from a path
+# derived at RUNTIME. Nothing in a NEEDED list mentions either.
+#
+# On a host that has NSS (almost every desktop, for its browser) the host copy
+# is found and this is invisible. MEASURED under strict snap confinement
+# 2026-09-13, where /usr is the base snap's and core24 has no NSS: libsrtp
+# returns init_fail, srtpenc posts "Could not initialize SRTP encoder", and the
+# call carries no media in EITHER direction while signalling, membership, the
+# media key, SDP and ICE all look perfect.
+#
+# Sixth occurrence of "a library loads its own plugins", and the first to reach
+# a shipped lane. Asserted by name so it names itself if it regresses.
+for nss_module in libsoftokn3 libfreebl3 libnssdbm3 libnssckbi; do
+    test -f "$tree/usr/lib/$nss_module.so" \
+        || die "$nss_module.so missing from the AppImage payload: libsrtp2 is built against NSS, so without NSS's dlopened modules SRTP cannot initialise and every call carries no media on a host that has no NSS of its own"
+done
 # The two image-format plugins, in the payload, by name. The runtime probe
 # above already proves they REGISTER; this makes a regression name itself
 # instead of arriving as a generic "cannot decode image/webp".

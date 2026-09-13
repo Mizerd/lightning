@@ -543,6 +543,16 @@ build-appimage:
       gstreamer1.0-plugins-base gstreamer1.0-plugins-good
       gstreamer1.0-plugins-bad gstreamer1.0-nice gstreamer1.0-pipewire
       gstreamer1.0-alsa gstreamer1.0-gl
+    # NSS, PINNED EXPLICITLY RATHER THAN LEFT TO ARRIVE AS A DEPENDENCY.
+    # Debian builds libsrtp2 against NSS, and NSS dlopens libsoftokn3 and
+    # libfreebl3 from a runtime-derived path that no ELF walk can see. Without
+    # them staged, SRTP cannot initialise and the client carries no call media
+    # in either direction -- invisible on any host that has its own NSS, and
+    # deterministic under strict snap confinement, where core24 has none.
+    # build-appimage.sh dies if this directory is absent.
+    - >-
+      apt-get install -y --no-install-recommends
+      libnss3
       libspa-0.2-modules libpipewire-0.3-modules
     # THE LAST TWO ABOVE ARE NOT PULLED IN BY gstreamer1.0-pipewire, and their
     # absence is invisible until a share is attempted: libpipewire dlopens its
