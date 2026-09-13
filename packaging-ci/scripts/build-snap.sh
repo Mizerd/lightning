@@ -297,6 +297,71 @@ done < <({ echo "$TREE/usr/bin/lightning-matrix";
 [ -z "$gst_fatal" ] || \
     die "snap: these GStreamer plugins are load-bearing and cannot resolve:$gst_fatal"
 
+# DATA CORE24 DOES NOT HAVE, AND THE APP CANNOT START WITHOUT.
+#
+# Under strict confinement /usr is the BASE SNAP's, so nothing on the host is
+# reachable except what an interface bind-mounts. core24 carries no xkb
+# keymaps and no fontconfig configuration -- measured, not assumed -- and
+# without them the snap SEGFAULTED immediately after placing its window
+# (exit 139, real snapd, Ubuntu 24.04, 2026-09-13).
+#
+# FONTS are deliberately NOT staged: snapd's `desktop` interface already
+# bind-mounts the host's /usr/share/fonts and /var/cache/fontconfig, and
+# fontconfig's <dir> entries are absolute so a tree under $SNAP would be on
+# no search path anyway. What snapd does not provide is /etc/fonts.
+stage_confined_data() {
+    local staged=0 dangling rules rule
+    if [ -d /usr/share/X11/xkb ]; then
+        mkdir -p "$TREE/usr/share/X11/xkb"
+        cp -a /usr/share/X11/xkb/. "$TREE/usr/share/X11/xkb/" && staged=$((staged + 1))
+    fi
+    if [ -d /etc/fonts ]; then
+        mkdir -p "$TREE/etc/fonts"
+        # -L DEREFERENCES. `cp -a` preserves symlinks, and 22 of the 35
+        # entries in conf.d point at /usr/share/fontconfig/conf.avail, which
+        # is neither staged nor in core24 -- so a plain -a shipped 22 DANGLING
+        # links, losing every generic-family alias (serif/sans-serif/mono),
+        # the metric aliases, the hinting defaults and the
+        # no-bitmaps-except-emoji rule that CLAUDE.md's emoji lesson turns on.
+        # Present file, broken pointer: the same shape as the defect this
+        # whole change exists to fix. Raised in review.
+        cp -aL /etc/fonts/. "$TREE/etc/fonts/" && staged=$((staged + 1))
+    fi
+    # CONTENT, NOT DIRECTORIES. `cp -a src/. dst/` succeeds on an EMPTY
+    # source, so counting successful copies would let an image that gains an
+    # empty /etc/fonts pass here and fail in validate-snap forty minutes
+    # later. Assert the files the app actually opens.
+    [ "$staged" -eq 2 ] || \
+        die "snap: expected xkb and fontconfig to stage; got $staged (does the build image install xkb-data and fontconfig-config?)"
+    [ -f "$TREE/usr/share/X11/xkb/rules/evdev.xml" ] || \
+        die "snap: xkb staged without rules/evdev.xml — xkbcommon cannot build a keymap"
+    [ -f "$TREE/etc/fonts/fonts.conf" ] || \
+        die "snap: fontconfig staged without fonts.conf"
+    dangling=$(find "$TREE/etc/fonts" -xtype l 2>/dev/null | wc -l)
+    [ "$dangling" -eq 0 ] || \
+        die "snap: $dangling dangling symlink(s) under etc/fonts — the rules are present but point outside the snap"
+    # AND A COUNT, because -xtype l passes VACUOUSLY when the rules are
+    # ABSENT rather than dangling. `cp -aL` cannot dereference a link whose
+    # target is missing, so an image without /usr/share/fontconfig silently
+    # yields a conf.d holding only the dozen relative entries -- no
+    # generic-family aliases, no metric aliases, no emoji-bitmap rule. Caught
+    # by removing /usr/share/fontconfig and watching the dangling check stay
+    # green.
+    rules=$(find "$TREE/etc/fonts/conf.d" -maxdepth 1 -name '*.conf' 2>/dev/null | wc -l)
+    [ "$rules" -ge 30 ] || \
+        die "snap: only $rules fontconfig rules staged (expected 30+) — is /usr/share/fontconfig present in the build image?"
+    for rule in 45-generic.conf 60-latin.conf 70-no-bitmaps-except-emoji.conf; do
+        [ -f "$TREE/etc/fonts/conf.d/$rule" ] || \
+            die "snap: fontconfig rule $rule did not stage — generic-family or emoji fallback will be wrong"
+    done
+    echo "snap: staged xkb + fontconfig for strict confinement"
+}
+stage_confined_data
+# The content interface's mount point. snapd can conjure a missing one with a
+# writable mimic (a tmpfs over $SNAP), but that is a fallback, not a layout —
+# and an empty directory in the squashfs costs nothing. Raised in review.
+mkdir -p "$TREE/gpu-2404"
+
 # Launcher: point Qt at the bundled runtime under $SNAP -- and GStreamer too.
 # The snap takes only usr/ from the AppDir, so linuxdeploy's AppRun and its
 # apprun-hooks/gstreamer.sh stay behind; without the three variables below the
@@ -334,6 +399,93 @@ export GST_PLUGIN_SCANNER="$SNAP/usr/libexec/gstreamer-1.0/gst-plugin-scanner"
 # registry cache has to live in the user's own (snap-confined) cache dir.
 export GST_REGISTRY_1_0="${XDG_CACHE_HOME:-$HOME/.cache}/lightning/gst-registry.bin"
 mkdir -p "$(dirname "$GST_REGISTRY_1_0")" 2>/dev/null || true
+# SOCKETS THE SESSION PUTS IN THE RUNTIME DIR, BRIDGED INTO snapd'S.
+#
+# snapd remaps XDG_RUNTIME_DIR to $XDG_RUNTIME_DIR/snap.<name>. Everything a
+# desktop session leaves in the REAL runtime dir -- the compositor socket,
+# PipeWire, PulseAudio -- therefore sits one level up and is invisible to a
+# client that resolves a relative name. snapcraft's desktop-launch bridges
+# them; this launcher is hand-written and bridged none, and each absence is a
+# different broken feature:
+#
+#   * wayland-0   -> Qt finds no platform plugin and the app ABORTS. The snap
+#                    could not start on any Wayland session.
+#   * pipewire-0  -> `micsrc` fails "Connection refused", the publish branch
+#                    errors, and the pipeline cascades into
+#                    "srtpenc0: Could not initialize SRTP encoder".
+#   * pulse/native-> Qt Multimedia enumerates no audio devices at all, so the
+#                    Sound & video picker reads "No microphone was found".
+#
+# All three measured under a real snapd on Ubuntu 24.04 (2026-09-13) with the
+# mutation both ways -- the audio pair by counting `pa_context_connect()
+# failed`: 1 without the bridge, 0 with it.
+#
+# Each is best-effort: a session that does not run PipeWire has nothing to
+# bridge, and refusing to launch over that would be worse than launching
+# without audio.
+bridge_runtime_entry() {
+    # $1 = path relative to the REAL runtime dir, e.g. "pipewire-0" or
+    #      "pulse/native". Creates $XDG_RUNTIME_DIR/$1 -> ../<depth>/$1 .
+    [ -n "${XDG_RUNTIME_DIR:-}" ] || return 0
+    case "$1" in
+        # ONE level of nesting only. The depth of `..` is computed from the
+        # shape below, so a caller passing "a/b/c" would get a link that
+        # resolves to the wrong place -- and because the next run finds it
+        # existing, it would stay broken forever while the feature silently
+        # did nothing. Refuse instead of guessing. Raised in review.
+        */*/*) return 0 ;;
+        */*) _bre_dir="${1%/*}"; _bre_up="../../" ;;
+        *)   _bre_dir=""; _bre_up="../" ;;
+    esac
+    [ -e "$XDG_RUNTIME_DIR/$1" ] && return 0
+    if [ -n "$_bre_dir" ]; then
+        mkdir -p "$XDG_RUNTIME_DIR/$_bre_dir" 2>/dev/null || return 0
+    else
+        mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null || return 0
+    fi
+    ln -sf "$_bre_up$1" "$XDG_RUNTIME_DIR/$1" 2>/dev/null || true
+}
+# An ABSOLUTE or path-bearing WAYLAND_DISPLAY is left alone: libwayland takes
+# the first as a path, and the second is not a display name at all.
+case "${WAYLAND_DISPLAY:-}" in
+    "") : ;;
+    */*) : ;;
+    *) bridge_runtime_entry "$WAYLAND_DISPLAY" ;;
+esac
+bridge_runtime_entry "pipewire-0"
+bridge_runtime_entry "pulse/native"
+# DATA FILES STRICT CONFINEMENT LEAVES THE APP WITHOUT, and the absence of
+# these SEGFAULTED the snap immediately after it placed its window (exit 139).
+# Under strict confinement /usr is the base snap's, and core24 carries no
+# fontconfig configuration and no xkb keymaps at all, so the host's copies are
+# unreachable by construction. The control that attributed the crash to these
+# rather than to the renderer: the identical payload run UNCONFINED with
+# QT_QUICK_BACKEND=software ran fine for 35 s.
+#
+# FONTS THEMSELVES ARE NOT STAGED, and that is deliberate. fontconfig's
+# <dir> entries are ABSOLUTE, so a font tree under $SNAP is on no search path
+# and would be inert; snapd's `desktop` interface bind-mounts the HOST's
+# /usr/share/fonts and /var/cache/fontconfig into the sandbox, which is where
+# the glyphs actually come from. What snapd does NOT provide is /etc/fonts --
+# hence staging the configuration and only the configuration. Raised in
+# review, where the first version staged fonts that nothing could find.
+export FONTCONFIG_PATH="$SNAP/etc/fonts"
+export FONTCONFIG_FILE="$SNAP/etc/fonts/fonts.conf"
+export XKB_CONFIG_ROOT="$SNAP/usr/share/X11/xkb"
+# GRAPHICS, THROUGH THE gpu-2404 CONTENT SNAP (see snap.yaml.in).
+#
+# The provider's wrapper sets LD_LIBRARY_PATH, __EGL_VENDOR_LIBRARY_DIRS, the
+# dri driver path and the rest, then execs what it is handed. Without it the
+# app gets no EGL -- the payload has only glvnd's DISPATCH stubs, because the
+# vendor driver is dlopened and `ldd` never sees it -- and Qt falls back to a
+# software renderer that cannot draw video at all.
+#
+# NOT a hard requirement: an unconnected snap still starts, on the software
+# renderer, and the app says so in the UI. Refusing to launch would be worse.
+GPU_WRAPPER="$SNAP/gpu-2404/bin/gpu-2404-provider-wrapper"
+if [ -x "$GPU_WRAPPER" ]; then
+    exec "$GPU_WRAPPER" "$SNAP/usr/bin/lightning-matrix" --backend=rust "$@"
+fi
 exec "$SNAP/usr/bin/lightning-matrix" --backend=rust "$@"
 EOF
 chmod 0755 "$TREE/bin/lightning-launch"
@@ -361,6 +513,14 @@ assert "password-manager-service" in meta["apps"]["lightning"]["plugs"]
 # Calling needs the microphone. audio-playback alone is a call nobody can
 # hear you on.
 assert "audio-record" in meta["apps"]["lightning"]["plugs"]
+# Graphics. THE EARLIER AND CHEAPER GATE: validate-snap.sh asserts the same
+# thing, but it runs in a later job, so a template edit that dropped the plug
+# would build a snap and only fail forty minutes afterwards. Raised in review.
+assert "gpu-2404" in meta["apps"]["lightning"]["plugs"]
+gpu = meta["plugs"]["gpu-2404"]
+assert gpu["interface"] == "content", gpu
+assert gpu["target"] == "$SNAP/gpu-2404", gpu
+assert gpu["default-provider"] == "mesa-2404", gpu
 print("snap.yaml structurally valid")
 EOF
 

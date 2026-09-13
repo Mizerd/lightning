@@ -1,5 +1,97 @@
 # Round history
 
+## 2026-09-13 — the snap had never worked, and only a real snapd could say so
+
+**The first time the Lightning snap was run the way a user runs it** — `snap
+run` under a real snapd on Ubuntu 24.04, strict confinement, the manual
+interfaces connected — **it failed three ways before it could show a window**,
+and every structural check in CI was green throughout. That is the whole
+lesson: `meta/snap.yaml` parsing, the payload audit and the launcher smoke run
+all pass on a snap that cannot start.
+
+Under strict confinement `/usr` is the BASE SNAP's, so anything the host has
+is unreachable unless an interface bind-mounts it; and snapd remaps
+`XDG_RUNTIME_DIR` to `$XDG_RUNTIME_DIR/snap.<name>`, so every socket a desktop
+session leaves in the real runtime dir sits one level up.
+
+| | symptom | cause |
+|---|---|---|
+| compositor | Qt: "no Qt platform plugin could be initialized", abort | relative `WAYLAND_DISPLAY` resolves inside the remapped runtime dir |
+| graphics | `software=0` never reached; app warns video will not display | payload has glvnd DISPATCH stubs only; the vendor driver is dlopened and `ldd` never saw it; core24 has no Mesa |
+| startup | SIGSEGV (exit 139) right after `window placement` | core24 carries no xkb keymaps and no fontconfig configuration |
+| audio | `micsrc` "Connection refused" → `srtpenc0: Could not initialize SRTP encoder` | PipeWire and Pulse sockets are one level up, same as the compositor |
+
+Each was proved with a mutation both ways. The compositor: relative
+`WAYLAND_DISPLAY` aborts, a `$XDG_RUNTIME_DIR/wayland-0 -> ../wayland-0`
+symlink starts. The audio pair, counting `pa_context_connect() failed`: **1**
+without the bridge, **0** with it. The crash was attributed to the missing
+data rather than to the renderer by a control: the identical payload run
+UNCONFINED with `QT_QUICK_BACKEND=software` ran fine for 35 s.
+
+**The fix**: the launcher bridges the compositor, PipeWire and Pulse sockets
+into snapd's per-snap runtime dir; the build stages xkb keymaps and the
+fontconfig configuration; graphics come from Canonical's `gpu-2404` content
+snap, exec'ing through its provider wrapper when connected and falling back to
+a direct exec (software renderer, with the app's own warning) when not.
+Verified live: `scene graph backend=opengl software=0 platform=wayland` with a
+rendered window, under real confinement.
+
+**FONTS ARE DELIBERATELY NOT STAGED, and the first version got this wrong.**
+fontconfig's `<dir>` entries are ABSOLUTE, so a font tree under `$SNAP` is on
+no search path and is inert; snapd's `desktop` interface already bind-mounts
+the host's `/usr/share/fonts` and `/var/cache/fontconfig`. What snapd does not
+provide is `/etc/fonts` — so the configuration is staged and the glyphs are
+not.
+
+**And `cp -a` on `/etc/fonts` ships broken rules.** 22 of the 35 entries in
+`conf.d` are absolute symlinks into `/usr/share/fontconfig/conf.avail`, which
+is neither staged nor in core24: measured, `cp -a` → 22 dangling, `cp -aL` →
+0 with all 35 resolving. The casualties were every generic-family alias, the
+metric aliases, the hinting defaults and `70-no-bitmaps-except-emoji.conf` —
+the rule §16's emoji lesson turns on. Present file, broken pointer: the same
+shape as the defect the whole change exists to fix.
+
+**Two traps in the guards themselves**, both found by measurement rather than
+review. `cp -a src/. dst/` succeeds on an EMPTY source, so counting successful
+copies lets an image that gains an empty `/etc/fonts` pass the build and fail
+validation forty minutes later — the guards now assert `rules/evdev.xml`,
+`fonts.conf`, a rule count and three named rules. And `find -xtype l` passes
+VACUOUSLY when rules are ABSENT rather than dangling, which is exactly what
+happens when `/usr/share/fontconfig` is missing at build time.
+
+**Three of the six first-draft assertions passed on deliberately broken
+input**, caught in review: `grep gpu-2404 meta/snap.yaml` matches the
+template's own COMMENTS, so it passed with the entire plug stanza deleted;
+`grep gpu-2404-provider-wrapper` matches the `GPU_WRAPPER=` assignment, so it
+passed on a launcher that never execs through it; and the Wayland grep matched
+the `[ ! -e ]` test guarding the symlink. They are now a parsed-YAML check and
+greps for the `exec` and the `ln` themselves.
+
+**`default-provider` is not auto-connection.** snapd's base declaration allows
+content auto-connection only when the plug and slot publishers match;
+mesa-2404 is Canonical's. So a store install pulls the provider in and leaves
+it disconnected — software renderer, no call video. That, plus `camera`,
+`audio-record` and `password-manager-service`, makes **four** manual
+interfaces; the snap needs a store snap-declaration before it is fit to
+publish. Recorded in `packaging-ci/docs/package-layout.md`.
+
+**Blocker caught before it shipped**: the first draft staged fonts and
+required three data sets, but the pinned builder image has neither `/etc/fonts`
+nor `/usr/share/fonts` of its own — the guard would have turned `build-snap`
+red on the next pipeline. `xkb-data` and `fontconfig-config` are now installed
+by the job and pinned in `tests/test-pipeline-config.py`, the same way the
+GStreamer dev packages are.
+
+ACCEPTED FOLLOW-UP, not fixed here: the payload still stages
+`libEGL/libGL/libgbm/libdrm` from the build image while the gpu-2404 wrapper
+appends its own paths AFTER `$SNAP/usr/lib`. glvnd dispatch makes this work
+(the vendor comes from `__EGL_VENDOR_LIBRARY_DIRS`), and the live run reported
+`software=0` — but canonical/gpu-snap's own integration runs
+`gpu-2404-cleanup` to remove provider-owned libraries, and not doing so leaves
+a version-mismatch surface. Also unexercised under confinement: screen share
+through the portal, and the file-chooser paths (the snap plugs no `home`).
+
+
 ## 2026-09-12 (night) — a shared window that never repaints published nothing
 
 **LIVE-VALIDATED PASS**, on the laptop, same window and same peer before and

@@ -917,6 +917,24 @@ for job, packages in _GST_DEV_PACKAGES.items():
         check(package in script_text,
               f"{job} installs the GStreamer dev package {package}")
 
+# THE DATA A STRICTLY CONFINED SNAP HAS NOWHERE ELSE TO GET.
+#
+# build-snap.sh stages /usr/share/X11/xkb and /etc/fonts into the payload
+# because core24 carries neither, and without them the snap SEGFAULTS the
+# moment it places its window -- measured under a real snapd on Ubuntu 24.04,
+# 2026-09-13, which was the first time the snap had ever been run the way a
+# user runs it. The job's image has neither path of its own, so the staging
+# copies nothing unless these two packages are installed; the build guard
+# turns that into a hard failure rather than another snap that installs and
+# dies, which is exactly why this pin exists. Same shape as the GStreamer
+# pins above: name the package, do not rely on another package's Depends.
+_snap_before = " ".join(resolve_extends("build-snap").get("before_script", []))
+for package in ("xkb-data", "fontconfig-config"):
+    check(package in _snap_before,
+          f"build-snap installs {package}, without which the payload stages "
+          f"no {'keymaps' if package == 'xkb-data' else 'fontconfig'} and the "
+          f"snap cannot start")
+
 # The AppImage BUNDLES the runtime plugins instead of depending on them (the
 # snap then inherits that AppDir), so its job needs them installed as well.
 _appimage_before = " ".join(resolve_extends("build-appimage").get("before_script", []))

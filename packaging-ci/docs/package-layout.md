@@ -70,6 +70,34 @@ The Flatpak bundle, AppImage, and snap carry the same application payload:
   metadata checks, launcher run, payload audit) — a live `snap install` test
   requires a real snapd host.
 
+  **AND STRUCTURAL VALIDATION IS NOT ENOUGH, proven 2026-09-13.** The first
+  time this snap was run the way a user runs it — real snapd, Ubuntu 24.04,
+  strict confinement — it failed three ways before showing a window, and
+  every check in CI was green throughout. Under strict confinement `/usr` is
+  the BASE SNAP's, so anything the host has is unreachable unless an
+  interface bind-mounts it, and snapd remaps `XDG_RUNTIME_DIR` to
+  `$XDG_RUNTIME_DIR/snap.lightning`, so every socket the session leaves in
+  the real runtime dir sits one level up. The launcher now bridges the
+  compositor, PipeWire and Pulse sockets, stages xkb keymaps and the
+  fontconfig configuration, and takes graphics from the `gpu-2404` content
+  snap. Account: `docs/round-history.md`, 2026-09-13.
+
+  **Four interfaces are MANUAL on install and the snap is degraded without
+  them.** None auto-connects (content auto-connection needs the publishers to
+  match; the other three are privileged), so a user who does nothing gets no
+  microphone, no camera, no saved session and no hardware GL — and on the
+  software renderer Qt Quick draws no call or screen-share video at all:
+
+  ```sh
+  snap connect lightning:gpu-2404 mesa-2404:gpu-2404
+  snap connect lightning:audio-record
+  snap connect lightning:camera
+  snap connect lightning:password-manager-service
+  ```
+
+  These need a store snap-declaration granting auto-connection before the
+  snap is fit to publish.
+
 GIF provider keys follow the existing pattern in every format: build-only
 environment names, embedded at configure time, header scrubbed, `--gif-status`
 / `--gif-selftest` enforced in validation for publishing pipelines, and keys

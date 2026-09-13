@@ -676,6 +676,19 @@ build-snap:
       libasound2t64 libdrm2 libgbm1
       libwayland-cursor0 libwayland-egl1
       libfribidi0 libthai0
+    #
+    # AND THE DATA A STRICTLY CONFINED SNAP CANNOT GET FROM ANYWHERE ELSE.
+    # This image has NO /usr/share/X11/xkb and NO /etc/fonts of its own, and
+    # core24 has neither either - so with both absent the snap starts and then
+    # SEGFAULTS the moment it places its window (measured under a real snapd,
+    # Ubuntu 24.04, 2026-09-13). xkb-data does arrive today as a dependency of
+    # libxkbcommon0 and fontconfig-config arrives from nothing at all; both
+    # are named explicitly because this list should say what the payload needs
+    # rather than rely on another package's Depends, which is the rule the
+    # block above already states.
+    - >-
+      apt-get install -y --no-install-recommends
+      xkb-data fontconfig-config
   script:
     - ./packaging-ci/scripts/build-snap.sh
 

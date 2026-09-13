@@ -43,8 +43,20 @@ for plug in ("network", "wayland", "x11", "desktop",
              # Calling. audio-playback covers only what the user hears; the
              # microphone is a separate interface and without it a call is
              # one-directional silence.
-             "audio-playback", "audio-record"):
+             "audio-playback", "audio-record",
+             # Graphics. Without it the app sees only glvnd's dispatch stubs,
+             # gets no EGL, and falls back to a software renderer that cannot
+             # draw video at all -- no call video, no screen share.
+             "gpu-2404"):
     assert plug in app["plugs"], plug
+# THE CONTENT PLUG ITSELF, IN THE PARSED TREE. A `grep gpu-2404 snap.yaml`
+# looks equivalent and is not: build-snap.sh copies the template's COMMENTS
+# into meta/snap.yaml, and those mention gpu-2404 several times, so the grep
+# passes with the entire plug stanza deleted. Measured in review.
+gpu = meta["plugs"]["gpu-2404"]
+assert gpu["interface"] == "content", gpu
+assert gpu["target"] == "$SNAP/gpu-2404", gpu
+assert gpu["default-provider"] == "mesa-2404", gpu
 print("snap.yaml valid")
 EOF
 test -x "$audit/prime/usr/bin/lightning-matrix" || die "snap application binary missing"
@@ -118,6 +130,60 @@ grep -q 'GST_PLUGIN_SCANNER_1_0' "$audit/prime/bin/lightning-launch" \
 if grep -qi 'External plugin loader failed' dist/snap-call-media-status.txt; then
     die "the snap still prints 'External plugin loader failed' when run through its own launcher — the scanner pointer is wrong, not merely absent"
 fi
+# THE FOUR THINGS THAT KEPT THIS SNAP FROM WORKING AT ALL.
+#
+# Found 2026-09-13 the only way they could be: by running the snap under a
+# real snapd on Ubuntu 24.04, as a user would. Each is invisible to every
+# check that existed, because each is about something the BASE SNAP does not
+# carry rather than something our payload is missing.
+#
+# These are file/text assertions and they are deliberately weaker than the
+# thing they stand for — none of them proves the snap STARTS. That still
+# needs a real snapd and a compositor, neither of which this runner fleet
+# has; the honest record of what was proven live is in
+# docs/round-history.md, 2026-09-13.
+# The bridge must be the `ln`, not merely a mention of the path. An earlier
+# version grepped for the path expression, which also matches the `[ ! -e ]`
+# test guarding it -- so deleting the symlink left the assertion green.
+grep -q 'ln -sf "\$_bre_up\$1"' "$audit/prime/bin/lightning-launch" \
+    || die "the snap launcher no longer symlinks session sockets into snapd's per-snap XDG_RUNTIME_DIR: Qt cannot reach the compositor and the snap ABORTS on every Wayland session"
+for entry in pipewire-0 pulse/native; do
+    grep -q "bridge_runtime_entry \"$entry\"" "$audit/prime/bin/lightning-launch" \
+        || die "the snap launcher no longer bridges $entry: the microphone reports 'Connection refused' and the audio pipeline errors out"
+done
+grep -q 'bridge_runtime_entry "\$WAYLAND_DISPLAY"' "$audit/prime/bin/lightning-launch" \
+    || die "the snap launcher no longer bridges the compositor socket"
+# The three variables that make the app LOOK at what we staged. The
+# gst-plugin-scanner defect thirty lines above is this exact shape: the file
+# was present and only the pointer was missing.
+for var in FONTCONFIG_FILE FONTCONFIG_PATH XKB_CONFIG_ROOT; do
+    grep -q "export $var=" "$audit/prime/bin/lightning-launch" \
+        || die "the snap launcher no longer exports $var, so the data staged beside it is never found"
+done
+test -f "$audit/prime/usr/share/X11/xkb/rules/evdev.xml" \
+    || die "xkb keymaps are not in the snap payload and core24 has none: the snap segfaults just after placing its window"
+test -f "$audit/prime/etc/fonts/fonts.conf" \
+    || die "fontconfig configuration is not in the snap payload and core24 has none"
+# A staged rule that points outside the snap is worse than an absent one: it
+# is present to every file check and dead at runtime.
+test -z "$(find "$audit/prime/etc/fonts" -xtype l 2>/dev/null | head -1)" \
+    || die "dangling symlinks under etc/fonts — the fontconfig rules are staged but point outside the snap (use cp -aL)"
+# The dangling check above passes VACUOUSLY when the rules are absent rather
+# than broken, so count them too — and name the three whose absence is
+# visible: generic families, latin fallback, and the emoji bitmap rule.
+snap_rules=$(find "$audit/prime/etc/fonts/conf.d" -maxdepth 1 -name '*.conf' 2>/dev/null | wc -l)
+[ "$snap_rules" -ge 30 ] \
+    || die "only $snap_rules fontconfig rules in the payload (expected 30+): generic-family and emoji fallback rules are missing"
+for rule in 45-generic.conf 60-latin.conf 70-no-bitmaps-except-emoji.conf; do
+    test -f "$audit/prime/etc/fonts/conf.d/$rule" \
+        || die "fontconfig rule $rule missing from the payload"
+done
+test -d "$audit/prime/gpu-2404" \
+    || die "the gpu-2404 content mount point is missing from the payload"
+# The EXEC, not the assignment. The literal appears in the GPU_WRAPPER= line
+# too, so grepping the name alone passed on a launcher that never used it.
+grep -q 'exec "\$GPU_WRAPPER"' "$audit/prime/bin/lightning-launch" \
+    || die "the snap declares the gpu-2404 plug but the launcher never execs through the provider wrapper, so the driver paths are never set"
 # libgstximagesrc is the X11 screen-share fallback: not in the engine's
 # required-element list, so the check above is green without it while the
 # feature is dead — the launcher REPLACES the system plugin path, so the host's
