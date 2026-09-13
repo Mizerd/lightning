@@ -1634,7 +1634,11 @@ initialize SRTP encoder", the publisher dies and the subscriber never gets a
 receive pad. **The AppImage carries the identical gap** and is one NSS-less
 host away from the same failure. Fixed by staging the four NSS modules beside
 `libnss3.so` in `build-appimage.sh`, asserted BY NAME in both validators.
-**NOT YET VERIFIED ON AN ARTEFACT.**
+**LIVE-VALIDATED PASS on the artefact, 2026-09-13**: pipeline 214's snap,
+installed over the signed-in revision, produced `received track attributed=
+true`, `a receive chain is RUNNING`, and 3000 frames in the clear BOTH ways,
+with ZERO srtp errors and zero pipeline errors. `received track` had never
+appeared on this lane once. The snap carries call media for the first time.
 
 FOUR HYPOTHESES WERE KILLED FIRST and must not be re-proposed: a missing
 GStreamer plugin (29 staged, env points at them); the publisher's bus error

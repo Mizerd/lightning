@@ -59,8 +59,34 @@ pin is mutation-proved.
 the same failure, which is why the staging lives in the script both formats
 share.
 
-**NOT YET VERIFIED ON AN ARTEFACT.** This fixes the cause the evidence names;
-no built snap has carried these modules yet.
+**VERIFIED ON THE ARTEFACT — PASS, 2026-09-13 15:12 UTC.** Pipeline 214 built a
+snap carrying all five modules (`validate-snap` asserts them by name and went
+green), it was installed over the signed-in revision with `snap install
+--dangerous` — which snapd treats as a refresh, so the account and secret
+records came across and the session survived — and a two-party call with the
+AppImage then produced, on the CONFINED snap:
+
+```
+received track attributed= true trackKey= "TR_AMAqt4vT6KWgQJ" fromPadMsid= true
+call diagnosis: a receive chain is RUNNING for stream= "PA_LAHFDkbz8gqX" kind= "audio"
+frames in the clear out   count= 3000
+frames in the clear in    count= 3000
+```
+
+with **zero** `Could not initialize SRTP encoder` (two per join before) and
+**zero** pipeline errors. `received track` had never once appeared on this
+lane. The snap carries call media in BOTH directions for the first time in its
+existence, and the fix working is what confirms the diagnosis.
+
+Two notes on getting there, both costing a pipeline each and both avoidable:
+the first attempt hard-coded `/usr/lib/x86_64-linux-gnu/nss`, which is where
+Debian USED to keep these — `dpkg -L libnss3` on trixie puts them directly in
+`/usr/lib/x86_64-linux-gnu`, and the guard caught it rather than shipping a
+payload that staged nothing. The directory is derived from libnss3's own
+location now, which is also how NSS finds them. And **scope the pipeline**:
+`BUILD_FORMATS=appimage,snap` is 6 jobs against 14, and with one online runner
+the difference is hours. Post it as a JSON body and CHECK
+`/pipelines/<id>/variables` — form fields are silently ignored.
 
 ### One confounder, and one operational trap
 
