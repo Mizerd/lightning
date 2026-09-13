@@ -99,9 +99,29 @@ Item {
     readonly property bool alreadyInThisCall:
         root.groupCallReachable && app.groupCall.active
         && app.groupCall.roomId === root.roomId
+    /// Is this the call row the room's live session belongs to?
+    ///
+    /// `sessionLive` above answers for the ROOM, because that is all
+    /// `RtcController::participantCount` can answer — so on its own EVERY
+    /// call row in a room offers Join the moment anyone is in a call, and a
+    /// room with a day of call history grows a column of them. Reported by
+    /// the maintainer, 2026-09-13.
+    ///
+    /// MatrixRTC has one session per room, so joining from an old row and
+    /// from the newest are the same action and the button was never
+    /// FUNCTIONALLY wrong. The defect is that a row which reads as history
+    /// offers it at all. The newest call row keeps the affordance; the older
+    /// ones are history and say nothing.
+    ///
+    /// DEFAULT TRUE, deliberately: a host that does not supply it (the
+    /// fixtures load this delegate standalone) behaves exactly as before
+    /// rather than losing the button entirely, which is the same permissive
+    /// default MessageDelegate.mediaInBand uses.
+    property bool isLatestCallRow: true
+    readonly property bool supersededByNewerCall: !isLatestCallRow
     readonly property bool canJoin:
         sessionLive && blockReason.length === 0 && !alreadyInThisCall
-        && groupCallReachable
+        && groupCallReachable && !supersededByNewerCall
 
     /// Human wording for `blockReason`. The tokens are the same closed set
     /// from RtcController::joinBlockReason that RoomCallBanner.blockText and
@@ -144,6 +164,7 @@ Item {
     /// nothing to join and no refusal to report.
     readonly property string joinBlockedText:
         (root.sessionLive && !root.alreadyInThisCall && root.groupCallReachable
+         && !root.supersededByNewerCall
          && root.blockReason.length > 0) ? root.blockText : ""
 
     // Re-read on a real session change only. RtcController emits this when

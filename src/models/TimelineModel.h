@@ -22,6 +22,8 @@ class TimelineModel : public QAbstractListModel
 
     Q_PROPERTY(QString roomId READ roomId WRITE setRoomId NOTIFY roomIdChanged)
     Q_PROPERTY(int count READ eventCount NOTIFY countChanged)
+    Q_PROPERTY(QString latestCallEventId READ latestCallEventId
+               NOTIFY latestCallEventIdChanged)
     Q_PROPERTY(int realCount READ realEventCount NOTIFY countChanged)
     /// Source row of the SDK's read-marker ("New messages") virtual row, or -1
     /// when the loaded timeline does not carry one. See readMarkerRow().
@@ -259,6 +261,18 @@ public:
     // mirror size" any more — this IS both the view count and the backend
     // growth count.
     int eventCount() const { return static_cast<int>(m_events.size()); }
+
+    /// The event id of the NEWEST call row currently loaded, or empty.
+    ///
+    /// Exists so a call row can tell whether it is the one the room's live
+    /// session belongs to. `RtcController::participantCount` answers for the
+    /// ROOM, so every call row in a room bound to it identically — and while
+    /// any call was up, EVERY historical "started a call" row grew a Join
+    /// button. Reported by the maintainer looking at a room with a day of
+    /// call history in it. MatrixRTC has one session per room, so joining
+    /// from an old row and from the newest are the same action; the defect is
+    /// that a row reading as history offers it at all.
+    QString latestCallEventId() const { return m_latestCallEventId; }
     /// The loaded rows that are REAL events — date dividers, the read marker
     /// and the timeline-start row excluded.
     ///
@@ -323,6 +337,10 @@ public:
     // testable without a backend, and so every reader — grouping, roles,
     // the divider scan — asks exactly one question.
     static bool isCallEventRow(const TimelineEvent &e);
+    /// Recomputes latestCallEventId() and emits when it moves. Called
+    /// wherever the row set changes; cheap because it scans from the newest
+    /// end and stops at the first call row.
+    void refreshLatestCallEvent();
     // Presentation-layer sentence for a call row. Same contract as
     // profileChangeDescription: the bridge sends NO sentence, this builds
     // the translated one with the actor's resolved display name.
@@ -510,6 +528,7 @@ Q_SIGNALS:
                              const QString &json, const QVariantMap &encryption);
     void roomIdChanged();
     void countChanged();
+    void latestCallEventIdChanged();
     void typingTextChanged();
     void paginationChanged();
     // v0.5.11: a backward-pagination batch prepended `count` rows; existing
@@ -724,6 +743,8 @@ private:
     QSet<QString> m_spoilersRevealed;
     QString m_selfUserId;
     QList<TimelineEvent> m_events;
+    /// Cache for latestCallEventId(); see refreshLatestCallEvent().
+    QString m_latestCallEventId;
     // Loaded thread replies per root event id. IsThreadRootRole and
     // ThreadReplyCountRole used to answer by scanning the WHOLE event list
     // on every query, and every delegate binds both — so each instantiated

@@ -1088,6 +1088,12 @@ Item {
             actorName: model.senderDisplayName || ""
             actorAvatarMxc: model.senderAvatarMxc || ""
             sentence: model.callEventText || ""
+            // Only the newest call row in the room carries Join; see
+            // CallEventDelegate.isLatestCallRow for why. The model tracks it
+            // so the row does not have to scan the timeline itself.
+            isLatestCallRow: !root.timelineModel
+                             || !root.timelineModel.latestCallEventId
+                             || root.timelineModel.latestCallEventId === (model.eventId || "")
             video: model.callIsVideo === true
             declinedCount: model.callDeclinedCount || 0
             timestamp: model.timestamp

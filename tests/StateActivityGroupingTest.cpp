@@ -121,6 +121,8 @@ private Q_SLOTS:
     void cleanup();
 
     void aCallIsNotARoomUpdate();
+
+    void onlyTheNewestCallRowCanBeJoined();
     void aCallBreaksTheActivityRunAroundIt();
     void consecutiveStateChangesFormOneGroup();
     void exposesTypedMembershipAndRoomStateEntries();
@@ -179,6 +181,54 @@ void StateActivityGroupingTest::cleanup()
 // "m.call") deliberately: that is what a cached row and the mock/HTTP backends
 // still produce, so this pins that those render identically to the new typed
 // row rather than falling back into the activity group.
+// A ROOM WITH CALL HISTORY GREW A COLUMN OF JOIN BUTTONS.
+//
+// `CallEventDelegate.sessionLive` is `app.rtc.participantCount(roomId) > 0` —
+// an answer about the ROOM, because that is the only question RtcController
+// can answer. Every call row in the room bound to it identically, so the
+// moment anyone was in a call, every historical "started a call" row offered
+// Join. Reported by the maintainer looking at a day of call history.
+//
+// The model now names the newest call row and the delegate stands down when
+// it is not that row. This pins the model half: the id must be the NEWEST
+// call row, must ignore ordinary messages between them, and must move when a
+// newer call arrives.
+//
+// ON THE UNFIXED TREE latestCallEventId does not exist at all.
+void StateActivityGroupingTest::onlyTheNewestCallRowCanBeJoined()
+{
+    TimelineEvent older = makeStateChange(QStringLiteral("$call-older"),
+                                          QString{}, QStringLiteral("m.call"));
+    TimelineEvent chatter = makeMessage(QStringLiteral("$chatter"),
+                                        QStringLiteral("unrelated"));
+    TimelineEvent newer = makeStateChange(QStringLiteral("$call-newer"),
+                                          QString{}, QStringLiteral("m.call"));
+    m_client->mirror = { older, chatter, newer };
+    m_model->setRoomId(kRoom);
+
+    QCOMPARE(m_model->latestCallEventId(), QStringLiteral("$call-newer"));
+
+    // It must MOVE when a newer call lands, or the row that keeps the button
+    // is the one that has just become history.
+    QSignalSpy moved(m_model, &TimelineModel::latestCallEventIdChanged);
+    TimelineEvent newest = makeStateChange(QStringLiteral("$call-newest"),
+                                           QString{}, QStringLiteral("m.call"));
+    m_client->mirror = { older, chatter, newer, newest };
+    m_model->setRoomId(QString{});
+    m_model->setRoomId(kRoom);
+    QCOMPARE(m_model->latestCallEventId(), QStringLiteral("$call-newest"));
+    QVERIFY2(moved.count() > 0,
+             "latestCallEventId changed without notifying, so a QML binding "
+             "on it would keep the Join button on the wrong row");
+
+    // A room with no calls names nothing — the delegate's permissive default
+    // must not be defeated by an empty string comparing equal to an id.
+    m_client->mirror = { chatter };
+    m_model->setRoomId(QString{});
+    m_model->setRoomId(kRoom);
+    QVERIFY(m_model->latestCallEventId().isEmpty());
+}
+
 void StateActivityGroupingTest::aCallIsNotARoomUpdate()
 {
     TimelineEvent call = makeStateChange(QStringLiteral("$call"), QString{},

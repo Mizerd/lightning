@@ -39,6 +39,14 @@ inline QString memberLookupRoomId(const QString &id)
 TimelineModel::TimelineModel(QObject *parent)
     : QAbstractListModel(parent)
 {
+    // ONE HOOK, NOT TWENTY EMIT SITES. The row set changes in a dozen places
+    // and each already emits countChanged; hanging the recompute off that
+    // signal means a new insertion path cannot forget it. modelReset is
+    // covered separately because a reset does not always move the count.
+    connect(this, &TimelineModel::countChanged,
+            this, &TimelineModel::refreshLatestCallEvent);
+    connect(this, &TimelineModel::modelReset,
+            this, &TimelineModel::refreshLatestCallEvent);
     // Keep an active loaded-timeline search in sync as the timeline changes
     // (pagination prepend, decryption, edits, redactions). Recompute is O(n)
     // over the bounded loaded set and only runs while a search is active.
@@ -120,6 +128,23 @@ bool TimelineModel::isCallEventRow(const TimelineEvent &e)
     return e.type == TimelineEvent::StateChange
         && (e.stateKind == QLatin1String("m.call")
             || e.stateKind == QLatin1String("m.call.video"));
+}
+
+void TimelineModel::refreshLatestCallEvent()
+{
+    // Newest-end first, stopping at the first call row: a room with a day of
+    // call history costs one comparison, not a full scan.
+    QString found;
+    for (auto it = m_events.crbegin(); it != m_events.crend(); ++it) {
+        if (!isCallEventRow(*it))
+            continue;
+        found = it->eventId;
+        break;
+    }
+    if (found == m_latestCallEventId)
+        return;
+    m_latestCallEventId = found;
+    Q_EMIT latestCallEventIdChanged();
 }
 
 bool TimelineModel::isVisualMessage(const TimelineEvent &event) const

@@ -5751,6 +5751,83 @@ Item {
                  "the helper is gone");
     }
 
+    // EVERY CALL ROW IN A ROOM OFFERED JOIN, NOT JUST THE LIVE ONE.
+    //
+    // `sessionLive` is `app.rtc.participantCount(roomId) > 0` — an answer
+    // about the ROOM, because that is the only question RtcController can
+    // answer. Every call row bound to it identically, so while any call was
+    // up a room with a day of call history showed a column of Join buttons.
+    // Reported by the maintainer, 2026-09-13.
+    //
+    // This drives the REAL delegate rather than reading its source: a text
+    // scan cannot see whether `canJoin` actually consults the new property,
+    // and that is the whole claim. The row is given a live-looking session
+    // (participantCount is stubbed by the fixture's own `app`), so the ONLY
+    // difference between the two halves is isLatestCallRow.
+    void anOlderCallRowOffersNoJoinButton()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(QByteArray(R"(
+import QtQuick
+import MatrixClient
+Item {
+    property alias newest: newestRow
+    property alias older: olderRow
+    CallEventDelegate {
+        id: newestRow
+        roomId: "!r:mock.local"
+        sentence: "Alice started a call."
+        isLatestCallRow: true
+    }
+    CallEventDelegate {
+        id: olderRow
+        roomId: "!r:mock.local"
+        sentence: "Alice started a call."
+        isLatestCallRow: false
+    }
+}
+)"), QUrl(QStringLiteral("qrc:/fixture/CallRowJoin.qml")));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+
+        auto *older = root->property("older").value<QObject *>();
+        auto *newest = root->property("newest").value<QObject *>();
+        QVERIFY(older);
+        QVERIFY(newest);
+        // The property is REAL and TRACKS, on the loaded component.
+        QVERIFY2(older->property("isLatestCallRow").isValid(),
+                 "CallEventDelegate does not declare isLatestCallRow, so the "
+                 "host cannot tell it which row owns the live session");
+        QVERIFY2(older->property("supersededByNewerCall").toBool(),
+                 "an older call row does not consider itself superseded");
+        QVERIFY2(!newest->property("supersededByNewerCall").toBool(),
+                 "the newest call row believes it has been superseded");
+
+        // AND THAT canJoin ACTUALLY CONSULTS IT — which this fixture cannot
+        // prove by reading canJoin, and saying so is the point. With no `app`
+        // in the test context `sessionLive` is false anyway, so canJoin is
+        // false on ANY tree and asserting it here passes with the gate
+        // deleted. Measured: removing `&& !supersededByNewerCall` from the
+        // expression left the loaded-component assertions green. So the
+        // coupling is pinned against the SOURCE, where the mutation does
+        // fail — the same shape as everyCallControllerMemberQmlUsesActuallyExists.
+        QFile delegateSource(QStringLiteral(QML_DIR "/CallEventDelegate.qml"));
+        QVERIFY2(delegateSource.open(QIODevice::ReadOnly | QIODevice::Text),
+                 qPrintable(delegateSource.errorString()));
+        const QString qml = QString::fromUtf8(delegateSource.readAll());
+        const int canJoinAt = qml.indexOf(QStringLiteral("readonly property bool canJoin:"));
+        QVERIFY2(canJoinAt >= 0, "canJoin is gone from CallEventDelegate");
+        const int exprEnd = qml.indexOf(QStringLiteral("\n\n"), canJoinAt);
+        const QString canJoinExpr =
+            qml.mid(canJoinAt, (exprEnd < 0 ? qml.size() : exprEnd) - canJoinAt);
+        QVERIFY2(canJoinExpr.contains(QStringLiteral("supersededByNewerCall")),
+                 qPrintable(QStringLiteral(
+                     "canJoin does not consult supersededByNewerCall, so every "
+                     "call row in a room offers Join while any call is live. "
+                     "Expression was: %1").arg(canJoinExpr)));
+    }
+
 private:
     QTemporaryDir m_configHome;
 };
