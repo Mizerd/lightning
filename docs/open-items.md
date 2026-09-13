@@ -26,10 +26,13 @@ counters climbing at the end. This was the longest-standing unexercised call
 fix.
 
 Also closed on a PACKAGE for the first time, all flatpak: screen share through
-the portal (rendered on the far end, not merely counted), share audio, two-way
-call audio, group power control, threads end to end, the command palette
-executing an action, a real freedesktop notification, the updater's check, and
-token + crypto-store persistence across a restart. Detail and the full
+the portal (the RECEIVING client's own window drew the desktop, on the default
+RHI backend — not a counter and not the sharer's self-view), share audio, call
+audio FRAMES in both directions (**audibility remains NOT TESTED**), group
+power control, threads end to end, the command palette executing an action, a
+freedesktop notification being DISPLAYED (its Reply and Mark-as-read actions
+were not pressed), the updater's check, and token + crypto-store persistence
+across a restart. Detail and the full
 NOT-TESTED residue in `docs/round-history.md`, 2026-09-13 (afternoon).
 
 **Still NOT TESTED after it**: everything signed-in on the SNAP (it is not

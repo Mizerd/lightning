@@ -2083,6 +2083,15 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     // stayed undecryptable above replies that had decrypted fine
     // (docs/round-history.md, 2026-09-11). Raised in review of the fix that
     // introduced the cache.
+    //
+    // The other in-place path, onEventReplaced (local id -> remote id on a
+    // send), is deliberately NOT hooked: it renames the row wholesale and
+    // emits no countChanged, but it is reached only for entries in
+    // m_pendingSends, and a call row is an `m.call.member` state event that
+    // is never a local echo. If that ever changes, the cache would name a
+    // dead id and Join would vanish from the LIVE call rather than appearing
+    // on old ones. Every other mutation path emits: onEventRemovedAt,
+    // onEventsTruncatedTo, reload and onLoggedOut.
     const bool callnessChanged =
         isCallEventRow(m_events.at(index)) != isCallEventRow(event);
     forgetRenderedHtml(m_events.at(index).eventId);

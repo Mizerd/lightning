@@ -5841,6 +5841,51 @@ Item {
                      "Expression was: %1").arg(canJoinExpr)));
     }
 
+    // ---- and the HOST actually hands the model's answer to the delegate ----
+
+    void theCallRowIsToldWhichRowIsTheNewest()
+    {
+        // THE THIRD LINK IN THE CHAIN, and it was the one nothing pinned.
+        // The model computes `latestCallEventId` (state-activity-grouping),
+        // the delegate derives `supersededByNewerCall` from `isLatestCallRow`
+        // and gates canJoin on it (above) -- and in between, MessageDelegate
+        // has to pass one to the other. `isLatestCallRow` defaults to TRUE on
+        // purpose, so that a host which cannot answer (a standalone load, a
+        // backend with no such model) still shows Join rather than hiding it.
+        // Delete the three-line binding and that permissive default takes
+        // over on EVERY row: every call row in the room offers Join again,
+        // which is the maintainer's original report, and every suite stays
+        // green. Raised in review of 8406f33/2a70239.
+        QFile hostSource(QStringLiteral(QML_DIR "/MessageDelegate.qml"));
+        QVERIFY2(hostSource.open(QIODevice::ReadOnly | QIODevice::Text),
+                 qPrintable(hostSource.errorString()));
+        const QString host = QString::fromUtf8(hostSource.readAll());
+        const int bindAt = host.indexOf(QStringLiteral("isLatestCallRow:"));
+        QVERIFY2(bindAt >= 0,
+                 "MessageDelegate no longer tells CallEventDelegate which row "
+                 "is the newest call, so the delegate's permissive default "
+                 "puts Join back on every call row in the room");
+        // Bounded to the binding's own statement: the end is the next
+        // property at the same indent, and NOT finding one is a failure
+        // rather than a fallback that would cover the rest of the file.
+        const int bindEnd =
+            host.indexOf(QRegularExpression(QStringLiteral("\n            [A-Za-z]")),
+                         bindAt + 1);
+        QVERIFY2(bindEnd > bindAt,
+                 "could not find the end of the isLatestCallRow binding");
+        const QString bindExpr = host.mid(bindAt, bindEnd - bindAt);
+        QVERIFY2(bindExpr.contains(QStringLiteral("latestCallEventId")),
+                 qPrintable(QStringLiteral(
+                     "isLatestCallRow is not bound to the model's "
+                     "latestCallEventId, so it cannot know which row is "
+                     "newest. Expression was: %1").arg(bindExpr)));
+        QVERIFY2(bindExpr.contains(QStringLiteral("model.eventId")),
+                 qPrintable(QStringLiteral(
+                     "isLatestCallRow does not compare against this row's own "
+                     "event id, so every row would answer the same. "
+                     "Expression was: %1").arg(bindExpr)));
+    }
+
 private:
     QTemporaryDir m_configHome;
 };

@@ -219,8 +219,11 @@ private:
     // observed disagreeing on a live account. This keeps the room list's.
     /// Returns the ids it could NOT account for, because their room was not
     /// known to the client yet. Those are kept and retried; see
-    /// m_seedAwaitingRooms.
-    QStringList reconcileSeedAgainstRoomCounts(const QStringList &seededIds);
+    /// m_seedAwaitingRooms. `flippedAny`, when given, reports whether any row
+    /// actually changed — the retry needs that to avoid republishing for a
+    /// batch that changed nothing.
+    QStringList reconcileSeedAgainstRoomCounts(const QStringList &seededIds,
+                                               bool *flippedAny = nullptr);
     /// Re-resolve the ids the seed had to fall back to, once the answers
     /// exist. Empty roomId means "every pending row"; a room id narrows it to
     /// that room, which is what membersChanged carries.

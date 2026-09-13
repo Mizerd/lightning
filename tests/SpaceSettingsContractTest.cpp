@@ -251,9 +251,28 @@ private Q_SLOTS:
                  "the Space Home action row is back inside a RowLayout, which "
                  "does not wrap -- its buttons run off the right edge of a "
                  "narrow pane and some are unreachable");
+        // Bounded to the Flow's OWN block: its closing brace is the first
+        // line at the Flow's indent that is a bare `}`. A fixed character
+        // window ran past it into the following siblings, so an unrelated
+        // neighbouring row gaining a spacer would have failed this case and
+        // two more buttons here would have hidden a re-added one. Raised in
+        // review, and it is the same fail-open shape the other slices in this
+        // round were tightened for.
+        const int lineStart = pane.lastIndexOf(QLatin1Char('\n'), flowAt) + 1;
+        const QString indent = QString(flowAt - lineStart, QLatin1Char(' '));
+        const int flowEnd = pane.indexOf(QLatin1Char('\n') + indent
+                                             + QStringLiteral("}"),
+                                         flowAt);
+        QVERIFY2(flowEnd > flowAt, "could not find the end of the Flow block");
+        const QString row = pane.mid(flowAt, flowEnd - flowAt);
+        QVERIFY2(row.contains(QStringLiteral("objectName: \"spaceCreateRoomButton\"")),
+                 "the Flow block located here is not the action row");
+        QVERIFY2(row.contains(QStringLiteral("Layout.fillWidth: true")),
+                 "the Flow does not fill the pane's width, so it wraps "
+                 "against its own implicit width instead of the space "
+                 "available");
         // A fillWidth spacer is a RowLayout idiom; inside a Flow it is an
         // ordinary child that would consume a whole row.
-        const QString row = pane.mid(flowAt, createAt - flowAt + 3000);
         QVERIFY2(!row.contains(QStringLiteral("Item { Layout.fillWidth: true }")),
                  "a fillWidth spacer survived the move into the Flow");
     }

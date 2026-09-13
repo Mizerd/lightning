@@ -1004,6 +1004,52 @@ private Q_SLOTS:
         h.client.roomSet = { late };
         Q_EMIT h.client.roomsChanged();
         QCOMPARE(h.model.unseenCount(), 1);
+
+        // WHICH row keeps the badge is the point, not just how many. Spending
+        // the budget oldest-first would satisfy the count above while
+        // silently marking the user's most RECENT mention read -- the exact
+        // inversion of what the budget is for. m_entries is newest-first, so
+        // row 0 is $late3. Raised in review.
+        QCOMPARE(h.row(0).value(QStringLiteral("entryId")).toString(),
+                 QStringLiteral("$late3"));
+        QCOMPARE(h.row(0).value(QStringLiteral("seen")).toBool(), false);
+        QCOMPARE(h.row(1).value(QStringLiteral("seen")).toBool(), true);
+        QCOMPARE(h.row(2).value(QStringLiteral("seen")).toBool(), true);
+
+        // AND THE RETRY MUST NOT SPEND THE BUDGET TWICE. That is the
+        // load-bearing sentence of the fix -- a room is unknown as a whole, so
+        // the retry carries only ids whose room was never reconciled -- and
+        // nothing exercised it. A second payload for the same room must
+        // change nothing at all.
+        Q_EMIT h.client.roomsChanged();
+        QCOMPARE(h.model.unseenCount(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("seen")).toBool(), false);
+    }
+
+    // A LIVE highlight gets the same treatment as a seeded one. The first
+    // version of this fix set the pending flags in seed() alone, so an
+    // ordinary mention whose TimelineEvent carried no senderDisplayName kept
+    // its raw MXID for the session with no way back -- the identical symptom
+    // the fix claims to have closed, reachable without the seed at all.
+    // Raised in review.
+    void aLiveMentionAlsoLearnsItsSenderName()
+    {
+        Harness h;
+        h.client.displayNames.clear();
+        TimelineEvent m = text(QStringLiteral("$live1"),
+                               QStringLiteral("@bob:mock.local"),
+                               QStringLiteral("hey @me"), 5000);
+        m.senderDisplayName.clear();     // the roster has not landed
+        m.mentionsMe = true;
+        QVERIFY(h.model.ingest(m, QStringLiteral("Design Review")));
+        QCOMPARE(h.row(0).value(QStringLiteral("senderName")).toString(),
+                 QStringLiteral("@bob:mock.local"));
+
+        h.client.displayNames.insert(QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("Bob"));
+        Q_EMIT h.client.membersChanged(kRoom);
+        QCOMPARE(h.row(0).value(QStringLiteral("senderName")).toString(),
+                 QStringLiteral("Bob"));
     }
 };
 

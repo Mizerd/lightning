@@ -38,9 +38,9 @@ predates both, which is why the capture still shows it.
 
 | what | evidence |
 |---|---|
-| screen share through the portal | `screen share portal ready node= 137 remote_fd= true`, `capture negotiated 2560x1600`, `publish first encoded frame afterPublishMs= 163`; the peer RENDERS the desktop (a picture, not a counter) |
+| screen share through the portal | SHARER: `screen share portal ready node= 137 remote_fd= true`, `capture negotiated 2560x1600`, `publish first encoded frame afterPublishMs= 163`. RECEIVER: the AppImage's OWN window, captured separately, drew the flatpak's desktop in its stage tile — NOT the sharer's self-view, and on the default RHI backend, not `QT_QUICK_BACKEND=software`. That distinction is what §16's WITHDRAWN 1 exists for |
 | share audio | `share audio published perApplication= false`, with the honest output-monitor warning |
-| two-way call audio | `frames in the clear out` AND `in` both climbing; `a receive chain is RUNNING` |
+| call audio FRAMES, both directions — **not audibility** | `frames in the clear out` AND `in` both climbing; `a receive chain is RUNNING`. Nobody listened, and the flatpak's microphone volume was at 0% from an earlier round, so what is proven is that frames reach each peer's decryptor in the clear |
 | group power control | Member -> Moderator -> Member, live, with the confirmation dialog; the member list regrouped under "Moderator — 1" and two `m.room.power_levels` events landed |
 | threads | context-menu `T` opens the panel; a reply renders in the panel, the room shows a "1 reply" summary card, and §8 holds — the reply is NOT a standalone row in main |
 | command palette | Ctrl+Shift+K, fuzzy match, and the action EXECUTES (theme 9 -> 10 on disk and on screen, back again) |
@@ -67,9 +67,11 @@ predates both, which is why the capture still shows it.
    never-checked. Fixed.
 3. **The Space Home action row ran off the pane.** Six buttons in a RowLayout,
    which does not wrap: at ~850 logical px "People (1)" lost its bracket and
-   "Space settings" was off screen and unreachable. Now a Flow. Source-correct
-   and the module loads; the wrapped row itself is NOT re-validated on a
-   package.
+   "Space settings" was off screen and unreachable. Now a Flow. Source-correct,
+   but NOT instantiated by any test — the whole Space Home tree lives inside a
+   `Component`, which `timeline-pane-qml` loads and never builds — so that is a
+   parse-level claim only, and the wrapped row itself is NOT re-validated on a
+   package either.
 4. **The snap is not signed in and could not be swept.** Its window sits on the
    login screen with no account record at all (`matrix-client.conf` carries a
    homeserver URL, window geometry and an update timestamp — no account
@@ -107,13 +109,27 @@ be a separate window; nothing here uses one.
   Master/Self-signing/User-signing and secret storage all "Missing"), so the
   encrypted room's history is undecryptable on both devices — correct Matrix
   behaviour, not a defect. Setting it up means putting a generated recovery key
-  on screen and therefore in a capture, which §6 forbids. Needs a human.
+  on screen and therefore in a capture, which §6 forbids. **Declined for
+  CAPTURE reasons, not test reasons** — it is runnable capture-free by a human,
+  or by automation with captures off, taking the evidence from the Sessions
+  panel afterwards (the three cross-signing rows flipping from "Missing") and
+  from the log. Do not read it as impossible.
 - **Everything signed-in on the snap**, for the reason above.
 - **Media send and the file chooser**, deliberately: the flatpak's chooser
   reaches the maintainer's own home and exposed personal filenames in an
   earlier round.
 - **Audibility** of any of it. Nobody listened; the flatpak's microphone volume
-  is at 0% from an earlier test.
+  was at 0% from an earlier test (reset to 100% at the end of this round).
+- **The notification's ACTIONS.** The toast appeared carrying Reply and Mark as
+  read; neither was pressed, so click routing and inline reply are display-only
+  claims here. §12 wants actual desktop interaction for those.
+- **The call stage's tile grid** — two tiles were on screen and correct in the
+  captures, but nothing checked names, mute badges or the speaker ring against
+  a known state.
+- **The updater past the check**: a flatpak must REFUSE to self-install, and
+  that refusal's wording was not exercised.
+- **Element interoperability.** Both ends here were Lightning, so nothing in
+  this round is an interop claim.
 
 One rig note worth keeping: before sharing the screen, MINIMISE every
 non-Lightning window first. The portal's picker still lists them with

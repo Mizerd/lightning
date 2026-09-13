@@ -80,16 +80,36 @@ void ActivityModel::setClient(MatrixClient *client)
         if (m_seedAwaitingRooms.isEmpty())
             return;
         const QStringList pending = std::move(m_seedAwaitingRooms);
-        m_seedAwaitingRooms = reconcileSeedAgainstRoomCounts(pending);
-        if (pending.size() != m_seedAwaitingRooms.size()) {
-            rebuildVisible();
+        bool flipped = false;
+        m_seedAwaitingRooms =
+            reconcileSeedAgainstRoomCounts(pending, &flipped);
+        // ONLY when a row actually changed, and a dataChanged rather than a
+        // reset. `seenMark` is not part of passesFilter(), so no row's
+        // VISIBILITY can move here — a rebuildVisible() would be a full model
+        // reset (losing the list's scroll position and every delegate's
+        // state) to republish one role. And the obvious gate, "the pending
+        // list shrank", is true in the common case where the room arrives
+        // with highlightCount 0 and every row was already marked read: a
+        // reset for nothing. Raised in review; markAllSeen() is the
+        // precedent for the shape.
+        if (flipped && !m_visible.isEmpty()) {
+            Q_EMIT dataChanged(index(0), index(m_visible.size() - 1),
+                               { SeenRole });
             Q_EMIT unseenCountChanged();
         }
     });
-    // A member snapshot, which is what turns a seeded sender id into a name.
+    // A member snapshot, which is what turns a sender id into a name.
     // membersChanged and NOT roomMemberEventSeen: the latter fires per member
     // event in a busy bridged room and is documented as reaching only the
     // roster refetch consumers.
+    //
+    // SCOPE, because it is not unconditional: this is emitted only for a
+    // FULL roster (`RustSdkMatrixClient` suppresses it while `partial`), and
+    // the fetch is started from room open, Room Information, mention
+    // suggestions and SpaceManager -- so a row in a room the user never opens
+    // keeps its id. The roomsChanged sweep above is what catches the rest: it
+    // re-resolves with no room id, so a name that reached the member cache
+    // through a partial merge is still picked up on the next room payload.
     connect(m_client, &MatrixClient::membersChanged, this,
             [this](const QString &roomId) { resolvePendingSeedNames(roomId); });
 }
@@ -554,9 +574,14 @@ bool ActivityModel::ingest(const TimelineEvent &event, const QString &roomName)
     e.kind = kind;
     e.roomId = event.roomId.isEmpty() ? QString() : event.roomId;
     e.roomName = roomName;
+    e.roomNamePending = roomName.isEmpty() || roomName == e.roomId;
     e.senderId = event.sender;
     e.senderName = event.senderDisplayName.isEmpty() ? event.sender
                                                      : event.senderDisplayName;
+    // Same placeholder treatment as the seed: a live highlight can arrive
+    // before this room's roster does, and an id is not an answer. The
+    // resolver works off these flags, not off "seededness".
+    e.senderNamePending = e.senderName == e.senderId;
     e.preview = previewOf(event);
     e.encrypted = event.undecryptable;
     e.timestampMs = event.timestamp.isValid() ? event.timestamp.toMSecsSinceEpoch() : 0;
@@ -582,8 +607,10 @@ bool ActivityModel::noteReaction(const QString &roomId, const QString &roomName,
     e.kind = QStringLiteral("reaction");
     e.roomId = roomId;
     e.roomName = roomName;
+    e.roomNamePending = roomName.isEmpty() || roomName == e.roomId;
     e.senderId = senderId;
     e.senderName = senderName.isEmpty() ? senderId : senderName;
+    e.senderNamePending = e.senderName == e.senderId;
     e.reactionKey = key.left(32);
     e.preview = e.reactionKey;
     e.timestampMs = timestampMs;
@@ -602,9 +629,15 @@ bool ActivityModel::noteInvite(const RoomInfo &room)
     e.kind = QStringLiteral("invite");
     e.roomId = room.id;
     e.roomName = room.name.isEmpty() ? room.id : room.name;
+    e.roomNamePending = room.name.isEmpty();
     e.senderId = room.inviterUserId;
     e.senderName = room.inviterDisplayName.isEmpty() ? room.inviterUserId
                                                      : room.inviterDisplayName;
+    // An INVITE is the one place a raw id is genuinely likely to stick: the
+    // client is not in the room, so no roster is ever fetched for it. The
+    // flag costs nothing and the roomsChanged sweep can still answer the room
+    // half from the invite's own payload.
+    e.senderNamePending = e.senderName == e.senderId;
     e.timestampMs = QDateTime::currentMSecsSinceEpoch();
     return addEntry(std::move(e));
 }
@@ -714,8 +747,11 @@ void ActivityModel::seed(const QVariantList &entries)
 // count that is exactly as fresh.
 //
 // A row the server already called read is never un-marked here.
-QStringList ActivityModel::reconcileSeedAgainstRoomCounts(const QStringList &seededIds)
+QStringList ActivityModel::reconcileSeedAgainstRoomCounts(const QStringList &seededIds,
+                                                          bool *flippedAny)
 {
+    if (flippedAny)
+        *flippedAny = false;
     if (!m_client || seededIds.isEmpty())
         return {};
     const QSet<QString> seeded(seededIds.begin(), seededIds.end());
@@ -761,6 +797,8 @@ QStringList ActivityModel::reconcileSeedAgainstRoomCounts(const QStringList &see
             continue;
         }
         e.seenMark = true;
+        if (flippedAny)
+            *flippedAny = true;
     }
     return deferred;
 }

@@ -366,7 +366,13 @@ private Q_SLOTS:
         const int propIdx = section.indexOf(QStringLiteral(
             "readonly property bool everChecked:"));
         QVERIFY2(propIdx >= 0, "everChecked is gone from UpdatesSettingsSection");
-        const QString propBlock = section.mid(propIdx, 200);
+        // Bounded to the declaration, not to a fixed character count: the end
+        // is the next line at the same indent that starts a new statement.
+        const int propEnd = section.indexOf(
+            QRegularExpression(QStringLiteral("\n    [A-Za-z/]")), propIdx + 1);
+        QVERIFY2(propEnd > propIdx,
+                 "could not find the end of the everChecked declaration");
+        const QString propBlock = section.mid(propIdx, propEnd - propIdx);
         QVERIFY(propBlock.contains(QStringLiteral(
             "!isNaN(root.um.lastCheckTime.getTime())")));
 

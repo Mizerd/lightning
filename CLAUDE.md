@@ -1497,8 +1497,11 @@ LOPSIDED symptom, which is the part that misleads: peers aged the membership
 out and rotated media keys WITHOUT that user, so they could still be HEARD
 (their own media kept flowing to an SFU that had never disconnected them) and
 could hear nobody. Fixed by `expires_for_refresh()` = `(now - created) +
-period`, saturating both ways. NOT live-validated — needs a real call held
-past five minutes.
+period`, saturating both ways. **LIVE-VALIDATED PASS 2026-09-13**: a
+two-party call between the packaged flatpak and an AppImage held 19m30s,
+~4x the window, both clients still reporting two participants and both
+clear-frame receive counters climbing at the end. See the live-validation
+entry below.
 
 **A RULE ENFORCED ON A FIELD THE ATTACKER CONTROLS IS NOT ENFORCED.** MSC2545
 sticker packs live in `im.ponies.room_emotes` — ROOM STATE any member can
@@ -1629,8 +1632,12 @@ minutes after the JOIN however often it was refreshed, lopsidedly (still heard,
 hearing nobody). Automation-driven, not Rokas.
 
 Everything else PASS in the same sweep, all on the confined flatpak: screen
-share through the portal (`remote_fd= true`, and the peer RENDERS a picture);
-share audio; two-way call audio; **group power control** (Member -> Moderator
+share through the portal — `remote_fd= true` on the sharer, and the RECEIVING
+client's stage tile drew the sharer's desktop, captured from the AppImage's own
+window on the default RHI backend, NOT the sharer's self-view and not
+`QT_QUICK_BACKEND=software` (the distinction §16's WITHDRAWN 1 exists for);
+share audio; **call audio FRAMES both directions** (clear-frame counters, in
+and out — audibility NOT TESTED, nobody listened); **group power control** (Member -> Moderator
 -> Member, real `m.room.power_levels`); threads (panel, reply, summary card,
 and §8 held); the Ctrl+Shift+K command palette EXECUTING an action; a real
 freedesktop notification with Reply/Mark as read; the updater (installation
@@ -1638,9 +1645,10 @@ type "Flatpak", check reaches the server); token AND crypto-store persistence
 across a restart; and §6's rule live — relaunched with no session bus, the
 unreadable secret store did NOT read as a missing account.
 
-Four defects found and fixed (Activity Center rows baking raw ids in for the
+THREE defects found and fixed (Activity Center rows baking raw ids in for the
 session plus its silent reconcile consequence; Updates contradicting itself;
-the Space Home row running off a narrow pane), **one claim WITHDRAWN before it
+the Space Home row running off a narrow pane), plus a fourth that could NOT be
+fixed here — the snap is not signed in — **one claim WITHDRAWN before it
 was acted on** (shortcuts are NOT dead under a menu — Lightning's menus are
 in-scene popups, not `xdg_popup`s), and two non-defects recorded so nobody
 "fixes" them (Lithuanian date dividers are `LC_TIME`; the three-hour timestamp

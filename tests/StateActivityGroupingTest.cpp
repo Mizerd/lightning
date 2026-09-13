@@ -235,6 +235,24 @@ void StateActivityGroupingTest::onlyTheNewestCallRowCanBeJoined()
              "move latestCallEventId, so the Join button stays on a row that "
              "is no longer a call");
 
+    // AND THE OTHER DIRECTION, which is the one the production causes name.
+    // `callnessChanged` is a != of two predicates, and narrowing it to
+    // `wasCall && !isCall` passes every assertion above while a row that
+    // BECOMES a call row through an in-place Set never takes the button --
+    // which is exactly what a late decryption or a re-set `stateKind` row
+    // does. Raised in review. Index 3 is the row the redaction above left as
+    // an ordinary message; turning it back into a call must reclaim the
+    // newest-call title from `$call-newer` at index 2.
+    const int before = moved.count();
+    TimelineEvent decrypted = makeStateChange(QStringLiteral("$call-newest"),
+                                              QString{}, QStringLiteral("m.call"));
+    Q_EMIT m_client->eventChangedAt(kRoom, 3, decrypted);
+    QCOMPARE(m_model->latestCallEventId(), QStringLiteral("$call-newest"));
+    QVERIFY2(moved.count() > before,
+             "an in-place Set that turned a row INTO a call row did not move "
+             "latestCallEventId, so the newest call is the one row without a "
+             "Join button");
+
     // A room with no calls names nothing — the delegate's permissive default
     // must not be defeated by an empty string comparing equal to an id. This
     // one goes through a reset deliberately: it is the room-switch path.
