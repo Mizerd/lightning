@@ -2074,6 +2074,17 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     // would silently keep the old number.
     const bool virtualnessChanged =
         m_events.at(index).isVirtual() != event.isVirtual();
+    // AN IN-PLACE SET CAN TURN A ROW INTO A CALL ROW, OR STOP IT BEING ONE,
+    // and this handler deliberately does not emit countChanged for it -- so
+    // the latest-call-row cache would keep naming the wrong row and the Join
+    // button would sit on it. A late decryption, an edit, a redaction and a
+    // cached `stateKind` row being re-set all arrive exactly this way,
+    // changing no row count: the same shape as the thread-root card that
+    // stayed undecryptable above replies that had decrypted fine
+    // (docs/round-history.md, 2026-09-11). Raised in review of the fix that
+    // introduced the cache.
+    const bool callnessChanged =
+        isCallEventRow(m_events.at(index)) != isCallEventRow(event);
     forgetRenderedHtml(m_events.at(index).eventId);
     forgetRenderedHtml(event.eventId);
     const bool hostedBefore = rowHostsReceipts(index);
@@ -2091,6 +2102,11 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
         emitPresentationGroupingChanged(index - 1, index + 1);
     if (virtualnessChanged)
         Q_EMIT countChanged();
+    // Not folded into the countChanged above: `callness` can change while
+    // `virtualness` does not, and emitting countChanged for it would make
+    // every consumer of `count` re-read for a change that did not touch it.
+    if (callnessChanged)
+        refreshLatestCallEvent();
 }
 
 void TimelineModel::onEventRemovedAt(const QString &roomId, int index)

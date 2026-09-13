@@ -5818,9 +5818,22 @@ Item {
         const QString qml = QString::fromUtf8(delegateSource.readAll());
         const int canJoinAt = qml.indexOf(QStringLiteral("readonly property bool canJoin:"));
         QVERIFY2(canJoinAt >= 0, "canJoin is gone from CallEventDelegate");
-        const int exprEnd = qml.indexOf(QStringLiteral("\n\n"), canJoinAt);
-        const QString canJoinExpr =
-            qml.mid(canJoinAt, (exprEnd < 0 ? qml.size() : exprEnd) - canJoinAt);
+        // BOUNDED TO THE STATEMENT, NOT TO A BLANK LINE. Slicing to the next
+        // "\n\n" fails OPEN: delete the blank line after the expression and
+        // the slice becomes the rest of the file, which contains
+        // `supersededByNewerCall` in its own declaration -- so the assertion
+        // would pass on a tree with the gate removed. Raised in review, and
+        // it is the same "a check that cannot fail" shape this case already
+        // exists to avoid. The end is the next declaration at the same
+        // indent, and NOT finding one is a failure rather than a fallback.
+        const int exprEnd =
+            qml.indexOf(QRegularExpression(QStringLiteral("\n    [A-Za-z/]")),
+                        canJoinAt + 1);
+        QVERIFY2(exprEnd > canJoinAt,
+                 "could not find the end of the canJoin expression, so the "
+                 "slice below would cover the rest of the file and pass "
+                 "trivially");
+        const QString canJoinExpr = qml.mid(canJoinAt, exprEnd - canJoinAt);
         QVERIFY2(canJoinExpr.contains(QStringLiteral("supersededByNewerCall")),
                  qPrintable(QStringLiteral(
                      "canJoin does not consult supersededByNewerCall, so every "

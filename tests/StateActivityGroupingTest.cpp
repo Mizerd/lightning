@@ -208,21 +208,36 @@ void StateActivityGroupingTest::onlyTheNewestCallRowCanBeJoined()
 
     QCOMPARE(m_model->latestCallEventId(), QStringLiteral("$call-newer"));
 
-    // It must MOVE when a newer call lands, or the row that keeps the button
-    // is the one that has just become history.
+    // IT MUST MOVE ON A LIVE APPEND, which is the production path: a call
+    // starts while the reader has the room open. An earlier version of this
+    // case "moved" the id by resetting the room, which exercises modelReset
+    // and says NOTHING about the countChanged hook the fix actually relies
+    // on -- it passed whether or not that hook worked. Raised in review.
     QSignalSpy moved(m_model, &TimelineModel::latestCallEventIdChanged);
     TimelineEvent newest = makeStateChange(QStringLiteral("$call-newest"),
                                            QString{}, QStringLiteral("m.call"));
-    m_client->mirror = { older, chatter, newer, newest };
-    m_model->setRoomId(QString{});
-    m_model->setRoomId(kRoom);
+    m_client->mirror.append(newest);
+    Q_EMIT m_client->eventAppended(kRoom, newest);
     QCOMPARE(m_model->latestCallEventId(), QStringLiteral("$call-newest"));
-    QVERIFY2(moved.count() > 0,
-             "latestCallEventId changed without notifying, so a QML binding "
-             "on it would keep the Join button on the wrong row");
+    QCOMPARE(moved.count(), 1);
+
+    // AND ON AN IN-PLACE SET, which changes no row count at all. A late
+    // decryption, an edit, a redaction and a cached `stateKind` row being
+    // re-set all arrive this way; redacting the newest call row must hand the
+    // button back to the one before it. Without the callness hook in
+    // onEventChangedAt this keeps naming a row that is no longer a call.
+    TimelineEvent redacted = makeMessage(QStringLiteral("$call-newest"),
+                                         QStringLiteral("[removed]"));
+    Q_EMIT m_client->eventChangedAt(kRoom, 3, redacted);
+    QCOMPARE(m_model->latestCallEventId(), QStringLiteral("$call-newer"));
+    QVERIFY2(moved.count() >= 2,
+             "an in-place Set that stopped a row being a call row did not "
+             "move latestCallEventId, so the Join button stays on a row that "
+             "is no longer a call");
 
     // A room with no calls names nothing — the delegate's permissive default
-    // must not be defeated by an empty string comparing equal to an id.
+    // must not be defeated by an empty string comparing equal to an id. This
+    // one goes through a reset deliberately: it is the room-switch path.
     m_client->mirror = { chatter };
     m_model->setRoomId(QString{});
     m_model->setRoomId(kRoom);
