@@ -73,6 +73,24 @@ tile.
 
 OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
 
+**`channels-home` IN SCREENSHOT-DEMO MODE RENDERS THE CLASSIC LAYOUT, NOT
+CHANNELS (found 2026-09-13, NOT diagnosed).** Launching
+`--demo-scenario=channels-home` produces a capture byte-comparable to
+`home-overview`: the same Home room list, the same timeline, no Channels
+column. `--demo-scenario=classic-home` and `channels-space` were not tried.
+
+It was found while capturing website screenshots, so the evidence is a picture
+rather than a log, and the scenario was simply dropped from that set. What is
+NOT established: whether the scenario fails to activate, activates and is
+overridden, or activates correctly and the capture happens before the layout
+switch lands. The last is plausible and cheap to test first -- the same
+capture run needed its delay raised from 3500ms to 9000ms before ANY timeline
+was populated, so this may be the same timing and not a defect at all.
+
+Worth an answer because the Channels layout is a shipped navigation mode and
+`channels-home` is how anyone would photograph it.
+
+
 **RECOVERY AND KEY BACKUP: FOUR KNOWN DEFECTS, NOT FIXED, AND THE WHOLE
 FEATURE IS STILL NOT TESTED BY USE (2026-09-13, shipped that way in 0.9.5).**
 The audit that found and fixed six of them (`2eb38b1`, round-history
