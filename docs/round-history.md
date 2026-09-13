@@ -19,7 +19,7 @@ session leaves in the real runtime dir sits one level up.
 | compositor | Qt: "no Qt platform plugin could be initialized", abort | relative `WAYLAND_DISPLAY` resolves inside the remapped runtime dir |
 | graphics | `software=0` never reached; app warns video will not display | payload has glvnd DISPATCH stubs only; the vendor driver is dlopened and `ldd` never saw it; core24 has no Mesa |
 | startup | SIGSEGV (exit 139) right after `window placement` | core24 carries no xkb keymaps and no fontconfig configuration |
-| audio | `micsrc` "Connection refused" → `srtpenc0: Could not initialize SRTP encoder` | PipeWire and Pulse sockets are one level up, same as the compositor |
+| audio capture | `micsrc` "Connection refused", no microphone in the picker | PipeWire and Pulse sockets are one level up, same as the compositor |
 
 Each was proved with a mutation both ways. The compositor: relative
 `WAYLAND_DISPLAY` aborts, a `$XDG_RUNTIME_DIR/wayland-0 -> ../wayland-0`
@@ -27,6 +27,25 @@ symlink starts. The audio pair, counting `pa_context_connect() failed`: **1**
 without the bridge, **0** with it. The crash was attributed to the missing
 data rather than to the renderer by a control: the identical payload run
 UNCONFINED with `QT_QUICK_BACKEND=software` ran fine for 35 s.
+
+**A CAUSAL CLAIM THIS ENTRY ORIGINALLY MADE IS WITHDRAWN.** It said the
+confined snap could send but not receive BECAUSE the microphone failure
+cascaded into `srtpenc0: Could not initialize SRTP encoder` and took the
+subscriber down with it. This repository's own code refutes that:
+`ensurePeer()` calls `gst_pipeline_new()` PER PEER
+(`SfuMediaEngine.cpp:966`, one `Peer` each for Publisher and Subscriber, each
+with its own bus and its own teardown), so a capture failure in the
+publisher's pipeline cannot by construction stop the subscriber's connection
+reaching `connected`. And `srtpenc` failing to initialise is what it reports
+with NO KEY — a symptom of a DTLS handshake that never completed, not a cause
+of one. The arrow may point the other way.
+
+What IS established: the sockets sit one level up, and bridging them fixes
+`pa_context_connect()` (mutation-proved both directions) — that is microphone
+capture and device enumeration, nothing more. **The confined snap's RECEIVE
+path is NOT TESTED and its cause is NOT ESTABLISHED**; recreating the
+container destroyed the snap's signed-in session before the fix could be
+re-tested. Do not read the bridge as having fixed it.
 
 **The fix**: the launcher bridges the compositor, PipeWire and Pulse sockets
 into snapd's per-snap runtime dir; the build stages xkb keymaps and the
