@@ -1621,6 +1621,35 @@ running-time version was measured in review at 2612 buffers from one
 injection and a permanently dead share. Full account in
 `docs/round-history.md`, 2026-09-12 (night).
 
+**2026-09-13 (evening) — THE SNAP COULD NEVER CARRY CALL MEDIA, AND THE CAUSE
+IS NSS. Sixth occurrence of "a library loads its own plugins", and the first to
+reach a shipped lane.** Debian builds **`libsrtp2` against NSS, not OpenSSL**.
+`ldd` names libnss3/libnspr4/libnssutil3/libplc4/libplds4, the ELF walk bundles
+all five, every payload check passes — and NSS does no crypto itself: it
+**dlopens `libsoftokn3.so`**, which dlopens `libfreebl3.so`, from a path
+derived at RUNTIME. Nothing staged them. Unconfined the host's NSS is found and
+this is invisible; under strict confinement `/usr` is core24's, which has NO
+NSS, so libsrtp returns `init_fail` (err 5), `srtpenc` posts "Could not
+initialize SRTP encoder", the publisher dies and the subscriber never gets a
+receive pad. **The AppImage carries the identical gap** and is one NSS-less
+host away from the same failure. Fixed by staging the four NSS modules beside
+`libnss3.so` in `build-appimage.sh`, asserted BY NAME in both validators.
+**NOT YET VERIFIED ON AN ARTEFACT.**
+
+FOUR HYPOTHESES WERE KILLED FIRST and must not be re-proposed: a missing
+GStreamer plugin (29 staged, env points at them); the publisher's bus error
+tearing the call down (`handleBusMessage` deliberately never calls `failed()`);
+a Matrix-level failure (membership, media key, SDP and ICE all verified good);
+and OpenSSL provider loading (`OPENSSL_CONF=/dev/null` changed nothing). What
+settled it was `GST_DEBUG=dtls*:6,srtpenc:5` INSIDE the confinement: DTLS
+COMPLETES and hands srtpenc a correct 30-byte aes-128-icm key, and libsrtp
+fails to initialise with it.
+
+**AND DO NOT PUSH TO `main` WHILE A PIPELINE IS RUNNING.** `resolve-source`
+pins the SHA; every later job re-clones `main` and refuses a different commit
+(`error: source ref moved`). Pipeline 211 lost two jobs to exactly that. That
+is the guard working — trigger, then hold.
+
 **2026-09-13 — THE FIVE-MINUTE MATRIXRTC MEMBERSHIP EXPIRY IS CLOSED: PASS,
 and it is the headline of a full packaged-flatpak GUI sweep.** A two-party call
 between the packaged flatpak and an AppImage was held **nineteen and a half

@@ -1,5 +1,81 @@
 # Round history
 
+## 2026-09-13 (evening) — the snap could never carry call media, and the reason was NSS
+
+**ROOT CAUSE, measured rather than reasoned about, and the SIXTH occurrence of
+"a library loads its own plugins" — the first to reach a shipped lane.**
+
+Debian builds **`libsrtp2` against NSS, not OpenSSL**. `ldd libsrtp2.so.1`
+names libnss3, libnspr4, libnssutil3, libplc4 and libplds4; linuxdeploy's ELF
+walk bundles all five and every payload assertion we have passes. But NSS does
+no crypto itself: it **dlopens `libsoftokn3.so`** (the PKCS#11 softoken), which
+in turn dlopens `libfreebl3.so`, from a directory derived at RUNTIME from
+libnss3's own path. No NEEDED list mentions them, so nothing staged them.
+
+Unconfined this is invisible — essentially every desktop Linux has NSS for its
+browser and NSS finds the host's copy. Under **strict confinement `/usr` is the
+BASE SNAP's and core24 has no NSS at all**, so there is nothing to fall back
+to: libsrtp cannot initialise a cipher, `srtp_add_stream` returns
+`init_fail` (err 5), `srtpenc` posts "Could not initialize SRTP encoder", the
+publisher pipeline dies and the subscriber never gets a receive pad.
+
+So the snap has **never** carried call media in either direction, while its
+signalling, membership, media-key distribution, SDP and ICE were all correct.
+That combination is exactly why it looked like anything but packaging.
+
+### Four hypotheses tested and killed first
+
+Each was the obvious next guess, and writing them down is the point:
+
+| hypothesis | how it died |
+|---|---|
+| a missing GStreamer plugin (the Windows `libgstsctp` shape) | 29 plugins staged at `usr/lib/gstreamer-1.0/` and `GST_PLUGIN_SYSTEM_PATH_1_0` points at them |
+| the publisher's bus error tearing the call down | `handleBusMessage` deliberately never calls `failed()` — it says so in its own comment — and the peers are separate `GstPipeline`s |
+| a Matrix-level failure | membership publishes, the snap's media key ARRIVES and installs on the peer, the SDP answer is correct, both peers reach `ice-connection-state = 3` |
+| OpenSSL provider loading (no `ossl-modules` in the payload) | relaunched with `OPENSSL_CONF=/dev/null`; `srtpenc` failed identically |
+
+### What settled it
+
+`GST_DEBUG=dtls*:6,srtpenc:5` **inside the confinement** (snapd passes it
+through). The DTLS handshake COMPLETES — `dtlsdec: using agent with generated
+cert`, then a correct 30-byte `aes-128-icm` key handed to srtpenc — and
+libsrtp then fails to initialise *with that key*. `Failed to add stream to SRTP
+encoder (err: 5)`. From there libsrtp2's own NEEDED list named NSS, and
+`/proc/<pid>/maps` inside the sandbox confirmed the bundled libcrypto loaded
+while no softoken existed anywhere on the system.
+
+### The fix
+
+`build-appimage.sh` stages `libsoftokn3`, `libfreebl3`, `libnssdbm3` and
+`libnssckbi` beside `libnss3.so`, which is where upstream NSS ships them and
+where NSS's own path derivation looks first. Both validators assert them BY
+NAME, so a regression names itself instead of arriving as a silent lane — the
+same shape as the xkb and fontconfig assertions and for the same reason: the
+base snap cannot supply it, so the payload must. `libnss3` is pinned explicitly
+in the build job rather than left to arrive as somebody's dependency, and that
+pin is mutation-proved.
+
+**The AppImage carries the identical gap** and is one NSS-less host away from
+the same failure, which is why the staging lives in the script both formats
+share.
+
+**NOT YET VERIFIED ON AN ARTEFACT.** This fixes the cause the evidence names;
+no built snap has carried these modules yet.
+
+### One confounder, and one operational trap
+
+The peer was still MUTED from the tile-badge test earlier in the day, which
+made a first reading look like "nobody is transmitting". Unmuted it reached
+4000 frames out while the snap stayed at zero.
+
+And **do not push to `main` while a pipeline is running.** Pipeline 211 lost
+`build-appimage` and `build-deb-ubuntu` to `error: source ref moved: expected
+fdbf9ac…, resolved 8e4ed2a…`. That is `prepare-pinned-source.sh` working
+exactly as designed — `resolve-source` pins the SHA and every later job
+re-clones `main` and refuses to build a different commit — but it means any
+push during a run fails everything after it. Trigger, then hold.
+
+
 ## 2026-09-13 (afternoon) — the packaged GUI sweep, and the five-minute call that did not drop
 
 Driven on the laptop against the two fixture accounts: the packaged **flatpak**
@@ -128,8 +204,8 @@ predates both, which is why the capture still shows it.
    container with `pipewire-pulse` and `xdg-desktop-portal`, or a real desktop
    session.
 
-   **STATUS: the confined snap's media path is BROKEN IN BOTH DIRECTIONS,
-   reproducible, cause NOT ESTABLISHED.** Note 0.9.4 already ships a Snap
+   **CAUSE ESTABLISHED THE SAME EVENING — see the NSS entry below, which is
+   the sixth occurrence of "a library loads its own plugins".** Note 0.9.4 already ships a Snap
    (`Lightning 0.9.4 — Snap amd64` is one of its ten package links) and that
    one could not even start — so this is not a regression, and everything
    above 0.9.4 strictly improves it.

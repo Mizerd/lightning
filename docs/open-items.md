@@ -39,8 +39,12 @@ after it muted), the updater's check, and token + crypto-store persistence
 across a restart. Detail and the full
 NOT-TESTED residue in `docs/round-history.md`, 2026-09-13 (afternoon).
 
-**THE CONFINED SNAP CARRIES NO MEDIA IN EITHER DIRECTION — OPEN, measured
-2026-09-13, cause NOT ESTABLISHED.** Everything else on the snap works: it
+**THE CONFINED SNAP CARRIES NO MEDIA IN EITHER DIRECTION — CAUSE ESTABLISHED
+AND FIXED IN SOURCE 2026-09-13, NOT YET VERIFIED ON AN ARTEFACT.** It is NSS:
+Debian builds libsrtp2 against NSS, which dlopens libsoftokn3/libfreebl3 from a
+runtime-derived path that no ELF walk can see, and core24 has no NSS to fall
+back to. The AppImage carries the same gap. Staged and asserted now; the next
+pipeline's snap is the test. Original investigation notes below. Everything else on the snap works: it
 starts, renders on real GL, signs in, syncs, notifies, joins a call and shows
 "Voice connected". But `frames in the clear` never appears in either
 direction and `received track` never fires. Three hypotheses are eliminated —
