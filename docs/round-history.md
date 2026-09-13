@@ -53,7 +53,7 @@ predates both, which is why the capture still shows it.
 | an unreadable secret store is not a missing account | relaunched WITHOUT `DBUS_SESSION_BUS_ADDRESS`: both account records survived and were offered under "Already on this device" — §6's rule, live |
 | member list, call survives a room switch, Activity Center, Settings (all nine panes, all eleven themes listed) | captured |
 
-### Five defects the sweep found
+### Six defects the sweep found
 
 1. **Activity Center rows baked raw ids in for the session.** The seed is
    dispatched on the first `Syncing`, which is the connection coming up, not a
@@ -84,7 +84,56 @@ predates both, which is why the capture still shows it.
    honest status as the Flow above: source-correct, pinned by a source scan,
    and NOT re-validated on a package — no test instantiates that Loader in a
    thread-root state either.
-5. **The snap is not signed in and could not be swept.** Its window sits on the
+5. **THE CONFINED SNAP CARRIES NO MEDIA IN EITHER DIRECTION — measured
+   2026-09-13 16:30 once Rokas signed it in, and three hypotheses are now
+   DEAD.** The snap itself is healthy everywhere else: it starts under strict
+   confinement, renders on `backend=opengl software=0`, signs in, syncs, shows
+   the whole room list and Spaces rail, raises a real desktop notification for
+   an incoming call, joins the call and shows "Voice connected".
+
+   What does NOT happen is any media at all. `frames in the clear` appears
+   ZERO times in either direction across two join attempts, and `received
+   track` never fires, so webrtcbin emits no receive pad. The first bus error
+   is always `srtpenc*: Could not initialize SRTP encoder`, with
+   `micsrc-actual-src-puls` and a `queue` "Internal data stream error"
+   cascading after it.
+
+   ELIMINATED, and each of these was the obvious next guess:
+   - **Not a missing plugin.** The payload carries 29 GStreamer plugins at
+     `/snap/lightning/x1/usr/lib/gstreamer-1.0/` — webrtc, srtp, dtls, nice,
+     rtp, rtpmanager, opus, sctp, pulseaudio, audioconvert, volume — and
+     `GST_PLUGIN_SYSTEM_PATH_1_0` points at them. This is NOT the Windows
+     `libgstsctp.dll` shape.
+   - **Not the publisher killing the call.** `handleBusMessage` deliberately
+     never calls `failed()` on a bus ERROR (it says so in its own comment, and
+     the reverted attempt is recorded there), so the publisher's death cannot
+     tear the subscriber down — and the peers are separate `GstPipeline`s
+     anyway.
+   - **Not a Matrix-level failure.** Membership publishes, the snap's media
+     key ARRIVES and installs on the peer, the subscriber's SDP answer is
+     correct (`[0 mid=0 application] [1 mid=1 audio dir=recvonly]`), and both
+     peer connections reach `ice-connection-state = 3`.
+
+   CONFOUNDER FOUND AND REMOVED, which is why the first reading was wrong: the
+   peer was still MUTED from the tile-badge test earlier in the round. Unmuted
+   it reached `frames in the clear out count= 4000` while the snap stayed at
+   zero, so "nobody was transmitting" is not the explanation.
+
+   RIG LIMITS THAT BOUND WHAT THIS CAN PROVE, both real and both in the
+   container rather than the package: there is **no audio daemon** (the Pulse
+   socket the launcher bridges is a stale file with nothing listening, which
+   is why `micsrc` errors), and **no portal at all**
+   (`org.freedesktop.portal.Desktop was not provided by any .service files`),
+   so screen share and camera are untestable here. Finishing this needs a snap
+   container with `pipewire-pulse` and `xdg-desktop-portal`, or a real desktop
+   session.
+
+   **STATUS: the confined snap's media path is BROKEN IN BOTH DIRECTIONS,
+   reproducible, cause NOT ESTABLISHED.** Note 0.9.4 already ships a Snap
+   (`Lightning 0.9.4 — Snap amd64` is one of its ten package links) and that
+   one could not even start — so this is not a regression, and everything
+   above 0.9.4 strictly improves it.
+6. **The snap was not signed in for most of this round.** Its window sits on the
    login screen with no account record at all (`matrix-client.conf` carries a
    homeserver URL, window geometry and an update timestamp — no account
    section), and signing it in needs a password typed into the app, which is

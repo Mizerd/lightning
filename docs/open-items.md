@@ -39,8 +39,21 @@ after it muted), the updater's check, and token + crypto-store persistence
 across a restart. Detail and the full
 NOT-TESTED residue in `docs/round-history.md`, 2026-09-13 (afternoon).
 
-**Still NOT TESTED after it**: everything signed-in on the SNAP (it is not
-signed in — no account record at all); recovery/key-backup setup and therefore
+**THE CONFINED SNAP CARRIES NO MEDIA IN EITHER DIRECTION — OPEN, measured
+2026-09-13, cause NOT ESTABLISHED.** Everything else on the snap works: it
+starts, renders on real GL, signs in, syncs, notifies, joins a call and shows
+"Voice connected". But `frames in the clear` never appears in either
+direction and `received track` never fires. Three hypotheses are eliminated —
+not a missing plugin (29 are staged and the env points at them), not the
+publisher's bus error tearing the call down (the handler never calls
+`failed()`), not Matrix-level (membership, media key, SDP answer and ICE all
+good). 0.9.4 already ships a Snap that could not start at all, so this is an
+improvement rather than a regression, but calls do NOT work on it. Two rig
+limits bound further work here: no audio daemon and no portal in the snap
+container. See round-history 2026-09-13.
+
+**Still NOT TESTED after it**: screen share and camera on the SNAP (no portal
+in that container); recovery/key-backup setup and therefore
 cross-user verification (both fixture accounts report cross-signing and secret
 storage "Missing", and the setup flow puts a generated recovery key on screen,
 which §6 forbids capturing); media send and the file chooser under either sandbox (ATTEMPTED on the
