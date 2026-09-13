@@ -7237,7 +7237,21 @@ Rectangle {
                         }
                     }
 
-                    RowLayout {
+                    // A Flow, NOT a RowLayout, and that is the fix for a
+                    // defect seen live on the packaged flatpak (2026-09-13):
+                    // up to six buttons live here and a RowLayout does not
+                    // wrap, so in a pane narrowed to ~850 logical px the row
+                    // ran straight off the right edge -- "People (1)" lost its
+                    // bracket and "Space settings" was gone entirely, with no
+                    // wrap and nothing to scroll. Which buttons are present is
+                    // permission- and state-dependent, so the row's width is
+                    // not knowable here; wrapping is the only shape that holds
+                    // for every combination. The trailing
+                    // `Item { Layout.fillWidth: true }` spacer that used to
+                    // left-align the RowLayout is GONE on purpose: a Flow is
+                    // left-aligned already, and a fillWidth spacer inside one
+                    // is an ordinary child that would take a whole row.
+                    Flow {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacingS
                         AppButton {
@@ -7303,7 +7317,6 @@ Rectangle {
                             text: qsTr("Show banner")
                             onClicked: app.settings.spaceBannersVisible = true
                         }
-                        Item { Layout.fillWidth: true }
                     }
 
                     Label {

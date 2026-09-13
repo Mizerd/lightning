@@ -227,6 +227,37 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("objectName: \"spaceRemoveAvatarButton\"")));
     }
 
+    // ---- the action row wraps instead of running off the pane ----
+
+    void theSpaceHomeActionRowWraps()
+    {
+        // SEEN LIVE on the packaged flatpak, 2026-09-13, in a pane about 850
+        // logical px wide: the row ran off the right edge -- "People (1)" lost
+        // its closing bracket and "Space settings" was not on screen at all,
+        // with nothing to wrap and nothing to scroll. Up to six buttons live
+        // in this row and which of them are present is permission- and
+        // state-dependent, so no fixed width can be assumed: it has to wrap.
+        const QString pane = readQml(QStringLiteral("TimelinePane.qml"));
+        QVERIFY(!pane.isEmpty());
+        const int createAt =
+            pane.indexOf(QStringLiteral("objectName: \"spaceCreateRoomButton\""));
+        QVERIFY2(createAt >= 0, "spaceCreateRoomButton is gone from Space Home");
+        // Walk BACK to the container that holds it, rather than forward from a
+        // guessed offset: the container's own line is what decides whether the
+        // row wraps.
+        const int flowAt = pane.lastIndexOf(QStringLiteral("Flow {"), createAt);
+        const int rowAt = pane.lastIndexOf(QStringLiteral("RowLayout {"), createAt);
+        QVERIFY2(flowAt > rowAt,
+                 "the Space Home action row is back inside a RowLayout, which "
+                 "does not wrap -- its buttons run off the right edge of a "
+                 "narrow pane and some are unreachable");
+        // A fillWidth spacer is a RowLayout idiom; inside a Flow it is an
+        // ordinary child that would consume a whole row.
+        const QString row = pane.mid(flowAt, createAt - flowAt + 3000);
+        QVERIFY2(!row.contains(QStringLiteral("Item { Layout.fillWidth: true }")),
+                 "a fillWidth spacer survived the move into the Flow");
+    }
+
     void everyEditUsesTheSharedRoomBackend()
     {
         const QString pane = readQml(QStringLiteral("TimelinePane.qml"));
