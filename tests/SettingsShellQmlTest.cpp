@@ -1472,6 +1472,54 @@ private slots:
     {
         QCOMPARE(m_warnings, QStringList{});
     }
+
+    // ---- the selected nav row's caret sits INSIDE the row ----
+
+    void theNavCaretDoesNotStraddleTheSelectionCorner()
+    {
+        // REPORTED FROM A REAL DESKTOP, 2026-09-13: the bolt caret looked
+        // broken. It was anchored at `leftMargin: -2`, deliberately
+        // overhanging the row -- and against a radiusTile background that put
+        // an 11px glyph across the pill's ROUNDED CORNER, half on the
+        // selection fill and half on the panel behind it. An overhang only
+        // reads as a caret if it clears the curve, which at this radius and
+        // this glyph size it never did.
+        //
+        // Geometry, not a source scan: this loads the real component and
+        // measures the caret against its own row, so it fails on the old
+        // negative margin for the actual reason rather than on a spelling.
+        // Self-sufficient: earlier cases leave a search term in the field,
+        // and a narrowed nav hides every row that does not match.
+        m_controller->showSettings();
+        QCoreApplication::processEvents();
+        if (auto *search = item("settingsSearchField")) {
+            search->setProperty("text", QString());
+            QCoreApplication::processEvents();
+        }
+
+        auto *nav = item("settingsNavRow_appearance");
+        QVERIFY(nav);
+        QTRY_VERIFY(nav->isVisible());
+        QVERIFY2(nav->property("highlighted").toBool(),
+                 "Appearance is the section Settings opens on, so its row is "
+                 "the selected one and the only one showing a caret");
+
+        auto *caret = nav->findChild<QQuickItem *>(QStringLiteral("settingsNavCaret"));
+        QVERIFY2(caret, "the selected nav row has no caret");
+        QTRY_VERIFY(caret->isVisible());
+
+        QVERIFY2(caret->x() >= 0.0,
+                 qPrintable(QStringLiteral(
+                     "the caret starts at x=%1, outside its own row, so it is "
+                     "drawn across the selection pill's rounded corner")
+                     .arg(caret->x())));
+        const qreal contentInset = nav->property("leftPadding").toReal();
+        QVERIFY2(caret->x() + caret->width() <= contentInset,
+                 qPrintable(QStringLiteral(
+                     "the caret ends at x=%1 but content starts at %2, so the "
+                     "caret and the row's icon overlap")
+                     .arg(caret->x() + caret->width()).arg(contentInset)));
+    }
 };
 
 int main(int argc, char *argv[])

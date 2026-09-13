@@ -536,7 +536,22 @@ Item {
         implicitHeight: 32
         // Constant content inset clearing the caret gutter (§3.2 — never
         // active-only, so rows don't shift as the selection moves).
-        leftPadding: padding + 4
+        //
+        // WIDENED 2026-09-13, with the caret moved INSIDE the row. The caret
+        // used to be anchored at `leftMargin: -2`, deliberately overhanging
+        // the row's left edge — and against a `radiusTile` background that put
+        // an 11px glyph straddling the pill's rounded corner, so half of it
+        // sat on the selection fill and half on the panel behind it. Reported
+        // from a real desktop as the bolt looking broken, and it is: an
+        // overhang only reads as a deliberate caret when it clears the curve,
+        // which at this radius and this glyph size it never does.
+        //
+        // The gutter is now real and INSIDE the pill: 4px of edge, the 11px
+        // caret, then the content. Everything moves together, so an
+        // unselected row still lines up with a selected one — which is what
+        // the "never active-only" note above is protecting.
+        readonly property int caretGutter: 4 + 11 + AppTheme.spacing4
+        leftPadding: padding + caretGutter
         // v0.6.5 live-feedback: the Basic-style ItemDelegate default
         // (padding: 12) survives even though implicitHeight is forced to
         // 32, leaving contentItem only 8px of availableHeight — nowhere
@@ -614,13 +629,17 @@ Item {
                  : navRow.hovered ? Qt.alpha(AppTheme.stormSelection, 0.55)
                  : "transparent"
             Icon {
+                objectName: "settingsNavCaret"
                 visible: navRow.highlighted
                 name: "bolt"
                 size: 11
                 color: AppTheme.bolt
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.left: parent.left
-                anchors.leftMargin: -2
+                // INSIDE the pill, clear of its rounded corner — see the
+                // caretGutter note on the row. A negative margin here puts
+                // the glyph back across the curve.
+                anchors.leftMargin: 4
             }
         }
     }
