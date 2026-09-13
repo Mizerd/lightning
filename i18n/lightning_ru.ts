@@ -15900,7 +15900,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 начал звонок.</translation>
     </message>
     <message>
-        <location line="+1269"/>
+        <location line="+1285"/>
         <source>%1 is typing…</source>
         <translation>%1 печатает…</translation>
     </message>
@@ -16924,7 +16924,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>UpdatesSettingsSection</name>
     <message>
-        <location filename="../qml/UpdatesSettingsSection.qml" line="+124"/>
+        <location filename="../qml/UpdatesSettingsSection.qml" line="+135"/>
         <source>Updates</source>
         <translation>Обновления</translation>
     </message>
@@ -16970,12 +16970,12 @@ Note: importing keys does not verify this session.</source>
         <translation>Включено по умолчанию; выключить можно здесь в любой момент. Lightning периодически проверяет наш сервер выпусков на наличие более новой версии. Запрос никогда не содержит сведений об учётной записи, устройстве или Matrix и не создаёт идентификатор отслеживания; Lightning отправляет только собственный номер версии.</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+21"/>
         <source>Last checked: %1</source>
         <translation>Последняя проверка: %1</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>Checking…</source>
         <translation>Проверка…</translation>
     </message>
@@ -16996,13 +16996,19 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+52"/>
-        <location line="+389"/>
+        <location line="+394"/>
         <location line="+48"/>
         <source>Dismiss</source>
         <translation>Скрыть</translation>
     </message>
     <message>
-        <location line="-424"/>
+        <location line="-425"/>
+        <source>No check has run since Lightning started.</source>
+        <extracomment>Shown under Status when no update check has run since the application started, but one has run before -- the date is on the &quot;Last checked&quot; row above.</extracomment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Updates haven&apos;t been checked yet.</source>
         <translation>Обновления ещё не проверялись.</translation>
     </message>

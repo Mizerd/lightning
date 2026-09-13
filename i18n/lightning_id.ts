@@ -15838,7 +15838,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>%1 memulai panggilan.</translation>
     </message>
     <message>
-        <location line="+1269"/>
+        <location line="+1285"/>
         <source>%1 is typing…</source>
         <translation>%1 sedang mengetik…</translation>
     </message>
@@ -16844,7 +16844,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>UpdatesSettingsSection</name>
     <message>
-        <location filename="../qml/UpdatesSettingsSection.qml" line="+124"/>
+        <location filename="../qml/UpdatesSettingsSection.qml" line="+135"/>
         <source>Updates</source>
         <translation>Pembaruan</translation>
     </message>
@@ -16890,12 +16890,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Aktif secara bawaan; matikan di sini kapan saja. Lightning secara berkala memeriksa server rilis kami untuk versi yang lebih baru. Permintaan itu tidak pernah menyertakan informasi akun, perangkat, atau Matrix, dan tidak membuat pengenal pelacakan; Lightning hanya mengirim nomor versinya sendiri.</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+21"/>
         <source>Last checked: %1</source>
         <translation>Terakhir diperiksa: %1</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>Checking…</source>
         <translation>Memeriksa…</translation>
     </message>
@@ -16916,13 +16916,19 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     </message>
     <message>
         <location line="+52"/>
-        <location line="+389"/>
+        <location line="+394"/>
         <location line="+48"/>
         <source>Dismiss</source>
         <translation>Abaikan</translation>
     </message>
     <message>
-        <location line="-424"/>
+        <location line="-425"/>
+        <source>No check has run since Lightning started.</source>
+        <extracomment>Shown under Status when no update check has run since the application started, but one has run before -- the date is on the &quot;Last checked&quot; row above.</extracomment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Updates haven&apos;t been checked yet.</source>
         <translation>Pembaruan belum diperiksa.</translation>
     </message>

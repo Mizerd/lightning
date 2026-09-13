@@ -15838,7 +15838,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 started a call.</translation>
     </message>
     <message>
-        <location line="+1269"/>
+        <location line="+1285"/>
         <source>%1 is typing…</source>
         <translation>%1 正在输入…</translation>
     </message>
@@ -16844,7 +16844,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>UpdatesSettingsSection</name>
     <message>
-        <location filename="../qml/UpdatesSettingsSection.qml" line="+124"/>
+        <location filename="../qml/UpdatesSettingsSection.qml" line="+135"/>
         <source>Updates</source>
         <translation>更新</translation>
     </message>
@@ -16890,12 +16890,12 @@ Note: importing keys does not verify this session.</source>
         <translation>默认开启；你可以随时在此关闭。Lightning 会定期检查我们的发布服务器是否有更新版本。该请求从不包含任何账号、设备或 Matrix 信息，也不会生成跟踪标识；Lightning 只发送自己的版本号。</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+21"/>
         <source>Last checked: %1</source>
         <translation>上次检查：%1</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>Checking…</source>
         <translation>正在检查…</translation>
     </message>
@@ -16916,13 +16916,19 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+52"/>
-        <location line="+389"/>
+        <location line="+394"/>
         <location line="+48"/>
         <source>Dismiss</source>
         <translation>忽略</translation>
     </message>
     <message>
-        <location line="-424"/>
+        <location line="-425"/>
+        <source>No check has run since Lightning started.</source>
+        <extracomment>Shown under Status when no update check has run since the application started, but one has run before -- the date is on the &quot;Last checked&quot; row above.</extracomment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Updates haven&apos;t been checked yet.</source>
         <translation>尚未检查更新。</translation>
     </message>

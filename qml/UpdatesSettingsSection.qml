@@ -48,6 +48,17 @@ ColumnLayout {
     readonly property string installType: root.um ? root.um.installType : ""
     readonly property bool isDevOrUnknown:
         root.installType === "development" || root.installType === "unknown"
+    // ONE definition of "a check has ever run", used by the "Last checked"
+    // row AND by the Idle status below, because those two contradicted each
+    // other on screen: Idle said "Updates haven't been checked yet." directly
+    // underneath "Last checked: 12 Sep 2026 18:17" (seen live on the flatpak,
+    // 2026-09-13). Idle does not mean never-checked -- it is the state a
+    // freshly started client sits in until a check RUNS, and lastCheckTime is
+    // persisted across restarts. lastCheckTime is a QDateTime marshaled as a
+    // JS Date; an unset one arrives as Invalid Date, whose getTime() is NaN.
+    readonly property bool everChecked:
+        !!(root.um && root.um.lastCheckTime
+           && !isNaN(root.um.lastCheckTime.getTime()))
 
     // Local-only failure-banner dismissal. There is no backend "dismiss
     // error" call — this hides only this one card's banner, never the fact
@@ -234,8 +245,7 @@ ColumnLayout {
                 // a string — an unset one arrives as Invalid Date, whose
                 // getTime() is NaN. Same validity idiom as the Sessions
                 // "last seen" row above in SettingsScreen.qml.
-                visible: root.um && root.um.lastCheckTime
-                         && !isNaN(root.um.lastCheckTime.getTime())
+                visible: root.everChecked
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 lineHeight: AppTheme.lineHeightBody
@@ -243,8 +253,7 @@ ColumnLayout {
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta
                 text: qsTr("Last checked: %1").arg(
-                    root.um && root.um.lastCheckTime
-                    && !isNaN(root.um.lastCheckTime.getTime())
+                    root.everChecked
                         ? Qt.formatDateTime(root.um.lastCheckTime,
                                             "d MMM yyyy hh:mm")
                         : "")
@@ -348,7 +357,12 @@ ColumnLayout {
                 lineHeight: AppTheme.lineHeightBody
                 lineHeightMode: Text.ProportionalHeight
                 color: AppTheme.stormTextMuted
-                text: qsTr("Updates haven't been checked yet.")
+                //: Shown under Status when no update check has run since the
+                //: application started, but one has run before -- the date is
+                //: on the "Last checked" row above.
+                text: root.everChecked
+                      ? qsTr("No check has run since Lightning started.")
+                      : qsTr("Updates haven't been checked yet.")
             }
 
             RowLayout {

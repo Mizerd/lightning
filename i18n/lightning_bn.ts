@@ -15869,7 +15869,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1একটি কল শুরু করেছে৷</translation>
     </message>
     <message>
-        <location line="+1269"/>
+        <location line="+1285"/>
         <source>%1 is typing…</source>
         <translation>%1 লিখছেন…</translation>
     </message>
@@ -16884,7 +16884,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>UpdatesSettingsSection</name>
     <message>
-        <location filename="../qml/UpdatesSettingsSection.qml" line="+124"/>
+        <location filename="../qml/UpdatesSettingsSection.qml" line="+135"/>
         <source>Updates</source>
         <translation>হালনাগাদ</translation>
     </message>
@@ -16930,12 +16930,12 @@ Note: importing keys does not verify this session.</source>
         <translation>ডিফল্টে চালু; যেকোনো সময় এখানে বন্ধ করতে পারেন। Lightning পর্যায়ক্রমে আমাদের রিলিজ সার্ভারে নতুন সংস্করণ আছে কি না দেখে। ওই অনুরোধে কখনও কোনো অ্যাকাউন্ট, ডিভাইস বা Matrix তথ্য থাকে না, এবং কোনো ট্র্যাকিং শনাক্তকারী তৈরি হয় না; Lightning কেবল নিজের সংস্করণ নম্বর পাঠায়।</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+21"/>
         <source>Last checked: %1</source>
         <translation>সর্বশেষ যাচাই: %1</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>Checking…</source>
         <translation>যাচাই করা হচ্ছে…</translation>
     </message>
@@ -16956,13 +16956,19 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+52"/>
-        <location line="+389"/>
+        <location line="+394"/>
         <location line="+48"/>
         <source>Dismiss</source>
         <translation>বাতিল করুন</translation>
     </message>
     <message>
-        <location line="-424"/>
+        <location line="-425"/>
+        <source>No check has run since Lightning started.</source>
+        <extracomment>Shown under Status when no update check has run since the application started, but one has run before -- the date is on the &quot;Last checked&quot; row above.</extracomment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Updates haven&apos;t been checked yet.</source>
         <translation>হালনাগাদ এখনও যাচাই করা হয়নি।</translation>
     </message>

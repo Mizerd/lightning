@@ -359,17 +359,52 @@ private Q_SLOTS:
     {
         const QString section = read(QStringLiteral("UpdatesSettingsSection.qml"));
         QVERIFY(!section.isEmpty());
+        // Validity lives in ONE place, `everChecked`, and is checked via
+        // getTime()/isNaN (the QDateTime-as-JS-Date idiom already used for
+        // Sessions "last seen" in this same file), never a .length check
+        // (which a marshaled Date object does not have).
+        const int propIdx = section.indexOf(QStringLiteral(
+            "readonly property bool everChecked:"));
+        QVERIFY2(propIdx >= 0, "everChecked is gone from UpdatesSettingsSection");
+        const QString propBlock = section.mid(propIdx, 200);
+        QVERIFY(propBlock.contains(QStringLiteral(
+            "!isNaN(root.um.lastCheckTime.getTime())")));
+
         const int idx = section.indexOf(QStringLiteral("updateLastCheckedLabel"));
         QVERIFY(idx >= 0);
         const QString block = section.mid(idx, 900);
-        // Validity is checked via getTime()/isNaN (the QDateTime-as-JS-Date
-        // idiom already used for Sessions "last seen" in this same file),
-        // never a .length check (which a marshaled Date object does not
-        // have).
-        QVERIFY(block.contains(QStringLiteral(
-            "!isNaN(root.um.lastCheckTime.getTime())")));
-        QVERIFY(!block.contains(QStringLiteral("lastCheckTime.length")));
+        QVERIFY(block.contains(QStringLiteral("root.everChecked")));
+        QVERIFY(!section.contains(QStringLiteral("lastCheckTime.length")));
         QVERIFY(block.contains(QStringLiteral("Qt.formatDateTime(")));
+    }
+
+    // ---- Idle does not claim a check has never run ----
+
+    void theIdleStatusDoesNotContradictTheLastCheckedRow()
+    {
+        // SEEN LIVE on the packaged flatpak, 2026-09-13: the Status card read
+        // "Updates haven't been checked yet." directly underneath
+        // "Last checked: 12 Sep 2026 18:17". Idle is the state a freshly
+        // started client sits in until a check RUNS; lastCheckTime is
+        // persisted across restarts, so the two are independent and the
+        // never-checked wording is only true when `everChecked` is false.
+        const QString section = read(QStringLiteral("UpdatesSettingsSection.qml"));
+        QVERIFY(!section.isEmpty());
+        const int idx = section.indexOf(QStringLiteral("updateIdleLabel"));
+        QVERIFY2(idx >= 0, "updateIdleLabel is gone from UpdatesSettingsSection");
+        // Bounded to the label's own block: ending at the next objectName
+        // rather than a blank line, so deleting a blank line cannot make this
+        // slice cover the rest of the file and pass on a broken tree.
+        const int nextObj = section.indexOf(QStringLiteral("objectName:"),
+                                            idx + 1);
+        QVERIFY2(nextObj > idx, "could not bound the updateIdleLabel block");
+        const QString block = section.mid(idx, nextObj - idx);
+        QVERIFY2(block.contains(QStringLiteral("root.everChecked")),
+                 qPrintable(QStringLiteral(
+                     "the Idle status text does not consult everChecked, so it "
+                     "claims no check has ever run while the row above it "
+                     "prints the date of the last one:\n") + block));
+        QVERIFY(block.contains(QStringLiteral("Updates haven't been checked yet.")));
     }
 
     // ---- statusDetail (non-error diagnostic) is surfaced ----

@@ -15869,7 +15869,7 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>%1 inició una llamada.</translation>
     </message>
     <message>
-        <location line="+1269"/>
+        <location line="+1285"/>
         <source>%1 is typing…</source>
         <translation>%1 está escribiendo…</translation>
     </message>
@@ -16884,7 +16884,7 @@ Nota: importar claves no verifica esta sesión.</translation>
 <context>
     <name>UpdatesSettingsSection</name>
     <message>
-        <location filename="../qml/UpdatesSettingsSection.qml" line="+124"/>
+        <location filename="../qml/UpdatesSettingsSection.qml" line="+135"/>
         <source>Updates</source>
         <translation>Actualizaciones</translation>
     </message>
@@ -16930,12 +16930,12 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation>Activado por defecto; puedes desactivarlo aquí en cualquier momento. Lightning consulta periódicamente nuestro servidor de versiones para saber si hay una más reciente. La petición nunca incluye información de cuenta, dispositivo ni Matrix, y no crea ningún identificador de seguimiento; Lightning envía solo su propio número de versión.</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+21"/>
         <source>Last checked: %1</source>
         <translation>Última comprobación: %1</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>Checking…</source>
         <translation>Comprobando…</translation>
     </message>
@@ -16956,13 +16956,19 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="+52"/>
-        <location line="+389"/>
+        <location line="+394"/>
         <location line="+48"/>
         <source>Dismiss</source>
         <translation>Descartar</translation>
     </message>
     <message>
-        <location line="-424"/>
+        <location line="-425"/>
+        <source>No check has run since Lightning started.</source>
+        <extracomment>Shown under Status when no update check has run since the application started, but one has run before -- the date is on the &quot;Last checked&quot; row above.</extracomment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Updates haven&apos;t been checked yet.</source>
         <translation>Todavía no se han buscado actualizaciones.</translation>
     </message>
