@@ -2023,6 +2023,16 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME gif-send-controller COMMAND gif-send-controller-test)
 
+    # THE README DRIFTED A WHOLE RELEASE BEHIND and nothing compared them --
+    # see the header of the test for what that cost. Consistency only: it
+    # never says what the version should be, only that everything quoting one
+    # quotes the same one.
+    qt_add_executable(version-consistency-test tests/VersionConsistencyTest.cpp)
+    target_compile_definitions(version-consistency-test PRIVATE
+        REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(version-consistency-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME version-consistency COMMAND version-consistency-test)
+
     qt_add_executable(emoji-ui-contract-test tests/EmojiUiContractTest.cpp)
     target_compile_definitions(emoji-ui-contract-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
