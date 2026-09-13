@@ -73,6 +73,33 @@ tile.
 
 OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
 
+**RECOVERY AND KEY BACKUP: FOUR KNOWN DEFECTS, NOT FIXED, AND THE WHOLE
+FEATURE IS STILL NOT TESTED BY USE (2026-09-13, shipped that way in 0.9.5).**
+The audit that found and fixed six of them (`2eb38b1`, round-history
+2026-09-13 night) read the code rather than driving it, because §6 forbids
+capturing a recovery key and the setup flow displays one. These four survived
+it. **None can destroy a key** — that is why they are follow-ups — but every
+one of them is a user being told something untrue:
+
+- **A setup interrupted by quitting says nothing about it.** An `enable`
+  aborted by teardown after secret storage exists but before the key is
+  delivered leaves the account changed and the user uninformed. The 1500 ms
+  action-pool join is the mechanism and the FFI's own comment already concedes
+  it and describes the real fix.
+- **`recover()` reports "Recovery complete" when nothing was restored** —
+  specifically when 4S held no backup key. Same class as §6's "never report a
+  cleanup as successful when it removed nothing".
+- **A mistyped recovery key shows an untranslated SDK error** rather than
+  "that key is wrong", which is the one moment the message has to be plain.
+- **The restore panel can wedge at "Restoring…"** if the session ends
+  mid-restore.
+
+**NOT TESTED, and it cannot be tested the usual way.** No release has ever
+live-validated this feature. Both fixture accounts report cross-signing and
+secret storage "Missing", so even reaching the flow means generating a key on
+screen. If it is ever to be exercised, the capture rule has to be solved first
+— not waived.
+
 **EVERY LINUX PACKAGE LANE IS GREEN AND FIVE OF THEM ARE NOW GUI-VALIDATED ON
 THEIR TARGET DISTRO (2026-09-12, pipeline 208 at `cd21193`).** Twelve jobs —
 six builds, six validations — all success. Beyond CI, each package was

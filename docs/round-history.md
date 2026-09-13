@@ -1,5 +1,172 @@
 # Round history
 
+## 2026-09-13 (night) — the one feature no release has ever tested, audited by reading, and 0.9.5 cut on it
+
+**RECOVERY AND KEY BACKUP HAD NEVER BEEN EXERCISED IN ANY RELEASE, AND IT
+CANNOT BE**: §6 forbids logging or capturing recovery keys, and the setup flow
+displays a freshly generated one. So it was read instead — QML to controller to
+the FFI to matrix-sdk 0.18.0's own sources — and the audit found **six
+defects, two of which could destroy an account's recovery**. `2eb38b1`.
+
+The point worth carrying forward is not any one of them. It is that a feature
+which cannot be driven is not thereby exempt from evidence: reading the code of
+the SDK it delegates to is evidence, and it is the only kind available here.
+Two of the six are only visible by reading matrix-sdk itself.
+
+### The two that destroy recovery
+
+**A successful setup left the button that destroys it on screen.** The Sessions
+card gates its DESTRUCTIVE buttons on the crypto-health snapshot, and nothing
+invalidated that snapshot after a backup action — its only callers are login,
+first sync, verification-done and two explicit user actions. So after "Set up
+recovery and backup" succeeded and showed the key, the card still read "No key
+backup exists for this account" and "Secrets recoverable: Missing", and the
+button was still enabled. Pressing it again is the *reasonable* response to a
+screen that says it did not work — and `Recovery::enable()` calls
+`create_secret_store()` **unconditionally**, so the key just written down stops
+working, with none of the double confirmation `reset_key` carries.
+`BackupController` now emits `cryptoHealthStale` on every outcome, **success or
+failure**, because a failure can have changed server state too.
+
+**"New recovery key" was offered on sessions that could not honour it.** It was
+gated on `secretStorageAvailable`, which is SERVER truth — whether the account
+has 4S at all — and is true on a session holding none of the secrets. `Reset`
+calls `create_secret_store()` and fills the new store **only from what the
+LOCAL olm machine can export**, so on a freshly signed-in unverified session it
+repointed `m.secret_storage.default_key` at an EMPTY store: the old key opens
+nothing, the new key opens nothing, and the cross-signing identity is no longer
+recoverable from 4S by anyone. matrix-sdk's own source carries the matching
+TODO. Now gated on this session actually holding what it would upload, and the
+confirmation names what is lost.
+
+### The other four
+
+* **"Nothing was changed" was frequently false.** An `enable` that fails inside
+  `create_secret_store()` has already created the backup version. Same
+  conflation §6 names for cleanup — "target absent" and "reset completed" are
+  different outcomes. The FFI genuinely cannot tell partial from total, so the
+  copy no longer claims to know.
+* **A failed `/devices` fetch rendered as "all devices verified, 3 of 3 checks
+  complete".** The trust chain fell back to "this device is verified" on an
+  EMPTY list, and the list is empty when the fetch FAILS as well as before it
+  returns. §9: trust labels come from SDK state, and "the list did not load" is
+  not the SDK saying verified. `sessionDevicesFailed` already existed and was
+  rendered as a banner in the same pane; the binding simply never consulted it.
+* **The card promised the recovery key "will not be shown again once you leave
+  this card" and that was false** — Settings is a warm `Loader`, so switching
+  section and back rendered it again. An ARMED destructive confirmation had the
+  same lifetime bug from the same cause, turning a two-press contract into one
+  press an hour later. Both are cleared together now.
+* **The Home security banner sent two of its three phases to the wrong page.**
+  All three routed to Sessions, but two of them say "Enter your recovery key"
+  and that field is in Privacy & security. The file's own note records it was
+  moved TO Sessions to fix a complaint — which fixed one phase and broke two.
+
+**The verification flows came out CLEAN** and are the best-built part of the
+feature: no trust promotion anywhere, every SDK callback flow-id scoped, `done`
+sticky against a late cancel, and a Rust-side claim race that cancels our own
+request rather than evicting somebody else's.
+
+**FOUR MORE ARE KNOWN AND NOT FIXED**, recorded in `docs/open-items.md` and in
+the release notes: an `enable` aborted by teardown after secret storage exists
+but before the key is delivered still says nothing; `recover()` reports
+"Recovery complete" when 4S held no backup key and nothing was restored; a
+wrong recovery key shows an untranslated SDK error; and the restore panel can
+wedge at "Restoring…" if the session ends mid-restore. **None can destroy a
+key**, which is why they are follow-ups rather than blockers.
+
+### The README had been a whole release behind, and nothing compared them
+
+§14 lists CMake, Rust and the user agent as the synchronized locations. The
+README is not on that list, and it was still advertising **0.9.3** while the
+tree, the tag and the published packages were on 0.9.4 — every install command
+in it naming a file the download page no longer served.
+
+`tests/VersionConsistencyTest.cpp` (`a858223`) pins `project(VERSION)`,
+`APP_VERSION_LABEL`, `rust/Cargo.toml`, the `matrix-client-rust` entry in
+`rust/Cargo.lock` and the README against each other. It is deliberately a
+CONSISTENCY check and never says what the version should BE — CMakeLists.txt is
+authoritative for that.
+
+Two things it had to get right to be worth having:
+
+* **The lock file is matched through the package NAME.** `rand` in
+  `rust/Cargo.lock` was coincidentally also `0.9.4`, so a value-shaped search
+  would have passed on a lock file that had never been bumped.
+* **The README quotes DEPENDENCY versions too** — Qt 6.8.2, GStreamer 1.26.2,
+  the Ubuntu and Fedora Qt levels — and those must NOT move with a release. A
+  first version flagged all four, which would have trained the next person to
+  edit the test instead of the README. It counts a version as ours only if the
+  line mentions Lightning or the version is backticked, with an `ours >= 5`
+  floor so a reorganisation cannot make the scan vacuous.
+
+### The website was rebuilt from the application's own design
+
+Third repo (`lightning-website`), commit `e41656b`. The page read as generated
+marketing — gradient-text hero, eight keyframe animations, 35 scroll reveals, a
+marquee, a scroll progress bar — none of which exist anywhere in the client it
+describes. `public/index.html` is now GENERATED by `tools/build-site.py` from
+the app's own tokens, 1602 hand-written lines becoming 880 generated ones, and
+`motion.js` is gone.
+
+**Three defects, all found by RENDERING it, none visible to any check that
+existed:**
+
+* **Every Linux card showed the AppImage's `chmod` line.** `releases.js`
+  rebuilds the cards by **cloning card zero**, so a card missing a
+  `[data-lg-bind]` slot silently keeps card zero's text — and the baked HTML is
+  perfect, because the miss only appears once the script runs. The first
+  generator dropped `data-lg-bind="pkg.install"` from the Linux `<code>`. Same
+  shape as the bug that once served the `.deb` from every Linux button.
+* **Every Copy button was an empty rounded rectangle.** `.lg-copy` asked
+  JetBrains Mono for `font-weight: 600`; the self-hosted subset carries
+  400/500/700 only, and with `font-display: swap` there is no face to swap in,
+  so the run paints as **nothing** while the DOM says "Copy" throughout. No DOM
+  test can see that — **only a render can, and only by looking at it**.
+* **A check added earlier the same session was deleted later in it.** The baked
+  release-date invariant had been filed under the `motion.js` heading, and
+  removing the motion layer took it out with it. **A check filed under an
+  unrelated heading leaves with that heading.** It is back beside the version
+  check it belongs with.
+
+Covered now, each proved against the unfixed page first: `check.py` asserts
+every card carries the slots `releases.js` rewrites and that each says what the
+feed says, that every `font-weight` on the page has an `@font-face` to answer
+it, and the baked date again. `tools/cards-test.js` is new — the jsdom test the
+README had described for months and nobody had written — and it drives the real
+`releases.js` over the real page on **both** passes, because they mask each
+other: pass 2 sets every href by suffix and papers over a broken rebuild in
+pass 1. `lightbox-test.js` counted `=== 6` copy buttons against a feed listing
+five Linux packages; it counts off the feed now.
+
+**GENERALISE: three of these four defects were invisible to every automated
+check and visible immediately in a screenshot.** A page is a rendered artifact,
+and the same rule that governs this project's GUI claims governs it — a suite
+passing is not a picture.
+
+### Headless screenshots lie about tall pages, and both engines lie differently
+
+Worth writing down because two hours went into it. Chromium `--headless`
+(old or `--headless=new`) with `--window-size=1400,8000` composites only the
+initial viewport: everything below it comes back BLANK, and
+`--virtual-time-budget` does not help because it is not a timing problem.
+Scrolling with an injected `window.scrollTo` produces an all-black capture for
+the same reason. **Firefox `--headless --screenshot --window-size=1400`
+captures the true full page** (and needs `--profile <dir> --no-remote` if a
+Firefox is already running, or it refuses).
+
+And `loading="lazy"` images never arrive in EITHER engine's full-page capture —
+the README already said so, and rediscovering it cost most of the two hours.
+**Strip `loading="lazy"` into a copy before measuring anything below the fold.**
+
+### Validation
+
+`ctest` `build-rust`: **204 passed, 0 failed, 0 skipped, 204 total**. The
+`-DLIGHTNING_ENABLE_WEBRTC=OFF` build over every target: `rc=0`. Website:
+`check.py`, `check-assets.py --feed`, `cards-test.js` and `lightbox-test.js`
+all pass. **Live validation of recovery and key backup: NOT TESTED**, for the
+reason at the top of this entry, and that is how 0.9.5 ships it.
+
 ## 2026-09-13 (evening) — the snap could never carry call media, and the reason was NSS
 
 **ROOT CAUSE, measured rather than reasoned about, and the SIXTH occurrence of
