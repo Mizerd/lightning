@@ -1641,7 +1641,8 @@ and out — audibility NOT TESTED, nobody listened); **group power control** (Me
 -> Member, real `m.room.power_levels`); threads (panel, reply, summary card,
 and §8 held); the Ctrl+Shift+K command palette EXECUTING an action; a real
 freedesktop notification with Reply/Mark as read; the updater (installation
-type "Flatpak", check reaches the server); token AND crypto-store persistence
+type "Flatpak", check reaches the server); local message search INCLUDING an
+encrypted room, whose index sits inside the flatpak's own data dir; token AND crypto-store persistence
 across a restart; and §6's rule live — relaunched with no session bus, the
 unreadable secret store did NOT read as a missing account.
 

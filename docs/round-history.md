@@ -46,6 +46,7 @@ predates both, which is why the capture still shows it.
 | command palette | Ctrl+Shift+K, fuzzy match, and the action EXECUTES (theme 9 -> 10 on disk and on screen, back again) |
 | notifications | a real freedesktop notification with the room avatar, Reply and Mark as read, for a message in a room the unfocused client was not looking at |
 | the updater | installation type correctly "Flatpak"; a check reached the release server through confinement and reported up to date |
+| local message search, INCLUDING an encrypted room | Ctrl+F -> History: "Searching 12 messages Lightning has indexed, including encrypted ones", and a hit on a phrase that exists ONLY in the encrypted room — which the server cannot search. §6's one sanctioned plaintext-on-disk exception, working inside the sandbox, with its index at `…/.var/app/org.lightning_matrix.Lightning/data/MatrixClient/matrix-client/<slug>/matrix-rust-sdk-store/lightning-search.sqlite3` — inside the flatpak's own data dir and deleted with the account |
 | the notification's ACTIONS, both of them | **Mark as read**: the window caption went `(1 unread) Lightning 0.9.4` -> `Lightning 0.9.4` and the log shows two `read receipt sent` lines, so it sent real receipts rather than clearing a local flag. **Reply**: typed into the toast's inline field, `notification reply sent thread= false`, and the message landed DECRYPTED on the peer — from a client whose window was never focused |
 | the call stage's tile grid, and a remote mute | two tiles, "You" and "lightningtest2", per-user identity colours; the peer pressed Ctrl+Shift+U and a crossed-microphone badge appeared on THAT tile and not on the local one |
 | restart persistence | token AND crypto store: relaunch comes back signed in, rooms/spaces/theme restored, and the messages that decrypted before still decrypt |
@@ -140,11 +141,20 @@ be a separate window; nothing here uses one.
   it**, so the document is genuinely unreachable inside the sandbox. Rig, not
   package.
 
-  Sub-finding, NOT established: the user is told nothing. There is an
-  `attachmentRejected` notice path, but this failure happens before
-  `addAttachment()` is ever reached, so the picker closes and nothing happens.
-  Whether `accepted` even fires with an empty `selectedFiles` was not
-  instrumented, so this is an observation and not yet a diagnosis.
+  **OPEN ROBUSTNESS ITEM, and the three parts of it have different standing —
+  do not let the caveat on the last two swallow the first.**
+  (a) ESTABLISHED: the picker closed and the user was told NOTHING. No
+  attachment, no notice, no change to the composer. That is a direct
+  observation and does not depend on which branch ran.
+  (b) NOT ESTABLISHED: the mechanism. `attachmentRejected` exists, so someone
+  already decided this surface owes the user a word — but this failure lands
+  before `addAttachment()` is reached, and whether `accepted` fires at all
+  with an empty `selectedFiles` was not instrumented.
+  (c) NOT ESTABLISHED: whether a HEALTHY sandbox can reach that branch at all.
+  The trigger here was the rig fault above.
+  §16's "graceful fallback and silent absence are the same observable" is the
+  named lesson for (a), and one log line at the `onAccepted`/`selectedFiles`
+  boundary settles all three — while the tmpfs is still there to reproduce it.
 
   Doing it at all needed care and the method is worth keeping: the portal's
   chooser browses the MAINTAINER'S OWN HOME, so nothing captured it. The path
