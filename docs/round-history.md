@@ -1,5 +1,127 @@
 # Round history
 
+## 2026-09-13 (afternoon) — the packaged GUI sweep, and the five-minute call that did not drop
+
+Driven on the laptop against the two fixture accounts: the packaged **flatpak**
+(`org.lightning_matrix.Lightning`, 0.9.4, built 2026-09-12 22:11) signed in as
+`lightningtest`, and a `0.9.4+git20260912.5abcc81` **AppImage** on the host
+signed in as `lightningtest2`. Every claim below is a screenshot or an engine
+log line; nothing is inferred from a build succeeding.
+
+### The headline: `expires_for_refresh()` is LIVE-VALIDATED — PASS
+
+A two-party MatrixRTC call between the flatpak and the AppImage was held from
+10:38:50 to past 10:58 UTC — **nineteen and a half minutes, ~4x the five-minute
+`MEMBERSHIP_EXPIRY_NO_DELAYED_MS` window**. At the end both clients still
+reported `session read room participants= 2` and both `frames in the clear in`
+counters were still climbing (57,500 on the flatpak). `frames dropped: no key
+in` never appeared.
+
+That is the defect the fix was written for: an RTC membership's deadline is
+`created_ts + expires`, a refresh preserves `created_ts`, so re-writing the
+same constant republished the SAME ABSOLUTE INSTANT and the participant died a
+fixed five minutes after joining — lopsidedly, because peers rotated media keys
+without them, so they could still be heard and could hear nobody. It had never
+been exercised past five minutes on a real call. It has now.
+
+### The user's own report, reproduced and then explained
+
+**Every old call row in a room offered "Join" while a call was live.** Captured
+on the flatpak: seven "started a call." rows from 21:49 through 10:02, each
+with a Join button, alongside the genuinely live one at 10:38.
+`CallEventDelegate.sessionLive` is room-scoped (`participantCount(roomId) > 0`),
+so every row in the room binds identically. Fixed in `8406f33` and `2a70239`
+(the newest-call-row cache and its in-place-Set hook); the flatpak under test
+predates both, which is why the capture still shows it.
+
+### Also PASS, all on the packaged flatpak under confinement
+
+| what | evidence |
+|---|---|
+| screen share through the portal | `screen share portal ready node= 137 remote_fd= true`, `capture negotiated 2560x1600`, `publish first encoded frame afterPublishMs= 163`; the peer RENDERS the desktop (a picture, not a counter) |
+| share audio | `share audio published perApplication= false`, with the honest output-monitor warning |
+| two-way call audio | `frames in the clear out` AND `in` both climbing; `a receive chain is RUNNING` |
+| group power control | Member -> Moderator -> Member, live, with the confirmation dialog; the member list regrouped under "Moderator — 1" and two `m.room.power_levels` events landed |
+| threads | context-menu `T` opens the panel; a reply renders in the panel, the room shows a "1 reply" summary card, and §8 holds — the reply is NOT a standalone row in main |
+| command palette | Ctrl+Shift+K, fuzzy match, and the action EXECUTES (theme 9 -> 10 on disk and on screen, back again) |
+| notifications | a real freedesktop notification with the room avatar, Reply and Mark as read, for a message in a room the unfocused client was not looking at |
+| the updater | installation type correctly "Flatpak"; a check reached the release server through confinement and reported up to date |
+| restart persistence | token AND crypto store: relaunch comes back signed in, rooms/spaces/theme restored, and the messages that decrypted before still decrypt |
+| an unreadable secret store is not a missing account | relaunched WITHOUT `DBUS_SESSION_BUS_ADDRESS`: both account records survived and were offered under "Already on this device" — §6's rule, live |
+| member list, call survives a room switch, Activity Center, Settings (all nine panes, all eleven themes listed) | captured |
+
+### Four defects the sweep found
+
+1. **Activity Center rows baked raw ids in for the session.** The seed is
+   dispatched on the first `Syncing`, which is the connection coming up, not a
+   room payload landing — so `roomInfo()` and `displayNameFor()` both answered
+   nothing and the row kept `!abc:server` / `@bob:server` forever. Seen as an
+   Activity row reading `@lightningtest2:matrix.smetonis.net` while the
+   timeline two panes away read `lightningtest2`. Its second, silent
+   consequence: `reconcileSeedAgainstRoomCounts()` skips unknown rooms, so a
+   seed that beats the room list skips EVERY room and the whole
+   bell-versus-room-list reconciliation does not run — the 0.8.4 defect, back.
+   Both fixed; both hooks mutation-proved.
+2. **Settings -> Updates contradicted itself**: "Last checked: 12 Sep 2026
+   18:17" three lines above "Updates haven't been checked yet." Idle is not
+   never-checked. Fixed.
+3. **The Space Home action row ran off the pane.** Six buttons in a RowLayout,
+   which does not wrap: at ~850 logical px "People (1)" lost its bracket and
+   "Space settings" was off screen and unreachable. Now a Flow. Source-correct
+   and the module loads; the wrapped row itself is NOT re-validated on a
+   package.
+4. **The snap is not signed in and could not be swept.** Its window sits on the
+   login screen with no account record at all (`matrix-client.conf` carries a
+   homeserver URL, window geometry and an update timestamp — no account
+   section), and signing it in needs a password typed into the app, which is
+   not something this session does. Its log also shows **no portal at all**
+   (`org.freedesktop.portal.Desktop was not provided by any .service files`)
+   and the insecure QSettings fallback, both of which are this container rig
+   rather than the package.
+
+### One claim WITHDRAWN, before it was acted on
+
+"Call shortcuts are dead while a menu is open" was carried into this round as a
+defect with a one-line fix. **It is refuted.** With the message context menu
+open on the flatpak, Ctrl+Shift+K opened the command palette, and KWin reports
+NO extra window for the client while that menu is up — Lightning's menus are
+in-scene popups, not `xdg_popup`s, so the window never loses activation and
+`Qt.WindowShortcut` keeps firing. Had it not been checked, a pointless
+`Qt.ApplicationShortcut` change would have shipped. A NATIVE menu would still
+be a separate window; nothing here uses one.
+
+### Two things that looked like defects and are not
+
+- **Date dividers in Lithuanian under an English UI.** The host sets
+  `LANG=en_US.UTF-8` with `LC_TIME=lt_LT.UTF-8`. Qt honours exactly that split.
+  `lightning_lt.ts` exists, which is what made it look like a translation
+  loading failure. Do not "fix" it.
+- **Timestamps three hours apart between the two clients.** The flatpak's
+  container has no timezone configured (C.UTF-8, UTC); the host AppImage is
+  EEST. Rig, not app.
+
+### NOT TESTED, with the reason
+
+- **Recovery and key backup setup, and therefore cross-user verification.**
+  Neither fixture account has cross-signing or a backup (Sessions reports
+  Master/Self-signing/User-signing and secret storage all "Missing"), so the
+  encrypted room's history is undecryptable on both devices — correct Matrix
+  behaviour, not a defect. Setting it up means putting a generated recovery key
+  on screen and therefore in a capture, which §6 forbids. Needs a human.
+- **Everything signed-in on the snap**, for the reason above.
+- **Media send and the file chooser**, deliberately: the flatpak's chooser
+  reaches the maintainer's own home and exposed personal filenames in an
+  earlier round.
+- **Audibility** of any of it. Nobody listened; the flatpak's microphone volume
+  is at 0% from an earlier test.
+
+One rig note worth keeping: before sharing the screen, MINIMISE every
+non-Lightning window first. The portal's picker still lists them with
+thumbnails (minimising does not remove them from the picker), but the "Laptop
+screen" capture then contains only Lightning windows, which is what makes a
+whole-screen share safe to run and to look at on the far end.
+
+
 ## 2026-09-13 — the snap had never worked, and only a real snapd could say so
 
 **The first time the Lightning snap was run the way a user runs it** — `snap

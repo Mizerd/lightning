@@ -17,6 +17,28 @@ open and what has never been tested lives here.
 tested, and before proposing a fix in an area it covers.** An item here that
 says NOT TESTED has not been tested, however plausible the code reads.
 
+### Closed by the 2026-09-13 packaged-flatpak sweep
+
+**`expires_for_refresh()` — CLOSED, PASS.** A two-party call between the
+packaged flatpak and an AppImage ran 19m30s, ~4x the five-minute window, with
+both clients reporting `participants= 2` and both `frames in the clear in`
+counters climbing at the end. This was the longest-standing unexercised call
+fix.
+
+Also closed on a PACKAGE for the first time, all flatpak: screen share through
+the portal (rendered on the far end, not merely counted), share audio, two-way
+call audio, group power control, threads end to end, the command palette
+executing an action, a real freedesktop notification, the updater's check, and
+token + crypto-store persistence across a restart. Detail and the full
+NOT-TESTED residue in `docs/round-history.md`, 2026-09-13 (afternoon).
+
+**Still NOT TESTED after it**: everything signed-in on the SNAP (it is not
+signed in — no account record at all); recovery/key-backup setup and therefore
+cross-user verification (both fixture accounts report cross-signing and secret
+storage "Missing", and the setup flow puts a generated recovery key on screen,
+which §6 forbids capturing); media send and the file chooser under either
+sandbox; and audibility of any call.
+
 ### Open items and NOT TESTED inventory
 
 OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.

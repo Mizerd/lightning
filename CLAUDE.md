@@ -1618,6 +1618,38 @@ running-time version was measured in review at 2612 buffers from one
 injection and a permanently dead share. Full account in
 `docs/round-history.md`, 2026-09-12 (night).
 
+**2026-09-13 — THE FIVE-MINUTE MATRIXRTC MEMBERSHIP EXPIRY IS CLOSED: PASS,
+and it is the headline of a full packaged-flatpak GUI sweep.** A two-party call
+between the packaged flatpak and an AppImage was held **nineteen and a half
+minutes**, ~4x `MEMBERSHIP_EXPIRY_NO_DELAYED_MS`, and at the end both clients
+still read `session read room participants= 2` with both `frames in the clear
+in` counters climbing and no `frames dropped: no key in` anywhere. That is
+`expires_for_refresh()` working: before it, the membership died a fixed five
+minutes after the JOIN however often it was refreshed, lopsidedly (still heard,
+hearing nobody). Automation-driven, not Rokas.
+
+Everything else PASS in the same sweep, all on the confined flatpak: screen
+share through the portal (`remote_fd= true`, and the peer RENDERS a picture);
+share audio; two-way call audio; **group power control** (Member -> Moderator
+-> Member, real `m.room.power_levels`); threads (panel, reply, summary card,
+and §8 held); the Ctrl+Shift+K command palette EXECUTING an action; a real
+freedesktop notification with Reply/Mark as read; the updater (installation
+type "Flatpak", check reaches the server); token AND crypto-store persistence
+across a restart; and §6's rule live — relaunched with no session bus, the
+unreadable secret store did NOT read as a missing account.
+
+Four defects found and fixed (Activity Center rows baking raw ids in for the
+session plus its silent reconcile consequence; Updates contradicting itself;
+the Space Home row running off a narrow pane), **one claim WITHDRAWN before it
+was acted on** (shortcuts are NOT dead under a menu — Lightning's menus are
+in-scene popups, not `xdg_popup`s), and two non-defects recorded so nobody
+"fixes" them (Lithuanian date dividers are `LC_TIME`; the three-hour timestamp
+gap is the container's missing TZ). **The SNAP could not be swept — it is not
+signed in**, and so is recovery/key-backup setup, which would put a generated
+recovery key in a screenshot. Detail in `docs/round-history.md`, 2026-09-13
+(afternoon).
+
+
 **2026-09-12 (evening) — THE WINDOWS CAMERA'S 10-FPS CEILING IS CLOSED: PASS.**
 On the laptop's Windows guest with its USB webcam passed through, the portable
 build that carries `libgstjpeg.dll` negotiates `image/jpeg 1920x1080 @ 30/1`
