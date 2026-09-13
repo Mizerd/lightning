@@ -23,7 +23,26 @@ Item {
     id: root
     // A minted recovery key is shown until the user leaves; it must not
     // sit in memory behind a closed Settings screen.
-    onVisibleChanged: if (!visible && app.backup) app.backup.dismissRecoveryKey()
+    //
+    // AND IT MUST NOT SURVIVE A SECTION CHANGE EITHER. The card tells the
+    // user "it will not be shown again once you leave this card" -- that was
+    // false: this screen is a warm Loader kept alive across opens, so
+    // switching to Appearance and back left the key in `m_recoveryKey` and
+    // rendered it again. Either the promise goes or the key does, and the key
+    // going is the one §6 wants. Found in the 2026-09-13 pre-release audit.
+    //
+    // `pendingConfirm` goes with it, for a second reason from the same audit:
+    // an ARMED destructive confirmation ("Delete backup", "New recovery key")
+    // also outlived the screen, so arming it and coming back an hour later
+    // turned a two-press contract into a one-press one.
+    function forgetTransientBackupState() {
+        if (app.backup)
+            app.backup.dismissRecoveryKey()
+        if (typeof backupCard !== "undefined" && backupCard)
+            backupCard.pendingConfirm = ""
+    }
+    onVisibleChanged: if (!visible) root.forgetTransientBackupState()
+    onSectionChanged: root.forgetTransientBackupState()
 
     // v0.7.2: whether the sanitized E2EE recovery diagnostics are expanded.
     property bool showRecoveryDiagnostics: false
@@ -6435,7 +6454,7 @@ Item {
                                     color: AppTheme.stormDanger
                                     font.pixelSize: AppTheme.textBody
                                     text: backupCard.pendingConfirm === "reset_key"
-                                          ? qsTr("Resetting creates a NEW recovery key and the old one stops working. Press again to confirm.")
+                                          ? qsTr("Resetting creates a NEW recovery key and the old one stops working — anything currently recoverable only with the old key is gone. Press again to confirm.")
                                           : backupCard.pendingConfirm === "disable_and_delete"
                                             ? qsTr("Deleting the backup removes every room key stored on the server. Keys only in this session stay here; keys only in the backup are gone. Press again to confirm.")
                                             : qsTr("Disabling recovery removes secret storage and the backup from the server. Press again to confirm.")
@@ -6482,7 +6501,34 @@ Item {
                                     }
                                     AppButton {
                                         objectName: "backupResetKeyButton"
+                                        // NOT `secretStorageAvailable` ALONE.
+                                        // That flag is SERVER truth -- the SDK
+                                        // reports whether the account has 4S at
+                                        // all -- and it is true on a session
+                                        // that holds none of the secrets.
+                                        //
+                                        // `Reset` calls `create_secret_store()`
+                                        // and nothing else, and the store is
+                                        // filled from what the LOCAL olm
+                                        // machine can export. So on a freshly
+                                        // signed-in, unverified session this
+                                        // button repointed
+                                        // `m.secret_storage.default_key` at a
+                                        // key whose store is EMPTY: the old
+                                        // recovery key stops opening anything
+                                        // and the new one opens nothing, and
+                                        // the account's cross-signing identity
+                                        // is no longer recoverable from 4S by
+                                        // anyone. matrix-sdk's own source
+                                        // carries the matching TODO.
+                                        //
+                                        // Gated on this session actually
+                                        // holding what it would upload. Found
+                                        // in the 2026-09-13 pre-release audit.
                                         visible: app.cryptoHealth.secretStorageAvailable
+                                                 && app.cryptoHealth.crossSigningReady
+                                                 && app.cryptoHealth.currentDeviceVerified
+                                                    === CryptoHealthModel.Yes
                                         storm: true
                                         kind: backupCard.pendingConfirm === "reset_key" ? "danger" : "secondary"
                                         size: "sm"
@@ -6552,13 +6598,30 @@ Item {
                                     sessionsTrustCard.refreshAccountRecord()
                                 }
                             }
+                            // AN EMPTY LIST IS NOT AN ANSWER. It is empty
+                            // before the fetch returns AND when the fetch
+                            // FAILS, and the old fallback read "this device is
+                            // verified" in both cases -- so a /devices request
+                            // that never came back rendered a complete green
+                            // "0 DEVICES" step and "3 of 3 checks complete",
+                            // claiming every session is verified while hiding
+                            // a genuinely unverified one. §9 is explicit that
+                            // trust labels come from SDK state, and "the list
+                            // did not load" is not the SDK saying verified.
+                            // `sessionDevicesFailed` already exists and is
+                            // rendered as a banner elsewhere in this pane;
+                            // this binding simply never consulted it. Found in
+                            // the 2026-09-13 pre-release audit.
                             readonly property bool devicesVerified:
-                                app.sessionDevices.length > 0
-                                ? app.sessionDevices.every(
-                                      d => d.verified === true
-                                           || d.crossSigned === true)
-                                : app.cryptoHealth.currentDeviceVerified
-                                  === CryptoHealthModel.Yes
+                                app.sessionDevicesFailed
+                                || app.sessionDevicesLoading
+                                ? false
+                                : app.sessionDevices.length > 0
+                                  ? app.sessionDevices.every(
+                                        d => d.verified === true
+                                             || d.crossSigned === true)
+                                  : app.cryptoHealth.currentDeviceVerified
+                                    === CryptoHealthModel.Yes
                             readonly property var chainSteps: [
                                 { label: qsTr("IDENTITY"), iconName: "person",
                                   complete: app.cryptoHealth.ownIdentityVerified

@@ -1130,6 +1130,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_pinned->setClient(m_client.get());
     m_roomUpgrade->setClient(m_client.get());
     m_backup->setClient(m_client.get());
+    // A backup action invalidates the crypto-health snapshot the Sessions
+    // card renders, and that card gates two DESTRUCTIVE buttons on it. See
+    // BackupController::cryptoHealthStale for what a stale snapshot costs.
+    connect(m_backup.get(), &BackupController::cryptoHealthStale, this,
+            &AppController::refreshCryptoHealth, Qt::UniqueConnection);
     m_scheduledSends->setClient(m_client.get());
     m_widgets->setClient(m_client.get());
     // Theme and language are template variables a widget URL may carry, so a

@@ -55,6 +55,23 @@ public:
 Q_SIGNALS:
     void stateChanged();
     void progressChanged();
+    /// A backup action finished, either way. AppController answers this by
+    /// re-querying crypto health.
+    ///
+    /// WITHOUT IT, A SUCCESSFUL SETUP LEAVES THE BUTTON THAT DESTROYS THE KEY
+    /// STILL ON SCREEN. The Sessions card gates "Set up recovery and backup"
+    /// on `keyBackupAvailable === No && !secretStorageAvailable`, both from a
+    /// snapshot taken at login. Nothing else in the app refreshes it -- the
+    /// only other callers are login, first sync, verification-done and two
+    /// explicit user actions -- so after a successful enable the card still
+    /// reads "No key backup exists for this account", the cross-signing row
+    /// still reads "Secrets recoverable: Missing", and the button is still
+    /// enabled. A user who believes it did not work presses it again, and
+    /// `Recovery::enable()` calls `create_secret_store()` unconditionally:
+    /// the recovery key they just wrote down stops working, with none of the
+    /// double confirmation `reset_key` carries. Found in the 2026-09-13
+    /// pre-release audit of this feature.
+    void cryptoHealthStale();
 
 private:
     MatrixClient *m_client = nullptr;

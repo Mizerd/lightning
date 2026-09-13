@@ -235,8 +235,29 @@ Item {
                         // as "when I click open it just shows me settings and
                         // I have no clue what to do here". A call to action
                         // has to land on the action.
-                        text: qsTr("Set up backup")
-                        onClicked: app.showSettingsSection("sessions")
+                        // AND THE DESTINATION DEPENDS ON THE PHASE, because
+                        // `needsRecoveryKey` is true for three of them and
+                        // they do not want the same pane. NoBackupAvailable
+                        // genuinely wants Sessions -- there is nothing to
+                        // restore from, so the action is to CREATE a backup.
+                        // ManualRecoveryRequired and IdentityIncomplete say
+                        // "Enter your recovery key or passphrase to restore
+                        // encrypted history", and that field is in Privacy &
+                        // security, not Sessions. Routing all three to
+                        // Sessions fixed one phase and broke the other two
+                        // into the same "no clue what to do here" the note
+                        // above was written about. Found in the 2026-09-13
+                        // pre-release audit.
+                        readonly property bool wantsRecoveryInput:
+                            app.cryptoBootstrap
+                            && (app.cryptoBootstrap.phase
+                                    === CryptoBootstrapModel.ManualRecoveryRequired
+                                || app.cryptoBootstrap.phase
+                                    === CryptoBootstrapModel.IdentityIncomplete)
+                        text: wantsRecoveryInput ? qsTr("Enter recovery key")
+                                                 : qsTr("Set up backup")
+                        onClicked: app.showSettingsSection(
+                                       wantsRecoveryInput ? "privacy" : "sessions")
                     }
                 }
             }
