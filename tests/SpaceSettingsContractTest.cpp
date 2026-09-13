@@ -267,7 +267,14 @@ private Q_SLOTS:
         const QString row = pane.mid(flowAt, flowEnd - flowAt);
         QVERIFY2(row.contains(QStringLiteral("objectName: \"spaceCreateRoomButton\"")),
                  "the Flow block located here is not the action row");
-        QVERIFY2(row.contains(QStringLiteral("Layout.fillWidth: true")),
+        // The Flow's OWN header, not any descendant: the lines before its
+        // first child. Today no child carries fillWidth, so the whole-block
+        // form held -- but it would have started passing the moment one did.
+        // Raised in review.
+        const int firstChildAt = row.indexOf(QStringLiteral("AppButton {"));
+        QVERIFY2(firstChildAt > 0, "the Flow block has no buttons in it");
+        const QString flowHeader = row.left(firstChildAt);
+        QVERIFY2(flowHeader.contains(QStringLiteral("Layout.fillWidth: true")),
                  "the Flow does not fill the pane's width, so it wraps "
                  "against its own implicit width instead of the space "
                  "available");

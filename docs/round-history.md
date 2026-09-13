@@ -46,11 +46,13 @@ predates both, which is why the capture still shows it.
 | command palette | Ctrl+Shift+K, fuzzy match, and the action EXECUTES (theme 9 -> 10 on disk and on screen, back again) |
 | notifications | a real freedesktop notification with the room avatar, Reply and Mark as read, for a message in a room the unfocused client was not looking at |
 | the updater | installation type correctly "Flatpak"; a check reached the release server through confinement and reported up to date |
+| the notification's ACTIONS, both of them | **Mark as read**: the window caption went `(1 unread) Lightning 0.9.4` -> `Lightning 0.9.4` and the log shows two `read receipt sent` lines, so it sent real receipts rather than clearing a local flag. **Reply**: typed into the toast's inline field, `notification reply sent thread= false`, and the message landed DECRYPTED on the peer — from a client whose window was never focused |
+| the call stage's tile grid, and a remote mute | two tiles, "You" and "lightningtest2", per-user identity colours; the peer pressed Ctrl+Shift+U and a crossed-microphone badge appeared on THAT tile and not on the local one |
 | restart persistence | token AND crypto store: relaunch comes back signed in, rooms/spaces/theme restored, and the messages that decrypted before still decrypt |
 | an unreadable secret store is not a missing account | relaunched WITHOUT `DBUS_SESSION_BUS_ADDRESS`: both account records survived and were offered under "Already on this device" — §6's rule, live |
 | member list, call survives a room switch, Activity Center, Settings (all nine panes, all eleven themes listed) | captured |
 
-### Four defects the sweep found
+### Five defects the sweep found
 
 1. **Activity Center rows baked raw ids in for the session.** The seed is
    dispatched on the first `Syncing`, which is the connection coming up, not a
@@ -72,7 +74,16 @@ predates both, which is why the capture still shows it.
    `Component`, which `timeline-pane-qml` loads and never builds — so that is a
    parse-level claim only, and the wrapped row itself is NOT re-validated on a
    package either.
-4. **The snap is not signed in and could not be swept.** Its window sits on the
+4. **An edited thread ROOT pushed its summary card off the bubble.** The
+   card's Loader shares `metaRow` with the "edited" / "sending…" marker and
+   was sized only by its own implicitWidth, so the marker took the left of the
+   row and the card ran past the pane, clipping the last characters of its own
+   "10:46". Now `Layout.fillWidth` with a `Layout.maximumWidth` of its natural
+   width, so a row WITHOUT the marker is laid out exactly as before. Same
+   honest status as the Flow above: source-correct, pinned by a source scan,
+   and NOT re-validated on a package — no test instantiates that Loader in a
+   thread-root state either.
+5. **The snap is not signed in and could not be swept.** Its window sits on the
    login screen with no account record at all (`matrix-client.conf` carries a
    homeserver URL, window geometry and an update timestamp — no account
    section), and signing it in needs a password typed into the app, which is
@@ -120,12 +131,11 @@ be a separate window; nothing here uses one.
   earlier round.
 - **Audibility** of any of it. Nobody listened; the flatpak's microphone volume
   was at 0% from an earlier test (reset to 100% at the end of this round).
-- **The notification's ACTIONS.** The toast appeared carrying Reply and Mark as
-  read; neither was pressed, so click routing and inline reply are display-only
-  claims here. §12 wants actual desktop interaction for those.
-- **The call stage's tile grid** — two tiles were on screen and correct in the
-  captures, but nothing checked names, mute badges or the speaker ring against
-  a known state.
+- **A notification CLICK** (as opposed to its two action buttons, both of which
+  were pressed and are PASS above) — clicking the toast body to raise the
+  window and open the room was not exercised.
+- **The speaker ring** on a call tile. Names and the mute badge were checked
+  against a known state; who-is-talking was not.
 - **The updater past the check**: a flatpak must REFUSE to self-install, and
   that refusal's wording was not exercised.
 - **Element interoperability.** Both ends here were Lightning, so nothing in

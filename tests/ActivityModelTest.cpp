@@ -51,10 +51,13 @@ public:
     ConnectionState connectionState() const override { return Syncing; }
     QList<RoomInfo> rooms() const override { return roomSet; }
     QList<TimelineEvent> timeline(const QString &) const override { return {}; }
-    // Real clients answer an EMPTY string for a user whose member snapshot
-    // has not landed, and a name once it has. The default here stays "the id"
-    // so every existing case is unaffected; `displayNames` is what lets a
-    // case model the before/after.
+    // A real client answers the USER ID for a member whose snapshot has not
+    // landed -- MatrixClient's documented fallback is "MXID / empty"
+    // (MatrixClient.h:130) and every backend returns `userId`, never "". The
+    // default here is that id, which is what makes this fake faithful;
+    // `displayNames` is what lets a case model the before/after. An earlier
+    // comment here claimed the opposite and a seeded fixture was written
+    // against it, which is how a fix that never fired in production passed.
     QHash<QString, QString> displayNames;
     QString displayNameFor(const QString &, const QString &id) const override
     { return displayNames.value(id, id); }
@@ -896,6 +899,10 @@ private Q_SLOTS:
         h.model.seed({
             QVariantMap{
                 { QStringLiteral("eventId"), QStringLiteral("$n1") },
+                // roomInfo()'s fallback IS an empty-named default, so
+                // AppController really does send "" here -- unlike the
+                // sender key. Both spellings must pend; see $n2 below.
+                { QStringLiteral("roomName"), QString() },
                 { QStringLiteral("roomId"), kRoom },
                 { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
                 { QStringLiteral("timestampMs"), 100 },
@@ -931,11 +938,17 @@ private Q_SLOTS:
         known.highlightCount = 1;
         h.client.roomSet = { known };
         h.client.displayNames.clear();    // /members has not landed
+        // EXACTLY WHAT AppController SENDS. It pre-fills `senderName` with
+        // displayNameFor(), whose fallback is the MXID -- so the key arrives
+        // NON-EMPTY, carrying the id. Omitting it (as a first version of this
+        // case did) tests a shape no caller produces, and let a fix that
+        // never fired in production pass. Raised in review.
         h.model.seed({
             QVariantMap{
                 { QStringLiteral("eventId"), QStringLiteral("$n2") },
                 { QStringLiteral("roomId"), kRoom },
                 { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                { QStringLiteral("senderName"), QStringLiteral("@bob:mock.local") },
                 { QStringLiteral("timestampMs"), 100 },
                 { QStringLiteral("read"), false } },
         });

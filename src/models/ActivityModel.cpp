@@ -92,9 +92,14 @@ void ActivityModel::setClient(MatrixClient *client)
         // with highlightCount 0 and every row was already marked read: a
         // reset for nothing. Raised in review; markAllSeen() is the
         // precedent for the shape.
-        if (flipped && !m_visible.isEmpty()) {
-            Q_EMIT dataChanged(index(0), index(m_visible.size() - 1),
-                               { SeenRole });
+        if (flipped) {
+            if (!m_visible.isEmpty())
+                Q_EMIT dataChanged(index(0), index(m_visible.size() - 1),
+                                   { SeenRole });
+            // OUTSIDE the visible-rows guard: unseenCount() counts every
+            // ENTRY, not every visible row, so with a filter active that
+            // hides all of them the badge would go stale until the next
+            // event. Raised in review.
             Q_EMIT unseenCountChanged();
         }
     });
@@ -680,12 +685,24 @@ void ActivityModel::seed(const QVariantList &entries)
         e.roomName = m.value(QStringLiteral("roomName")).toString();
         if (e.roomName.isEmpty() && m_client)
             e.roomName = m_client->roomInfo(e.roomId).name;
-        if (e.roomName.isEmpty()) {
+        // `|| == the id`, NOT `isEmpty()` alone, and the sender half is the
+        // reason: MatrixClient's documented fallback is "MXID / empty"
+        // (MatrixClient.h:130) and every backend honours it -- displayNameFor
+        // returns the USER ID for an unknown room or member, never "". The
+        // only caller of seed() pre-fills this key with exactly that call
+        // (AppController.cpp), so at seed time the value arrives as
+        // "@bob:server": NON-empty, and an isEmpty() test left the row
+        // unpending and unresolvable for the session. That was the half of
+        // this defect actually reported live, and a first version of the fix
+        // did not close it -- the room half worked only because roomInfo()'s
+        // fallback really is an empty-named default, which is what hid the
+        // asymmetry. Raised in review.
+        if (e.roomName.isEmpty() || e.roomName == e.roomId) {
             e.roomName = e.roomId;
             e.roomNamePending = true;   // an id is a placeholder, not an answer
         }
         e.senderName = m.value(QStringLiteral("senderName")).toString();
-        if (e.senderName.isEmpty()) {
+        if (e.senderName.isEmpty() || e.senderName == e.senderId) {
             e.senderName = e.senderId;
             e.senderNamePending = true;
         }

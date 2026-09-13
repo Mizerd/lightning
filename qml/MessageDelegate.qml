@@ -2677,6 +2677,21 @@ Item {
                             // ThreadSummaryCard's own content is anchored to
                             // fill and its preview Label is fillWidth, so a
                             // narrower card elides rather than clips.
+                            //
+                            // LOOP-FREE ONLY BECAUSE THAT PREVIEW LABEL IS
+                            // SINGLE-LINE + ELIDE. maximumWidth reads the
+                            // item's implicitWidth while the layout sets the
+                            // item's WIDTH, so the cycle closes only if the
+                            // card's implicitWidth follows its width -- and it
+                            // does not: a non-wrapping QQuickText reports its
+                            // unelided natural width, so
+                            // `content.implicitWidth` is width-independent and
+                            // the binding settles on the first pass (the
+                            // Math.min(420, ...) cap is a second stabiliser).
+                            // Give that Label a `wrapMode`, or drop its
+                            // `maximumLineCount: 1`, and THIS becomes a real
+                            // binding loop -- from an edit in a different
+                            // file. Raised in review.
                             Layout.fillWidth: true
                             Layout.maximumWidth: item ? item.implicitWidth : 0
                             sourceComponent: ThreadSummaryCard {

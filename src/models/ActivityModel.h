@@ -198,9 +198,12 @@ private:
         // dispatched on the FIRST `Syncing` state change, which means the
         // sliding-sync connection came up, not that any room payload or
         // member snapshot has landed; roomInfo() then answers a
-        // default-constructed RoomInfo and displayNameFor() an empty string,
-        // and the row baked `!abc:server` / `@bob:server` in for the life of
-        // the session. Seen live on the packaged flatpak 2026-09-13: an
+        // default-constructed RoomInfo and displayNameFor() answers the USER
+        // ID -- its documented fallback is "MXID / empty"
+        // (MatrixClient.h:130), NOT an empty string -- and the row baked
+        // `!abc:server` / `@bob:server` in for the life of the session. That
+        // distinction is load-bearing: a pending test of `isEmpty()` alone
+        // never fires for the sender. Seen live on the packaged flatpak 2026-09-13: an
         // Activity row read "@lightningtest2:matrix.smetonis.net" where the
         // timeline two panes away read "lightningtest".
         bool roomNamePending = false;

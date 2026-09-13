@@ -1645,11 +1645,19 @@ type "Flatpak", check reaches the server); token AND crypto-store persistence
 across a restart; and §6's rule live — relaunched with no session bus, the
 unreadable secret store did NOT read as a missing account.
 
-THREE defects found and fixed (Activity Center rows baking raw ids in for the
+Both of the desktop notification's ACTIONS were pressed, not merely shown:
+**Mark as read** moved the window caption from `(1 unread)` to clean and sent
+two real read receipts, and the toast's inline **Reply** put a message into an
+ENCRYPTED room, decrypted on the peer, from a client whose window was never
+focused. And the call stage was checked against a known state: two tiles with
+the right names, and a crossed-microphone badge that appeared on the PEER's
+tile and not the local one when the peer pressed Ctrl+Shift+U.
+
+FOUR defects found and fixed (Activity Center rows baking raw ids in for the
 session plus its silent reconcile consequence; Updates contradicting itself;
-the Space Home row running off a narrow pane), plus a fourth that could NOT be
-fixed here — the snap is not signed in — **one claim WITHDRAWN before it
-was acted on** (shortcuts are NOT dead under a menu — Lightning's menus are
+the Space Home row running off a narrow pane; an edited thread root pushing
+its summary card off the bubble), plus a fifth that could NOT be fixed here —
+the snap is not signed in — **one claim WITHDRAWN before it was acted on** (shortcuts are NOT dead under a menu — Lightning's menus are
 in-scene popups, not `xdg_popup`s), and two non-defects recorded so nobody
 "fixes" them (Lithuanian date dividers are `LC_TIME`; the three-hour timestamp
 gap is the container's missing TZ). **The SNAP could not be swept — it is not
