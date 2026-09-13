@@ -192,6 +192,19 @@ private:
         QString reactionKey;
         bool encrypted = false;
         bool seenMark = false;
+        // THE SEED RUNS BEFORE THE ACCOUNT IS FURNISHED, and both of these
+        // record that a row is displaying an id because the answer had not
+        // arrived yet -- not because there is no better answer. The seed is
+        // dispatched on the FIRST `Syncing` state change, which means the
+        // sliding-sync connection came up, not that any room payload or
+        // member snapshot has landed; roomInfo() then answers a
+        // default-constructed RoomInfo and displayNameFor() an empty string,
+        // and the row baked `!abc:server` / `@bob:server` in for the life of
+        // the session. Seen live on the packaged flatpak 2026-09-13: an
+        // Activity row read "@lightningtest2:matrix.smetonis.net" where the
+        // timeline two panes away read "lightningtest".
+        bool roomNamePending = false;
+        bool senderNamePending = false;
     };
 
     bool isSeen(const Entry &e) const;
@@ -204,7 +217,14 @@ private:
     // The seed's per-notification `read` flag and the room list's
     // highlight_count are two answers from the same server, and they were
     // observed disagreeing on a live account. This keeps the room list's.
-    void reconcileSeedAgainstRoomCounts(const QStringList &seededIds);
+    /// Returns the ids it could NOT account for, because their room was not
+    /// known to the client yet. Those are kept and retried; see
+    /// m_seedAwaitingRooms.
+    QStringList reconcileSeedAgainstRoomCounts(const QStringList &seededIds);
+    /// Re-resolve the ids the seed had to fall back to, once the answers
+    /// exist. Empty roomId means "every pending row"; a room id narrows it to
+    /// that room, which is what membersChanged carries.
+    void resolvePendingSeedNames(const QString &roomId = QString());
     void rememberOwn(const TimelineEvent &event);
     void loadStore();
     void saveStore();
@@ -222,4 +242,10 @@ private:
     QStringList m_keywords;
     qint64 m_seenUpToMs = 0;
     bool m_storeLoaded = false;
+    // Seeded rows whose room the client did not know when the seed landed, so
+    // reconcileSeedAgainstRoomCounts() could not spend that room's budget and
+    // left them on the server's own `read` flag. Retried on roomsChanged. A
+    // seed that lands before any room payload leaves EVERY row here, which is
+    // the whole bell-vs-room-list reconciliation silently not running.
+    QStringList m_seedAwaitingRooms;
 };

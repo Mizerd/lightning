@@ -51,8 +51,13 @@ public:
     ConnectionState connectionState() const override { return Syncing; }
     QList<RoomInfo> rooms() const override { return roomSet; }
     QList<TimelineEvent> timeline(const QString &) const override { return {}; }
+    // Real clients answer an EMPTY string for a user whose member snapshot
+    // has not landed, and a name once it has. The default here stays "the id"
+    // so every existing case is unaffected; `displayNames` is what lets a
+    // case model the before/after.
+    QHash<QString, QString> displayNames;
     QString displayNameFor(const QString &, const QString &id) const override
-    { return id; }
+    { return displayNames.value(id, id); }
     QString avatarMxcFor(const QString &, const QString &) const override
     { return {}; }
     QStringList typingUsersFor(const QString &) const override { return {}; }
@@ -872,6 +877,132 @@ private Q_SLOTS:
                 { QStringLiteral("read"), false } },
         });
         QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.model.unseenCount(), 1);
+    }
+
+    // ---- the seed's placeholders are replaced when the answers arrive ----
+
+    // THE SEED RUNS BEFORE THE ACCOUNT IS FURNISHED.
+    //
+    // requestActivitySeed() is dispatched on the first `Syncing` state change,
+    // which means the sliding-sync connection came up -- not that any room
+    // payload has landed. roomInfo() then answers a default-constructed
+    // RoomInfo and the row baked the raw room id in as its title for the life
+    // of the session. Seen live on the packaged flatpak, 2026-09-13.
+    void aSeededRowLearnsItsRoomNameWhenTheRoomArrives()
+    {
+        Harness h;
+        h.client.roomSet = {};      // the seed beats the first room payload
+        h.model.seed({
+            QVariantMap{
+                { QStringLiteral("eventId"), QStringLiteral("$n1") },
+                { QStringLiteral("roomId"), kRoom },
+                { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                { QStringLiteral("timestampMs"), 100 },
+                { QStringLiteral("read"), false } },
+        });
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.row(0).value(QStringLiteral("roomName")).toString(), kRoom);
+
+        QSignalSpy changed(&h.model, &QAbstractItemModel::dataChanged);
+        RoomInfo late;
+        late.id = kRoom;
+        late.name = QStringLiteral("Design Review");
+        late.highlightCount = 1;
+        h.client.roomSet = { late };
+        Q_EMIT h.client.roomsChanged();
+
+        QCOMPARE(h.row(0).value(QStringLiteral("roomName")).toString(),
+                 QStringLiteral("Design Review"));
+        QVERIFY2(changed.count() > 0,
+                 "the room name was replaced without notifying, so a bound "
+                 "delegate would keep rendering the raw room id");
+    }
+
+    // The same defect on the sender: an Activity row read
+    // "@lightningtest2:matrix.smetonis.net" while the timeline two panes away
+    // read "lightningtest2", because the seed ran before /members.
+    void aSeededRowLearnsItsSenderNameWhenTheMembersArrive()
+    {
+        Harness h;
+        RoomInfo known;
+        known.id = kRoom;
+        known.name = QStringLiteral("Design Review");
+        known.highlightCount = 1;
+        h.client.roomSet = { known };
+        h.client.displayNames.clear();    // /members has not landed
+        h.model.seed({
+            QVariantMap{
+                { QStringLiteral("eventId"), QStringLiteral("$n2") },
+                { QStringLiteral("roomId"), kRoom },
+                { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                { QStringLiteral("timestampMs"), 100 },
+                { QStringLiteral("read"), false } },
+        });
+        QCOMPARE(h.row(0).value(QStringLiteral("senderName")).toString(),
+                 QStringLiteral("@bob:mock.local"));
+
+        h.client.displayNames.insert(QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("Bob"));
+        Q_EMIT h.client.membersChanged(kRoom);
+        QCOMPARE(h.row(0).value(QStringLiteral("senderName")).toString(),
+                 QStringLiteral("Bob"));
+    }
+
+    // A member snapshot for a DIFFERENT room must not touch this row, or the
+    // narrowing membersChanged carries is pointless and every busy room in
+    // the account re-walks the whole list.
+    void anotherRoomsMembersLeaveThisRowAlone()
+    {
+        Harness h;
+        h.model.seed({
+            QVariantMap{
+                { QStringLiteral("eventId"), QStringLiteral("$n3") },
+                { QStringLiteral("roomId"), kRoom },
+                { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                { QStringLiteral("timestampMs"), 100 },
+                { QStringLiteral("read"), false } },
+        });
+        h.client.displayNames.insert(QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("Bob"));
+        Q_EMIT h.client.membersChanged(QStringLiteral("!elsewhere:mock.local"));
+        QCOMPARE(h.row(0).value(QStringLiteral("senderName")).toString(),
+                 QStringLiteral("@bob:mock.local"));
+    }
+
+    // THE SECOND, SILENT CONSEQUENCE of the seed beating the room list.
+    //
+    // reconcileSeedAgainstRoomCounts() skips a room the client does not know,
+    // because a default-constructed RoomInfo's zero means "never heard of it".
+    // When the seed lands first that is EVERY room, so the whole
+    // bell-versus-room-list reconciliation silently did not run and the bell
+    // went back to contradicting the list -- the exact defect that function
+    // exists to prevent. It has to be retried once the rooms arrive.
+    void theSeedReconcileRetriesOnceItsRoomIsKnown()
+    {
+        Harness h;
+        h.client.roomSet = {};
+        QVariantList rows;
+        for (int i = 1; i <= 3; ++i) {
+            rows.append(QVariantMap{
+                { QStringLiteral("eventId"), QStringLiteral("$late%1").arg(i) },
+                { QStringLiteral("roomId"), kRoom },
+                { QStringLiteral("senderId"), QStringLiteral("@bob:mock.local") },
+                { QStringLiteral("timestampMs"), 100 + i },
+                { QStringLiteral("read"), false } });
+        }
+        h.model.seed(rows);
+        // Nothing is known, so all three keep the server's flag.
+        QCOMPARE(h.model.unseenCount(), 3);
+
+        // The room arrives and the server says ONE of its highlights is
+        // unread: the newest keeps the badge and the two older ones are read.
+        RoomInfo late;
+        late.id = kRoom;
+        late.name = QStringLiteral("Design Review");
+        late.highlightCount = 1;
+        h.client.roomSet = { late };
+        Q_EMIT h.client.roomsChanged();
         QCOMPARE(h.model.unseenCount(), 1);
     }
 };

@@ -73,6 +73,25 @@ void ActivityModel::setClient(MatrixClient *client)
     // direction and worse.
     connect(m_client, &MatrixClient::roomsChanged, this,
             &ActivityModel::reconcileRoomsAgainstTheirReadState);
+    // The same payload that carries the unread counters carries the room's
+    // NAME, so one signal settles both halves of what the seed could not do.
+    connect(m_client, &MatrixClient::roomsChanged, this, [this] {
+        resolvePendingSeedNames();
+        if (m_seedAwaitingRooms.isEmpty())
+            return;
+        const QStringList pending = std::move(m_seedAwaitingRooms);
+        m_seedAwaitingRooms = reconcileSeedAgainstRoomCounts(pending);
+        if (pending.size() != m_seedAwaitingRooms.size()) {
+            rebuildVisible();
+            Q_EMIT unseenCountChanged();
+        }
+    });
+    // A member snapshot, which is what turns a seeded sender id into a name.
+    // membersChanged and NOT roomMemberEventSeen: the latter fires per member
+    // event in a busy bridged room and is documented as reaching only the
+    // roster refetch consumers.
+    connect(m_client, &MatrixClient::membersChanged, this,
+            [this](const QString &roomId) { resolvePendingSeedNames(roomId); });
 }
 
 void ActivityModel::loadStore()
@@ -117,6 +136,7 @@ void ActivityModel::clear()
     m_ownEventIds.clear();
     m_ownEventOrder.clear();
     m_ownThreadRoots.clear();
+    m_seedAwaitingRooms.clear();
     m_seenUpToMs = 0;
     m_storeLoaded = false;
     endResetModel();
@@ -627,11 +647,15 @@ void ActivityModel::seed(const QVariantList &entries)
         e.roomName = m.value(QStringLiteral("roomName")).toString();
         if (e.roomName.isEmpty() && m_client)
             e.roomName = m_client->roomInfo(e.roomId).name;
-        if (e.roomName.isEmpty())
+        if (e.roomName.isEmpty()) {
             e.roomName = e.roomId;
+            e.roomNamePending = true;   // an id is a placeholder, not an answer
+        }
         e.senderName = m.value(QStringLiteral("senderName")).toString();
-        if (e.senderName.isEmpty())
+        if (e.senderName.isEmpty()) {
             e.senderName = e.senderId;
+            e.senderNamePending = true;
+        }
         e.preview = collapse(m.value(QStringLiteral("preview")).toString());
         e.encrypted = m.value(QStringLiteral("encrypted")).toBool();
         e.timestampMs = m.value(QStringLiteral("timestampMs")).toLongLong();
@@ -655,7 +679,7 @@ void ActivityModel::seed(const QVariantList &entries)
         m_ids.remove(m_entries.last().id);
         m_entries.removeLast();
     }
-    reconcileSeedAgainstRoomCounts(seeded);
+    m_seedAwaitingRooms += reconcileSeedAgainstRoomCounts(seeded);
     rebuildVisible();
     Q_EMIT unseenCountChanged();
 }
@@ -690,24 +714,39 @@ void ActivityModel::seed(const QVariantList &entries)
 // count that is exactly as fresh.
 //
 // A row the server already called read is never un-marked here.
-void ActivityModel::reconcileSeedAgainstRoomCounts(const QStringList &seededIds)
+QStringList ActivityModel::reconcileSeedAgainstRoomCounts(const QStringList &seededIds)
 {
     if (!m_client || seededIds.isEmpty())
-        return;
+        return {};
     const QSet<QString> seeded(seededIds.begin(), seededIds.end());
 
     // Rooms in this batch, each with its own unread-highlight budget.
     QHash<QString, int> budget;
+    QSet<QString> unknownRooms;
     for (const Entry &e : m_entries) {
         if (!seeded.contains(e.id) || budget.contains(e.roomId))
             continue;
         const RoomInfo info = m_client->roomInfo(e.roomId);
-        if (info.id != e.roomId)
-            continue;   // unknown room: leave its rows to the server's flag
+        if (info.id != e.roomId) {
+            // Unknown room: leave its rows to the server's flag FOR NOW and
+            // hand them back to the caller. A room is unknown as a whole, so
+            // either every one of its rows is reconciled or none is, and a
+            // retry cannot double-spend a budget it never spent.
+            unknownRooms.insert(e.roomId);
+            continue;
+        }
         budget.insert(e.roomId, std::max(0, info.highlightCount));
     }
+
+    QStringList deferred;
+    if (!unknownRooms.isEmpty()) {
+        for (const Entry &e : m_entries) {
+            if (seeded.contains(e.id) && unknownRooms.contains(e.roomId))
+                deferred.append(e.id);
+        }
+    }
     if (budget.isEmpty())
-        return;
+        return deferred;
 
     // m_entries is already newest-first, so spending each room's budget in
     // order hands it to that room's newest rows.
@@ -722,6 +761,57 @@ void ActivityModel::reconcileSeedAgainstRoomCounts(const QStringList &seededIds)
             continue;
         }
         e.seenMark = true;
+    }
+    return deferred;
+}
+
+// THE SEED'S PLACEHOLDERS ARE NOT ANSWERS, and nothing used to replace them.
+//
+// A seeded row that could not name its room or its sender rendered the raw id
+// for the whole session -- `!abc:server` as a room title, `@bob:server` where
+// every other surface in the application says "bob". The names arrive
+// seconds later, with the first room payload and the first `/members` fetch,
+// and this is what picks them up.
+//
+// Rows are only ever moved FROM a placeholder: a row that already carries a
+// real name is left alone, so a later empty answer can never un-name one.
+void ActivityModel::resolvePendingSeedNames(const QString &roomId)
+{
+    if (!m_client)
+        return;
+    for (int i = 0; i < m_entries.size(); ++i) {
+        Entry &e = m_entries[i];
+        if (!e.roomNamePending && !e.senderNamePending)
+            continue;
+        if (!roomId.isEmpty() && e.roomId != roomId)
+            continue;
+        bool changed = false;
+        if (e.roomNamePending) {
+            const RoomInfo info = m_client->roomInfo(e.roomId);
+            if (info.id == e.roomId && !info.name.isEmpty()) {
+                e.roomName = info.name;
+                e.roomNamePending = false;
+                changed = true;
+            }
+        }
+        if (e.senderNamePending) {
+            const QString name = m_client->displayNameFor(e.roomId, e.senderId);
+            if (!name.isEmpty() && name != e.senderId) {
+                e.senderName = name;
+                e.senderNamePending = false;
+                changed = true;
+            }
+        }
+        if (!changed)
+            continue;
+        // The row's position does not move -- only two of its strings -- so
+        // this is a dataChanged on the VISIBLE index, never a reset.
+        const int visibleRow = m_visible.indexOf(i);
+        if (visibleRow >= 0) {
+            const QModelIndex idx = index(visibleRow, 0);
+            Q_EMIT dataChanged(idx, idx,
+                               { RoomNameRole, SenderNameRole });
+        }
     }
 }
 
