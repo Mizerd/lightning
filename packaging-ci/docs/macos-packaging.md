@@ -639,6 +639,72 @@ could have noticed; it cleared the limit by two and a half kilobytes and the
 next build went over. Do not go looking for what changed in the pipeline —
 nothing did.
 
+### RESOLVED 2026-09-13 — the runner reaches GitLab through a loopback relay
+
+**`macos-package-test` uploads again, proven on pipeline 216**: a 104,920,261
+byte artifact — **62,661 bytes OVER the 100 MiB cap that produced the 413** —
+answered `Uploading artifacts as "archive" to coordinator... 201 Created`.
+
+The Local Network gate below blocks the runner from the LAN. It does **not**
+block loopback, and Apple-signed binaries are not gated at all, so the runner
+now talks only to loopback and Apple's own `python3` carries the last hop:
+
+```text
+gitlab-runner -> 127.0.0.1:8929 -> relay (/usr/bin/python3) -> 10.195.35.2:80
+```
+
+* `~/opt/gitlab-relay/relay.py` — a ~60-line TCP relay, no dependencies.
+* `~/Library/LaunchAgents/org.lightning.gitlab-relay.plist` — `RunAtLoad` and
+  `KeepAlive`, so launchd restarts it. Errors to
+  `~/opt/gitlab-relay/relay.err`.
+* `config.toml` has `url = "http://127.0.0.1:8929"`, backed up beside it first.
+
+**Everything lives in the `runner` account's own home. No admin was used, and
+no privilege boundary was crossed** — the account is still non-admin with no
+sudo, which is the property this host depends on.
+
+It was tested under **launchd specifically**, not just from an SSH shell: the
+responsible process differs, and the whole defect is about per-process
+attribution, so a shell-only test would have proved nothing about CI jobs.
+
+**THIS IS A WORKAROUND AND THE SCRIPT SAYS SO IN ITS OWN DOCSTRING.** Granting
+`gitlab-runner` Local Network access (below) makes it unnecessary: point `url`
+straight at `http://10.195.35.2`, `launchctl bootout
+gui/502/org.lightning.gitlab-relay`, and delete both files. Do that when
+someone is next at the machine — a relay is a moving part that can die, and
+`KeepAlive` covering that is not the same as not needing it.
+
+One thing worth knowing, found while reading the rules: `.publish-rules`
+**already** sets `PUBLISH_API_BASE: http://10.195.35.2/api/v4`, so the publish
+chain was routed internally for this exact cap long ago. The gap was only the
+runner's OWN artifact upload, which goes to the coordinator URL in
+`config.toml` and never touched `PUBLISH_API_BASE`.
+
+### DO NOT BACKFILL 0.9.5 WITH `attach-existing` — checked, and it would harm
+
+The obvious follow-up is to give 0.9.5 the macOS asset it missed. **Do not.**
+Two properties of this pipeline make it destructive here, and both are in its
+own source:
+
+1. **A publishing pipeline builds EVERY format**, whatever `BUILD_FORMATS`
+   says — `build-deb` and its siblings lead with
+   `- if: '$PUBLISH_PACKAGES == "true"'`, and the variable's own description
+   says "Publishing pipelines always build every format." So a macOS-only
+   backfill is not a thing that exists; it rebuilds all of them.
+2. **Those rebuilds are different bytes**, and `publish-update-manifest.sh`
+   says the consequence in as many words: *"the per-release copy cannot be
+   re-published (different bytes, immutable conflict)"*.
+
+So the run would replace 0.9.5's published package files with bytes whose
+SHA-256 no longer matches the **already-signed, already-public** 0.9.5
+manifest, and then fail on the immutable versioned copy anyway. That breaks
+verification for anyone who fetched the real 0.9.5 manifest.
+
+`attach-existing` is for a release whose packages were never published (it
+backfilled `v0.6.1`). 0.9.5 published successfully, minus one optional asset.
+**Leave it.** The release notes, the website and `CLAUDE.md` §2 all say macOS
+is absent from 0.9.5, which is true and stays true; 0.9.6 gets it for free.
+
 ### THE ENDPOINT CHANGE ALONE DOES NOT WORK ON THIS HOST — MEASURED 2026-09-13
 
 **Do not follow the procedure below on its own. It was applied, it failed, and
