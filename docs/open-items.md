@@ -163,6 +163,29 @@ counted with the others.
   exactly as the Windows manager does, keeping source clones on HTTPS. It
   needs access to the Mac mini, which this session does not have.
 
+  **IT HAPPENED AGAIN AT THE 0.9.5 RELEASE, AND 0.9.5 SHIPPED WITHOUT macOS
+  (2026-09-13, pipeline 215).** Identical shape: the bundle built and passed
+  every check on the Mac — "macOS bundle validation passed (arm64, 289460224
+  bytes)", `--version` reporting `Lightning 0.9.5`, calls, plugin directory,
+  registry helper, image formats, signature, no secrets — and then
+  `413 Payload Too Large` on the artifact upload. So this is no longer a thing
+  that might bite a release; it has cost one, and it will cost every release
+  until the Mac mini's runner URL is changed.
+
+  Two numbers worth keeping, because they show how little headroom there ever
+  was: 0.9.4's artifact uploaded at **104,855,066 bytes**, which is **2,534
+  bytes under 100 MiB**. It did not "work before and break now" by any margin
+  anyone could have noticed — it cleared the limit by two and a half kilobytes.
+  Whatever else moved in that window, the lane was one small build away from
+  this outcome the whole time.
+
+  **AND THE PUBLISHED 0.9.5 RELEASE NOTES SAY macOS "is published".** The
+  notes are read from `docs/releases/v0.9.5.md` at the resolved release commit,
+  so the sentence was fixed in the repository AFTER the pipeline had already
+  used it. The repository file carries a marked correction; the GitLab and
+  GitHub release bodies still carry the original wording, and changing those is
+  a maintainer decision (§14 treats a published release as immutable).
+
 - ~~**The camera does not work at all**~~ — **FIXED and LIVE-CONFIRMED on
   Windows 2026-08-27** (`31e6048`), as is the window share's aspect ratio and
   resizing a shared window mid-share. It was never the camera, and "screen share
