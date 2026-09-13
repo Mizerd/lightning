@@ -30,8 +30,12 @@ the portal (the RECEIVING client's own window drew the desktop, on the default
 RHI backend — not a counter and not the sharer's self-view), share audio, call
 audio FRAMES in both directions (**audibility remains NOT TESTED**), group
 power control, threads end to end, the command palette executing an action, a
-freedesktop notification being DISPLAYED (its Reply and Mark-as-read actions
-were not pressed), the updater's check, and token + crypto-store persistence
+freedesktop notification DISPLAYED and **both of its actions PRESSED** (Mark as
+read sent two real read receipts and cleared the `(1 unread)` caption; the
+inline Reply landed a message decrypted on the peer, from a client that was
+never focused), the call stage's tile grid checked against a known state (two
+tiles, correct names, and the crossed-microphone badge on the PEER's tile only
+after it muted), the updater's check, and token + crypto-store persistence
 across a restart. Detail and the full
 NOT-TESTED residue in `docs/round-history.md`, 2026-09-13 (afternoon).
 
@@ -39,8 +43,12 @@ NOT-TESTED residue in `docs/round-history.md`, 2026-09-13 (afternoon).
 signed in — no account record at all); recovery/key-backup setup and therefore
 cross-user verification (both fixture accounts report cross-signing and secret
 storage "Missing", and the setup flow puts a generated recovery key on screen,
-which §6 forbids capturing); media send and the file chooser under either
-sandbox; and audibility of any call.
+which §6 forbids capturing); media send and the file chooser under either sandbox (ATTEMPTED on the
+flatpak this round and blocked by the rig — a tmpfs is mounted over the
+document portal's fuse mount, so the portal's returned path is unreachable
+inside the sandbox; see round-history 2026-09-13); audibility of any call; a notification body CLICK (as distinct from
+its two action buttons, both of which passed); and the speaker ring on a call
+tile.
 
 ### Open items and NOT TESTED inventory
 

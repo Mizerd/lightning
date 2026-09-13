@@ -126,9 +126,33 @@ be a separate window; nothing here uses one.
   panel afterwards (the three cross-signing rows flipping from "Missing") and
   from the log. Do not read it as impossible.
 - **Everything signed-in on the snap**, for the reason above.
-- **Media send and the file chooser**, deliberately: the flatpak's chooser
-  reaches the maintainer's own home and exposed personal filenames in an
-  earlier round.
+- **Media send through the file chooser** — ATTEMPTED this round and blocked by
+  the RIG, which is worth writing down because it looks exactly like an app
+  defect. The flatpak has NO filesystem permission at all (`flatpak info
+  --show-permissions` lists only `xdg-run/pipewire-0` and
+  `xdg-config/kdeglobals:ro`), which is correct: every file reaches it through
+  the document portal. The portal returned
+  `/run/user/1000/doc/<id>/sweep-upload.png` and Qt refused it —
+  `QML FileDialog: Cannot set ... as a selected file because it doesn't
+  exist` — so `selectedFiles` was empty, nothing was attached, and the
+  composer was left as it was. `/proc/mounts` says why: `/run/user/1000/doc`
+  carries the real `fuse.portal` mount AND a **tmpfs mounted over the top of
+  it**, so the document is genuinely unreachable inside the sandbox. Rig, not
+  package.
+
+  Sub-finding, NOT established: the user is told nothing. There is an
+  `attachmentRejected` notice path, but this failure happens before
+  `addAttachment()` is ever reached, so the picker closes and nothing happens.
+  Whether `accepted` even fires with an empty `selectedFiles` was not
+  instrumented, so this is an observation and not yet a diagnosis.
+
+  Doing it at all needed care and the method is worth keeping: the portal's
+  chooser browses the MAINTAINER'S OWN HOME, so nothing captured it. The path
+  was typed blind into the Name field and verified by cropping a 46-pixel-tall
+  strip of that one row, with the full-screen original deleted on the spot.
+  Ctrl+L did NOT reach the location bar — the first attempt typed into the
+  file list and left the Name field empty, which is exactly why the strip
+  check happened before Enter was pressed.
 - **Audibility** of any of it. Nobody listened; the flatpak's microphone volume
   was at 0% from an earlier test (reset to 100% at the end of this round).
 - **A notification CLICK** (as opposed to its two action buttons, both of which
