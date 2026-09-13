@@ -134,7 +134,7 @@ test -x "$audit/prime/usr/libexec/gstreamer-1.0/gst-plugin-scanner" \
 #
 # Same class as the xkb and fontconfig assertions below, and for exactly the
 # same reason: the base snap cannot supply it, so the payload must.
-for nss_module in libsoftokn3 libfreebl3 libnssdbm3 libnssckbi; do
+for nss_module in libsoftokn3 libfreebl3 libfreeblpriv3 libnssdbm3 libnssckbi; do
     test -f "$audit/prime/usr/lib/$nss_module.so" \
         || die "$nss_module.so is not in the snap payload and core24 has no NSS: SRTP cannot initialise, so every call carries no media in either direction"
 done

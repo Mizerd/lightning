@@ -236,20 +236,26 @@ done
 # The AppImage carries the identical gap and is one NSS-less host away from the
 # same failure, so this is staged HERE, for both.
 #
-# Beside libnss3.so, which is where upstream NSS ships them and where NSS's own
-# path derivation looks first.
-NSS_MODULE_SRC="/usr/lib/x86_64-linux-gnu/nss"
+# THE SOURCE DIRECTORY IS DERIVED FROM libnss3.so ITSELF, not hard-coded, and
+# the first attempt at this failed the build for exactly that reason: it looked
+# in `/usr/lib/x86_64-linux-gnu/nss`, which is where Debian used to keep these
+# and no longer does — on trixie `dpkg -L libnss3` puts every one of them
+# directly in `/usr/lib/x86_64-linux-gnu`. Deriving the path is also the
+# HONEST thing to do, because "beside libnss3" is precisely how NSS itself
+# finds them at runtime, so this cannot drift from the rule it is implementing.
+NSS_MODULE_SRC="$(dirname "$(ldconfig -p | awk '/libnss3\.so/ {print $NF; exit}')")"
+[[ -n "$NSS_MODULE_SRC" && -d "$NSS_MODULE_SRC" ]] || \
+    die "cannot locate libnss3.so in the build image: libsrtp2 is built against NSS here, so without its modules SRTP cannot initialise and every call carries no media"
 NSS_REQUIRED_MODULES=(
     libsoftokn3     # PKCS#11 softoken: the module libsrtp's ciphers come from
     libfreebl3      # the primitives softokn itself dlopens
+    libfreeblpriv3  # softokn prefers this one where it exists
     libnssdbm3      # legacy DBM database module, probed during init
     libnssckbi      # built-in roots; cheap, and NSS probes for it
 )
-[[ -d "$NSS_MODULE_SRC" ]] || \
-    die "no NSS modules at $NSS_MODULE_SRC: libsrtp2 is built against NSS on this image, so without them SRTP cannot initialise and every call carries no media"
 for mod in "${NSS_REQUIRED_MODULES[@]}"; do
     [[ -f "$NSS_MODULE_SRC/$mod.so" ]] || \
-        die "required NSS module $mod.so is not installed in the build image: SRTP would fail to initialise on any host without NSS"
+        die "required NSS module $mod.so is not in $NSS_MODULE_SRC: SRTP would fail to initialise on any host without NSS of its own, and ALWAYS under strict snap confinement"
     cp "$NSS_MODULE_SRC/$mod.so" "$APPDIR/usr/lib/"
 done
 

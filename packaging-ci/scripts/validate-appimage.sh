@@ -156,7 +156,7 @@ done
 #
 # Sixth occurrence of "a library loads its own plugins", and the first to reach
 # a shipped lane. Asserted by name so it names itself if it regresses.
-for nss_module in libsoftokn3 libfreebl3 libnssdbm3 libnssckbi; do
+for nss_module in libsoftokn3 libfreebl3 libfreeblpriv3 libnssdbm3 libnssckbi; do
     test -f "$tree/usr/lib/$nss_module.so" \
         || die "$nss_module.so missing from the AppImage payload: libsrtp2 is built against NSS, so without NSS's dlopened modules SRTP cannot initialise and every call carries no media on a host that has no NSS of its own"
 done
