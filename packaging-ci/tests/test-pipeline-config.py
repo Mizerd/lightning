@@ -625,6 +625,37 @@ for key, value in (("CI_COMMIT_BRANCH", "feature"),
     check(not evaluate(macos_gate, rejected),
           f"macOS gate rejects unsafe {key}={value}")
 
+# ---- the missing-asset report ------------------------------------------------
+#
+# macos-package-test is allow_failure and publish-packages needs it optional --
+# both deliberate, both asserted elsewhere in this file, and neither may change:
+# one sleeping Mac must not block a release. The cost is that the Mac lane is
+# the only one whose absence a green pipeline does not report, and 0.9.5 paid
+# it: the bundle built, passed every check, failed to upload, and the release
+# published green with no macOS download and no signal anywhere.
+#
+# report-optional-assets restores the signal without restoring the dependency.
+# Every property below is load-bearing, so each is pinned:
+report = resolve_extends("report-optional-assets")
+check(report.get("stage") == "update",
+      "the optional-asset report runs in the LAST stage")
+check(report.get("allow_failure", False) is False,
+      "the optional-asset report is NOT allow_failure -- that is its whole point")
+check("finalize-release" in needs_names("report-optional-assets"),
+      "the optional-asset report runs after the release is finalized")
+# Nothing may depend on it, or a red report would start blocking publication --
+# which is precisely the coupling macos-package-test's allow_failure avoids.
+dependents = [j for j in doc
+              if isinstance(doc[j], dict)
+              and "report-optional-assets" in needs_names(j)]
+check(not dependents,
+      f"nothing needs the optional-asset report (found {dependents})")
+check(evaluate(report["rules"],
+               dict(macos_vars, PUBLISH_PACKAGES="true", BUILD_FORMATS="all")),
+      "the optional-asset report runs on a publishing pipeline")
+check(not evaluate(report["rules"], macos_vars),
+      "the optional-asset report does not run on a non-publishing pipeline")
+
 # A macOS-only request (BUILD_FORMATS=none) creates no Linux or Windows build.
 check(not any(build_included(fmt, macos_vars) for fmt in all_fmts),
       "a macOS-only request creates no Linux package build")
