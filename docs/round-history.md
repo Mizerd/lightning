@@ -1,5 +1,104 @@
 # Round history
 
+## 2026-09-15 — the row's right rail had three things on it, and a live two-account GUI audit of all three layouts
+
+A user reported the hover action bar buried under read-receipt avatars ("this
+is a bit messy and hard to click on stuff", "might be because of my scaling").
+It is not the scaling. Reproduced here in minutes on a real two-account rig,
+and auditing the layouts for it turned up three more of the same shape.
+
+### The rail
+
+The hover action bar is `anchors.top/right` on `bubbleRow`, 3px above its top
+edge. The read-receipt facepile paints UPWARD from `layout.y + layout.height`
+at the row's own right margin. On a TALL row they are nowhere near each other,
+which is why this went unnoticed for so long. On a SHORT one — a single line,
+a continuation row, a compact timeline — the row's top and bottom are barely
+30px apart and the two land on the same pixels. **The facepile wins**: both
+carry `z: 3` and the strip is later in the document, so the buttons underneath
+are not merely ugly, they cannot be pressed.
+
+Measured on the unfixed tree by the new test: the bar ends at x=628 and the
+pile starts at x=580. Forty-eight pixels of the bar — Edit and the overflow
+menu — sit under the avatars.
+
+`actionBarReceiptReserve` reserves the pile's width on the bar, and ONLY while
+the two bands actually meet, so the bar keeps the row's corner everywhere it
+can. It feeds one `rightMargin` on a Loader and nothing else, which is why
+(unlike `receiptRailReserve` beside it) it can apply in Bubbles too.
+
+### Three more, all found by auditing the layouts against a real account
+
+**Bubbles: the sender header rendered OUTSIDE its bubble.** The header's cap
+was `Math.max(1, bubble.width - 112)` — and in Bubbles the bubble is SIZED
+FROM the column the header is in. That is a loop, and Qt resolves it with
+whatever the bubble measured last: for a short body that is under 112, so
+`Math.max(1, …)` pinned the header's contributed width to **one pixel**. The
+bubble then sized itself to the body alone and the name and timestamp painted
+on the timeline background beside it. The new test measures exactly that:
+`the identity header measured 1px wide`.
+
+The escape is the one `segmentCap` already uses a few hundred lines down:
+derive from `bubbleRow`, which is fillWidth in `layout` and reports no
+implicit width, so that end of the chain is inert.
+
+**Bubbles: the facepile clipped an own bubble's corner.** The width cap
+subtracts 40 for a rail and the PLACEMENT ignored it, right-aligning to
+`parent.width`, so a short own bubble was pushed flush to the row edge where
+the avatars are. `bubbleReceiptInset` insets the placement and narrows a wide
+incoming bubble by the same amount. `receiptRow.width` is a chip count and
+depends on nothing below the bubble, so this closes no loop.
+
+**Local search said "Nothing is indexed yet." over three results it had just
+returned.** `MessageSearchController::refreshIndexStats()` is a `Q_INVOKABLE`
+with **no caller anywhere in the tree** — `grep -rn refreshIndexStats qml/ src/`
+returns its declaration and its definition and nothing else. So
+`indexedMessages` only ever moved when the five-minute sweep happened to fire
+or the user pressed "Index this room"; on a freshly started client it was 0.
+Same family as the unregistered test file and the gated counter in §16: code
+that exists, looks right, and is never reached. The History scope asks for the
+stats now, and the label refuses to claim an empty index while results are on
+screen — a count of zero is not evidence when the number arrives on its own
+signal, later.
+
+### What the audit actually covered
+
+Two instances, two throwaway accounts, one KDE/Wayland desktop, driven by
+`scripts/gui-harness.sh`. Modern, Compact and Bubbles each rendered against a
+real room with mixed own/other messages, short and wrapping bodies, group
+headers, and live read receipts; the action bar was pinned on a receipt row in
+each. Modern and Compact were otherwise clean. Bubbles carried both defects
+above.
+
+**AND THE OFFLINE RESTORE WAS LIVE-VALIDATED IN THE SAME RIG — PASS.** With
+`HTTPS_PROXY` pointed at a closed port so every outbound request is refused at
+once, the client goes `screen change 0 -> 3 -> 1` (Boot to Main), **not to the
+login page**, logs `session restored from the local store — the homeserver
+could not be reached`, shows the complete cached room list, opens an ENCRYPTED
+DM and renders its decrypted history, and the footer reads
+**"Matrix Rust SDK • Offline — retrying"** from the first frame. That last part
+is the `setState` override from the review round working live: before it, the
+same session read "Loading rooms…" over a list that was already complete.
+
+Local search works in that state too, which was the specific ask: the find
+bar's History scope answered `Searching 12 messages Lightning has indexed,
+including encrypted ones.` with three hits from the encrypted room, with no
+server at all.
+
+### Harness notes worth keeping
+
+**Tab, not coordinates, for a login form.** Three clicks aimed off a capture
+all landed in the FIRST field, and because step two opened with Ctrl+A the
+password was typed into the *homeserver* box in plain sight. Tab order is
+Homeserver → User → Password and is exact. The password went in through
+`ydotool type --file` on a 0600 file so it never appears in `ps`, and the
+captures that caught it were deleted.
+
+**A `shot_pid` capture resized to the window's LOGICAL width makes screenshot
+coordinates directly clickable** (`magick … -resize 1400x` for a 1400px-wide
+window at scale 1.5). That removes the native/logical conversion that the
+harness header warns about, one arithmetic step at a time.
+
 ## 2026-09-14 — three user reports: a server that died, a share that ended the call, and a join that froze
 
 Three reports against 0.9.5, none of them reproducible from the maintainer's

@@ -73,6 +73,27 @@ tile.
 
 OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
 
+**THE 2026-09-15 LAYOUT AUDIT: four defects fixed, and what it did NOT cover.**
+Modern, Compact and Bubbles were each driven against a real room on two
+throwaway accounts, with mixed own/other messages, wrapping bodies, group
+headers and live read receipts, and the action bar pinned on a receipt row in
+each. Full account in `docs/round-history.md`, 2026-09-15.
+
+- **NOT COVERED by that audit**, and none of it should be read as confirmed:
+  images, video and audio rows in any layout; reactions and reply previews;
+  thread panels in Bubbles; the room-activity and call-event rows; any layout
+  at a non-default text size or interface zoom — which matters because the
+  reporter blamed their scaling, and the defect turned out to be independent
+  of it but the SCALED cases were still never rendered.
+- **IN BUBBLES THE ACTION BAR STILL COVERS A SHORT OWN MESSAGE.** Seen in the
+  audit and deliberately NOT changed: an own bubble is right-aligned and the
+  bar sits at the row's top-right, so a one-word bubble disappears under it
+  while hovered. Element Web behaves the same way, and moving the bar to the
+  left of an own bubble is a design decision rather than a defect fix. Worth
+  a maintainer's opinion before anybody "fixes" it.
+- **`sharevalve` is still a seam** (below), so muting the share's audio
+  independently of the microphone remains unimplemented.
+
 **THE 2026-09-14 USER-REPORT ROUND IS FIXED IN SOURCE AND NOT LIVE-VALIDATED
 ANYWHERE.** Three reports against 0.9.5, all three root-caused and fixed, none
 of them driven against the thing that reported them. Full account in
