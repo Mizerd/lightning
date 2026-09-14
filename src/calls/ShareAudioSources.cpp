@@ -263,19 +263,45 @@ bool perApplicationCaptureAvailable()
     // echo, and the picker already says so. A blocked probe cannot be
     // cancelled — GStreamer offers no such call — so the worker is abandoned,
     // and because the answer is cached it is abandoned at most once.
+#ifndef HAVE_LIGHTNING_WEBRTC
+    // No media engine, so `SourceMonitor::start()` is the stub below that
+    // answers false and GstBootstrap is not even compiled in. Answered here
+    // rather than by spawning a worker to be told the same thing.
+    return false;
+#else
     static const bool available = [] {
+        // INITIALISED HERE, ON THE CALLER'S THREAD, and this line is the
+        // difference between a bound and a deadlock. `SourceMonitor::start()`
+        // opens with `ensureInitialised()`, which is a `std::call_once`: if
+        // the ABANDONED worker were the process's first caller and blocked
+        // inside `gst_init_check` — a plugin-registry scan, exactly the kind
+        // of thing that hangs in a sandbox — then every later
+        // `ensureInitialised()` on any thread would block on that once_flag
+        // for ever. The very next thing this function's caller does is
+        // `shareAudioSourceDescription()`, which calls it. The bound would
+        // have been defeated by the call it was added to bound. Its sibling
+        // in SfuMediaEngine hoists the same line for the same reason.
+        if (!lightning::gst::ensureInitialised())
+            return false;
         auto slot = std::make_shared<std::promise<bool>>();
         auto answer = slot->get_future();
         std::thread([slot] {
-            bool ok = false;
+            // set_value INSIDE the try: an exception escaping a detached
+            // thread's function object is a std::terminate, and a broken
+            // promise rethrows on the GUI thread at get(). Neither can
+            // actually happen for a promise<bool>, and neither is worth
+            // leaving to that argument.
             try {
                 SourceMonitor probe;
-                ok = probe.start();
+                const bool ok = probe.start();
                 probe.stop();
+                slot->set_value(ok);
             } catch (...) {
-                ok = false;
+                try {
+                    slot->set_value(false);
+                } catch (...) {
+                }
             }
-            slot->set_value(ok);
         }).detach();
         if (answer.wait_for(std::chrono::milliseconds(2500))
             != std::future_status::ready) {
@@ -287,6 +313,7 @@ bool perApplicationCaptureAvailable()
         return answer.get();
     }();
     return available;
+#endif
 }
 
 #ifdef HAVE_LIGHTNING_WEBRTC

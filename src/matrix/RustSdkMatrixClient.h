@@ -950,7 +950,6 @@ private:
     void pollRustEvents();
     void handleRustEvent(const QJsonObject &event, quint64 eventGeneration);
 
-public:
     /// Feed ONE event through the dispatcher `pollRustEvents` uses, at the
     /// live generation.
     ///
@@ -960,6 +959,15 @@ public:
     /// that would overwrite it (startSync, and the sync lane's own "starting")
     /// both need a live FFI handle. This drives the REAL dispatcher with the
     /// REAL payloads, which is the closest a test can get without one.
+    ///
+    /// PRIVATE, WITH ONE FRIEND, unlike the plain `…ForTest` setters
+    /// elsewhere in this tree. Those set one field; this dispatches an
+    /// ARBITRARY payload through the real handler, which can reach
+    /// `saveSession` and `updateSessionTokens`, and it will begin a lifecycle
+    /// generation on a client that has none — including one mid-shutdown,
+    /// where resurrecting a generation would be exactly wrong. Nothing in
+    /// `src/` calls it and QML cannot (not a slot, not Q_INVOKABLE), so the
+    /// friend is narrowing an API surface rather than closing a hole.
     void handleRustEventForTest(const QJsonObject &event)
     {
         // A session first, or the generation gate drops everything: the guard
@@ -970,8 +978,8 @@ public:
             m_lifecycle.beginSession();
         handleRustEvent(event, m_lifecycle.activeGeneration());
     }
+    friend class OfflineRestoreStateTest;
 
-private:
     void finishSignOut(const QString &serverResult, const QString &serverMessage);
     bool clearPersistedAccount(const matrix::app_data::AccountIdentity &identity,
                                bool *matchedRecord = nullptr);

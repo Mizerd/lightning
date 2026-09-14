@@ -4152,6 +4152,19 @@ private slots:
     // the first QVERIFY2 below fails with that exact message.
     void aShareAudioBranchParsesStandaloneTheWayTheDynamicPathBuildsIt()
     {
+        // Same gate as the composition case below, and for the same reason:
+        // `pipewiresrc` is a separate package, so a host with `webrtcbin` and
+        // without it would fail here with a parse error that says nothing
+        // about the regression being guarded.
+        for (const char *needed : { "pipewiresrc", "queue", "audioconvert",
+                                    "audioresample", "capsfilter" }) {
+            GstElementFactory *factory = gst_element_factory_find(needed);
+            if (!factory)
+                QSKIP(qPrintable(QStringLiteral("no %1 in this build")
+                                     .arg(QLatin1String(needed))));
+            gst_object_unref(factory);
+        }
+
         lightning::shareaudio::Stream s;
         s.serial = QStringLiteral("9551");
         const QString branch =
@@ -4223,9 +4236,12 @@ private slots:
         // about the regression being guarded, which is how a skip becomes a
         // false alarm. Same discipline as the vp8 and pipewiresrc skips
         // elsewhere in this file.
+        // `pipewiresrc` is in the list because it is the one most likely to
+        // be absent: the others ship in gst-plugins-base/good, and it is a
+        // separate package. `mixedSourceDescription` emits one per stream.
         for (const char *needed : { "audiomixer", "audiotestsrc", "audioconvert",
                                     "audioresample", "capsfilter", "valve",
-                                    "opusenc", "rtpopuspay" }) {
+                                    "opusenc", "rtpopuspay", "pipewiresrc" }) {
             GstElementFactory *factory = gst_element_factory_find(needed);
             if (!factory)
                 QSKIP(qPrintable(QStringLiteral("no %1 in this build")
