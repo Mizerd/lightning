@@ -198,6 +198,23 @@ QString RustSdkMatrixClient::currentDeviceId() const
 
 void RustSdkMatrixClient::setState(ConnectionState state)
 {
+    // A SESSION THAT HAS NEVER REACHED ITS HOMESERVER IS OFFLINE, NOT
+    // "SYNCING", AND SAYING SO ONCE AT login_ok WAS NOT ENOUGH.
+    //
+    // `loginSucceeded` is a synchronous chain of direct connections ending in
+    // AppController::onLoginSucceeded -> startSync(), which sets Syncing
+    // unconditionally — with no event-loop iteration in between, so an
+    // Offline set at login_ok was overwritten before it could ever be
+    // rendered. The sync lane then says "starting", which is Syncing again.
+    // AppController maps Syncing to "Loading rooms…", which is precisely the
+    // sentence an offline restore must not show over a room list that is
+    // already complete and will never load anything.
+    //
+    // Cleared by the first `room_list_sync_state: running` — a sync response
+    // is the only thing that proves the server was reached — so this narrows
+    // exactly one window and cannot strand a working session in Offline.
+    if (m_restoredOffline && state == Syncing)
+        state = Offline;
     if (m_state == state)
         return;
     m_state = state;
@@ -4419,6 +4436,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             synctrace::noteSyncState("retrying");
         else if (state == QLatin1String("starting"))
             synctrace::noteSyncState("starting");
+        // A RESPONSE. Whatever the restore had to do to open this store, the
+        // server is answering now — release the Offline override above.
+        if (state == QLatin1String("running"))
+            m_restoredOffline = false;
         if (state == QLatin1String("offline")) setState(Offline);
         else if (state == QLatin1String("starting") || state == QLatin1String("retrying"))
             setState(Syncing);

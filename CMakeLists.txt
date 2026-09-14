@@ -3658,6 +3658,23 @@ if(BUILD_TESTING)
     set_tests_properties(verification-flow PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # A restore that could not reach the homeserver must READ as offline.
+    # Setting the state once at login_ok is not enough: startSync() and the
+    # sync lane's own "starting" both report Syncing on the way to a server
+    # that is not there, and AppController renders that as "Loading rooms..."
+    # over a room list that is already complete. Drives the real event
+    # dispatcher; no FFI handle, no store, no network.
+    if(ENABLE_RUST_SDK_BACKEND)
+        qt_add_executable(offline-restore-state-test
+            tests/OfflineRestoreStateTest.cpp
+        )
+        lightning_configure_qml_test(offline-restore-state-test)
+        target_include_directories(offline-restore-state-test PRIVATE src)
+        add_test(NAME offline-restore-state COMMAND offline-restore-state-test)
+        set_tests_properties(offline-restore-state PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
+
     # B011: a device whose published identity key is not its own can never
     # decrypt anything, and used to say nothing at all. Covers the answer
     # reaching the application layer as durable state, the tri-state that

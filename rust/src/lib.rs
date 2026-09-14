@@ -10039,8 +10039,14 @@ fn record_resolved_homeserver(store_path: &Path, url: &str) {
         return;
     }
     let tmp = path.with_extension("tmp");
+    // CREATED, NEVER REOPENED. `OpenOptions::mode` is ignored for a file that
+    // already exists, so a temp file left behind by a crash between the open
+    // and the rename would be reused with whatever mode it carries and then
+    // renamed over the real name. Removing it first and refusing to open an
+    // existing one costs nothing and removes the question.
+    let _ = std::fs::remove_file(&tmp);
     let mut options = OpenOptions::new();
-    options.create(true).write(true).truncate(true);
+    options.create_new(true).write(true);
     #[cfg(unix)]
     {
         options.mode(0o600);
@@ -10293,17 +10299,29 @@ async fn restore_client(
     restore_client_with_session(homeserver, store_path, session, events).await
 }
 
-/// How long a restore may spend trying to reach the homeserver before it
+/// How long a restore's FIRST, discovering client build may take before it
 /// falls back to the URL it recorded last time.
 ///
 /// Discovery is tried FIRST and on every restore, deliberately: it is what
 /// follows a homeserver that has changed its `/.well-known` delegation, and
 /// dropping it would freeze every existing install onto the URL it happened
-/// to resolve once. The budget only bounds how long a DEAD server may hold
-/// the user at a blank window — a refused connection answers in milliseconds,
-/// a black-holed one never answers at all, and matrix-sdk's own request
-/// timeout is far longer than anybody will wait to see their own messages.
-const RESTORE_DISCOVERY_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+/// to resolve once. The budget exists to bound how long a DEAD server may
+/// hold the user at a blank window — a refused connection answers in
+/// milliseconds, a black-holed one never answers at all, and matrix-sdk's own
+/// request timeout is far longer than anybody will wait to see their own
+/// messages.
+///
+/// IT BOUNDS THE WHOLE BUILD, NOT THE TWO HTTP REQUESTS INSIDE IT, and that
+/// is worth naming because it is not what the word "discovery" suggests: the
+/// future it wraps also opens the sqlite stores, runs their migrations,
+/// chmods every file in the store directory and writes the media retention
+/// policy. A cold start on a slow disk with a large store can therefore trip
+/// this against a perfectly healthy server. The cost of that is bounded and
+/// self-correcting — the fallback URL is the right one, and the first sync
+/// response clears the offline label — but it is a false label while it
+/// lasts, and the number below is chosen with that in mind rather than to
+/// fit a network round trip.
+const RESTORE_BUILD_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Build the client a restore needs, with the server down as a supported
 /// case.
@@ -10326,17 +10344,28 @@ const RESTORE_DISCOVERY_BUDGET: std::time::Duration = std::time::Duration::from_
 /// store, and the sync supervisor retries on its own until the server comes
 /// back.
 ///
-/// WHAT IT IS NOT: a reason to keep going when the homeserver says NO. A
-/// rejected token, a refused login, any answer at all takes the normal path —
-/// only an absent server reaches the fallback, and only when a URL was
-/// recorded from a build that really did verify the homeserver.
+/// WHAT IT CANNOT DO IS KEEP GOING WHEN THE HOMESERVER SAYS NO — and the
+/// reason is structural rather than a check here. `build_client` performs no
+/// authentication at all, so `M_UNKNOWN_TOKEN` and `M_FORBIDDEN` cannot
+/// appear on this path; `restore_session()` only reads the store; a rejected
+/// credential therefore still first appears on SYNC and still takes the
+/// existing `session_token_revoked` handling, untouched by any of this.
+///
+/// BE PRECISE ABOUT WHAT DOES REACH THE FALLBACK: **any** build failure does,
+/// not only an unreachable server. A live host that answers "this is not a
+/// homeserver", or a `/.well-known` that now delegates somewhere broken, also
+/// lands here — and the honest reading of that is that it is the right
+/// outcome anyway, since the alternative is the login page. The cost is that
+/// such a user is labelled offline against a URL that was verified once. A
+/// store-level failure is not masked either: the fallback opens the SAME
+/// store and fails identically, and the original error is what is returned.
 async fn build_client_for_restore(
     homeserver: &str,
     store_path: &Path,
     events: &Arc<Mutex<VecDeque<String>>>,
 ) -> Result<Client, String> {
     let online = tokio::time::timeout(
-        RESTORE_DISCOVERY_BUDGET,
+        RESTORE_BUILD_BUDGET,
         build_client(homeserver, store_path),
     )
     .await;
@@ -10345,7 +10374,7 @@ async fn build_client_for_restore(
         Ok(Err(err)) => err,
         Err(_) => format!(
             "the homeserver did not answer within {} seconds",
-            RESTORE_DISCOVERY_BUDGET.as_secs()
+            RESTORE_BUILD_BUDGET.as_secs()
         ),
     };
     let Some(url) = read_resolved_homeserver(store_path) else {

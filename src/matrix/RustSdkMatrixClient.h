@@ -949,6 +949,29 @@ private:
     QString rustStorePathForUser(const QString &userIdForStore) const;
     void pollRustEvents();
     void handleRustEvent(const QJsonObject &event, quint64 eventGeneration);
+
+public:
+    /// Feed ONE event through the dispatcher `pollRustEvents` uses, at the
+    /// live generation.
+    ///
+    /// The connection-state rules are otherwise reachable only by owning a
+    /// real account whose homeserver is down: `setState` is private, the
+    /// offline-restore override is set by a Rust event, and the two things
+    /// that would overwrite it (startSync, and the sync lane's own "starting")
+    /// both need a live FFI handle. This drives the REAL dispatcher with the
+    /// REAL payloads, which is the closest a test can get without one.
+    void handleRustEventForTest(const QJsonObject &event)
+    {
+        // A session first, or the generation gate drops everything: the guard
+        // starts at 0 and `acceptsActive(0)` is false by construction, so a
+        // client that has never logged in silently ignores every event. One
+        // per test object, exactly as a real login does.
+        if (!m_lifecycle.acceptsActive(m_lifecycle.activeGeneration()))
+            m_lifecycle.beginSession();
+        handleRustEvent(event, m_lifecycle.activeGeneration());
+    }
+
+private:
     void finishSignOut(const QString &serverResult, const QString &serverMessage);
     bool clearPersistedAccount(const matrix::app_data::AccountIdentity &identity,
                                bool *matchedRecord = nullptr);
