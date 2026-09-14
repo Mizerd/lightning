@@ -1663,6 +1663,21 @@ server NAME whose client API is `https://matrix-client.matrix.org`, so the
 obvious shortcut 404s the largest homeserver there is. Only a URL the SDK
 itself resolved may be used. Detail in `docs/round-history.md`, 2026-09-14.
 
+**A STATE SET IMMEDIATELY BEFORE EMITTING A SIGNAL IS NOT A STATE THE USER
+SEES.** Qt's default connection on one thread is DIRECT, so the whole
+downstream chain runs before the setter returns and anything in it that writes
+the same field wins. `setState(Offline)` at `login_ok` was overwritten by
+`loginSucceeded` -> `AuthManager` -> `AppController::onLoginSucceeded` ->
+`startSync()` -> `setState(Syncing)`, with no event-loop iteration anywhere in
+between; the offline-restore label was never rendered and the claim had
+already been written into this file as fact. Put the rule where the field is
+written, or prove no handler downstream touches it. **Same mechanism, second
+costume:** `publishShareAudio()` emits `failed()` synchronously, so
+`onEngineFailed` re-enters `startScreenShare()` from INSIDE that call — before
+`m_shareAudioCid` is assigned — so a cleanup branch keyed on that cid was a
+no-op on the exact failure it was written for. Record the id BEFORE the call
+that can fail.
+
 **A TEST THAT COMPOSES SOMETHING *RESEMBLING* WHAT PRODUCTION COMPOSES PROVES
 NOTHING — third occurrence, and this one shipped a feature that had never
 worked.** `publishShareAudio()` built `"%1 name=sharesrc ! queue ! …"`, which
@@ -1687,7 +1702,12 @@ entirely when no device preference exists (arguments are evaluated before
 `chooseCaptureElement` can return early for an empty id, so every join paid for
 it) and bounded at 2.5 s with a per-klass latch otherwise. MEASURED on a
 healthy PipeWire desktop: 218 ms first `Audio/Source`, 8 ms after, 4 ms
-`Video/Source`.
+`Video/Source`. **THERE ARE TWO SUCH CALLS IN THAT PATH AND THE OTHER IS
+OLDER**: `perApplicationCaptureAvailable()`'s monitor installs NO FILTER (see
+its comment — a provider filter matches none), so it starts EVERY provider on
+the machine, and it is read from two `CONSTANT` properties the call header's
+share menu binds when `groupCall.active` flips true. Present unchanged in
+0.9.3, so it is not issue #12's boundary; bounded the same way regardless.
 
 **A WAIT LOOP WHOSE PATTERN MATCHES ITS OWN COMMAND LINE NEVER TERMINATES.**
 `while pgrep -f "ninja|ctest"; do sleep; done` matches the bash process running

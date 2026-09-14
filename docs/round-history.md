@@ -76,6 +76,37 @@ longer build anything, and then asserts that the restore path can — that
 failing assertion in the middle is the control, and it is what makes the case
 evidence rather than decoration.
 
+**AND SETTING THE STATE ONCE AT `login_ok` WAS NOT ENOUGH — caught in review,
+after the first cut had already written the claim into this file as fact.**
+`loginSucceeded` is a synchronous chain of DIRECT connections:
+`RustSdkMatrixClient` -> `AuthManager` -> `AppController::onLoginSucceeded`,
+which has no early return and ends in `m_client->startSync()`, which sets
+`Syncing` unconditionally. No event-loop iteration separates any of it, so the
+`Offline` set three lines earlier was overwritten before it could be rendered
+— and the sync lane then reports "starting", which is `Syncing` again, which
+AppController renders as "Loading rooms…". The state now lives in `setState`
+itself: while a session has never reached its homeserver, `Syncing` reads as
+`Offline`, released by the first `room_list_sync_state: running`, which is the
+only event that proves a server answered.
+
+**GENERALISE: a state set immediately before emitting a signal is not a state
+the user sees.** Qt's default connection on one thread is direct, so the whole
+downstream chain runs before the setter returns — and anything in it that
+writes the same field wins. Set it where the field is written, or prove no
+handler downstream touches it.
+
+**A TRACK'S FAILURE ARRIVES BEFORE THE CALLER HAS FINISHED PUBLISHING IT, for
+the same reason.** `publishShareAudio()` emits `failed()` synchronously, so
+`onEngineFailed` re-entered `startScreenShare()` from inside that call — where
+`m_shareAudioCid = audioCid` had not run yet. The new cleanup branch was
+therefore a no-op on the one failure it was written for, and the controller
+went on to record a cid and a `sfuAddTrack` declaration for a track with no
+bin behind it; there is no remove-track verb, so that declaration would have
+outlived the failure for the whole call, with every remote participant
+carrying a `SCREEN_SHARE_AUDIO` track that could never produce a sample.
+Before this round the teardown hid it by ending the session. The cid is
+recorded BEFORE the publish now.
+
 One harness fact worth keeping: **a `Client` with a sqlite store aborts the
 process if it is dropped outside a tokio runtime.** deadpool's `SyncWrapper`
 panics in its destructor, and a panic in a destructor during cleanup is a
@@ -168,6 +199,26 @@ Two changes, and the first is the one that helps most people:
 
 No regression test: nothing here reproduces a hanging provider, and §18 is
 explicit that a test which does not fail on the old code is decoration.
+
+**REVIEW FOUND A SECOND UNBOUNDED ONE IN THE SAME PATH, and it is the older
+of the two.** `perApplicationCaptureAvailable()` ends in the same
+`gst_device_monitor_start()`, and its monitor installs **no filter at all**
+(deliberately — a provider filter matches the PROVIDER's advertised classes,
+and filtering on `Stream/Output/Audio` matches none, which once made the whole
+feature inert). So it starts EVERY provider on the machine, PulseAudio's
+included. It is read from `SfuCallController::shareAudioSupported()` and
+`shareAudioExcludesOwnPlayback()`, both `CONSTANT` properties the call
+header's share menu binds the moment `groupCall.active` flips true. It is
+present in v0.9.3 unchanged, so it does NOT explain issue #12's version
+boundary and does not compete with the diagnosis above — but leaving it would
+have made "a call join must not block the GUI thread enumerating devices"
+half true. Bounded the same way; giving up answers `false`, which is the
+existing "no per-application capture" state.
+
+Deliberately a second small implementation rather than a shared helper: the
+engine's needs a per-klass latch across many calls, this one is a single
+cached answer, and a template shared across two translation units to save
+fifteen lines is worth less than both being readable on their own.
 
 ## 2026-09-13 (night) — the one feature no release has ever tested, audited by reading, and 0.9.5 cut on it
 

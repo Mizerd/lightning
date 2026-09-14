@@ -94,6 +94,12 @@ of them driven against the thing that reported them. Full account in
   exercised on any machine — it could not parse, so every observation of
   "share audio works" to date is the sink-monitor fallback. Do not read the
   2026-09-13 flatpak sweep's share-audio PASS as covering it.
+- **Share-audio MUTE is a seam, not a feature.** The share's Opus chain
+  carries `valve name=sharevalve drop=false` and its comment used to read as
+  though muting the share independently of the microphone were implemented.
+  Nothing in the tree looks that valve up (the microphone's `micvalve` IS
+  driven), so there is no such control. Found in review 2026-09-14,
+  pre-existing, comment corrected; the feature is not written.
 - **The call-join freeze (GitHub issue #12).** NOT REPRODUCED. The fix is a
   narrowing (no enumeration when there is no device preference) plus a 2.5 s
   bound with a per-klass latch. Whether it closes that reporter's freeze is
