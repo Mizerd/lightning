@@ -1606,6 +1606,18 @@ Rectangle {
                             return
                         root.findHistoryMode = wantHistory
                         if (wantHistory) {
+                            // ASK HOW BIG THE INDEX IS, because nothing else
+                            // ever did. `refreshIndexStats()` existed as a
+                            // Q_INVOKABLE with NO CALLER anywhere in the tree,
+                            // so `indexedMessages` only moved when the
+                            // five-minute sweep happened to fire or the user
+                            // pressed "Index this room". On a freshly started
+                            // client it was therefore 0, and the coverage line
+                            // read "Nothing is indexed yet." directly above
+                            // the results the index had just returned — seen
+                            // live 2026-09-14, three hits from an encrypted
+                            // room under that sentence.
+                            app.messageSearch.refreshIndexStats()
                             // Prefer the LOCAL index: it is the only one that
                             // works in an encrypted room, and it answers
                             // without a round trip. Server search is chosen
@@ -1754,6 +1766,15 @@ Rectangle {
                             return qsTr("Type at least %1 characters.")
                                 .arg(app.messageSearch.minLocalChars)
                         var n = app.messageSearch.indexedMessages
+                        // A COUNT OF ZERO IS NOT EVIDENCE OF AN EMPTY INDEX
+                        // while the index is answering. The stats arrive on
+                        // their own signal, so a result list can be on screen
+                        // before the number is — and claiming nothing is
+                        // indexed over three results is the flat
+                        // contradiction this guard exists to prevent. Say
+                        // nothing rather than something false.
+                        if (n <= 0 && app.messageSearch.count > 0)
+                            return ""
                         if (n <= 0)
                             return qsTr("Nothing is indexed yet.")
                         return qsTr("Searching %1 messages Lightning has "
