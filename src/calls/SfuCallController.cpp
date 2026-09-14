@@ -3378,9 +3378,18 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
         m_client->sfuAddTrack(audioCid, QStringLiteral("screenaudio"),
                               /*kind=*/0, 0, 0,
                               /*screenShare=*/true, m_roomEncrypted);
-        m_engine->publishShareAudio(audioCid);
+        // RECORDED BEFORE THE PUBLISH, AND THAT ORDER IS THE WHOLE POINT.
+        // `publishShareAudio()` emits `failed()` SYNCHRONOUSLY on this
+        // thread — the engine is a plain child QObject with no thread of its
+        // own — so `onEngineFailed` re-enters this function from inside the
+        // call below. With the assignment after it, the cid was still empty
+        // there and the cleanup branch was a no-op on the one failure it
+        // exists for: the track stayed declared to the SFU with no bin
+        // behind it, and every remote participant carried a
+        // SCREEN_SHARE_AUDIO track that could never produce a sample.
         m_shareAudioCid = audioCid;
         m_publishedTrackIds.append(audioCid);
+        m_engine->publishShareAudio(audioCid);
     }
     // A NEW share is a new identity for the stage. See m_localShareEpoch:
     // without this, stopping and restarting our own share would reuse one

@@ -1390,7 +1390,19 @@ QList<lightning::calls::GstDeviceCandidate> monitorCandidates(const char *klass)
     // Detached on purpose: see above. The promise is shared, so the worker
     // fulfilling it after we have stopped listening is harmless.
     std::thread([slot, klass] {
-        slot->set_value(enumerateDevices(klass));
+        // A BROKEN PROMISE WOULD RETHROW ON THE GUI THREAD. `answer.get()`
+        // below propagates whatever killed the worker, out of publishAudio,
+        // which is a worse failure than the one this function exists to
+        // prevent. An empty candidate list is the same answer a monitor that
+        // will not start already gives.
+        try {
+            slot->set_value(enumerateDevices(klass));
+        } catch (...) {
+            try {
+                slot->set_value({});
+            } catch (...) {
+            }
+        }
     }).detach();
 
     if (answer.wait_for(std::chrono::milliseconds(kDeviceEnumerationBudgetMs))

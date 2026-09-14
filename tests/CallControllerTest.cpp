@@ -5254,6 +5254,27 @@ private Q_SLOTS:
                      "a share-audio failure tells the user the call ended: %1")
                      .arg(sentence)));
 
+        // THE CLEANUP THE BRANCH EXISTS FOR. A share that was already
+        // running holds a cid, and it must be released rather than left
+        // naming a track with no bin behind it.
+        //
+        // The ordering this depends on is in startScreenShare: the engine
+        // emits `failed()` SYNCHRONOUSLY on this thread, so onEngineFailed
+        // re-enters from inside publishShareAudio() -- with the assignment
+        // after that call, as it was, the cid was still empty here and this
+        // branch was a no-op on the one failure it exists for.
+        SfuCallController running;
+        running.setClient(&client);
+        running.setCallStateForTest(SfuCallController::State::Connected);
+        running.setShareAudioCidForTest(QStringLiteral("cid-share-audio"));
+        QVERIFY(QMetaObject::invokeMethod(
+            &running, "onEngineFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("share_audio_failed"))));
+        QVERIFY2(running.shareAudioCidForTest().isEmpty(),
+                 "the share-audio track id survived its own failure, so the "
+                 "track stays declared to the SFU with nothing behind it");
+        QVERIFY2(running.active(), "the cleanup path ended the call");
+
         // And the ordinary categories are untouched.
         SfuCallController fatal;
         fatal.setClient(&client);

@@ -4217,6 +4217,22 @@ private slots:
     // format string fails this with that exact message.
     void theWholeShareAudioTrackParsesTheWayPublishShareAudioComposesIt()
     {
+        // THE ELEMENTS THIS CASE NEEDS, named individually. The suite-wide
+        // gate only requires `webrtcbin`; a host that has it but is missing
+        // one of these would fail here with a parse error that says nothing
+        // about the regression being guarded, which is how a skip becomes a
+        // false alarm. Same discipline as the vp8 and pipewiresrc skips
+        // elsewhere in this file.
+        for (const char *needed : { "audiomixer", "audiotestsrc", "audioconvert",
+                                    "audioresample", "capsfilter", "valve",
+                                    "opusenc", "rtpopuspay" }) {
+            GstElementFactory *factory = gst_element_factory_find(needed);
+            if (!factory)
+                QSKIP(qPrintable(QStringLiteral("no %1 in this build")
+                                     .arg(QLatin1String(needed))));
+            gst_object_unref(factory);
+        }
+
         lightning::shareaudio::Stream s;
         s.serial = QStringLiteral("9551");
 

@@ -695,6 +695,19 @@ public:
     /// the leave path nor the refresh heartbeat could be reached at all,
     /// which is exactly why neither had ever been tested.
     void setMembershipForTest(const QString &roomId, const QString &delayId);
+    /// Arm the share-audio track id a running share would hold.
+    ///
+    /// Reaching it for real needs a portal, an engine and a live SFU; what
+    /// the cleanup branch in onEngineFailed needs to be tested against is
+    /// just the cid being present, which is the state the ordering fix in
+    /// startScreenShare exists to guarantee.
+    void setShareAudioCidForTest(const QString &cid)
+    {
+        m_shareAudioCid = cid;
+        if (!cid.isEmpty() && !m_publishedTrackIds.contains(cid))
+            m_publishedTrackIds.append(cid);
+    }
+    QString shareAudioCidForTest() const { return m_shareAudioCid; }
     /// Put the controller exactly where a real `join()` leaves it while the
     /// homeserver decides: state Preparing, the room and focus recorded, and
     /// a REAL `rtcPublishMembership` in flight, whose op id is returned so

@@ -3,6 +3,10 @@
 #include <QLoggingCategory>
 #include <QRegularExpression>
 
+#include <chrono>
+#include <future>
+#include <thread>
+
 #ifdef HAVE_LIGHTNING_WEBRTC
 #include "calls/GstBootstrap.h"
 #include <gst/gst.h>
@@ -201,9 +205,14 @@ QString encodedTrackDescription(const QString &sourceDescription, quint32 ssrc)
     return QStringLiteral(
                "%1 ! queue ! audioconvert ! audioresample "
                "! audio/x-raw,channels=2,rate=48000 "
-               // Its own valve. Muting the share's audio must not touch the
-               // microphone, and vice versa — they are two tracks and the
-               // user thinks of them as two things.
+               // Its own valve, so that muting the share's audio can never
+               // touch the microphone — they are two tracks and the user
+               // thinks of them as two things. NOT WIRED UP: nothing in the
+               // tree looks `sharevalve` up (the microphone's `micvalve` IS
+               // driven), so this is the seam for a control that does not
+               // exist yet, not a description of one that does. Pre-existing;
+               // noted here because moving the comment verbatim would restate
+               // a capability as shipped.
                "! valve name=sharevalve drop=false "
                "! opusenc name=shareaudioenc audio-type=generic "
                "bitrate=128000 "
@@ -228,11 +237,54 @@ bool perApplicationCaptureAvailable()
     // Cached, because the UI asks from a binding and the answer cannot change
     // without the process restarting: it is a question about which plugins
     // this build loaded and whether a PipeWire daemon is reachable.
+    //
+    // AND BOUNDED, because this runs on the GUI THREAD AT CALL JOIN.
+    // `SourceMonitor::start()` ends in `gst_device_monitor_start()`, which is
+    // synchronous and has no timeout: each provider decides for itself when
+    // it has an answer, and this monitor deliberately installs NO FILTER, so
+    // EVERY provider on the machine starts — the PulseAudio one included,
+    // which connects to the sound server and then waits on its own mainloop
+    // for the initial device list. `SfuCallController::shareAudioSupported()`
+    // and `shareAudioExcludesOwnPlayback()` are CONSTANT properties read by
+    // the call header's share menu the moment `groupCall.active` flips true.
+    //
+    // This call site predates the 0.9.4 device-preference work and so does
+    // NOT explain GitHub issue #12's version boundary (v0.9.3 already has it,
+    // unfiltered) — but it is the same hazard in the same path, and the
+    // bound in SfuMediaEngine's `monitorCandidates` would have left it as the
+    // remaining half. Deliberately a SECOND small implementation rather than
+    // a shared helper: that one needs a per-klass latch across many calls,
+    // this one is a single answer computed once, and a template shared
+    // between two translation units to save fifteen lines would be worth less
+    // than the two being readable on their own.
+    //
+    // Giving up answers FALSE, which is the existing "no per-application
+    // capture" state: the share falls back to the output monitor, carries the
+    // echo, and the picker already says so. A blocked probe cannot be
+    // cancelled — GStreamer offers no such call — so the worker is abandoned,
+    // and because the answer is cached it is abandoned at most once.
     static const bool available = [] {
-        SourceMonitor probe;
-        const bool ok = probe.start();
-        probe.stop();
-        return ok;
+        auto slot = std::make_shared<std::promise<bool>>();
+        auto answer = slot->get_future();
+        std::thread([slot] {
+            bool ok = false;
+            try {
+                SourceMonitor probe;
+                ok = probe.start();
+                probe.stop();
+            } catch (...) {
+                ok = false;
+            }
+            slot->set_value(ok);
+        }).detach();
+        if (answer.wait_for(std::chrono::milliseconds(2500))
+            != std::future_status::ready) {
+            qCWarning(lcShareAudio)
+                << "the PipeWire device monitor did not answer within 2500 ms;"
+                << "per-application share audio is unavailable for this run";
+            return false;
+        }
+        return answer.get();
     }();
     return available;
 }
