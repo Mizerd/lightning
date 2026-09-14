@@ -219,6 +219,7 @@ void RustSdkMatrixClient::clearLocalState()
     m_callSdpStore.clear();
     clearTimelineInsertBatch();
     m_loggedIn = false;
+    m_restoredOffline = false;
     // Log dedupe is per SESSION, not per process: without this a second
     // broken account in one run would print nothing, because the first one
     // had already said it. Reset at every point the session ends rather than
@@ -739,6 +740,9 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     m_userId.clear();
     m_deviceId.clear();
     m_loggedIn = false;
+    // A new attempt: whatever the LAST one had to do to open a store is not
+    // true of this one.
+    m_restoredOffline = false;
     // Log dedupe is per SESSION, not per process: without this a second
     // broken account in one run would print nothing, because the first one
     // had already said it. Reset at every point the session ends rather than
@@ -1417,6 +1421,9 @@ void RustSdkMatrixClient::adoptBrowserSession(
     m_userId = identity.userId;
     m_deviceId = deviceId;
     m_loggedIn = false;
+    // A new attempt: whatever the LAST one had to do to open a store is not
+    // true of this one.
+    m_restoredOffline = false;
     // Log dedupe is per SESSION, not per process: without this a second
     // broken account in one run would print nothing, because the first one
     // had already said it. Reset at every point the session ends rather than
@@ -1528,6 +1535,9 @@ bool RustSdkMatrixClient::restoreSession()
     m_userId = userId;
     m_deviceId = deviceId;
     m_loggedIn = false;
+    // A new attempt: whatever the LAST one had to do to open a store is not
+    // true of this one.
+    m_restoredOffline = false;
     // Log dedupe is per SESSION, not per process: without this a second
     // broken account in one run would print nothing, because the first one
     // had already said it. Reset at every point the session ends rather than
@@ -1614,6 +1624,9 @@ bool RustSdkMatrixClient::restoreSessionFromFile(const QString &homeserver,
     m_userId = expectedUser;
     m_deviceId.clear();
     m_loggedIn = false;
+    // A new attempt: whatever the LAST one had to do to open a store is not
+    // true of this one.
+    m_restoredOffline = false;
     // Log dedupe is per SESSION, not per process: without this a second
     // broken account in one run would print nothing, because the first one
     // had already said it. Reset at every point the session ends rather than
@@ -4185,6 +4198,23 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    if (type == QLatin1String("session_restored_offline")) {
+        // THE SESSION IS REAL AND THE SERVER IS NOT THERE. Enqueued by
+        // build_client_for_restore BEFORE its login_ok, so the flag is set by
+        // the time that event is handled and the connection state can start
+        // honest instead of claiming to be connecting to something that did
+        // not answer.
+        //
+        // Nothing here is account-identifying: no URL, no server name, no
+        // user id — the app only needs to know that what it is about to show
+        // came off the disk.
+        qCInfo(lcRust) << "session restored from the local store — the "
+                          "homeserver could not be reached; rooms and "
+                          "messages are the cached copy and sync will retry";
+        m_restoredOffline = true;
+        return;
+    }
+
     if (type == QLatin1String("login_ok")) {
         m_freshLoginIdentity = {};
         // SENSITIVE: this event object carries `access_token`. Never pass
@@ -4226,7 +4256,11 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             && identity.userId == m_userId) {
             recordStoreLocation(identity);
         }
-        setState(Disconnected);
+        // Offline unless the restore actually reached the server. Without
+        // this the footer reads "Loading rooms…" over a room list that is
+        // complete and will never load anything, until the sync supervisor's
+        // first failure some seconds later says otherwise.
+        setState(m_restoredOffline ? Offline : Disconnected);
         if (m_loggedIn)
             Q_EMIT loginSucceeded(m_userId);
         else

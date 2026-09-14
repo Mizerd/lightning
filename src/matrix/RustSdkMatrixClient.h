@@ -1071,6 +1071,12 @@ private:
     QString m_userId;
     QString m_deviceId;
     bool m_loggedIn = false;
+    // This session was opened from the local store because the homeserver
+    // could not be reached (see `session_restored_offline` in Rust). Used to
+    // start the connection state at Offline rather than claiming to connect
+    // to a server that did not answer. Cleared wherever a session ends, with
+    // the rest of the per-session state.
+    bool m_restoredOffline = false;
     // B006/B011. Latched so the 15-minute backstop logs the fault once
     // per transition rather than once per check; cleared when a later
     // check reports agreement.

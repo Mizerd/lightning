@@ -694,7 +694,13 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_restore", async move {
-                let client = match build_client(&homeserver, &store_path).await {
+                // THE OFFLINE-CAPABLE BUILD, exactly as the password restore
+                // uses: an OAuth session restored from the store is still a
+                // restore, and a homeserver that is down must not put the
+                // user back on the login page with their whole account on
+                // disk. See build_client_for_restore.
+                let client = match crate::build_client_for_restore(
+                    &homeserver, &store_path, &events).await {
                     Ok(client) => client,
                     Err(err) => {
                         enqueue(&events, json!({ "type": "login_failed", "message": err }));

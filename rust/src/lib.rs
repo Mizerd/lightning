@@ -1659,7 +1659,8 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
                     return;
                 }
 
-                match restore_client_with_session(&homeserver, &store_path, stored.session.clone())
+                match restore_client_with_session(
+                    &homeserver, &store_path, stored.session.clone(), &events)
                     .await
                 {
                     Ok(client) => {
@@ -1755,6 +1756,7 @@ pub unsafe extern "C" fn mx_rust_restore(
                     &device_id,
                     access_token,
                     refresh_token,
+                    &events,
                 )
                 .await
                 {
@@ -9969,7 +9971,97 @@ pub(crate) async fn resume_unsent_requests(client: &Client) {
     client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
 }
 
+/// Which of the two ways a client may be pointed at its homeserver.
+///
+/// THEY ARE NOT INTERCHANGEABLE AND THE DIFFERENCE IS THE WHOLE POINT OF
+/// OFFLINE RESTORE. `Discover` is `server_name_or_homeserver_url()`: it tries
+/// `/.well-known/matrix/client` and then VERIFIES that whatever it settled on
+/// really is a homeserver — two HTTP round trips, so a client built that way
+/// cannot be built at all while the server is unreachable. `Url` is
+/// `homeserver_url()`, which matrix-sdk resolves with `Url::parse` and no
+/// network whatsoever (client/builder/homeserver_config.rs).
+///
+/// A typed server name can NEVER be promoted to `Url` by inspection: the
+/// string a user typed may be `https://matrix.org`, whose client API is at
+/// `https://matrix-client.matrix.org`, and using the apex as the homeserver
+/// URL gives a session that 404s on every request. Only a URL the SDK itself
+/// resolved is safe here, which is why `build_client_with` records one and
+/// `build_client_for_restore` is the only caller that reads it back.
+enum HomeserverInput<'a> {
+    Discover(&'a str),
+    Url(&'a str),
+}
+
+/// The file, inside an account's own SDK store directory, in which Lightning
+/// records the homeserver URL matrix-sdk actually resolved.
+///
+/// Inside the store on purpose: it is a fact ABOUT that store, it is removed
+/// with it (`removeAccountRustState` deletes the directory), and a record that
+/// outlived its store would name a server for an account that no longer has
+/// one. Not a secret — a homeserver URL is public — but it is written 0600
+/// like everything else in there, because the directory's other contents are
+/// not.
+const RESOLVED_HOMESERVER_FILE: &str = "lightning-homeserver-url";
+
+fn resolved_homeserver_path(store_path: &Path) -> PathBuf {
+    store_path.join(RESOLVED_HOMESERVER_FILE)
+}
+
+/// The homeserver URL a previous successful build resolved, if one was ever
+/// recorded and still parses.
+fn read_resolved_homeserver(store_path: &Path) -> Option<String> {
+    if store_path.as_os_str().is_empty() {
+        return None;
+    }
+    let text = std::fs::read_to_string(resolved_homeserver_path(store_path)).ok()?;
+    let text = text.trim();
+    // Parsed rather than trusted. This value is handed to `homeserver_url()`,
+    // and an empty or truncated file must fall back to discovery rather than
+    // build a client pointed at nothing.
+    let url = url::Url::parse(text).ok()?;
+    if !matches!(url.scheme(), "http" | "https") || url.host().is_none() {
+        return None;
+    }
+    Some(url.to_string())
+}
+
+/// Record what the SDK resolved, so the NEXT start does not need a server to
+/// reach the store. Best effort throughout: a failure here costs the offline
+/// path, never the session that is being established.
+fn record_resolved_homeserver(store_path: &Path, url: &str) {
+    if store_path.as_os_str().is_empty() {
+        return;
+    }
+    let path = resolved_homeserver_path(store_path);
+    // Rewritten only on a real change: this runs on every login and every
+    // restore, and the common case is an identical value.
+    if read_resolved_homeserver(store_path).as_deref() == Some(url) {
+        return;
+    }
+    let tmp = path.with_extension("tmp");
+    let mut options = OpenOptions::new();
+    options.create(true).write(true).truncate(true);
+    #[cfg(unix)]
+    {
+        options.mode(0o600);
+    }
+    let Ok(mut file) = options.open(&tmp) else { return };
+    if file.write_all(url.as_bytes()).is_err() || file.write_all(b"\n").is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return;
+    }
+    drop(file);
+    let _ = std::fs::rename(&tmp, &path);
+}
+
 async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, String> {
+    build_client_with(HomeserverInput::Discover(homeserver), store_path).await
+}
+
+async fn build_client_with(
+    homeserver: HomeserverInput<'_>,
+    store_path: &Path,
+) -> Result<Client, String> {
     // v0.7: OneShot backup download — the Element-like verified-session
     // bootstrap. When this device completes SAS verification, the SDK's
     // crypto layer automatically gossips m.secret.request for the missing
@@ -10029,8 +10121,13 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     //
     // This is the single build path behind password login, OAuth sign-in and
     // the login screen's auth-method probe, so all three follow delegation.
-    let mut builder = Client::builder()
-        .server_name_or_homeserver_url(homeserver)
+    let base = Client::builder();
+    // The one line that decides whether this build needs a live server.
+    let base = match homeserver {
+        HomeserverInput::Discover(value) => base.server_name_or_homeserver_url(value),
+        HomeserverInput::Url(value) => base.homeserver_url(value),
+    };
+    let mut builder = base
         .user_agent(USER_AGENT)
         .handle_refresh_tokens()
         .with_encryption_settings(encryption_settings)
@@ -10122,6 +10219,11 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     // at creation.
     if !store_path.as_os_str().is_empty() {
         restrict_store_permissions(store_path);
+        // WHAT THE NEXT START NEEDS IN ORDER NOT TO ASK THE SERVER. Recorded
+        // on EVERY successful build — login, restore and OAuth alike — so an
+        // account that has signed in once can be opened again with its
+        // homeserver down. See build_client_for_restore.
+        record_resolved_homeserver(store_path, client.homeserver().as_str());
     }
     // Media-store retention policy. Without one the SDK runs
     // MediaRetentionPolicy::empty(): every fetched payload — including a
@@ -10171,6 +10273,7 @@ async fn restore_client(
     device_id: &str,
     access_token: String,
     refresh_token: Option<String>,
+    events: &Arc<Mutex<VecDeque<String>>>,
 ) -> Result<Client, String> {
     let user_id: OwnedUserId = UserId::parse(user_id)
         .map_err(|err| format!("invalid stored Matrix user id: {err}"))?
@@ -10187,15 +10290,88 @@ async fn restore_client(
         meta: SessionMeta { user_id, device_id },
         tokens: SessionTokens { access_token, refresh_token },
     };
-    restore_client_with_session(homeserver, store_path, session).await
+    restore_client_with_session(homeserver, store_path, session, events).await
+}
+
+/// How long a restore may spend trying to reach the homeserver before it
+/// falls back to the URL it recorded last time.
+///
+/// Discovery is tried FIRST and on every restore, deliberately: it is what
+/// follows a homeserver that has changed its `/.well-known` delegation, and
+/// dropping it would freeze every existing install onto the URL it happened
+/// to resolve once. The budget only bounds how long a DEAD server may hold
+/// the user at a blank window — a refused connection answers in milliseconds,
+/// a black-holed one never answers at all, and matrix-sdk's own request
+/// timeout is far longer than anybody will wait to see their own messages.
+const RESTORE_DISCOVERY_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Build the client a restore needs, with the server down as a supported
+/// case.
+///
+/// WHY THIS EXISTS. Reported 2026-09-14: a homeserver went down (a Cloudflare
+/// failure) and Lightning put the user back on the LOGIN PAGE — with a full
+/// local store on disk holding every room, every decrypted message and the
+/// search index built over them. Nothing about that session had expired; the
+/// app simply could not construct a client, because `build_client` resolves
+/// the homeserver with `server_name_or_homeserver_url()` and that performs
+/// well-known discovery AND a homeserver verification over HTTP. Both need a
+/// server, and neither has anything to do with restoring a saved session:
+/// `restore_session()` itself only reads the store.
+///
+/// So: try discovery, exactly as before and with the same result when the
+/// server is up; and when it cannot be reached, build against the URL the
+/// last successful build recorded and let the sync lane report offline. The
+/// session that comes out is a real one — the room list is served from
+/// `client.rooms_stream()`, which `restore_session` fills from the state
+/// store, and the sync supervisor retries on its own until the server comes
+/// back.
+///
+/// WHAT IT IS NOT: a reason to keep going when the homeserver says NO. A
+/// rejected token, a refused login, any answer at all takes the normal path —
+/// only an absent server reaches the fallback, and only when a URL was
+/// recorded from a build that really did verify the homeserver.
+async fn build_client_for_restore(
+    homeserver: &str,
+    store_path: &Path,
+    events: &Arc<Mutex<VecDeque<String>>>,
+) -> Result<Client, String> {
+    let online = tokio::time::timeout(
+        RESTORE_DISCOVERY_BUDGET,
+        build_client(homeserver, store_path),
+    )
+    .await;
+    let reason = match online {
+        Ok(Ok(client)) => return Ok(client),
+        Ok(Err(err)) => err,
+        Err(_) => format!(
+            "the homeserver did not answer within {} seconds",
+            RESTORE_DISCOVERY_BUDGET.as_secs()
+        ),
+    };
+    let Some(url) = read_resolved_homeserver(store_path) else {
+        // Nothing recorded — an account that has not signed in since this
+        // build. The original failure is the honest answer.
+        return Err(reason);
+    };
+    let client = build_client_with(HomeserverInput::Url(&url), store_path)
+        .await
+        // The recorded URL is reported as the ORIGINAL failure: "we could not
+        // reach your homeserver" is the fact, and a second error from the
+        // offline attempt would just describe the same outage twice.
+        .map_err(|_| reason)?;
+    // No URL, no server name, no account: the app only needs to know that
+    // what it is about to show came off the disk.
+    enqueue(events, json!({ "type": "session_restored_offline" }));
+    Ok(client)
 }
 
 async fn restore_client_with_session(
     homeserver: &str,
     store_path: &Path,
     session: MatrixSession,
+    events: &Arc<Mutex<VecDeque<String>>>,
 ) -> Result<Client, String> {
-    let client = build_client(homeserver, store_path).await?;
+    let client = build_client_for_restore(homeserver, store_path, events).await?;
     client
         .matrix_auth()
         .restore_session(session, RoomLoadSettings::default())
@@ -14910,11 +15086,13 @@ mod live_e2ee_interop_tests {
 // homeserver it points at.
 #[cfg(test)]
 mod delegation_tests {
-    use super::build_client;
+    use super::{build_client, build_client_for_restore, read_resolved_homeserver};
+    use std::collections::VecDeque;
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::path::PathBuf;
-    use std::sync::mpsc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc, Mutex};
     use std::thread;
 
     fn respond(mut stream: TcpStream, body: &str) {
@@ -15019,6 +15197,209 @@ mod delegation_tests {
             client.homeserver().port(),
             homeserver.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()),
         );
+    }
+
+    /// A `serve()` that can be shut down, so a test can watch a homeserver
+    /// GO AWAY rather than only ever meet one that was never there.
+    fn serve_stoppable(body: String) -> (String, Arc<AtomicBool>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("addr");
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_stop = Arc::clone(&stop);
+        let (ready_tx, ready_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = ready_tx.send(());
+            for stream in listener.incoming() {
+                if thread_stop.load(Ordering::SeqCst) {
+                    // Dropping the listener here is what makes the port
+                    // REFUSE rather than hang, which is the shape a dead
+                    // server behind a proxy actually has.
+                    break;
+                }
+                match stream {
+                    Ok(s) => {
+                        let body = body.clone();
+                        thread::spawn(move || respond(s, &body));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        ready_rx.recv().expect("listener thread started");
+        (format!("{}:{}", addr.ip(), addr.port()), stop)
+    }
+
+    /// A per-test store directory, removed when the guard drops. Same shape
+    /// as `tempfile_dir` above; the crate carries no `tempfile` dependency
+    /// and a build that is `--offline --locked` is not the place to add one.
+    struct StoreDir(PathBuf);
+    impl StoreDir {
+        fn new(name: &str) -> Self {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "lightning-{name}-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::SeqCst)
+            ));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("store dir");
+            Self(path)
+        }
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+    impl Drop for StoreDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn stop_serving(addr: &str, stop: &Arc<AtomicBool>) {
+        stop.store(true, Ordering::SeqCst);
+        // One connection to break `incoming()` out of its blocking accept.
+        let _ = TcpStream::connect(addr);
+        // The listener is dropped on the next loop iteration; give it one.
+        for _ in 0..200 {
+            if TcpStream::connect(addr).is_err() {
+                return;
+            }
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("the test homeserver would not stop listening");
+    }
+
+    // A HOMESERVER THAT IS DOWN MUST NOT COST THE USER THEIR SESSION.
+    //
+    // Reported 2026-09-14: a homeserver went down (a Cloudflare failure) and
+    // Lightning put the user on the LOGIN PAGE, with a complete local store —
+    // every room, every decrypted message, and the search index built over
+    // them — sitting on disk. Nothing had expired. `build_client` simply
+    // cannot be constructed without a server, because
+    // `server_name_or_homeserver_url()` performs well-known discovery and a
+    // homeserver verification over HTTP, and every restore went through it.
+    //
+    // FAIL-ON-OLD: `build_client_for_restore` did not exist; the restore paths
+    // called `build_client`, which is the very call this test asserts fails.
+    #[test]
+    fn a_restore_survives_the_homeserver_going_away() {
+        let (homeserver, stop) = serve_stoppable(versions_body());
+        let store = StoreDir::new("offline-restore");
+        let typed = format!("http://{homeserver}");
+        let events: Arc<Mutex<VecDeque<String>>> =
+            Arc::new(Mutex::new(VecDeque::new()));
+
+        // EVERYTHING INSIDE ONE `block_on`, clients included. A Client with a
+        // sqlite store closes its connection pool on drop, and deadpool
+        // aborts the process when that happens outside a runtime — which is
+        // why the cases above all use an in-memory store and why this one
+        // cannot.
+        runtime().block_on(async {
+            // ONE ordinary online build, which is all the migration this
+            // needs: it records what the SDK resolved.
+            let resolved = {
+                let online = build_client(&typed, store.path())
+                    .await
+                    .expect("the server is up; this must build");
+                online.homeserver().to_string()
+            };
+            assert_eq!(
+                read_resolved_homeserver(store.path()).as_deref(),
+                Some(resolved.as_str()),
+                "a successful build did not record the homeserver it resolved"
+            );
+
+            // The server dies.
+            stop_serving(&homeserver, &stop);
+
+            // The old path cannot build a client at all — this is the login
+            // page.
+            assert!(
+                build_client(&typed, store.path()).await.is_err(),
+                "the test server is still answering; the rest proves nothing"
+            );
+
+            // The restore path does, from what it recorded.
+            let offline = build_client_for_restore(&typed, store.path(), &events)
+                .await
+                .expect("a restore must survive an unreachable homeserver");
+            assert_eq!(
+                offline.homeserver().to_string(),
+                resolved,
+                "the offline client is pointed somewhere else than the account is"
+            );
+            let said: Vec<String> =
+                events.lock().expect("events").iter().cloned().collect();
+            assert!(
+                said.iter().any(|e| e.contains("session_restored_offline")),
+                "the app was never told this session came off the disk: {said:?}"
+            );
+        });
+    }
+
+    // AND A RECORDED URL IS NEVER A REASON TO SKIP DISCOVERY WHILE THE SERVER
+    // IS UP. A homeserver that changes its `/.well-known` delegation must
+    // still be followed, or every existing install freezes onto whatever it
+    // resolved once. Discovery is tried FIRST on every restore; the record is
+    // only a fallback.
+    #[test]
+    fn a_reachable_homeserver_is_still_rediscovered_on_every_restore() {
+        let store = StoreDir::new("rediscover");
+        let events: Arc<Mutex<VecDeque<String>>> =
+            Arc::new(Mutex::new(VecDeque::new()));
+
+        // Where the account lives today.
+        let first = serve(versions_body());
+        let delegating_first = serve(format!(
+            r#"{{"m.homeserver":{{"base_url":"http://{first}"}}}}"#
+        ));
+        // The admin moves the client API somewhere else.
+        let second = serve(versions_body());
+        let delegating_second = serve(format!(
+            r#"{{"m.homeserver":{{"base_url":"http://{second}"}}}}"#
+        ));
+
+        runtime().block_on(async {
+            let client = build_client_for_restore(
+                &format!("http://{delegating_first}"), store.path(), &events)
+                .await
+                .expect("build against the first homeserver");
+            assert_eq!(
+                client.homeserver().port(),
+                first.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()));
+            drop(client);
+
+            // A stale record is now on disk. Discovery must still win.
+            let client = build_client_for_restore(
+                &format!("http://{delegating_second}"), store.path(), &events)
+                .await
+                .expect("build against the moved homeserver");
+            assert_eq!(
+                client.homeserver().port(),
+                second.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()),
+                "the restore used the recorded URL instead of following discovery"
+            );
+            let said: Vec<String> =
+                events.lock().expect("events").iter().cloned().collect();
+            assert!(
+                !said.iter().any(|e| e.contains("session_restored_offline")),
+                "a reachable homeserver was reported as an offline restore: {said:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn an_unusable_homeserver_record_is_ignored() {
+        let store = StoreDir::new("bad-record");
+        for junk in ["", "   ", "not a url", "ftp://example.org", "https://"] {
+            std::fs::write(
+                store.path().join(super::RESOLVED_HOMESERVER_FILE), junk)
+                .expect("write record");
+            assert!(
+                read_resolved_homeserver(store.path()).is_none(),
+                "an unusable recorded homeserver was accepted: {junk:?}"
+            );
+        }
     }
 
     #[test]
