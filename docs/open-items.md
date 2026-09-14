@@ -73,6 +73,33 @@ tile.
 
 OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
 
+**THE 2026-09-14 USER-REPORT ROUND IS FIXED IN SOURCE AND NOT LIVE-VALIDATED
+ANYWHERE.** Three reports against 0.9.5, all three root-caused and fixed, none
+of them driven against the thing that reported them. Full account in
+`docs/round-history.md`, 2026-09-14.
+
+- **Offline restore** (a homeserver that died put the user on the login page).
+  Covered by a Rust case that kills a real loopback homeserver under a real
+  SDK client with a real sqlite store, and asserts the old path can no longer
+  build while the new one can. **NOT TESTED against a real account with a real
+  homeserver down**, and the two things that most deserve a live look are
+  whether cached TIMELINES open (the event cache is persisted; nothing here
+  proved it opens with no server) and whether local search works in that
+  state. Also NOT TESTED: the first offline start of an account that has not
+  signed in since this build, which still fails — the recorded URL is written
+  by a successful build and there is nothing to fall back to before one.
+- **Share audio** (`unexpected reference "shareaudiomix"`, and the call being
+  torn down for it). Both halves have a test that fails on the unfixed tree.
+  **NOT TESTED live**, and per-application share audio has NEVER been
+  exercised on any machine — it could not parse, so every observation of
+  "share audio works" to date is the sink-monitor fallback. Do not read the
+  2026-09-13 flatpak sweep's share-audio PASS as covering it.
+- **The call-join freeze (GitHub issue #12).** NOT REPRODUCED. The fix is a
+  narrowing (no enumeration when there is no device preference) plus a 2.5 s
+  bound with a per-klass latch. Whether it closes that reporter's freeze is
+  unknown, and the honest next step is their log — `--log-file PATH` — from a
+  build that carries it, not another guess.
+
 **`channels-home` IN SCREENSHOT-DEMO MODE RENDERS THE CLASSIC LAYOUT, NOT
 CHANNELS (found 2026-09-13, NOT diagnosed).** Launching
 `--demo-scenario=channels-home` produces a capture byte-comparable to

@@ -1649,6 +1649,46 @@ settle after a gesture — never bound to `contentY`, which would re-run a
 comparison in every row on every frame — and `MessageDelegate.mediaInBand`
 gates `refreshBridgeSource()`. Thumbnails included. NOT live-measured.
 
+**A RESTORE MUST NOT NEED A LIVE SERVER, AND UNTIL 2026-09-14 IT DID.**
+`Client::builder().server_name_or_homeserver_url()` — the method issue #5's
+delegation fix introduced, and the right one for a field a HUMAN typed —
+performs well-known discovery AND a homeserver verification over HTTP. Every
+restore went through it, so a homeserver that went down put the user on the
+LOGIN PAGE with a complete local store on disk. `restore_session()` itself only
+reads the store. `build_client_for_restore()` now tries discovery first
+(bounded, so a delegation change is still followed) and falls back to the URL
+the last successful build recorded beside the store. **A typed string can NEVER
+be promoted to a homeserver URL by inspection**: `https://matrix.org` is a
+server NAME whose client API is `https://matrix-client.matrix.org`, so the
+obvious shortcut 404s the largest homeserver there is. Only a URL the SDK
+itself resolved may be used. Detail in `docs/round-history.md`, 2026-09-14.
+
+**A TEST THAT COMPOSES SOMETHING *RESEMBLING* WHAT PRODUCTION COMPOSES PROVES
+NOTHING — third occurrence, and this one shipped a feature that had never
+worked.** `publishShareAudio()` built `"%1 name=sharesrc ! queue ! …"`, which
+is valid only while `%1` is a single element; `mixedSourceDescription()` ends
+in a PAD REFERENCE and GStreamer takes no assignment after one, so every
+per-application share died at parse time with `unexpected reference
+"shareaudiomix"` and the echo fix could never have run on any PipeWire desktop.
+The test appended `" ! fakesink"` instead and passed. The composition is one
+function now (`shareaudio::encodedTrackDescription`) and the test parses what
+the engine actually hands GStreamer. Same round: **an optional track's failure
+must never end the call** — `onEngineFailed` tore the session down for
+`share_audio_failed`, which is how a missing feature became a lost call.
+
+**`gst_device_monitor_start()` IS SYNCHRONOUS AND UNBOUNDED, AND IT WAS ON THE
+GUI THREAD IN THE CALL-JOIN PATH.** Each provider decides when it has an
+answer; PulseAudio's connects to the sound server and waits on its own mainloop
+for the initial device list with no timeout anywhere. Added in 0.9.4 with the
+device-preference work (`7e6bcb6`) — 0.9.3 contains neither `monitorCandidates`
+nor that call — which is exactly the boundary GitHub issue #12 names ("joining
+a call freezes it; 0.9.3 is fine"). NOT reproduced here. It is now skipped
+entirely when no device preference exists (arguments are evaluated before
+`chooseCaptureElement` can return early for an empty id, so every join paid for
+it) and bounded at 2.5 s with a per-klass latch otherwise. MEASURED on a
+healthy PipeWire desktop: 218 ms first `Audio/Source`, 8 ms after, 4 ms
+`Video/Source`.
+
 **A WAIT LOOP WHOSE PATTERN MATCHES ITS OWN COMMAND LINE NEVER TERMINATES.**
 `while pgrep -f "ninja|ctest"; do sleep; done` matches the bash process running
 it, so it waits on itself forever; two background shells deadlocked this way in

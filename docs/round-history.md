@@ -1,5 +1,174 @@
 # Round history
 
+## 2026-09-14 — three user reports: a server that died, a share that ended the call, and a join that froze
+
+Three reports against 0.9.5, none of them reproducible from the maintainer's
+own desktop, and all three root-caused by reading — two of them proven with a
+test that fails on the unfixed tree.
+
+### 1. A dead homeserver put the user back on the LOGIN PAGE
+
+Reported by Rokas, 2026-09-14: "my homeserver died due to a cloudflare issue
+last night. Does lightning have to kick you to the login page — or could it
+display the cached rooms, just you know not loading with an error message".
+It did have to, and the reason is one builder call.
+
+`build_client()` points every client at its homeserver with
+`Client::builder().server_name_or_homeserver_url()`. That method is the right
+one for a field a HUMAN typed — it is what `6e0f7e1` introduced for issue #5's
+`.well-known` delegation — and it is two HTTP round trips: well-known
+discovery, then a verification that whatever it settled on really is a
+homeserver (matrix-sdk 0.18 `client/builder/homeserver_config.rs`,
+`discover_homeserver_from_server_name_or_url`). **Every restore went through
+it.** So with the server unreachable no `Client` could be constructed at all,
+`restore_client` returned an error, `login_failed` was enqueued, and
+AppController's own comment — "every restore failure path funnels through
+loginFailed, which routes BootScreen to the genuine login form" — did the rest.
+
+Nothing else about the session was in doubt. `restore_session()` itself only
+reads the store. The rooms were on disk, the decrypted bodies were on disk, and
+the FTS5 search index built over them was on disk.
+
+**The fix is that a restore now has an offline path, and only a restore.**
+`build_client_with()` takes a `HomeserverInput` of `Discover` (unchanged,
+`server_name_or_homeserver_url`) or `Url` (`homeserver_url()`, which matrix-sdk
+resolves with `Url::parse` and no network whatsoever). Every successful build
+records what the SDK resolved in `lightning-homeserver-url` inside the
+account's own store directory — inside it on purpose: it is a fact about that
+store, and it is deleted with it. `build_client_for_restore()` tries discovery
+FIRST on every restore, bounded at 10 s, and falls back to that record only
+when the server did not answer.
+
+**Discovery stays first, and that ordering is the contract.** A homeserver
+that changes its `/.well-known` delegation must still be followed; skipping
+discovery because a URL was recorded would freeze every existing install onto
+whatever it resolved once. `a_reachable_homeserver_is_still_rediscovered_on_
+every_restore` pins it.
+
+**AND A TYPED STRING CAN NEVER BE PROMOTED TO A URL BY INSPECTION.** The
+obvious shortcut — "if the stored homeserver parses as an http(s) URL, use
+`homeserver_url()`" — is wrong and would break the largest homeserver there
+is: a user types `https://matrix.org`, whose client API is at
+`https://matrix-client.matrix.org`, and using the apex as the homeserver URL
+gives a session that 404s on every request. Only a URL the SDK itself resolved
+is safe, which is the whole reason the record exists.
+
+MIGRATION, STATED HONESTLY: an account that has not signed in since this
+build has nothing recorded, so its first offline start still fails exactly as
+before. One successful online start fixes that permanently.
+
+What the user sees afterwards: the room list is served from
+`client.rooms_stream()`, which `restore_session` fills from the state store and
+which `RoomList::entries()` returns verbatim — so cached rooms appear without
+any server response. Both room-list empty states are already gated on
+`count === 0`, so they correctly do not render over a populated list. The
+connection state now starts at **Offline** rather than Disconnected when the
+restore took the fallback (`session_restored_offline`), so the footer reads
+"Offline — retrying" from the first frame instead of "Loading rooms…" over a
+list that is complete and will never load anything. The sync supervisor retries
+on its own.
+
+NOT TESTED LIVE: no real account was opened against a dead homeserver. The
+mechanism is covered by `a_restore_survives_the_homeserver_going_away`, which
+starts a real loopback homeserver, builds a real SDK client with a real sqlite
+store, KILLS the server, asserts that the old path (`build_client`) can no
+longer build anything, and then asserts that the restore path can — that
+failing assertion in the middle is the control, and it is what makes the case
+evidence rather than decoration.
+
+One harness fact worth keeping: **a `Client` with a sqlite store aborts the
+process if it is dropped outside a tokio runtime.** deadpool's `SyncWrapper`
+panics in its destructor, and a panic in a destructor during cleanup is a
+non-unwinding abort — `signal: 6, SIGABRT`, no assertion message. Every
+pre-existing case in `delegation_tests` uses an in-memory store and could
+never meet it. Do all of it inside one `block_on`.
+
+### 2. Sharing a screen WITH AUDIO ended the call — and per-application share audio had never worked at all
+
+Reported by Seikm on a 0.9.5 flatpak: choosing a source to share kicks them
+out of the call. Their log, in Portuguese:
+
+```
+share audio pipeline parse failed: referência inesperada "shareaudiomix"
+engine failed category= "share_audio_failed" active= true
+teardown state= 7 error= "A ligação terminou inesperadamente."
+```
+
+**TWO INDEPENDENT DEFECTS, and the second is the one that cost them the call.**
+
+**The parse.** `publishShareAudio()` composed its bin inline as
+`"%1 name=sharesrc ! queue ! …"`. That is valid only while `%1` is a single
+element — and `mixedSourceDescription()`, the per-application capture, ENDS IN
+A PAD REFERENCE (`shareaudiomix.`). GStreamer's grammar takes no assignment
+after a reference, so the whole description was refused with
+`unexpected reference "shareaudiomix" - ignoring`. Reproduced here in four
+lines of C against the dev shell's own GStreamer before anything was changed.
+
+So per-application share audio — the echo fix, the entire reason that file
+exists — **could never have worked on any machine where the device monitor
+starts**, which is every PipeWire desktop. The sink-monitor fallback worked,
+which is why nobody noticed: a machine that took the fallback had share audio,
+and a machine that qualified for the good path had none.
+
+**GENERALISE, and this is the third time in this file for the same shape:**
+a test that composes something *resembling* what production composes proves
+nothing about production. `aShareAudioBranchParsesStandaloneTheWayTheDynamic
+PathBuildsIt` appended `" ! fakesink"` to the mixed description and passed;
+production appended `" name=sharesrc ! queue ! …"` and could not parse. The
+composition is now ONE function, `shareaudio::encodedTrackDescription()`, and
+the test parses exactly what the engine hands GStreamer. Every capture element
+names itself (`name=sharesrc` is in the candidate table now, not appended), and
+that is pinned too, because `handleBusMessage` recognises a device that will
+not open by that name — which now also matches `shareapp*`, the
+per-application sources, where there is no `sharesrc` at all.
+
+**The teardown.** `onEngineFailed()` ended the CALL for every category it was
+given. Share audio is an optional second track that had not started; killing
+the session for it is the difference between a missing feature and a lost call,
+and the user got "The call ended unexpectedly." — the generic fallback, because
+neither `share_audio_failed` nor `share_audio_unavailable` had wording at all.
+Both are now non-fatal, take the shape `onEnginePublishFailed` already uses
+(turn the thing that failed off, say so, leave the call alone), and have
+sentences that do not claim anything ended.
+
+### 3. Joining a call froze the application (GitHub issue #12)
+
+Reported by BroCraftPlus: Linux Mint 21.3, flatpak, joining any call in any
+room freezes Lightning and needs a force quit; 0.9.3 is fine, 0.9.4 and 0.9.5
+are not. **NOT REPRODUCED HERE**, so what follows is a hypothesis with a
+mechanism — but the mechanism's shape is not in doubt and it does not belong
+in the join path whatever a particular provider does with it.
+
+`gst_device_monitor_start()` is SYNCHRONOUS, and each provider decides for
+itself when it has an answer: the PulseAudio provider connects to the sound
+server and then waits on its own mainloop until the initial device list
+arrives, with no timeout anywhere in that path. `publishMicrophone()` calls it
+on the **GUI thread** at every join. `git show v0.9.3:src/calls/SfuMediaEngine.cpp`
+contains neither `monitorCandidates` nor `gst_device_monitor_start`; both
+arrived in `7e6bcb6` with the device-preference work — exactly the boundary the
+report names.
+
+Two changes, and the first is the one that helps most people:
+
+* **It is not asked at all when there is nothing to resolve.**
+  `chooseCaptureElement()` returns nothing for an empty device id — but C++
+  evaluates arguments first, so every join enumerated the machine's audio
+  devices even for a user who has never opened the picker. The camera site has
+  always been gated this way; the microphone site was not.
+* **It can no longer hold the caller for ever.** The enumeration runs on a
+  worker with a 2.5 s budget (MEASURED on a healthy PipeWire desktop here:
+  218 ms for the first `Audio/Source`, 8 ms after, 4 ms for `Video/Source`).
+  A blocked enumeration cannot be cancelled — GStreamer offers no such call —
+  so the worker is abandoned rather than joined and the klass is LATCHED: a
+  provider that hung once is never asked again this session. That bounds the
+  damage at one stuck thread per klass per process instead of one per publish.
+  Losing the answer costs the user their device PREFERENCE and leaves them the
+  platform default, which is exactly what this function already returned when
+  a monitor would not start.
+
+No regression test: nothing here reproduces a hanging provider, and §18 is
+explicit that a test which does not fail on the old code is decoration.
+
 ## 2026-09-13 (night) — the one feature no release has ever tested, audited by reading, and 0.9.5 cut on it
 
 **RECOVERY AND KEY BACKUP HAD NEVER BEEN EXERCISED IN ANY RELEASE, AND IT
