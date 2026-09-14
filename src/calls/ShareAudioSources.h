@@ -114,6 +114,26 @@ QString applicationBranchDescription(const Stream &stream, int index);
 /// The name the mixer is given in `mixedSourceDescription`.
 QString mixerElementName();
 
+/// The whole share-audio bin: a source description plus the encode and
+/// payload chain the publisher links to webrtcbin.
+///
+/// THIS EXISTS BECAUSE THE COMPOSITION IS THE PART THAT BROKE, and nothing
+/// could see it. `publishShareAudio()` used to build the string inline as
+/// `"%1 name=sharesrc ! queue ! ..."`, which is valid only while `%1` is a
+/// single element: `mixedSourceDescription()` ENDS IN A PAD REFERENCE
+/// (`shareaudiomix.`), and GStreamer's grammar takes no assignment after a
+/// reference. So every per-application share failed to parse with
+/// `unexpected reference "shareaudiomix" - ignoring`, the engine reported
+/// `share_audio_failed`, and the whole CALL was torn down — reported from a
+/// 0.9.5 flatpak on 2026-09-14. The existing parse test appended
+/// `" ! fakesink"` instead and therefore exercised a string production had
+/// never built.
+///
+/// Every source description names its own capture element, so nothing is
+/// appended to one here; see `name=sharesrc` in the candidates.
+QString encodedTrackDescription(const QString &sourceDescription,
+                                quint32 ssrc);
+
 /// Can this machine capture per application at all?
 ///
 /// Answered once and cached: it probes GStreamer and opens a PipeWire

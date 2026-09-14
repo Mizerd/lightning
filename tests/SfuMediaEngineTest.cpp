@@ -4196,6 +4196,96 @@ private slots:
         QVERIFY2(wholeMessage.isEmpty(), qPrintable(wholeMessage));
     }
 
+    // THE STRING PRODUCTION PUBLISHES, NOT ONE THAT RESEMBLES IT.
+    //
+    // The test above appends `" ! fakesink"` to the mixed description and
+    // proved the mixer chain is well formed. `publishShareAudio()` appended
+    // something else entirely — `" name=sharesrc ! queue ! …"` — and a
+    // description ending in a pad REFERENCE takes no assignment: GStreamer
+    // answers `unexpected reference "shareaudiomix" - ignoring` and the bin
+    // is never built. So per-application share audio could not work on ANY
+    // machine where the device monitor starts, which is every PipeWire
+    // desktop, and no test could see it because none of them composed what
+    // production composed.
+    //
+    // Reported from a 0.9.5 flatpak on 2026-09-14: choosing a screen to
+    // share dropped the reporter out of the call, with
+    // `share audio pipeline parse failed: referência inesperada
+    // "shareaudiomix"` in their log.
+    //
+    // FAIL-ON-OLD: restoring `name=sharesrc` into encodedTrackDescription's
+    // format string fails this with that exact message.
+    void theWholeShareAudioTrackParsesTheWayPublishShareAudioComposesIt()
+    {
+        lightning::shareaudio::Stream s;
+        s.serial = QStringLiteral("9551");
+
+        const auto parseFailure = [](const QString &description) {
+            GError *error = nullptr;
+            GstElement *bin = gst_parse_bin_from_description(
+                description.toUtf8().constData(), TRUE, &error);
+            const QString message =
+                error && error->message ? QString::fromUtf8(error->message)
+                                        : QString();
+            if (error)
+                g_error_free(error);
+            if (bin)
+                gst_object_unref(bin);
+            return message;
+        };
+
+        // THE PER-APPLICATION PATH — the one that was broken. Two streams
+        // and none, because a share that starts before anything is playing
+        // is the ordinary case and carries the silence floor alone.
+        lightning::shareaudio::Stream other;
+        other.serial = QStringLiteral("307");
+        for (const QList<lightning::shareaudio::Stream> &streams :
+             { QList<lightning::shareaudio::Stream>{},
+               QList<lightning::shareaudio::Stream>{ s },
+               QList<lightning::shareaudio::Stream>{ s, other } }) {
+            const QString whole =
+                lightning::shareaudio::encodedTrackDescription(
+                    lightning::shareaudio::mixedSourceDescription(streams),
+                    0x1234u);
+            const QString message = parseFailure(whole);
+            QVERIFY2(message.isEmpty(),
+                     qPrintable(QStringLiteral(
+                         "GStreamer refused the share-audio track with %1 "
+                         "application stream(s): %2 — the share publishes no "
+                         "audio at all and the engine reports "
+                         "share_audio_failed")
+                         .arg(streams.size()).arg(message)));
+        }
+
+        // AND THE SINGLE-ELEMENT PATH still composes, which is what every
+        // fallback source (pulsesrc, wasapi2src, the test source) is. It was
+        // never broken; asserted so a fix to one cannot break the other.
+        const QString single = lightning::shareaudio::encodedTrackDescription(
+            QStringLiteral("audiotestsrc name=sharesrc is-live=true "
+                           "wave=silence"),
+            0x1234u);
+        QVERIFY2(parseFailure(single).isEmpty(),
+                 qPrintable(parseFailure(single)));
+
+        // THE CAPTURE ELEMENT MUST NAME ITSELF. Nothing appends
+        // `name=sharesrc` any more, and `handleBusMessage` recognises a
+        // device that will not open by that name — so a candidate that drops
+        // it silently loses the one warning that says the microphone or the
+        // loopback device was already held by something else.
+        const QByteArray src = SOURCE_UNDER_TEST;
+        QVERIFY2(!src.isEmpty(), "engine source unreadable");
+        for (const char *element :
+             { "wasapi2src name=sharesrc loopback-mode=exclude-process-tree",
+               "wasapi2src name=sharesrc loopback=true",
+               "wasapisrc name=sharesrc loopback=true",
+               "pulsesrc name=sharesrc device=@DEFAULT_MONITOR@" }) {
+            QVERIFY2(src.contains(element),
+                     qPrintable(QStringLiteral(
+                         "a share-audio capture candidate no longer names "
+                         "itself `sharesrc`: %1").arg(element)));
+        }
+    }
+
 };
 
 QTEST_MAIN(SfuMediaEngineTest)

@@ -1323,6 +1323,18 @@ QString SfuCallController::userFacingError(const QString &category) const
         return tr("Your homeserver doesn't support Matrix calls.");
     if (category == QLatin1String("rate_limited"))
         return tr("Too many attempts. Try again in a moment.");
+    // THE SHARE'S SOUND, AND ONLY THAT. Both of these leave the call and the
+    // shared picture running, so the sentence must not say anything ended.
+    // They had no wording at all until 2026-09-14 and landed on the generic
+    // fallback — "The call ended unexpectedly." — which was then ALSO the
+    // truth, because the call was being torn down for them; see
+    // onEngineFailed.
+    if (category == QLatin1String("share_audio_failed"))
+        return tr("Your screen is being shared without its sound — the "
+                  "audio capture couldn't be started.");
+    if (category == QLatin1String("share_audio_unavailable"))
+        return tr("Your screen is being shared without its sound — this "
+                  "system has no way to capture what it is playing.");
     // THE FOCUS IS ON A PRIVATE ADDRESS AND WE REFUSED TO GO THERE. Every
     // address the focus name resolves to must be public (docs/matrixrtc.md:
     // that request carries the user's OpenID token, device id and room id,
@@ -2190,12 +2202,47 @@ void SfuCallController::onEngineLocalCandidate(int target,
         candidateInit);
 }
 
+// Is this engine failure about the SHARE'S SOUND alone?
+//
+// The two categories `publishShareAudio()` can raise. Kept as a named
+// predicate rather than inlined because the distinction is the whole point:
+// everything else the engine reports is about the session's own media, and
+// ending the call is the right answer for those.
+bool SfuCallController::categoryIsShareAudioOnly(const QString &category)
+{
+    return category == QLatin1String("share_audio_failed")
+        || category == QLatin1String("share_audio_unavailable");
+}
+
 void SfuCallController::onEngineFailed(const QString &category)
 {
     qCWarning(lcSfuCall) << "engine failed category=" << category
                          << "active=" << active();
     if (!active())
         return;
+    // THE SHARE'S SOUND IS NOT THE CALL, and treating it as one ended a real
+    // call on a 0.9.5 flatpak (2026-09-14): choosing a screen to share
+    // produced `share_audio_failed` and the user was dropped out of the call
+    // they were in, with "The call ended unexpectedly." — a sentence about
+    // the session, for a failure of an optional second track that had not
+    // even started. Same shape as `onEnginePublishFailed`: turn the thing
+    // that failed off, say so, and leave the call and the picture alone.
+    //
+    // Deliberately NOT routed through onEnginePublishFailed: that one keys on
+    // a cid, and `publishShareAudio` can fail BEFORE a bin exists for the cid
+    // the controller is holding.
+    if (categoryIsShareAudioOnly(category)) {
+        if (!m_shareAudioCid.isEmpty()) {
+            unpublishTrack(m_shareAudioCid);
+            m_shareAudioCid.clear();
+        }
+        Q_EMIT mediaStateChanged();
+        // `callFailed` is "a failure, in plain wording", not "the call
+        // ended" — the same contract onEnginePublishFailed relies on. The
+        // state is untouched and active() stays true.
+        Q_EMIT callFailed(userFacingError(category));
+        return;
+    }
     // A media failure ends the call: continuing would leave the user in a
     // session they cannot hear or be heard in, with no indication why.
     teardown(State::Failed, userFacingError(category));

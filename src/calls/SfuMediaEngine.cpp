@@ -845,7 +845,12 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
     } else if (error && error->domain == GST_RESOURCE_ERROR
                && (element.startsWith(QLatin1String("micsrc"))
                    || element.startsWith(QLatin1String("capsrc"))
-                   || element.startsWith(QLatin1String("sharesrc")))) {
+                   || element.startsWith(QLatin1String("sharesrc"))
+                   // The per-application share capture names its sources
+                   // `shareapp0`, `shareapp1`, … — there is no single
+                   // `sharesrc` on that path, so without this the one branch
+                   // that matters most on Linux fell to the generic `else`.
+                   || element.startsWith(QLatin1String("shareapp")))) {
         // A CAPTURE SOURCE THAT CANNOT OPEN ITS DEVICE IS NOT ROUTINE INFO.
         //
         // GStreamer posts this as a WARNING, not an ERROR, so `publishFailed`
@@ -1188,13 +1193,13 @@ static ShareAudioSource shareAudioSourceDescription()
         // `loopback=true` is deliberately absent here: with a pid set the
         // element takes the exclude path and never reads that Boolean.
         { "wasapi2src", "loopback-target-pid",
-          "wasapi2src loopback-mode=exclude-process-tree "
+          "wasapi2src name=sharesrc loopback-mode=exclude-process-tree "
           "loopback-target-pid=%1 low-latency=true", true },
         // Older Windows, where process loopback does not exist. The endpoint
         // mix, echo and all, and the caller says so out loud.
         { "wasapi2src", "loopback",
-          "wasapi2src loopback=true low-latency=true", false },
-        { "wasapisrc", "loopback", "wasapisrc loopback=true", false },
+          "wasapi2src name=sharesrc loopback=true low-latency=true", false },
+        { "wasapisrc", "loopback", "wasapisrc name=sharesrc loopback=true", false },
 #elif defined(Q_OS_LINUX)
         // `@DEFAULT_MONITOR@` is resolved by the SERVER, so this follows the
         // user's default sink when they change it mid-call and needs no
@@ -1202,7 +1207,8 @@ static ShareAudioSource shareAudioSourceDescription()
         // PulseAudio compatibility, which every modern desktop runs.
         // No PipeWire here, so no per-application capture and no exclusion:
         // a sink monitor is post-mix and cannot leave a contributor out.
-        { "pulsesrc", "device", "pulsesrc device=@DEFAULT_MONITOR@", false },
+        { "pulsesrc", "device",
+          "pulsesrc name=sharesrc device=@DEFAULT_MONITOR@", false },
 #endif
         { nullptr, nullptr, nullptr, false },
     };
@@ -1470,7 +1476,8 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
     QList<lightning::shareaudio::Stream> streams;
     if (m_testSources) {
         source = QStringLiteral(
-            "audiotestsrc is-live=true wave=sine freq=220 volume=0.05");
+            "audiotestsrc name=sharesrc is-live=true wave=sine freq=220 "
+            "volume=0.05");
     } else if (m_shareAudioSources.start()) {
         streams = m_shareAudioSources.streams(
             QCoreApplication::applicationPid(), ourAudioClientNames());
@@ -1518,41 +1525,20 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
         return;
     }
 
-    // DELIBERATELY NOT THE MICROPHONE CHAIN, in three ways.
-    //
-    //  * NO `webrtcdsp`. Its gain control and noise suppression exist to make
-    //    a voice intelligible; run over music or game audio they pump the
-    //    level and chew the quiet parts. The mic wants them and this does not.
-    //  * STEREO. The mic path pins channels=1 on purpose — voice is mono and
-    //    a Windows mic commonly reports two channels with signal in one. A
-    //    desktop mix is genuinely stereo and downmixing it would be a defect,
-    //    so this pins 2 rather than leaving the device to decide.
-    //  * MUSIC-GRADE OPUS. `audio-type=generic` and 128 kbit/s: opusenc's
-    //    default is voice-tuned at 64 kbit/s mono, which is audibly wrong on
-    //    a music bed.
+    // ONE COMPOSITION, AND IT IS TESTED AS A COMPOSITION. This used to be
+    // built inline as `"%1 name=sharesrc ! queue ! …"`, which is valid only
+    // while `%1` is a single element. `mixedSourceDescription()` ends in the
+    // mixer's PAD REFERENCE, and GStreamer's grammar takes no assignment
+    // after a reference: every per-application share therefore died at parse
+    // time with `unexpected reference "shareaudiomix" - ignoring`, the engine
+    // emitted `share_audio_failed`, and SfuCallController tore the whole CALL
+    // down — reported from a 0.9.5 flatpak on 2026-09-14 as being kicked out
+    // of the call the moment a share source was chosen. Every capture element
+    // now carries its own `name=sharesrc`, nothing is appended to the source,
+    // and the composition lives where a test can parse the exact string.
     const QString description =
-        // NAMED, so a device that will not open is reportable. Without a
-        // `name=` GStreamer auto-names this (`wasapi2src0`, `pulsesrc0`) and
-        // the capture-open warning below cannot recognise it — which would
-        // have missed the case that deserves it most, a WASAPI loopback
-        // device held by another application.
-        QStringLiteral("%1 name=sharesrc ! queue ! audioconvert ! audioresample "
-                       "! audio/x-raw,channels=2,rate=48000 "
-                       // Its own valve. Muting the share's audio must not
-                       // touch the microphone, and vice versa — they are two
-                       // tracks and the user thinks of them as two things.
-                       "! valve name=sharevalve drop=false "
-                       "! opusenc name=shareaudioenc audio-type=generic "
-                       "bitrate=128000 "
-                       "! rtpopuspay pt=111 ssrc=%2 "
-                       // Same reasoning as the microphone bin: the caps
-                       // webrtcbin READS to build the m= section, so the ssrc
-                       // has to be stated or the offer carries no a=ssrc and
-                       // the SFU cannot attribute the RTP to a transceiver.
-                       "! capsfilter caps=\"application/x-rtp,media=audio,"
-                       "encoding-name=OPUS,payload=111,clock-rate=(int)48000,"
-                       "encoding-params=(string)2,ssrc=(uint)%2\"")
-            .arg(source, QString::number(nextPublishSsrc()));
+        lightning::shareaudio::encodedTrackDescription(source,
+                                                       nextPublishSsrc());
 
     GError *error = nullptr;
     GstElement *bin =

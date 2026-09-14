@@ -298,6 +298,11 @@ public:
     void setShareAudioEnabled(bool on);
     bool shareAudioSupported() const;
     bool shareAudioExcludesOwnPlayback() const;
+
+    // Does this engine-failure category concern the SHARE'S SOUND alone?
+    // Static and public so the policy is testable without a call: a share
+    // audio failure must never end the session (see onEngineFailed).
+    static bool categoryIsShareAudioOnly(const QString &category);
     bool handRaised() const { return m_handRaised; }
     /// True only when every frame we publish is encrypted. Never optimistic.
     bool mediaEncrypted() const { return m_mediaEncrypted; }

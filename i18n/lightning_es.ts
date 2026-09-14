@@ -9313,18 +9313,18 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+346"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+347"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>Lightning no pudo crear su carpeta de almacenamiento local para esta cuenta. Comprueba los permisos del sistema de archivos y el espacio libre.</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+473"/>
+        <location line="+476"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>No se pudo crear el manejador del backend del SDK de Rust.</translation>
     </message>
     <message>
-        <location line="-312"/>
+        <location line="-315"/>
         <source>Homeserver, user, and password are required.</source>
         <translation>Se necesitan el servidor doméstico, el usuario y la contraseña.</translation>
     </message>
@@ -9340,16 +9340,16 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+60"/>
-        <location line="+174"/>
+        <location line="+177"/>
         <location line="+106"/>
         <location line="+398"/>
-        <location line="+111"/>
-        <location line="+86"/>
+        <location line="+114"/>
+        <location line="+89"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>No se pudo inicializar el backend del SDK de Rust.</translation>
     </message>
     <message>
-        <location line="-710"/>
+        <location line="-716"/>
         <location line="+105"/>
         <source>A homeserver is required.</source>
         <translation>Hace falta un servidor doméstico.</translation>
@@ -9398,7 +9398,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>El servidor completó el inicio de sesión sin devolver una sesión utilizable.</translation>
     </message>
     <message>
-        <location line="+449"/>
+        <location line="+458"/>
         <source>Enter a valid homeserver and Matrix user ID before resetting the local Lightning session.</source>
         <translation>Introduce un servidor doméstico y un ID de usuario de Matrix válidos antes de restablecer la sesión local de Lightning.</translation>
     </message>
@@ -9424,7 +9424,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+157"/>
-        <location line="+3547"/>
+        <location line="+3568"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+51"/>
@@ -9433,15 +9433,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>No has iniciado sesión.</translation>
     </message>
     <message>
-        <location line="-3958"/>
+        <location line="-3979"/>
         <location line="+64"/>
         <location line="+157"/>
-        <location line="+3743"/>
+        <location line="+3764"/>
         <source>Unknown room: %1</source>
         <translation>Sala desconocida: %1</translation>
     </message>
     <message>
-        <location line="-3960"/>
+        <location line="-3981"/>
         <location line="+64"/>
         <location line="+157"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9449,13 +9449,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+548"/>
-        <location line="+1904"/>
+        <location line="+1925"/>
         <location line="+63"/>
         <source>The sticker could not be sent.</source>
         <translation>No se pudo enviar la pegatina.</translation>
     </message>
     <message>
-        <location line="-954"/>
+        <location line="-975"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9470,7 +9470,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Se ha restablecido la sesión local de Lightning. Ya puedes iniciar sesión de nuevo.</translation>
     </message>
     <message>
-        <location line="+122"/>
+        <location line="+143"/>
         <source>Rust SDK login response did not include a user id.</source>
         <translation>La respuesta de inicio de sesión del SDK de Rust no incluía un ID de usuario.</translation>
     </message>
@@ -13219,12 +13219,12 @@ Nota: importar claves no verifica esta sesión.</translation>
     </message>
     <message>
         <location line="-293"/>
-        <location line="+886"/>
+        <location line="+898"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>No se pudo iniciar el uso compartido de pantalla.</translation>
     </message>
     <message>
-        <location line="-746"/>
+        <location line="-758"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>Compartir pantalla en Wayland necesita xdg-desktop-portal y no responde. Instale o inicie el portal para su escritorio (por ejemplo, xdg-desktop-portal-kde o xdg-desktop-portal-gnome) y vuelva a intentarlo.</translation>
     </message>
@@ -13265,12 +13265,12 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+533"/>
+        <location line="+545"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>Las llamadas no están disponibles en este servidor doméstico.</translation>
     </message>
     <message>
-        <location line="-510"/>
+        <location line="-522"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Demasiados intentos. Inténtalo de nuevo en un momento.</translation>
     </message>
@@ -13290,7 +13290,17 @@ Nota: importar claves no verifica esta sesión.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+10"/>
+        <source>Your screen is being shared without its sound — the audio capture couldn&apos;t be started.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Your screen is being shared without its sound — this system has no way to capture what it is playing.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
         <source>This call&apos;s service is on a private network address, which Lightning won&apos;t connect to. Whoever set up the call needs to give it an address reachable from the internet.</source>
         <translation type="unfinished"></translation>
     </message>

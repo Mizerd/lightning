@@ -5202,6 +5202,68 @@ private Q_SLOTS:
                  kPartyEmoji);
     }
 
+    // A SHARE THAT CANNOT CARRY SOUND MUST NOT END THE CALL.
+    //
+    // Reported from a 0.9.5 flatpak on 2026-09-14: selecting a screen to
+    // share dropped the reporter straight out of the call, with "The call
+    // ended unexpectedly." The share-audio pipeline had failed to parse, the
+    // engine raised `share_audio_failed`, and `onEngineFailed` tore the
+    // session down for it — a second, independent defect from the parse bug
+    // itself, and the one that turned a missing feature into a lost call.
+    //
+    // The parse bug is fixed in ShareAudioSources; this pins the policy, so a
+    // future share-audio failure (no loopback device, a held capture, a
+    // plugin missing from a package) costs the sound and nothing else.
+    //
+    // FAIL-ON-OLD: with the share-audio branch removed from onEngineFailed,
+    // the state check below reads Failed.
+    void aShareAudioFailureCostsTheSoundAndNotTheCall()
+    {
+        QVERIFY(SfuCallController::categoryIsShareAudioOnly(
+            QStringLiteral("share_audio_failed")));
+        QVERIFY(SfuCallController::categoryIsShareAudioOnly(
+            QStringLiteral("share_audio_unavailable")));
+        // Not a catch-all: everything else still ends the call.
+        QVERIFY(!SfuCallController::categoryIsShareAudioOnly(
+            QStringLiteral("connection_lost")));
+        QVERIFY(!SfuCallController::categoryIsShareAudioOnly(
+            QStringLiteral("share_audio")));
+
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+
+        QSignalSpy failures(&call, &SfuCallController::callFailed);
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEngineFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("share_audio_failed"))));
+
+        QCOMPARE(call.state(), SfuCallController::State::Connected);
+        QVERIFY2(call.active(),
+                 "a share-audio failure ended the call the user was in");
+        // The user is still told — silently dropping the share's sound is
+        // how someone talks over a video for ten minutes with nobody
+        // hearing it.
+        QCOMPARE(failures.count(), 1);
+        const QString sentence = failures.at(0).at(0).toString();
+        QVERIFY2(!sentence.isEmpty(), "no wording for share_audio_failed");
+        QVERIFY2(!sentence.contains(QStringLiteral("call ended"),
+                                    Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral(
+                     "a share-audio failure tells the user the call ended: %1")
+                     .arg(sentence)));
+
+        // And the ordinary categories are untouched.
+        SfuCallController fatal;
+        fatal.setClient(&client);
+        fatal.setCallStateForTest(SfuCallController::State::Connected);
+        QVERIFY(QMetaObject::invokeMethod(
+            &fatal, "onEngineFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("connection_lost"))));
+        QCOMPARE(fatal.state(), SfuCallController::State::Failed);
+    }
+
 
 private:
     QTemporaryDir m_configHome;

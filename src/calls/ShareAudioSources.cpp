@@ -178,6 +178,46 @@ QString mixedSourceDescription(const QList<Stream> &streams)
     return chains.join(QLatin1Char('\n'));
 }
 
+QString encodedTrackDescription(const QString &sourceDescription, quint32 ssrc)
+{
+    // DELIBERATELY NOT THE MICROPHONE CHAIN, in three ways.
+    //
+    //  * NO `webrtcdsp`. Its gain control and noise suppression exist to make
+    //    a voice intelligible; run over music or game audio they pump the
+    //    level and chew the quiet parts. The mic wants them and this does not.
+    //  * STEREO. The mic path pins channels=1 on purpose — voice is mono and
+    //    a Windows mic commonly reports two channels with signal in one. A
+    //    desktop mix is genuinely stereo and downmixing it would be a defect,
+    //    so this pins 2 rather than leaving the device to decide.
+    //  * MUSIC-GRADE OPUS. `audio-type=generic` and 128 kbit/s: opusenc's
+    //    default is voice-tuned at 64 kbit/s mono, which is audibly wrong on
+    //    a music bed.
+    //
+    // THE SOURCE IS APPENDED TO, NEVER ASSIGNED INTO. Nothing may follow
+    // `%1` but a link: the per-application description ends in the mixer's
+    // pad reference and a reference takes no assignments. The capture
+    // element's `name=sharesrc` therefore lives in the source descriptions
+    // themselves.
+    return QStringLiteral(
+               "%1 ! queue ! audioconvert ! audioresample "
+               "! audio/x-raw,channels=2,rate=48000 "
+               // Its own valve. Muting the share's audio must not touch the
+               // microphone, and vice versa — they are two tracks and the
+               // user thinks of them as two things.
+               "! valve name=sharevalve drop=false "
+               "! opusenc name=shareaudioenc audio-type=generic "
+               "bitrate=128000 "
+               "! rtpopuspay pt=111 ssrc=%2 "
+               // Same reasoning as the microphone bin: the caps webrtcbin
+               // READS to build the m= section, so the ssrc has to be stated
+               // or the offer carries no a=ssrc and the SFU cannot attribute
+               // the RTP to a transceiver.
+               "! capsfilter caps=\"application/x-rtp,media=audio,"
+               "encoding-name=OPUS,payload=111,clock-rate=(int)48000,"
+               "encoding-params=(string)2,ssrc=(uint)%2\"")
+        .arg(sourceDescription, QString::number(ssrc));
+}
+
 SourceMonitor::~SourceMonitor()
 {
     stop();
