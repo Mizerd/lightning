@@ -3658,6 +3658,19 @@ if(BUILD_TESTING)
     set_tests_properties(verification-flow PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # THE ROW'S RIGHT RAIL IS SHARED. Geometric cases over the real
+    # MessageDelegate: the hover action bar must end before the read-receipt
+    # facepile begins on a short row, and must keep the row's corner on a
+    # tall one. Reported 2026-09-14 as avatars sitting on the bar's buttons.
+    qt_add_executable(message-rail-collision-test
+        tests/MessageRailCollisionTest.cpp
+    )
+    lightning_configure_qml_test(message-rail-collision-test)
+    target_include_directories(message-rail-collision-test PRIVATE src)
+    add_test(NAME message-rail-collision COMMAND message-rail-collision-test)
+    set_tests_properties(message-rail-collision PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # A restore that could not reach the homeserver must READ as offline.
     # Setting the state once at login_ok is not enough: startSync() and the
     # sync lane's own "starting" both report Syncing on the way to a server

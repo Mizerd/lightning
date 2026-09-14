@@ -843,6 +843,54 @@ Item {
                       + AppTheme.spacingXS)
         : 0
 
+    // ---- Bubbles vs the read-receipt rail ------------------------------
+    // An own bubble is right-aligned to `parent.width` while the facepile
+    // rides that SAME edge, so the avatars landed on the bubble's bottom-right
+    // corner and clipped it (seen live 2026-09-14 on a one-word reply). The
+    // width cap already subtracts 40 for a rail, but the PLACEMENT ignored it,
+    // so a short bubble was pushed flush to the row edge where that rail is.
+    //
+    // Insets the own bubble and narrows a wide incoming one by exactly the
+    // pile's width, and only when there is a pile. `receiptRow.width` is a
+    // chip count (18px each at -4 spacing) and depends on nothing below the
+    // bubble, so this cannot close the loop the Bubbles layout is otherwise
+    // full of — see segmentCap and the identity header's own cap.
+    readonly property real bubbleReceiptInset:
+        (root.bubbleMode && readReceiptStrip.visible && receiptRow.width > 0)
+        ? receiptRow.width + AppTheme.spacingXS
+        : 0
+
+    // ---- Action bar vs the read-receipt rail ---------------------------
+    // REPORTED 2026-09-14, with a screenshot: "this is a bit messy and hard
+    // to click on stuff". Four receipt avatars sat ON TOP of the hover action
+    // bar, over its Edit and overflow buttons.
+    //
+    // The two are anchored to the same rail from opposite ends of the row.
+    // The bar is `anchors.top/right` on bubbleRow, 3px above its top edge;
+    // the facepile paints UPWARD from `layout.y + layout.height` at the row's
+    // own right margin. On a TALL row (an image, a long wrap) they are
+    // nowhere near each other, which is why this went unnoticed. On a SHORT
+    // one — a single line, a continuation row, or any row on a scaled-up
+    // desktop, which is what the reporter suspected — the row's top and
+    // bottom are barely 30px apart and the two land on the same pixels. The
+    // facepile wins: both carry z 3 and the strip is later in the document,
+    // so the buttons underneath are not merely ugly, they are unclickable.
+    //
+    // Reserve the pile's width, and ONLY while the two bands actually meet,
+    // so the bar keeps the row's corner everywhere it can. The bar's bottom
+    // edge sits 29px below bubbleRow's top (28px buttons + 2*2 padding, less
+    // the 3px overhang); +4 keeps them from touching. `layout.y` is common to
+    // both and cancels.
+    //
+    // Feeds ONE rightMargin on a Loader and nothing else, so unlike
+    // receiptRailReserve above it cannot close a loop through the bubble's
+    // width — which is why this one applies in Bubbles too.
+    readonly property real actionBarReceiptReserve:
+        (readReceiptStrip.visible && receiptRow.width > 0
+         && (layout.height - bubbleRow.y - receiptRow.height) < 33)
+        ? receiptRow.width + AppTheme.spacingXS
+        : 0
+
     // Date-divider wording. A divider that always spells out
     // "pirmadienis, 17 rugpjūčio 2025" makes the reader do arithmetic to
     // answer the only question it is there for — is this today? Element
@@ -1344,12 +1392,14 @@ Item {
                 // aligned in the accent-dark bubble, incoming in the chip
                 // bubble. Modern/Compact keep the full-width row.
                 x: root.bubbleMode && model.isOwn === true
-                   ? Math.max(root.avatarGutterWidth, parent.width - width)
+                   ? Math.max(root.avatarGutterWidth,
+                              parent.width - width - root.bubbleReceiptInset)
                    : root.avatarGutterWidth
                 width: root.bubbleMode
                        ? Math.min(bubbleContent.implicitWidth + root.bubblePad * 2,
                                   Math.max(60, parent.width
-                                               - root.avatarGutterWidth - 40))
+                                               - root.avatarGutterWidth - 40
+                                               - root.bubbleReceiptInset))
                          // Modern/Compact: full row width up to a readable max,
                          // so long messages and media stay balanced on wide
                          // desktop windows (narrow windows shrink below it).
@@ -1523,7 +1573,34 @@ Item {
                         // Layout attached properties only bind on a direct
                         // child of the enclosing ColumnLayout.
                         Layout.fillWidth: false
-                        Layout.maximumWidth: Math.max(1, bubble.width - 112)
+                        // NOT `bubble.width` IN BUBBLES, AND THAT IS A LOOP
+                        // RATHER THAN A PREFERENCE.
+                        //
+                        // In Bubbles the bubble is SIZED FROM this column's
+                        // implicitWidth, so clamping a non-fillWidth child
+                        // against `bubble.width` feeds the child's own input:
+                        // Qt resolves it with whatever the bubble measured
+                        // last, and for a short body that is smaller than
+                        // 112, so `Math.max(1, …)` pinned the whole identity
+                        // header to ONE PIXEL of contributed width. The
+                        // bubble then sized itself to the BODY alone and the
+                        // sender name and timestamp rendered outside it, over
+                        // the timeline background — seen live 2026-09-14 on a
+                        // DM whose reply was "got it".
+                        //
+                        // Derived from `bubbleRow` and nothing below it, the
+                        // same escape the code-segment cap uses a few hundred
+                        // lines down and for the same reason: bubbleRow is
+                        // fillWidth in `layout` and reports no implicit width,
+                        // so that end of the chain is inert. The expression
+                        // mirrors the bubble's own cap so the header can never
+                        // ask for more than the bubble may become.
+                        Layout.maximumWidth: root.bubbleMode
+                            ? Math.max(1, Math.max(60, bubbleRow.width
+                                                       - root.avatarGutterWidth
+                                                       - 40)
+                                          - root.bubblePad * 2)
+                            : Math.max(1, bubble.width - 112)
                         sourceComponent: RowLayout {
                         id: identityHeader
                         objectName: "senderIdentityHeader"
@@ -2801,6 +2878,7 @@ Item {
             // both show one.
             Loader {
                 id: messageActionBarLoader
+                objectName: "messageActionBarLoader"
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.topMargin: -3
@@ -2828,6 +2906,7 @@ Item {
                 // the reverted overlay bar was and could not survive the
                 // rows' 180-degree rotation.
                 anchors.rightMargin: AppTheme.scrollbarWidth + AppTheme.spacing2
+                                     + root.actionBarReceiptReserve
                 z: 3
                 // Created on first need, then latched alive for the
                 // delegate's lifetime; visibility gates afterwards. The
