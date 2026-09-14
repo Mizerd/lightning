@@ -11,7 +11,10 @@
 #include "calls/WindowCaptureSrc.h"
 #include "calls/SfuVideoRouter.h"
 
+#include <chrono>
+#include <future>
 #include <mutex>
+#include <thread>
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -1275,7 +1278,7 @@ namespace {
 // CaptureDeviceSelection.h). The monitor is the only authority that can bridge
 // them, and it is cheap enough to ask per publish -- which also means an
 // unplugged device is noticed rather than remembered.
-QList<lightning::calls::GstDeviceCandidate> monitorCandidates(const char *klass)
+QList<lightning::calls::GstDeviceCandidate> enumerateDevices(const char *klass)
 {
     QList<lightning::calls::GstDeviceCandidate> out;
     if (!lightning::gst::ensureInitialised())
@@ -1326,6 +1329,85 @@ QList<lightning::calls::GstDeviceCandidate> monitorCandidates(const char *klass)
     gst_device_monitor_stop(monitor);
     gst_object_unref(monitor);
     return out;
+}
+
+/// How long a device enumeration may hold the caller before it is abandoned.
+///
+/// Measured on this machine with a healthy PipeWire daemon: the FIRST
+/// `Audio/Source` enumeration costs 218 ms and later ones 8 ms;
+/// `Video/Source` costs 4 ms. 2.5 s is an order of magnitude of headroom for
+/// a cold or slow sound server, and far below what a person calls a freeze.
+constexpr int kDeviceEnumerationBudgetMs = 2500;
+
+/// `enumerateDevices`, but it can never hold the caller for ever.
+///
+/// GITHUB ISSUE #12: JOINING A CALL FROZE THE APPLICATION, 0.9.3 FINE, 0.9.4
+/// AND 0.9.5 NOT — a Linux Mint 21.3 flatpak, force quit every time.
+/// `gst_device_monitor_start()` is SYNCHRONOUS and each provider decides for
+/// itself when it has an answer: the PulseAudio provider connects to the
+/// sound server and then waits on its own mainloop until the initial device
+/// list arrives, with no timeout anywhere in that path. A sound server that
+/// never completes that exchange therefore blocks the calling thread for
+/// ever, and the caller here is the GUI thread inside `publishMicrophone()`
+/// — a hard freeze with nothing on screen to explain it. Lightning 0.9.3
+/// contains neither `monitorCandidates` nor `gst_device_monitor_start`; both
+/// arrived in 0.9.4 with the device-preference work, which is exactly the
+/// boundary the report names.
+///
+/// This is a HYPOTHESIS about that reporter's machine — nothing here
+/// reproduced their freeze — but the shape is not in doubt: an unbounded
+/// synchronous call on the GUI thread has no business in the join path
+/// whatever the provider does with it.
+///
+/// A blocked enumeration cannot be cancelled (GStreamer offers no such call),
+/// so the worker is abandoned rather than joined, and the klass is LATCHED:
+/// a provider that hung once is never asked again this session. That bounds
+/// the damage at one stuck thread per klass per process instead of one per
+/// publish. Losing the answer costs the user their device PREFERENCE and
+/// leaves them the platform default, which is exactly what this function
+/// already returns when a monitor will not start.
+QList<lightning::calls::GstDeviceCandidate> monitorCandidates(const char *klass)
+{
+    static QMutex latchMutex;
+    static QSet<QString> hung;
+    const QString key = QString::fromLatin1(klass);
+    {
+        QMutexLocker lock(&latchMutex);
+        if (hung.contains(key))
+            return {};
+    }
+
+    // Initialised HERE, on the caller's thread, so the worker only ever runs
+    // the enumeration itself. `ensureInitialised()` is idempotent and guarded
+    // by its own once-flag; doing it twice from two threads is safe, doing it
+    // for the first time inside a thread that may be abandoned is not.
+    if (!lightning::gst::ensureInitialised())
+        return {};
+
+    auto slot = std::make_shared<
+        std::promise<QList<lightning::calls::GstDeviceCandidate>>>();
+    auto answer = slot->get_future();
+    // Detached on purpose: see above. The promise is shared, so the worker
+    // fulfilling it after we have stopped listening is harmless.
+    std::thread([slot, klass] {
+        slot->set_value(enumerateDevices(klass));
+    }).detach();
+
+    if (answer.wait_for(std::chrono::milliseconds(kDeviceEnumerationBudgetMs))
+        == std::future_status::ready) {
+        return answer.get();
+    }
+
+    {
+        QMutexLocker lock(&latchMutex);
+        hung.insert(key);
+    }
+    qCWarning(lcSfuMedia)
+        << "device enumeration did not answer within"
+        << kDeviceEnumerationBudgetMs << "ms for" << klass
+        << "- continuing on the platform default device and not asking again "
+           "this session";
+    return {};
 }
 
 // The concrete elements that can carry a device choice, in the order they
@@ -2030,15 +2112,25 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     // for an element that cannot open the device would lose the microphone
     // entirely. The name is what lets the property be set after the parse
     // rather than interpolated into the description.
+    //
+    // AND IT IS NOT ASKED AT ALL WHEN THERE IS NOTHING TO RESOLVE.
+    // `chooseCaptureElement()` returns nothing for an empty device id, but
+    // C++ evaluates the arguments first — so every join enumerated the
+    // machine's audio devices even for the user who has never opened the
+    // picker, which is most of them. That enumeration is synchronous, it
+    // costs 218 ms here on a healthy desktop, and on an unhealthy one it is
+    // unbounded (see monitorCandidates, and GitHub issue #12). The camera
+    // path above has always been gated this way; this one was not.
+    const DeviceChoice mic = m_testSources ? DeviceChoice{} : microphoneChoice();
     const lightning::calls::ElementChoice micChoice =
-        m_testSources ? lightning::calls::ElementChoice{}
-                      : lightning::calls::chooseCaptureElement(
-                            lightning::calls::CaptureKind::Microphone,
-                            microphoneElementPreference(),
-                            availableElements(microphoneElementPreference()),
-                            microphoneChoice().id,
-                            microphoneChoice().description,
-                            monitorCandidates("Audio/Source"));
+        mic.id.isEmpty()
+            ? lightning::calls::ElementChoice{}
+            : lightning::calls::chooseCaptureElement(
+                  lightning::calls::CaptureKind::Microphone,
+                  microphoneElementPreference(),
+                  availableElements(microphoneElementPreference()),
+                  mic.id, mic.description,
+                  monitorCandidates("Audio/Source"));
     const QString source = m_testSources
         ? QStringLiteral(
               "audiotestsrc is-live=true wave=sine freq=440 volume=0.05 "
