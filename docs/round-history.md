@@ -1,5 +1,106 @@
 # Round history
 
+## 2026-09-16 (night) — the media-key rejoin defect, and a fix that measurement sent back
+
+### A call rejoined after a crash could never receive media, since v0.8.0
+
+Reported as "screenshare worked from me to Element, but I didn't get anything
+back". Every frame dropped for want of a key — audio and screen-share video —
+and it never recovered.
+
+`publish_membership` called `read_own_created_ts()` on EVERY publish, including
+a fresh JOIN. On a homeserver without MSC4140 an unclean exit leaves the
+membership until `expires`, so a rejoin inside that window found the ghost and
+wrote **the previous session's `created_ts`** into the new event.
+matrix-js-sdk's `RTCEncryptionManager` keys "who already holds my key" on
+`(userId, deviceId, membershipTs)` where `membershipTs` is
+`content.created_ts` — unchanged triple, so not a new joiner, so no key is
+sent. **And Lightning never asks:** MatrixRTC has no key-request verb and
+matrix-js-sdk only pushes, so the state is unrecoverable for the life of the
+call.
+
+LIVE before/after against Element Web, three cases: fresh join PASS, clean
+rejoin PASS, `kill -9` rejoin **FAIL before** (zero keys, 500 dropped frames)
+and **PASS after** (both media types, `dropped= 0`). Structural proof from room
+state: the post-kill event carried the killed session's `created_ts` where the
+pre-kill event had none.
+
+**GENERALISE: a value inherited "to preserve continuity" must be scoped to the
+thing whose continuity it represents.** `created_ts` represents THIS session's
+join; reading it off the room meant reading a dead session's.
+
+**The review found the fix surviving an account switch, which is the serious
+direction** — resetting `created_ts` reorders oldest-membership focus selection
+for everyone. `retract_membership` was the only clearer and four fallible
+lookups (client, room, user id, device id) sat ahead of it, all of which
+sign-out has already torn down; a session restore keeps the same device id, so
+the stale mark still matched. Now forgotten by room prefix before anything
+fallible runs, AND cleared wholesale in `shutdown_managed_tasks`, which every
+teardown path runs. **GENERALISE: a process-global that decides what goes on
+the wire must be cleared where the invariant ends, not where the tidy path
+happens to pass.**
+
+Two more from the same round, both measured rather than argued. The
+`delayed_reason= "network"` a call log printed was asserting a transport
+problem on a server that had published `msc4140: false`: the real answer is
+`400 M_UNKNOWN` / `M_MAX_DELAY_UNSUPPORTED`, which matched no branch of
+`classify_room_error` and fell into the catch-all. Now `delayed_unsupported`,
+corroborated by `/versions` only AFTER an arm has failed, never latching on a
+transient refusal and never on not knowing — and publishes dropped from two
+state events per refresh to one. And **`sfu joined others=` counts SELF**,
+which sent the first triage after a phantom third participant; relabelled.
+
+### The GStreamer wall was never ours
+
+56 `GstIntRange` CRITICALs before the first sync, again on every call join and
+share. `gst-device-monitor-1.0` — a stock tool with no Lightning code in the
+process — prints the same 28 pairs on the same machine. **That also refutes
+what `docs/open-items.md` recorded as the suspect**, so nobody should hunt it
+in `src/calls/` again. Collapsed, not suppressed: the first occurrence always
+prints with an explanation of whose problem it is. Verified live on the
+maintainer's own desktop — one line where there had been 56.
+
+### `--log-file` created no file, on every platform
+
+`Lightning --call-media-status --log-file out.txt` exited 0 and wrote nothing —
+the one command a tester is told to run. `preflightParse()` is a single
+left-to-right walk in which every terminating flag ends in `return r`, so a
+`--log-file` standing AFTER one was never read. The status commands also PRINT
+rather than log, so even in the right order the file held only its own header.
+And on Windows `freopen("CONOUT$")` ran unconditionally, destroying an
+inherited shell redirect. Confirmed fixed on real packaged Windows builds,
+before and after.
+
+### And the fix that measurement sent back
+
+A round traced the stale room-list report to a `Text | Notice | Emote` filter
+and built a sliding-lane recency harvest for it. Reviewed, mutation-tested,
+monotonic. Then the desktop sweep measured it:
+
+- **The old code did not reproduce the defect.** With the harvest disabled and
+  the pre-fix fallback restored, an `m.image` into a closed room still moved
+  that room to the top. The filter is real but feeds the OPEN room's timeline;
+  the room list's stamp comes from `room_payload`, a separate producer that
+  handles images fine.
+- **The reported symptom is still present WITH the fix.** A room seeded with 3
+  messages then 30 `m.call.member` events showed no time, no preview and
+  bottom-of-list position, across a restart, until opened.
+
+So it was held out of 0.9.6. **GENERALISE: a fix is not finished when it is
+correct and reviewed; it is finished when something shows the defect happening
+without it.** The real cause is a room whose newest event is churn having no
+ordering producer at all — and stamping from churn would make an idle call
+outrank a live conversation, which is a product decision rather than an
+implementation one.
+
+### Validation
+
+Rust **430 passed, 0 failed, 5 ignored, 435 total**; `build-rust` CTest
+**208/208**; non-Rust **204/204**; `WEBRTC=OFF` over every target rc=0. Six
+independent review passes across the night's three workstreams, every finding
+closed. Two tests of mine were decoration on the first attempt and were caught
+by mutation, not by reading.
+
 ## 2026-09-15 (night) — "waiting for keys" fixed, and a review that caught me claiming the opposite
 
 ### The fix
