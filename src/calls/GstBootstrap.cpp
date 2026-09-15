@@ -1,5 +1,6 @@
 #include "calls/GstBootstrap.h"
 
+#include <atomic>
 #include <mutex>
 
 #include <QCoreApplication>
@@ -99,6 +100,76 @@ void applyBundledPluginPath()
     g_bundledPath = bundled;
 }
 
+/// COLLAPSE A KNOWN-HARMLESS UPSTREAM ASSERTION, AND COLLAPSE IS NOT SUPPRESS.
+///
+/// GStreamer's own device providers probe every ALSA PCM on the machine at
+/// startup, and a device that reports a degenerate rate range makes them build
+/// a `GstIntRange` with `start >= end`. GLib then prints a CRITICAL pair per
+/// probe. On the maintainer's desktop — three cards, ten PCM devices — that is
+/// 56 lines before the first sync, repeated on every call join and every share.
+///
+/// IT IS NOT OURS, and that was established by measurement rather than
+/// argument: `gst-device-monitor-1.0`, a stock tool with no Lightning code in
+/// the process, prints exactly the same 28 pairs on the same machine. Nothing
+/// fails — the devices enumerate correctly immediately afterwards.
+///
+/// The harm is to the LOG. A user reporting a problem sends a file in which 56
+/// lines shout CRITICAL, and both they and whoever reads it reasonably
+/// conclude something is broken; this defect sat on the open list for exactly
+/// that reason.
+///
+/// So the FIRST occurrence is printed in full, every time, and only the
+/// repeats are counted — because §16 records this project creating its own bad
+/// caps ranges more than once (a `pixel-aspect-ratio` fixated to
+/// 1/2147483647), and a filter that made the first one invisible would be the
+/// "graceful fallback and silent absence are indistinguishable" shape that has
+/// already cost four packaging defects. A count is also printed as it grows,
+/// so the volume stays visible without being the log.
+///
+/// Anything that is not this exact message is forwarded untouched.
+void installDeviceProbeNoiseCollapse()
+{
+    static std::once_flag once;
+    std::call_once(once, [] {
+        g_log_set_handler(
+            "GStreamer",
+            GLogLevelFlags(G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_WARNING
+                           | G_LOG_FLAG_FATAL | G_LOG_FLAG_RECURSION),
+            [](const gchar *domain, GLogLevelFlags level, const gchar *message,
+               gpointer user) {
+                static std::atomic<quint64> seen{0};
+                const bool isProbeNoise =
+                    message
+                    && (g_strrstr(message, "GstIntRange") != nullptr
+                        || g_strrstr(message, "gst_value_collect_int_range")
+                            != nullptr);
+                if (isProbeNoise) {
+                    const quint64 n = ++seen;
+                    // The first one always reaches the log. After that, only
+                    // milestones, so the count never becomes the log itself.
+                    if (n == 1) {
+                        qCWarning(lcGstBoot).nospace()
+                            << "gstreamer device probe: " << message
+                            << " — this is GStreamer's own device provider "
+                               "reading a degenerate rate range from an audio "
+                               "device, not Lightning, and nothing fails. "
+                               "Repeats are collapsed from here.";
+                        return;
+                    }
+                    if (n == 100 || n == 1000 || n % 10000 == 0) {
+                        qCWarning(lcGstBoot)
+                            << "gstreamer device probe: the same harmless "
+                               "range assertion has now fired"
+                            << n << "times";
+                    }
+                    return;
+                }
+                g_log_default_handler(domain, level, message, user);
+            },
+            nullptr);
+    });
+}
+
 } // namespace
 
 bool ensureInitialised(QString *whyNot)
@@ -122,6 +193,7 @@ bool ensureInitialised(QString *whyNot)
         // arrangement `appImageBundledPluginPath` already uses.
         applyBundledScannerPath(QCoreApplication::applicationDirPath());
 #endif
+        installDeviceProbeNoiseCollapse();
         GError *error = nullptr;
         ok = gst_init_check(nullptr, nullptr, &error) == TRUE;
         if (error) {

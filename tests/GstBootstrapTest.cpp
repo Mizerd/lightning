@@ -11,6 +11,8 @@
 
 #include <QtTest/QtTest>
 
+#include <gst/gst.h>
+
 class GstBootstrapTest : public QObject
 {
     Q_OBJECT
@@ -282,6 +284,74 @@ private slots:
                      name);
             QCOMPARE(qgetenv(name), chosen);
         }
+    }
+
+    /// GSTREAMER'S OWN DEVICE PROBING MUST NOT BE THE LOG.
+    ///
+    /// Its device providers probe every ALSA PCM at startup and a device with
+    /// a degenerate rate range makes them build a `GstIntRange` with
+    /// `start >= end`; GLib prints a CRITICAL pair per probe. On the
+    /// maintainer's desktop that is 56 lines before the first sync, again on
+    /// every call join and every share. It is NOT ours -- `gst-device-monitor-
+    /// 1.0`, a stock tool with no Lightning code in it, prints the same pairs
+    /// on the same machine -- and nothing fails. The harm is that a user's
+    /// support log shouts CRITICAL 56 times and everyone reasonably concludes
+    /// something is broken.
+    ///
+    /// COLLAPSE, NOT SUPPRESS, and this test pins both halves: the first one
+    /// always reaches the log (because §16 records this project creating its
+    /// OWN bad caps ranges, and a filter that hid the first would be the
+    /// silent-absence trap), and an unrelated GStreamer message is never
+    /// touched.
+    void deviceProbeNoiseIsCollapsedButNeverHidden()
+    {
+        QString whyNot;
+        if (!lightning::gst::ensureInitialised(&whyNot))
+            QSKIP("GStreamer is unavailable in this environment");
+
+        static QStringList captured;
+        captured.clear();
+        QtMessageHandler previous = qInstallMessageHandler(
+            [](QtMsgType, const QMessageLogContext &, const QString &m) {
+                captured.append(m);
+            });
+
+        const auto probeNoise = [] {
+            g_log("GStreamer", G_LOG_LEVEL_CRITICAL, "%s",
+                  "range start is not smaller than end for `GstIntRange'");
+        };
+
+        // The FIRST one must be reported, in full.
+        probeNoise();
+        const int afterFirst = captured.size();
+        qInstallMessageHandler(previous);
+        QCOMPARE(afterFirst, 1);
+        QVERIFY2(captured.at(0).contains(QLatin1String("GstIntRange")),
+                 qPrintable(captured.at(0)));
+        QVERIFY2(captured.at(0).contains(QLatin1String("not Lightning")),
+                 "the first report must say whose problem this is, or the "
+                 "next reader spends a round hunting it in src/calls/");
+
+        // The next fifty must NOT each produce a line -- that is the wall
+        // this exists to remove.
+        captured.clear();
+        qInstallMessageHandler(
+            [](QtMsgType, const QMessageLogContext &, const QString &m) {
+                captured.append(m);
+            });
+        for (int i = 0; i < 50; ++i)
+            probeNoise();
+        const int afterFifty = captured.size();
+
+        // ...and something that is NOT this message must pass straight
+        // through, so a real GStreamer fault is never swallowed.
+        g_log("GStreamer", G_LOG_LEVEL_WARNING, "%s",
+              "a completely unrelated gstreamer complaint");
+        const int afterUnrelated = captured.size();
+        qInstallMessageHandler(previous);
+
+        QCOMPARE(afterFifty, 0);
+        QCOMPARE(afterUnrelated, 0);   // forwarded to GLib, not to Qt
     }
 
 private:
