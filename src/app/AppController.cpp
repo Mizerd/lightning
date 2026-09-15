@@ -2866,7 +2866,31 @@ void AppController::enableCallMediaEngine()
             engine->setAudioDevices(m_callDevices->microphoneElement(),
                                     m_callDevices->speakerElement());
         };
-        applyDevices();
+        // ONLY WHEN THERE IS A PREFERENCE TO APPLY, and that condition is the
+        // whole point of the call below.
+        //
+        // `CallDeviceController`'s constructor is deliberately empty because
+        // touching QMediaDevices — even to read a list — initialises the Qt
+        // Multimedia backend, which on a PipeWire desktop costs real startup
+        // time and prints a SPA parse error for every device on the system
+        // (its own comment says so, and §16 records the first QVideoSink in a
+        // process costing ~931 ms). Calling `applyDevices()` unconditionally
+        // here defeated that entirely: `microphoneElement()` opens with
+        // `ensureBackend()`, so every launch paid the init and every launch
+        // printed the noise — reported 2026-09-15 as a wall of
+        // `spaVisitChoice: parse error` before the first sync.
+        //
+        // The settings read is plain QSettings and touches no media stack. A
+        // user with no stored preference needs no call at all: the engine's
+        // empty strings already mean "the platform default", which is what
+        // they would have got. A user who HAS picked a device pays the init,
+        // which is the one case where it buys something.
+        const bool hasDevicePreference =
+            m_settings
+            && (!m_settings->preferredMicrophoneId().isEmpty()
+                || !m_settings->preferredSpeakerId().isEmpty());
+        if (hasDevicePreference)
+            applyDevices();
         connect(m_callDevices.get(),
                 &CallDeviceController::activeDevicesChanged, engine,
                 applyDevices);
