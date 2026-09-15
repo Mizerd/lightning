@@ -87,6 +87,7 @@ private Q_SLOTS:
     void initTestCase();
     void init();
     void aParticipantVolumeReachesTheDiskImmediately();
+    void aWindowsDeviceIdSurvivesBeingStored();
     void clearsOnlySelectedAccount();
     void clearsMetadataWhenTokenIsAlreadyMissing();
     void normalizedIdentityClearsLegacyKey();
@@ -226,6 +227,53 @@ void SettingsSessionTest::aParticipantVolumeReachesTheDiskImmediately()
              qPrintable(QStringLiteral("volume not on disk; file said:\n%1")
                             .arg(onDisk)));
     QVERIFY(onDisk.contains(QStringLiteral("callVolumes")));
+}
+
+// A WINDOWS CAMERA PREFERENCE COULD NEVER BE STORED, AND THE PICKER SAID IT
+// HAD BEEN.
+//
+// QMediaDevices ids are device paths on Windows, so they open with two
+// backslashes -- and the storage sanitizer refused any id containing one,
+// returning the empty string. Empty means "system default", so choosing a
+// camera appeared to work, survived until the page was left, and read back as
+// System default on the next visit. Measured on the Windows guest on
+// 2026-09-15: the device was listed, selectable, and never remembered.
+//
+// The rule it came from was about a GStreamer pipeline description, where a
+// backslash really would be unsafe -- but nothing interpolates these ids on
+// Windows (the 1:1 helper returns early there, and the SFU engine sets the
+// property on the parsed element). It could only ever have fired on the
+// platform it was not written for.
+//
+// FAIL-ON-OLD: restore the `contains('\\')` refusal in sanitizedDeviceId and
+// this reads empty.
+void SettingsSessionTest::aWindowsDeviceIdSurvivesBeingStored()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+
+    // The real shape, from the guest's own device: a symbolic link name.
+    const QString windowsId = QStringLiteral(
+        "\\\\?\\usb#vid_322e&pid_233a&mi_00#7&1f2e3d4c&0&0000#"
+        "{65e8773d-8f56-11d0-a3b9-00a0c9223196}\\global");
+    settings.setPreferredCameraId(windowsId);
+    QCOMPARE(settings.preferredCameraId(), windowsId);
+
+    settings.setPreferredMicrophoneId(windowsId);
+    QCOMPARE(settings.preferredMicrophoneId(), windowsId);
+
+    // A Linux id is unaffected -- this widened the rule, it did not replace it.
+    settings.setPreferredCameraId(QStringLiteral("/dev/video0"));
+    QCOMPARE(settings.preferredCameraId(), QStringLiteral("/dev/video0"));
+
+    // What the sanitizer is actually for still holds: a control character and
+    // an over-long value are still refused, because this value is written to a
+    // config file a human can edit.
+    settings.setPreferredCameraId(QStringLiteral("bad\u0007id"));
+    QVERIFY(settings.preferredCameraId().isEmpty());
+    settings.setPreferredCameraId(QString(257, QLatin1Char('x')));
+    QVERIFY(settings.preferredCameraId().isEmpty());
 }
 
 void SettingsSessionTest::clearsOnlySelectedAccount()

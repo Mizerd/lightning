@@ -114,6 +114,58 @@ field dropped again the bridge test reads an empty string, and with the
 controller's record removed the controller test fails — both confirmed by
 mutation, each caught by a different suite.
 
+### The Windows guest: a preference that could never be stored
+
+Choosing the webcam in Settings showed it selected and read back "System
+default" on the next visit, on both builds. `sanitizedDeviceId()` in
+`SettingsManager.cpp` refused any id containing a backslash — and a Windows
+`QMediaDevices` id is a device path that BEGINS with two
+(`\\?\usb#vid_322e&pid_233a&mi_00#…`). Every Windows camera and microphone
+preference therefore stored as the empty string, and the empty string means
+"system default". **The rule came from a GStreamer pipeline concern and its
+own comment named PipeWire**, so it could only ever fire on the platform it
+was not written for, and it fired on every id there.
+
+Nothing interpolates these ids on Windows, which is what makes widening the
+rule safe rather than a trade: `platformDeviceElement()` — the one site that
+builds a `device="…"` description — returns early under
+`Q_OS_WIN || Q_OS_MACOS` and carries its own refusal for `"`, `\` and `!` at
+the point of use; the SFU engine never interpolates at all, parsing
+`<element> name=micsrc` and setting the property on the parsed element
+afterwards. The storage rule keeps its length bound and control-character
+refusal, because the config file is hand-editable. FAIL-ON-OLD, run: with the
+backslash refusal restored the stored id reads `""`.
+
+**GENERALISE: a sanitiser that encodes a rule from the point of USE, applied
+at the point of STORAGE, is a rule applied where it cannot know whether it is
+needed** — and it will be wrong on the platform its author was not using. The
+guard that matters was already in the right place; this one was a copy of it
+that outlived its reason.
+
+### What else the two guests established
+
+Full detail in `docs/open-items.md`. The results worth naming here:
+
+- **The Windows camera frame-rate numbers are unreadable, for a physical
+  reason.** Measured 29.79 fps on one build and an exactly steady 10.00 fps on
+  three later runs — and Windows Settings then reported the camera *"blocked
+  or turned off by a switch"*. **The laptop's privacy shutter is closed**, and
+  a rock-steady 10.00 fps is what a UVC sensor does in the dark. Neither
+  number says anything about the 10 fps ceiling. The camera work itself is
+  re-confirmed on the RELEASED 0.9.5: `camera chain= mjpg`, `image/jpeg
+  1920x1080 30/1`.
+- **The tray balloon's read-withdrawal is confirmed broken on Windows**, no
+  longer merely predicted from the code: the toast survived the read receipt,
+  a restart and a full in-app update. Display and click routing PASS again.
+- **The Windows PORTABLE update path is LIVE-VALIDATED PASS**, 0.9.4 to the
+  real 0.9.5, session and read state intact. MSI and installer remain NOT
+  TESTED.
+- **`--version` and `--call-media-status` print nothing on the packaged
+  Windows build**, and `--log-file` writes no file there — so the
+  shipped-artifact self-checks §16 and §10 rely on cannot be read from a
+  Windows package today. Not fixed; a GUI-subsystem binary with no attached
+  console explains the stdout half and not the missing file.
+
 ### Validation
 
 Rust **423 passed, 0 failed, 5 ignored, 428 total**. `build-rust` CTest

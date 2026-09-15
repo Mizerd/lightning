@@ -1529,9 +1529,34 @@ void SettingsManager::setRingForCalls(bool enabled)
 // hardware belongs to the machine, not the account.
 //
 // The id is bounded and control-character-checked before storage even though
-// it comes from QMediaDevices rather than the network: it is written into a
-// GStreamer pipeline description, and a stored value could also be edited by
-// hand in the config file.
+// it comes from QMediaDevices rather than the network: a stored value can be
+// edited by hand in the config file.
+//
+// IT USED TO REFUSE A BACKSLASH TOO, AND THAT VOIDED EVERY WINDOWS CAMERA AND
+// MICROPHONE PREFERENCE (found on the Windows guest, 2026-09-15). A Windows
+// QMediaDevices id is a device path -- `\\?\usb#vid_322e&pid_233a&mi_00#...`
+// -- so it BEGINS with two backslashes, every time. The rule returned an empty
+// string for all of them, the empty string means "system default", and the
+// picker therefore showed the device as chosen and read back System default on
+// the next visit. It could never have bitten on Linux, where an id is
+// `/dev/video0` or a PipeWire node name; the comment that justified it said so
+// outright, naming PipeWire, and was applied on every platform.
+//
+// The pipeline concern behind it was real but belongs -- and already lives --
+// at the POINT OF USE, which is the only place that can know whether a value
+// is about to be interpolated into text:
+//
+//   * the SFU engine never interpolates. It parses `<element> name=micsrc` and
+//     sets the device property on the parsed element afterwards, which is the
+//     shape with no quoting question at all (CaptureDeviceSelection.h).
+//   * the 1:1 path's `platformDeviceElement()` does build a description, and
+//     it carries its own refusal for `"`, `\` and `!` -- and returns early on
+//     Windows and macOS regardless, so it never sees these ids anyway.
+//
+// So this function is about STORAGE being well-formed, nothing more. Widening
+// it cannot reach a parser: no consumer of these three accessors interpolates
+// one (CallDeviceController resolves them, AppController only asks whether
+// they are empty).
 namespace {
 QString sanitizedDeviceId(const QString &id)
 {
@@ -1541,11 +1566,6 @@ QString sanitizedDeviceId(const QString &id)
         if (c.isNull() || c.category() == QChar::Other_Control)
             return QString();
     }
-    // A quote or backslash would break out of the pipeline description this
-    // ends up in; no legitimate PipeWire node name contains one.
-    if (id.contains(QLatin1Char('"')) || id.contains(QLatin1Char('\\'))
-        || id.contains(QLatin1Char('!')))
-        return QString();
     return id;
 }
 } // namespace

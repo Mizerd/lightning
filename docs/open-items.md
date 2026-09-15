@@ -152,6 +152,85 @@ an import line the key never arrived; if it appears while the row still reads
 "Waiting for keys…" the key arrived and the row never updated. Nobody has ever
 told those two apart.
 
+**THE 2026-09-15 WINDOWS GUEST ROUND — two guests driven at once, and four
+results worth keeping.** Clock checked first, as this file requires: `tzutil
+/g` = UTC and the guest was 18 s from the laptop's `date -u`, so the 7-hour
+skew that invalidated the 2026-09-12 call-state readings is gone and stayed
+gone.
+
+- **THE WINDOWS CAMERA FRAME-RATE NUMBERS CANNOT BE READ, AND THE REASON IS
+  PHYSICAL.** The camera work is closed and re-confirmed below on the RELEASED
+  0.9.5 (`camera chain= mjpg`, `image/jpeg 1920x1080 30/1`,
+  `firstCaptureMs= 623`). But the delivered-frame rate measured 29.79 fps on
+  one build and an exactly steady 10.00 fps on three later runs — and Windows
+  Settings then said outright: *"Your camera is reporting that it is blocked or
+  turned off by a switch or button on your device."* **The laptop's privacy
+  shutter is closed**, and a rock-steady 10.00 fps is what a UVC sensor's
+  auto-exposure does in the dark. So neither number means anything about the
+  10 fps ceiling, and the 29.79 reading must NOT be quoted as "the camera does
+  30 now" either. The probe sits on the `capsrc` src pad, upstream of
+  everything but the capsfilter, and the capsfilter read `30/1` in both runs —
+  so the variable is the device's own output, not the build. **Opening the
+  shutter is what makes this answerable on this rig.**
+- **THE TRAY BALLOON'S READ-WITHDRAWAL IS CONFIRMED BROKEN ON WINDOWS, no
+  longer merely predicted.** Display and click routing PASS again (toast with
+  the room avatar; a click raised the app from minimised and opened the room).
+  But after `read receipt sent event_id= …` with the unread badge and the
+  title's "(1 unread)" both cleared, the toast was **still on screen 23
+  minutes later**, having survived the read, an application restart AND a full
+  in-app update. Exactly what the code comment predicts — Qt cannot withdraw a
+  balloon; it needs WinRT `ToastNotificationHistory.Remove`. Notification
+  SOUND remains NOT TESTED: the guest has no audio hardware at all.
+  Observation, not a verdict: the FIRST toast after launch rendered the sender
+  as the raw MXID and later ones rendered the display name, so profile
+  hydration lags the first notification.
+- **"volume 0 does not mute" is STRUCTURALLY untestable on this guest** —
+  `Get-PnpDevice -Class AudioEndpoint` returns nothing, Lightning agrees ("No
+  microphone was found"), and `participant volume applied: … elements=` only
+  fires for a REMOTE participant, of which a single guest has none. NOT
+  TESTED, and the microphone-gain line was deliberately not substituted for
+  it; that is a different claim.
+- **THE WINDOWS PORTABLE UPDATE PATH IS NOW LIVE-VALIDATED PASS**, 0.9.4 ->
+  the real 0.9.5, end to end: the manifest fetch, download and verification
+  all work on Windows ("Update 0.9.5 downloaded and verified"), the folder
+  swap and relaunch are clean, and afterwards the exe reads FileVersion 0.9.5
+  / `Built from Lightning source 8d5d0ca`, still signed in, rooms and read
+  state intact, 28 GStreamer plugins present, with the old install kept as
+  `Lightning.lightning-previous`. This closes part of the standing "every
+  Windows update path is untested" item. **MSI and installer paths remain NOT
+  TESTED** — this is the portable path alone.
+- **NEW DEFECT, ROOT-CAUSED AND FIXED THE SAME DAY: a Windows camera or
+  microphone preference could never be stored.** Choosing the webcam showed it
+  selected and read back "System default" on the next visit.
+  `sanitizedDeviceId()` in `SettingsManager.cpp` refused any id containing a
+  backslash, and a Windows QMediaDevices id is a device path that BEGINS with
+  two (`\\?\usb#vid_…`) — so every one of them stored as the empty string,
+  which means "system default". The rule came from a GStreamer pipeline
+  concern and its own comment named PipeWire, so it could only ever fire on
+  the platform it was not written for. Nothing interpolates these ids on
+  Windows: the 1:1 helper returns early there and the SFU engine sets the
+  property on the PARSED element. Fixed; the storage rule keeps its length
+  bound and control-character refusal. See `docs/round-history.md`.
+- **NEW DEFECT, NOT FIXED: `--version` and `--call-media-status` produce NO
+  OUTPUT on the packaged Windows build.** Measured three ways (cmd redirect,
+  `Start-Process -RedirectStandardOutput`, and a timed redirect showing the
+  process ran 1.2 s, exited 0 and wrote 0 bytes). `--call-media-status
+  --log-file \\host.lan\Data\cms.log` exited 0 and created **no file at
+  all**, which is the more serious half — `--log-file` is documented as
+  working on every platform. Consequence: the shipped-artifact self-checks
+  that §16 and §10 lean on cannot be read from a Windows package today, and
+  build identity had to be taken from the exe's version resource instead.
+  A GUI-subsystem binary having no attached console is the obvious lead for
+  the stdout half; it does NOT explain the missing log file.
+- **OBSERVED, NOT DIAGNOSED: the local self-view tile shows the no-video
+  placeholder while the camera is publishing.** With `capture delivered frames
+  count= 1000` and `frames in the clear out … video= true count= 1000`, the
+  "You" tile drew Lightning's own crossed-camera glyph — not black video,
+  which matters because the sensor really is shuttered. The self-view branch
+  is `SfuMediaEngine.cpp` (`appsink name=selfvidsink` -> `onVideoSample` with
+  `localCameraStreamId()`); that stream-id match is where to look, and there
+  is no self-view diagnostic in the log at all.
+
 **THE 2026-09-15 LAYOUT AUDIT: four defects fixed, and what it did NOT cover.**
 Modern, Compact and Bubbles were each driven against a real room on two
 throwaway accounts, with mixed own/other messages, wrapping bodies, group
