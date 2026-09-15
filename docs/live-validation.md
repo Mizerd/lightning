@@ -14,6 +14,68 @@ anything to tested, and read `open-items.md` beside it for what has NOT been.
 
 ### Live validation: what Rokas has actually confirmed
 
+**2026-09-16 — THE MATRIXRTC MEDIA-KEY REJOIN DEFECT: FAIL BEFORE, PASS AFTER,
+against Element Web in a real encrypted room.** This is the only evidence that
+can fail on the old code for that change, and it is therefore load-bearing
+rather than bookkeeping.
+
+The maintainer reported his screen share reaching Element while nothing came
+back. Three cases were run with Element (`@lightningtest`) staying in the call
+throughout and Lightning (`@lightningtest2`) restarted around it:
+
+| case | before the fix | after |
+|---|---|---|
+| fresh join, Element already in call | PASS — `media key received index= 1` | PASS |
+| clean hang-up then rejoin | PASS — `membership retracted attempts= 1`, key index 3 | PASS |
+| **`kill -9` then rejoin** | **FAIL — no `media key received` line at all, `frames dropped: no key … count= 500`, never recovered** | **PASS — `index= 4`/`7`, `frames … DECRYPT correctly`, `dropped= 0`, and the Element→Lightning screen-share VIDEO decrypts too** |
+
+Case 3 is the maintainer's own run, line for line.
+
+**Structural proof from room state, not just from logs:** the case-3 rejoin
+wrote an event carrying `created_ts: 1789505720103` — the KILLED session's join
+time — where the pre-kill event had no `created_ts` in its content at all. Same
+`createdTs()` before and after, so matrix-js-sdk's `RTCEncryptionManager` saw
+no new joiner and sent no key.
+
+**Refresh behaviour verified preserved on the wire:** the join writes no
+`created_ts`, the 60 s refresh writes one inherited from that join with the
+deadline walking forward — so `expires_for_refresh` and oldest-membership focus
+selection are untouched.
+
+**Also measured, not inferred:** the homeserver answers a delayed-event arm
+with `400 M_UNKNOWN` / `org.matrix.msc4140.errcode: M_MAX_DELAY_UNSUPPORTED`
+and does not apply the body. That text matched no branch of
+`classify_room_error` and fell into the `network` catch-all, which is why a log
+line asserted a transport problem on a server that had published
+`msc4140: false`. Now `delayed_unsupported`, and publishes dropped from two
+state events per refresh to one.
+
+**NOT covered:** a peer other than Element; more than two participants; and
+receiver-side recovery, which is deliberately not implemented.
+
+**2026-09-16 — DESKTOP GUI SWEEP, on an isolated profile: no regressions.**
+Run on the maintainer's own desktop while he slept, with `XDG_DATA_HOME`
+redirected to a scratch directory — isolation proven from the store-path log
+line before login, and his real profile's mtimes unchanged afterwards.
+
+PASS: reply quotes resolving; forwarding offering every room OUTSIDE the Space
+while the conversation list was correctly narrowed to it; the message toolbar
+reachable on a one-line row with a read receipt (overflow actually CLICKED and
+the menu opened); offline restore going Boot → **Main** with the cached list
+and "Offline — retrying"; and the call-events room of Priority 2 below.
+
+**The call-events room, which is the one the maintainer asked for by name:**
+3 real messages plus 35 `m.call.member` events. On open the failure shape DID
+occur — `items= 0` and a first page whose 21 events were all discarded as churn
+— **and was handled correctly**: the fill kept walking instead of asserting
+emptiness. Subscription to settled **754 ms**, all three messages rendered, the
+churn collapsed into "9 room updates", and no "No messages here yet."
+
+PARTIAL: local search — the server-side path returned results with no false
+empty-index claim, but the LOCAL encrypted index was NOT TESTED, because the
+only encrypted room on that fresh device was entirely "Waiting for keys…" and
+so had nothing to index.
+
 **2026-09-15 (night) — THE AUTOMATIC KEY-RECOVERY PATH, END TO END: PASS.**
 On the COMMITTED code (`e72d97d`, which contains `8f472c2`), nothing patched.
 Two screenshots of the same two rows: **"Waiting for keys…"** before, and

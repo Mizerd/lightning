@@ -288,6 +288,45 @@ cross-signed, **sending fails outright** — the message sat as "failed · Retry
 Cancel" and no to-device request was created at all. Worth knowing before that
 setting is ever promoted.
 
+**THE STALE ROOM-LIST REPORT IS A CALL-CHURN DEFECT, AND THE 2026-09-16
+RECENCY BACKSTOP DOES NOT FIX IT. NOT FIXED.** A user reported that the room
+list shows a stale last-message time and position, and that OPENING the room
+corrects both. A round traced it to Lightning's live event handler matching
+`Text | Notice | Emote` with `_ => return`, built a sliding-lane recency
+harvest, and it was reviewed and tested. **Then the desktop sweep measured it,
+and two things came out that stop it shipping:**
+
+- **The old code did not reproduce the defect.** With the harvest disabled AND
+  the pre-fix fallback restored, an `m.image` into a closed room still moved
+  that room to the top with a fresh time. The `_ => return` handler is real,
+  but it feeds the OPEN room's timeline; the room list's `last_activity_ms`
+  comes from `room_payload`, a **separate producer that handles images fine**.
+  So in a healthy sync session the plain closed-room media case was never
+  broken, and the fix changes nothing observable there.
+- **The reported symptom is still present WITH the fix.** A room seeded with 3
+  real messages and then 30 `m.call.member` events showed **no time, no
+  preview and bottom-of-list position** — below a room two hours older — and
+  stayed that way for 3.5 minutes and across a full restart, until it was
+  opened. That is the report, verbatim.
+
+**The likely mechanism, stated as the hypothesis it is:** sliding sync runs
+`DEFAULT_LIST_TIMELINE_LIMIT = 1`, so the response carries only the room's
+NEWEST event. In a call room that is churn, the allow-list correctly declines
+it, and no producer is left. Not measured — measuring it is the next step.
+
+**Why this is genuinely hard rather than a missing line:** the room whose churn
+was declined ordered by its last real MESSAGE once opened (01:09, not the
+01:12 churn), and that is the behaviour we want. Stamping from churn would fix
+the blank row by making a room with an idle call outrank a room somebody just
+spoke in. **Which of the two a user wants is a product decision, not an
+implementation detail**, and it is the maintainer's to make.
+
+**The backstop itself is sound and is NOT lost** — reviewed, mutation-tested,
+monotonic, and it cannot make ordering worse. It is simply held out of 0.9.6
+because a change with no demonstrated benefit does not belong in a release,
+and because shipping it would let a release note claim a fix that measurement
+says is not one.
+
 **THE 2026-09-15 WINDOWS GUEST ROUND — two guests driven at once, and four
 results worth keeping.** Clock checked first, as this file requires: `tzutil
 /g` = UTC and the guest was 18 s from the laptop's `date -u`, so the 7-hour

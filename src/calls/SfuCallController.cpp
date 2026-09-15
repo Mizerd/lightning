@@ -1937,7 +1937,15 @@ void SfuCallController::onSfuJoined(const QString &identity,
                                      const QVariantList &participants,
                                      const QVariantList &iceServers)
 {
-    qCInfo(lcSfuCall) << "sfu joined others=" << participants.size()
+    // `inCall`, NOT `others`. The bridge puts OUR OWN row first and everyone
+    // else after it (rust/src/sfu.rs builds the list that way on purpose, so
+    // the stage can draw the local tile from the join alone), so this count
+    // has always included this device. `sfuPeers` below subtracts the one,
+    // and was right; only the label was wrong — and it cost a real triage:
+    // a 2026-09-15 report of a call with no incoming media was read as "a
+    // third party is in the room" because `others= 2` appeared in a
+    // two-participant call. It meant us plus one peer.
+    qCInfo(lcSfuCall) << "sfu joined inCall=" << participants.size()
                       << "iceServers=" << iceServers.size()
                       << "identity=" << (identity.isEmpty()
                                          ? QStringLiteral("<empty>")

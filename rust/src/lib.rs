@@ -536,6 +536,21 @@ impl RustClient {
         // task — an open SQLite handle inside the store directory is a file
         // sign-out is about to delete, and on Windows a deletion with a handle
         // open FAILS rather than being tidied up later.
+        //
+        // The RTC membership bookkeeping goes first and unconditionally.
+        // `OWN_MEMBERSHIP_PUBLISHED` answers one question — "did THIS session
+        // publish this membership, so may its `created_ts` be inherited on a
+        // refresh?" — and a session ending is exactly when the answer stops
+        // being yes. Leaving it to the leave path alone was not enough: that
+        // path needs a live client, a joined room and a session's user and
+        // device ids, all of which are gone by the time sign-out reaches it,
+        // so a mark could survive an account switch. A stale mark makes the
+        // next join inherit a GHOST's created_ts, which every peer reads as
+        // "not a new joiner" and answers with no media key — a call that can
+        // never decrypt. Every teardown path runs this function, which is
+        // what makes the invariant hold by construction rather than by each
+        // leave path being correct.
+        crate::rtc::forget_all_memberships_published();
         self.index_shutdown.store(true, Ordering::Relaxed);
         if let Ok(mut guard) = self.search_index.lock() {
             *guard = None;

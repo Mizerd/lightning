@@ -1735,6 +1735,110 @@ fn delayed_refusal_recorded_for_client(client: &Client) -> bool {
     delayed_refusal_recorded(&delayed_refusal_key(client))
 }
 
+/// Which (room, state key) memberships THIS PROCESS has successfully
+/// published during its lifetime.
+///
+/// IT DECIDES WHETHER A PUBLISH IS A JOIN OR A REFRESH, and nothing else
+/// could: `publish_membership` serves both and the FFI carries no flag, so
+/// before this existed every publish read our own state event back and
+/// inherited its `created_ts` — including the very first publish of a fresh
+/// process.
+///
+/// THAT WAS A LIVE, REPRODUCED DEFECT AND IT COST A CALL ITS INCOMING MEDIA.
+/// On a homeserver without MSC4140 an unclean exit (a `^C`, a crash, a lost
+/// network) leaves our membership behind until `expires` runs out. A rejoin
+/// inside that window found the ghost, inherited ITS `created_ts`, and wrote
+/// it explicitly into the new event — so to every other client the
+/// membership's `createdTs()` had not moved. matrix-js-sdk's
+/// `RTCEncryptionManager.rolloutOutboundKey` keys "who already holds my key"
+/// on the triple `(userId, deviceId, membershipTs)` with
+/// `membershipTs: membership.createdTs()`, so an unchanged timestamp means
+/// the rejoining device is NOT a new joiner and **no media key is sent to
+/// it**. MatrixRTC has no key request, so nothing recovers: every frame from
+/// every peer is dropped for want of a key, for the rest of the call.
+///
+/// Measured on 2026-09-15 against Element (app.element.io, Element Call) on a
+/// server advertising `org.matrix.msc4140: false`: a clean hang-up and rejoin
+/// got a rotated key and decrypted; a `kill -9` and rejoin inside the window
+/// got no key at all and dropped 500 frames and counting. The rejoin's state
+/// event carried `created_ts` explicitly set to the killed session's join
+/// time, where the pre-kill event had no `created_ts` in its content.
+///
+/// A REFRESH must still inherit it — that is why the whole mechanism exists:
+/// `created_ts` orders `oldest_membership` focus selection, so moving it
+/// mid-call reshuffles everyone's chosen SFU, and `expires_for_refresh`
+/// measures the deadline from it. A JOIN must not: a new session IS a new
+/// participant, and element-call's own `makeMyMembership` omits `created_ts`
+/// entirely when it has no `ownMembership` of its own to carry forward.
+///
+/// Keyed on (room, state key) rather than room alone, so it is inherently
+/// account-scoped: the state key contains the user and device id.
+static OWN_MEMBERSHIP_PUBLISHED: Mutex<BTreeSet<String>> =
+    Mutex::new(BTreeSet::new());
+
+/// The key both halves use. U+241F is not legal in a room id or a state key,
+/// so the two fields cannot collide.
+fn membership_publish_key(room_id: &str, state_key: &str) -> String {
+    format!("{room_id}\u{1f}{state_key}")
+}
+
+fn mark_membership_published(key: &str) {
+    if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
+        seen.insert(key.to_owned());
+    }
+}
+
+/// Forget it, so the NEXT publish is a join again.
+///
+/// Called when we retract — an in-process leave and rejoin is two sessions of
+/// the call and the second one must mint its own `created_ts`, exactly like a
+/// restart. Called unconditionally on the intent to leave, not on the
+/// retraction succeeding: a retraction that failed leaves the same ghost a
+/// crash does, and the rejoin after it needs the same treatment.
+fn forget_membership_published(key: &str) {
+    if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
+        seen.remove(key);
+    }
+}
+
+/// Has this process already published this membership? Pure over the set so
+/// the join/refresh rule is testable without a homeserver.
+/// Forget every membership this process published in one room, without
+/// needing a client, a session or a joined room to do it.
+///
+/// `forget_membership_published` needs the state key, which needs the user and
+/// device ids, which need a live session — and the leave path runs on sign-out,
+/// where that session is exactly what has gone. Four fallible lookups sat
+/// ahead of the only thing that clears the set, so a torn-down session left
+/// the mark behind and the NEXT join into the same room read as a refresh and
+/// inherited the ghost's `created_ts`: the defect this whole change removes,
+/// surviving an account switch. The room id is a plain parameter and needs
+/// none of that.
+fn forget_room_memberships_published(room_id: &str) {
+    let prefix = format!("{room_id}\u{1f}");
+    if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
+        seen.retain(|key| !key.starts_with(&prefix));
+    }
+}
+
+/// Drop the whole set. The invariant this static must hold is "only a
+/// membership THIS session published may inherit its `created_ts`", and a
+/// session ending is precisely when that stops being true — so it is cleared
+/// there rather than relying on every leave path being correct. Cheap: the set
+/// holds one short string per room this process has joined a call in.
+pub(crate) fn forget_all_memberships_published() {
+    if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
+        seen.clear();
+    }
+}
+
+fn membership_published_in_this_process(key: &str) -> bool {
+    OWN_MEMBERSHIP_PUBLISHED
+        .lock()
+        .map(|seen| seen.contains(key))
+        .unwrap_or(false)
+}
+
 /// Does this refusal category mean the homeserver simply does not implement
 /// MSC4140, as opposed to something that may work on the next try?
 ///
@@ -1757,8 +1861,53 @@ fn delayed_refusal_recorded_for_client(client: &Client) -> bool {
 /// one room, and neither justifies a process-global latch. `forbidden` in
 /// particular is how a room's own power levels refuse a state write, which
 /// says nothing about the server's MSC4140 support.
+///   * `delayed_unsupported` — **the server said so in words.** Synapse with
+///     `msc4140_enabled` off answers the delayed PUT `400 M_UNKNOWN` with
+///     `"Delayed events are not supported on this server"` and its own
+///     `org.matrix.msc4140.errcode: M_MAX_DELAY_UNSUPPORTED`. MEASURED
+///     against `matrix.smetonis.net` on 2026-09-15 — the body did NOT land,
+///     so this server class never sees the naked retraction described in
+///     `publish_membership`. None of that text matches any branch of
+///     `classify_room_error`, so it used to fall through to `network` and be
+///     treated as a passing blip: the latch never set, every publish paid a
+///     doomed arm plus a second state event to correct the expiry, and the
+///     `membership published … delayed_reason= "network"` line said the
+///     opposite of the truth about a permanent property.
 pub(crate) fn delayed_refusal_is_permanent(category: &str) -> bool {
-    matches!(category, "unrecognized" | "not_found" | "no_delay_id")
+    matches!(
+        category,
+        "unrecognized" | "not_found" | "no_delay_id" | "delayed_unsupported"
+    )
+}
+
+/// The `/versions` feature flag for MSC4140.
+const MSC4140_FEATURE: &str = "org.matrix.msc4140";
+
+/// Does the homeserver ADVERTISE delayed events?
+///
+/// CONSULTED ONLY AFTER AN ARM HAS ALREADY FAILED, as corroboration — never
+/// as a gate on trying. That ordering matters twice. A server that implements
+/// MSC4140 without advertising it still gets probed and still works; and a
+/// server that advertises it but refuses in practice is still caught by the
+/// category, which is the case `delayed_events_assumed_refused` exists for.
+///
+/// `unstable_features()` carries only the features whose value is TRUE —
+/// ruma's `SupportedVersions::from_parts` drops the false ones — so absence
+/// here means "not advertised", which covers both `"org.matrix.msc4140":
+/// false` (what this maintainer's Synapse answers) and a server too old to
+/// name the feature at all. Both are servers on which the arm cannot work.
+///
+/// An UNANSWERABLE question reads as "advertised", so the corroboration
+/// becomes a no-op and the refusal category alone decides. Never latch on not
+/// knowing: the latch disables the only cleanup that survives a crash.
+async fn server_advertises_delayed_events(client: &Client) -> bool {
+    use matrix_sdk::ruma::api::FeatureFlag;
+    match tokio::time::timeout(DISCOVERY_TIMEOUT, client.unstable_features())
+        .await
+    {
+        Ok(Ok(features)) => features.contains(&FeatureFlag::from(MSC4140_FEATURE)),
+        _ => true,
+    }
 }
 
 /// v0.9 (phase 11): whether this process has seen the homeserver refuse a
@@ -1892,9 +2041,22 @@ pub(crate) fn publish_membership(
         let state_key =
             membership_state_key(&user_id, &device_id, &room_version);
 
-        // Preserve created_ts across a refresh: read our own membership back
-        // and reuse its join time.
-        let created_ts = read_own_created_ts(&room, &state_key).await;
+        // Preserve created_ts across a REFRESH — and only across a refresh.
+        //
+        // A JOIN starts its own clock. Inheriting a previous SESSION's join
+        // time makes every peer read our membership as unchanged, so nobody
+        // treats us as a new joiner and nobody sends us a media key; see
+        // OWN_MEMBERSHIP_PUBLISHED for the measurement. `read_own_created_ts`
+        // is not even called on a join, so a ghost left by a crashed session
+        // cannot reach this value by any route.
+        let publish_key =
+            membership_publish_key(room.room_id().as_str(), &state_key);
+        let is_refresh = membership_published_in_this_process(&publish_key);
+        let created_ts = if is_refresh {
+            read_own_created_ts(&room, &state_key).await
+        } else {
+            None
+        };
         // CARRY THE ROOM AS `livekit_alias`, which is what Element publishes.
         //
         // The alias names the SFU room a client should be placed in, and
@@ -1950,6 +2112,14 @@ pub(crate) fn publish_membership(
             ),
             Err(_) => (false, "network".to_owned(), String::new()),
         };
+
+        // From here on this process owns that state key, so every later
+        // publish for it is a REFRESH and inherits created_ts. Recorded only
+        // on a write the server accepted: a publish that failed left nothing
+        // of ours behind, and the retry after it is still a join.
+        if ok {
+            mark_membership_published(&publish_key);
+        }
 
         // THE DELAYED RETRACTION IS A NAKED `{}` PUT TO OUR OWN STATE KEY,
         // AND ON A SERVER THAT DOES NOT KNOW MSC4140 IT RETRACTS US.
@@ -2049,8 +2219,43 @@ pub(crate) fn publish_membership(
             // NOT on every empty delay id — see `delayed_refusal_is_permanent`.
             // The short re-publish below still happens either way, because the
             // membership must not claim four hours nothing will cut short.
-            if delayed_refusal_is_permanent(&delayed_category) {
+            //
+            // AND THE SERVER'S OWN `/versions` IS THE SECOND WITNESS. The
+            // category is read off an error STRING, which is exactly the
+            // fragile shape this file keeps rediscovering; a homeserver that
+            // does not advertise MSC4140 cannot arm one whatever words it
+            // refuses in. Consulted only here, after an arm has already
+            // failed — see `server_advertises_delayed_events` for why it is
+            // corroboration and never a gate.
+            // AND NOT ON A PLAINLY TRANSIENT REFUSAL. The corroboration
+            // latches for the whole PROCESS and keys on the homeserver URL, so
+            // one 429 on a server that does support delayed events would turn
+            // them off for every room and every account until relaunch.
+            //
+            // `rate_limited` is excluded and `network` deliberately is not:
+            // `network` is the catch-all this very server's wording fell into
+            // ("Delayed events are not supported on this server" matches no
+            // named branch), and the belt exists for servers with yet other
+            // wording. Excluding it would disarm the corroboration on exactly
+            // the case it was added for.
+            //
+            // This also matters forward: `org.matrix.msc4140` is an UNSTABLE
+            // flag, so if delayed events stabilise, conforming servers stop
+            // advertising it while fully supporting the endpoint — and every
+            // one of them would latch off on its first transient arm failure.
+            let transient_refusal = delayed_category == "rate_limited";
+            let unadvertised = !transient_refusal
+                && !server_advertises_delayed_events(&client).await;
+            if delayed_refusal_is_permanent(&delayed_category) || unadvertised {
                 mark_delayed_refusal_for_client(&client, true);
+                // SAY SO. `delayed_reason= "network"` on a server that has
+                // published `org.matrix.msc4140: false` is a diagnostic
+                // asserting the opposite of a known fact, and it sent one
+                // release round looking for a transport problem.
+                if unadvertised && !delayed_refusal_is_permanent(&delayed_category)
+                {
+                    delayed_category = "delayed_unsupported".to_owned();
+                }
             }
             // A SECOND write, with the short expiry. It replaces our own
             // previous state event under the same state key, so the room sees
@@ -2238,6 +2443,18 @@ async fn schedule_delayed_leave(
     }
 }
 
+/// Does this Matrix error say, in so many words, that the server does not do
+/// delayed events? Pure so the wording is pinned by a test rather than by a
+/// homeserver being awake.
+pub(crate) fn delayed_failure_says_unsupported(message: &str) -> bool {
+    let lc = message.to_lowercase();
+    // The MSC's own errcode, and Synapse's message for the same refusal.
+    // `m_max_delay_exceeded` deliberately does NOT match: that one means the
+    // server supports delayed events and wanted a shorter delay.
+    lc.contains("m_max_delay_unsupported")
+        || lc.contains("delayed events are not supported")
+}
+
 /// Why a delayed retraction could not be armed, in the vocabulary
 /// `delayed_refusal_is_permanent` understands.
 ///
@@ -2250,6 +2467,12 @@ async fn schedule_delayed_leave(
 /// accepted: no 404 anywhere, nothing in the message text to match, and a
 /// string ladder therefore files it under `network` and treats a permanent
 /// property as a passing blip.
+///
+/// A SECOND server class answers the same question out loud and was filed the
+/// same wrong way: Synapse with `msc4140_enabled` off returns **400 M_UNKNOWN,
+/// "Delayed events are not supported on this server"** and does NOT apply the
+/// body — measured against `matrix.smetonis.net` on 2026-09-15. That is
+/// `delayed_failure_says_unsupported` above.
 fn classify_delayed_leave_failure(err: &matrix_sdk::HttpError) -> String {
     use matrix_sdk::ruma::api::error::FromHttpResponseError;
     use matrix_sdk::HttpError;
@@ -2257,6 +2480,25 @@ fn classify_delayed_leave_failure(err: &matrix_sdk::HttpError) -> String {
     // The server spoke Matrix's own error shape — 404 M_UNRECOGNIZED, 403,
     // 429 and friends. That is what classify_room_error is for.
     if err.as_client_api_error().is_some() {
+        // EXCEPT the one refusal that IS about MSC4140 and looks like
+        // nothing. Synapse without the feature answers 400 M_UNKNOWN,
+        // "Delayed events are not supported on this server", carrying
+        // `org.matrix.msc4140.errcode: M_MAX_DELAY_UNSUPPORTED`. No status,
+        // errcode or word in that reaches a branch of classify_room_error, so
+        // it landed in the `network` catch-all — a permanent property filed
+        // as a blip. Matched on BOTH spellings because the MSC errcode lives
+        // in a non-standard field that a client library may not surface,
+        // while the message is Synapse's own wording; either one alone is a
+        // string ladder of the kind this file warns about, and the
+        // `/versions` corroboration in `publish_membership` is what makes the
+        // decision robust when neither matches.
+        //
+        // NOT `M_MAX_DELAY_EXCEEDED`, which is a different errcode meaning
+        // the server DOES support delayed events and this delay was too long.
+        // Latching on that would disable working server-side cleanup.
+        if delayed_failure_says_unsupported(&err.to_string()) {
+            return "delayed_unsupported".to_owned();
+        }
         return classify_room_error(&err.to_string()).to_owned();
     }
     // A body ruma could not read on a status it ACCEPTED. Matched on the
@@ -2291,6 +2533,12 @@ pub(crate) fn retract_membership(
     delay_id: String,
     op_id: u64,
 ) -> Result<(), String> {
+    // FIRST, and before anything that can fail. Everything below needs a live
+    // session, and the sign-out path reaches here with that session already
+    // gone — so a `?` here used to skip the forget entirely and strand the
+    // mark. Leaving is an INTENT; the bookkeeping must follow the intent.
+    forget_room_memberships_published(&room_id);
+
     let client = require_client(bridge)?;
     let room = joined_room(&client, &room_id)?;
     let user_id = client
@@ -2314,6 +2562,14 @@ pub(crate) fn retract_membership(
             .unwrap_or_default();
         let state_key =
             membership_state_key(&user_id, &device_id, &room_version);
+
+        // We are leaving, so the next publish for this state key is a JOIN and
+        // must mint its own created_ts. Forgotten BEFORE the retraction is
+        // attempted and regardless of whether it succeeds: a retraction that
+        // failed leaves exactly the ghost a crash leaves, and a rejoin after
+        // it needs the same treatment. See OWN_MEMBERSHIP_PUBLISHED.
+        forget_membership_published(&membership_publish_key(
+            room.room_id().as_str(), &state_key));
 
         // Retract FIRST. If the delayed cancel fails afterwards the worst
         // case is a redundant no-op retraction; doing it the other way round
@@ -4736,6 +4992,193 @@ mod tests {
                 "'{absent}' means the endpoint is not there, and re-probing                  it on every refresh costs a second state event each time"
             );
         }
+        // AND THE SPELLING THIS SERVER ACTUALLY USES. Synapse with
+        // `msc4140_enabled` off answers 400 M_UNKNOWN, not 404 — MEASURED
+        // against matrix.smetonis.net, 2026-09-15. Filed as "network" it made
+        // the latch unreachable on that whole server class.
+        assert!(
+            delayed_refusal_is_permanent("delayed_unsupported"),
+            "the server said outright that it does not do delayed events; \
+             treating that as a blip re-arms a doomed request on every publish"
+        );
+    }
+
+    #[test]
+    fn synapse_says_delayed_events_are_unsupported_and_it_is_not_a_blip() {
+        // THE EXACT BODY, measured 2026-09-15 with curl against
+        // matrix.smetonis.net (Synapse, `org.matrix.msc4140: false` in
+        // /versions):
+        //   HTTP 400
+        //   {"errcode":"M_UNKNOWN",
+        //    "error":"Delayed events are not supported on this server",
+        //    "org.matrix.msc4140.errcode":"M_MAX_DELAY_UNSUPPORTED"}
+        // The state event was NOT applied, so this class never sees the naked
+        // retraction `publish_membership` guards against.
+        let synapse = "the server returned an error: [400 / M_UNKNOWN] \
+                       Delayed events are not supported on this server";
+        assert!(
+            delayed_failure_says_unsupported(synapse),
+            "a permanent refusal fell through every branch of \
+             classify_room_error into the 'network' catch-all, so the latch \
+             never set and `delayed_reason= \"network\"` asserted the \
+             opposite of what /versions already published"
+        );
+        assert_eq!(
+            classify_room_error(synapse),
+            "network",
+            "this pins WHY the dedicated test is needed: the generic \
+             classifier cannot see this refusal, and if it ever can, the \
+             comment above is stale"
+        );
+        // The MSC's own errcode, for a client library that surfaces it.
+        assert!(delayed_failure_says_unsupported(
+            "org.matrix.msc4140.errcode M_MAX_DELAY_UNSUPPORTED"
+        ));
+        // AND THE ONE THAT MUST NOT MATCH. M_MAX_DELAY_EXCEEDED means the
+        // server DOES support delayed events and wanted a shorter delay;
+        // latching on it would disable working server-side cleanup for the
+        // rest of the session.
+        assert!(
+            !delayed_failure_says_unsupported(
+                "[400 / M_UNKNOWN] M_MAX_DELAY_EXCEEDED: delay too long"
+            ),
+            "a server that supports delayed events would have been recorded \
+             as not supporting them"
+        );
+        for unrelated in [
+            "the server returned an error: [404 / M_UNRECOGNIZED] Unrecognized",
+            "error sending request for url",
+        ] {
+            assert!(!delayed_failure_says_unsupported(unrelated));
+        }
+    }
+
+    /// THE MARK MUST NOT OUTLIVE THE SESSION THAT EARNED IT.
+    ///
+    /// A review found the hole: `retract_membership` was the ONLY thing that
+    /// cleared the set, and four fallible lookups sat ahead of the clear — a
+    /// live client, a joined room, a user id and a device id. Sign-out reaches
+    /// that path with all four already gone, so the mark survived; and because
+    /// a session restore keeps the same device id, the state key matched, the
+    /// next join into a room whose ghost was still inside `expires` read as a
+    /// REFRESH, and it inherited the ghost's `created_ts`. That is the exact
+    /// defect this whole change removes, surviving an account switch.
+    ///
+    /// Two clearers now, and this pins both: by room, needing nothing but the
+    /// room id so no early return can skip it; and wholesale on teardown,
+    /// which is what makes the invariant hold by construction instead of by
+    /// every leave path being correct.
+    ///
+    /// FAIL-ON-OLD: drop either clearer and the matching assertion fails.
+    /// SERIALISES THE TWO TESTS THAT TOUCH `OWN_MEMBERSHIP_PUBLISHED`.
+    ///
+    /// It is a process-global set, and cargo runs tests in parallel in one
+    /// process — so `forget_all_memberships_published()` in one test wipes the
+    /// marks another has just written. I caught that as a one-in-several
+    /// failure the first time this test ran, which is exactly the shape §16
+    /// warns about: a suite that flakes teaches people to re-run rather than
+    /// to read, and this project already has four load-sensitive suites it
+    /// does not need a fifth of.
+    static PUBLISH_SET_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn a_published_mark_does_not_outlive_its_session() {
+        let _serialised = PUBLISH_SET_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let room = "!clearing:matrix.example";
+        let other = "!untouched:matrix.example";
+        let mine = membership_publish_key(room, "_@a:example_DEVICEA_m.call");
+        let sibling = membership_publish_key(room, "_@a:example_DEVICEB_m.call");
+        let elsewhere = membership_publish_key(other, "_@a:example_DEVICEA_m.call");
+
+        for key in [&mine, &sibling, &elsewhere] {
+            mark_membership_published(key);
+            assert!(membership_published_in_this_process(key));
+        }
+
+        // BY ROOM: every state key in that room goes, and only that room.
+        forget_room_memberships_published(room);
+        assert!(
+            !membership_published_in_this_process(&mine),
+            "leaving a room must forget what this session published in it,              and it must do so without needing the session that is already gone"
+        );
+        assert!(
+            !membership_published_in_this_process(&sibling),
+            "the room prefix must cover every state key under it"
+        );
+        assert!(
+            membership_published_in_this_process(&elsewhere),
+            "leaving one room must not disturb another room's bookkeeping"
+        );
+
+        // WHOLESALE: a session ending is exactly when 'this session published
+        // it' stops being true of everything.
+        forget_all_memberships_published();
+        assert!(
+            !membership_published_in_this_process(&elsewhere),
+            "teardown must clear the set, or a mark survives an account              switch and the next join inherits a ghost's created_ts"
+        );
+    }
+
+    #[test]
+    fn a_rejoin_is_a_join_until_this_process_has_published() {
+        // Shares the process-global set with the test above; see the lock.
+        let _serialised = PUBLISH_SET_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // THE RULE THIS PINS. `publish_membership` inherits `created_ts` only
+        // when THIS PROCESS has already published the state key. A ghost left
+        // by a killed session is not ours to inherit from: inheriting it
+        // republishes the previous session's join time, every peer reads
+        // `createdTs()` as unchanged, matrix-js-sdk's RTCEncryptionManager
+        // does not see a new joiner, and no media key is ever sent to the
+        // rejoining device. LIVE-REPRODUCED against Element on 2026-09-15 —
+        // the live run is the real regression evidence; this pins the
+        // bookkeeping that decides it.
+        let room = "!probe:matrix.example";
+        let key = membership_publish_key(room, "_@a:example_DEVICE_m.call");
+        forget_membership_published(&key);
+
+        assert!(
+            !membership_published_in_this_process(&key),
+            "a process that has published nothing must treat its first \
+             publish as a JOIN, whatever is left in the room's state"
+        );
+        mark_membership_published(&key);
+        assert!(
+            membership_published_in_this_process(&key),
+            "a refresh must inherit created_ts, or the membership's deadline \
+             walks forward and oldest-membership focus selection reorders"
+        );
+        // A LEAVE ENDS THE SESSION. An in-process rejoin is a new
+        // participant just as much as a restart is, and a retraction that
+        // FAILED leaves exactly the ghost a crash leaves.
+        forget_membership_published(&key);
+        assert!(!membership_published_in_this_process(&key));
+
+        // Scoped to the state key, so another room — and another account,
+        // whose user id is in the state key — is never this one's answer.
+        mark_membership_published(&membership_publish_key(
+            "!other:matrix.example",
+            "_@a:example_DEVICE_m.call",
+        ));
+        mark_membership_published(&membership_publish_key(
+            room,
+            "_@b:example_DEVICE_m.call",
+        ));
+        assert!(
+            !membership_published_in_this_process(&key),
+            "another room's or another account's record answered for this one"
+        );
+        forget_membership_published(&membership_publish_key(
+            "!other:matrix.example",
+            "_@a:example_DEVICE_m.call",
+        ));
+        forget_membership_published(&membership_publish_key(
+            room,
+            "_@b:example_DEVICE_m.call",
+        ));
     }
 
     #[test]
