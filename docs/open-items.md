@@ -326,8 +326,80 @@ gone.
   and an explicit pick are the SAME engine configuration and the explicit one
   is unreachable**. The fix is on `main` above 0.9.5 and is therefore **NOT
   TESTED on Windows** — the guest still runs 0.9.5.
-- **NEW DEFECT, NOT FIXED: `--version` and `--call-media-status` produce NO
-  OUTPUT on the packaged Windows build.** Measured three ways (cmd redirect,
+- **FIXED AND LIVE-VALIDATED PASS ON THE PACKAGED WINDOWS BUILD (2026-09-15,
+  `5bf1db5`): `--log-file` created no file, and `--version` printed nothing.**
+  Measured before and after on the shipped bytes — `src/main.cpp` is
+  byte-identical between `v0.9.5` and `e72d97d`, so the installed 0.9.5 was a
+  valid BEFORE; the AFTER is the portable zip from pipeline **217** built from
+  the fix.
+
+  | command | BEFORE | AFTER |
+  |---|---|---|
+  | `--version > file 2>&1` | **0 bytes** | 17 bytes, `Lightning 0.9.5` |
+  | `--version --log-file L1` | **no file** | exists, carries the version |
+  | `--log-file L2 --version` | 133 B, **banner only** | banner + version |
+  | `--call-media-status --log-file L3` | **no file** | full status block |
+  | `--log-file L4 --call-media-status` | **0 status lines** | 1 |
+
+  **THREE defects, and only one was about Windows.** `preflightParse()` is a
+  single left-to-right walk in which every terminating flag ends in `return r`,
+  so a `--log-file` standing after one was never read — reproduced on Linux
+  too, so this was never Windows-specific. The status commands PRINT rather
+  than log, so the handler never saw their output and the file held only its
+  own header. And `configureWindowsConsole()` called `freopen("CONOUT$")`
+  unconditionally, destroying an inherited shell redirect — that is the 0-byte
+  file, and the handle must be sampled BEFORE `AttachConsole`, which replaces
+  it.
+
+  The A4 file now carries what the whole feature exists for, including
+  `RESULT: calls can be placed and answered.` — so a tester on Windows can
+  finally answer "why can I not call from this build".
+
+  **Still NOT TESTED:** macOS (the ordering fix is platform-independent by
+  construction but has not run on a Mac); the other status flags individually
+  on Windows (converted through the shared path, not exercised one by one);
+  and `--version --console` still opens a console that closes on exit, which is
+  why `--log-file` is the answer for capture.
+- **THE TRAY BALLOON'S READ-WITHDRAWAL NEEDS THE WINDOWS NOTIFICATION PATH
+  REPLACED, NOT A WITHDRAWAL CALL ADDED. Feasibility established 2026-09-15;
+  deliberately NOT implemented.**
+
+  **The cheap options are refuted by evidence already in hand.** The live round
+  recorded the toast surviving an application restart — and app exit destroys
+  the tray icon (implicit `NIM_DELETE`). So if deleting the icon dismissed the
+  toast, the restart would have cleared it. It did not: the notification has
+  been promoted into the Action Center, where the shell owns it and the tray
+  icon does not. That single observation kills both
+  `QSystemTrayIcon::hide()/show()` and `Shell_NotifyIcon(NIM_MODIFY)` with an
+  empty `szInfo`. The 10 s timeout is a hint Windows ignores, so bounding the
+  lifetime is not a fix either.
+
+  **The toolchain is NOT the blocker — measured in a real mingw64 container,
+  not reasoned.** `windows.ui.notifications.h`, `roapi.h` and
+  `libruntimeobject.a` are present and
+  `IToastNotificationHistory::RemoveGroupedTagWithId` resolves. The **C++
+  projection route is blocked** (mingw's own `windows.foundation.h` collides:
+  `IReference<boolean>` and `IReference<BYTE>` are distinct in the IDL and both
+  `unsigned char` in C++), but the **C ABI route compiles AND links** with
+  `-DINITGUID -lruntimeobject -lole32`.
+
+  **The cost is the blocker.** A WinRT toast is a different delivery mechanism,
+  not a call bolted onto the existing one: it needs a registered
+  **AppUserModelID**, and there is none anywhere in the source or packaging —
+  the portable zip has no installer, so the app would have to write its own
+  Start Menu entry on first run. And click routing, which is live-validated
+  PASS today through Qt's `messageClicked`, would move to a registered
+  `ToastActivatorCLSID` COM server — **losing a working feature to gain
+  withdrawal would be a net regression.** Roughly 300-400 lines of hand-written
+  C-ABI vtable calls, none of it checkable by any Linux-hosted test.
+
+  **Scope it as "replace Windows notification delivery with WinRT toasts,
+  keeping click routing", as its own round.** The interim position is honest:
+  the stale toast is cosmetic, because the click still routes correctly to the
+  room — the harm is a toast that looks unread after it has been read. macOS
+  has the same hole with a different API and the same shape of cost.
+- ~~**`--version` and `--call-media-status` produce NO OUTPUT on the packaged
+  Windows build**~~ — see the entry above; fixed and confirmed on shipped bytes. Measured three ways (cmd redirect,
   `Start-Process -RedirectStandardOutput`, and a timed redirect showing the
   process ran 1.2 s, exited 0 and wrote 0 bytes). `--call-media-status
   --log-file \\host.lan\Data\cms.log` exited 0 and created **no file at
