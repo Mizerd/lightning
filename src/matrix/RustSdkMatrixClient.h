@@ -446,6 +446,7 @@ public:
     bool paginating(const QString &roomId) const override;
     bool paginationFailed(const QString &roomId) const override;
     bool paginationFailureTransient(const QString &roomId) const override;
+    bool lastPaginationFullyFiltered(const QString &roomId) const override;
     bool supportsCancelSend() const override { return true; }
     void cancelSend(const QString &roomId,
                     const QString &transactionId) override;
@@ -1162,6 +1163,19 @@ private:
         bool reachedStart = false;
         bool failed = false;
         bool failureTransient = false;
+        // ADAPTIVE PAGE SIZE FOR A FULLY FILTERED RUN. See loadOlderMessages
+        // and the `timeline_pagination` idle branch: a page in which the
+        // timeline filter dropped EVERY event it was offered costs a round
+        // trip and produces no row, so the next one asks for more. Reset to
+        // the default the moment a page yields anything.
+        unsigned short batchSize = 0;   // 0 = the default
+        // The last completed page handed the timeline events and every one of
+        // them was filtered out. See lastPaginationFullyFiltered.
+        bool lastFullyFiltered = false;
+        // Cumulative filter totals as of this room's last completed page, so
+        // the next one can be compared against them.
+        quint64 lastFilterOffered = 0;
+        quint64 lastFilterDropped = 0;
     };
     matrix::rust_timeline::TimelineGenerationTracker m_timelineTracker;
     /// The superseded generation currently being counted, and how many of its

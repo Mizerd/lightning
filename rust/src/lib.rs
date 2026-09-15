@@ -5812,17 +5812,34 @@ pub unsafe extern "C" fn mx_rust_timeline_open(
         let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
             return Err("Rust SDK session is not logged in.".to_owned());
         };
-        bridge.timelines.open_room(&bridge.runtime, client, room_id.clone());
-        // The open room is the ONE sliding-sync room subscription, which is
-        // the only way subscription-only required state (m.room.pinned_events)
-        // reaches the store. An unparseable id cannot be subscribed and the
-        // timeline open above stands on its own.
+        // THE SUBSCRIPTION GOES FIRST, and the order is the point.
+        //
+        // The sliding-sync room LIST runs at matrix-sdk-ui's
+        // `DEFAULT_LIST_TIMELINE_LIMIT`, which is 1 — so an unopened room is
+        // fed one timeline event per update, and any `limited` response with a
+        // prev_batch makes the SDK shrink that room's in-memory cache to its
+        // last chunk (event_cache/caches/room/state.rs). A room therefore
+        // opens with one or two cached events, or zero when the filter drops
+        // them, which is the `items= 0` in the 2026-09-15 report.
+        //
+        // `subscribe_to_rooms` is what raises THIS room to
+        // `DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT` (20). Applied after the
+        // timeline was built, it could not contribute to the build, and the
+        // viewport fill then spent real round trips fetching what the
+        // subscription was about to deliver anyway. Applied first it is at
+        // least in flight while the timeline builds.
+        //
+        // It is not a guarantee — the response arrives when it arrives, and
+        // nothing here waits for it — so this cannot make an open slower, only
+        // sometimes faster. An unparseable id cannot be subscribed and the
+        // timeline open below stands on its own, exactly as before.
         if let Ok(parsed) = OwnedRoomId::try_from(room_id.as_str()) {
             if let Ok(mut guard) = bridge.active_room_subscription.lock() {
                 *guard = Some(parsed);
             }
             apply_room_subscription(bridge);
         }
+        bridge.timelines.open_room(&bridge.runtime, client, room_id.clone());
         Ok(String::new())
     })
 }

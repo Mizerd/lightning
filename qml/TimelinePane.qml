@@ -5170,7 +5170,33 @@ Rectangle {
                             if ((app.timeline ? app.timeline.count : 0)
                                     >= maxViewportFillRows)
                                 return "rowBudget"
-                            if (viewportFillRetries >= maxViewportFillRetries)
+                            // AN EMPTY TIMELINE IS NOT A REASON TO STOP
+                            // FILLING, and stopping there is what left the
+                            // reader with a room that claimed to have no
+                            // messages.
+                            //
+                            // `maxViewportFillRetries` counts pages that added
+                            // NO ROWS AT ALL, which is exactly what a filtered
+                            // history produces — so this 8 is the bound that
+                            // runs in the case `maxInvisibleFillRetries` was
+                            // raised to 12 for on 2026-09-05. That raise went
+                            // into the wrong counter: a page that inserts
+                            // nothing never reaches `grewRows`, so the
+                            // invisible budget is never spent and the pane
+                            // gave up at 8 while the controller still held 4
+                            // of its own 12 dispatches unspent.
+                            //
+                            // While the timeline is still EMPTY there is
+                            // nothing to show for having stopped, so the
+                            // decision is left to the controller, which has
+                            // two independent terminators for exactly this
+                            // (`m_fillRequests >= m_maxFillRequests` and 12
+                            // consecutive no-progress strikes, both setting
+                            // `fillStopped`). `fillStopped` is tested at the
+                            // top of this function, so the loop still cannot
+                            // run away.
+                            if (viewportFillRetries >= maxViewportFillRetries
+                                    && (app.timeline ? app.timeline.count : 0) > 0)
                                 return "noProgressBudget"
                             if (viewportFillInvisibleRetries
                                 >= maxInvisibleFillRetries)

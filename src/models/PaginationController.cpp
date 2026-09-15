@@ -199,7 +199,14 @@ void PaginationController::requestViewportFill()
 {
     if (m_fillStopped)
         return;
-    if (m_fillRequests >= m_maxFillRequests) {
+    // Same exemption as the strike bound below: a still-empty timeline may
+    // spend the larger allowance, because stopping there shows the reader a
+    // room that looks like it has no messages.
+    const int fillCap =
+        (m_timelineModel && m_timelineModel->eventCount() == 0)
+            ? qMax(m_maxFillRequests, kMaxEmptyTimelineStrikes)
+            : m_maxFillRequests;
+    if (m_fillRequests >= fillCap) {
         m_fillStopped = true;
         qCInfo(lcPagination)
             << "timeline pagination fill budget exhausted requests="
@@ -229,7 +236,16 @@ void PaginationController::requestNearTop(bool userInitiated)
     // ListView reports atYBeginning during its first empty/incubating frame.
     // Treat that first signal as initial-history fill so a transient failure
     // receives the bounded automatic policy instead of requiring a click.
-    if (m_initialHistoryRequested && !m_initialHistoryHasSucceeded) {
+    //
+    // NOT ONCE THE FILL HAS GIVEN UP. `m_fillStopped` is the state in which
+    // `requestViewportFill()` returns immediately, so without that term this
+    // redirect SWALLOWS the user's gesture: the fill refuses it and the
+    // near-top page is never dispatched. That became reachable the moment
+    // `m_initialHistoryHasSucceeded` started requiring rows (see finishBatch)
+    // — before, an empty page set the flag and the redirect stopped firing on
+    // its own. `emptyBatchesStopAutomaticFillButNotUserRequests` caught it.
+    if (m_initialHistoryRequested && !m_initialHistoryHasSucceeded
+        && !m_fillStopped) {
         requestViewportFill();
         return;
     }
@@ -564,8 +580,17 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
         // this timer to zero in the insertion handlers above.
         const bool rowsAlreadyLanded = m_batchInserted > 0
             || batchRowGrowth() > 0;
-        const int settleDelay = rowsAlreadyLanded || !m_timelineModel
-            ? 0 : m_completionSettleDelayMs;
+        // NOTHING IS IN FLIGHT AFTER A PAGE THE FILTER EMPTIED. The wait
+        // exists for rows crossing the Rust bridge's independent 100 ms poll
+        // lane; when every event the page delivered was dropped by the
+        // timeline filter there are no such rows, and the 250 ms is pure
+        // latency. Twelve of them in one room open is three seconds of a
+        // reported ten (2026-09-15).
+        const bool nothingCanArrive = m_client
+            && m_client->lastPaginationFullyFiltered(m_roomId);
+        const int settleDelay =
+            rowsAlreadyLanded || nothingCanArrive || !m_timelineModel
+                ? 0 : m_completionSettleDelayMs;
         m_completionSettleTimer.start(settleDelay);
     }
     Q_EMIT stateChanged();
@@ -643,7 +668,31 @@ void PaginationController::finishBatch(bool hitStart)
     m_completionReachedStart = false;
     m_seenLoading = false;
     m_autoRetryAttempts = 0;
-    if (reason == Reason::ViewportFill || reason == Reason::AutomaticRetry)
+    // A PAGE THAT DELIVERED NOTHING IS NOT A SUCCESSFUL INITIAL HISTORY, and
+    // this line said it was.
+    //
+    // `initialContentSettled()` returns this flag, the pane's presentation
+    // gate opens on it (TimelinePane.qml, `fillsViewport ||
+    // initialContentSettled`), and `timelineEmptyState` then renders "No
+    // messages here yet. Start the conversation." over a room that is full of
+    // history the fill has not reached yet. Unqualified, it fired on the
+    // FIRST viewport fill even when that fill inserted zero rows — so a room
+    // whose recent history is entirely filtered (a long MatrixRTC membership
+    // run, §16) asserted its own emptiness after one round trip and kept
+    // asserting it. Reported 2026-09-15: "one room that was loading quick and
+    // nice before now showed no messages".
+    //
+    // Rows already on screen count as success too: a room served from the
+    // event cache can legitimately complete its first fill with nothing new,
+    // and it must still settle immediately rather than wait for a bound.
+    //
+    // Nothing is stranded by tightening this. Every other way out of the fill
+    // still opens the gate — `m_fillStopped`, `reachedStart()` and `failed()`
+    // are all in the same expression — and the pane's own 2500 ms
+    // presentation guard is the last resort.
+    if ((reason == Reason::ViewportFill || reason == Reason::AutomaticRetry)
+        && (inserted > 0
+            || (m_timelineModel && m_timelineModel->eventCount() > 0)))
         m_initialHistoryHasSucceeded = true;
 
     qCInfo(lcPagination) << "timeline pagination completed added=" << inserted
@@ -672,7 +721,17 @@ void PaginationController::finishBatch(bool hitStart)
         if (inserted > 0)
             m_fillRequests = 0;
         if (inserted == 0 && !hitStart) {
-            if (++m_noProgressStrikes >= kMaxNoProgressStrikes) {
+            // A BLANK ROOM IS NOT A PLACE TO STOP. While the timeline still
+            // has nothing on it, the fill is allowed the larger bound: giving
+            // up here leaves the reader an empty room and the job of scrolling
+            // out of it by hand, which is the 2026-09-15 report. Once ANY row
+            // exists the ordinary twelve applies again, because then stopping
+            // costs only older history the reader can ask for.
+            const bool timelineStillEmpty =
+                m_timelineModel && m_timelineModel->eventCount() == 0;
+            const int strikeCap = timelineStillEmpty
+                ? kMaxEmptyTimelineStrikes : kMaxNoProgressStrikes;
+            if (++m_noProgressStrikes >= strikeCap) {
                 m_fillStopped = true;
                 qCInfo(lcPagination)
                     << "timeline pagination fill stopped no_progress_strikes="

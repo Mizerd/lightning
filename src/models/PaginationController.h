@@ -423,6 +423,23 @@ private:
     int m_highlightDurationMs = kDefaultHighlightDurationMs;
 
     static constexpr int kMaxNoProgressStrikes = 12; // see m_maxFillRequests
+    /// The same bound, raised, for the one case where stopping is worse than
+    /// continuing: the timeline is STILL EMPTY and every page so far was
+    /// emptied by the timeline filter.
+    ///
+    /// Twelve pages is ~240 filtered events, and the maintainer's own account
+    /// had a room whose MatrixRTC churn run was longer than that — the fill
+    /// gave up a page or two short of the first real message and left a blank
+    /// room the reader had to scroll by hand (2026-09-15). Stopping with rows
+    /// on screen is a bounded, reasonable thing to do; stopping with NOTHING
+    /// on screen just hands the user the work.
+    ///
+    /// Affordable because these pages are cheap: a filtered page is normally
+    /// served from the event-cache STORE one chunk at a time (matrix-sdk's
+    /// load_more_events_backwards) and no longer pays the completion settle
+    /// timer either, so the run is local reads rather than round trips.
+    /// Still bounded, and still far below a room's whole history.
+    static constexpr int kMaxEmptyTimelineStrikes = 60;
     static constexpr int kMaxNavigationBatches = 8;
     static constexpr int kMaxScrollAnchors = 64;
 };

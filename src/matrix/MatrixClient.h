@@ -771,6 +771,25 @@ public:
         return false;
     }
 
+    /// Did this room's LAST completed back-pagination hand the timeline events
+    /// and get nothing on screen for them — because the timeline filter
+    /// dropped every single one?
+    ///
+    /// The distinction the controller needs is "no rows YET" versus "no rows
+    /// EVER FROM THIS PAGE". It waits 250 ms after an empty page for rows that
+    /// may still arrive over the Rust bridge's independent poll lane; when the
+    /// filter ate the whole page there is nothing in flight and that wait is
+    /// pure latency. Measured on the maintainer's account 2026-09-15: twelve
+    /// such pages in one room open, three seconds of it.
+    ///
+    /// False is always the SAFE answer — it only costs the existing wait — so
+    /// a backend that cannot tell simply keeps today's behaviour.
+    virtual bool lastPaginationFullyFiltered(const QString &roomId) const
+    {
+        Q_UNUSED(roomId);
+        return false;
+    }
+
     // v0.5.7: retry a failed outgoing message identified by its send-queue
     // transaction id. Only the Rust backend (SDK local echoes) implements
     // this; the default is a no-op so HTTP/Mock behavior is unchanged.

@@ -3216,6 +3216,24 @@ namespace {
 // One pagination batch. Matches timeline::PAGINATION_BATCH on the Rust
 // side; large enough to fill a screen, small enough to stay responsive.
 constexpr unsigned short kPaginationBatch = 20;
+// THE CEILING FOR A FULLY FILTERED RUN, and it is deliberately not a general
+// page-size increase.
+//
+// §16 records page doubling as REFUTED. That refutation measured
+// UNCONDITIONAL 100-event pages against rooms whose pages ADD ROWS: Synapse
+// answered at 17 ms/event against 5.5 ms/event for 20, "the fill overshot to
+// ~600 rows", and a re-open went 4 s -> 11 s. Both halves of that harm need
+// rows — the overshoot IS rows, and the ingest cost is per row.
+//
+// This is a different claim. It escalates ONLY after a page in which the
+// filter dropped every single event it was offered, which is a page that
+// produced no rows at all: there is nothing to overshoot and nothing to
+// ingest. Measured on the maintainer's own account 2026-09-15 —
+// `filterOffered= 240 droppedRtc= 240`, twelve consecutive pages, 100% — a
+// run of ~300 MatrixRTC membership events cost fifteen round trips at twenty
+// a page. At 20/60/180 it costs three. The escalation collapses to the
+// default the instant a page yields a row, so an ordinary room never sees it.
+constexpr unsigned short kPaginationMaxBatch = 180;
 } // namespace
 
 void RustSdkMatrixClient::loadOlderMessages(const QString &roomId)
@@ -3231,11 +3249,12 @@ void RustSdkMatrixClient::loadOlderMessages(const QString &roomId)
         const QByteArray root = threadTimelineRootId(roomId).toUtf8();
         result = takeRustString(mx_rust_thread_paginate_back(
             m_rustHandle, room.constData(), root.constData(),
-            kPaginationBatch));
+            state.batchSize > 0 ? state.batchSize : kPaginationBatch));
     } else {
         const QByteArray roomBytes = roomId.toUtf8();
         result = takeRustString(mx_rust_timeline_paginate_back(
-            m_rustHandle, roomBytes.constData(), kPaginationBatch));
+            m_rustHandle, roomBytes.constData(),
+            state.batchSize > 0 ? state.batchSize : kPaginationBatch));
     }
     if (!result.isEmpty()) {
         qCWarning(lcRust) << "timeline pagination dispatch failed";
@@ -3279,6 +3298,12 @@ bool RustSdkMatrixClient::paginationFailureTransient(const QString &roomId) cons
     const auto it = m_pagination.constFind(roomId);
     return it != m_pagination.constEnd() && it->failed
         && it->failureTransient;
+}
+
+bool RustSdkMatrixClient::lastPaginationFullyFiltered(const QString &roomId) const
+{
+    const auto it = m_pagination.constFind(roomId);
+    return it != m_pagination.constEnd() && it->lastFullyFiltered;
 }
 
 void RustSdkMatrixClient::retryFailedSend(const QString &roomId,
@@ -5850,8 +5875,73 @@ void RustSdkMatrixClient::handleTimelinePagination(const QJsonObject &event)
         state.failureTransient = false;
         state.reachedStart =
             event.value(QStringLiteral("reached_start")).toBool(false);
+        // THE THREE NUMBERS THAT MAKE `added= 0` DIAGNOSABLE. Cumulative
+        // process totals from the Rust timeline filter, not per-page deltas
+        // (the timeline ingests asynchronously after the pagination call has
+        // returned, so a delta would race it). Read them as a CLIMB across a
+        // run of pages: `offered` rising while `droppedRtc` rises is MatrixRTC
+        // membership churn; `offered` rising with neither drop moving is
+        // hide_threaded_events or aggregation folding; `offered` flat means
+        // the pages really were empty and the fault is not the filter.
+        // ESCALATE WHILE THE FILTER IS EATING WHOLE PAGES. The two cumulative
+        // totals arrive in this same event, so the comparison cannot race the
+        // timeline's own asynchronous ingest the way a row count would.
+        //
+        // They are PROCESS-GLOBAL: an open thread panel paginating at the same
+        // moment inflates both deltas. That can only make the test read
+        // "everything was filtered" when part of it belonged to another
+        // timeline, whose cost is one larger page and then an immediate reset.
+        // A lagging counter reads as delta 0 and simply does not escalate.
+        {
+            const quint64 offered = static_cast<quint64>(
+                event.value(QStringLiteral("filter_offered")).toDouble(0));
+            const quint64 dropped = static_cast<quint64>(
+                event.value(QStringLiteral("filter_dropped_sdk")).toDouble(0)
+                + event.value(QStringLiteral("filter_dropped_rtc"))
+                      .toDouble(0));
+            const quint64 offeredDelta =
+                offered > state.lastFilterOffered
+                    ? offered - state.lastFilterOffered : 0;
+            const quint64 droppedDelta =
+                dropped > state.lastFilterDropped
+                    ? dropped - state.lastFilterDropped : 0;
+            state.lastFilterOffered = offered;
+            state.lastFilterDropped = dropped;
+            const unsigned short current =
+                state.batchSize > 0 ? state.batchSize : kPaginationBatch;
+            const bool fullyFiltered = offeredDelta > 0
+                && droppedDelta >= offeredDelta;
+            // The controller reads this to decide whether waiting 250 ms for
+            // rows is worth anything. Nothing can arrive from a page the
+            // filter emptied.
+            state.lastFullyFiltered = fullyFiltered;
+            if (!state.reachedStart && fullyFiltered) {
+                // Only useful when the SDK actually reaches a network gap —
+                // a page served from a stored chunk ignores the batch size
+                // entirely (matrix-sdk load_more_events_backwards returns one
+                // chunk). Harmless there, and it is the right ask when the
+                // walk does reach the network.
+                state.batchSize = static_cast<unsigned short>(
+                    qMin<quint64>(current * 3u, kPaginationMaxBatch));
+            } else {
+                // Anything at all came through: back to the ordinary page.
+                state.batchSize = 0;
+            }
+        }
         qCInfo(lcRust) << "timeline pagination complete reached_start="
-                       << state.reachedStart;
+                       << state.reachedStart
+                       << "nextBatch="
+                       << (state.batchSize > 0 ? state.batchSize
+                                               : kPaginationBatch)
+                       << "filterOffered="
+                       << event.value(QStringLiteral("filter_offered"))
+                              .toDouble(0)
+                       << "droppedSdk="
+                       << event.value(QStringLiteral("filter_dropped_sdk"))
+                              .toDouble(0)
+                       << "droppedRtc="
+                       << event.value(QStringLiteral("filter_dropped_rtc"))
+                              .toDouble(0);
     } else if (paginationState == QLatin1String("failed")) {
         state.loading = false;
         state.failed = true;

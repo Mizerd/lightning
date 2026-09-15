@@ -126,11 +126,48 @@ pub const PAGINATION_BATCH: u16 = 20;
 /// them: the "started a call" row is the notification event, the call UI
 /// reads membership from room STATE (`rtc.rs`), and the collapsed activity
 /// group is happier without a line per minute. Dropped at the source.
+/// WHY A PAGE ADDED NOTHING, which nothing could answer before.
+///
+/// `added= 0` and "the server returned nothing" were the same log line, and a
+/// room that opened empty and then made fourteen round trips producing no rows
+/// could not be told from a quiet room. It took a maintainer report to find,
+/// and then only because a second room in the same session opened instantly.
+///
+/// The count cannot come from the pagination call: matrix-sdk-ui's
+/// `paginate_backwards` returns a single `bool`, and the raw
+/// `BackPaginationOutcome { reached_start, events }` is discarded on the line
+/// that tests it (pagination.rs). This filter is the one place that sees every
+/// raw event AND knows why it said no.
+///
+/// CUMULATIVE AND PROCESS-GLOBAL, deliberately. The timeline ingests
+/// asynchronously after `paginate_backwards` has already returned, so a
+/// per-batch delta would race the very thing it measures; absolute values read
+/// as a climb across a run of pages instead. The cost is that an open thread
+/// panel shares the counters — both thread builders use this same filter — so
+/// read them while one timeline is doing the work.
+///
+/// WHAT THEY CANNOT SEE, stated so nobody over-reads them: events that fail to
+/// deserialize never reach this function, and `hide_threaded_events` is
+/// applied AFTER it by the SDK (`state_transaction.rs`), so a thread-only page
+/// shows as `offered` climbing with neither drop counter moving.
+pub(crate) static FILTER_OFFERED: AtomicU64 = AtomicU64::new(0);
+pub(crate) static FILTER_DROP_SDK: AtomicU64 = AtomicU64::new(0);
+pub(crate) static FILTER_DROP_RTC: AtomicU64 = AtomicU64::new(0);
+
 pub(crate) fn lightning_event_filter(
     event: &AnySyncTimelineEvent,
     rules: &RoomVersionRules,
 ) -> bool {
-    default_event_filter(event, rules) && !is_rtc_membership_event(event)
+    FILTER_OFFERED.fetch_add(1, Ordering::Relaxed);
+    if !default_event_filter(event, rules) {
+        FILTER_DROP_SDK.fetch_add(1, Ordering::Relaxed);
+        return false;
+    }
+    if is_rtc_membership_event(event) {
+        FILTER_DROP_RTC.fetch_add(1, Ordering::Relaxed);
+        return false;
+    }
+    true
 }
 
 pub(crate) fn is_rtc_membership_event(event: &AnySyncTimelineEvent) -> bool {
@@ -1324,6 +1361,20 @@ impl TimelineRegistry {
                             "lifecycle": lifecycle,
                             "state": "idle",
                             "reached_start": hit_start,
+                            // Cumulative, never a delta — see the counters'
+                            // own note. What a reader wants is the CLIMB
+                            // across a run of pages: `offered` rising with
+                            // `drop_rtc` names MatrixRTC churn, `offered`
+                            // rising with neither drop moving names
+                            // hide_threaded_events or aggregation folding,
+                            // and `offered` flat means the page really was
+                            // empty and the fault is elsewhere.
+                            "filter_offered": FILTER_OFFERED
+                                .load(Ordering::Relaxed),
+                            "filter_dropped_sdk": FILTER_DROP_SDK
+                                .load(Ordering::Relaxed),
+                            "filter_dropped_rtc": FILTER_DROP_RTC
+                                .load(Ordering::Relaxed),
                         }),
                     );
                 }
