@@ -1,5 +1,122 @@
 # Round history
 
+## 2026-09-15 (afternoon) — the room that said it was empty, and three more user reports
+
+Five agents audited message loading in parallel (three on Lightning, one on
+how other matrix-rust-sdk clients do it, one on GitHub issue #10). Three
+converged independently on the same mechanism, and the maintainer's own
+instrumented run then settled it outright.
+
+### `added= 0` was undiagnosable, and that was the first defect
+
+The pagination log emitted one bit where it needed two numbers. "The room is
+quiet" and "we fetched twenty events and discarded every one" were the same
+line, and the count is not recoverable downstream: `paginate_backwards` returns
+a bare `bool`, and matrix-sdk-ui throws `BackPaginationOutcome.events` away on
+the line that tests it (`pagination.rs`). Lightning's own timeline filter is
+the one place that sees every raw event AND knows why it said no, so it counts
+now — cumulative and process-global, because the timeline ingests
+asynchronously after the call returns and a per-batch delta would race it.
+
+The maintainer's next run answered the question in one line:
+
+```
+filterOffered= 240  droppedSdk= 0  droppedRtc= 240
+```
+
+Twelve consecutive pages, **100% MatrixRTC membership churn** — about 300
+`m.call.member` events between the room and its last real message.
+
+**GENERALISE: a log line that cannot distinguish "nothing happened" from "we
+threw everything away" is not a log line.** It took a maintainer report to find
+this, and only because a second room in the same session opened instantly.
+
+### Then four defects in how that was handled — none of them in the fetching
+
+**A room asserted its own emptiness after ONE empty page.**
+`m_initialHistoryHasSucceeded = true` had no `inserted > 0` test, so the first
+fill settled the initial history, the pane's presentation gate opened, and
+`timelineEmptyState` rendered *"No messages here yet. Start the
+conversation."* over a room full of history. That is the report's own sentence.
+
+**Fixing that made a latent redirect bite, and an existing test caught it.**
+`requestNearTop()` hands an early gesture to the fill while the initial history
+has not succeeded — and once the fill has STOPPED that swallows the gesture:
+the fill refuses it and no near-top page is dispatched. It had been unreachable
+only because an empty page used to set the flag.
+`emptyBatchesStopAutomaticFillButNotUserRequests` went 13 → 12 and named it.
+
+**The fill gave up at 8 pages, not the 12 that was deliberately configured.**
+A filtered page adds no rows, so it spends `maxViewportFillRetries` (8) and
+never touches `maxInvisibleFillRetries` (12) — the counter the 2026-09-05
+round raised *for exactly this case*. The raise went into the counter that
+filtered pages never reach, and nothing noticed because both numbers look
+right in isolation.
+
+**Every empty page paid a 250 ms settle for rows that could not arrive.**
+Twelve of them is three seconds of the reported ten.
+
+### Two things the cross-client agent found that are worth keeping
+
+**The sliding-sync room list runs at `DEFAULT_LIST_TIMELINE_LIMIT = 1`**, and
+any `limited` response with a prev_batch makes matrix-sdk shrink that room's
+in-memory cache to its last chunk (`state.rs`). So a room opens with one or two
+cached events — and `items= 0` when the filter drops them, against `items= 2`
+for a healthy room (one event plus its date divider). Both appear side by side
+in the maintainer's log. `subscribe_to_rooms` is what raises the room to 20,
+and Lightning applied it AFTER building the timeline; it goes first now.
+
+**And a page-size escalation is nearly inert, for a reason worth recording.**
+It was added after a fully filtered page and looked like it was working —
+`nextBatch= 180` — while `filterOffered` kept climbing by exactly 20. The cause
+is that `load_more_events_backwards` returns ONE STORED CHUNK at a time and
+never consults `batch_size`; that parameter only matters when the walk reaches
+a network gap. Those pages were local disk reads, not round trips, which also
+means the 250 ms settle was the dominant cost rather than the fetch. The
+escalation is kept because it is the right ask at a real gap, but **it is not
+the fix and must not be recorded as one.**
+
+It is also NOT the page doubling §16 refutes: that refutation measured
+unconditional 100-event pages against rooms whose pages ADD ROWS, and both
+harms it found — a ~600-row overshoot and per-row ingest — need rows.
+
+### Three other reports from the same day
+
+**A reply quote could never resolve its own target.** `InReplyToDetails::event`
+is a field on the REPLYING event, starts `Unavailable`, and matrix-sdk fills it
+only when asked via `Timeline::fetch_details_for_event` — which
+`grep -rn fetch_details_for_event rust/` showed had **never been called in this
+repository**. So a quote was populated only when the homeserver happened to
+bundle the replied-to event, and read "(original message not loaded)" for ever
+otherwise. Reported as a quote failing on a message three rows above, on
+screen; being on screen was never relevant.
+
+**Forwarding was limited to the active Space.** Both pickers used
+`app.roomList`, which is bound to SpaceManager. The reporter's own observation
+named the mechanism precisely — *"if you arnt in any spaces you can forward
+wherever you want"* — because an empty active Space disables the filter.
+
+**GitHub issue #12 is confirmed, not hypothesised.** The reporter's log stops
+at `publishTracks camera= false`, and `publishTracks` calls `publishAudio()` on
+the next line, which is exactly where `monitorCandidates("Audio/Source")`
+blocks the GUI thread. The 2026-09-14 fix addresses it both ways.
+
+### And one that is fixed only in part, stated as such
+
+`CallDeviceController`'s constructor is deliberately empty because touching
+QMediaDevices initialises Qt Multimedia, which on a PipeWire desktop prints a
+SPA parse error per device (`spaVisitChoice` — confirmed by walking the
+binary's shared libraries to `libQt6Multimedia.so.6`, so the messages are Qt's
+own parser and what is ours is waking it). `enableCallMediaEngine()` then
+called `applyDevices()` unconditionally one line later, defeating it on every
+launch. Now gated on a stored device preference.
+
+**It did not stop the noise.** With no preference stored the gate skipped the
+call and Qt Multimedia still came up before `voice-call media engine active`.
+`runtimeAvailable()` is pure GStreamer probing and `setMediaBackend` touches no
+devices, so the remaining trigger is unlocated. `applySfuDevices()` a few lines
+below has the identical shape and is the first place to look.
+
 ## 2026-09-15 — the row's right rail had three things on it, and a live two-account GUI audit of all three layouts
 
 A user reported the hover action bar buried under read-receipt avatars ("this

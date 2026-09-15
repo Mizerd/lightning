@@ -73,6 +73,34 @@ tile.
 
 OPEN DEFECTS, reported live and not yet confirmed fixed. These are the list.
 
+**QT MULTIMEDIA STILL COMES UP AT EVERY LAUNCH, and the trigger is not
+located (2026-09-15).** `CallDeviceController`'s constructor is deliberately
+empty because touching QMediaDevices initialises the Qt Multimedia backend,
+which on a PipeWire desktop prints a `spaVisitChoice: parse error` per device
+(the symbol is in `libQt6Multimedia.so.6` — confirmed by walking the binary's
+shared libraries — so the messages are Qt's own pod parser and what is ours is
+waking it). `enableCallMediaEngine()`'s unconditional `applyDevices()` was one
+such waker and is now gated on a stored device preference, **but the noise
+survives that fix**: with no preference stored the gate skipped the call and Qt
+Multimedia still initialised before `voice-call media engine active` is logged.
+`GstCallMediaBackend::runtimeAvailable()` is pure GStreamer element probing and
+`setMediaBackend` touches no devices. `applySfuDevices()` a few lines below has
+the identical shape and is the first place to look. Separately, a burst of
+`GStreamer-CRITICAL ... range start is not smaller than end for GstIntRange`
+fires later, after the main screen loads — a different trigger, also unlocated,
+and the unfiltered device monitor in `perApplicationCaptureAvailable()` is the
+suspect there.
+
+**"WAITING FOR KEYS" REPORTED BACK (2026-09-15), NOT DIAGNOSED.** A user
+reported undecryptable messages that re-entering the recovery passphrase
+fixed. The recovery supervisor's download pass IS wired and runs
+(`rust/src/timeline.rs`, `download_backup_keys_for_room`), so it is not inert.
+Nothing further can be established from a chat screenshot: §9 forbids claiming
+E2EE behaviour without a live multi-device test, and §18 requires instrumenting
+rather than guessing. What would settle it is the reporter's
+`lightning.crypto.bootstrap` phase line together with `requestState`,
+`ownIdentity` and `crossSigningSecrets` at the moment the messages fail.
+
 **THE 2026-09-15 LAYOUT AUDIT: four defects fixed, and what it did NOT cover.**
 Modern, Compact and Bubbles were each driven against a real room on two
 throwaway accounts, with mixed own/other messages, wrapping bodies, group

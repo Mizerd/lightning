@@ -1684,6 +1684,46 @@ a row is a collision waiting for a short row, and a geometric assertion is the
 only thing that can see it — every one of these passed a source scan.**
 Detail in `docs/round-history.md`, 2026-09-15.
 
+**A LOG LINE THAT CANNOT TELL "NOTHING HAPPENED" FROM "WE THREW EVERYTHING
+AWAY" IS NOT A LOG LINE.** A room open made fourteen back-paginations that each
+reported `added= 0`, and nothing anywhere could say whether the server returned
+nothing or the timeline filter had discarded a full page — `paginate_backwards`
+returns a bare `bool` and matrix-sdk-ui drops `BackPaginationOutcome.events` on
+the line that tests it. Lightning's own filter is the only place that sees
+every raw event AND knows why it said no; it counts now, and one instrumented
+run answered it outright (`filterOffered= 240 droppedRtc= 240` — twelve pages,
+100% MatrixRTC churn). **Four handling defects hid behind that silence**: a
+room asserted its own emptiness after ONE empty page
+(`m_initialHistoryHasSucceeded` had no `inserted > 0` test, so
+`timelineEmptyState` rendered "No messages here yet" over full history); the
+fill gave up at 8 because a page that adds NO rows spends
+`maxViewportFillRetries`, never the `maxInvisibleFillRetries` the 2026-09-05
+round raised for exactly this case; every empty page paid a 250 ms settle for
+rows that could not arrive; and `requestNearTop()`'s redirect swallowed the
+user's gesture once the fill had stopped. Detail in `docs/round-history.md`,
+2026-09-15 (afternoon).
+
+**AND A PAGE-SIZE ESCALATION IS NEARLY INERT — do not record it as the fix.**
+`matrix-sdk`'s `load_more_events_backwards` returns ONE STORED CHUNK at a time
+and never consults `batch_size`; that parameter only reaches the wire when the
+walk hits a network gap. A filtered run is therefore local disk reads, which is
+why the 250 ms settle dominated and not the fetch. (It is also NOT the page
+doubling §16 refutes: that measured unconditional 100-event pages on rooms
+whose pages ADD ROWS, and both harms it found need rows.) Related: the
+sliding-sync room list runs at `DEFAULT_LIST_TIMELINE_LIMIT = 1` and any
+`limited` response shrinks a room's cache to its last chunk, so `items= 0`
+versus a healthy room's `items= 2` (one event plus its date divider) is that
+residue, not an empty room.
+
+**`Timeline::fetch_details_for_event` HAD NEVER BEEN CALLED IN THIS
+REPOSITORY.** `InReplyToDetails::event` is a field on the REPLYING event, not a
+lookup into the loaded timeline, and it starts `Unavailable` — so a reply quote
+read "(original message not loaded)" for ever unless the homeserver happened to
+bundle the target. Reported against a message three rows above, on screen;
+being on screen was never relevant. Same family as `refreshIndexStats()` and
+the unregistered test file: code that exists, looks right, and is never
+reached — **grep for the caller, not just the definition.**
+
 **A STATE SET IMMEDIATELY BEFORE EMITTING A SIGNAL IS NOT A STATE THE USER
 SEES.** Qt's default connection on one thread is DIRECT, so the whole
 downstream chain runs before the setter returns and anything in it that writes
