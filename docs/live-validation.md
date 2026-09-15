@@ -14,6 +14,41 @@ anything to tested, and read `open-items.md` beside it for what has NOT been.
 
 ### Live validation: what Rokas has actually confirmed
 
+**2026-09-15 (night) — THE AUTOMATIC KEY-RECOVERY PATH, END TO END: PASS.**
+On the COMMITTED code (`e72d97d`, which contains `8f472c2`), nothing patched.
+Two screenshots of the same two rows: **"Waiting for keys…"** before, and
+**"FOXTROT 006 second session" / "GOLF 007 second session"** after, with **no
+Retry press, no passphrase, and no interaction with the client between the two
+frames.** Verified twice. (`~/lt-e2ee/CLEAN-BEFORE-s.png`, `CLEAN-AFTER2-s.png`
+on the laptop.)
+
+The precondition that defeated the previous round was finally built: device
+`GIYKFBQTEJ` had backups enabled **from its own store** — `Backup state changed
+from Unknown to Enabled` with no `Downloading` pass and no passphrase entered
+in the measured run — while one session sat in the account's backup and not in
+that device's crypto store. Opening the room logged `auto key recovery
+"started" sessions= 1` -> `"no_keys_found"`; the key was then restored to the
+backup and a timeline diff produced from OUTSIDE the client (a reaction over the
+raw API), giving `"started" sessions= 1` -> `"ok" sessions= 1` and the rows
+rendering their text.
+
+**WHY THE PRECONDITION IS HARD, and this is worth keeping:** matrix-sdk runs a
+full `Downloading` pass whenever backups are enabled, so **entering a recovery
+key downloads the whole backup** and cannot leave a gap. The gap needs a key
+that enters the backup AFTER that pass. That is why two rounds could not build
+it by the obvious route.
+
+**Observations, not findings:** the recovery is **~200 ms** on a warm path, so
+the intermediate state is effectively invisible — it could only be photographed
+by making the backup temporarily lack the key. And nothing polls, as designed:
+after `no_keys_found` the rows stayed unresolved indefinitely until a diff
+arrived. A reaction on an already-decryptable row did not re-trigger one; on an
+undecryptable row it did. That may be the 30 s backoff rather than row identity;
+the two were not separated.
+
+**NOT covered:** Element interoperability, key recovery across a room switch,
+and the thread-timeline hook (the room hook is what was exercised).
+
 **2026-09-15 (night) — THE AUTOMATIC KEY-RECOVERY PATH: THE MECHANISM FIRES
 AND IS BOUNDED (PASS). THE END-TO-END CLAIM IS NOT TESTED.** Two fresh devices
 of a throwaway account on the laptop, driven against a real homeserver.
@@ -39,7 +74,14 @@ open and the rows on screen — then exactly once each. The
 `skipped_no_backup_key` branch produced one line, not one per diff. Clients
 that never opened an undecryptable room produced **zero** lines: nothing polls.
 
-**END TO END — NOT TESTED, and the blocker was proven rather than assumed.**
+**END TO END — NOT TESTED IN THIS RUN. Achieved later the same night; see the
+entry above.** The blocker below was real but was NOT what it looked like —
+see `docs/open-items.md`: it was four Lightning instances sharing one device id
+and racing for its to-device queue, caused by a harness `pgrep` idiom that
+matched the wrapper instead of the app, so every `kill` left the app alive.
+Neither the homeserver nor Lightning was at fault.
+
+**The run's own account of it:**
 The precondition needs a key that is IN the backup and NOT yet downloaded, and
 no device of that account could obtain a Megolm key by to-device at all.
 Crypto-store inspection (identifiers only) found the sender's store holding

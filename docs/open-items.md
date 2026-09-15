@@ -91,7 +91,10 @@ fires later, after the main screen loads — a different trigger, also unlocated
 and the unfiltered device monitor in `perApplicationCaptureAvailable()` is the
 suspect there.
 
-**"WAITING FOR KEYS" — FIXED 2026-09-15, NOT YET LIVE-VALIDATED.** The
+**"WAITING FOR KEYS" — FIXED AND LIVE-VALIDATED PASS, 2026-09-15.** Two
+screenshots of the same rows going from "Waiting for keys…" to their text with
+no Retry press, no passphrase and no interaction in between, on the committed
+code, verified twice. See `docs/live-validation.md`. The mechanism: The
 automatic path the sections below say was missing now exists:
 `recover_keys_for_utds` (`rust/src/timeline.rs`) runs a bounded per-session
 backup download for any undecryptable event that arrives, on the room's
@@ -128,10 +131,9 @@ undecryptable replies are not covered, which matches the pre-existing shape of
 room decrypts the thread's copy on that thread's next retry, but nothing
 triggers one automatically.
 
-**LIVE VALIDATION: NOT TESTED.** §9 and §12 require a real multi-device test
-against a live backup before this may be called PASS, and the automated
-coverage below proves mechanics only. Do not promote it on the strength of the
-tests.
+**LIVE VALIDATION: PASS** (2026-09-15, on `e72d97d`). What it does NOT cover:
+Element interoperability, recovery across a room switch, and the THREAD
+timeline hook — the room hook is what was exercised.
 
 The mechanism this fix closes, recorded when it was still open: A user reported
 undecryptable messages that re-entering the recovery passphrase fixed. An
@@ -211,24 +213,56 @@ an import line the key never arrived; if it appears while the row still reads
 "Waiting for keys…" the key arrived and the row never updated. Nobody has ever
 told those two apart.
 
-**TO-DEVICE ROOM-KEY DELIVERY DID NOT WORK FOR THE TEST ACCOUNTS
-(2026-09-15), AND IT IS NOT THIS ROUND'S CHANGE.** Found while trying to
-construct a live fixture for the automatic key-recovery path. Neither device of
-`lightningtest2` received a Megolm key by to-device — queued (offline) delivery
-failed and, in the last attempt, live delivery failed too — while the SENDER's
-SDK log reported success: *"Marking to-device request carrying a room key … as
-sent"* and *"All m.room_key … were sent out, marking session as shared"*.
-Crypto-store inspection (identifiers only) confirmed the receiving stores never
-gained the sessions; before anything was touched, one device held 2 of the 12
-sessions present in its two encrypted rooms.
+**THE "TO-DEVICE DELIVERY IS BROKEN" REPORT WAS THE HARNESS, AND THE HARNESS
+BUG SILENTLY INVALIDATED A WHOLE ROUND (2026-09-15, RESOLVED).** An earlier run
+found that no device of `lightningtest2` could receive a Megolm room key while
+the sender's SDK log reported success, and recorded it as possibly the
+homeserver or possibly Lightning. **It was neither, and both are exonerated by
+direct measurement:**
 
-**Not diagnosed, and deliberately not guessed at.** It could be the
-homeserver's to-device queue, the accounts' device state after many
-create/delete cycles, or the client. What it definitely is: **these two
-throwaway accounts are currently a poor fixture for any E2EE key-arrival
-test**, and that is what blocked the end-to-end half of the key-recovery
-validation. Fixing the fixture — or finding out it is the client — is the
-prerequisite for ever promoting that path to PASS.
+- **The homeserver is fine**, proven WITHOUT Lightning: a raw `/sendToDevice` +
+  `/sync` between two brand-new accounts delivered both a custom type and
+  `m.room.encrypted` — the type that carries Megolm keys.
+- **Lightning is fine**, proven twice: two brand-new accounts, one brand-new
+  device each, fresh encrypted room, `Received a new megolm room key` with the
+  matching session id and the plaintext rendered.
+
+**The cause: four Lightning instances running concurrently on ONE profile,
+sharing one device id and access token and racing for that device's to-device
+queue.** Whichever synced first consumed and acked the events; the rest saw
+nothing. The symptom is indistinguishable from a dead transport — a healthy
+sync loop, 27+ cycles, zero to-device events.
+
+**And the reason four were running is a `pgrep` idiom this file has warned
+about before, in a new costume.** `pgrep -f "log-file …" | head -1` matches the
+`nix develop -c ./build-rust/lightning-matrix … --log-file …` WRAPPER as well
+as the app, and `head -1` returned the wrapper — so every `kill` reported
+success and left the app alive. `~/lt-sweep/catchkey.sh` uses the identical
+idiom, and the previous round's devices all shared one device id, so **that
+round's negative result was almost certainly this same bug**. Strongly
+evidenced, not proved: the run was not resurrected.
+
+**FIX THE HARNESS BEFORE THE NEXT E2EE ROUND:** match `^\./build-rust/lightning-matrix`
+or a PID captured at launch, never a `-f` pattern that the launcher's own
+command line also contains. **GENERALISE: a `pgrep -f` pattern that appears in
+the wrapper's argv kills nothing and reports success** — the third member of
+the family that already holds `$(pgrep -c x || echo 0)` and the wait loop that
+matches its own command line.
+
+**Refuted in the same round; do not re-propose without saying which claim was
+refuted:** `IdentityBasedStrategy`/strict device trust (absent from all four
+profiles, so it was off); Synapse device-key immutability (measured — 1.156.0
+ACCEPTS a replacement identity key for an existing device id); and Olm account
+recreation under a reused device id (never happened, identity keys constant).
+
+**Fixture health, worth knowing:** `@lightningtest` has **19** devices,
+`@lightningtest2` **7**, and **neither has a cross-signing master key**.
+`lightningtest3` and `lightningtest4` were created for this reason.
+
+**Bonus finding, not chased:** with strict device trust ON and nobody
+cross-signed, **sending fails outright** — the message sat as "failed · Retry ·
+Cancel" and no to-device request was created at all. Worth knowing before that
+setting is ever promoted.
 
 **THE 2026-09-15 WINDOWS GUEST ROUND — two guests driven at once, and four
 results worth keeping.** Clock checked first, as this file requires: `tzutil
