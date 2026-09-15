@@ -11,9 +11,11 @@
 # sources list) and flathub.json. All three sit at the repository root so the
 # Flathub submission repository is a straight copy of them.
 #
-# SOURCE PIN: the app is built from the GitHub mirror at the v0.9.4 release
+# SOURCE PIN: the app is built from the GitHub mirror at the v0.9.5 release
 # tag, with the tag's commit pinned alongside it. Re-pin BOTH fields to
-# whatever release is actually cut for the submission before submitting.
+# whatever release is actually cut for the submission before submitting, and
+# read the note above the `type: git` source first — moving this pin has
+# three consequences that are not obvious from the two lines it changes.
 app-id: org.lightning_matrix.Lightning
 runtime: org.kde.Platform
 runtime-version: "6.11"
@@ -155,27 +157,39 @@ modules:
       # to, so the build is reproducible even if the tag were ever moved.
       # x-checker-data lets Flathub's bot open version-bump pull requests.
       #
-      # THIS CANNOT BE SUBMITTED FROM v0.9.4 OR ANYTHING BELOW IT, and the
-      # reason is not tidiness — a submission from this pin fails review.
-      # Measured at bcea599 on 2026-09-12:
+      # MOVED OFF v0.9.4 ON 2026-09-15, and the reason was not tidiness: a
+      # submission from that pin failed review, measured on the laptop rig
+      # rather than argued. `flatpak-builder-lint repo` returned
+      # `metainfo-missing-screenshots` and `appstream-failed-validation`,
+      # which Flathub documents as errors whose "exception is never granted".
+      # Three separate causes, all of them real at bcea599:
       #
-      #   * the metainfo in that tree is 17 lines with NO <releases> and NO
-      #     <screenshots>. update-metainfo-release.sh says in its own text that
-      #     Flathub rejects a metainfo without a release entry, and the listing
-      #     would carry no changelog, no screenshots and no brand colours;
-      #   * the four screenshot URLs the current metainfo points at are
+      #   * the metainfo in that tree is a 669-byte stub with NO <releases>
+      #     and NO <screenshots>, so the listing would carry no changelog, no
+      #     screenshots and no brand colours;
+      #   * the four screenshot URLs point at
       #     raw.githubusercontent.com/.../v0.9.4/docs/screenshots/flathub/...,
-      #     and that directory does not exist at that tag — four 404s;
-      #   * CameraPortal landed AFTER 0.9.4, so a build from this pin ships the
-      #     very camera blocker the Flatpak work was done to remove.
+      #     and that directory does not exist at that tag — four 404s. (That
+      #     one was NOT Flathub-only: every published 0.9.5 package carries
+      #     the same dead URLs. packaging-ci/tests/test-metainfo-consistency.py
+      #     now catches it offline, with git ls-tree, because the three
+      #     package validators run `appstreamcli validate --no-net` and the
+      #     network check is the only part that can see a dead URL.)
+      #   * CameraPortal and the FLATPAK_ID/setDesktopFileName fix both landed
+      #     AFTER 0.9.4, so a build from that pin shipped the very camera
+      #     blocker the Flatpak work was done to remove.
       #
-      # So: re-pin to the release that carries all three before submitting, and
-      # regenerate cargo-sources.json in the same change whenever the pin moves
-      # (it matches Cargo.lock at bcea599 today, and Cargo.lock moves with it).
+      # All three are satisfied at v0.9.5, and the lint was verified to return
+      # 0 errors once the metainfo was fixed. Regenerate cargo-sources.json in
+      # the same change whenever the pin moves — but it did NOT need
+      # regenerating for this move, and the check is worth stating exactly:
+      # the ONLY line of rust/Cargo.lock that differs between v0.9.4 and
+      # v0.9.5 is the workspace crate's own `version = "0.9.5"`, and the local
+      # crate is never a vendored source. No dependency moved.
       - type: git
         url: https://github.com/Mizerd/lightning.git
-        tag: v0.9.4
-        commit: bcea599fa7be1afa55be46e7a3b5e09cf03bd01a
+        tag: v0.9.5
+        commit: 8d5d0ca1135747106a83308ecf11ce1ab4575f1d
         x-checker-data:
           type: git
           tag-pattern: '^v([\d.]+)$'

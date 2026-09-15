@@ -1,5 +1,127 @@
 # Round history
 
+## 2026-09-15 (evening) — the laptop rig, Flathub measured at last, and a field the bridge dropped
+
+Two guests running at once on the laptop (10.195.174.169) with an agent on
+each, plus a read-only audit of the standing "waiting for keys" report.
+
+### Flathub: the maintainer was right, and the earlier audit was stale
+
+A previous session reported that the Flathub manifest had never been built or
+linted. The maintainer contradicted it from memory. **He was right.** The rig
+is a `flathub-rig` container on the laptop and it holds a complete
+`flatpak-builder --sandbox --repo=repo --install` run from 2026-09-11 (a
+382,580-byte log), its driver script, the 23 MB bundle it produced, and the
+app still installed. Bash history has no trace because the work ran over
+non-interactive SSH — **a history grep returning nothing is not evidence of
+absence**, and relaying a subagent's negative without checking it against the
+maintainer's own records is how the wrong claim got written down twice.
+
+Measured this round, on the rig, against `f7c6c3c`:
+
+| gate | result |
+|---|---|
+| build, offline, KDE 6.11 runtime | **PASS** — cargo fully offline from `cargo-sources.json`, Rust from the SDK extension (1.98.1), `call media engine built in: yes`, `secret_store: libsecret` |
+| `flatpak-builder-lint manifest` | **PASS**, no output |
+| `flatpak-builder-lint builddir` / `repo` | **FAIL, 2 errors** — `metainfo-missing-screenshots`, `appstream-failed-validation` |
+| `appstreamcli validate` (networked) | **FAIL** — 4 x `screenshot-image-not-found`, exit 3 |
+| GUI in the Ubuntu guest | **PASS** — installs, launches, `Lightning 0.9.4`, both call engines, login screen read by OCR off the pixels |
+
+Flathub documents both lint errors as ones whose *"exception is never
+granted"*, so they are hard blocks.
+
+### The cause is bigger than Flathub: 0.9.5 shipped four dead screenshot URLs
+
+`73c87ef` added `docs/screenshots/flathub/` **and** the metainfo pointing at
+them — with the URLs pinned to tag `v0.9.4`, where the files do not exist. It
+shipped inside v0.9.5. Verified here offline: `git ls-tree v0.9.4 --
+docs/screenshots/flathub/` is empty and `v0.9.5` lists all four.
+
+So this is not a Flathub-only defect. **Every published 0.9.5 package — deb,
+rpm, AppImage, snap — carries a metainfo whose four screenshot URLs 404**, and
+GNOME Software and KDE Discover show no screenshots for those installs.
+
+**Nothing could see it**, and the reason generalises: all three package
+validators run `appstreamcli validate --no-net`
+(`packaging-ci/scripts/validate-deb.sh:60`, `validate-rpm.sh:89`,
+`packaging/rpm/lightning.spec:82`), and the network check is the only part of
+appstreamcli that can see a dead URL.
+
+Keeping `--no-net` is right — a package build should not fail because GitHub
+is slow. So the new `packaging-ci/tests/test-metainfo-consistency.py` answers
+the same question **offline**, with `git ls-tree`: a URL naming one of this
+repository's own tags is checkable with no network at all, and it fails on the
+commit that introduces the mistake instead of after a release is published. It
+also calls `update-metainfo-release.sh`, which was written to catch the second
+half of this, is correct, and had **no caller anywhere** — the recorded "a test
+file can be committed and never registered", in its packaging costume. That
+second half was live too: the newest `<release>` read 0.9.4 in a 0.9.5 tree,
+so every listing showed the previous release's version and changelog.
+
+FAIL-ON-OLD, run: reverting both defects fails **six** of its checks.
+
+Fixed with it: the four URLs repointed to `v0.9.5`, a `0.9.5` release entry
+added, and the Flathub manifest repinned from `v0.9.4`/`bcea599` to
+`v0.9.5`/`8d5d0ca`. That last one matters beyond the lint — **v0.9.4 has
+neither `CameraPortal` nor the `FLATPAK_ID`/`setDesktopFileName` fix**, so a
+submission from the old pin would have shipped the very camera blocker the
+Flatpak work existed to remove. `cargo-sources.json` needs no regeneration:
+`git diff v0.9.5 HEAD -- rust/Cargo.lock` is empty.
+
+Still open, and the maintainer's to do: the verified-app token
+(`https://www.lightning-matrix.org/.well-known/org.flathub.VerifiedApps.txt`
+is 404), and the submission PR itself — **Flathub's published requirements
+forbid an AI agent opening or automating a submission PR or writing its commit
+messages, descriptions or replies.** That one is his to write, by their rule.
+
+### "Waiting for keys": the mechanism, established from the code
+
+See `docs/open-items.md` for the full entry. The headline is that **two of the
+three mechanisms CLAUDE.md §9's diagram named do not exist**:
+`automatic-room-key-forwarding` is not a requested feature (so Lightning has
+never sent an `m.room_key_request` on a decryption failure, in any version)
+and `BackupDownloadStrategy::OneShot` installs neither the UTD handler nor the
+`BackupDownloadTask`. The one automatic route left runs **at most once per
+room per session**, and `mx_rust_recover_from_backup` is the only caller of
+`clear_backup_attempt` in the tree — which is exactly why typing the
+passphrase cures it and nothing else does. §9 and
+`docs/feature-contracts.md` both claimed the absent mechanisms and are
+corrected. NOT a 0.9.5 regression: the structure has been unchanged since
+v0.6.3.
+
+`download_backup_keys_for_room`'s three silent early returns now emit
+`skipped_no_backup_key` / `skipped_already_attempted` / `skipped_bad_room_id`.
+Behaviour is unchanged by construction — `CryptoBootstrapModel` compares that
+field only against `started` and `failed` — which is also why the banner could
+read **Ready** while rows sat on "Waiting for keys…".
+
+### A field the Rust lane computes and the bridge dropped
+
+`rtc_membership_published` carries six fields and
+`RustSdkMatrixClient::handleRustEvent` read five: `delayed_category` was
+computed in `rust/src/rtc.rs`, enqueued, and thrown away at the FFI. The cost
+was diagnostic — every `delayed= false` in a call log was mute about whether
+the homeserver has no MSC4140 endpoint (permanent, nothing to retry) or
+refused this one write (transient, the next publish retries). Opposite
+remedies, and issue #10's reporter had no way to tell them apart.
+
+**Nothing could see it, for a reason worth keeping:** `SfuCallController`'s
+tests drive a fake client that emits the signal *itself*, so they prove what
+the controller does with a field and say nothing about whether the bridge ever
+supplies one. `tests/RtcBridgePayloadTest.cpp` drives the real dispatcher with
+the real payload through `handleRustEventForTest`. FAIL-ON-OLD, run: with the
+field dropped again the bridge test reads an empty string, and with the
+controller's record removed the controller test fails — both confirmed by
+mutation, each caught by a different suite.
+
+### Validation
+
+Rust **423 passed, 0 failed, 5 ignored, 428 total**. `build-rust` CTest
+**207/207 passed, 0 failed**. Non-Rust build rc=0. `pagination-controller` had
+failed once in an earlier parallel run; it did **not** reproduce in four
+attempts (three under 16-way load, one in the same parallel shape), so it is
+recorded as an unreproduced flake and NOT as a cause.
+
 ## 2026-09-15 (afternoon) — the room that said it was empty, and three more user reports
 
 Five agents audited message loading in parallel (three on Lightning, one on

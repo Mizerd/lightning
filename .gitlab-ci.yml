@@ -169,6 +169,16 @@ config-tests:
     # to a desktop entry or draws a placeholder. Reported against 0.9.x, once
     # the AppImage stopped falling back to XWayland.
     - python3 ./packaging-ci/tests/test-appimage-desktop-entry.py
+    # The metainfo's screenshot URLs and its newest <release>. 0.9.5 shipped
+    # four screenshot URLs pinned to v0.9.4, a tag that does not contain the
+    # files, so every published package advertises four 404s and a Flathub
+    # repo lint fails outright. All three package validators run
+    # `appstreamcli validate --no-net`, and the network check is the only
+    # part that can see a dead URL -- so this answers the same question
+    # offline with `git ls-tree`, which fails on the commit rather than after
+    # the release. It also calls update-metainfo-release.sh, which was written
+    # for the second half of this and had no caller anywhere.
+    - python3 ./packaging-ci/tests/test-metainfo-consistency.py
 
 # Proves the GitHub mirror can be written BEFORE anything is published. The
 # mirror job runs after the GitLab tag and release exist, so a dead or

@@ -80,19 +80,19 @@
       is sent anywhere.
     -->
     <screenshot type="default">
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.4/docs/screenshots/flathub/01-conversation.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.5/docs/screenshots/flathub/01-conversation.png</image>
       <caption>A room conversation with replies, reactions and a shared picture</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.4/docs/screenshots/flathub/02-threads.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.5/docs/screenshots/flathub/02-threads.png</image>
       <caption>A thread open beside the conversation it came from</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.4/docs/screenshots/flathub/03-call.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.5/docs/screenshots/flathub/03-call.png</image>
       <caption>A four-person call running above the room it belongs to</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.4/docs/screenshots/flathub/04-themes.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.5/docs/screenshots/flathub/04-themes.png</image>
       <caption>Building a colour theme against a live sample of the interface</caption>
     </screenshot>
   </screenshots>
@@ -168,6 +168,18 @@
   </content_rating>
 
   <releases>
+    <release version="0.9.5" date="2026-09-13" type="stable">
+      <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.5</url>
+      <description>
+        <p>
+          The Snap had never been able to make a call, and not because of a
+          recent regression: it had never worked in any version it shipped
+          in. This release is mostly about finding out why, and about a
+          handful of things that were quietly wrong in the parts of the
+          client that handle your encryption keys.
+        </p>
+      </description>
+    </release>
     <release version="0.9.4" date="2026-09-10" type="stable">
       <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.4</url>
       <description>
