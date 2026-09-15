@@ -128,7 +128,7 @@ Dialog {
             Layout.fillHeight: true
             clip: true
             spacing: AppTheme.spacing4
-            model: app.roomList
+            model: app.allRooms
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
             delegate: Rectangle {

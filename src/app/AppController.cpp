@@ -212,6 +212,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_accounts     = std::make_unique<AccountManager>(m_settings.get(), this);
     m_auth         = std::make_unique<AuthManager>(m_client.get(), this);
     m_roomList     = std::make_unique<RoomListModel>(this);
+    m_allRooms     = std::make_unique<RoomListModel>(this);
     m_quickSwitcher = std::make_unique<QuickSwitcherModel>(this);
     m_timeline     = std::make_unique<TimelineModel>(this);
     m_timelineView = std::make_unique<ReverseListProxyModel>(this);
@@ -1279,6 +1280,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_draftStore->setClient(m_client.get());
     m_roomList->setClient(m_client.get());
     m_roomList->setSpaceManager(m_spaces.get());
+    // Deliberately NO setSpaceManager: this is the unfiltered list the
+    // forward pickers use. See the allRooms property.
+    m_allRooms->setClient(m_client.get());
     // The rail's rows: the user's arrangement applied to the hierarchy, with
     // the transient drag preview living in the model rather than in QML.
     m_railEntries->setSources(m_spaces.get(), m_railLayout.get());
@@ -2705,6 +2709,7 @@ void AppController::applyDemoLaunchOptions(const QString &scenario,
 
 AccountManager *AppController::accounts() const { return m_accounts.get(); }
 RoomListModel *AppController::roomList() const { return m_roomList.get(); }
+RoomListModel *AppController::allRooms() const { return m_allRooms.get(); }
 SpaceChannelModel *AppController::spaceChannels() const
 { return m_spaceChannels.get(); }
 QuickSwitcherModel *AppController::quickSwitcher() const

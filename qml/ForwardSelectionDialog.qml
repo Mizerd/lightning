@@ -136,7 +136,7 @@ Dialog {
             Layout.preferredHeight: 240
             visible: !root.sending && !root.finished
             clip: true
-            model: app.roomList
+            model: app.allRooms
             ScrollBar.vertical: AppScrollBar {}
             SmoothWheelArea {}
             delegate: ItemDelegate {

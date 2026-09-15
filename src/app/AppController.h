@@ -305,6 +305,17 @@ class AppController : public QObject
     Q_PROPERTY(AuthManager* auth READ auth CONSTANT)
     Q_PROPERTY(AccountManager* accounts READ accounts CONSTANT)
     Q_PROPERTY(RoomListModel* roomList READ roomList CONSTANT)
+    /// EVERY joined room, with NO Space filter — the list a "pick a room"
+    /// surface needs.
+    ///
+    /// `roomList` is bound to SpaceManager and shows only the ACTIVE Space's
+    /// rooms; that is right for navigation and wrong for forwarding. Reported
+    /// 2026-09-15: "you cant forward outside of the space you are in. But if
+    /// you arnt in any spaces you can forward wherever you want" — which is
+    /// exactly the filter, since an empty active Space disables it. A message
+    /// can be forwarded to any room the user is in, so the picker gets its own
+    /// unfiltered model rather than a second meaning for the navigation one.
+    Q_PROPERTY(RoomListModel* allRooms READ allRooms CONSTANT)
     /// The Channels navigation layout's model: the active Space's DIRECT
     /// hierarchy. Separate from roomList because the two answer different
     /// questions — see SpaceChannelModel's header for why a filtered
@@ -638,6 +649,7 @@ public:
     AuthManager *auth() const;
     AccountManager *accounts() const;
     RoomListModel *roomList() const;
+    RoomListModel *allRooms() const;
     SpaceChannelModel *spaceChannels() const;
     WidgetController *widgets() const { return m_widgets.get(); }
     QuickSwitcherModel *quickSwitcher() const;
@@ -1518,6 +1530,8 @@ private:
     std::unique_ptr<AccountManager> m_accounts;
     std::unique_ptr<AuthManager> m_auth;
     std::unique_ptr<RoomListModel> m_roomList;
+    // Same rows, no Space filter. See the allRooms property.
+    std::unique_ptr<RoomListModel> m_allRooms;
     std::unique_ptr<SpaceChannelModel> m_spaceChannels;
     std::unique_ptr<WidgetController> m_widgets;
     std::unique_ptr<QuickSwitcherModel> m_quickSwitcher;
