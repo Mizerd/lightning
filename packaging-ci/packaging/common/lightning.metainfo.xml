@@ -80,19 +80,19 @@
       is sent anywhere.
     -->
     <screenshot type="default">
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.5/docs/screenshots/flathub/01-conversation.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.6/docs/screenshots/flathub/01-conversation.png</image>
       <caption>A room conversation with replies, reactions and a shared picture</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.5/docs/screenshots/flathub/02-threads.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.6/docs/screenshots/flathub/02-threads.png</image>
       <caption>A thread open beside the conversation it came from</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.5/docs/screenshots/flathub/03-call.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.6/docs/screenshots/flathub/03-call.png</image>
       <caption>A four-person call running above the room it belongs to</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.5/docs/screenshots/flathub/04-themes.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.6/docs/screenshots/flathub/04-themes.png</image>
       <caption>Building a colour theme against a live sample of the interface</caption>
     </screenshot>
   </screenshots>
@@ -168,6 +168,19 @@
   </content_rating>
 
   <releases>
+    <release version="0.9.6" date="2026-09-15" type="stable">
+      <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.6</url>
+      <description>
+        <p>
+          A release of fixes, most of them found by reading the parts of the
+          client nobody had read end to end. A homeserver going down no longer
+          puts you back on the login page with your messages already on disk;
+          a reply can resolve the message it answers; forwarding is no longer
+          confined to the Space you happen to be in; and a room whose recent
+          history is all call activity no longer claims to be empty.
+        </p>
+      </description>
+    </release>
     <release version="0.9.5" date="2026-09-13" type="stable">
       <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.5</url>
       <description>
