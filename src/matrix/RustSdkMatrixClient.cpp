@@ -4820,7 +4820,9 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             event.value(QStringLiteral("kind")).toString(),
             event.value(QStringLiteral("state")).toString(),
             static_cast<quint64>(
-                event.value(QStringLiteral("count")).toDouble(0)));
+                event.value(QStringLiteral("count")).toDouble(0)),
+            static_cast<quint64>(
+                event.value(QStringLiteral("inconclusive")).toDouble(0)));
         return;
     }
     if (type == QLatin1String("thread_list_reset")

@@ -1801,8 +1801,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         // previous account's bootstrap can never describe the current one.
         connect(rust, &RustSdkMatrixClient::cryptoBootstrapEvent,
                 this, [this](const QString &kind, const QString &state,
-                             quint64 count) {
-            m_cryptoBootstrap->applyEvent(kind, state, count);
+                             quint64 count, quint64 inconclusive) {
+            m_cryptoBootstrap->applyEvent(kind, state, count, inconclusive);
         });
         connect(rust, &MatrixClient::loginSucceeded, this,
                 [this](const QString &) { m_cryptoBootstrap->reset(); });

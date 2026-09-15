@@ -1607,6 +1607,9 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_membershipEventId.clear();
     m_membershipPublished = false;
     m_delayId.clear();
+    // Clear the REASON with the id it explains, or a support log attributes
+    // one room's refusal to the next room's call.
+    m_delayedCategory.clear();
     m_ownIdentity.clear();
     m_mediaEncrypted = false;
     m_keyIndex = 0;
@@ -3038,6 +3041,9 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_membershipEventId.clear();
     m_membershipPublished = false;
     m_delayId.clear();
+    // Clear the REASON with the id it explains, or a support log attributes
+    // one room's refusal to the next room's call.
+    m_delayedCategory.clear();
     m_ownIdentity.clear();
     m_participants.clear();
     // A blocked-media badge must never outlive the call that raised it.

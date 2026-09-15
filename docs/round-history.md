@@ -1,5 +1,244 @@
 # Round history
 
+## 2026-09-15 (night) — "waiting for keys" fixed, and a review that caught me claiming the opposite
+
+### The fix
+
+Lightning had exactly ONE automatic route from a key in your backup to a
+message decrypting, and it ran at most once per room per session. Two of the
+three mechanisms CLAUDE.md §9 described do not exist:
+`automatic-room-key-forwarding` is not a requested feature, so no
+`m.room_key_request` has ever been sent in any version, and
+`BackupDownloadStrategy::OneShot` installs neither the UTD handler nor the
+`BackupDownloadTask`. What was left — `download_backup_keys_for_room` — was
+deduplicated permanently, and `mx_rust_recover_from_backup` was the ONLY caller
+of `clear_backup_attempt` in the tree. That is precisely why typing the
+recovery passphrase cured it and waiting never did.
+
+`recover_keys_for_utds` closes it, reusing the machinery the manual Retry
+button already uses rather than adding SDK surface: a bounded per-session
+`download_room_key`, then `retry_decryption` for exactly those sessions. It
+fires on a timeline's initial snapshot and on every diff, for the ROOM and the
+THREAD timelines, each scoped to its own generation (`RecoveryScope`) because
+answering to the wrong one is how a late callback mutates the next timeline.
+
+`mark_backup_attempt` stopped being a permanent `HashSet`. Each key records its
+attempt count and time; a first try is always allowed, the wait then doubles
+from 30 s to a 32 min ceiling, and after eight attempts — a little over an hour
+— the key is left alone for the lifecycle. The first cut of that said five
+attempts and passed the count straight into the backoff, which started the
+schedule at 60 s and made the documented ceiling unreachable; a review measured
+it, and `the_backup_retry_schedule_is_the_one_documented` now pins the series
+so the comment and the code cannot drift apart again. **Nothing polls** — an attempt happens only when an
+undecryptable row is actually in front of the user.
+
+**`OneShot` STAYS, and re-proposing `AfterDecryptionFailure` needs to answer
+this:** it was tried in v0.7 and reverted because it fetches one key per
+freshly-failing event and left already-rendered history encrypted after
+verification, while OneShot bulk-downloads everything when a session is
+verified. The gap was never the strategy; it was that nothing re-ran after a
+room's single pass.
+
+### The review found a regression I had introduced, and my own prose asserted it was impossible
+
+The instrumentation commit added `skipped_*` states on the `backup_download`
+event kind and claimed — in the commit message, a source comment and
+`docs/open-items.md` — that behaviour was "unchanged by construction, the model
+compares that field only against `started` and `failed`".
+
+**The comparisons are inert. The assignment is not.**
+`CryptoBootstrapModel::applyEvent` assigns `m_download` unconditionally and does
+not return, and `recompute()` reads anything that is not `"failed"` as
+**Ready**. So a room that ran NO pass overwrote what a room that FAILED one had
+recorded: fail a pass in room A (banner escalates, offers the recovery key),
+switch to any already-attempted room, and the banner vanishes while history
+stays unrestored. Every room switch after the first, since the pass is spawned
+on every room open. §6: never report a cleanup as successful when it removed
+nothing.
+
+All 207 tests passed on it, because no test had ever fed a skip into that
+model. Fixed on both sides — skips carry their own kind, and the
+`backup_download` branch refuses a `skipped_` state regardless.
+
+**GENERALISE: proving that nothing COMPARES a field is not proving that
+nothing ASSIGNS it.** The commit message of `786e2ed` is pushed and immutable
+and still carries the wrong claim; this entry is the correction.
+
+### And the first regression test for it was decoration
+
+Mutating the fix left the test passing. The dedicated `backup_download_skipped`
+branch RETURNS before `recompute()`, so the assignment being mutated was inert
+— the defect's real path was a skip flowing through `backup_download`, which
+falls through. The test now sends that, and the mutation fails with
+`Actual: Ready` against `Expected: ManualRecoveryRequired`. §18's rule earned
+its place again: a regression test that does not fail on the old code is
+decoration, and the only way to know is to try it.
+
+### Pass 2 found the fix reproducing its own defect under a network outage
+
+`download_room_key` reports "this key is not in your backup" and "we could not
+reach your backup" IDENTICALLY — verified against the pinned SDK:
+`Ok(false)` happens only when the store holds no decryption key or no backup
+version, which `are_enabled()` has already excluded, so a 404, a 429 and a
+dropped connection all arrive as `Err`. The first cut spent an attempt BEFORE
+the request and reported every failure as `no_keys_found`. So a transient
+outage while someone was reading an encrypted room burned the whole budget for
+those sessions, logged a line that read as "nothing more to do", and left the
+recovery passphrase as the only remedy — **the exact symptom this work
+removes**, recreated by the work itself. It is also this round's own §16 lesson
+in a second costume: a log line that cannot tell "nothing happened" from "we
+threw everything away" is not a log line.
+
+Now the error is classified. `not_found` is a definitive answer and spends an
+attempt; anything else keeps `last` (so the backoff still throttles) and hands
+the attempt back through `refund_backup_attempt`, and the pass emits `failed`
+rather than `no_keys_found` so the two stay distinguishable in a capture.
+
+Four more from the same pass, all fixed: the two early enqueues were not
+lifecycle-guarded and the C++ bridge drops the lifecycle field entirely, so
+Rust was the only gate and it was missing; `skipped_no_backup_key` was emitted
+per diff with nothing able to throttle it (the gate returns before the backoff
+is consulted) and is now latched once per lifecycle; `clear_backup_attempt`
+removed only the bare room key, so the passphrase did not clear the
+per-session entries it appeared to clear; and a pass now takes at most 32
+sessions, because a `Reset` diff hands over the whole timeline.
+
+### Pass 3: the H2 fix had two defects of its own, both proven by running it
+
+**H3 — the refund pinned the counter, so the backoff could never leave its
+floor.** `mark` took `attempts` 1 -> 2 and the refund put it back to 1, so the
+backoff argument (`attempts - 1`) was always 0 and the wait was always 30 s,
+for ever, with the budget never depleting. The reviewer measured it: twelve of
+twelve cycles allowed. So the fix for "one outage exhausts the budget" had
+created "one outage retries at the floor for ever" — against precisely the 429
+that was asking us to slow down.
+
+**Two counters now, and the refund is gone.** `tries` counts every attempt and
+is never given back, so a sustained outage escalates 30 s -> 1 -> 2 -> ... ->
+32 min as designed; `attempts` is the budget and only a DEFINITIVE answer
+spends it. A permanent refusal spends the whole budget at once.
+
+**H4 — the definitive/inconclusive split was a denylist, and the string
+classifier could mis-file a transport error as definitive.** `category !=
+"not_found"` made `unrecognized` (the server has no such endpoint) and
+`forbidden` (we are not allowed) refundable and therefore retried for ever —
+while `rtc.rs`'s `delayed_refusal_is_permanent` latches on exactly those, so
+one half of this same round drew the distinction correctly and the other
+inverted it. And `classify_room_error` matches SUBSTRINGS of the error's
+Display, which for a transport failure carries the request URL — and that URL
+ends in a 43-character base64 session id, so a dropped connection whose session
+id happened to contain `404` was filed as definitive and spent a budget it had
+not earned (~1.6e-4 per session: small, not zero, silent).
+
+`classify_backup_error` now reads the STRUCTURED error
+(`client_api_error_kind()`): `NotFound` is definitive, `Unrecognized` and
+`Forbidden` are permanent refusals that stop the key outright, and everything
+else including `None` (a transport error has no errcode at all) is
+inconclusive. **GENERALISE: a user-facing error CATEGORY is the wrong input to
+a control-flow decision about spending a budget — and a denylist there fails
+open on every category nobody thought of.**
+
+**AND MY REGRESSION TEST FOR THIS WAS DECORATION TWICE.** The first version
+mutated clean because the branch it probed returned before `recompute()`. The
+second computed the expected wait with `backup_attempt_backoff` and compared
+the series — which tests the backoff function and says nothing about whether
+the POLICY consults it, so mutating the policy to ignore `tries` left it
+passing. The third asks only the policy: hold elapsed time at 45 s and walk
+`tries` up, because 45 s satisfies the 30 s wait after one try and must not
+satisfy the 60 s wait after two. Both halves now fail under mutation.
+**The policy is a pure function (`backup_attempt_allowed`) for this reason** —
+both defects were policy defects that no test could reach while the policy
+lived inside a `Mutex` and an `Instant`.
+
+Also from that pass: the `skipped_no_backup_key` "latch" was a backoff all
+along and emits about eight times an hour, not once — the third comment this
+round to describe a schedule the constants do not produce; the emit now carries
+an `inconclusive` count, because a pass that downloaded 1 of 32 and was
+rate-limited on 31 reported `ok count=1` and lost the distinction at the
+session level.
+
+### Pass 4: `are_enabled()` and `download_room_key` read DIFFERENT keys
+
+The sharpest finding of the round, and it was hiding behind a comment of mine
+that reasoned from a false premise. The `Ok(false)` arm was charged as a
+definitive answer because "`are_enabled()` already excluded it". It does not:
+
+- `are_enabled()` → `BackupMachine::enabled()` reads
+  `backup_key: Arc<RwLock<Option<MegolmV1BackupKey>>>` — the **public upload
+  key** (`matrix-sdk-crypto-0.18.0/src/backups/mod.rs:146`).
+- `download_room_key` needs `BackupKeys::decryption_key` — the **private
+  download key** (`store/types.rs:421`).
+
+A verified device that uploads to a backup but has never had the recovery
+passphrase entered on it has the first and not the second. `are_enabled()`
+returns **true**, `download_room_key` returns **`Ok(false)` without sending a
+request at all** — and that is not a race, it is the steady state of precisely
+the person who reports "waiting for keys". It is ranked cause (2) in
+`docs/open-items.md`.
+
+So every pass returned `Ok(false)` for every session and charged it definitive:
+eight passes and the whole room was exhausted for the lifetime, cured only by
+the passphrase. **H2's symptom, third route, aimed at the exact population the
+feature exists to serve** — and the emit called it `no_keys_found` ("your keys
+are not in the backup") when the truth was "this device cannot read the
+backup". The one state a capture most needs named was the one it hid.
+
+`BackupOutcome::NoDecryptionKey` now spends nothing and carries its own emitted
+state, ranked above `failed`, because it is the only outcome in this feature
+with a remedy attached: enter your recovery key.
+
+**GENERALISE: two SDK calls whose names both say "backup" can read two
+different keys, and a guard only excludes what it actually reads.** Three of
+this round's five findings came from a premise stated in a comment and never
+checked against the source it described.
+
+Also that pass: `PermanentRefusal` no longer parks a key at
+`MAX_BACKUP_ATTEMPTS` (indistinguishable from a spent budget, and raising the
+cap — which already went 5 → 8 this round — would have silently un-parked
+every refused key); it uses `BACKUP_ATTEMPTS_STOPPED` instead. The
+`skipped_no_backup_key` comment was wrong a second time, in the other
+direction: nothing records an outcome for its key, so its budget is never
+spent and only the backoff applies. That comment has now been wrong twice and
+says so.
+
+**And the wiring got its own test.** The policy was pure and well covered; the
+call INTO it was not, and a review measured that swapping its two arguments
+reproduces H3 exactly while every policy test still passes.
+`mark_backup_attempt_at` takes the instant as a parameter so a test can ask
+"and much later?" without sleeping, and
+`what_an_attempt_established_decides_whether_it_cost_anything` drives the
+registry itself. Mutation-checked twice: the argument swap fails it, and so
+does making `NoDecryptionKey` spend the budget.
+
+### The review's other findings, all fixed
+
+- `"Empty on success"` on the new FFI signal was wrong: `rtc.rs` also leaves
+  `delayed_category` empty when no arm was ATTEMPTED, which is the steady state
+  once the permanent refusal latches — the very case the field exists to
+  describe. The value is sticky, and the comment now says so.
+- `m_delayedCategory` outlived its call, so a support log could attribute one
+  room's refusal to the next room's call. Cleared with `m_delayId` at both
+  reset sites.
+- `test-metainfo-consistency.py`'s pre-tag fallback asked the FILESYSTEM. An
+  untracked screenshot passes `is_file()` and no tag can contain it — and since
+  §4 forbids `git add .`, that is a live near-miss of the defect the test was
+  written for. It asks git now.
+- Nothing checked that a screenshot ref names the CURRENT version, so a bumped
+  release with unbumped refs would render the previous release's screenshots
+  and pass. Asserted now.
+
+The reviewer also re-traced the loosened device-id sanitiser adversarially and
+found a defence the fix had not cited: `resolveActive()` returns a stored id
+only when it matches a device `QMediaDevices` currently enumerates, which
+closes the hand-edited-config vector on its own.
+
+### Validation
+
+Rust **423 passed, 0 failed, 5 ignored, 428 total**; `build-rust` CTest
+**207/207**. **LIVE: NOT TESTED** — §9 and §12 require a real multi-device test
+against a live backup before any of this may be called PASS, and the automated
+coverage proves mechanics only.
+
 ## 2026-09-15 (evening) — the laptop rig, Flathub measured at last, and a field the bridge dropped
 
 Two guests running at once on the laptop (10.195.174.169) with an agent on

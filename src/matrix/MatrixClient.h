@@ -2137,8 +2137,16 @@ Q_SIGNALS:
     /// retraction was armed, so cleanup falls back to the membership's own
     /// `expires` — and `delayedCategory` says WHY, which is NOT always "the
     /// server has no MSC4140" as this comment claimed until 2026-09-15.
-    /// Empty on success. `unrecognized`/`not_found`/`no_delay_id` mean the
-    /// endpoint is genuinely absent (rtc.rs latches on exactly those three);
+    /// EMPTY IS NOT "SUCCESS" — this comment said so until a review, and
+    /// rtc.rs disagrees twice. The field is empty when a delayed retraction
+    /// WAS armed, and also when no arm was attempted at all: once the
+    /// permanent refusal is latched the whole block is skipped, which is the
+    /// steady state on a homeserver with no MSC4140 — the single case this
+    /// field exists to describe. So an empty reason beside an empty delay id
+    /// means "no reason stated this time", and consumers should treat the
+    /// value as STICKY rather than as a per-answer fact.
+    /// `unrecognized`/`not_found`/`no_delay_id` mean the endpoint is
+    /// genuinely absent (rtc.rs latches on exactly those three);
     /// `rate_limited`/`forbidden`/`invalid`/`network` are transient or
     /// specific to one room, and the next publish tries again.
     void rtcMembershipPublished(quint64 opId, bool ok, const QString &category,

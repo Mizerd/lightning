@@ -115,7 +115,8 @@ public:
     // SDK enum name (or the coordinator's fixed token); count is the
     // imported-key count for room_keys_received and the eligible verified
     // device count for secret_request.
-    void applyEvent(const QString &kind, const QString &state, quint64 count);
+    void applyEvent(const QString &kind, const QString &state, quint64 count,
+                    quint64 inconclusive = 0);
     void reset();
 
     // v0.7.2: the user pressed "Request keys again". Clears the escalated

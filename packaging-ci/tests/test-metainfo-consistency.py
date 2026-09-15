@@ -81,14 +81,44 @@ def main() -> int:
     pattern = re.compile(
         r"https://raw\.githubusercontent\.com/[^/]+/[^/]+/(?P<ref>[^/]+)/"
         r"(?P<path>\S+?)</image>")
+    version = project_version()
+    # THE RELEASE COMMIT'S OWN STATE IS NOT A FAILURE. A release prepares the
+    # metainfo for the tag it is about to be given, so between the commit and
+    # the pipeline creating `v<version>` the URLs name a tag that does not
+    # exist yet. Refusing that would make the check unsatisfiable in exactly
+    # the commit it most needs to run in -- so for that one ref the question
+    # becomes "will the tag cut from THIS tree contain the file", which the
+    # COMMITTED tree answers (not the working tree: an untracked file is in
+    # the working tree and in no tag). Every other unknown ref is skipped.
+    pending = f"v{version}" if version else None
     found = 0
     for match in pattern.finditer(text):
         ref, path = match.group("ref"), match.group("path")
+        # HOISTED ABOVE THE TAG LOOKUP, so it is unconditional. Sitting inside
+        # the tag-exists branch let a ref that is neither a known tag nor this
+        # version -- a typo like v0.9.7 -- fall through to `skip`, assert
+        # nothing, and not even count toward the found>0 vacuity guard.
+        if pending:
+            check(ref == pending,
+                  f"the screenshot ref {ref} names this version ({pending})")
         rc, _ = git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
         if rc != 0:
-            # Not a ref this clone knows (a shallow checkout, or a branch
-            # name). Cannot be answered offline, so it is not asserted.
-            print(f"  skip: {ref} is not a ref in this clone ({path})")
+            if ref == pending:
+                found += 1
+                # ASK GIT, NOT THE FILESYSTEM. An UNTRACKED file passes
+                # is_file() and no tag can ever contain it -- and since §4
+                # forbids `git add .`, staging is explicit and a new
+                # screenshot being left untracked is exactly the near-miss
+                # this test exists to catch.
+                rc, _ = git("cat-file", "-e", f"HEAD:{path}")
+                check(rc == 0,
+                      f"{path} is COMMITTED in the tree that will become "
+                      f"{ref} (the tag does not exist yet; this is a release "
+                      "commit)")
+            else:
+                # Not a ref this clone knows (a shallow checkout, or a branch
+                # name). Cannot be answered offline, so it is not asserted.
+                print(f"  skip: {ref} is not a ref in this clone ({path})")
             continue
         found += 1
         rc, out = git("ls-tree", "-r", "--name-only", ref, "--", path)
@@ -102,7 +132,6 @@ def main() -> int:
           f"(checked {found})")
 
     # 2. The newest <release> must be the version this tree builds.
-    version = project_version()
     check(bool(version), "the project version was readable from CMakeLists.txt")
     releases = re.findall(r'<release version="([0-9][^"]*)"', text)
     check(bool(releases), "the metainfo declares at least one <release>")

@@ -356,7 +356,109 @@ pub struct TimelineRegistry {
     /// backup endpoints. Cleared on shutdown; manual recovery clears the
     /// open room's entry to force one fresh pass. Session IDENTIFIERS only —
     /// never key material.
-    backup_download_attempts: Mutex<std::collections::HashSet<String>>,
+    ///
+    /// WAS A `HashSet`, AND THAT PERMANENCE WAS THE "WAITING FOR KEYS" BUG.
+    /// A key that reaches your backup AFTER the one attempt for its session
+    /// had no route in: the entry was already present, every later pass
+    /// returned early, and only re-entering the recovery passphrase (the one
+    /// caller of `clear_backup_attempt`) could dislodge it. Now each key
+    /// records when it was last tried and how often, and
+    /// `backup_attempt_backoff` decides whether another attempt is due — so
+    /// a late key is picked up without polling and without a user gesture.
+    backup_download_attempts: Mutex<std::collections::HashMap<String, BackupAttempt>>,
+}
+
+/// One key's attempt history this lifecycle. Identifiers and counters only.
+///
+/// TWO COUNTERS, AND THE SPLIT IS THE WHOLE POINT. A single counter that a
+/// transient failure gave back could never escalate: mark took it 1 -> 2, the
+/// refund put it back to 1, the backoff argument was therefore always 0, and
+/// a rate-limited server got hammered at the 30 s floor for ever — the fix
+/// for "one outage exhausts the budget" having created "one outage retries at
+/// the floor for ever", against exactly the 429 that asked us to slow down.
+/// Measured by a review, twelve of twelve cycles allowed.
+#[derive(Clone, Copy)]
+pub(crate) struct BackupAttempt {
+    /// EVERY attempt, never given back. Drives the backoff, so a sustained
+    /// outage escalates 30 s -> 1 -> 2 ... -> 32 min as designed.
+    tries: u32,
+    /// DEFINITIVE answers only — the budget. A transport failure proves
+    /// nothing about whether the key is in the backup, so it must not spend
+    /// one; a permanent refusal spends the lot at once.
+    attempts: u32,
+    /// When the last attempt ran, for the backoff.
+    last: std::time::Instant,
+}
+
+/// What an attempt actually established. Named rather than inferred, because
+/// `download_room_key` reports "not in your backup" and "could not reach your
+/// backup" identically — everything but a clean success is an `Err`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum BackupOutcome {
+    /// The server answered, and the key is not there. Worth asking again
+    /// later (it may be uploaded), so it spends one unit of budget.
+    Definitive,
+    /// This DEVICE cannot read the backup: it has the upload key but not the
+    /// decryption key, so `download_room_key` returned without sending a
+    /// request at all.
+    ///
+    /// `are_enabled()` does NOT exclude this, which is the trap — it reads
+    /// `BackupMachine::backup_key`, the PUBLIC upload key, while the download
+    /// needs `BackupKeys::decryption_key`, the private one. A verified device
+    /// whose recovery passphrase has never been entered on it has the first
+    /// and not the second, and that is the steady state of exactly the person
+    /// who reports "waiting for keys" — not a race. Charging it as a settled
+    /// answer exhausted the budget for the whole population this feature
+    /// exists to serve. It establishes nothing about the backup's contents,
+    /// so it spends nothing; it gets its own state because it is the one
+    /// outcome here with an action attached (enter your recovery key).
+    NoDecryptionKey,
+    /// The server will never serve this: no such endpoint, or we are not
+    /// allowed. Retrying cannot help, so it ends this key for the lifecycle.
+    PermanentRefusal,
+    /// We learned nothing — unreachable, rate-limited, a store error. Costs a
+    /// backoff step and no budget.
+    Inconclusive,
+}
+
+/// THE WHOLE RETRY POLICY, AS A PURE FUNCTION, so it can be tested without a
+/// clock. Both defects a review found here were policy defects that no test
+/// could reach while the policy lived inside a `Mutex` and an `Instant`.
+fn backup_attempt_allowed(tries: u32, attempts: u32, since_last: std::time::Duration) -> bool {
+    attempts < MAX_BACKUP_ATTEMPTS
+        && since_last >= backup_attempt_backoff(tries.saturating_sub(1))
+}
+
+/// The whole bound on automatic key recovery, in one place.
+///
+/// A first attempt is always allowed. After that the wait doubles from 30 s
+/// and stops at ~32 min, and after `MAX_BACKUP_ATTEMPTS` the key is left alone
+/// for the rest of the lifecycle — so a room whose keys are genuinely gone
+/// (withheld, sent before we joined, never backed up) costs a handful of
+/// requests and then nothing, while a key that shows up late still gets
+/// several chances. Nothing here polls: an attempt only happens when an
+/// undecryptable event is actually in front of the user.
+const MAX_BACKUP_ATTEMPTS: u32 = 8;
+
+/// A key that must never be tried again this lifecycle. Deliberately NOT
+/// `MAX_BACKUP_ATTEMPTS`: parking a permanent refusal at the cap made it
+/// indistinguishable from an ordinary spent budget, and the cap has already
+/// moved once this round (5 -> 8) — so raising it again would have quietly
+/// un-parked every permanently refused key. `clear_backup_attempt` still
+/// frees these, which is how manual recovery re-probes a server.
+const BACKUP_ATTEMPTS_STOPPED: u32 = u32::MAX;
+
+/// The wait after `attempts_already_made` tries: 30 s, 1, 2, 4, 8, 16 and
+/// 32 minutes, then flat. Eight attempts therefore span a little over an hour.
+///
+/// TAKES THE COUNT ALREADY MADE, NOT THE NEXT ONE. `mark_backup_attempt`
+/// inserts with `attempts: 1`, so passing that straight in started the
+/// schedule at 60 s and made the ceiling unreachable — the doc said 30 s to
+/// 32 minutes and the code did 60 s to 8 minutes. A review measured the
+/// difference; the call site now subtracts.
+fn backup_attempt_backoff(attempts_already_made: u32) -> std::time::Duration {
+    let secs = 30u64.saturating_mul(1u64 << attempts_already_made.min(6));
+    std::time::Duration::from_secs(secs.min(32 * 60))
 }
 
 impl TimelineRegistry {
@@ -372,24 +474,95 @@ impl TimelineRegistry {
             lifecycle_gen: AtomicU64::new(1),
             media_sources: Mutex::new(HashMap::new()),
             reaction_inflight: Mutex::new(std::collections::HashSet::new()),
-            backup_download_attempts: Mutex::new(std::collections::HashSet::new()),
+            backup_download_attempts: Mutex::new(std::collections::HashMap::new()),
         }
     }
 
-    /// Record a backup-download attempt. Returns false when the same
-    /// attempt already ran this lifecycle (the caller must then skip it).
+    /// Record a backup-download attempt. Returns false when this key is not
+    /// due yet — either an attempt ran recently (see `backup_attempt_backoff`)
+    /// or it has used up `MAX_BACKUP_ATTEMPTS` for this lifecycle — and the
+    /// caller must then skip it.
+    ///
+    /// The false answer used to mean "ever, this lifecycle", which is what
+    /// stranded a key that arrived in backup after its one attempt.
     fn mark_backup_attempt(&self, key: &str) -> bool {
+        self.mark_backup_attempt_at(key, std::time::Instant::now())
+    }
+
+    /// The real logic, with the clock passed in.
+    ///
+    /// SPLIT FOR TESTABILITY, and the reason is specific: the POLICY is a pure
+    /// function and well covered, but the WIRING to it was not, and a review
+    /// measured that swapping the two arguments at this call site reproduces
+    /// H3 exactly — required waits pinned at 30 s — while every policy test
+    /// still passes, because those call the policy with explicit literals.
+    /// Taking the instant as a parameter is what lets a test reach "and much
+    /// later, is it allowed?" without a sleep.
+    fn mark_backup_attempt_at(&self, key: &str, now: std::time::Instant) -> bool {
         match self.backup_download_attempts.lock() {
-            Ok(mut guard) => guard.insert(key.to_owned()),
+            Ok(mut guard) => match guard.get_mut(key) {
+                None => {
+                    guard.insert(
+                        key.to_owned(),
+                        BackupAttempt { tries: 1, attempts: 0, last: now },
+                    );
+                    true
+                }
+                Some(record) => {
+                    // `saturating_duration_since`: a clock that appears to go
+                    // backwards must not read as "due for ever".
+                    if !backup_attempt_allowed(
+                        record.tries,
+                        record.attempts,
+                        now.saturating_duration_since(record.last),
+                    ) {
+                        return false;
+                    }
+                    record.tries = record.tries.saturating_add(1);
+                    record.last = now;
+                    true
+                }
+            },
             Err(_) => false,
+        }
+    }
+
+    /// Record what an attempt established. Only this spends the budget.
+    fn record_backup_outcome(&self, key: &str, outcome: BackupOutcome) {
+        let spend = match outcome {
+            BackupOutcome::Definitive => 1,
+            // Nothing about asking again can change a server that has no such
+            // endpoint, or that refuses us the backup API.
+            BackupOutcome::PermanentRefusal => BACKUP_ATTEMPTS_STOPPED,
+            // Neither of these learned anything about the backup's CONTENTS,
+            // so neither may spend the budget. The backoff has already
+            // escalated, which is the whole throttle they need.
+            BackupOutcome::Inconclusive | BackupOutcome::NoDecryptionKey => {
+                return
+            }
+        };
+        if let Ok(mut guard) = self.backup_download_attempts.lock() {
+            if let Some(record) = guard.get_mut(key) {
+                record.attempts = if spend == BACKUP_ATTEMPTS_STOPPED {
+                    BACKUP_ATTEMPTS_STOPPED
+                } else {
+                    record.attempts.saturating_add(spend)
+                };
+            }
         }
     }
 
     /// Forget a whole-room backup pass so an explicit user action (manual
     /// recovery-key/passphrase entry) can force one fresh download pass.
+    ///
+    /// Drops the room's PER-SESSION entries too. Removing only the bare room
+    /// key left every `<room>\x1f<session>` entry in place, so the passphrase
+    /// did not clear what it appeared to clear and an exhausted session stayed
+    /// exhausted.
     pub fn clear_backup_attempt(&self, room_id: &str) {
         if let Ok(mut guard) = self.backup_download_attempts.lock() {
-            guard.remove(room_id);
+            let prefix = format!("{room_id}\u{1f}");
+            guard.retain(|key, _| key != room_id && !key.starts_with(&prefix));
         }
     }
 
@@ -1209,7 +1382,13 @@ impl TimelineRegistry {
                     &self.events,
                     json!({
                         "type": "crypto_bootstrap",
-                        "kind": "backup_download",
+                        // A skip is NOT a download outcome and must not be
+                        // recorded as one — see the note above.
+                        "kind": if state.starts_with("skipped_") {
+                            "backup_download_skipped"
+                        } else {
+                            "backup_download"
+                        },
                         "state": state,
                         "count": 0,
                         "lifecycle": lifecycle,
@@ -1227,10 +1406,17 @@ impl TimelineRegistry {
         // and BackupDownloadStrategy::OneShot installs no UTD handler), so
         // that absence is precisely the standing "waiting for keys" report.
         // Meanwhile CryptoBootstrapModel reads Ready either way, because its
-        // download field stays empty and it only ever compares that field
-        // against "started" and "failed" — which is also why these new
-        // categories change no behaviour, deliberately. Closed vocabulary,
-        // no room ids, no counts, no key material.
+        // download field stays empty.
+        //
+        // THESE CARRY THEIR OWN `kind`, AND THE FIRST CUT DID NOT — a review
+        // caught it. Reusing `backup_download` looked inert because that
+        // field is only ever COMPARED against "started" and "failed"; but it
+        // is ASSIGNED unconditionally, and `recompute()` reads anything that
+        // is not "failed" as Ready. So a room that ran NO pass would have
+        // overwritten what a room that FAILED one had recorded, retiring the
+        // recovery banner on an ordinary room switch and reporting Ready over
+        // unrestored history. A separate kind cannot do that to a field it
+        // never touches. Closed vocabulary, no room ids, no key material.
         let backups = client.encryption().backups();
         if !backups.are_enabled().await {
             emit("skipped_no_backup_key");
@@ -2613,6 +2799,16 @@ send queue owes nothing for them: {in_flight:?}"
         Arc::new(Mutex::new(HashSet::new()));
     fetch_missing_reply_details(&timeline, items.iter(), &reply_details_fetched);
 
+    // Anything already undecryptable in the history this room opened with.
+    // The whole-room pass that runs alongside this downloads every key once;
+    // this covers what that pass cannot -- a key that was not in the backup
+    // when the room's one pass ran, and is now.
+    recover_keys_for_utds(
+        &registry, &client, &room_id, &timeline,
+        utd_sessions_in(items.iter()), RecoveryScope::Room(room_gen),
+        lifecycle,
+    );
+
     let snapshot: Vec<serde_json::Value> =
         items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
     enqueue(
@@ -2670,13 +2866,23 @@ send queue owes nothing for them: {in_flight:?}"
                     break;
                 }
                 for diff in diffs {
+                    let changed = diff_items(&diff);
                     // Before serialising: any newly arrived reply whose target
                     // the SDK has not resolved gets one fetch. The SDK writes
                     // the answer back into the item, which returns here as an
                     // ordinary Set diff and repaints the quote in place.
                     fetch_missing_reply_details(
-                        &timeline, diff_items(&diff).iter(),
-                        &reply_details_fetched,
+                        &timeline, changed.iter(), &reply_details_fetched,
+                    );
+                    // And any newly arrived event we could not decrypt gets a
+                    // bounded attempt at its key. A successful one lands back
+                    // here as a Set diff and the row decrypts in place, which
+                    // is the path CLAUDE.md section 9 describes and which had
+                    // no automatic trigger at all until now.
+                    recover_keys_for_utds(
+                        &registry, &client, &room_id, &timeline,
+                        utd_sessions_in(changed.iter()),
+                        RecoveryScope::Room(room_gen), lifecycle,
                     );
                     let value = diff_to_json(
                         &room_id, room_gen, lifecycle, &diff, &own_user, &registry,
@@ -2789,6 +2995,16 @@ async fn open_thread_task(
         Arc::new(Mutex::new(HashSet::new()));
     fetch_missing_reply_details(&timeline, items.iter(), &reply_details_fetched);
 
+    // Same as the room timeline again: undecryptable replies already in the
+    // thread's history get one bounded attempt at their keys. Scoped to the
+    // THREAD generation, so a thread switch cannot be mutated by a pass the
+    // previous thread started.
+    recover_keys_for_utds(
+        &registry, &client, &room_id, &timeline,
+        utd_sessions_in(items.iter()), RecoveryScope::Thread(thread_gen),
+        lifecycle,
+    );
+
     let snapshot: Vec<serde_json::Value> =
         items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
     let has_event_rows = items
@@ -2885,9 +3101,14 @@ async fn open_thread_task(
                     break;
                 }
                 for diff in diffs {
+                    let changed = diff_items(&diff);
                     fetch_missing_reply_details(
-                        &timeline, diff_items(&diff).iter(),
-                        &reply_details_fetched,
+                        &timeline, changed.iter(), &reply_details_fetched,
+                    );
+                    recover_keys_for_utds(
+                        &registry, &client, &room_id, &timeline,
+                        utd_sessions_in(changed.iter()),
+                        RecoveryScope::Thread(thread_gen), lifecycle,
                     );
                     let base = json!({
                         "type": "thread_diff",
@@ -5047,6 +5268,285 @@ fn content_preview_capped(content: &TimelineItemContent, max: usize) -> String {
     }
 }
 
+/// Megolm session ids of the undecryptable items in ONE batch of timeline
+/// items — the diff that just arrived, not the whole timeline.
+///
+/// `utd_session_ids` below walks every item a timeline holds, which is the
+/// right cost for the user pressing Retry and the wrong one on every diff of
+/// a thousand-row room. This reads only what changed.
+fn utd_sessions_in<'a>(
+    items: impl Iterator<Item = &'a Arc<TimelineItem>>,
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for item in items {
+        let TimelineItemKind::Event(event) = item.kind() else { continue };
+        let TimelineItemContent::MsgLike(msg_like) = event.content() else {
+            continue;
+        };
+        let MsgLikeKind::UnableToDecrypt(encrypted) = &msg_like.kind else {
+            continue;
+        };
+        if let EncryptedMessage::MegolmV1AesSha2 { session_id, .. } = encrypted {
+            if !out.contains(session_id) {
+                out.push(session_id.clone());
+            }
+        }
+    }
+    out
+}
+
+/// THE MISSING AUTOMATIC PATH, and the whole of the "waiting for keys" fix.
+///
+/// Until now exactly one thing could fetch a backed-up key for a message that
+/// failed to decrypt: the user pressing Retry, or re-entering their recovery
+/// passphrase. Neither of the SDK's own automatic routes is available here —
+/// `automatic-room-key-forwarding` is not a compiled-in feature, so no
+/// `m.room_key_request` is ever sent, and `BackupDownloadStrategy::OneShot`
+/// installs neither the UTD handler nor the `BackupDownloadTask`. OneShot is
+/// deliberate and must stay: it is what downloads EVERY key at once when a
+/// session is verified, and the `AfterDecryptionFailure` alternative was tried
+/// in v0.7 and reverted because it left already-rendered history encrypted.
+/// So the gap is not the strategy — it is that nothing re-ran after the one
+/// pass a room gets when it opens.
+///
+/// This closes it with the machinery `retry_visible_decryption` already uses,
+/// which is why it needs no new SDK surface: a per-session
+/// `download_room_key`, then a `retry_decryption` naming those sessions —
+/// which the pinned SDK widens to the whole timeline anyway, see the note at
+/// the call. Identifiers only; key material never leaves the SDK.
+///
+/// It is bounded three ways and none of them is a timer: it runs only when an
+/// undecryptable event actually arrives in front of the user, only for the
+/// sessions in that batch, and only while `mark_backup_attempt` says a key is
+/// due (first try, then a doubling backoff, then never again this lifecycle).
+/// What a failed `download_room_key` established, from the STRUCTURED error
+/// rather than its text.
+///
+/// NOT `classify_room_error`, which this first used. That is a good tool for
+/// turning an error into a user-facing category and the wrong one for a
+/// control-flow decision about spending a budget, for two measured reasons.
+/// It is a denylist here — anything that was not `not_found` counted as
+/// inconclusive, so `unrecognized` (the server has no such endpoint) and
+/// `forbidden` (we are not allowed) were retried for ever, even though
+/// `rtc.rs`'s `delayed_refusal_is_permanent` latches on exactly those. And it
+/// matches SUBSTRINGS of the error's Display, which for a transport failure
+/// carries the request URL — and that URL ends in a 43-character base64
+/// session id, so a dropped connection whose session id happens to contain
+/// "404" was filed as a definitive answer and spent a budget it had not
+/// earned. Roughly 1.6e-4 per session: small, not zero, and silent.
+fn classify_backup_error(err: &matrix_sdk::Error) -> BackupOutcome {
+    use matrix_sdk::ruma::api::error::ErrorKind;
+    match err.client_api_error_kind() {
+        Some(ErrorKind::NotFound) => BackupOutcome::Definitive,
+        Some(ErrorKind::Unrecognized) | Some(ErrorKind::Forbidden) => {
+            BackupOutcome::PermanentRefusal
+        }
+        // Everything else, `None` (a transport error, which has no errcode at
+        // all) included, taught us nothing. Failing closed toward "inconclusive"
+        // is the safe direction: it costs a backoff step, never the budget.
+        _ => BackupOutcome::Inconclusive,
+    }
+}
+
+/// Which generation guard a recovery pass answers to.
+#[derive(Clone, Copy)]
+pub(crate) enum RecoveryScope {
+    Room(u64),
+    Thread(u64),
+}
+
+fn recover_keys_for_utds(
+    registry: &Arc<TimelineRegistry>,
+    client: &Client,
+    room_id: &str,
+    timeline: &Arc<Timeline>,
+    sessions: Vec<String>,
+    scope: RecoveryScope,
+    lifecycle: u64,
+) {
+    if sessions.is_empty() {
+        return;
+    }
+    let registry = Arc::clone(registry);
+    let client = client.clone();
+    let timeline = Arc::clone(timeline);
+    let room_id = room_id.to_owned();
+    tokio::spawn(async move {
+        // A room timeline and a thread timeline carry SEPARATE generations,
+        // and answering to the wrong one is exactly how a late callback
+        // mutates the next timeline (§9). The caller names which.
+        let current = |registry: &Arc<TimelineRegistry>| match scope {
+            RecoveryScope::Room(generation) => {
+                registry.is_current(generation, lifecycle)
+            }
+            RecoveryScope::Thread(generation) => {
+                registry.thread_current(generation, lifecycle)
+            }
+        };
+        if !current(&registry) {
+            return;
+        }
+        let emit = |state: &str, count: usize, inconclusive: usize| {
+            // GUARDED, like download_backup_keys_for_room's own emit. The C++
+            // bridge drops the lifecycle field entirely, so this is the only
+            // gate there is; without it a pass from the previous account can
+            // still enqueue one misleading line into the next one.
+            if current(&registry) {
+                enqueue(
+                    &registry.events,
+                    json!({
+                        "type": "crypto_bootstrap",
+                        "kind": "auto_key_recovery",
+                        "state": state,
+                        "count": count,
+                        // How many of this pass taught us nothing. Without it
+                        // a pass of 32 that downloaded 1 and was rate-limited
+                        // on 31 reports "ok count=1", and the reader cannot
+                        // tell the 31 from "not in the backup" — the very
+                        // distinction this round exists to make, preserved at
+                        // the pass level and lost at the session level.
+                        "inconclusive": inconclusive,
+                        "lifecycle": lifecycle,
+                    }),
+                );
+            }
+        };
+        let backups = client.encryption().backups();
+        if !backups.are_enabled().await {
+            // No usable backup key: there is nothing to download from, and
+            // saying so is the difference between "we tried" and "we could
+            // not have tried" — the ambiguity that made this defect
+            // undiagnosable for months.
+            //
+            // THROTTLED, not latched, and not capped either — two earlier
+            // versions of this comment claimed each of those in turn. Nothing
+            // records an OUTCOME for this key, so its budget is never spent
+            // and only the backoff applies: it emits on the escalating
+            // schedule and then once every 32 minutes for as long as the
+            // account keeps meeting undecryptable rows. That is the intended
+            // shape (the alternative is silence about a condition the user can
+            // fix) and the volume is trivial; it is written down because the
+            // comment has now been wrong twice. The gate returns
+            // BEFORE the per-session mark, so nothing else throttles it, and
+            // on the account most likely to be staring at undecryptable rows
+            // (no usable backup key at all) every single diff would otherwise
+            // cross the FFI and print a line. `are_enabled()` is an in-memory
+            // read, so this is log and FFI noise rather than load.
+            if registry.mark_backup_attempt("\u{1f}auto-recovery-no-backup") {
+                emit("skipped_no_backup_key", 0, 0);
+            }
+            return;
+        }
+        let Ok(room_ref) = RoomId::parse(&room_id) else { return };
+        // ONE PASS DOES NOT TRY TO FIX A WHOLE BACKLOG. A `Reset` diff hands
+        // us every item in the timeline, so a room reopened with a long
+        // undecryptable history could otherwise issue hundreds of sequential
+        // store-read-plus-HTTP round trips from one diff. The rest are not
+        // lost: the loop walks EVERY session and breaks only at 32 PUSHED, so
+        // a later pass finds the first 32 refused by the backoff and marks
+        // 33-64 instead. The guarantee is conditional, though: it needs
+        // another diff to arrive, and a successful retry does not cascade —
+        // the resulting Set diffs carry rows that have just STOPPED being
+        // undecryptable, so `utd_sessions_in` returns empty on them. Any
+        // scroll, pagination or new message re-offers the remainder.
+        const MAX_SESSIONS_PER_PASS: usize = 32;
+        let mut wanted: Vec<String> = Vec::new();
+        for session_id in sessions {
+            if wanted.len() >= MAX_SESSIONS_PER_PASS {
+                break;
+            }
+            let key = format!("{room_id}\u{1f}{session_id}");
+            if registry.mark_backup_attempt(&key) {
+                wanted.push(session_id);
+            }
+        }
+        if wanted.is_empty() {
+            return;
+        }
+        emit("started", wanted.len(), 0);
+        let mut downloaded = 0usize;
+        let mut inconclusive = 0usize;
+        let mut no_decryption_key = 0usize;
+        for session_id in &wanted {
+            if !current(&registry) {
+                return;
+            }
+            let key = format!("{room_id}\u{1f}{session_id}");
+            match backups.download_room_key(&room_ref, session_id).await {
+                Ok(true) => {
+                    downloaded += 1;
+                    registry
+                        .record_backup_outcome(&key, BackupOutcome::Definitive);
+                }
+                // NOT a definitive "nothing to fetch", and the comment here
+                // used to say it was. `are_enabled()` reads the PUBLIC upload
+                // key; this needs the PRIVATE decryption key, and a verified
+                // device whose recovery passphrase has never been entered on
+                // it has one and not the other — so no request was even sent.
+                Ok(false) => {
+                    no_decryption_key += 1;
+                    registry.record_backup_outcome(
+                        &key, BackupOutcome::NoDecryptionKey,
+                    );
+                }
+                Err(err) => {
+                    let outcome = classify_backup_error(&err);
+                    if outcome == BackupOutcome::Inconclusive {
+                        inconclusive += 1;
+                    }
+                    registry.record_backup_outcome(&key, outcome);
+                }
+            }
+        }
+        // THE ARGUMENT IS IGNORED BY THE PINNED SDK, and an earlier comment
+        // here reasoned carefully about which sessions to pass as though it
+        // were not. `Timeline::retry_decryption` -> `retry_event_decryption`
+        // accepts `session_ids` and never reads it; it calls
+        // `compute_redecryption_candidates()`, which takes no argument and
+        // derives the set from the whole timeline
+        // (matrix-sdk-ui-0.18.0/src/timeline/controller/mod.rs:1754). So this
+        // is effectively retry-everything.
+        //
+        // Harmless — a superset can only decrypt MORE rows, never fewer — but
+        // two things follow. The cost is O(timeline) per pass, not
+        // O(|wanted|), which on the 600-1000 row rooms §16 measures is not
+        // free. And `wanted` is still passed deliberately: a later
+        // matrix-sdk-ui may start honouring it, and the day it does this
+        // should already be asking for the right set rather than acquiring
+        // correct behaviour by accident.
+        if !current(&registry) {
+            return;
+        }
+        timeline.retry_decryption(wanted.iter().cloned()).await;
+        if !current(&registry) {
+            return;
+        }
+        // `no_keys_found` must MEAN no keys were found. Reporting an
+        // unreachable server that way is §16's "a log line that cannot tell
+        // 'nothing happened' from 'we threw everything away' is not a log
+        // line" — and it would hide the one cause the next capture has to
+        // distinguish.
+        emit(
+            if downloaded > 0 {
+                "ok"
+            } else if no_decryption_key > 0 {
+                // RANKED ABOVE `failed`, because it is the only outcome here
+                // with a remedy attached: this device needs the recovery key.
+                // It is also the one state a capture most needs named — it
+                // separates open-items' ranked cause (2), "the backup key was
+                // never in the crypto store", from cause (4), a failed fetch.
+                "no_decryption_key"
+            } else if inconclusive > 0 {
+                "failed"
+            } else {
+                "no_keys_found"
+            },
+            downloaded,
+            inconclusive,
+        );
+    });
+}
+
 /// Safe, coarse UTD reason categories. No crypto internals are exposed.
 /// Megolm session IDS (identifiers only — no key material) of the timeline's
 /// currently visible unable-to-decrypt items.
@@ -5110,11 +5610,50 @@ pub fn sessions_by_room_from_import(
 #[cfg(test)]
 mod tests {
     use super::{
-        find_img_tag, is_rtc_membership_event, sessions_by_room_from_import, state_row_text,
-        substitute_emoticons, TimelineRegistry,
+        backup_attempt_allowed, backup_attempt_backoff, find_img_tag,
+        is_rtc_membership_event, sessions_by_room_from_import, state_row_text,
+        substitute_emoticons, TimelineRegistry, MAX_BACKUP_ATTEMPTS,
     };
     use matrix_sdk::ruma::events::AnySyncTimelineEvent;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+    /// THE AUTOMATIC KEY-RECOVERY BUDGET IS WHAT KEEPS IT FROM POLLING, SO
+    /// ITS SCHEDULE IS PINNED HERE RATHER THAN DESCRIBED IN A COMMENT.
+    ///
+    /// The comment and the code disagreed once already: `mark_backup_attempt`
+    /// inserts with `attempts: 1`, and passing that straight into the backoff
+    /// started the schedule at 60 s and made the documented 32-minute ceiling
+    /// unreachable. A review measured it. This asserts the real series.
+    #[test]
+    fn the_backup_retry_schedule_is_the_one_documented() {
+        let secs = |n: u32| backup_attempt_backoff(n).as_secs();
+        // Called with the number of attempts ALREADY MADE, so the wait after
+        // the first try is the first entry.
+        assert_eq!(secs(0), 30);
+        assert_eq!(secs(1), 60);
+        assert_eq!(secs(2), 120);
+        assert_eq!(secs(3), 240);
+        assert_eq!(secs(4), 480);
+        assert_eq!(secs(5), 960);
+        assert_eq!(secs(6), 1920);
+        // Flat at the ceiling rather than doubling for ever -- and the
+        // ceiling must be REACHABLE within the budget, which is the half the
+        // first version got wrong.
+        assert_eq!(secs(7), 1920);
+        assert_eq!(secs(50), 1920);
+        assert!(MAX_BACKUP_ATTEMPTS > 6,
+                "the 32-minute ceiling must be reachable before the budget \
+                 runs out, or it is decoration");
+
+        // Monotonic, and never zero: a zero wait would be a poll.
+        let mut previous = 0;
+        for n in 0..10 {
+            let current = secs(n);
+            assert!(current > 0);
+            assert!(current >= previous);
+            previous = current;
+        }
+    }
 
     /// EVERY QUEUE-BACKED SEND UNWEDGES THE ROOM FIRST.
     ///
@@ -5373,6 +5912,202 @@ mod tests {
         let emoticons = vec![(":tada:".to_owned(), "mxc://x/y".to_owned())];
         let out = substitute_emoticons(&format!("{body}:tada:"), &emoticons);
         assert!(out.contains("mxc://x/y"), "the emoticon was not substituted");
+    }
+
+    /// THE POLICY IS TESTED; THIS TESTS THE WIRING TO IT.
+    ///
+    /// A review measured that swapping the two arguments where
+    /// `mark_backup_attempt_at` calls the policy reproduces H3 exactly — the
+    /// required wait pinned at 30 s for ever — while every policy test keeps
+    /// passing, because those pass literals rather than going through the
+    /// registry. So this drives the registry itself, and uses a fabricated
+    /// "much later" instant so the backoff can never be the thing doing the
+    /// refusing.
+    ///
+    /// FAIL-ON-OLD: swap the first two arguments at that call site, or make
+    /// `record_backup_outcome` spend the budget for `Inconclusive` or
+    /// `NoDecryptionKey`, and this fails.
+    #[test]
+    fn what_an_attempt_established_decides_whether_it_cost_anything() {
+        let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
+        let later = |h: u64| {
+            std::time::Instant::now()
+                .checked_add(std::time::Duration::from_secs(h * 3600))
+                .expect("a few hours must be representable")
+        };
+
+        // A failure that taught us nothing costs a backoff step and NO budget,
+        // so given enough time the key is always allowed again.
+        let transient = "!room:example.org\u{1f}TRANSIENT";
+        assert!(registry.mark_backup_attempt(transient));
+        for hour in 1..=12 {
+            registry.record_backup_outcome(transient, super::BackupOutcome::Inconclusive);
+            assert!(
+                registry.mark_backup_attempt_at(transient, later(hour)),
+                "hour {hour}: an inconclusive failure must never exhaust the budget"
+            );
+        }
+
+        // Nor does "this device cannot decrypt the backup" -- no request was
+        // even sent, so it establishes nothing about the backup's contents.
+        // This is the case that matters most: it is the steady state of a
+        // device whose recovery key has never been entered.
+        let undecryptable = "!room:example.org\u{1f}NODECRYPTKEY";
+        assert!(registry.mark_backup_attempt(undecryptable));
+        for hour in 1..=12 {
+            registry
+                .record_backup_outcome(undecryptable, super::BackupOutcome::NoDecryptionKey);
+            assert!(
+                registry.mark_backup_attempt_at(undecryptable, later(hour)),
+                "hour {hour}: a missing decryption key must not spend the budget"
+            );
+        }
+
+        // A DEFINITIVE answer does spend it, and it runs out.
+        let definitive = "!room:example.org\u{1f}DEFINITIVE";
+        assert!(registry.mark_backup_attempt(definitive));
+        let mut allowed = 1;
+        for hour in 1..=20 {
+            registry.record_backup_outcome(definitive, super::BackupOutcome::Definitive);
+            if registry.mark_backup_attempt_at(definitive, later(hour)) {
+                allowed += 1;
+            }
+        }
+        assert_eq!(
+            allowed, MAX_BACKUP_ATTEMPTS,
+            "a definitive answer must spend exactly one unit of budget"
+        );
+
+        // A PERMANENT refusal stops the key at once, however long we wait.
+        let refused = "!room:example.org\u{1f}REFUSED";
+        assert!(registry.mark_backup_attempt(refused));
+        registry.record_backup_outcome(refused, super::BackupOutcome::PermanentRefusal);
+        assert!(
+            !registry.mark_backup_attempt_at(refused, later(99)),
+            "a permanent refusal must not be retried, however much time passes"
+        );
+        // ...and manual recovery is still the escape.
+        registry.clear_backup_attempt("!room:example.org");
+        assert!(registry.mark_backup_attempt(refused));
+    }
+
+    /// A SERVER THAT KEEPS FAILING MUST BE ASKED LESS OFTEN, NOT FOR EVER AT
+    /// THE FLOOR — and a failure that taught us nothing must not spend the
+    /// budget. Those two pull in opposite directions and one counter cannot
+    /// hold both.
+    ///
+    /// The first attempt at this had a single counter that an inconclusive
+    /// failure gave back: mark took it 1 -> 2, the refund put it to 1, and
+    /// the backoff argument was therefore pinned at 0 — 30 s, for ever, at
+    /// exactly the rate-limited server that asked us to slow down. A review
+    /// proved it by running it, twelve of twelve cycles allowed. No test
+    /// could see it, because the policy lived inside a Mutex and an Instant.
+    /// It is a pure function now, and this is the assertion that was missing.
+    #[test]
+    fn a_failing_server_is_asked_less_often_and_never_for_ever() {
+        let huge = std::time::Duration::from_secs(u32::MAX as u64);
+        let secs = std::time::Duration::from_secs;
+
+        // ESCALATION, PROBED THROUGH THE POLICY ITSELF.
+        //
+        // A first version of this test computed the expected wait with
+        // `backup_attempt_backoff` and compared the series — which tests the
+        // backoff function and says NOTHING about whether the policy consults
+        // it. Mutating the policy to ignore `tries` left that version passing.
+        // So: hold the elapsed time fixed and walk `tries` up. If the policy
+        // escalates, a fixed 45 s is enough after one try (30 s) and not
+        // enough after two (60 s). If it is pinned at the floor, both allow.
+        assert!(
+            backup_attempt_allowed(1, 0, secs(45)),
+            "45s must satisfy the 30s wait that follows the first try"
+        );
+        assert!(
+            !backup_attempt_allowed(2, 0, secs(45)),
+            "45s must NOT satisfy the wait after two tries -- if it does, the \
+             backoff is pinned at its floor and a failing server is hammered"
+        );
+        assert!(!backup_attempt_allowed(3, 0, secs(45)));
+        assert!(!backup_attempt_allowed(4, 0, secs(200)));
+        assert!(backup_attempt_allowed(4, 0, secs(300)));
+
+        // The required wait must keep growing, again asked only of the policy.
+        let mut last_needed = 0u64;
+        for tries in 1..=7u32 {
+            let needed = (0..=4000u64)
+                .find(|&t| backup_attempt_allowed(tries, 0, secs(t)))
+                .expect("some wait must eventually be enough");
+            assert!(
+                needed > last_needed || tries > 6,
+                "try {tries}: required wait {needed}s did not grow past \
+                 {last_needed}s"
+            );
+            last_needed = needed;
+        }
+        assert!(
+            last_needed >= 1920,
+            "the ceiling must actually be reached within the budget"
+        );
+
+        // INCONCLUSIVE failures must never exhaust the budget: `attempts`
+        // stays 0 however many tries have happened.
+        assert!(backup_attempt_allowed(8, 0, huge));
+        assert!(backup_attempt_allowed(99, 0, huge));
+
+        // DEFINITIVE answers are what spend it, and it does run out.
+        for attempts in 0..MAX_BACKUP_ATTEMPTS {
+            assert!(
+                backup_attempt_allowed(1, attempts, huge),
+                "budget {attempts} of {MAX_BACKUP_ATTEMPTS} must still allow a try"
+            );
+        }
+        assert!(
+            !backup_attempt_allowed(1, MAX_BACKUP_ATTEMPTS, huge),
+            "a spent budget must stop the key, however long we wait"
+        );
+        // A permanent refusal sets the budget straight to the cap, so this is
+        // also the assertion that it stops immediately.
+        assert!(!backup_attempt_allowed(99, MAX_BACKUP_ATTEMPTS, huge));
+    }
+
+    /// THE PASSPHRASE MUST CLEAR WHAT IT APPEARS TO CLEAR.
+    ///
+    /// Manual recovery forces one fresh pass by forgetting the room's attempt
+    /// record — and the record is no longer a single entry. Automatic
+    /// recovery keys each SESSION as `<room>\x1f<session>`, so removing only
+    /// the bare room id left every exhausted session exhausted, and the one
+    /// user gesture that is supposed to fix everything fixed the room-level
+    /// pass alone.
+    ///
+    /// FAIL-ON-OLD: restore `guard.remove(room_id)` and the second
+    /// `mark_backup_attempt(&session)` below returns false.
+    #[test]
+    fn clearing_a_room_forgets_its_per_session_attempts_too() {
+        let registry = TimelineRegistry::new(Arc::new(Mutex::new(VecDeque::new())));
+        let room = "!room:example.org";
+        let session = format!("{room}\u{1f}SESSIONID");
+        let other_room_session = "!other:example.org\u{1f}SESSIONID";
+
+        assert!(registry.mark_backup_attempt(room));
+        assert!(registry.mark_backup_attempt(&session));
+        assert!(registry.mark_backup_attempt(other_room_session));
+        // Straight away again: the backoff refuses, which is what makes the
+        // clear below meaningful rather than vacuous.
+        assert!(
+            !registry.mark_backup_attempt(&session),
+            "a second attempt inside the backoff must be refused"
+        );
+
+        registry.clear_backup_attempt(room);
+
+        assert!(registry.mark_backup_attempt(room), "the room pass is freed");
+        assert!(
+            registry.mark_backup_attempt(&session),
+            "and so is every session recorded under that room"
+        );
+        assert!(
+            !registry.mark_backup_attempt(other_room_session),
+            "but another room's sessions are left alone"
+        );
     }
 
     #[test]

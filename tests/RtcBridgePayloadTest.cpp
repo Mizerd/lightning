@@ -83,6 +83,70 @@ private slots:
 #endif
     }
 
+    /// THE SAME DEFECT, CAUGHT A SECOND TIME IN THE SAME FILE.
+    ///
+    /// `auto_key_recovery` carries how many sessions a pass DOWNLOADED and how
+    /// many taught it nothing. The bridge read three fields and the payload had
+    /// four, so `inconclusive` was computed, serialised and dropped here — and
+    /// the whole point of carrying it is that `ok sessions=1` out of a pass of
+    /// 32 cannot otherwise be told from a server that refused thirty-one
+    /// times. A review found it; this is the case that would have.
+    ///
+    /// FAIL-ON-OLD: drop the `inconclusive` line from the `crypto_bootstrap`
+    /// branch of `handleRustEvent` and the last QCOMPARE reads 0.
+    void theInconclusiveCountSurvivesTheBridge()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        QSignalSpy spy(&client, &RustSdkMatrixClient::cryptoBootstrapEvent);
+
+        QJsonObject out;
+        out.insert(QStringLiteral("type"),
+                   QStringLiteral("crypto_bootstrap"));
+        out.insert(QStringLiteral("kind"),
+                   QStringLiteral("auto_key_recovery"));
+        out.insert(QStringLiteral("state"), QStringLiteral("ok"));
+        out.insert(QStringLiteral("count"), 1);
+        out.insert(QStringLiteral("inconclusive"), 31);
+        client.handleRustEventForTest(out);
+
+        QCOMPARE(spy.count(), 1);
+        const QList<QVariant> args = spy.takeFirst();
+        QCOMPARE(args.at(0).toString(), QStringLiteral("auto_key_recovery"));
+        QCOMPARE(args.at(1).toString(), QStringLiteral("ok"));
+        QCOMPARE(args.at(2).toULongLong(), 1ULL);
+        // The field under test. 0 here is the defect, not a default.
+        QCOMPARE(args.at(3).toULongLong(), 31ULL);
+#endif
+    }
+
+    /// A kind with no such notion must report zero rather than stale data.
+    void anEventWithoutTheCountReportsZero()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        QSignalSpy spy(&client, &RustSdkMatrixClient::cryptoBootstrapEvent);
+
+        QJsonObject out;
+        out.insert(QStringLiteral("type"),
+                   QStringLiteral("crypto_bootstrap"));
+        out.insert(QStringLiteral("kind"), QStringLiteral("backup_state"));
+        out.insert(QStringLiteral("state"), QStringLiteral("enabled"));
+        client.handleRustEventForTest(out);
+
+        QCOMPARE(spy.count(), 1);
+        const QList<QVariant> args = spy.takeFirst();
+        QCOMPARE(args.at(2).toULongLong(), 0ULL);
+        QCOMPARE(args.at(3).toULongLong(), 0ULL);
+#endif
+    }
+
     void anArmedDelayedRetractionCarriesNoReason()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND

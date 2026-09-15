@@ -788,8 +788,15 @@ Q_SIGNALS:
     void cryptoHealthUpdated(const QVariantMap &snapshot);
     // v0.7: sanitized verified-session bootstrap observer events (state
     // names + key counts only; never key material or session ids).
+    //
+    // `inconclusive` is how many of a pass taught us NOTHING (unreachable,
+    // rate-limited). It is a fourth parameter because the payload carried it
+    // and this signal did not, so the count was computed, serialised and
+    // dropped here -- the same defect, in this same file, that this round
+    // opened by fixing: a field the Rust lane computes and the bridge forgets
+    // to carry. Zero for every kind that has no such notion.
     void cryptoBootstrapEvent(const QString &kind, const QString &state,
-                              quint64 count);
+                              quint64 count, quint64 inconclusive);
     // v0.6.0 checkpoint 9: entries carry deviceId, displayName, lastSeenTs,
     // lastSeenIp, isCurrent, hasCryptoIdentity, verified, crossSigned.
     void deviceListUpdated(bool ok, const QVariantList &devices);

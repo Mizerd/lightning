@@ -151,6 +151,62 @@ private Q_SLOTS:
         QCOMPARE(m.phase(), CryptoBootstrapModel::Ready);
     }
 
+    // A ROOM THAT RAN NO PASS MUST NOT ERASE WHAT A ROOM THAT FAILED ONE SAID.
+    //
+    // The supervisor tells us WHY a download pass did not run, and the first
+    // cut of that vocabulary rode the `backup_download` kind. That looked
+    // inert -- m_download is only ever COMPARED against "started" and
+    // "failed" -- but it is ASSIGNED unconditionally, and recompute() reads
+    // anything that is not "failed" as Ready. So opening any room that had
+    // already been attempted (which is every room switch after the first,
+    // since the pass is spawned on every open) retired the recovery banner
+    // and reported Ready over history that was never restored. §6: never
+    // report a cleanup as successful when it removed nothing.
+    //
+    // 207 tests passed on that code because none of them had ever fed a skip
+    // into this model.
+    //
+    // FAIL-ON-OLD: change either skip below back to the "backup_download"
+    // kind and the first QCOMPARE reads Ready.
+    void aSkippedPassDoesNotRetireTheEscalation()
+    {
+        CryptoBootstrapModel m;
+        apply(m, "verification_state", "verified");
+        apply(m, "backup_state", "enabled");
+        apply(m, "backup_download", "failed");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+        QVERIFY(m.needsRecoveryKey());
+
+        // The room switch that used to undo it.
+        apply(m, "backup_download_skipped", "skipped_already_attempted");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+        QVERIFY(m.needsRecoveryKey());
+
+        apply(m, "backup_download_skipped", "skipped_no_backup_key");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+
+        // Nor does the automatic recovery pass, which is an observation about
+        // individual sessions and not a verdict on the room's history.
+        apply(m, "auto_key_recovery", "started");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+        apply(m, "auto_key_recovery", "no_keys_found");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+
+        // AND THE MISROUTED CASE, which is the one the defect actually took.
+        // The dedicated kind above returns before recompute(), so a stray
+        // assignment there is inert; `backup_download` does NOT return, so a
+        // skip arriving under THAT kind is what reached recompute() and
+        // reported Ready. A first version of this test only covered the
+        // dedicated kind and passed on the broken code.
+        apply(m, "backup_download", "skipped_already_attempted");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+        QVERIFY(m.needsRecoveryKey());
+
+        // A REAL pass still speaks. The escalation is not sticky-forever.
+        apply(m, "backup_download", "ok");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::Ready);
+    }
+
     // The automatic request may never be answered. After the bounded wait,
     // the model escalates from the indefinite "waiting" spinner to an honest
     // manual-recovery state so the UI can offer the recovery key instead of

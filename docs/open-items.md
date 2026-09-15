@@ -91,8 +91,49 @@ fires later, after the main screen loads — a different trigger, also unlocated
 and the unfiltered device monitor in `perApplicationCaptureAvailable()` is the
 suspect there.
 
-**"WAITING FOR KEYS" REPORTED BACK (2026-09-15). MECHANISM NOW ESTABLISHED
-FROM THE CODE; WHICH CAUSE HIT THIS USER IS STILL OPEN.** A user reported
+**"WAITING FOR KEYS" — FIXED 2026-09-15, NOT YET LIVE-VALIDATED.** The
+automatic path the sections below say was missing now exists:
+`recover_keys_for_utds` (`rust/src/timeline.rs`) runs a bounded per-session
+backup download for any undecryptable event that arrives, on the room's
+initial snapshot and on every diff, and then retries decryption for exactly
+those sessions — the same machinery the manual Retry button uses, which is why
+it needs no new SDK surface. `mark_backup_attempt` stopped being a permanent
+set: each key records its attempt count and time, a first try is always
+allowed, then the wait doubles from 30 s to a ~32 min ceiling, and after five
+attempts the key is left alone for the rest of the lifecycle. Nothing polls —
+an attempt only happens when an undecryptable row is actually in front of the
+user.
+
+**What was deliberately NOT done:** `BackupDownloadStrategy::OneShot` stays.
+Switching to `AfterDecryptionFailure` is the obvious lever and it was tried in
+v0.7 and reverted, because it fetches one key per freshly-failing event and
+left already-rendered history encrypted after verification; OneShot is what
+bulk-downloads everything when a session is verified. The gap was never the
+strategy — it was that nothing re-ran after the single pass a room gets when
+it opens. `automatic-room-key-forwarding` is likewise still off.
+
+**KNOWN LIMITATION:** a homeserver that answers `M_UNRECOGNIZED` or
+`M_FORBIDDEN` for the backup endpoint stops that key for the rest of the
+session — a server that gains the endpoint mid-session is not re-probed until
+the next launch or a manual recovery. Accepted deliberately: the alternative
+is retrying a permanent refusal for ever, which is what pass 3 of the review
+was about. Note the realistic 403 here is `M_WRONG_ROOM_KEYS_VERSION`, which
+ruma models as a TUPLE variant and which therefore lands on `Inconclusive` —
+bounded at 32 minutes and self-correcting once the SDK refreshes the version —
+so the `Forbidden` lever rarely fires on this endpoint.
+
+**KNOWN LIMITATION:** the hook is on the ROOM and THREAD timelines only. A thread's
+undecryptable replies are not covered, which matches the pre-existing shape of
+`retry_decryption_after_import` (active room only). A key imported for the
+room decrypts the thread's copy on that thread's next retry, but nothing
+triggers one automatically.
+
+**LIVE VALIDATION: NOT TESTED.** §9 and §12 require a real multi-device test
+against a live backup before this may be called PASS, and the automated
+coverage below proves mechanics only. Do not promote it on the strength of the
+tests.
+
+The mechanism this fix closes, recorded when it was still open: A user reported
 undecryptable messages that re-entering the recovery passphrase fixed. An
 audit of the whole path found the structural answer, and it is larger than the
 report: **Lightning has exactly ONE automatic route from "the key is in my
@@ -143,9 +184,27 @@ are not usable", "already attempted this lifecycle" and "the pass ran and
 found nothing" were one indistinguishable absence — while
 `CryptoBootstrapModel` reads **Ready** either way, because its download field
 simply stays empty. They now emit `skipped_no_backup_key`,
-`skipped_already_attempted` and `skipped_bad_room_id`. Behaviour is unchanged
-by construction: the model compares that field only against `started` and
-`failed`. The two SDK log lines that separate the halves are
+`skipped_already_attempted` and `skipped_bad_room_id`.
+
+**THAT VOCABULARY SHIPPED ON THE WRONG EVENT KIND AND A REVIEW CAUGHT IT.**
+The first cut sent the skips as `kind: backup_download`, and the commit
+message, the source comment and this file all said "behaviour is unchanged by
+construction, the model compares that field only against `started` and
+`failed`". The comparisons ARE inert; **the assignment is not.**
+`CryptoBootstrapModel` assigns `m_download` unconditionally and does not
+return, so `recompute()` read a skip as "not failed" and therefore **Ready** —
+a room that ran NO pass erased what a room that FAILED one had recorded,
+retiring the recovery banner on an ordinary room switch and claiming Ready
+over history that was never restored. That is §6's "never report a cleanup as
+successful when it removed nothing", in the round whose whole purpose was to
+make this path honest, and all 207 tests passed on it because none had ever
+fed a skip into that model. Skips now carry their own kind, the
+`backup_download` branch refuses a `skipped_` state regardless, and
+`aSkippedPassDoesNotRetireTheEscalation` pins both.
+**GENERALISE: proving nothing COMPARES a field is not proving nothing ASSIGNS
+it.**
+
+The two SDK log lines that separate the halves are
 `Failed to decrypt a room event … session_id=SSSS` and
 `Successfully imported room keys … room_keys={…}` — if `SSSS` never appears in
 an import line the key never arrived; if it appears while the row still reads

@@ -14,6 +14,49 @@ anything to tested, and read `open-items.md` beside it for what has NOT been.
 
 ### Live validation: what Rokas has actually confirmed
 
+**2026-09-15 (evening) — THE 0.9.6 GUI SWEEP ON THE LAPTOP: 8 of 8 PASS, no
+regressions.** Two instances of a build of `ba2a7eb` on KDE/Wayland, throwaway
+accounts, purpose-built fixture rooms. What each item actually proves:
+
+- **The row's right rail — PASS, and MEASURED rather than eyeballed.** Edit and
+  the overflow button were CLICKED and opened on a short one-line own row
+  carrying a live read receipt, in Modern, Compact AND Bubbles, plus on a ~21px
+  continuation row. The reserve was proven ACTIVE, not incidentally clear: the
+  action bar's right edge sits at x=1340.7 with a receipt present and x=1362.7
+  without — a shift of exactly 22 px = `receiptRow.width` (18) + `spacingXS`
+  (4). Without it the bar lands 2.7 px inside the avatar band. **Reduced
+  strength, stated:** two accounts yield at most ONE receipt avatar, so the
+  reporter's four-avatar pile was not reproduced; the mechanism was, and the
+  measurement scales to the ~47 px the repo test asserts.
+- **Bubbles sender header inside its bubble — PASS.** No 1-px-pinned header.
+- **Facepile no longer clipping an own bubble's corner — PASS.**
+- **A reply resolves its target — PASS on two cases, and attributed.** The
+  homeserver was first confirmed NOT to bundle the target (`unsigned` carries
+  only `age` and `membership`), then a purpose-built room put 60 filler
+  messages between target and reply and a COLD-STARTED client still rendered
+  the quote. `git grep -c fetch_details_for_event` is 0 before `e0b6b8d` and 3
+  at HEAD.
+- **Forwarding outside a Space — PASS, decisively.** Inside a Space whose room
+  list was correctly narrowed to its 4 children, the picker offered five rooms
+  from outside it, and a message was actually forwarded to one.
+- **A call-activity room does not claim to be empty — PASS, with the log.** A
+  fixture room with 34 `m.call.member` events as its tail: `items= 0`, a first
+  page with `added= 0` — the exact shape that used to latch the empty state —
+  and six history lines rendered with no "No messages here yet.", settled
+  **201 ms** after the subscription started. The new counters named the cause
+  in one line on a warm re-open: `filterOffered= 262 droppedRtc= 145`.
+- **Local search — PASS.** "Searching 24 messages Lightning has indexed,
+  including encrypted ones." above three real hits.
+- **Offline restore — PASS, confirming the desktop result on a second
+  machine.** With every proxy pointed at a closed port: Boot → **Main** in
+  3.3 s, not Login; complete cached room list; "Offline — retrying" from the
+  first frame; and an ENCRYPTED DM rendering its decrypted history off the disk
+  with no server.
+
+**NOT covered:** the four-avatar receipt pile; anything about the 0.9.6 version
+bump (the build reports 0.9.5 because the bump was still uncommitted); and the
+automatic key recovery, which is a separate live test.
+
 **2026-09-15 (evening) — THE WINDOWS CAMERA DELIVERS ~29.8 fps SUSTAINED, AND
 THE SELF-VIEW SHOWS IT: PASS.** On the laptop's Windows guest, released 0.9.5
 portable, with the laptop's physical privacy shutter OPEN — which is the whole

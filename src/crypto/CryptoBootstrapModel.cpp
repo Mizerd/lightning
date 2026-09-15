@@ -136,7 +136,8 @@ void CryptoBootstrapModel::onWaitTimeout()
 }
 
 void CryptoBootstrapModel::applyEvent(const QString &kind,
-                                      const QString &state, quint64 count)
+                                      const QString &state, quint64 count,
+                                      quint64 inconclusive)
 {
     if (kind == QLatin1String("verification_state")) {
         m_verification = state;
@@ -149,7 +150,45 @@ void CryptoBootstrapModel::applyEvent(const QString &kind,
         m_backupExists = (state == QLatin1String("true")) ? 1 : 0;
     } else if (kind == QLatin1String("backup_download")) {
         // The supervisor's explicit per-room download pass.
+        //
+        // A `skipped_*` state is REFUSED here even though the supervisor now
+        // sends those under their own kind. Belt and braces, and the braces
+        // are the ones that broke: this branch does not return, so whatever
+        // it assigns reaches recompute(), and recompute() reads anything that
+        // is not "failed" as Ready. One misrouted skip therefore retires the
+        // recovery banner and reports Ready over unrestored history. Keeping
+        // the guard here means that cannot happen again from either side.
+        if (state.startsWith(QLatin1String("skipped_"))) {
+            qCInfo(lcCryptoBootstrap)
+                << "backup download skipped reason=" << state;
+            return;
+        }
         m_download = state;
+    } else if (kind == QLatin1String("backup_download_skipped")) {
+        // WHY a pass did not run. Logged and then DROPPED, deliberately: it
+        // must not touch m_download.
+        //
+        // That field is the escalation. `recompute()` reads anything that is
+        // not "failed" as Ready, and it is assigned unconditionally above —
+        // so recording a SKIP there would let a room that ran no pass erase
+        // what a room that FAILED one had recorded, retire the recovery
+        // banner on an ordinary room switch, and report Ready over history
+        // that was never restored. The first cut of the skip vocabulary did
+        // exactly that and 207 passing tests could not see it, because no
+        // test had ever fed a skip into this model.
+        qCInfo(lcCryptoBootstrap)
+            << "backup download skipped reason=" << state;
+        return;
+    } else if (kind == QLatin1String("auto_key_recovery")) {
+        // The automatic bounded pass for undecryptable rows. Same rule and
+        // the same reason: it is an observation, not a download outcome.
+        // BOTH counts. `ok sessions=1` out of a pass of 32 is ambiguous on
+        // its own -- the other 31 could be absent from the backup or could be
+        // a server refusing to talk to us, and those have opposite remedies.
+        qCInfo(lcCryptoBootstrap)
+            << "auto key recovery" << state << "sessions=" << count
+            << "inconclusive=" << inconclusive;
+        return;
     } else if (kind == QLatin1String("secrets_pending")) {
         if (state == QLatin1String("exhausted")) {
             // v0.7.2: the coordinator finished its bounded request ladder
