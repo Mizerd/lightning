@@ -66,11 +66,11 @@
 #include <QTextStream>
 
 #include <atomic>
+#include <cstdio>
 #include <cstdlib>
 #include <string>
 
 #ifdef Q_OS_WIN
-#include <cstdio>
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -89,15 +89,53 @@ using lightning::backendNameFor;
 // when launched from cmd/powershell. A double-click has no parent console, so
 // this is a harmless no-op and no window appears. --console forces a visible
 // console. UTF-8 output so log punctuation (e.g. en-dashes) is not mojibake.
+// Is this standard handle ALREADY somewhere we must not throw away?
+//
+// A shell redirect (`> out.txt`), a pipe, and PowerShell's
+// Start-Process -RedirectStandardOutput all reach the child as a valid,
+// inherited standard handle, which the CRT has already wired to stdout. Test
+// it BEFORE AttachConsole, which resets the standard handles to the console's
+// own when it succeeds.
+bool standardHandleAlreadyGoesSomewhere(DWORD which)
+{
+    const HANDLE h = GetStdHandle(which);
+    if (h == nullptr || h == INVALID_HANDLE_VALUE)
+        return false;
+    // FILE_TYPE_CHAR is the console itself (and NUL): those are the cases
+    // freopen("CONOUT$") exists to fix. A disk file or a pipe is the user's
+    // redirect and is the thing being protected.
+    const DWORD type = GetFileType(h) & ~DWORD(FILE_TYPE_REMOTE);
+    return type == FILE_TYPE_DISK || type == FILE_TYPE_PIPE;
+}
+
 void configureWindowsConsole(bool forceAlloc)
 {
+    // Sampled BEFORE AttachConsole, deliberately: AttachConsole replaces the
+    // standard handles, so asking afterwards can no longer tell an inherited
+    // redirect from the console it just attached to.
+    //
+    // WHY THIS GUARD EXISTS. freopen("CONOUT$") used to run unconditionally,
+    // and it DESTROYS an inherited redirect: the write then goes to the
+    // console window and the file the user redirected into stays empty. That
+    // is the measured symptom on the packaged Windows build (2026-09-15) —
+    // `Lightning.exe --version > out.txt 2>&1` ran 1.2 s, exited 0 and wrote
+    // ZERO BYTES, three separate ways. The console attach is for the case
+    // where there is nowhere else to write, not a takeover of a stream the
+    // caller has already pointed at a file.
+    const bool stdoutIsRedirected =
+        standardHandleAlreadyGoesSomewhere(STD_OUTPUT_HANDLE);
+    const bool stderrIsRedirected =
+        standardHandleAlreadyGoesSomewhere(STD_ERROR_HANDLE);
+
     bool attached = AttachConsole(ATTACH_PARENT_PROCESS) != 0;
     if (!attached && forceAlloc)
         attached = AllocConsole() != 0;
     if (attached) {
         FILE *f = nullptr;
-        f = freopen("CONOUT$", "w", stdout);
-        f = freopen("CONOUT$", "w", stderr);
+        if (!stdoutIsRedirected)
+            f = freopen("CONOUT$", "w", stdout);
+        if (!stderrIsRedirected)
+            f = freopen("CONOUT$", "w", stderr);
         (void)f;
         SetConsoleOutputCP(CP_UTF8);
     }
@@ -178,7 +216,87 @@ void logFileHandler(QtMsgType type, const QMessageLogContext &context,
         << message << '\n';
     g_logFile->flush();   // a crash must not lose the lines that explain it
 }
+
+// Append VERBATIM program output (no timestamp, no level, no category) to the
+// --log-file, if one is open.
+//
+// The status commands do not log — they PRINT. --call-media-status,
+// --image-format-status, --spell-status, --desktop-status and --gif-status
+// each write their answer to stdout through QTextStream, so the message
+// handler above never sees a byte of it. Without this, --log-file on the one
+// platform whose stdout may reach nobody would produce a file containing its
+// own header and nothing else: present, and useless — which is the same
+// "graceful fallback and silent absence are indistinguishable" shape that has
+// cost this project four packaging defects.
+//
+// Same lock as every other write, so a status line cannot interleave with a
+// category line from another thread.
+void mirrorToLogFile(const QString &text)
+{
+    if (text.isEmpty())
+        return;
+    QMutexLocker locker(&g_logMutex);
+    if (!g_logFile)
+        return;
+    QTextStream(g_logFile) << text;
+    g_logFile->flush();
+}
 } // namespace
+
+// A stdout/stderr writer whose output ALSO lands in --log-file.
+//
+// Drop-in for `QTextStream out(stdout)` at the diagnostic print sites. Bytes
+// reach stdout exactly as before — same order, same content — and are
+// mirrored a whole line at a time so the copy in the log file interleaves
+// with the category lines the same way the console does.
+class DiagnosticStream
+{
+public:
+    explicit DiagnosticStream(FILE *device) : m_device(device) {}
+    ~DiagnosticStream() { flush(); }
+
+    Q_DISABLE_COPY_MOVE(DiagnosticStream)
+
+    template <typename T>
+    DiagnosticStream &operator<<(const T &value)
+    {
+        {
+            QTextStream into(&m_pending);
+            into << value;
+        }
+        const int lastNewline = m_pending.lastIndexOf(QLatin1Char('\n'));
+        if (lastNewline >= 0) {
+            emitText(m_pending.left(lastNewline + 1));
+            m_pending = m_pending.mid(lastNewline + 1);
+        }
+        return *this;
+    }
+
+    void flush()
+    {
+        if (m_pending.isEmpty())
+            return;
+        emitText(m_pending);
+        m_pending.clear();
+    }
+
+private:
+    void emitText(const QString &text)
+    {
+        {
+            QTextStream out(m_device);
+            out << text;
+        }
+        // Flushed per line: on Windows this output is the whole point of the
+        // command, and a buffered tail lost to an abort is the same as no
+        // output at all.
+        std::fflush(m_device);
+        mirrorToLogFile(text);
+    }
+
+    FILE *m_device;
+    QString m_pending;
+};
 
 void installLogFile(const QString &path)
 {
@@ -350,6 +468,56 @@ struct PreflightResult {
 PreflightResult preflightParse(int argc, char *argv[])
 {
     PreflightResult r;
+
+    // FIRST PASS: the flags that decide WHERE this process reports, read from
+    // the whole command line before anything can exit.
+    //
+    // WHY A SEPARATE PASS. The main loop below is a single left-to-right walk
+    // in which every terminating flag — --help, --version, --build-info,
+    // --call-media-status, --image-format-status, --spell-status,
+    // --desktop-status, --gif-status, --gif-selftest, --reset-crypto-store —
+    // ends in `return r`. So a flag standing AFTER one of those is never seen
+    // at all, and the two flags whose entire job is to make a packaged build
+    // say something are exactly the ones a person types second:
+    //
+    //     Lightning.exe --call-media-status --log-file C:\cms.log
+    //
+    // returned at --call-media-status with r.logFilePath still empty,
+    // installLogFile("") returned immediately, and NO FILE WAS EVER CREATED —
+    // measured on the packaged Windows build 2026-09-15, exit 0 and no log.
+    // The one command that answers "why can I not call from this build" could
+    // not be captured from the one platform that needed it.
+    //
+    // These two are order-independent BY CONTRACT, and that is what
+    // DesktopIntegrationTest::reportingFlagsAreReadBeforeAnythingCanExit
+    // pins: both must be parsed ahead of the first `return r`. Nothing else
+    // belongs here — a flag that selects behaviour still belongs in the main
+    // loop, where the argument order a user typed decides it.
+    //
+    // Recording only: malformed values are still diagnosed by the main loop's
+    // own branches, so `--version --log-file` (no path) keeps printing the
+    // version exactly as it always has.
+    for (int i = 1; i < argc; ++i) {
+        const QString a = QString::fromLocal8Bit(argv[i]);
+        if (a.startsWith(QLatin1String("--log-file="))) {
+            const QString path = a.mid(QLatin1String("--log-file=").size());
+            if (!path.isEmpty())
+                r.logFilePath = path;
+            continue;
+        }
+        if (a == QLatin1String("--log-file")) {
+            // Step over the value so a path that happens to spell another
+            // flag ("--console") is not also read as one.
+            if (i + 1 < argc)
+                r.logFilePath = QString::fromLocal8Bit(argv[++i]);
+            continue;
+        }
+        if (a == QLatin1String("--console")) {
+            r.consoleRequested = true;
+            continue;
+        }
+    }
+
     for (int i = 1; i < argc; ++i) {
         QString a = QString::fromLocal8Bit(argv[i]);
         if (a == QLatin1String("-h") || a == QLatin1String("--help")) {
@@ -1381,7 +1549,7 @@ QStringList xdgDataDirs()
 /// probe that skips the write cannot prove the write works.
 static int printDesktopStatus()
 {
-    QTextStream out(stdout);
+    DiagnosticStream out(stdout);
 
     // The SAME resolution the startup path applies, or this flag would report
     // on an app id the running application never uses — and inside a Flatpak
@@ -1485,7 +1653,7 @@ static int printDesktopStatus()
 static int printImageFormatStatus()
 {
     namespace ifmt = lightning::imagefmt;
-    QTextStream out(stdout);
+    DiagnosticStream out(stdout);
 
     // The paths first: when the answer is "the plugins are not where I look",
     // these are the lines that say so.
@@ -1588,7 +1756,7 @@ static int printImageFormatStatus()
 /// gst_init had already run, and nothing shipped could say so.
 static int printCallMediaStatus()
 {
-    QTextStream out(stdout);
+    DiagnosticStream out(stdout);
     out << "call media engine built in: yes\n";
 
     QString whyNot;
@@ -1723,17 +1891,23 @@ int main(int argc, char *argv[])
     // warnings are already gated.
     installVaapiLogGate();
 
+    // Through the tee, so --version / --help / --build-info and every preflight
+    // error are readable from a packaged build that has nowhere to print. On
+    // the Windows package this is the ONLY way to get them: measured
+    // 2026-09-15, `--log-file X --version` produced a file containing its own
+    // header and not the version string, because this text never went through
+    // the message handler.
     if (pf.action == PreflightResult::ExitSuccess) {
-        QTextStream(stdout) << pf.stdoutMsg;
+        DiagnosticStream(stdout) << pf.stdoutMsg;
         return 0;
     }
     if (pf.action == PreflightResult::ExitError) {
-        QTextStream(stderr) << pf.stderrMsg;
+        DiagnosticStream(stderr) << pf.stderrMsg;
         return 2;
     }
     if (pf.action == PreflightResult::ExitResetError) {
-        QTextStream(stdout) << pf.stdoutMsg;
-        QTextStream(stderr) << pf.stderrMsg;
+        DiagnosticStream(stdout) << pf.stdoutMsg;
+        DiagnosticStream(stderr) << pf.stderrMsg;
         return 3;
     }
     if (pf.action == PreflightResult::RunCallMediaStatus) {
@@ -1763,7 +1937,7 @@ int main(int argc, char *argv[])
         // CMake pkg-config probe found no GStreamer, so there is nothing to
         // ask. This is what EVERY packaged Windows and macOS build printed
         // before 2026-08-26.
-        QTextStream(stdout)
+        DiagnosticStream(stdout)
             << "call media engine built in: no\n"
             << "\nRESULT: calls will be refused by this build "
                "(configured without GStreamer).\n";
@@ -1806,7 +1980,7 @@ int main(int argc, char *argv[])
         QCoreApplication spellProbeApp(argc, argv);
         SpellChecker checker;
         checker.initialize();
-        QTextStream out(stdout);
+        DiagnosticStream out(stdout);
         out << "spell checker available: "
             << (checker.available() ? "yes" : "no") << "\n";
         if (!checker.available()) {

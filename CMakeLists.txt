@@ -4391,6 +4391,21 @@ if(BUILD_TESTING)
     add_dependencies(screenshot-demo-exclusion-test lightning-matrix)
     add_test(NAME screenshot-demo-exclusion COMMAND screenshot-demo-exclusion-test)
 
+    # --log-file / --console contract, asserted against the REAL binary.
+    # src/main.cpp defines main() and cannot be linked into a test, and a
+    # source scan cannot see what a binary does with an argument vector: both
+    # defects this pins (a --log-file standing after a flag that exits created
+    # no file at all; the status commands' printed output never reached the
+    # file) shipped through a tree whose scans were green.
+    qt_add_executable(diagnostic-output-test
+        tests/DiagnosticOutputTest.cpp
+    )
+    target_link_libraries(diagnostic-output-test PRIVATE Qt6::Core Qt6::Test)
+    target_compile_definitions(diagnostic-output-test PRIVATE
+        "LIGHTNING_BINARY=\"$<TARGET_FILE:lightning-matrix>\"")
+    add_dependencies(diagnostic-output-test lightning-matrix)
+    add_test(NAME diagnostic-output COMMAND diagnostic-output-test)
+
     # Development-only screenshot-demo DATASET contract: structure (Spaces,
     # required room types, poll, thread), determinism (stable ids + fixed
     # clock), and safety (only fictional *.example identities). Exercises
