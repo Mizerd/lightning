@@ -14,6 +14,51 @@ anything to tested, and read `open-items.md` beside it for what has NOT been.
 
 ### Live validation: what Rokas has actually confirmed
 
+**2026-09-15 (night) — THE AUTOMATIC KEY-RECOVERY PATH: THE MECHANISM FIRES
+AND IS BOUNDED (PASS). THE END-TO-END CLAIM IS NOT TESTED.** Two fresh devices
+of a throwaway account on the laptop, driven against a real homeserver.
+
+**CAVEAT ON WHAT WAS TESTED:** the build was the working-tree version as it
+stood when the run began (463 changed lines), not the committed `8f472c2`
+(769 lines, a refined superset with the same constants and the same log
+vocabulary). The evidence below applies strictly to that predecessor.
+
+**FIRES — PASS.** On a DM full of "Waiting for keys…" rows the new path ran:
+`auto key recovery "started" sessions= 3`, and matrix-sdk's own
+`retry_decryption_for_events` spans appear 200 ms later, so the pass really did
+call `timeline.retry_decryption` rather than merely log. Two review fixes
+confirmed live: `no_keys_found` was reported (not `failed`) when the backup
+genuinely lacked the keys, and skips arrived under the separate
+`backup_download_skipped` / `auto_key_recovery` kinds, so a skip never touched
+`m_download` — which is H1.
+
+**BOUNDED — PASS.** 9 lines on one device over ~13 min, 8 on another over ~7
+min. **The backoff is visible in the log**: three sessions attempted at
+17:04:49 were not retried until 17:12:51 — an eight-minute gap with the room
+open and the rows on screen — then exactly once each. The
+`skipped_no_backup_key` branch produced one line, not one per diff. Clients
+that never opened an undecryptable room produced **zero** lines: nothing polls.
+
+**END TO END — NOT TESTED, and the blocker was proven rather than assumed.**
+The precondition needs a key that is IN the backup and NOT yet downloaded, and
+no device of that account could obtain a Megolm key by to-device at all.
+Crypto-store inspection (identifiers only) found the sender's store holding
+only the sessions it had always had, while account 1's SDK log shows the keys
+dispatched: *"All m.room_key … were sent out, marking session as shared"*. So
+the keys left the sender and never arrived, and nothing could put one into the
+backup that the observer lacked. **Pre-existing and unrelated to the change** —
+it was true before anything was touched. Five separate attempts at the
+precondition, none stretched into a pass.
+
+**NO REGRESSIONS — PASS.** Zero QML warnings, TypeErrors or binding loops
+across five client logs; normal E2EE messaging worked throughout.
+
+**What remains unproven no matter how carefully the code reads:** that a key
+arriving in backup after a room's first pass is picked up without a gesture;
+that the import produces an in-place row update rather than needing a room
+switch; and that the emitted vocabulary describes what a real capture shows —
+the instrument has never been read in anger.
+
 **2026-09-15 (evening) — THE 0.9.6 GUI SWEEP ON THE LAPTOP: 8 of 8 PASS, no
 regressions.** Two instances of a build of `ba2a7eb` on KDE/Wayland, throwaway
 accounts, purpose-built fixture rooms. What each item actually proves:

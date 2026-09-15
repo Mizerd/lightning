@@ -211,6 +211,25 @@ an import line the key never arrived; if it appears while the row still reads
 "Waiting for keys…" the key arrived and the row never updated. Nobody has ever
 told those two apart.
 
+**TO-DEVICE ROOM-KEY DELIVERY DID NOT WORK FOR THE TEST ACCOUNTS
+(2026-09-15), AND IT IS NOT THIS ROUND'S CHANGE.** Found while trying to
+construct a live fixture for the automatic key-recovery path. Neither device of
+`lightningtest2` received a Megolm key by to-device — queued (offline) delivery
+failed and, in the last attempt, live delivery failed too — while the SENDER's
+SDK log reported success: *"Marking to-device request carrying a room key … as
+sent"* and *"All m.room_key … were sent out, marking session as shared"*.
+Crypto-store inspection (identifiers only) confirmed the receiving stores never
+gained the sessions; before anything was touched, one device held 2 of the 12
+sessions present in its two encrypted rooms.
+
+**Not diagnosed, and deliberately not guessed at.** It could be the
+homeserver's to-device queue, the accounts' device state after many
+create/delete cycles, or the client. What it definitely is: **these two
+throwaway accounts are currently a poor fixture for any E2EE key-arrival
+test**, and that is what blocked the end-to-end half of the key-recovery
+validation. Fixing the fixture — or finding out it is the client — is the
+prerequisite for ever promoting that path to PASS.
+
 **THE 2026-09-15 WINDOWS GUEST ROUND — two guests driven at once, and four
 results worth keeping.** Clock checked first, as this file requires: `tzutil
 /g` = UTC and the guest was 18 s from the laptop's `date -u`, so the 7-hour
