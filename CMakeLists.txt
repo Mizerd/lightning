@@ -3686,6 +3686,20 @@ if(BUILD_TESTING)
         add_test(NAME offline-restore-state COMMAND offline-restore-state-test)
         set_tests_properties(offline-restore-state PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+        # A field the Rust lane computes and the bridge forgets to carry is
+        # invisible to every test that drives a fake client, because the fake
+        # emits the signal itself. `delayed_category` was dropped that way and
+        # nothing could see it. Drives the real dispatcher with the real
+        # payload; no FFI handle, no store, no network.
+        qt_add_executable(rtc-bridge-payload-test
+            tests/RtcBridgePayloadTest.cpp
+        )
+        lightning_configure_qml_test(rtc-bridge-payload-test)
+        target_include_directories(rtc-bridge-payload-test PRIVATE src)
+        add_test(NAME rtc-bridge-payload COMMAND rtc-bridge-payload-test)
+        set_tests_properties(rtc-bridge-payload PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
 
     # B011: a device whose published identity key is not its own can never

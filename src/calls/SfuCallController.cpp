@@ -1697,10 +1697,21 @@ QString membershipRefusalCategory(const QString &category)
 void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
                                               const QString &category,
                                               const QString &eventId,
-                                              const QString &delayId)
+                                              const QString &delayId,
+                                              const QString &delayedCategory)
 {
     if (opId == 0)
         return;
+    // WHY there is no delayed retraction, not merely that there is none.
+    // rtc.rs has computed this since the delayed-events work and the bridge
+    // dropped it on the floor, so every `delayed= false` below was mute about
+    // whether the endpoint is absent (permanent, nothing to retry) or the
+    // write was refused this once (transient, the next publish tries again).
+    // Recorded before any early return so a refresh answer updates it too.
+    if (!delayId.isEmpty())
+        m_delayedCategory.clear();
+    else if (!delayedCategory.isEmpty())
+        m_delayedCategory = delayedCategory;
     // THE ANSWER TO A PUBLISH WE ABANDONED BY LEAVING. This used to be
     // discarded silently by the `opId != m_publishOp` test further down —
     // no log, no retraction, no delay-id cancellation — while the write it
@@ -1735,7 +1746,8 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
         }
         qCWarning(lcSfuCall)
             << "a membership publish landed AFTER we left; retracting it "
-               "delayed=" << !delayId.isEmpty();
+               "delayed=" << !delayId.isEmpty()
+            << "delayed_reason=" << m_delayedCategory;
         // The delay id comes from the ANSWER, not from m_delayId: this
         // publish armed its own delayed retraction and nothing else holds
         // that id, so passing it is the only way it is ever cancelled.
@@ -1763,7 +1775,8 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
         m_membershipPublished = true;
         m_delayId = delayId;
         qCInfo(lcSfuCall) << "membership refreshed delayed="
-                          << !delayId.isEmpty();
+                          << !delayId.isEmpty()
+                          << "delayed_reason=" << m_delayedCategory;
         return;
     }
     if (opId != m_publishOp)
@@ -1771,7 +1784,8 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
     m_publishOp = 0;
     qCInfo(lcSfuCall) << "membership published ok=" << ok
                       << "category=" << category
-                      << "delayed=" << !delayId.isEmpty();
+                      << "delayed=" << !delayId.isEmpty()
+                      << "delayed_reason=" << m_delayedCategory;
     // RECORDED BEFORE THE FAILURE BRANCH, because that branch tears down and
     // the teardown has to know whether there is anything to retract. An
     // event id is the proof, not `ok`: rtc.rs reports ok=false when the

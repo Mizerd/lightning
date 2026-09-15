@@ -188,10 +188,12 @@ public:
     {
         Q_EMIT rtcMembershipRetracted(opId, ok, category);
     }
-    void answerPublish(quint64 opId, bool ok, const QString &delayId)
+    void answerPublish(quint64 opId, bool ok, const QString &delayId,
+                       const QString &delayedCategory = QString())
     {
         Q_EMIT rtcMembershipPublished(opId, ok, QString(),
-                                      QStringLiteral("$event"), delayId);
+                                      QStringLiteral("$event"), delayId,
+                                      delayedCategory);
     }
     /// A publish the HOMESERVER refused, carrying the category the bridge
     /// really sends. `answerPublish` above cannot express one — it hard-codes
@@ -200,7 +202,7 @@ public:
     void refusePublish(quint64 opId, const QString &category)
     {
         Q_EMIT rtcMembershipPublished(opId, false, category, QString(),
-                                      QString());
+                                      QString(), QString());
     }
     /// The SFU's own lifecycle, on the signal SfuCallController connects.
     void emitSfuState(const QString &state, const QString &category)
@@ -3228,6 +3230,41 @@ private Q_SLOTS:
         QCOMPARE(static_cast<int>(call.state()),
                  static_cast<int>(SfuCallController::State::Connected));
         QCOMPARE(call.roomId(), QStringLiteral("!room:example.org"));
+    }
+
+    // AN EMPTY DELAY ID HAS TWO OPPOSITE MEANINGS AND THE CONTROLLER USED TO
+    // KNOW NEITHER. `unrecognized`/`not_found`/`no_delay_id` mean the
+    // homeserver has no usable MSC4140 endpoint, so there is nothing to
+    // retry and cleanup rests on `expires` for the rest of the account's
+    // life; anything else is this one write being refused, and the next
+    // refresh arms a delayed retraction normally. rtc.rs has always told
+    // them apart and the answer reached nothing.
+    void aRefusedDelayedRetractionKeepsItsReason()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QString());
+        QVERIFY(call.delayedRefusalReason().isEmpty());
+
+        QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
+                                          Qt::DirectConnection));
+        client.answerPublish(client.lastPublishOp, true, QString(),
+                             QStringLiteral("unrecognized"));
+        QCOMPARE(call.delayedRefusalReason(),
+                 QStringLiteral("unrecognized"));
+
+        // And a later publish that DOES arm one clears it, or a server that
+        // gains support keeps being described by a refusal it has outgrown.
+        // rtc.rs re-probes exactly that way, so the reason must not latch
+        // here when it does not latch there.
+        QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
+                                          Qt::DirectConnection));
+        client.answerPublish(client.lastPublishOp, true,
+                             QStringLiteral("delay-9"));
+        QVERIFY(call.delayedRefusalReason().isEmpty());
     }
 
     // TWO GATES SAY `forbidden` AND THEY NEED OPPOSITE ANSWERS.

@@ -8366,7 +8366,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             opId(), event.value(QStringLiteral("ok")).toBool(),
             event.value(QStringLiteral("category")).toString(),
             event.value(QStringLiteral("event_id")).toString(),
-            event.value(QStringLiteral("delay_id")).toString());
+            event.value(QStringLiteral("delay_id")).toString(),
+            event.value(QStringLiteral("delayed_category")).toString());
         return true;
     }
     if (type == QLatin1String("rtc_membership_retracted")

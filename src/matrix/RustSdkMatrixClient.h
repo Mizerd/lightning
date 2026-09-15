@@ -980,6 +980,7 @@ private:
         handleRustEvent(event, m_lifecycle.activeGeneration());
     }
     friend class OfflineRestoreStateTest;
+    friend class RtcBridgePayloadTest;
 
     void finishSignOut(const QString &serverResult, const QString &serverMessage);
     bool clearPersistedAccount(const matrix::app_data::AccountIdentity &identity,

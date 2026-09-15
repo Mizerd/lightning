@@ -695,6 +695,10 @@ public:
     /// the leave path nor the refresh heartbeat could be reached at all,
     /// which is exactly why neither had ever been tested.
     void setMembershipForTest(const QString &roomId, const QString &delayId);
+    /// Diagnostic: why no delayed retraction is armed, or empty when one is.
+    /// Read by the tests and by anyone reading a support export; it is a
+    /// closed category vocabulary and never carries server text.
+    QString delayedRefusalReason() const { return m_delayedCategory; }
     /// Arm the share-audio track id a running share would hold.
     ///
     /// Reaching it for real needs a portal, an engine and a live SFU; what
@@ -788,8 +792,8 @@ private Q_SLOTS:
     void onRtcSendFinished(quint64 opId, bool ok, const QString &category,
                            const QString &eventId);
     void onMembershipPublished(quint64 opId, bool ok, const QString &category,
-                               const QString &eventId,
-                               const QString &delayId);
+                               const QString &eventId, const QString &delayId,
+                               const QString &delayedCategory);
     void onSfuState(const QString &state, const QString &category);
     void onSfuJoined(const QString &identity,
                      const QVariantList &participants,
@@ -1064,6 +1068,11 @@ private:
     /// what decides whether a receiver offers a video answer.
     QString m_announceIntent;
     QString m_delayId;
+    /// WHY `m_delayId` is empty, in rtc.rs's own vocabulary; empty when a
+    /// delayed retraction IS armed. `unrecognized`/`not_found`/`no_delay_id`
+    /// mean the homeserver has no usable MSC4140 endpoint and there is
+    /// nothing to retry; anything else is transient or room-specific.
+    QString m_delayedCategory;
     QString m_ownIdentity;
     /// Populated while the picker is open; cleared when a source is chosen
     /// or the gesture is abandoned. On Linux this is populated ONLY on the

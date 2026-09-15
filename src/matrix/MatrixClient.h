@@ -2133,11 +2133,18 @@ Q_SIGNALS:
     /// {userId, deviceId, rtcIdentity, membershipEventId, reactionEventId}.
     void rtcHandsReceived(quint64 opId, const QString &roomId,
                           const QVariantList &hands);
-    /// Our membership was published. `delayId` empty means the server has no
-    /// MSC4140, so cleanup falls back to the membership's own `expires`.
+    /// Our membership was published. An empty `delayId` means no delayed
+    /// retraction was armed, so cleanup falls back to the membership's own
+    /// `expires` — and `delayedCategory` says WHY, which is NOT always "the
+    /// server has no MSC4140" as this comment claimed until 2026-09-15.
+    /// Empty on success. `unrecognized`/`not_found`/`no_delay_id` mean the
+    /// endpoint is genuinely absent (rtc.rs latches on exactly those three);
+    /// `rate_limited`/`forbidden`/`invalid`/`network` are transient or
+    /// specific to one room, and the next publish tries again.
     void rtcMembershipPublished(quint64 opId, bool ok, const QString &category,
                                 const QString &eventId,
-                                const QString &delayId);
+                                const QString &delayId,
+                                const QString &delayedCategory);
     void rtcMembershipRetracted(quint64 opId, bool ok,
                                 const QString &category);
     void rtcMediaKeySent(quint64 opId, bool ok, const QString &category,
