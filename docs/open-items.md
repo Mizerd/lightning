@@ -85,11 +85,35 @@ survives that fix**: with no preference stored the gate skipped the call and Qt
 Multimedia still initialised before `voice-call media engine active` is logged.
 `GstCallMediaBackend::runtimeAvailable()` is pure GStreamer element probing and
 `setMediaBackend` touches no devices. `applySfuDevices()` a few lines below has
-the identical shape and is the first place to look. Separately, a burst of
+the identical shape and is the first place to look.
+
+**THE `GstIntRange` CRITICALS ARE NOT LIGHTNING'S — LOCATED 2026-09-15, AND THE
+SUSPECT WAS WRONG.** A burst of
 `GStreamer-CRITICAL ... range start is not smaller than end for GstIntRange`
-fires later, after the main screen loads — a different trigger, also unlocated,
-and the unfiltered device monitor in `perApplicationCaptureAvailable()` is the
-suspect there.
+fires after the main screen loads, and
+`perApplicationCaptureAvailable()`'s unfiltered device monitor was recorded
+here as the suspect. It is not. **`gst-device-monitor-1.0` — a stock GStreamer
+tool with no Lightning code in the process — produces 28 of the identical
+criticals on the maintainer's desktop.** So it is GStreamer's own device
+provider building a degenerate `GstIntRange` (`start >= end`) out of one of the
+machine's audio devices, and every client on that machine that enumerates audio
+devices will print it.
+
+**Consequences worth keeping.** It is HOST- and DEVICE-dependent, not
+build-dependent, so its presence or absence in a log says nothing about a
+build. It is noise: nothing in the enumeration fails, and the devices are
+listed correctly afterwards. And the fix is not ours to make — do not spend
+another round hunting it in `src/calls/`. If it ever needs closing, the move is
+to identify the offending device's SPA rate choice and report it upstream to
+GStreamer, not to change Lightning.
+
+**Separately, and NOT the same thing:** `spaVisitChoice: parse error` lines are
+**Qt Multimedia's** PipeWire pod parser (`libQt6Multimedia.so.6`), not
+GStreamer at all. `519ee1f` stopped Lightning forcing Qt Multimedia up at every
+launch, and that gate works as designed — but it deliberately still pays the
+init for a user who HAS stored a device preference, and such a user therefore
+still sees these lines. Two different libraries, two different triggers, one
+log.
 
 **"WAITING FOR KEYS" — FIXED AND LIVE-VALIDATED PASS, 2026-09-15.** Two
 screenshots of the same rows going from "Waiting for keys…" to their text with
