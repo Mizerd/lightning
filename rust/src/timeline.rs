@@ -11,7 +11,7 @@
 //! decrypted event JSON — item payloads carry only UI-safe metadata.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
@@ -47,7 +47,7 @@ use matrix_sdk::{
             },
             AnyMessageLikeEventContent, Mentions,
         },
-        EventId, OwnedUserId, RoomId, UserId,
+        EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
     },
     Client,
 };
@@ -2536,6 +2536,13 @@ send queue owes nothing for them: {in_flight:?}"
         });
     }
 
+    // Replies whose target the SDK has not resolved: ask, once, per timeline.
+    // See fetch_missing_reply_details — without this the quote reads
+    // "(original message not loaded)" for ever.
+    let reply_details_fetched: Arc<Mutex<HashSet<String>>> =
+        Arc::new(Mutex::new(HashSet::new()));
+    fetch_missing_reply_details(&timeline, items.iter(), &reply_details_fetched);
+
     let snapshot: Vec<serde_json::Value> =
         items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
     enqueue(
@@ -2593,6 +2600,14 @@ send queue owes nothing for them: {in_flight:?}"
                     break;
                 }
                 for diff in diffs {
+                    // Before serialising: any newly arrived reply whose target
+                    // the SDK has not resolved gets one fetch. The SDK writes
+                    // the answer back into the item, which returns here as an
+                    // ordinary Set diff and repaints the quote in place.
+                    fetch_missing_reply_details(
+                        &timeline, diff_items(&diff).iter(),
+                        &reply_details_fetched,
+                    );
                     let value = diff_to_json(
                         &room_id, room_gen, lifecycle, &diff, &own_user, &registry,
                     );
@@ -2698,6 +2713,12 @@ async fn open_thread_task(
         }
     }
 
+    // Same as the room timeline: a thread reply quoting something the SDK has
+    // not resolved reads "(original message not loaded)" until asked.
+    let reply_details_fetched: Arc<Mutex<HashSet<String>>> =
+        Arc::new(Mutex::new(HashSet::new()));
+    fetch_missing_reply_details(&timeline, items.iter(), &reply_details_fetched);
+
     let snapshot: Vec<serde_json::Value> =
         items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
     let has_event_rows = items
@@ -2794,6 +2815,10 @@ async fn open_thread_task(
                     break;
                 }
                 for diff in diffs {
+                    fetch_missing_reply_details(
+                        &timeline, diff_items(&diff).iter(),
+                        &reply_details_fetched,
+                    );
                     let base = json!({
                         "type": "thread_diff",
                         "room_id": room_id,
@@ -2987,6 +3012,24 @@ fn emit_timeline_error(
 
 /// Serialize one `VectorDiff` into the FFI envelope. Every pinned-SDK
 /// variant is covered; there is no fallback arm that silently drops one.
+/// Every item a diff carries, so the reply-detail fetch can look at the ones
+/// that just arrived rather than re-walking the whole timeline on each batch.
+fn diff_items(diff: &VectorDiff<Arc<TimelineItem>>) -> Vec<Arc<TimelineItem>> {
+    match diff {
+        VectorDiff::Append { values }
+        | VectorDiff::Reset { values } => values.iter().cloned().collect(),
+        VectorDiff::PushFront { value }
+        | VectorDiff::PushBack { value }
+        | VectorDiff::Insert { value, .. }
+        | VectorDiff::Set { value, .. } => vec![Arc::clone(value)],
+        VectorDiff::Clear
+        | VectorDiff::PopFront
+        | VectorDiff::PopBack
+        | VectorDiff::Remove { .. }
+        | VectorDiff::Truncate { .. } => Vec::new(),
+    }
+}
+
 fn diff_to_json(
     room_id: &str,
     room_gen: u64,
@@ -3073,6 +3116,82 @@ fn fill_diff_json(
             v
         }
     }
+}
+
+/// ASK THE SDK FOR THE REPLIES IT HAS NOT RESOLVED YET.
+///
+/// REPORTED 2026-09-15: a reply quote reads "(original message not loaded)"
+/// for a message THREE ROWS ABOVE IT, on screen. Being on screen is not the
+/// point — `InReplyToDetails::event` is a per-item field on the replying
+/// event, not a lookup into whatever the timeline happens to hold, and it
+/// starts `Unavailable`. The SDK fills it only when asked, through
+/// `Timeline::fetch_details_for_event`, and **nothing in this repository has
+/// ever called that**: `grep -rn fetch_details_for_event rust/` returned
+/// nothing before this. So a quote was populated only when the homeserver
+/// happened to bundle the replied-to event with the reply, and read
+/// "(original message not loaded)" the rest of the time — permanently, since
+/// no later event could change it.
+///
+/// Cheap to call and safe to call often: the SDK returns immediately for a
+/// detail that is already `Ready` or `Pending`, resolves from its own event
+/// cache before the network, and writes the result back into the item, which
+/// reaches C++ as an ordinary `Set` diff and repaints the quote in place.
+/// The per-timeline `fetched` set only spares the write lock those early
+/// returns would take on every diff of a busy room.
+///
+/// BOUNDED, because a back-pagination can deliver a page of replies whose
+/// targets are all missing: at most `REPLY_DETAIL_FETCH_BURST` are started
+/// per batch, and the rest are picked up by the batches that follow.
+const REPLY_DETAIL_FETCH_BURST: usize = 8;
+
+fn fetch_missing_reply_details<'a, I>(
+    timeline: &Arc<Timeline>,
+    items: I,
+    fetched: &Arc<Mutex<HashSet<String>>>,
+) where
+    I: IntoIterator<Item = &'a Arc<TimelineItem>>,
+{
+    let mut wanted: Vec<OwnedEventId> = Vec::new();
+    for item in items {
+        let TimelineItemKind::Event(event) = item.kind() else { continue };
+        let TimelineItemContent::MsgLike(msg_like) = event.content() else { continue };
+        let Some(reply) = &msg_like.in_reply_to else { continue };
+        // Only the ones the SDK has not resolved. `Pending` is already in
+        // flight inside the SDK and `Error` is a refusal we must not retry in
+        // a loop — a target the server will not serve (redacted, or in
+        // history this account cannot see) would otherwise be re-requested on
+        // every diff for the life of the room.
+        if !matches!(reply.event, TimelineDetails::Unavailable) {
+            continue;
+        }
+        let Some(event_id) = event.event_id() else { continue };
+        let key = event_id.to_string();
+        match fetched.lock() {
+            Ok(mut guard) => {
+                if !guard.insert(key) {
+                    continue;
+                }
+            }
+            Err(_) => continue,
+        }
+        wanted.push(event_id.to_owned());
+        if wanted.len() >= REPLY_DETAIL_FETCH_BURST {
+            break;
+        }
+    }
+    if wanted.is_empty() {
+        return;
+    }
+    let timeline = Arc::clone(timeline);
+    tokio::spawn(async move {
+        for event_id in wanted {
+            // Errors are deliberately swallowed: `EventNotInTimeline` is the
+            // ordinary outcome for an item that scrolled out from under the
+            // request, and a server that will not serve the target leaves the
+            // quote exactly as it already reads.
+            let _ = timeline.fetch_details_for_event(&event_id).await;
+        }
+    });
 }
 
 /// Convert one SDK timeline item into the UI-safe FFI payload.
