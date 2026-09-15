@@ -14,6 +14,33 @@ anything to tested, and read `open-items.md` beside it for what has NOT been.
 
 ### Live validation: what Rokas has actually confirmed
 
+**2026-09-15 (evening) — THE WINDOWS CAMERA DELIVERS ~29.8 fps SUSTAINED, AND
+THE SELF-VIEW SHOWS IT: PASS.** On the laptop's Windows guest, released 0.9.5
+portable, with the laptop's physical privacy shutter OPEN — which is the whole
+point of this entry, because the same round measured a rock-steady 10.00 fps a
+few hours earlier with it closed and those numbers meant nothing. Windows
+itself had said so: *"Your camera is reporting that it is blocked or turned off
+by a switch."*
+
+Three runs from the `capture delivered frames count=` pad probe on `capsrc` —
+what the DEVICE emits, not a negotiated caps string: **29.797 / 29.812 / 29.809
+fps** over 285 s, 218 s and 151 s, flat in every 500-frame bucket
+(16.76-16.79 s each). `camera chain= mjpg`, `image/jpeg 1920x1080 30/1`,
+`firstCaptureMs= 514-535`. The negotiated and delivered rates AGREE, which is
+the thing that had never been true before. Against 0.9.4's raw chain on the
+same guest and sensor (`YUY2 1920x1080 framerate=5/1`), the MJPG work is doing
+exactly what it was built to do.
+
+The self-view tile shows the live camera image, not the crossed-camera
+placeholder the previous round saw — that observation was the shuttered sensor
+and is WITHDRAWN. No `SfuMediaEngine.cpp` change is indicated.
+
+**What this does NOT cover:** it is a QEMU `usb-host` passthrough, not bare
+metal, so it does not measure the host's USB 2.0 bus, and the raw-YUY2
+bandwidth ceiling the original 10 fps theory named still needs physical
+hardware. It is 0.9.5, so the camera-preference fix on `main` is NOT TESTED
+here. And a second peer receiving those frames was not part of it.
+
 **2026-09-15 — OFFLINE RESTORE, LIVE: PASS, and the room list, an encrypted
 DM's decrypted history and the local search index all came off the disk.**
 Automation-driven on the maintainer's desktop with two throwaway accounts, not

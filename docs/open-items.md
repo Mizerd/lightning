@@ -158,20 +158,49 @@ results worth keeping.** Clock checked first, as this file requires: `tzutil
 skew that invalidated the 2026-09-12 call-state readings is gone and stayed
 gone.
 
-- **THE WINDOWS CAMERA FRAME-RATE NUMBERS CANNOT BE READ, AND THE REASON IS
-  PHYSICAL.** The camera work is closed and re-confirmed below on the RELEASED
-  0.9.5 (`camera chain= mjpg`, `image/jpeg 1920x1080 30/1`,
-  `firstCaptureMs= 623`). But the delivered-frame rate measured 29.79 fps on
-  one build and an exactly steady 10.00 fps on three later runs — and Windows
-  Settings then said outright: *"Your camera is reporting that it is blocked or
-  turned off by a switch or button on your device."* **The laptop's privacy
-  shutter is closed**, and a rock-steady 10.00 fps is what a UVC sensor's
-  auto-exposure does in the dark. So neither number means anything about the
-  10 fps ceiling, and the 29.79 reading must NOT be quoted as "the camera does
-  30 now" either. The probe sits on the `capsrc` src pad, upstream of
-  everything but the capsfilter, and the capsfilter read `30/1` in both runs —
-  so the variable is the device's own output, not the build. **Opening the
-  shutter is what makes this answerable on this rig.**
+- **THE WINDOWS CAMERA DELIVERS ~29.8 fps SUSTAINED — RE-MEASURED WITH THE
+  SHUTTER OPEN, 2026-09-15. The 10 fps ceiling is GONE in this configuration.**
+  The first pass that day measured 29.79 fps on one run and an exactly steady
+  10.00 fps on three others, and Windows then reported the camera *"blocked or
+  turned off by a switch"* — the laptop's privacy shutter was closed, so none
+  of those numbers meant anything. **The maintainer opened it and the round was
+  re-run.** Shutter confirmed open from inside Windows first (a real lit
+  picture in Settings, and three consecutive captures of the same static scene
+  hashing differently — sensor noise, not a frozen frame).
+
+  Three independent runs, each a fresh launch and a fresh call, rate taken from
+  the `capture delivered frames count=` probe on the `capsrc` src pad (what the
+  DEVICE emits, upstream of `jpegdec`):
+
+      8500 frames / 285.264 s = 29.797 fps
+      6500 frames / 218.033 s = 29.812 fps
+      4500 frames / 150.961 s = 29.809 fps
+
+  Flat rather than averaged: every 500-frame bucket in every run is 16.76-16.79
+  s. Chain and caps identical in all three — `camera chain= mjpg (jpeg elements
+  present )`, `image/jpeg 1920x1080 30/1`, `firstCaptureMs= 514-535`. **The
+  negotiated rate and the delivered rate now agree**, which is exactly what the
+  previous round could not say.
+
+  Same guest measured 0.9.4's raw chain at `YUY2 1920x1080 framerate=5/1`, so
+  raw = 5 and MJPG = 29.8 on one sensor and one passthrough. The 10.00 fps was
+  also ruled out as a device-selection artefact: with the FHD function
+  disabled, `ksvideosrc` answered `No video capture devices found` and the
+  publish failed, so the IR/`AvStream Media Device` function is not openable by
+  it at all and the device was necessarily the same in every run.
+
+  **BOUNDARY, stated rather than glossed:** this is a QEMU `usb-host`
+  passthrough, not bare metal, so it does not measure the HOST's USB 2.0 bus.
+  The raw-YUY2 bandwidth ceiling that the original theory named still needs
+  physical hardware. What is settled — and never had been — is the delivered
+  rate on a working sensor through the shipped MJPG chain.
+- **THE SELF-VIEW TILE IS FINE.** The previous round saw Lightning's
+  crossed-camera placeholder while frames were being delivered, but the sensor
+  was shuttered, so a placeholder and black video were indistinguishable. With
+  a working sensor the "You" tile shows the camera image, live (a cat visible
+  in two later captures and absent in two earlier ones). **No change to
+  `SfuMediaEngine.cpp` is indicated**; the `localCameraStreamId()` match works.
+  The earlier entry is withdrawn.
 - **THE TRAY BALLOON'S READ-WITHDRAWAL IS CONFIRMED BROKEN ON WINDOWS, no
   longer merely predicted.** Display and click routing PASS again (toast with
   the room avatar; a click raised the app from minimised and opened the room).
@@ -211,6 +240,14 @@ gone.
   Windows: the 1:1 helper returns early there and the SFU engine sets the
   property on the PARSED element. Fixed; the storage rule keeps its length
   bound and control-character refusal. See `docs/round-history.md`.
+  **Sharper than first recorded, and worse:** the selection does not survive a
+  PAGE REVISIT, not merely the next session — leaving Sound & video for
+  Appearance and coming straight back already reads System default. And because
+  `resolveActive()` returns empty for an empty preference, `SfuMediaEngine`
+  skips `applyBindingTo("capsrc", …)` entirely, so **on 0.9.5 "System default"
+  and an explicit pick are the SAME engine configuration and the explicit one
+  is unreachable**. The fix is on `main` above 0.9.5 and is therefore **NOT
+  TESTED on Windows** — the guest still runs 0.9.5.
 - **NEW DEFECT, NOT FIXED: `--version` and `--call-media-status` produce NO
   OUTPUT on the packaged Windows build.** Measured three ways (cmd redirect,
   `Start-Process -RedirectStandardOutput`, and a timed redirect showing the
