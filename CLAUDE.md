@@ -463,12 +463,26 @@ The intended and implemented late-decryption path is:
 ```text
 encrypted event
   -> SDK cannot decrypt yet
-  -> SDK room-key request, verified-session recovery, or trusted backup
+  -> verified-session gossip, or Lightning's own backup download pass
   -> key imported by the SDK
   -> SDK/event cache retries decryption
   -> timeline emits a replacement/update
   -> the same stable event updates in place
 ```
+
+**TWO OF THE THREE MECHANISMS THIS DIAGRAM USED TO NAME ARE NOT WIRED, AND
+THE LINE ABOVE CLAIMED THEM UNTIL 2026-09-15.** Verified against the tree, not
+inferred: `automatic-room-key-forwarding` is NOT among the features
+`rust/Cargo.toml` requests and `matrix-sdk` is `default-features = false`, so
+`create_outgoing_key_request` is `#[cfg]`'d out and **Lightning has never sent
+an `m.room_key_request` on a decryption failure**; and
+`BackupDownloadStrategy::OneShot` (`rust/src/lib.rs`) makes matrix-sdk install
+neither the UTD event handler nor the `BackupDownloadTask`, so a decryption
+failure triggers no backup fetch either. What remains is Lightning's own
+`download_backup_keys_for_room`, which is deduplicated per room per lifecycle
+and so runs AT MOST ONCE per room per session. Whether those SDK mechanisms
+SHOULD be on is an open decision (upstream made key forwarding opt-in
+deliberately); this paragraph records only that they are off.
 
 This applies to main and thread timelines. Normal key arrival must require no
 restart, room switch, crypto-store deletion, or repeated manual Retry. Manual

@@ -1202,14 +1202,6 @@ impl TimelineRegistry {
         client: &Client,
         room_id: &str,
     ) {
-        let backups = client.encryption().backups();
-        if !backups.are_enabled().await {
-            return; // no usable backup key — nothing to download
-        }
-        let Ok(room_ref) = RoomId::parse(room_id) else { return };
-        if !self.mark_backup_attempt(room_id) {
-            return; // already attempted this lifecycle
-        }
         let lifecycle = self.lifecycle();
         let emit = |state: &str| {
             if self.lifecycle_current(lifecycle) {
@@ -1225,6 +1217,33 @@ impl TimelineRegistry {
                 );
             }
         };
+        // WHY A PASS DID NOT RUN, not merely the absence of a "started".
+        //
+        // These three returns were silent, so "backups are not usable",
+        // "this room was already done this lifecycle" and "the pass ran and
+        // found nothing" were ONE indistinguishable absence in every capture
+        // — and this is the only automatic route from a backed-up key to a
+        // decrypted row that exists (no room-key requests are compiled in,
+        // and BackupDownloadStrategy::OneShot installs no UTD handler), so
+        // that absence is precisely the standing "waiting for keys" report.
+        // Meanwhile CryptoBootstrapModel reads Ready either way, because its
+        // download field stays empty and it only ever compares that field
+        // against "started" and "failed" — which is also why these new
+        // categories change no behaviour, deliberately. Closed vocabulary,
+        // no room ids, no counts, no key material.
+        let backups = client.encryption().backups();
+        if !backups.are_enabled().await {
+            emit("skipped_no_backup_key");
+            return; // no usable backup key — nothing to download
+        }
+        let Ok(room_ref) = RoomId::parse(room_id) else {
+            emit("skipped_bad_room_id");
+            return;
+        };
+        if !self.mark_backup_attempt(room_id) {
+            emit("skipped_already_attempted");
+            return; // already attempted this lifecycle
+        }
         emit("started");
         let mut result = backups.download_room_keys_for_room(&room_ref).await;
         if result.is_err() && self.lifecycle_current(lifecycle) {

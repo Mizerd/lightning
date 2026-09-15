@@ -3719,10 +3719,18 @@ pub unsafe extern "C" fn mx_rust_recover_from_backup(
             match recovery.recover(&recovery_key).await {
                 Ok(_) => {
                     // Deterministic post-recover download for the open
-                    // room (forced once), then re-run decryption for its
-                    // visible undecryptable rows. Uses only public SDK
-                    // APIs; imported keys propagate to timelines through
-                    // the SDK's own redecryption path.
+                    // room, forced once. THIS IS THE ONLY PLACE IN THE TREE
+                    // THAT CAN RE-RUN A PASS A ROOM HAS ALREADY HAD — the
+                    // attempt mark is otherwise cleared only by sign-out —
+                    // which is why typing the passphrase cures a stuck
+                    // "waiting for keys" that nothing automatic will.
+                    //
+                    // It does NOT itself re-run decryption for visible rows,
+                    // which this comment claimed until 2026-09-15. That
+                    // happens indirectly: the import feeds
+                    // `room_keys_received_stream` ->
+                    // `retry_decryption_after_import`, which covers the
+                    // ACTIVE room only and only while the supervisor lives.
                     if let Some(room_id) = timelines.active_room_id() {
                         timelines.clear_backup_attempt(&room_id);
                         timelines

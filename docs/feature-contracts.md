@@ -416,7 +416,12 @@ backend capability checks and honest live-test status.
 
 - SDK-owned encrypted sending/receiving and persistent crypto store
 - Crypto readiness/health model and sanitized recovery diagnostics
-- Automatic room-key requests and SDK backup download after decryption failure
+- A backup key download pass per room (Lightning's own; deduplicated per room
+  per session lifecycle) plus verified-session secret gossip. NOT automatic
+  SDK room-key requests and NOT SDK backup download after decryption failure:
+  this line claimed both until 2026-09-15 and the tree has neither —
+  `automatic-room-key-forwarding` is not a requested feature and
+  `BackupDownloadStrategy::OneShot` installs no UTD handler. See CLAUDE.md §9.
 - Late in-place decryption updates, manual bounded retry, key import, and
   recovery-key/passphrase backup restore controls
 - SAS emoji device verification in both directions, show-QR verification

@@ -91,15 +91,66 @@ fires later, after the main screen loads — a different trigger, also unlocated
 and the unfiltered device monitor in `perApplicationCaptureAvailable()` is the
 suspect there.
 
-**"WAITING FOR KEYS" REPORTED BACK (2026-09-15), NOT DIAGNOSED.** A user
-reported undecryptable messages that re-entering the recovery passphrase
-fixed. The recovery supervisor's download pass IS wired and runs
-(`rust/src/timeline.rs`, `download_backup_keys_for_room`), so it is not inert.
-Nothing further can be established from a chat screenshot: §9 forbids claiming
-E2EE behaviour without a live multi-device test, and §18 requires instrumenting
-rather than guessing. What would settle it is the reporter's
-`lightning.crypto.bootstrap` phase line together with `requestState`,
-`ownIdentity` and `crossSigningSecrets` at the moment the messages fail.
+**"WAITING FOR KEYS" REPORTED BACK (2026-09-15). MECHANISM NOW ESTABLISHED
+FROM THE CODE; WHICH CAUSE HIT THIS USER IS STILL OPEN.** A user reported
+undecryptable messages that re-entering the recovery passphrase fixed. An
+audit of the whole path found the structural answer, and it is larger than the
+report: **Lightning has exactly ONE automatic route from "the key is in my
+backup" to "the row decrypts", and it runs at most once per room per session.**
+
+Two of the three mechanisms §9's diagram used to name are NOT WIRED, both
+verified against the tree rather than inferred:
+
+- `automatic-room-key-forwarding` is not among the features `rust/Cargo.toml`
+  requests and `matrix-sdk` is `default-features = false`, so
+  `create_outgoing_key_request` is `#[cfg]`'d out. **Lightning has never sent
+  an `m.room_key_request` on a decryption failure**, in any version —
+  `git log -S` over `rust/Cargo.toml` shows the string has never been there.
+- `BackupDownloadStrategy::OneShot` (`rust/src/lib.rs`) makes matrix-sdk
+  install neither the UTD event handler nor the `BackupDownloadTask`, so a
+  decryption failure triggers no backup fetch.
+
+What remains is `download_backup_keys_for_room`, deduplicated per room per
+lifecycle; its only re-entry points are the startup and `BackupState::Enabled`
+edges, each at most once per session and **active room only**. And
+`mx_rust_recover_from_backup` is the ONLY caller of `clear_backup_attempt`
+anywhere — so typing the passphrase is literally the only thing in the tree
+that can force a second pass. That asymmetry explains BOTH halves of the
+report (stuck on its own, cured by the passphrase) with no bug anywhere: it is
+what the code is written to do.
+
+**NOT a 0.9.5 regression.** That structure has been unchanged since v0.6.3
+(July 2026); `git log bcea599..8d5d0ca` over the crypto/supervisor paths
+touches none of it, and the offline-restore work (`dcbfe39`, `92e9864`) is
+NOT an ancestor of v0.9.5 and configures encryption identically anyway (both
+paths funnel through one `build_client_with`; only the homeserver input line
+differs). "Back" is most likely the same never-fixed structural gap recurring.
+
+**Ranked candidates, still requiring a capture to choose between:** (1) the
+room's one pass had already run; (2) the backup key was never in the crypto
+store, so `are_enabled()` was false and every pass returned silently; (3) the
+report is the ACCOUNT-LEVEL banner ("Requesting encryption keys from your
+verified session…", `CryptoBootstrapModel`), not the per-row string, in which
+case manual recovery is the designed remedy and the finding is copy; (4) the
+pass ran and failed its two network attempts; (5) the key arrived and the row
+never refreshed — weakest, both known defects of that shape were fixed before
+0.9.5. **Ask which surface he saw; a screenshot separates (3) from the rest in
+one step.**
+
+**INSTRUMENTED 2026-09-15 so the next capture is decisive.**
+`download_backup_keys_for_room` had THREE silent early returns, so "backups
+are not usable", "already attempted this lifecycle" and "the pass ran and
+found nothing" were one indistinguishable absence — while
+`CryptoBootstrapModel` reads **Ready** either way, because its download field
+simply stays empty. They now emit `skipped_no_backup_key`,
+`skipped_already_attempted` and `skipped_bad_room_id`. Behaviour is unchanged
+by construction: the model compares that field only against `started` and
+`failed`. The two SDK log lines that separate the halves are
+`Failed to decrypt a room event … session_id=SSSS` and
+`Successfully imported room keys … room_keys={…}` — if `SSSS` never appears in
+an import line the key never arrived; if it appears while the row still reads
+"Waiting for keys…" the key arrived and the row never updated. Nobody has ever
+told those two apart.
 
 **THE 2026-09-15 LAYOUT AUDIT: four defects fixed, and what it did NOT cover.**
 Modern, Compact and Bubbles were each driven against a real room on two
