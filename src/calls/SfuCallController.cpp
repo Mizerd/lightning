@@ -2802,6 +2802,31 @@ void SfuCallController::rotateAndDistributeKey()
                       << "targets=" << targetCount
                       << "sfuPeers=" << sfuPeers
                       << "unresolved=" << (sfuPeers - targetCount);
+    // WHICH DEVICES, not just how many.
+    //
+    // `delivered= 1` looks identical whether the key reached the device that
+    // is IN the call or a different device of the same user that merely has a
+    // membership — and the second is silent, total, and indistinguishable
+    // from a crypto fault. The receive side already prints a full
+    // user/device pair (`ring= "@user:server/DEVICE"`), so this is the same
+    // class of identifier the log already carries, and it is what makes the
+    // two ends comparable at a glance: the device named here MUST be the one
+    // named in the `ring=` line, or our key is going to the wrong place.
+    {
+        const QJsonArray rows =
+            QJsonDocument::fromJson(targets.toUtf8()).array();
+        QStringList named;
+        named.reserve(rows.size());
+        for (const QJsonValue &row : rows) {
+            const QJsonObject o = row.toObject();
+            named << (o.value(QStringLiteral("user_id")).toString()
+                      + QLatin1Char('/')
+                      + o.value(QStringLiteral("device_id")).toString());
+        }
+        qCInfo(lcSfuCall) << "media key targeted devices="
+                          << (named.isEmpty() ? QStringLiteral("<none>")
+                                              : named.join(QLatin1String(", ")));
+    }
     const quint64 op =
         m_client->rtcSendMediaKey(m_roomId, QString::fromUtf8(key.toBase64()),
                                   index, targets);
