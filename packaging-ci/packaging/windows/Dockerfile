@@ -115,9 +115,20 @@ COPY packaging/windows/toolchain-mingw64.cmake \
 # GCC 16 + MinGW). The native host compiler must use the NATIVE assembler, so
 # /usr/bin precedes the target bin dir on PATH here; the cross tools are still
 # resolved by their x86_64-w64-mingw32- prefix.
+# EVERY DOWNLOAD IN THIS FILE HAS A STALL GUARD, and it is not decoration.
+# The first attempt at the v7 build sat on a `curl` to gstreamer.freedesktop.org
+# for SIXTEEN MINUTES at zero CPU with no output: a plain `curl --silent` has no
+# timeout at all, so a stalled connection hangs the build forever and looks
+# exactly like a slow compile. The host could fetch the same URL at 6.3 MB/s in
+# the same minute, so it was the connection, not the mirror. `--speed-limit`
+# with `--speed-time` aborts a transfer that drops below 10 kB/s for a minute,
+# `--retry` gives a flaky mirror three goes, and the sha256 check after each
+# download is unchanged and still the integrity gate.
 RUN set -eu; \
     url="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"; \
     curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
+        --connect-timeout 30 --speed-limit 10000 --speed-time 60 \
+        --retry 3 --retry-delay 5 --retry-connrefused \
         "$url" --output /tmp/ffmpeg.tar.xz; \
     printf '%s  %s\n' "$FFMPEG_SHA256" /tmp/ffmpeg.tar.xz | sha256sum -c -; \
     mkdir -p /tmp/ffmpeg-src; \
@@ -159,6 +170,8 @@ RUN set -eu; \
     ln -sf d3d11.h /usr/x86_64-w64-mingw32/sys-root/mingw/include/D3d11.h; \
     source_url="https://download.qt.io/official_releases/qt/6.11/${QT_MULTIMEDIA_VERSION}/submodules/qtmultimedia-everywhere-src-${QT_MULTIMEDIA_VERSION}.tar.xz"; \
     curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
+        --connect-timeout 30 --speed-limit 10000 --speed-time 60 \
+        --retry 3 --retry-delay 5 --retry-connrefused \
         "$source_url" --output /tmp/qtmultimedia.tar.xz; \
     printf '%s  %s\n' "$QT_MULTIMEDIA_SHA256" /tmp/qtmultimedia.tar.xz \
         | sha256sum -c -; \
@@ -267,6 +280,8 @@ COPY packaging/windows/gst-element-probe.c \
 RUN set -eu; \
     url="https://gstreamer.freedesktop.org/data/pkg/windows/${GSTREAMER_VERSION}/mingw/gstreamer-1.0-mingw-x86_64-${GSTREAMER_VERSION}.exe"; \
     curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
+        --connect-timeout 30 --speed-limit 10000 --speed-time 60 \
+        --retry 3 --retry-delay 5 --retry-connrefused \
         "$url" --output /tmp/gstreamer-mingw.exe; \
     printf '%s  %s\n' "$GSTREAMER_SHA256" /tmp/gstreamer-mingw.exe | sha256sum -c -; \
     export HOME=/tmp/gst-wine WINEPREFIX=/tmp/gst-wine/prefix \
