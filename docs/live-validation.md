@@ -1,5 +1,32 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-16 — Windows 0.9.7 and Linux 0.9.7 call each other, both ways
+
+**PASS, measured.** The same `lt-windows` guest running the published Windows
+portable, against the published **`Lightning-0.9.7-x86_64.AppImage`** on the
+laptop (KDE/Wayland, PipeWire), two accounts, encrypted `calltest`. The Linux
+client STARTED the call and the Windows client joined it.
+
+| | Windows -> Linux | Linux -> Windows |
+|---|---|---|
+| audio | PASS, tone ratio **315:1** | PASS, tone ratio **1,126,362:1** |
+| screen share | PASS, rendered in Lightning | PASS, rendered in Lightning |
+
+The same Goertzel tone method as the Sable and Element runs below, with
+`pw-link -l` printed first to prove that the guest's microphone
+(`WinTestMic` -> `FreeRDP:input`) and the Linux client's (`LightningTestMic` ->
+`AppRun.wrapped:input`) are separate nodes that nothing else touches. Both
+logs agree at the media layer: Windows `rtp packets handed to webrtcbin
+count= 500` and `frames decrypted ... video= true count= 500 dropped= 0`;
+Linux `frames decrypted ... video= true count= 3000` and `video= false
+count= 8000`. Both ends tore down cleanly on quit (`teardown state= 6
+error= "<none>"`).
+
+This is the cell the Sable and Element runs left open: Lightning to Lightning
+ACROSS PLATFORMS, which had never been exercised. What it does NOT cover is
+unchanged from the entry below — the guest has no sound card, so the audio
+rides RDP; the GPU share chain cannot run in the VM; macOS is still untested.
+
 ## 2026-09-16 — the WINDOWS package calls Sable and Element Web, both ways
 
 **PASS, measured, not reported.** The published **0.9.7 Windows portable**
