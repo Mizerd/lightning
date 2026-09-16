@@ -158,6 +158,9 @@ config-tests:
     - ./packaging-ci/tests/test-windows-version-resources.sh
     - python3 ./packaging-ci/tests/test-pipeline-config.py
     - python3 ./packaging-ci/tests/test-windows-metadata.py
+    # The Flathub SUBMISSION manifest in the repository root — a version
+    # location nothing read until it had drifted a full release.
+    - python3 ./packaging-ci/tests/test-flathub-manifest-pin.py
     # Committed with the MSI payload work and invoked by nothing until
     # 2026-09-06 -- the same "a test file can be unregistered" trap that hid
     # nineteen shortcut cases, this time on the Windows install surface.

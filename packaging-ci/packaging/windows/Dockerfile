@@ -254,7 +254,7 @@ COPY packaging/windows/gst-element-probe.c \
 # with no third-party unpacker in the trust chain.
 #
 # ONLY A SUBSET IS INSTALLED. The extracted SDK is 2.4 GB; what lands in the
-# image is ~26 MB: 25 plugin DLLs, the 19 runtime DLLs their PE-import closure
+# image is ~26 MB: 29 plugin DLLs, the 19 runtime DLLs their PE-import closure
 # needs, the headers, the .pc files and the import libraries. Everything else
 # (ffmpeg, gtk, curl, x264, gst-devtools, 240 other plugins) is discarded.
 #

@@ -28,10 +28,13 @@ frontend.
 
 Latest published release: **Lightning 0.9.7** (`v0.9.7` -> `bc5dcd5`), tagged
 2026-09-16 by **project 6** pipeline **225, 25/25 — fully green, every job**.
-Notes in `docs/releases/v0.9.7.md`. The synchronized version reads **0.9.7** in
-`CMakeLists.txt` (both `project()` and `APP_VERSION_LABEL`), `rust/Cargo.toml`,
-`rust/Cargo.lock` and `README.md`; `tests/VersionConsistencyTest.cpp` compares
-all five, so a bump cannot half-land — **and there is a SIXTH location it does
+Notes in `docs/releases/v0.9.7.md`. **THE WORKING TREE IS ON 0.9.8** — a
+release commit is prepared and the version reads 0.9.8 in `CMakeLists.txt`
+(both `project()` and `APP_VERSION_LABEL`), `rust/Cargo.toml`,
+`rust/Cargo.lock` and `README.md`. "Latest published" and "what the tree says"
+are different facts, and this sentence used to state the second while meaning
+the first. `tests/VersionConsistencyTest.cpp` compares all five, so a bump
+cannot half-land — **and there is a SIXTH location it does
 NOT compare, the AppStream metainfo; see §14.**
 
 **A CALLS RELEASE, AND THE FIRST WHERE THE CALL PATH IS INSTRUMENTED.** Six
