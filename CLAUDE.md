@@ -1341,6 +1341,17 @@ with NO diagnostic, because a bare `test` in an `&&` chain prints nothing.
 GENERALISE: a hand-built artefact's recipe is only as true as its last build;
 "the change is committed" is not "the change works".
 
+**AND IT CAUGHT ME AGAIN ON 2026-09-16, IN THE OPPOSITE DIRECTION.** A review
+asked for `libgstlevel.dll` to be staged on Windows — correctly, since the
+capture level meter is the diagnostic that tells a live microphone from a dead
+one and Windows is where the "nobody can hear me" reports come from. Adding it
+to the REQUIRED list killed `build-windows` in pipeline 224: the hand-built
+image does not carry it, and the required list is only ever as true as the
+image's last build. It is `OPTIONAL_GSTREAMER_PLUGINS` now, exactly as
+libgstjpeg was, with the promotion procedure written at the declaration. **A
+required-plugin entry and an image rebuild are ONE change, and the entry is
+the half that must come second.**
+
 Builder `...-v6` is now built on 10.195.35.2 (image `sha256:5c628d4b`, 28
 plugins, `jpegenc` and `jpegdec` both in `libgstjpeg.dll`), the host's
 `config.toml` points at it with v5 kept in `allowed_images` for rollback, the

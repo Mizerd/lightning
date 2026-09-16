@@ -101,7 +101,27 @@ GSTREAMER_PLUGIN_DIR = "gstreamer-1.0"
 # fatal again — which is what you want once the app will actually try to load
 # it, because a missing decoder then means every camera silently falls back to
 # raw and nobody finds out until a USB 2.0 camera cannot reach 720p30.
-OPTIONAL_GSTREAMER_PLUGINS: tuple[str, ...] = ()
+# AND IT IS OPTIONAL AGAIN FOR ONE PLUGIN, FOR THE REASON THIS BLOCK EXISTS.
+#
+# `libgstlevel.dll` is the capture level meter added on 2026-09-16, and it is
+# the diagnostic that tells a live microphone from a dead one: silence encodes
+# and encrypts exactly like speech, so every counter downstream of the encoder
+# reports a healthy call either way, and a full day went into the crypto path
+# for a capture that was producing nothing.
+#
+# It is REQUIRED on no platform yet, because the Windows builder image is
+# BUILT BY HAND under a fixed tag and does not carry it. Listing it as
+# required is what killed `build-windows` in pipeline 224 — the exact shape
+# CLAUDE.md §16 records for libgstjpeg: "a Dockerfile change alone changes
+# nothing", and the required list is only as true as the image's last build.
+#
+# TO PROMOTE IT: add it to `packaging/windows/Dockerfile`, rebuild the builder
+# per lightning-deploy `docs/windows-runner-operations.md` (remembering that
+# its verify stage asserts a plugin COUNT with a literal, which must be bumped
+# with the install loop), point the runner at the new tag, then move this name
+# into GSTREAMER_PLUGINS and add "level" to GSTREAMER_ELEMENTS. Until then the
+# app degrades gracefully and the meter simply does not exist on Windows.
+OPTIONAL_GSTREAMER_PLUGINS: tuple[str, ...] = ("libgstlevel.dll",)
 
 GSTREAMER_PLUGINS = (
     "libgstapp.dll",               # appsink, appsrc
@@ -163,15 +183,6 @@ GSTREAMER_PLUGINS = (
     # libgstcontroller-1.0-0, libjpeg-8, libpng16) need no entry: the seeded
     # import walk below pulls them out of the sysroot, which is exactly what
     # that walk is for.
-    # THE CAPTURE LEVEL METER, and it is a DIAGNOSTIC that has to exist on
-    # the platform the reports come from. Without it Lightning cannot tell
-    # a live microphone from a dead one: silence encodes and encrypts
-    # exactly like speech, so every counter downstream of the encoder
-    # reports a healthy call either way (2026-09-16, a full day spent in
-    # the crypto path for a capture that was producing nothing). The code
-    # degrades gracefully when the element is absent, which is precisely
-    # why its absence would be silent.
-    "libgstlevel.dll",             # level
     "libgstopengl.dll",            # glupload, glcolorconvert, glcolorscale
     "libgstvideoconvertscale.dll", # videoconvert, videoscale
     "libgstvideorate.dll",         # videorate
@@ -195,7 +206,6 @@ GSTREAMER_ELEMENTS = (
     "appsink", "audioconvert", "audioresample", "audiotestsrc", "autoaudiosink",
     "autoaudiosrc", "capsfilter", "dtlssrtpdec", "dtlssrtpenc", "fakesink",
     "gdiscreencapsrc",
-    "level",
     # The GPU screen-share scale path (LIGHTNING_SHARE_GPU=1). Probed against
     # the SHIPPED tree for the same reason as sctp below: the app degrades to
     # the CPU when these are absent and says so in its log, which is the right
