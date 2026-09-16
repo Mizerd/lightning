@@ -193,8 +193,8 @@ modules:
       # vendored source. No dependency moved.
       - type: git
         url: https://github.com/Mizerd/lightning.git
-        tag: v0.9.6
-        commit: e17713596248d86db4ee466591803d3de1538259
+        tag: v0.9.7
+        commit: bc5dcd5d77f83a506a0aaf92637f499da0cc6bcf
         x-checker-data:
           type: git
           tag-pattern: '^v([\d.]+)$'

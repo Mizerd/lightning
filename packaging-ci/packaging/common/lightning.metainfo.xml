@@ -80,19 +80,19 @@
       is sent anywhere.
     -->
     <screenshot type="default">
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.7/docs/screenshots/flathub/01-conversation.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.8/docs/screenshots/flathub/01-conversation.png</image>
       <caption>A room conversation with replies, reactions and a shared picture</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.7/docs/screenshots/flathub/02-threads.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.8/docs/screenshots/flathub/02-threads.png</image>
       <caption>A thread open beside the conversation it came from</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.7/docs/screenshots/flathub/03-call.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.8/docs/screenshots/flathub/03-call.png</image>
       <caption>A four-person call running above the room it belongs to</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.7/docs/screenshots/flathub/04-themes.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.8/docs/screenshots/flathub/04-themes.png</image>
       <caption>Building a colour theme against a live sample of the interface</caption>
     </screenshot>
   </screenshots>
@@ -168,6 +168,15 @@
   </content_rating>
 
   <releases>
+    <release version="0.9.8" date="2026-09-16" type="stable">
+      <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.8</url>
+      <description>
+        <p>
+          The release that actually delivers what 0.9.7 promised, and says
+          plainly where 0.9.7 did not.
+        </p>
+      </description>
+    </release>
     <release version="0.9.7" date="2026-09-16" type="stable">
       <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.7</url>
       <description>
