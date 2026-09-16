@@ -429,6 +429,20 @@ gone.
   in two later captures and absent in two earlier ones). **No change to
   `SfuMediaEngine.cpp` is indicated**; the `localCameraStreamId()` match works.
   The earlier entry is withdrawn.
+
+  **AND IT CAME BACK ON 2026-09-16, so take the two-command measurement FIRST.**
+  A Windows interop run saw a blank self-view AND a camera-off placeholder in
+  Element while the track published 5000 frames at a steady 30 fps. Stopping the
+  guest returns the webcam to the host, and one frame off `/dev/video0` read
+  `mean=1.9e-07 stddev=5.4e-05` — pure black. The sensor, again. Before reading
+  a blank camera tile as a defect on any platform, grab a frame from the device
+  outside the app and look at its mean:
+
+  ```sh
+  nix shell nixpkgs#ffmpeg-headless -c \
+      ffmpeg -f v4l2 -i /dev/video0 -frames:v 1 -y /tmp/cam.png
+  magick /tmp/cam.png -colorspace Gray -format '%[fx:mean]' info:
+  ```
 - **THE TRAY BALLOON'S READ-WITHDRAWAL IS CONFIRMED BROKEN ON WINDOWS, no
   longer merely predicted.** Display and click routing PASS again (toast with
   the room avatar; a click raised the app from minimised and opened the room).

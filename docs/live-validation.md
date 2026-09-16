@@ -63,9 +63,14 @@ WHAT THIS DOES NOT COVER:
   Element nor Lightning's own self-view tile drew an image. `docs/open-items.md`
   records that exact symptom from an earlier Windows round and WITHDRAWS it:
   the sensor was shuttered, and a placeholder and black video are
-  indistinguishable. Nothing here establishes which of the two this was, so it
-  is not a defect report. Judging it needs a sensor known to be looking at
-  something. Audio and screen share are unaffected either way.
+  indistinguishable. **MEASURED after the run, and it is the sensor again.**
+  With the guest stopped the webcam returns to the host as `/dev/video0`, and
+  one frame off it is `1920x1080 mean=1.9e-07 stddev=5.4e-05` — pure black, and
+  the IR function (`/dev/video2`) reads `mean=0.0035`. The camera published a
+  black picture perfectly. Nothing about the call path is implicated, and the
+  next round should take this measurement FIRST: it is two commands and it has
+  now saved two rounds from chasing a rendering bug that is not there. Audio
+  and screen share are unaffected either way.
 
 
 ## 2026-09-16 — calls audible both ways, and the send latency gone
