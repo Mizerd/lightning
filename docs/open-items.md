@@ -1,5 +1,34 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-16 night — Flathub manifest lint re-run, and what it does NOT cover
+
+**PASS, and proven live.** Re-run in the laptop's `flathub-rig` container
+(Debian + `org.flatpak.Builder`, flatpak 1.16.6) against the Flathub submission
+manifest: `flatpak-builder-lint manifest` exits 0 with no output. A silent pass
+is not evidence, so both mutations from the earlier round were repeated and both
+fired — `app-id` renamed gives `appid-filename-mismatch`, `--filesystem=host`
+added gives `finish-args-host-filesystem-access` — and the restored manifest
+lints clean again.
+
+**One trap worth writing down**: the lint runs inside the flatpak sandbox, whose
+uid cannot write to a directory owned by the host user, so it dies with
+`Can't create state directory: ... Permission denied` before it reads anything.
+That failure looks like a lint failure and is not one. Copy the manifest set to
+a directory the sandbox can write (`chmod 0777`) and run there.
+
+**WHAT THIS DOES NOT COVER, and it matters for the word "submission":**
+
+* The manifest in the rig names **tag `v0.9.4`**. A manifest is only
+  submission-ready for the tag it actually builds, so this must be re-run with
+  the tag and commit of whatever release is submitted. Not yet done.
+* `flatpak-builder-lint repo` was NOT run tonight — it needs a full sandbox
+  build of the app, which is hours. The earlier round ran it at `v0.9.6` and it
+  passed; that is the standing evidence, and it is evidence about v0.9.6.
+* Everything in the Flathub submission checklist that is not a linter finding —
+  screenshots, branding, donation link, `x-checker-data` — is unchanged and
+  still open (vault: `Lightning/Tasks/Flathub submission preparation.md`).
+
+
 ## 2026-09-16 — the Windows builder's Qt pins rotted; moved to 6.11.2
 
 **RESOLVED IN THE RECIPE, image build in progress at the time of writing.**
