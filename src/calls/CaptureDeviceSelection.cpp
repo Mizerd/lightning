@@ -18,40 +18,57 @@ struct ElementProfile {
     // key the property expects, not the key that matched.
     const char *valueKey;         // the key holding what `property` wants
     const char *identityKeys[4];  // keys whose value may equal the Qt id
+    /// The value to set IS the Qt id, rather than a key off the candidate.
+    ///
+    /// True for the PulseAudio elements and false for every other, because
+    /// pipewire-pulse names its devices exactly as QMediaDevices reports
+    /// them — so `device=` wants the id we already hold. Without this the
+    /// pulse entries could never bind on a PipeWire desktop at all: the
+    /// device monitor there enumerates through `pipewiredeviceprovider`,
+    /// whose candidates carry `node.name` and `object.serial` and NO
+    /// `device.name`, so both the identity match and the value lookup missed
+    /// and resolution fell through to `pipewiresrc`. Measured 2026-09-16:
+    /// putting pulsesrc first changed nothing until this was fixed too.
+    bool valueIsQtId;
 };
 
 constexpr ElementProfile kProfiles[] = {
     // Linux video. Qt's V4L2 camera id IS the node path, so identity usually
     // matches on the first key.
     {"v4l2src", "device", "device.path",
-     {"device.path", "api.v4l2.path", "object.path", nullptr}},
+     {"device.path", "api.v4l2.path", "object.path", nullptr}, false},
     // Linux audio through PulseAudio (or pipewire-pulse).
-    {"pulsesrc", "device", "device.name", {"device.name", nullptr, nullptr, nullptr}},
-    {"pulsesink", "device", "device.name", {"device.name", nullptr, nullptr, nullptr}},
+    // `node.name` is listed because that is the key a PipeWire desktop's
+    // monitor actually publishes, and pipewire-pulse exposes the same string
+    // as the Pulse device name.
+    {"pulsesrc", "device", "device.name",
+     {"device.name", "node.name", nullptr, nullptr}, true},
+    {"pulsesink", "device", "device.name",
+     {"device.name", "node.name", nullptr, nullptr}, true},
     // Linux audio and video through PipeWire directly. The handle is a
     // numeric node id that only this element understands, so a Qt id can
     // never match it by identity -- the display name is the bridge.
     {"pipewiresrc", "target-object", "object.serial",
-     {"object.serial", "object.id", "node.name", nullptr}},
+     {"object.serial", "object.id", "node.name", nullptr}, false},
     {"pipewiresink", "target-object", "object.serial",
-     {"object.serial", "object.id", "node.name", nullptr}},
+     {"object.serial", "object.id", "node.name", nullptr}, false},
     // Windows.
     {"ksvideosrc", "device-path", "device.path",
-     {"device.path", "device.strid", nullptr, nullptr}},
+     {"device.path", "device.strid", nullptr, nullptr}, false},
     {"wasapisrc", "device", "device.strid",
-     {"device.strid", "device.id", nullptr, nullptr}},
+     {"device.strid", "device.id", nullptr, nullptr}, false},
     {"wasapisink", "device", "device.strid",
-     {"device.strid", "device.id", nullptr, nullptr}},
+     {"device.strid", "device.id", nullptr, nullptr}, false},
     // macOS. `device-index` is an integer the platform assigns, and Qt's id
     // is an AVFoundation unique id string, so identity cannot match: the
     // display name is the only bridge, and the value comes from the device's
     // own index property.
     {"avfvideosrc", "device-index", "device.index",
-     {"device.unique-id", "device.index", nullptr, nullptr}},
+     {"device.unique-id", "device.index", nullptr, nullptr}, false},
     {"osxaudiosrc", "device", "device.id",
-     {"device.uid", "device.id", nullptr, nullptr}},
+     {"device.uid", "device.id", nullptr, nullptr}, false},
     {"osxaudiosink", "device", "device.id",
-     {"device.uid", "device.id", nullptr, nullptr}},
+     {"device.uid", "device.id", nullptr, nullptr}, false},
 };
 
 const ElementProfile *profileFor(const QString &element)
@@ -79,10 +96,16 @@ bool valueIsSane(const QString &value)
 
 DeviceBinding bindingFrom(const ElementProfile &profile,
                           const GstDeviceCandidate &candidate,
-                          const QString &reason)
+                          const QString &reason,
+                          const QString &qtDeviceId)
 {
+    // See ElementProfile::valueIsQtId: for the pulse elements the id we were
+    // handed IS the value the property wants, and the candidate need not
+    // publish it at all.
     const QString value =
-        candidate.properties.value(QString::fromLatin1(profile.valueKey));
+        profile.valueIsQtId
+            ? qtDeviceId
+            : candidate.properties.value(QString::fromLatin1(profile.valueKey));
     if (!valueIsSane(value))
         return {};
     // `audio.channels` is what the monitor says the DEVICE captures, not
@@ -171,7 +194,8 @@ DeviceBinding resolveDeviceBinding(CaptureKind kind, const QString &element,
                 continue;
             }
             const DeviceBinding binding =
-                bindingFrom(*profile, candidate, QStringLiteral("identity"));
+                bindingFrom(*profile, candidate, QStringLiteral("identity"),
+                            qtDeviceId);
             if (!binding.isEmpty())
                 return binding;
         }
@@ -193,7 +217,8 @@ DeviceBinding resolveDeviceBinding(CaptureKind kind, const QString &element,
         }
         if (match) {
             const DeviceBinding binding =
-                bindingFrom(*profile, *match, QStringLiteral("display-name"));
+                bindingFrom(*profile, *match, QStringLiteral("display-name"),
+                            qtDeviceId);
             if (!binding.isEmpty())
                 return binding;
         }

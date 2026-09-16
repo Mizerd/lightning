@@ -137,6 +137,39 @@ private Q_SLOTS:
                  0);
     }
 
+    // A PULSE ELEMENT MUST BIND ON A PIPEWIRE DESKTOP, and it could not.
+    //
+    // The device monitor there enumerates through `pipewiredeviceprovider`,
+    // whose candidates carry `node.name` and `object.serial` and NO
+    // `device.name` — the only key the pulse entries matched on, and the only
+    // key they read their value from. So `pulsesrc` never resolved, every
+    // Linux capture fell through to `pipewiresrc`, and reordering the
+    // preference to put pulsesrc first (which it now is, for the AppImage
+    // target-object defect) changed NOTHING until this was fixed too.
+    //
+    // FAIL-ON-OLD: drop "node.name" from the pulse identity keys, or set
+    // valueIsQtId false for them, and this fails.
+    void aPulseElementBindsFromAPipeWireEnumeratedDevice()
+    {
+        GstDeviceCandidate mic;
+        mic.displayName = QStringLiteral("Built-in Audio Analog Stereo");
+        // EXACTLY what a PipeWire desktop's monitor publishes: no device.name.
+        mic.properties.insert(QStringLiteral("node.name"),
+                              QStringLiteral("alsa_input.pci-0000_00_1f.3"));
+        mic.properties.insert(QStringLiteral("object.serial"),
+                              QStringLiteral("59"));
+        const DeviceBinding b = resolveDeviceBinding(
+            CaptureKind::Microphone, QStringLiteral("pulsesrc"),
+            QStringLiteral("alsa_input.pci-0000_00_1f.3"),
+            QStringLiteral("Built-in Audio Analog Stereo"), {mic});
+        QVERIFY2(!b.isEmpty(), "pulsesrc did not bind at all");
+        QCOMPARE(b.property, QStringLiteral("device"));
+        // The VALUE is the Qt id: pipewire-pulse names devices exactly as
+        // QMediaDevices reports them, and the candidate never published it.
+        QCOMPARE(b.value, QStringLiteral("alsa_input.pci-0000_00_1f.3"));
+        QCOMPARE(b.reason, QStringLiteral("identity"));
+    }
+
     void anEmptyPreferenceBindsNothing()
     {
         const auto candidates = QList<GstDeviceCandidate>{
