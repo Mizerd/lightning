@@ -974,6 +974,49 @@ pub(crate) fn build_create_room_request(
     } else {
         Vec::new()
     };
+    // A ROOM THAT CAN HOST A CALL MUST LET ITS MEMBERS SAY THEY ARE IN ONE.
+    //
+    // MatrixRTC membership is a STATE event, and a room's default
+    // `state_default` is 50. So in a room created with stock power levels only
+    // moderators can publish `m.call.member` -- and an ordinary member who
+    // presses Join gets a call that looks connected and is silently broken in
+    // one direction.
+    //
+    // The failure is invisible from both ends and took a long time to find.
+    // The peer's membership never lands, so this side never sees them as a
+    // participant, `mediaKeyTargets()` stays empty, and our media key is never
+    // sent: they can be HEARD (their key reaches us over to-device, which
+    // needs no room permission) and they cannot hear US. Each end reports a
+    // healthy call throughout. Confirmed live 2026-09-16: promoting the member
+    // to moderator fixed it outright.
+    //
+    // Element Call does the same thing for the rooms it creates, which is why
+    // this never bit a room made there. Spaces are excluded: a Space holds no
+    // calls, and widening its state permissions would be a real change.
+    let power_levels = if opts.is_space {
+        None
+    } else {
+        let mut events = serde_json::Map::new();
+        for ev in [crate::rtc::EV_MEMBER_LEGACY, crate::rtc::EV_MEMBER_STICKY] {
+            events.insert(ev.to_owned(), json!(0));
+        }
+        // ONLY these event types are lowered. `state_default` is left alone,
+        // so nothing else about who may change the room moves.
+        Some(json!({ "events": serde_json::Value::Object(events) }))
+    };
+    // Raised out of the request literal: `?` cannot cross the assign! macro.
+    let power_level_content_override = match power_levels {
+        // cast_unchecked, as elsewhere in this bridge: the value is built
+        // here from literals, so the shape is ours and not a parse of
+        // anything a server or a peer sent.
+        Some(v) => Some(
+            Raw::new(&v)
+                .map_err(|e| format!("power level override: {e}"))?
+                .cast_unchecked(),
+        ),
+        None => None,
+    };
+
     let creation_content = if opts.is_space {
         let cc = assign!(CreationContent::new(), { room_type: Some(RoomType::Space) });
         Some(Raw::new(&cc).map_err(|e| format!("space creation content: {e}"))?)
@@ -995,6 +1038,7 @@ pub(crate) fn build_create_room_request(
             .then(|| opts.alias.trim().to_owned()),
         initial_state,
         creation_content,
+        power_level_content_override,
     });
     Ok(request)
 }
@@ -4707,6 +4751,53 @@ mod tests {
         assert!(!opts.encrypted);
         assert!(opts.invites.is_empty());
         assert!(opts.space_id.is_empty());
+    }
+
+    #[test]
+    /// A ROOM LIGHTNING CREATES MUST LET ITS MEMBERS JOIN A CALL.
+    ///
+    /// MatrixRTC membership is a STATE event and `state_default` is 50, so
+    /// with stock power levels only moderators can publish one. An ordinary
+    /// member who pressed Join then got a call that looked connected and was
+    /// silently one-directional: their membership never landed, so the other
+    /// side never saw them as a participant, never addressed a media key to
+    /// them, and they could be heard but could not hear. Confirmed live
+    /// 2026-09-16 — promoting the member to moderator fixed it outright.
+    ///
+    /// FAIL-ON-OLD: drop `power_level_content_override` from
+    /// `build_create_room_request` and this reads None.
+    #[test]
+    fn a_created_room_lets_ordinary_members_publish_call_membership() {
+        let opts = CreateRoomOptions {
+            name: "Call room".to_owned(),
+            ..Default::default()
+        };
+        let request = build_create_room_request(&opts).unwrap();
+        let raw = request
+            .power_level_content_override
+            .expect("a room that can host a call needs the override");
+        let v: serde_json::Value = raw.deserialize_as_unchecked().unwrap();
+        let events = v.get("events").and_then(|e| e.as_object()).unwrap();
+        for ev in [crate::rtc::EV_MEMBER_LEGACY, crate::rtc::EV_MEMBER_STICKY] {
+            assert_eq!(events.get(ev).and_then(|x| x.as_u64()), Some(0), "{ev}");
+        }
+        // NOTHING ELSE MOVES. Lowering state_default would let any member
+        // rewrite the room; only these two event types are lowered.
+        assert!(v.get("state_default").is_none(),
+                "state_default must be left at the server default");
+    }
+
+    /// A Space holds no calls, and widening its state permissions would be a
+    /// real change rather than a fix.
+    #[test]
+    fn a_space_gets_no_power_level_override() {
+        let opts = CreateRoomOptions {
+            name: "Team".to_owned(),
+            is_space: true,
+            ..Default::default()
+        };
+        let request = build_create_room_request(&opts).unwrap();
+        assert!(request.power_level_content_override.is_none());
     }
 
     #[test]
