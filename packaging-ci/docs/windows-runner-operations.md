@@ -139,6 +139,36 @@ and `QT_MULTIMEDIA_SHA256`; the new hash was taken from Qt's published
 because `download.qt.io` answers without `--location` with a 306-byte mirror
 page that hashes to something plausible and is not the file.
 
+**v7 IS BUILT AND DEPLOYED (2026-09-16).** Image `sha256:853ee416`, 7.27 GB,
+**29 staged plugins** — v6's 28 plus `libgstlevel.dll`, the capture level meter.
+Built on 10.195.35.2 from commit `fb61b86` with the context at `packaging-ci/`,
+and its verify stage passed in full: the count assertion at 29, every plugin
+PE32+, and every element symbol probe including `level:libgstlevel`. The host's
+`config/config.toml` sets `image` to v7 and adds it to `allowed_images` with
+v1-v6 retained; the pre-change file is kept beside it as
+`config.toml.pre-v7-20260916-230654`. `gitlab-runner verify` reports the runner
+**is valid**. **Do not remove the v6 image** — that is what makes the rollback
+possible.
+
+Only after all of that did `stage-windows-runtime.py` move `libgstlevel.dll`
+into the required list and add `"level"` to `GSTREAMER_ELEMENTS`, which is what
+puts the element in front of the wine probe and the shipped registry. Proven by
+`windows-package-test` on pipeline **227** (non-publishing: `BUILD_FORMATS=none`,
+`PUBLISH_PACKAGES=false`).
+
+**THREE BUILDS WERE NEEDED AND TWO OF THE THREE FAILURES WERE MINE.** The first
+died on the withdrawn Qt pins, which is the entry above. The second died on
+`cp: cannot stat '/tmp/gstreamer-sdk/share/licenses/gst-plugins-good-1.0'` — a
+licence directory name I INFERRED from its `base`/`bad` siblings after
+verifying the gap itself on a shipped artifact. Verifying one half of a finding
+does not license guessing the other, and each guess here costs a 960 MB
+download. The loop prints `ls -1 "$src/share/licenses"` before it copies now,
+so the name comes out of a build log instead of a pattern — **but mind the log
+filter**: this build script pipes docker through `grep -vE "^#[0-9]+ [0-9]+\.[0-9]+ "`
+to cut progress spam, and that expression eats `echo` output from inside a RUN
+as well, which is how the very diagnostic added to answer the question got
+stripped from the run that was meant to answer it.
+
 **v6 IS BUILT AND DEPLOYED (2026-09-12).** Image `sha256:5c628d4b`, 7.23 GB,
 28 staged plugins, `jpegenc` and `jpegdec` both present in `libgstjpeg.dll`.
 The host's `config/config.toml` sets `image` to v6 and adds it to
