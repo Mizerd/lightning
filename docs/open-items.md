@@ -62,8 +62,34 @@ microphone is live or dead, which is the exact state the feature was written to
 end. The RTP pad probe (`rtp packets handed to webrtcbin`) still works
 everywhere and is what carried the proof in tonight's interop runs.
 
+**AND THE PUBLISHED RELEASE NOTES PROMISE IT, WHICH MAKES THIS USER-FACING.**
+`docs/releases/v0.9.7.md` tells the reader "Lightning now measures what it is
+actually sending" and lists three things. Traced through the code, two of the
+three cannot happen in any 0.9.7 package:
+
+* *"the microphone's level goes into the log every few seconds"* — NOT
+  delivered; the line comes from the `level` element that is not there.
+* *"if the microphone produces nothing at all while you are unmuted, you get a
+  warning in the call header"* — NOT delivered. `localAudioSilent` is emitted
+  ONLY from `SfuMediaEngine::handleMicLevelAt`, which is fed by that element's
+  bus messages, so with no element there is no signal and the badge cannot
+  fire.
+* *"if the capture never starts, the log says that instead of staying quiet"* —
+  **delivered.** That watchdog sits on the RTP pad probe, which is independent
+  of the meter and works on every platform; it is what carried the proof in the
+  2026-09-16 interop runs.
+
+Rewriting a published release body is the maintainer's call and is not done
+here. The next release note should say the meter arrived in the release that
+actually carries it.
+
 NOT a regression and NOT a defect in the code: both halves are packaging, both
 are fixed on `main`, and neither is released.
+
+**Scope check, so nobody widens this by guessing:** the exact-NVR pinning that
+rotted for Windows is not repeated elsewhere. A sweep of `packaging-ci/` for
+`*-N.N.N-N.fcNN` patterns matches the Windows Dockerfile and its two docs and
+nothing else; no other lane pins a distro package by exact version.
 
 
 ## 2026-09-16 — the Windows package ships gst-plugins-good binaries without its licence
