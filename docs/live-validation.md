@@ -1,5 +1,33 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-16 — the Flathub build makes real calls (PASS, send direction)
+
+**Rokas, from the sandboxed Flathub build on the Fedora 44 laptop (Wayland),
+to Element X on his phone:** he heard himself on the phone, and when he shared
+his screen the video arrived on the phone.
+
+So, from a build produced by `flathub-build` out of the submission manifest —
+not a dev build, not a package we assemble ourselves:
+
+- **Audio, Lightning -> Element X: PASS**
+- **Screen share, Lightning -> Element X: PASS**
+
+That is the one thing the two `flatpak-builder-lint` runs could not answer: the
+sandbox + portal call path. It also exercises `--filesystem=xdg-run/pipewire-0`,
+which is the one permission a Flathub reviewer is most likely to question, and
+shows it is doing its job.
+
+**What this does NOT cover, and must not be read as covering:** the RETURN
+direction. He reported hearing himself and seeing his own share arrive; he did
+not report receiving the phone's audio or camera. Element X -> Lightning over
+the Flatpak remains **NOT TESTED**. (Receive is the direction that has broken
+before and been invisible for months — see the sctp lesson — so it does not
+inherit a pass from send.)
+
+Environment: Fedora 44, KDE/Wayland, `org.lightning_matrix.Lightning` built
+from tag v0.9.6 / `e177135` via the GitHub mirror.
+
+
 **MOVED OUT OF `CLAUDE.md` §16 on 2026-09-15**, at 139,949 characters against
 that file's 150,000 hard limit — the fifth move, and for the reason all five
 happened: past roughly 140,000 the file's own TAIL heads for a cliff where it
