@@ -284,7 +284,26 @@ struct CryptoProbeCtx {
     // decrypt again or the badge would never clear. B026.
     bool blockedAnnounced = false;
     bool saidWorking = false;
+    /// CONSECUTIVE undecryptable frames, reset by any frame that decrypts.
+    ///
+    /// The badge used to be raised by the FIRST bad frame, and that is wrong:
+    /// a media-key rotation legitimately leaves a handful of frames in flight
+    /// that were encrypted under the other key, so a perfectly healthy call
+    /// briefly told the user that somebody could not be heard. Measured in a
+    /// live four-party call on 2026-09-16: `decrypt failed count= 1
+    /// passed= 3101` — one frame in three thousand, and a warning on screen.
+    ///
+    /// A genuine key mismatch does not produce one bad frame, it produces
+    /// ALL of them, so a short run distinguishes the two with no loss of
+    /// sensitivity. `kBlockedRunFrames` at 50 is about one second of audio
+    /// and well under two of video, which is far faster than a user could
+    /// report the fault themselves.
+    int consecutiveDrops = 0;
 };
+
+/// How many frames in a row must fail before the UI says a stream is blocked.
+/// See `CryptoProbeCtx::consecutiveDrops` for why this is not 1.
+static constexpr int kBlockedRunFrames = 50;
 
 /// A key ring's name, fit to print.
 ///
@@ -542,7 +561,9 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             ++ctx->dropped;
             if (ctx->totalDropped)
                 ctx->totalDropped->fetch_add(1);
-            if (!ctx->encrypting && !ctx->blockedAnnounced && ctx->engine) {
+            ++ctx->consecutiveDrops;
+            if (!ctx->encrypting && !ctx->blockedAnnounced && ctx->engine
+                && ctx->consecutiveDrops >= kBlockedRunFrames) {
                 ctx->blockedAnnounced = true;
                 announceBlocked(ctx->engine, ctx->streamId,
                                 QStringLiteral("no_key"));
@@ -636,7 +657,9 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         ++ctx->dropped;
         if (ctx->totalDropped)
             ctx->totalDropped->fetch_add(1);
-        if (!ctx->encrypting && !ctx->blockedAnnounced && ctx->engine) {
+        ++ctx->consecutiveDrops;
+        if (!ctx->encrypting && !ctx->blockedAnnounced && ctx->engine
+            && ctx->consecutiveDrops >= kBlockedRunFrames) {
             ctx->blockedAnnounced = true;
             announceBlocked(ctx->engine, ctx->streamId,
                             QStringLiteral("undecryptable"));
@@ -662,6 +685,12 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
     ++ctx->passed;
     if (ctx->total)
         ctx->total->fetch_add(1);
+    // ANY GOOD FRAME RESETS THE RUN. Without this the counter is a lifetime
+    // total wearing a different name: a call that drops one frame per key
+    // rotation would still reach the threshold after fifty rotations and
+    // raise the badge on a stream that has been fine all along. What the
+    // badge is for is a run of failures with nothing getting through.
+    ctx->consecutiveDrops = 0;
     // A FRAME DECRYPTED, SO THE BADGE COMES OFF. The two log-once flags stay
     // set on purpose, so the log is not flooded by a stream that flaps; the
     // UI has to be told the other way, or a participant who recovers keeps a
