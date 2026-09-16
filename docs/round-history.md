@@ -1,5 +1,86 @@
 # Round history
 
+## 2026-09-16 (early morning) — 0.9.6 published, and three defects that had never run
+
+### 0.9.6 is out: pipeline 222, tag `v0.9.6` -> `e177135`
+
+24 of 25 green. The one red job is `report-optional-assets`, and it is a bug in
+the REPORTER, not in the release — see below. The anonymous verification bar
+passed in full, all eleven package links, and **macOS is attached**, which
+makes 222 the first real publishing run to prove the loopback relay that
+0.9.5's 413 forced.
+
+### Three things that were committed, looked right, and had never executed
+
+A theme, not a coincidence, and each one failed the first time it was asked to
+work:
+
+1. **`report-optional-assets` died on `RELEASE_TAG: unbound variable`.** It
+   called `gitlab_api_init` and never `release_contract_env`, the function that
+   sets that variable; every sibling script pairs the two. It runs only in a
+   PUBLISHING pipeline and no release happened between `64a1f6d` (which added
+   it) and 0.9.6, so nothing could have found out. It failed in the first
+   release it was written to protect — and what it protects is the macOS lane,
+   the one whose absence a green pipeline does not otherwise report.
+   `test-pipeline-config.py` now sweeps every packaging script that READS
+   `RELEASE_TAG` and requires the call. Keyed on `RELEASE_TAG` and not
+   `PACKAGE_VERSION` deliberately: `write-build-info.sh` assigns the latter
+   itself, so that key would report a correct script as broken.
+
+2. **The verification bar had been under-reporting by one link on every run
+   ever.** `verify-release.sh` wrote its list with `"\n".join(...)` and read it
+   with `while read -r u`, which drops a final unterminated line — so the last
+   package link was never fetched. That is why CLAUDE.md said "nine package
+   links" for a 0.9.5 that had ten. Fixed at both ends, and the real fix is the
+   second one: the script now ASSERTS that the number of links it checked
+   equals the number the release reports, because a count that can be silently
+   short is the defect. The script now also lives in the vault instead of only
+   in a session scratchpad.
+
+3. **Media messages had never produced a notification or an Activity row.**
+   `rust/src/lib.rs`'s live-sync handler matched `Text | Notice | Emote` and
+   `_ => return`, so an image, video, voice message or file sent to a room with
+   NO timeline open was dropped before it could be a row of any kind. Separately
+   `RustSdkMatrixClient` kept a PRIVATE copy of the msgtype mapping that knew
+   only `notice` and `emote`, so even a media row that did arrive was typed
+   `TextMessage`. Everything downstream had handled media correctly for
+   versions; only the two mappings in front of them had not. One shared
+   `rowTypeForMsgtype()` now, promoted out of an anonymous namespace.
+
+### The review that sent the media fix back, and why the redesign was better
+
+The first cut routed every media body into `media_filename`, on the theory that
+a media body is only a filename. **That is false for `m.location`**, whose body
+is the sender's own words: `location.rs` keeps it as the BODY on purpose, and
+`EventPreview::oneLineSummary`, `NotificationManager` and `ActivityModel` all
+have no Location case and read `body`. It would have blanked a room-list line,
+a desktop toast and an Activity row at once.
+
+Reading the live producer then showed the contract was never "body XOR
+filename" but BOTH, with `filename.unwrap_or(body)` for File — Element puts the
+CAPTION in the body per MSC2530, so reading the body alone renames the
+attachment — and plain `body` for image/video/audio. The sync payload matches
+that arm for arm now. **GENERALISE: when a second producer is added for a field
+that already has one, derive its rule from the existing producer rather than
+from a theory about the data.**
+
+Both halves carry a fail-on-old case and neither can cover the other:
+`SyncMessageRowTest` composes its own payload so it cannot see a Rust-side
+routing change, and the Rust module cannot reach the C++ mapping. Reverting
+`typeFromString` fails 2 of 8 C++ cases; making `media_filename_for_kind`
+answer `body` for `"location"` fails exactly 1 of 6 Rust cases.
+
+### The room-list backstop landed for 0.9.7, with its honest framing intact
+
+`c01bfa8`. It does NOT fix the reported stale-ordering symptom, and the
+measurement that said so still stands: a room whose newest event is call churn
+has no ordering producer at all, and whether it should be ordered by churn is a
+product decision nobody has taken. What it does fix is a second, real mechanism
+found by reading matrix-sdk 0.18.0 — three ways `Room::latest_event()` stops
+moving while messages keep arriving — plus a fallback branch that could never
+run, because `Room::latest_event_timestamp()` in matrix-sdk-base 0.18.0 IS
+`latest_event_value.timestamp()`, the value already passed in.
+
 ## 2026-09-16 (night) — the media-key rejoin defect, and a fix that measurement sent back
 
 ### A call rejoined after a crash could never receive media, since v0.8.0

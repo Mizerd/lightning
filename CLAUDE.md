@@ -26,29 +26,64 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.9.5** (`v0.9.5` -> `8d5d0ca`), tagged
-2026-09-13 by **project 6** pipeline **215, 23/24** — the one red job is
-`macos-package-test`, `allow_failure`, and it is NOT a false negative: see the
-macOS paragraph below. Notes in `docs/releases/v0.9.5.md`. The synchronized
-version reads **0.9.5** in `CMakeLists.txt` (both `project()` and
-`APP_VERSION_LABEL`), `rust/Cargo.toml`, `rust/Cargo.lock` — and now
-**`README.md`**, which is new: 0.9.4 shipped with a README still advertising
-0.9.3, because nothing compared them. `tests/VersionConsistencyTest.cpp`
-compares all five now, so a bump cannot half-land again.
+Latest published release: **Lightning 0.9.6** (`v0.9.6` -> `e177135`), tagged
+2026-09-16 by **project 6** pipeline **222, 24/25**. Notes in
+`docs/releases/v0.9.6.md`. The synchronized version reads **0.9.6** in
+`CMakeLists.txt` (both `project()` and `APP_VERSION_LABEL`), `rust/Cargo.toml`,
+`rust/Cargo.lock` and `README.md`; `tests/VersionConsistencyTest.cpp` compares
+all five, so a bump cannot half-land.
+
+**THE ONE RED JOB IS A SCRIPT BUG IN THE REPORTER, NOT A DEFECT IN THE
+RELEASE, and it is FIXED (`a051b9a`).** `report-optional-assets` died on
+`RELEASE_TAG: unbound variable`: it called `gitlab_api_init` and never
+`release_contract_env`, which is the function that sets that variable, and
+under `set -u` that is an immediate failure rather than a wrong value. It is
+NOT `allow_failure`, so the pipeline reports `failed` while the release is
+complete — the tag, all eleven package links, the signed manifest and the
+GitHub mirror were all created before it ran, and nothing needs it. **It failed
+on its FIRST EVER execution**: added in `64a1f6d`, and no release happened
+between then and 0.9.6, so nothing could have found out. Same shape as the
+unregistered test file and the Windows Dockerfile that had been unbuildable for
+ten days — a job that exists and looks right is not a job that has run.
+`test-pipeline-config.py` now sweeps every packaging script that READS
+`RELEASE_TAG` and requires it to call `release_contract_env` (six today).
+
+**0.9.6 IS THE FIRST RELEASE WITH macOS SINCE THE 413, AND IT PROVES THE
+LOOPBACK RELAY IN A REAL PUBLISHING PIPELINE.** `Lightning-0.9.6-e177135-macos-arm64.zip`
+is attached to the release and 200s anonymously. The macOS paragraph below is
+now history rather than a live operator item for this release.
 
 Source validation at the release commit, run locally rather than quoted from
-CI: `ctest --test-dir build-rust` **204 passed, 0 failed, 0 skipped, 204
-total**, the binary reporting `Lightning 0.9.5`; and the
+CI: `cargo test` **430 passed, 0 failed, 5 ignored, 435 total**;
+`ctest --test-dir build-rust` **208 passed, 0 failed, 208 total**;
+`ctest --test-dir build` **204 passed, 0 failed, 204 total**; and the
 `-DLIGHTNING_ENABLE_WEBRTC=OFF` build over every target, `rc=0`.
 
-The anonymous verification bar (§14) was run for **0.9.5** on 2026-09-13 and
-PASSED IN FULL: nine package links 200 plus `SHA256SUMS`; the manifest reads
-0.9.5 / `v0.9.5` with six artifacts all carrying `mirror_url` and macOS
-correctly ABSENT; the Ed25519 signature VERIFIED against the key extracted from
-the shipped `.deb` (`pnNX0yQ…`, key id `lightning-release-2026a`) with a
-one-field-changed copy REJECTED; the GitHub tag peels to `8d5d0ca`; 10 mirror
-assets; and the `.deb` fetched FROM THE MIRROR matches the GitLab-signed
-SHA-256 exactly.
+The anonymous verification bar (§14) was run for **0.9.6** on 2026-09-16 and
+PASSED IN FULL: **all eleven** package links 200 (ten packages plus
+`SHA256SUMS`, macOS among them); the manifest reads 0.9.6 / `v0.9.6` with six
+artifacts all carrying `mirror_url` and macOS correctly ABSENT; the Ed25519
+signature VERIFIED against the key extracted from the shipped `.deb`
+(`pnNX0yQ…`, key id `lightning-release-2026a`) with a one-field-changed copy
+REJECTED; the GitHub tag peels to `e177135`; 11 mirror assets; and the `.deb`
+fetched FROM THE MIRROR matches the GitLab-signed SHA-256 exactly.
+
+**AND THE BAR ITSELF HAD BEEN UNDER-REPORTING BY ONE LINK ON EVERY PREVIOUS
+RUN.** `verify-release.sh` wrote its link list with `"\n".join(...)` and read
+it with `while read -r u`, which DROPS a final unterminated line — so the last
+package link was never fetched, on 0.9.6 and on every release before it. That
+is why this section used to say "nine package links" for a 0.9.5 that had ten.
+Fixed two ways, because the silent-short-count was the real defect: the file
+gets its trailing newline, and the script now ASSERTS that the number of links
+it checked equals the number the release reports. A durable copy lives in the
+vault at `Lightning/Tasks/verify-release.sh` — it used to exist only in a
+session scratchpad, which is how a harness this load-bearing stayed unreviewed.
+
+Previous release: **Lightning 0.9.5** (`v0.9.5` -> `8d5d0ca`), tagged
+2026-09-13 by pipeline **215, 23/24** — the one red job is `macos-package-test`,
+`allow_failure`, and it is NOT a false negative: see the macOS paragraph below.
+Notes in `docs/releases/v0.9.5.md`. Its bar passed in full on 2026-09-13, with
+the one-link undercount above.
 
 **0.9.5 SHIPPED WITHOUT macOS, AND THAT IS A LIVE OPERATOR ITEM, NOT A
 FOOTNOTE.** `macos-package-test` built the bundle on the Mac mini and passed
@@ -72,7 +107,9 @@ Network access removes it. **DO NOT BACKFILL 0.9.5** — a publishing pipeline
 builds every format, the rebuilds are different bytes, and
 `publish-update-manifest.sh` says "the per-release copy cannot be re-published
 (different bytes, immutable conflict)", so it would break verification against
-the already-signed 0.9.5 manifest. 0.9.5 stays without macOS; 0.9.6 gets it.
+the already-signed 0.9.5 manifest. 0.9.5 stays without macOS; **0.9.6 GOT
+it — pipeline 222 published the bundle and the anonymous bar fetched it, so
+the relay is proven end to end in a real publishing run, not just on 216.**
 Full account in `docs/macos-packaging.md`.
 
 **AND THE OBVIOUS FIX DOES NOT WORK ON THIS HOST — TRIED AND MEASURED
@@ -122,7 +159,7 @@ gap this section used to record is **CLOSED, and proven on the artifact**:
 project 6 pipeline **187** builds and validates an AppImage that stages the
 helper, reports its path at launch and logs zero plugin-loader warnings.
 
-Previous release: **Lightning 0.9.4** (`v0.9.4` -> `bcea599`), tagged
+Before those: **Lightning 0.9.4** (`v0.9.4` -> `bcea599`), tagged
 2026-09-10 by pipeline **186, 20/20 green on the first attempt**; notes in
 `docs/releases/v0.9.4.md`. Its verification bar passed in full on 2026-09-10
 (ten package links, 10 mirror assets, the AppImage fetched from the mirror
@@ -1783,6 +1820,22 @@ its comment — a provider filter matches none), so it starts EVERY provider on
 the machine, and it is read from two `CONSTANT` properties the call header's
 share menu binds when `groupCall.active` flips true. Present unchanged in
 0.9.3, so it is not issue #12's boundary; bounded the same way regardless.
+
+**A JOB THAT EXISTS AND LOOKS RIGHT IS NOT A JOB THAT HAS RUN — three in one
+night, 2026-09-16.** `report-optional-assets` failed on its FIRST ever
+execution, in the 0.9.6 release it was written to protect, on
+`RELEASE_TAG: unbound variable`: it called `gitlab_api_init` and never
+`release_contract_env`. It runs only in a PUBLISHING pipeline and no release
+happened between the commit that added it and 0.9.6, so nothing could have
+found out. The verification bar had been silently checking ONE LINK FEWER than
+each release has, for every release ever, because `"\n".join(...)` writes no
+trailing newline and `while read` drops an unterminated final line. And the
+live-sync handler had never forwarded a media message at all, so an image sent
+to a room with no timeline open produced no notification and no Activity row.
+Same family as the unregistered test file, the ten-days-unbuildable Windows
+Dockerfile, and `refreshIndexStats()` with no caller. **The cure is the same
+every time: assert the COUNT, not just the items** — a check that can come back
+silently short is the defect, not its symptom.
 
 **A WAIT LOOP WHOSE PATTERN MATCHES ITS OWN COMMAND LINE NEVER TERMINATES.**
 `while pgrep -f "ninja|ctest"; do sleep; done` matches the bash process running

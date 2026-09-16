@@ -1,5 +1,34 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-16 — after 0.9.6
+
+**Media messages now notify, but NOT LIVE-TESTED.** `557d21b` makes an image,
+video, voice message or file arriving in a room with no timeline open produce a
+notification and an Activity row. No real desktop notification has been SEEN
+for one. That is the obvious first live check next time someone is at a
+machine: send a picture from Element to a Lightning account with the room
+closed, and confirm the toast says "Sent an image" and the Activity row carries
+the camera icon.
+
+**A voice message notifies as "Sent an audio file" on the sync path.** The
+payload carries no is-voice flag, so `mediaIsVoice` is false and
+`NotificationManager` cannot pick the voice wording. Cosmetic, known, not
+fixed.
+
+**The room-list stale-ordering symptom is STILL OPEN and needs a product
+decision from Rokas.** `c01bfa8` landed a backstop for a different, real
+mechanism, and deliberately does NOT stamp a room from MatrixRTC membership
+churn. A room whose newest event is churn therefore still has no ordering
+producer. Stamping from churn would make an idle call outrank a live
+conversation; that trade is his to make, not one to take at 02:00.
+
+**The reload path's media rows are kind-only.** `reloadRoomTimeline` emits no
+`media_mxc`, mimetype, size or dimensions and never did, so a media row built
+there names a file it cannot fetch. Harmless only while that function has no
+callers — verified: only its declaration and definition exist, and
+`reloadRoomTimelineAtLive` is a different function.
+
+
 Moved out of `CLAUDE.md` §16 on 2026-09-11: that file had reached 140,752
 characters against its own 140,000 rewrite threshold (and a hard 150,000 limit
 past which it truncates SILENTLY, dropping its own tail — §§17-19 — from agent

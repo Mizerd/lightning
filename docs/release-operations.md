@@ -20,6 +20,8 @@ pipelines.
 
 | Version | Commit | Deploy pipeline | Notes file |
 |---|---|---|---|
+| 0.9.6 | `e177135` | **project 6** 222, 24/25 (the red one is `report-optional-assets`, a `RELEASE_TAG: unbound variable` bug in the reporter itself on its FIRST ever run — not `allow_failure`, so the pipeline reads `failed` while the release is complete; fixed in `a051b9a`) | `docs/releases/v0.9.6.md` |
+| 0.9.5 | `8d5d0ca` | **project 6** 215, 23/24 (the red one is `macos-package-test`, `allow_failure`, and NOT a false negative: the bundle built and died on a 413 uploading, so 0.9.5 shipped with no macOS asset) | `docs/releases/v0.9.5.md` |
 | 0.9.4 | `bcea599` | **project 6** 186, **20/20 green first attempt** | `docs/releases/v0.9.4.md` |
 | 0.9.3 | `7306dde` | **project 6** 183, 21/22 (the red one is the allow_failure manifest mirror, a CDN race, not the release) | `docs/releases/v0.9.3.md` |
 | 0.9.2 | `2545391` | **project 6** 180, 22/22 (177/178/179 lost to runner memory; 176 to the migration's own path bug) | `docs/releases/v0.9.2.md` |
