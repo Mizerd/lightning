@@ -750,7 +750,25 @@ explicitly requests release work.
 The synchronized CMake, Rust, and user-agent version is authoritative over any
 number quoted in this file; read it from `CMakeLists.txt` rather than from
 here. Any version bump is a release checkpoint alone and updates those same
-synchronized locations. Before release, run complete Rust tests plus Rust and
+synchronized locations.
+
+**AND THERE IS A SIXTH LOCATION `VersionConsistencyTest` DOES NOT COVER: the
+AppStream metainfo.** `packaging-ci/packaging/common/lightning.metainfo.xml`
+carries both the newest `<release>` and four screenshot URLs pinned to a TAG,
+and 0.9.7's first pipeline (223) died in `config-tests` on exactly that —
+after the release commit was already pushed, because nothing local had asked.
+Bump it in the release commit:
+
+```sh
+packaging-ci/scripts/update-metainfo-release.sh write <version>
+# then repoint the screenshot refs from v<old> to v<new>
+```
+
+Run `packaging-ci/tests/test-metainfo-consistency.py` before triggering; it
+needs `nix-shell -p python3Packages.pyyaml`, which is why it is easy to skip.
+The screenshot check is release-commit aware: the refs must name the tag that
+does NOT exist yet, and it verifies the files are COMMITTED in the tree that
+will become it. Before release, run complete Rust tests plus Rust and
 non-Rust builds/CTest, the `-DLIGHTNING_ENABLE_WEBRTC=OFF` build over EVERY
 target (§16 — this is the configuration the Linux package jobs use, and 0.8.0
 lost `build-deb` to it twice in one job), and report unavailable live
