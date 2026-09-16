@@ -57,6 +57,28 @@ class PaginationController : public QObject
     // True once automatic viewport filling stopped itself (budget spent or
     // no progress). User-driven NearTop requests remain available.
     Q_PROPERTY(bool fillStopped READ fillStopped NOTIFY stateChanged)
+    // How many automatic-fill pages have COMPLETED against the backend while
+    // adding no row and without reaching the start of history — the shape a
+    // run of MatrixRTC membership churn produces, where the SDK walked twenty
+    // real events forward and Lightning's own timeline filter dropped every
+    // one (§16; `lightning_event_filter`).
+    //
+    // Monotonic within a room and reset on every (re)open, so QML can compare
+    // it across two fill attempts and tell the two indistinguishable-looking
+    // failures apart:
+    //
+    //   * the counter ADVANCED — the backend really did page through history
+    //     and the reader gained nothing visible. That is invisible PROGRESS:
+    //     the pagination cursor moved twenty events closer to the first real
+    //     message, and the fill must be allowed to keep walking.
+    //   * the counter did NOT advance — the dispatch went nowhere (this
+    //     controller dropped it, or no page ever landed). Nothing moved, and
+    //     the small no-progress bound is the right one.
+    //
+    // Without this the pane counts both as "no progress" and gives up after
+    // eight, which is the 2026-09-16 report: a DM whose recent history is
+    // call churn opened showing one message over an empty viewport.
+    Q_PROPERTY(int emptyFillPages READ emptyFillPages NOTIFY stateChanged)
     // v0.7 initial-hydration gate: true once the automatic initial history
     // fill for the open room cannot add more content on its own — a fill
     // batch landed, filling stopped itself, the start of history is loaded,
@@ -140,6 +162,38 @@ public:
     // still stops at the start of history, on any inserted row, and on the
     // strike bound. Twelve pages is ~240 filtered events, the scale the fill
     // budget was measured against.
+    /// The same bound, raised, for the one case where stopping is worse than
+    /// continuing: the fill is walking a run of history the timeline filter
+    /// empties, and the VIEWPORT IT EXISTS TO FILL IS STILL NOT FULL.
+    ///
+    /// "Still not full" is the criterion, and until 2026-09-16 this bound
+    /// tested `eventCount() == 0` instead — the timeline being COMPLETELY
+    /// empty. That is a proxy, and it is wrong by exactly one message: a DM
+    /// whose recent history is MatrixRTC churn opened showing a single image
+    /// over an otherwise blank viewport, which made `eventCount()` non-zero,
+    /// which handed the room the ordinary twelve. Reported 2026-09-16, and
+    /// the reader's experience is identical to the empty room the 2026-09-15
+    /// round fixed — they see nothing and have to scroll by hand.
+    ///
+    /// There is no separate "is the viewport full" question to ask here: an
+    /// automatic viewport fill is only ever REQUESTED while the viewport is
+    /// short (TimelinePane.qml returns early at `contentHeight >= height`),
+    /// so a fill page that came back empty is by construction a page spent on
+    /// a viewport that is not yet full.
+    ///
+    /// Twelve pages is ~240 filtered events, and the maintainer's own account
+    /// had a room whose MatrixRTC churn run was longer than that — the fill
+    /// gave up a page or two short of the first real message and left a blank
+    /// room the reader had to scroll by hand (2026-09-15). Stopping with a
+    /// FULL viewport is a bounded, reasonable thing to do; stopping with a
+    /// blank one just hands the user the work.
+    ///
+    /// Affordable because these pages are cheap: a filtered page is normally
+    /// served from the event-cache STORE one chunk at a time (matrix-sdk's
+    /// load_more_events_backwards) and no longer pays the completion settle
+    /// timer either, so the run is local reads rather than round trips.
+    /// Still bounded, and still far below a room's whole history.
+    static constexpr int kMaxFilteredRunStrikes = 60;
     static constexpr int kMaxNearTopEmptyStrikes = 12;
     static constexpr int kNavigationMessageDurationMs = 3000;
 
@@ -156,6 +210,7 @@ public:
     PresentationState presentationState() const;
     InitialHistoryState initialHistoryState() const;
     bool fillStopped() const { return m_fillStopped; }
+    int emptyFillPages() const { return m_emptyFillPages; }
     bool initialContentSettled() const;
     QString highlightedEventId() const { return m_highlightedEventId; }
     QString navigationMessage() const { return m_navigationMessage; }
@@ -393,9 +448,24 @@ private:
     // fetch — a two-hour call leaves ~240 of them between two messages, and
     // the fill must be allowed to walk through that run. The pane's own row
     // cap (maxViewportFillRows) bounds what does get inserted.
-    int m_maxFillRequests = 12;
+    // 60, and it is the SAME number as kMaxFilteredRunStrikes on purpose: the
+    // two bounds count the two halves of one event (a fill was dispatched; the
+    // page came back empty) and a room that trips one has tripped the other.
+    // 12 until 2026-09-16, which capped the dispatches BELOW the strike bound
+    // and so decided the filtered-run allowance by itself, silently.
+    //
+    // Only CONSECUTIVE unproductive fills spend it — any page that inserts a
+    // row refunds it — so the cost of 60 is 60 pages that each add no delegate
+    // and, when fully filtered, pay no completion settle either. The other way
+    // to be unproductive is a dispatch that never completes, and that is
+    // bounded separately and much sooner by kMaxNoProgressStrikes (12) in
+    // abandonStalledRequest().
+    int m_maxFillRequests = 60;
     int m_noProgressStrikes = 0;
     bool m_fillStopped = false;
+    /// See the emptyFillPages property. Monotonic within a room, so QML can
+    /// compare it across two fill attempts; reset on every room (re)open.
+    int m_emptyFillPages = 0;
     // Consecutive automatic (non-user) NearTop batches that added no visible
     // events. Bounds passive geometry-driven backfill; reset by a user gesture,
     // any batch that adds content, reaching the start, or a room (re)open.
@@ -422,24 +492,11 @@ private:
     QHash<QString, ScrollAnchor> m_scrollAnchors;
     int m_highlightDurationMs = kDefaultHighlightDurationMs;
 
-    static constexpr int kMaxNoProgressStrikes = 12; // see m_maxFillRequests
-    /// The same bound, raised, for the one case where stopping is worse than
-    /// continuing: the timeline is STILL EMPTY and every page so far was
-    /// emptied by the timeline filter.
-    ///
-    /// Twelve pages is ~240 filtered events, and the maintainer's own account
-    /// had a room whose MatrixRTC churn run was longer than that — the fill
-    /// gave up a page or two short of the first real message and left a blank
-    /// room the reader had to scroll by hand (2026-09-15). Stopping with rows
-    /// on screen is a bounded, reasonable thing to do; stopping with NOTHING
-    /// on screen just hands the user the work.
-    ///
-    /// Affordable because these pages are cheap: a filtered page is normally
-    /// served from the event-cache STORE one chunk at a time (matrix-sdk's
-    /// load_more_events_backwards) and no longer pays the completion settle
-    /// timer either, so the run is local reads rather than round trips.
-    /// Still bounded, and still far below a room's whole history.
-    static constexpr int kMaxEmptyTimelineStrikes = 60;
+    // Fill dispatches that never COMPLETED - the bound abandonStalledRequest()
+    // spends, and the only remaining user of this constant. Deliberately much
+    // smaller than the filtered-run bound: a page that walked twenty events is
+    // progress, a page that never arrived is a backend that is not answering.
+    static constexpr int kMaxNoProgressStrikes = 12;
     static constexpr int kMaxNavigationBatches = 8;
     static constexpr int kMaxScrollAnchors = 64;
 };

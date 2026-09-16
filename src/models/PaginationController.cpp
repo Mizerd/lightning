@@ -108,6 +108,7 @@ void PaginationController::resetPerRoomState()
     m_fillRequests = 0;
     m_noProgressStrikes = 0;
     m_fillStopped = false;
+    m_emptyFillPages = 0;
     m_nearTopEmptyStrikes = 0;
 }
 
@@ -199,14 +200,12 @@ void PaginationController::requestViewportFill()
 {
     if (m_fillStopped)
         return;
-    // Same exemption as the strike bound below: a still-empty timeline may
-    // spend the larger allowance, because stopping there shows the reader a
-    // room that looks like it has no messages.
-    const int fillCap =
-        (m_timelineModel && m_timelineModel->eventCount() == 0)
-            ? qMax(m_maxFillRequests, kMaxEmptyTimelineStrikes)
-            : m_maxFillRequests;
-    if (m_fillRequests >= fillCap) {
+    // ONE cap, honoured as configured. Until 2026-09-16 this raised itself to
+    // kMaxFilteredRunStrikes for a still-empty timeline, which overruled a
+    // caller that had deliberately NARROWED the budget and decided the
+    // filtered-run allowance in a second, hidden place. m_maxFillRequests is
+    // that allowance now, at the same 60; see its declaration.
+    if (m_fillRequests >= m_maxFillRequests) {
         m_fillStopped = true;
         qCInfo(lcPagination)
             << "timeline pagination fill budget exhausted requests="
@@ -716,22 +715,47 @@ void PaginationController::finishBatch(bool hitStart)
         // mistake as the QML-side one it sits behind — counting attempts
         // where it meant to count attempts that achieved nothing.
         //
-        // Still bounded: eight consecutive pages that add NO rows stop the
-        // loop, which is the storm this cap exists to prevent.
+        // Still bounded: m_maxFillRequests consecutive pages that add NO rows
+        // stop the loop, which is the storm this cap exists to prevent. That
+        // number is 60 since 2026-09-16 and is the SAME bound as the strike
+        // cap below - see m_maxFillRequests, and the round entry for why a
+        // filtered page is progress rather than a strike against the reader.
         if (inserted > 0)
             m_fillRequests = 0;
         if (inserted == 0 && !hitStart) {
-            // A BLANK ROOM IS NOT A PLACE TO STOP. While the timeline still
-            // has nothing on it, the fill is allowed the larger bound: giving
-            // up here leaves the reader an empty room and the job of scrolling
-            // out of it by hand, which is the 2026-09-15 report. Once ANY row
-            // exists the ordinary twelve applies again, because then stopping
-            // costs only older history the reader can ask for.
-            const bool timelineStillEmpty =
-                m_timelineModel && m_timelineModel->eventCount() == 0;
-            const int strikeCap = timelineStillEmpty
-                ? kMaxEmptyTimelineStrikes : kMaxNoProgressStrikes;
-            if (++m_noProgressStrikes >= strikeCap) {
+            // A BLANK VIEWPORT IS NOT A PLACE TO STOP, and until 2026-09-16
+            // this read "a blank TIMELINE" — `eventCount() == 0`.
+            //
+            // The page that just completed handed the timeline events and the
+            // timeline kept none of them, so the backend walked ~20 events of
+            // real history and the reader gained nothing. That is not "no
+            // progress": the pagination cursor moved, and it moved towards the
+            // first message beyond the run. A fill is only ever requested
+            // while the viewport is short, so this page was also spent on a
+            // viewport the reader is still looking past — which is the whole
+            // reason the larger bound exists.
+            //
+            // Keying it on the timeline being at exactly zero events was
+            // wrong by one message. A DM whose recent history is MatrixRTC
+            // churn opened with a single image loaded and the rest of the
+            // viewport blank; `eventCount()` was therefore non-zero, the room
+            // got the ordinary twelve, and the reader had to scroll by hand —
+            // the same outcome, from the same cause, as the empty room the
+            // 2026-09-15 round fixed. Reported 2026-09-16.
+            //
+            // NOT gated on MatrixClient::lastPaginationFullyFiltered(), even
+            // though the Rust backend can answer it and the completion-settle
+            // decision above does read it. That predicate is an OPTIMISATION
+            // hint whose documented contract is "false is always the safe
+            // answer", and only one backend implements it — gating a bound on
+            // it would mean the mock and HTTP backends silently keep the
+            // defect, and that any future path where the SDK advances without
+            // offering events would too. `inserted == 0 && !hitStart` is the
+            // condition that actually matters and every backend reports it:
+            // a page completed, the start of history is not reached, and the
+            // reader gained nothing.
+            ++m_emptyFillPages;
+            if (++m_noProgressStrikes >= kMaxFilteredRunStrikes) {
                 m_fillStopped = true;
                 qCInfo(lcPagination)
                     << "timeline pagination fill stopped no_progress_strikes="

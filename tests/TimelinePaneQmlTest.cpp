@@ -6488,6 +6488,190 @@ private Q_SLOTS:
     //
     // FAIL-ON-OLD: with only the row budget, all 40 empty pages below
     // dispatch. With the request budget the approach stops at 24.
+    // THE 2026-09-16 REPORT, IN ONE SENTENCE OF THE MAINTAINER'S: "in this
+    // room only a single image loads and I have to scroll up for anything
+    // else to appear."
+    //
+    // The room is a DM whose recent history is MatrixRTC membership churn —
+    // one `m.call.member` per participant per minute, every one of which
+    // `lightning_event_filter` drops before it can become a timeline item
+    // (§16). So the automatic viewport fill pages through real history and
+    // inserts nothing, page after page, and the reader watches a blank
+    // viewport under one message.
+    //
+    // WHAT THIS TEST PINS IS THE USER-VISIBLE OUTCOME, not a counter: after
+    // the fill has run itself out, the viewport is FULL. Everything about how
+    // that happens — which budget classifies a filtered page, how large it
+    // is, whether the pane or the controller stops first — is free to change
+    // underneath it.
+    //
+    // FAIL-ON-OLD, MEASURED, not assumed. On the tree before the fix this
+    // case fails with contentHeight stuck at one message against a 620 px
+    // viewport: the pane classified a page that COMPLETED and inserted
+    // nothing as "no progress", spent `maxViewportFillRetries` (8) on the
+    // churn run, and declined with reason=noProgressBudget while
+    // `reached_start` was still false and the real messages were a few pages
+    // further back.
+    void aFilteredHistoryRunStillFillsTheViewport()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        mock->setPaginationDelayForTest(1);
+
+        // ONE message on screen, exactly as reported — not an empty room.
+        // That single event is the whole difference between this case and the
+        // one the 2026-09-15 round fixed, whose bound tested `eventCount()`
+        // against zero.
+        QList<TimelineEvent> seed;
+        {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("the one message that did load");
+            e.timestamp = QDateTime::currentDateTimeUtc().addSecs(-60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            seed.append(e);
+        }
+
+        // The churn run: 20 pages that hand the timeline nothing without
+        // reaching the start of history. Deliberately longer than the eight
+        // the old pane allowed and shorter than the sixty the fixed one does,
+        // so the test distinguishes the two rather than measuring a bound.
+        constexpr int kFilteredPages = 20;
+        QList<TimelineEvent> realChunk;
+        for (int i = 0; i < 25; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@carol:mock.local");
+            e.senderDisplayName = QStringLiteral("Carol");
+            e.body = QStringLiteral(
+                "a real message from beyond the call-churn run, long enough "
+                "that a page or two of them is taller than the viewport %1")
+                .arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(600 + i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            realChunk.append(e);
+        }
+        mock->setPaginationChunkForTest(realChunk);
+        mock->setFilteredPaginationPagesForTest(kFilteredPages);
+        mock->resetTimelineForTest(roomId, seed,
+                                   /*paginationPages=*/kFilteredPages + 6);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
+
+        // NOT TOUCHED AFTER THIS LINE. The report is that the reader has to
+        // scroll; this test therefore never scrolls, never positions, and
+        // never calls a fill or pagination function. Only the automatic fill
+        // the pane runs on its own may produce the result below.
+        const qreal viewportHeight = timeline->property("height").toReal();
+        QVERIFY2(viewportHeight > 0, "the fixture never laid the pane out");
+
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("contentHeight").toReal() >= viewportHeight,
+            20000);
+
+        const qreal filled = timeline->property("contentHeight").toReal();
+        QVERIFY2(filled >= viewportHeight,
+                 qPrintable(QStringLiteral(
+                     "the room opened with one message and %1 px of content "
+                     "under a %2 px viewport, and the automatic fill stopped "
+                     "there — the reader is left scrolling by hand through a "
+                     "run of filtered history, which is the report")
+                     .arg(filled).arg(viewportHeight)));
+        QCOMPARE(realWarnings(warnings), QStringList{});
+    }
+
+    // The same fill, bounded. A run of filtered pages that NEVER ends must
+    // still stop: the budget is larger, not absent, and the row cap and the
+    // controller's own strike bound are both still in the loop.
+    void anEndlessFilteredRunStillStopsTheAutomaticFill()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        mock->setPaginationDelayForTest(1);
+
+        QList<TimelineEvent> seed;
+        {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("the one message that did load");
+            e.timestamp = QDateTime::currentDateTimeUtc().addSecs(-60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            seed.append(e);
+        }
+        // Far more filtered pages than any budget on either side allows, and
+        // enough pagination pages that the start of history is never reached
+        // — so the ONLY thing that can end this run is a bound.
+        mock->setFilteredPaginationPagesForTest(5000);
+        mock->resetTimelineForTest(roomId, seed, /*paginationPages=*/5000);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
+
+        // The controller latches `fillStopped` on its own strike bound; the
+        // pane stops asking on its empty-page budget. Either is a stop, and
+        // the run must reach one of them rather than paginating for ever.
+        QTRY_VERIFY_WITH_TIMEOUT(controller.pagination()->fillStopped(), 30000);
+        QVERIFY2(controller.pagination()->fillStopped(),
+                 "an unending filtered run must still stop the automatic fill");
+    }
+
     void anApproachThatKeepsGettingEmptyPagesStillStops()
     {
         AppController controller(AppController::MockBackend);

@@ -47,6 +47,11 @@ public:
     QHash<QString, State> states;
     bool timelineActive = true;
     bool failureTransient = false;
+    // The page that just completed handed the timeline events and every one
+    // of them was dropped by the timeline filter — MatrixRTC churn, in
+    // production. Drives the same completion-settle skip the Rust backend
+    // does, so a scripted filtered run behaves as the real one does.
+    bool fullyFiltered = false;
     int loadOlderCalls = 0;
     QString lastLoadRoom;
     QHash<QString, QList<TimelineEvent>> timelines;
@@ -132,6 +137,11 @@ public:
     bool paginationFailureTransient(const QString &roomId) const override
     {
         return paginationFailed(roomId) && failureTransient;
+    }
+    bool lastPaginationFullyFiltered(const QString &roomId) const override
+    {
+        Q_UNUSED(roomId);
+        return fullyFiltered;
     }
 
     // Remaining pure virtuals (inert).
@@ -572,26 +582,124 @@ private Q_SLOTS:
         controller.setClient(&client);
         controller.setRoomId(kRoomA);
 
-        // Twelve empty pages before the fill gives up (was two until
-        // 2026-09-05): MatrixRTC membership churn is filtered out of the
-        // timeline at the SDK, so an empty page costs only its fetch and a
-        // run of ~240 such events sits between two messages in a call room.
-        for (int i = 0; i < 11; ++i) {
+        // Sixty empty pages before the fill gives up — two, then twelve
+        // (2026-09-05), now the bound the 2026-09-15 round already granted an
+        // EMPTY timeline, granted to every filtered run (2026-09-16).
+        //
+        // MatrixRTC membership churn is filtered out of the timeline at the
+        // SDK, so such a page costs only its fetch, adds no delegate, and
+        // skips the completion settle — while ADVANCING the cursor towards
+        // the first real message. A room whose churn run is longer than the
+        // budget is a room the reader has to scroll by hand, which is what
+        // both reports said.
+        const int bound = PaginationController::kMaxFilteredRunStrikes;
+        QVERIFY2(bound > 12,
+                 "a filtered run must outlast the ordinary no-progress bound");
+        for (int i = 0; i < bound - 1; ++i) {
             controller.requestViewportFill();
             client.beginLoading(kRoomA);
             client.completeBatch(kRoomA, 0, false);
-            QVERIFY2(!controller.fillStopped(), "the fill must walk through a churn run");
+            QVERIFY2(!controller.fillStopped(),
+                     qPrintable(QStringLiteral(
+                         "the fill stopped walking a churn run after %1 empty "
+                         "pages, with the start of history not reached")
+                         .arg(i + 1)));
         }
         controller.requestViewportFill();
         client.beginLoading(kRoomA);
         client.completeBatch(kRoomA, 0, false);
         QVERIFY(controller.fillStopped());
 
+        const int dispatched = client.loadOlderCalls;
+        QCOMPARE(dispatched, bound);
         controller.requestViewportFill();
-        QCOMPARE(client.loadOlderCalls, 12); // fill refused
+        QCOMPARE(client.loadOlderCalls, dispatched); // fill refused
 
         controller.requestNearTop();
-        QCOMPARE(client.loadOlderCalls, 13); // user gesture still allowed
+        QCOMPARE(client.loadOlderCalls, dispatched + 1); // user gesture allowed
+    }
+
+    // THE 2026-09-16 REPORT AT THIS LAYER: the room is NOT empty. One message
+    // is loaded and the rest of the viewport is blank, and the fill is
+    // walking a run of history the timeline filter empties.
+    //
+    // Until this round the larger allowance was keyed on the timeline holding
+    // exactly zero events, so one loaded message put the room back on the
+    // ordinary twelve — the same reader experience as the empty room the
+    // 2026-09-15 round fixed, from the same cause, one message short of the
+    // condition that was written for it.
+    //
+    // FAIL-ON-OLD: on the unfixed tree this stops at twelve.
+    void aFilteredRunIsWalkedEvenWithAMessageAlreadyOnScreen()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+
+        // One message loaded — "only a single image loads". This single row
+        // is the entire difference between this case and the empty room the
+        // 2026-09-15 round fixed.
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 1, false);
+        QCOMPARE(model.eventCount(), 1);
+
+        // Then the churn run. `fullyFiltered` is what the Rust backend
+        // reports for such a page and is why it costs no completion settle,
+        // so the loop below is the production shape rather than a fast
+        // approximation of it.
+        client.fullyFiltered = true;
+        for (int i = 0; i < 20; ++i) {
+            controller.requestViewportFill();
+            client.beginLoading(kRoomA);
+            client.completeBatch(kRoomA, 0, false);
+        }
+        QVERIFY2(!controller.fillStopped(),
+                 "twenty filtered pages under a blank viewport stopped the "
+                 "automatic fill; one loaded message is not a filled viewport");
+        QCOMPARE(client.loadOlderCalls, 21);
+        QCOMPARE(controller.emptyFillPages(), 20);
+    }
+
+    // The counter QML compares across two fill attempts must only move for a
+    // page that really COMPLETED empty — never for a productive page, and
+    // never for one that reached the start of history. Without that the pane
+    // cannot tell a filtered page from a dispatch that went nowhere, which is
+    // the distinction the whole fix turns on.
+    void emptyFillPagesCountsOnlyPagesThatCompletedWithNothing()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+        QCOMPARE(controller.emptyFillPages(), 0);
+
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 0, false);
+        QCOMPARE(controller.emptyFillPages(), 1);
+
+        // A productive page is not an empty one, and must not move it.
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 5, false);
+        QCOMPARE(controller.emptyFillPages(), 1);
+
+        // Neither is reaching the start of history: there was nothing left to
+        // walk, so continuing would be pointless rather than progress.
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 0, true);
+        QCOMPARE(controller.emptyFillPages(), 1);
+
+        // And a room (re)open starts the comparison over.
+        controller.setRoomId(kRoomB);
+        QCOMPARE(controller.emptyFillPages(), 0);
     }
 
     // The per-room viewport-fill cap bounds CONSECUTIVE unproductive fills,
@@ -639,8 +747,13 @@ private Q_SLOTS:
         controller.setClient(&client);
         controller.setRoomId(kRoomA);
 
+        // Derived from the header rather than restated, because this case is
+        // about the bound EXISTING, not about its value — it read `< 30`
+        // against a bound of 12 and went stale the moment 2026-09-16 raised
+        // the filtered-run allowance to 60.
+        const int bound = PaginationController::kMaxFilteredRunStrikes;
         int dispatched = 0;
-        for (int i = 0; i < 30; ++i) {
+        for (int i = 0; i < bound + 10; ++i) {
             const int before = client.loadOlderCalls;
             controller.requestViewportFill();
             if (client.loadOlderCalls == before)
@@ -649,8 +762,11 @@ private Q_SLOTS:
             client.beginLoading(kRoomA);
             client.completeBatch(kRoomA, 0, false); // nothing gained
         }
-        QVERIFY2(dispatched < 30,
-                 "a room whose fills add nothing paginates without bound");
+        QVERIFY2(dispatched <= bound,
+                 qPrintable(QStringLiteral(
+                     "a room whose fills add nothing dispatched %1 pages "
+                     "against a bound of %2 — it paginates without bound")
+                     .arg(dispatched).arg(bound)));
     }
 
     void automaticNearTopBackfillIsBoundedButUserGestureReArms()

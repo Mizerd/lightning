@@ -214,6 +214,8 @@ public:
     bool paginationReady(const QString &roomId) const override
     { return m_paginationRemaining.contains(roomId); }
     bool paginating(const QString &roomId) const override;
+    bool lastPaginationFullyFiltered(const QString &roomId) const override
+    { return m_lastPaginationFiltered.contains(roomId); }
     bool paginationFailed(const QString &roomId) const override
     { return m_paginationFailed.contains(roomId); }
     bool paginationFailureTransient(const QString &roomId) const override
@@ -243,6 +245,20 @@ public:
     void setPaginationDelayForTest(int ms) { m_paginationDelayMs = ms; }
     void setPaginationChunkForTest(const QList<TimelineEvent> &chunk)
     { m_paginationChunkOverride = chunk; }
+    /// Serve the next `pages` back-paginations as FULLY FILTERED pages: the
+    /// backend walks its cursor and hands the timeline nothing, without
+    /// reaching the start of history.
+    ///
+    /// This is the single most consequential pagination shape this project
+    /// has — a room whose recent history is MatrixRTC membership churn, every
+    /// event of which `lightning_event_filter` drops (§16) — and until
+    /// 2026-09-16 the mock could not express it at all: an empty chunk
+    /// override falls through to the default three synthetic events, so every
+    /// mock page always added rows. A defect that only appears on pages that
+    /// add NOTHING therefore had no reachable fixture at the QML layer, which
+    /// is why it shipped twice.
+    void setFilteredPaginationPagesForTest(int pages)
+    { m_filteredPaginationPages = pages; }
     // v0.7 startup-lifecycle hooks: hold the restoration state open long
     // enough to assert on it, or reject the next restore like an expired
     // session would.
@@ -318,6 +334,12 @@ private:
     bool m_nextPaginationFailureTransient = false;
     int m_paginationDelayMs = 300;
     QList<TimelineEvent> m_paginationChunkOverride;
+    /// Remaining pages to serve fully filtered. See
+    /// setFilteredPaginationPagesForTest.
+    int m_filteredPaginationPages = 0;
+    /// Whether the page that just completed was one of them, so
+    /// lastPaginationFullyFiltered() answers the way the Rust backend does.
+    QSet<QString> m_lastPaginationFiltered;
     int m_restoreDelayMs = 0;
     bool m_failNextRestore = false;
 

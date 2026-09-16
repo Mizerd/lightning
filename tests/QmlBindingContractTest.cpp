@@ -468,6 +468,27 @@ private Q_SLOTS:
         QVERIFY2(body.contains(QStringLiteral("maxInvisibleFillRetries")),
                  "invisible progress has no bound of its own");
 
+        // THREE kinds of progress since 2026-09-16, not two. The paragraph
+        // above says "a page that added nothing gets the small one" — and a
+        // page the timeline filter EMPTIED adds nothing while having walked
+        // twenty real events, so the small bound (8) was spent on the one
+        // case that most needed the generous one. A DM whose recent history
+        // is MatrixRTC churn opened with one message over a blank viewport
+        // and stayed there until the reader scrolled: "in this room only a
+        // single image loads and I have to scroll up for anything else to
+        // appear."
+        //
+        // Pinned here as well as behaviourally because the distinction is
+        // invisible in the code that reads it: zero rows and zero pixels
+        // either way, and only the controller's counter tells them apart.
+        QVERIFY2(body.contains(QStringLiteral("viewportFillLastEmptyPages")),
+                 "nothing compares the controller's completed-empty-page "
+                 "counter across attempts, so a page the filter emptied is "
+                 "indistinguishable from a dispatch that went nowhere and "
+                 "spends the small no-progress bound meant for the latter");
+        QVERIFY2(body.contains(QStringLiteral("maxEmptyFillPages")),
+                 "a run of filtered history has no bound of its own");
+
         // And a call made while a page is still in flight must not spend the
         // budget. This function is called by every geometry signal, so
         // several land between one request and its completion, and each sees

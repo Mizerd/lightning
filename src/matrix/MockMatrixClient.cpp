@@ -959,6 +959,21 @@ void MockMatrixClient::loadOlderMessages(const QString &roomId)
             Q_EMIT paginationStateChanged(roomId);
             return;
         }
+        // A FULLY FILTERED PAGE: the cursor advanced, the timeline gained
+        // nothing, and the start of history is NOT reached. See
+        // setFilteredPaginationPagesForTest.
+        if (m_filteredPaginationPages > 0) {
+            --m_filteredPaginationPages;
+            remaining -= 1;
+            m_lastPaginationFiltered.insert(roomId);
+            if (remaining <= 0) {
+                for (auto &r : m_rooms)
+                    if (r.id == roomId) r.paginationExhausted = true;
+            }
+            Q_EMIT paginationStateChanged(roomId);
+            return;
+        }
+        m_lastPaginationFiltered.remove(roomId);
         // Prepend a small chunk of synthetic older events (or the staged
         // test chunk, so hydration tests control exactly what arrives).
         const auto &existing = m_timelines[roomId];

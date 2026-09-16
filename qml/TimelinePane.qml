@@ -5061,6 +5061,15 @@ Rectangle {
                 // I resize the window", where the resize is literally the user
                 // re-running this function.
                 //
+                // THIS COUNTER'S SUBJECT IS "the dispatch went nowhere", NOT
+                // "the page brought nothing back". Those look identical from
+                // QML — no rows, no pixels — and conflating them is what made
+                // a call-churn room give up after eight pages with a blank
+                // viewport (2026-09-16). A page that COMPLETED and inserted
+                // nothing walked real history and is counted by
+                // `viewportFillEmptyPages` below instead, against a budget
+                // five times this size.
+                //
                 // The retry is bounded TWICE, and neither bound alone would
                 // do. This counter caps consecutive re-arms and only resets
                 // when the room resets or the viewport is genuinely filled —
@@ -5108,7 +5117,33 @@ Rectangle {
                 // messages) and hands anything deeper to the reader's own
                 // scroll, one page at a time.
                 readonly property int maxViewportFillRows: 240
+                /// Pages the BACKEND completed that added no row at all, and
+                /// did not reach the start of history — a run of history the
+                /// timeline filter empties, which in practice means MatrixRTC
+                /// membership churn (§16).
+                ///
+                /// This is the third kind of progress, and the one that was
+                /// missing. `maxViewportFillRetries` above counts pages that
+                /// "achieved nothing", and a filtered page LOOKS exactly like
+                /// one from here — zero rows, zero pixels — while being the
+                /// opposite: the pagination cursor walked twenty real events
+                /// closer to the first message beyond the run. Counting it as
+                /// no-progress gave a churn-heavy room eight pages and then a
+                /// blank viewport, which is the 2026-09-16 report ("in this
+                /// room only a single image loads and I have to scroll up for
+                /// anything else to appear").
+                ///
+                /// 60, matching PaginationController::kMaxFilteredRunStrikes
+                /// so neither side stops before the other. Affordable at that
+                /// size for a reason the other two budgets cannot claim: a
+                /// page that inserts nothing instantiates NO delegates, and a
+                /// fully filtered page does not pay the 250 ms completion
+                /// settle either, so the run is local event-cache reads. The
+                /// row cap above is untouched and still bounds everything the
+                /// fill actually puts on screen.
+                readonly property int maxEmptyFillPages: 60
                 property int viewportFillInvisibleRetries: 0
+                property int viewportFillEmptyPages: 0
                 property int viewportFillRetries: 0
                 /// contentHeight at the previous fill attempt, or -1 for "no
                 /// attempt yet". The budget is spent on attempts that did not
@@ -5116,6 +5151,13 @@ Rectangle {
                 property real viewportFillLastHeight: -1
                 /// Loaded row count at the previous attempt, or -1 for none.
                 property int viewportFillLastRows: -1
+                /// app.pagination.emptyFillPages at the previous attempt, or
+                /// -1 for none. The controller's counter is monotonic within a
+                /// room, so comparing it across two attempts answers the one
+                /// question this side cannot answer for itself: did a page
+                /// actually COMPLETE against the backend since last time, or
+                /// did the dispatch go nowhere?
+                property int viewportFillLastEmptyPages: -1
                 Timer {
                     id: viewportFillRetryTimer
                     interval: 250
@@ -5132,8 +5174,10 @@ Rectangle {
                             || contentHeight >= height) {
                             viewportFillRetries = 0
                             viewportFillInvisibleRetries = 0
+                            viewportFillEmptyPages = 0
                             viewportFillLastHeight = -1
                             viewportFillLastRows = -1
+                            viewportFillLastEmptyPages = -1
                             viewportFillRetryTimer.stop()
                             return
                         }
@@ -5201,6 +5245,8 @@ Rectangle {
                             if (viewportFillInvisibleRetries
                                 >= maxInvisibleFillRetries)
                                 return "invisibleBudget"
+                            if (viewportFillEmptyPages >= maxEmptyFillPages)
+                                return "emptyPageBudget"
                             return ""
                         }
                         // TWO KINDS OF PROGRESS, AND ONLY ONE OF THEM IS
@@ -5236,22 +5282,47 @@ Rectangle {
                         // there is one request per completed page rather than
                         // one per geometry signal.
                         var loadedRows = app.timeline ? app.timeline.count : 0
+                        var emptyPages = app.pagination
+                                ? app.pagination.emptyFillPages : 0
                         var grewHeight = viewportFillLastHeight >= 0
                                 && contentHeight > viewportFillLastHeight + 1
                         var grewRows = viewportFillLastRows >= 0
                                 && loadedRows > viewportFillLastRows
+                        // THE THIRD KIND OF PROGRESS. A page that completed
+                        // against the backend and inserted nothing is not the
+                        // same event as a dispatch that went nowhere, and
+                        // until 2026-09-16 this function could not tell them
+                        // apart — both arrived here as "no rows, no pixels"
+                        // and both spent `viewportFillRetries`. The
+                        // controller's monotonic counter is the difference:
+                        // if it moved, a real page landed and the pagination
+                        // cursor advanced through history the filter emptied.
+                        var walkedFilteredHistory =
+                                viewportFillLastEmptyPages >= 0
+                                && emptyPages > viewportFillLastEmptyPages
                         if (grewHeight) {
                             // Ordinary filling: the reader is gaining visible
                             // history, so the budget is not being spent at all.
                             viewportFillRetries = 0
                             viewportFillInvisibleRetries = 0
+                            viewportFillEmptyPages = 0
                         } else if (grewRows) {
                             // Invisible progress: keep going, but not forever.
                             viewportFillRetries = 0
+                            viewportFillEmptyPages = 0
                             ++viewportFillInvisibleRetries
+                        } else if (walkedFilteredHistory) {
+                            // Filtered progress: cheaper than the case above
+                            // (no rows means no delegates) and it gets the
+                            // larger budget accordingly. It does NOT refund
+                            // the invisible budget — those two runs cost
+                            // different things and each must bound its own.
+                            viewportFillRetries = 0
+                            ++viewportFillEmptyPages
                         }
                         viewportFillLastHeight = contentHeight
                         viewportFillLastRows = loadedRows
+                        viewportFillLastEmptyPages = emptyPages
                         var decline = declineReason()
                         if (decline !== "") {
                             if (scrollTrace) {
@@ -5260,7 +5331,8 @@ Rectangle {
                                     + " contentH=" + Math.round(contentHeight)
                                     + " height=" + Math.round(height)
                                     + " noProgress=" + viewportFillRetries
-                                    + " invisible=" + viewportFillInvisibleRetries)
+                                    + " invisible=" + viewportFillInvisibleRetries
+                                    + " emptyPages=" + viewportFillEmptyPages)
                             }
                             return
                         }
@@ -5272,8 +5344,10 @@ Rectangle {
                                 + " height=" + Math.round(height)
                                 + " grewRows=" + (grewRows ? 1 : 0)
                                 + " grewHeight=" + (grewHeight ? 1 : 0)
+                                + " filtered=" + (walkedFilteredHistory ? 1 : 0)
                                 + " noProgress=" + viewportFillRetries
-                                + " invisible=" + viewportFillInvisibleRetries)
+                                + " invisible=" + viewportFillInvisibleRetries
+                                + " emptyPages=" + viewportFillEmptyPages)
                         }
                         viewportFillRetryTimer.restart()
                     })
