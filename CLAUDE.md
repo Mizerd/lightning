@@ -26,15 +26,53 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.9.6** (`v0.9.6` -> `e177135`), tagged
-2026-09-16 by **project 6** pipeline **222, 24/25**. Notes in
-`docs/releases/v0.9.6.md`. The synchronized version reads **0.9.6** in
+Latest published release: **Lightning 0.9.7** (`v0.9.7` -> `bc5dcd5`), tagged
+2026-09-16 by **project 6** pipeline **225, 25/25 — fully green, every job**.
+Notes in `docs/releases/v0.9.7.md`. The synchronized version reads **0.9.7** in
 `CMakeLists.txt` (both `project()` and `APP_VERSION_LABEL`), `rust/Cargo.toml`,
 `rust/Cargo.lock` and `README.md`; `tests/VersionConsistencyTest.cpp` compares
-all five, so a bump cannot half-land.
+all five, so a bump cannot half-land — **and there is a SIXTH location it does
+NOT compare, the AppStream metainfo; see §14.**
 
-**THE ONE RED JOB IS A SCRIPT BUG IN THE REPORTER, NOT A DEFECT IN THE
-RELEASE, and it is FIXED (`a051b9a`).** `report-optional-assets` died on
+**A CALLS RELEASE, AND THE FIRST WHERE THE CALL PATH IS INSTRUMENTED.** Six
+defects, all found on 2026-09-16 from one report ("i hear myself from element
+to lighting but not from ligthing to element"): a multi-input capture device
+averaged its live input with three dead ones and lost 12.04 dB; a default
+`queue` held one second and never leaked it; media keys delivered before the
+call went active were discarded; a call could join an encrypted room in the
+clear; a media key was adopted though it reached nobody; and a room Lightning
+created would not let its own members join a call. Full account in
+`docs/round-history.md`, 2026-09-16 (afternoon).
+
+**LIVE-VALIDATED PASS, and narrowly**: Lightning <-> Element Web, audio both
+ways, latency "almost instant", on ONE device (a Roland Rubix44 on PipeWire).
+Windows, macOS, Lightning<->Lightning and every other MatrixRTC client are
+NOT TESTED. Windows packages ship WITHOUT the new capture level meter, because
+the hand-built builder image does not carry `libgstlevel.dll` (§16). Encrypted
+camera and screen-share SENDING still does not carry to anyone.
+
+The anonymous verification bar (§14) was run for **0.9.7** on 2026-09-16 and
+PASSED IN FULL: all eleven package links 200 with the count asserted, the
+manifest reading 0.9.7 / `v0.9.7` with six artifacts all carrying `mirror_url`
+and macOS correctly ABSENT, the Ed25519 signature VERIFIED against the key
+extracted from the shipped `.deb` with a one-field-changed copy REJECTED, the
+GitHub tag peeling to `bc5dcd5`, 11 mirror assets, and the `.deb` fetched FROM
+GITHUB matching the GitLab-signed SHA-256.
+
+**TWO PIPELINES DIED BEFORE 225 AND BOTH WERE THE RELEASE COMMIT'S OWN
+MISTAKES, caught by gates with nothing published and no tag created**: 223 on
+the metainfo (§14's sixth location) and 224 on `build-windows`, where a
+plugin was added to the REQUIRED list before the hand-built image carried it
+(§16). Cancel a doomed pipeline immediately — it holds the runners.
+
+Previous release: **Lightning 0.9.6** (`v0.9.6` -> `e177135`), tagged
+2026-09-16 by pipeline **222, 24/25**; notes in `docs/releases/v0.9.6.md`. Its
+one red job was a script bug in the reporter, not a defect in the release.
+
+**THAT RED JOB IS FIXED AND THE FIX IS NOW PROVEN (`a051b9a`).**
+`report-optional-assets` ran green for the first time ever in pipeline 225 —
+it had failed on its FIRST EVER execution in 222, which is what the paragraph
+below records. `report-optional-assets` died on
 `RELEASE_TAG: unbound variable`: it called `gitlab_api_init` and never
 `release_contract_env`, which is the function that sets that variable, and
 under `set -u` that is an immediate failure rather than a wrong value. It is
