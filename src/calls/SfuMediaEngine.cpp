@@ -1614,10 +1614,38 @@ QStringList microphoneElementPreference()
 #elif defined(Q_OS_MACOS)
     return {QStringLiteral("osxaudiosrc")};
 #else
-    // pipewiresrc first: on a PipeWire desktop the device monitor enumerates
-    // through it (measured: `gst-device-monitor-1.0 Audio/Source` answers
-    // `pipewiresrc target-object=`), so that is where a match can land at all.
-    return {QStringLiteral("pipewiresrc"), QStringLiteral("pulsesrc")};
+    // `pulsesrc` FIRST, and this order is load-bearing — it was the other way
+    // round and it cost every AppImage user their microphone the moment they
+    // CHOSE one in settings.
+    //
+    // MEASURED on the shipped 0.9.7 AppImage, 2026-09-16, on a NixOS laptop
+    // running PipeWire 1.6.6:
+    //
+    //   preference set (real built-in mic, or a virtual one) ->
+    //       pipeline error element= "micsrc" reason= "Internal data stream
+    //       error", ZERO rtp packets, and the capture stream sitting in
+    //       `connecting` for ever (GST_DEBUG pipewiresrc:6 shows caps
+    //       negotiated, `connect capture with path (null), target-object 55`,
+    //       then `waiting for started signal` and nothing more).
+    //   no preference (autoaudiosrc -> pulsesrc) -> 500 rtp packets, clean.
+    //
+    // Reproduced against TWO different devices, so it is the element and not
+    // the device. The AppImage bundles gst-plugin-pipewire **1.4.2** while the
+    // daemon is 1.6.6, and the host's own 1.6.6 element streams from the same
+    // node with the same target value — so the fault is the bundled element's
+    // handling of `target-object`, not our value. NOTE it is NOT the
+    // `min-buffers` trap §16 records: that one reports a buffer-allocation
+    // failure, and no such line appears here.
+    //
+    // `pulsesrc` needs no translation either, which is the second reason to
+    // prefer it: pipewire-pulse exposes exactly the node names QMediaDevices
+    // reports, so the Qt id IS the `device=` value. CallDeviceController's own
+    // `microphoneElement()` has always said so and has always used pulsesrc;
+    // only this lane disagreed.
+    //
+    // `pipewiresrc` stays as the fallback for a host with no pipewire-pulse,
+    // where it is the only element that can carry a device choice at all.
+    return {QStringLiteral("pulsesrc"), QStringLiteral("pipewiresrc")};
 #endif
 }
 
@@ -6124,6 +6152,11 @@ bool SfuMediaEngine::publishedBinHasElementForTest(
         return false;
     gst_object_unref(found);
     return true;
+}
+
+QStringList SfuMediaEngine::microphoneElementsForTest()
+{
+    return microphoneElementPreference();
 }
 
 qint64 SfuMediaEngine::micSilenceSince(double peakDb, qint64 silentSinceMs,

@@ -448,6 +448,36 @@ private slots:
         engine.stop();
     }
 
+    // THE MICROPHONE'S ELEMENT ORDER IS A LIVE-VALIDATED CONTRACT, not a
+    // preference. On Linux `pulsesrc` must come FIRST.
+    //
+    // Measured on the shipped 0.9.7 AppImage (2026-09-16, PipeWire 1.6.6):
+    // with a device preference set, `pipewiresrc` never left `connecting` and
+    // published ZERO rtp packets — reproduced against two different devices —
+    // while the no-preference path through `pulsesrc` carried 500. The
+    // AppImage bundles gst-plugin-pipewire 1.4.2 against a 1.6.6 daemon and
+    // mishandles `target-object`; the host's own 1.6.6 element is fine with
+    // the identical value, so it is the bundled element and not our value.
+    //
+    // FAIL-ON-OLD: swap the two back and this fails, which is the whole point
+    // — the old order shipped and cost every AppImage user their microphone
+    // the moment they chose one in settings.
+    void theMicrophonePrefersPulseOverPipeWireOnLinux()
+    {
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+        QSKIP("Linux element order");
+#else
+        const QStringList order = SfuMediaEngine::microphoneElementsForTest();
+        QVERIFY2(!order.isEmpty(), "no microphone elements offered at all");
+        QCOMPARE(order.first(), QStringLiteral("pulsesrc"));
+        // pipewiresrc STAYS, as the fallback for a host with no
+        // pipewire-pulse, where it is the only element that can carry a
+        // device choice.
+        QVERIFY2(order.contains(QStringLiteral("pipewiresrc")),
+                 qPrintable(order.join(QLatin1Char(','))));
+#endif
+    }
+
     void startingAndStoppingIsClean()
     {
         SfuMediaEngine engine;

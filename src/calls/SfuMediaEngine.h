@@ -1189,6 +1189,8 @@ private:
     // and the media kind. Off unless the variable is set; the value is the
     // interval in seconds (1/true/yes = 5 s).
 public:
+    /// Test-only: the capture element order this platform will try.
+    static QStringList microphoneElementsForTest();
     static int statsTraceIntervalMs(const QString &raw);
     struct RtpStat {
         QString peer;      // "pub" / "sub"
