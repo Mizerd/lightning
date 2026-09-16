@@ -163,6 +163,15 @@ GSTREAMER_PLUGINS = (
     # libgstcontroller-1.0-0, libjpeg-8, libpng16) need no entry: the seeded
     # import walk below pulls them out of the sysroot, which is exactly what
     # that walk is for.
+    # THE CAPTURE LEVEL METER, and it is a DIAGNOSTIC that has to exist on
+    # the platform the reports come from. Without it Lightning cannot tell
+    # a live microphone from a dead one: silence encodes and encrypts
+    # exactly like speech, so every counter downstream of the encoder
+    # reports a healthy call either way (2026-09-16, a full day spent in
+    # the crypto path for a capture that was producing nothing). The code
+    # degrades gracefully when the element is absent, which is precisely
+    # why its absence would be silent.
+    "libgstlevel.dll",             # level
     "libgstopengl.dll",            # glupload, glcolorconvert, glcolorscale
     "libgstvideoconvertscale.dll", # videoconvert, videoscale
     "libgstvideorate.dll",         # videorate
@@ -186,6 +195,7 @@ GSTREAMER_ELEMENTS = (
     "appsink", "audioconvert", "audioresample", "audiotestsrc", "autoaudiosink",
     "autoaudiosrc", "capsfilter", "dtlssrtpdec", "dtlssrtpenc", "fakesink",
     "gdiscreencapsrc",
+    "level",
     # The GPU screen-share scale path (LIGHTNING_SHARE_GPU=1). Probed against
     # the SHIPPED tree for the same reason as sctp below: the app degrades to
     # the CPU when these are absent and says so in its log, which is the right
