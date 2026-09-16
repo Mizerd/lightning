@@ -1,5 +1,41 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-16 night — the camera DOES render, on Linux, measured not eyeballed
+
+**PASS for the render path, and it refutes the explanation I gave for Windows.**
+Published 0.9.7 AppImage on the laptop, in a call, camera toggled on and off,
+with the call stage measured rather than looked at (the webcam faces a real
+room):
+
+| | stage region |
+|---|---|
+| camera ON | `mean=0.574 stddev=0.159 max=1` |
+| camera OFF | `mean=0.925 stddev=0.053 max=1` |
+
+RMSE between the two captures is **0.356**. With the camera on, something
+varied and mid-tone is painted where the flat background is otherwise; with it
+off, the region is flat. The sensor itself measured `mean=0.115 stddev=0.209`
+at the same time — a real, contrasty scene. So **Lightning's camera capture and
+local render path work**, and the earlier "the camera renders nowhere" was not a
+property of the client.
+
+Method note, because the first version of this measurement was wrong twice: the
+sensor reading must be a LATE frame (`-frames:v 30`), not `-frames:v 1`, which
+catches a UVC device before auto-exposure converges and reads near-zero on a
+perfectly good camera. And the tile is compared by pixel statistics rather than
+viewed, because it is a camera pointed at the maintainer's room.
+
+WHAT THIS DOES NOT COVER: **Windows**. The guest published 5000 camera frames
+and drew the no-picture state at both ends, and this run does not explain that —
+it only removes "the client cannot render a camera" as the reason. The in-guest
+check (`docs/open-items.md`) is still what settles Windows.
+
+Also confirmed here, which is the other half of a finding I had only half
+stated: this AppImage logs `camera MJPG chain unavailable, cameras will use the
+raw entry: no element "jpegenc"`. The published 0.9.7 AppImage is missing
+libgstjpeg as well as libgstlevel, so its camera cannot reach 720p30 on USB 2.0.
+Both are fixed on `main` by `8e744c7` and neither is in a release.
+
 ## 2026-09-16 night — the level meter reaches a Windows PACKAGE, asked of the registry
 
 **PASS, and on the claim rather than the colour.** Builder image v7 was built,
