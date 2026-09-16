@@ -1,5 +1,31 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-16 night — the level meter reaches a Windows PACKAGE, asked of the registry
+
+**PASS, and on the claim rather than the colour.** Builder image v7 was built,
+deployed and verified, and only then did `stage-windows-runtime.py` move
+`libgstlevel.dll` into the required list and add `"level"` to
+`GSTREAMER_ELEMENTS`. Pipeline **227** (`windows-package-test`, non-publishing:
+`BUILD_FORMATS=none`, `PUBLISH_PACKAGES=false`, variables confirmed present)
+built a Windows package from that tree and its Wine probe reported:
+
+```
+bundled GStreamer registered all 42 required elements under Wine
+```
+
+42 is the size of `GSTREAMER_ELEMENTS` with `"level"` in it, so the probe asked
+the SHIPPED GStreamer's real registry for that element and got it. **Staging a
+DLL is not this claim** — the Dockerfile's own `level:libgstlevel` symbol probe
+CANNOT fail, because unlike `sctpenc:libgstsctp` the element and the plugin
+share a name and the string sits in `.rdata` either way. This is the check that
+distinguishes them, and it is the one that caught `libgstsctp-1.0-0.dll` being
+present for months while `sctpenc` was missing.
+
+WHAT THIS DOES NOT COVER: it proves the element REGISTERS in a package. It does
+not prove a call made from that package logs `level= true` and raises the
+silence badge — that needs a real call from a published artifact, and it is the
+thing 0.9.7's notes promised and could not keep.
+
 ## 2026-09-16 — Windows 0.9.7 and Linux 0.9.7 call each other, both ways
 
 **PASS, measured.** The same `lt-windows` guest running the published Windows
