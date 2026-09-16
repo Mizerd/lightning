@@ -638,9 +638,26 @@ gone.
   4. Any host-side capture at all: `-frames:v 30`, and report mean AND stddev
      of a LATE frame.
 
-  Until one of those runs, the camera on Windows is **NOT TESTED and NOT
-  EXPLAINED**. It does not block a release; it does block anyone claiming the
-  camera works.
+  **AND THE SENSOR IS NOT DARK — MEASURED PROPERLY, 2026-09-16 night.** Redone
+  the way point 4 says: a frame 30 in rather than the first reads
+  `mean=0.155 stddev=0.0397 max=1` on `/dev/video0` — a properly exposed
+  picture with real contrast. The original `mean=1.9e-07` was `-frames:v 1`
+  catching a UVC device before auto-exposure and AGC converge, which is the
+  known artefact the review named. So the basis for "it was the sensor" is not
+  merely unsupported, it is **refuted**: this camera produces a usable image.
+
+  What that leaves: a Windows client that published 5000 camera frames at a
+  steady 30 fps, from a sensor now known to produce a picture, and drew the
+  no-picture state at both ends. **That is a real defect until something proves
+  otherwise**, and the remaining honest gap is narrow — the measurement is of
+  the HOST, after the guest released the device, at a different time from the
+  call. Closing it is step 2 above and takes a minute: in the guest, before the
+  call, Windows Camera shows a lit picture and three stills of a static scene
+  hash differently.
+
+  Camera on Windows is **NOT TESTED**, and the explanation that dismissed it is
+  withdrawn AND refuted. It does not block a release; it does block anyone
+  saying the camera works, and it should be the first thing looked at next.
 
 - **THE TRAY BALLOON'S READ-WITHDRAWAL IS CONFIRMED BROKEN ON WINDOWS, no
   longer merely predicted.** Display and click routing PASS again (toast with
