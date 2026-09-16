@@ -44,12 +44,27 @@ clear; a media key was adopted though it reached nobody; and a room Lightning
 created would not let its own members join a call. Full account in
 `docs/round-history.md`, 2026-09-16 (afternoon).
 
-**LIVE-VALIDATED PASS, and narrowly**: Lightning <-> Element Web, audio both
-ways, latency "almost instant", on ONE device (a Roland Rubix44 on PipeWire).
-Windows, macOS, Lightning<->Lightning and every other MatrixRTC client are
-NOT TESTED. Windows packages ship WITHOUT the new capture level meter, because
-the hand-built builder image does not carry `libgstlevel.dll` (§16). Encrypted
-camera and screen-share SENDING still does not carry to anyone.
+**LIVE-VALIDATED PASS, AND NO LONGER NARROWLY — this paragraph was written on
+release day and was overtaken the same night.** What it originally recorded
+stands: Lightning <-> Element Web, audio both ways, latency "almost instant",
+on ONE device (a Roland Rubix44 on PipeWire). Added 2026-09-16 evening, all
+measured with a tone through a Goertzel detector rather than reported, and all
+in `docs/live-validation.md`: the **published Windows portable** against
+**Sable 1.21.0**, against **Element Web's Element Call**, and against the
+**published Linux AppImage** — audio both ways and screen share both ways in
+every one of the three. So Windows, Sable, Element Call and cross-platform
+Lightning<->Lightning are TESTED. **macOS is still NOT TESTED**, and so is any
+MatrixRTC client other than those three.
+
+Two limits that are real and two claims that are NOT. Windows packages ship
+WITHOUT the capture level meter (`publishing microphone: ... level= false` in a
+real call), because the hand-built builder image does not carry
+`libgstlevel.dll`; builder **v7** adds it (§16). The Windows camera published
+5000 frames and rendered nowhere — and that was the SENSOR, measured black off
+the host afterwards, not a defect (`docs/open-items.md`). **Do not repeat
+"encrypted camera and screen-share sending does not carry"**: §16 records that
+as stale since `RtpVp8Payloader.cpp`, and tonight's runs carry encrypted screen
+share to Sable, to Element and to Lightning on another platform.
 
 The anonymous verification bar (§14) was run for **0.9.7** on 2026-09-16 and
 PASSED IN FULL: all eleven package links 200 with the count asserted, the
@@ -1389,6 +1404,17 @@ image's last build. It is `OPTIONAL_GSTREAMER_PLUGINS` now, exactly as
 libgstjpeg was, with the promotion procedure written at the declaration. **A
 required-plugin entry and an image rebuild are ONE change, and the entry is
 the half that must come second.**
+
+**AND A DOWNLOAD WITH NO TIMEOUT HANGS THAT BUILD FOREVER AND LOOKS LIKE A SLOW
+COMPILE (2026-09-16).** The first v7 attempt sat SIXTEEN MINUTES at zero CPU
+with no output on a `curl` to gstreamer.freedesktop.org; `curl --silent` has no
+timeout at all, and the host fetched the same URL at 6.3 MB/s in the same
+minute, so it was the connection and not the mirror. Every download in that
+Dockerfile now carries `--connect-timeout 30 --speed-limit 10000 --speed-time
+60 --retry 3`; the sha256 check after each is untouched and is still the
+integrity gate. **Read a build that is producing no output against the LOAD
+AVERAGE before assuming it is working** — 0.19 on a ten-core box is not a
+compile.
 
 Builder `...-v6` is now built on 10.195.35.2 (image `sha256:5c628d4b`, 28
 plugins, `jpegenc` and `jpegdec` both in `libgstjpeg.dll`), the host's
