@@ -115,15 +115,19 @@ package distributes LGPL binaries whose licence text it does not carry. The gap
 predates the level meter by months; v7 makes it one plugin wider.
 
 Found by the independent review of the v7 change, which flagged it and
-correctly declined to block on it. NOT fixed here because the fix is one word in
-a `for licensed in` loop and a builder-image rebuild, and folding it into v8
-costs nothing while doing it alone costs a whole rebuild.
+correctly declined to block on it. **FIXED in the Dockerfile the same evening**
+and folded into the v7 image build rather than costing its own rebuild.
 
-UNVERIFIED and worth checking before assuming the one-word fix: that the
-GStreamer MinGW SDK actually exposes `share/licenses/gst-plugins-good-1.0`
-under that name. The sibling `base`/`bad` directories make it very likely, and
-if it is absent the `cp -a` fails loudly at build time rather than shipping a
-gap — which is the right failure.
+**Verified on the ARTIFACT, not just the image**: `unzip -l` on the shipped
+0.9.7 Windows portable lists exactly twelve directories under
+`Lightning/licenses/lightning-gstreamer/` — `gstreamer-1.0`,
+`gst-plugins-base-1.0`, `gst-plugins-bad-1.0`, `gst-plugins-rs`, `libnice`,
+`libsrtp`, `libvpx`, `mingw-runtime`, `opus`, `orc`,
+`webrtc-audio-processing`, `zlib` — and `gst-plugins-good-1.0` is not among
+them. That listing also settles the naming, which had been the one unverified
+part: the convention is `gst-plugins-<set>-1.0`, so the added name is right,
+and if it were wrong the `cp -a` fails loudly under `set -eu` at build time
+rather than shipping another gap.
 
 
 ## 2026-09-16 — after 0.9.6

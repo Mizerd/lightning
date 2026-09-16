@@ -289,6 +289,13 @@ COPY packaging/windows/gst-element-probe.c \
 # image. It was added to the staging script's REQUIRED list before this image
 # carried it once already and killed pipeline 224; the required entry is the
 # half that must come SECOND, after the image is built and deployed.
+# gst-plugins-GOOD WAS MISSING FROM THE LICENCE SET FOR MONTHS while this image
+# staged seven plugins from it (jpeg, rtp, rtpmanager, autodetect, directsound,
+# directsoundsrc, vpx, and level from v7), so the shipped package carried LGPL
+# binaries without their licence text. Verified on the ARTIFACT and not just the
+# image: `unzip -l` on the 0.9.7 portable lists twelve directories under
+# licenses/lightning-gstreamer and this was not one of them. Every plugin in the
+# install loop below belongs to a set that must appear in the licence loop too.
 RUN set -eu; \
     url="https://gstreamer.freedesktop.org/data/pkg/windows/${GSTREAMER_VERSION}/mingw/gstreamer-1.0-mingw-x86_64-${GSTREAMER_VERSION}.exe"; \
     curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
@@ -387,7 +394,8 @@ RUN set -eu; \
     done; \
     mkdir -p /usr/share/licenses/lightning-gstreamer; \
     for licensed in \
-        gstreamer-1.0 gst-plugins-base-1.0 gst-plugins-bad-1.0 gst-plugins-rs \
+        gstreamer-1.0 gst-plugins-base-1.0 gst-plugins-good-1.0 \
+        gst-plugins-bad-1.0 gst-plugins-rs \
         libnice opus libvpx libsrtp orc zlib webrtc-audio-processing \
         mingw-runtime; do \
         cp -a "$src/share/licenses/$licensed" /usr/share/licenses/lightning-gstreamer/; \
