@@ -655,9 +655,41 @@ gone.
   call, Windows Camera shows a lit picture and three stills of a static scene
   hash differently.
 
-  Camera on Windows is **NOT TESTED**, and the explanation that dismissed it is
-  withdrawn AND refuted. It does not block a release; it does block anyone
-  saying the camera works, and it should be the first thing looked at next.
+  **AND THE LOG NARROWS IT SHARPLY — read from the failing session itself.**
+  Three greps of `win97-0.9.7-interop.log`, the run that failed:
+
+  ```
+  scene graph backend=d3d11 software=0
+  camera chain= mjpg (jpeg elements present )
+  capture negotiated caps= image/jpeg, width=1920, height=1080, framerate=30/1
+  capture delivered frames count= 2000
+  ```
+
+  and **zero** occurrences of `frames decrypted but NOT rendered`.
+
+  That kills three hypotheses at once. It is **not the software renderer** —
+  the session is on Direct3D, so `softwareRendererHidesVideo` is false and the
+  tile is not being suppressed by it. It is **not an MJPG negotiate failure** —
+  the chain Windows uniquely takes negotiated 1080p30 and delivered 2000 real
+  frames, which is the failure mode the code comment warns about and it did not
+  happen. And it is **not frames arriving with nowhere to go** — that warning
+  exists and never fired.
+
+  So capture, negotiation, encode and publish are all healthy, and the fault is
+  **downstream of capture, in getting a frame onto a surface**. In QML terms the
+  tile's `videoLoader` is `visible: active && item && item.hasFrame`, where
+  `hasFrame` is `videoSink.videoSize.width > 0` — so the self-view sink never
+  received a sized frame while the tee's other branch encoded 2000. That is the
+  narrow place to look: the `selfvidsink` appsink branch and `onVideoSample`.
+
+  **The near end and the far end are still being treated as one fact and they
+  are not.** The self-view fails through `app.groupCall.cameraOn` and the local
+  tee; the far end fails through `cameraKnown && cameraOn` and mid routing.
+  They may have different causes and the logs should be read separately.
+
+  Camera on Windows is **NOT TESTED and NOT EXPLAINED**, but it is no longer
+  unbounded. It does not block a release; it does block anyone saying the
+  camera works.
 
 - **THE TRAY BALLOON'S READ-WITHDRAWAL IS CONFIRMED BROKEN ON WINDOWS, no
   longer merely predicted.** Display and click routing PASS again (toast with
