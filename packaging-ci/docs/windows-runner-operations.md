@@ -19,7 +19,7 @@ the existing Linux runners.
 | Scope | project 7 only, locked, protected, tagged jobs only |
 | Concurrency | 1 job; 2 polling requests |
 | Job limits | 4 CPU, 8 GiB memory (10 GiB including swap), 2-hour maximum |
-| Builder | `lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v6` |
+| Builder | `lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7` |
 
 The runner manager mounts `/var/run/docker.sock`, which is root-equivalent host
 access. It is constrained by project scope, protected-ref access, unique tags,
@@ -64,10 +64,10 @@ record the resulting image ID and size:
 ```bash
 sudo docker build \
   --label net.smetonis.lightning.task=windows-packaging \
-  -t lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v6 \
+  -t lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7 \
   -f packaging/windows/Dockerfile .
 sudo docker image inspect \
-  lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v6
+  lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7
 ```
 
 Do not use a floating builder image. The official Qt multimedia, FFmpeg and
@@ -97,7 +97,7 @@ printed or copied anywhere.
 1. Commit the `packaging/windows/Dockerfile` change and the NEW tag in
    `.gitlab-ci.yml`, `tests/test-pipeline-config.py`, this file, the README and
    the example config. The tag encodes what changed, e.g.
-   `fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v6`.
+   `fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7`.
 2. Build the image on `10.195.35.2` from a checkout of that commit, using the
    `docker build` command above with the new tag.
 3. Edit the host's `config/config.toml`: set `[runners.docker] image` to the new
@@ -110,6 +110,19 @@ printed or copied anywhere.
 
 Keep the previous builder image on the host until the new one has produced a
 green `build-windows`. Removing it is what makes the rollback impossible.
+
+**v7 IS COMMITTED AND NOT YET BUILT (2026-09-16).** The table and the build
+command above already name v7, so read this first: the recipe and the tin have
+deliberately been apart for the length of one session. The delta from v6 is one
+plugin — `libgstlevel.dll`, the capture level meter — taking the staged count
+from 28 to 29, plus a verify assertion that now prints what it counted instead
+of failing as a bare `test`. Until steps 2-4 below are done on 10.195.35.2, the
+host still pins v6 and its allowlist holds v1-v6, so **any Windows job — a
+manually triggered `windows-package-test` or a publishing pipeline's
+`build-windows` — fails before it starts**, exactly as pipeline 224 did.
+Neither job runs on an ordinary push (both are variable-gated), so the exposure
+is precisely a manual or publishing trigger in that window. Replace this
+paragraph with the real record the moment `gitlab-runner verify` passes on v7.
 
 **v6 IS BUILT AND DEPLOYED (2026-09-12).** Image `sha256:5c628d4b`, 7.23 GB,
 28 staged plugins, `jpegenc` and `jpegdec` both present in `libgstjpeg.dll`.

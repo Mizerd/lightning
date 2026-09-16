@@ -256,6 +256,14 @@ COPY packaging/windows/gst-element-probe.c \
 # hard-coded literal rather than something derived from this list: a derived
 # count would pass however many plugins failed to install, which is the one
 # thing it exists to catch. Change both, in the same commit.
+#
+# `libgstlevel.dll` is here for v7 (2026-09-16). The capture chain's level
+# meter is what distinguishes a live microphone from a dead one, and Windows
+# is where "nobody can hear me" is reported — a 0.9.7 Windows call logged
+# `publishing microphone: ... level= false` because the plugin was not in this
+# image. It was added to the staging script's REQUIRED list before this image
+# carried it once already and killed pipeline 224; the required entry is the
+# half that must come SECOND, after the image is built and deployed.
 RUN set -eu; \
     url="https://gstreamer.freedesktop.org/data/pkg/windows/${GSTREAMER_VERSION}/mingw/gstreamer-1.0-mingw-x86_64-${GSTREAMER_VERSION}.exe"; \
     curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
@@ -280,6 +288,7 @@ RUN set -eu; \
         libgstnice.dll libgstopus.dll libgstrtp.dll libgstrtpmanager.dll \
         libgstsctp.dll \
         libgstjpeg.dll \
+        libgstlevel.dll \
         libgstsrtp.dll libgstvideoconvertscale.dll libgstvideorate.dll \
         libgstvideotestsrc.dll libgstvolume.dll libgstvpx.dll \
         libgstopengl.dll \
@@ -362,6 +371,16 @@ RUN set -eu; \
         $(x86_64-w64-mingw32-pkg-config --cflags --libs gstreamer-1.0); \
     rm -rf /tmp/gstreamer-mingw.exe /tmp/gstreamer-sdk /tmp/gst-wine
 
+# THE ELEMENT-SYMBOL PROBE IN THIS STAGE HAS ONE ENTRY THAT CANNOT FAIL.
+# Every pair names an element whose string can only come from that plugin's own
+# gst_element_register -- webrtcbin/webrtc, jpegdec/jpeg, sctpenc/sctp -- which
+# is what caught `sctpenc` missing from a `libgstsctp` that was present for
+# months. `level:libgstlevel` is NOT that check: the element and the plugin
+# share a name, so the literal "level" sits in .rdata whether or not the
+# element registers, and the entry degrades to file existence. The registration
+# evidence for it arrives when stage-windows-runtime.py puts "level" in
+# GSTREAMER_ELEMENTS and the wine probe asks the real registry -- the promotion
+# commit that follows this image, not this one.
 RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
     && rpm -qa --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' \
        | LC_ALL=C sort > /usr/local/share/lightning-windows-rpms.txt \
@@ -380,8 +399,11 @@ RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
          gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-rtp-1.0 \
     && test "$(x86_64-w64-mingw32-pkg-config --modversion gstreamer-webrtc-1.0)" \
          = "${GSTREAMER_VERSION}" \
-    && test "$(ls /usr/x86_64-w64-mingw32/sys-root/mingw/lib/gstreamer-1.0/*.dll | wc -l)" \
-         = 28 \
+    && { expected=29; \
+         staged="$(ls /usr/x86_64-w64-mingw32/sys-root/mingw/lib/gstreamer-1.0/*.dll | wc -l)"; \
+         test "$staged" = "$expected" \
+           || { echo "staged plugin count is $staged, expected $expected -- the install loop above and this literal are ONE fact in two places" >&2; \
+                exit 1; }; } \
     && for plugin in /usr/x86_64-w64-mingw32/sys-root/mingw/lib/gstreamer-1.0/*.dll; do \
          file "$plugin" | grep -F 'PE32+ executable' >/dev/null \
            || { echo "not a PE32+ plugin: $plugin" >&2; exit 1; }; \
@@ -395,6 +417,7 @@ RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
          gdiscreencapsrc:libgstwinscreencap \
          sctpenc:libgstsctp \
          jpegdec:libgstjpeg \
+         level:libgstlevel \
          glupload:libgstopengl glcolorconvert:libgstopengl \
          glcolorscale:libgstopengl gldownload:libgstopengl; do \
          element="${pair%%:*}"; plugin="${pair##*:}"; \
