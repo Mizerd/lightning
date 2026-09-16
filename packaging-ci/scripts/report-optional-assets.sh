@@ -29,6 +29,13 @@ source "$SCRIPT_DIR/lib.sh"
 source "$SCRIPT_DIR/gitlab-api.sh"
 
 gitlab_api_init
+# RELEASE_TAG comes from here, and its absence is why this job failed on its
+# FIRST EVER execution -- pipeline 222, the 0.9.6 release, with
+# "RELEASE_TAG: unbound variable". The job was committed in 64a1f6d and no
+# release ran between then and now, so nothing could have found out: a job
+# that exists and looks right is not a job that has run. Every other
+# publishing script pairs these two calls; this one had only the first.
+release_contract_env
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT

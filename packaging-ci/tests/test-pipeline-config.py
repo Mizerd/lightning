@@ -1478,6 +1478,34 @@ for name in ("QT_MULTIMEDIA_SHA256", "FFMPEG_SHA256", "GSTREAMER_SHA256"):
           and re.search(rf"^ARG {name}", _dockerfile, re.M) is None,
           f"{name} is an ENV in the Windows builder Dockerfile")
 
+# 16. A SCRIPT THAT READS RELEASE_TAG MUST CALL THE FUNCTION THAT SETS IT.
+#
+# `release_contract_env` in gitlab-api.sh is what defines RELEASE_TAG (and
+# PACKAGE_VERSION), and every publishing script runs under `set -u`, so
+# reading it without calling that function is not a wrong value -- it is an
+# immediate hard failure. `report-optional-assets.sh` shipped that way in
+# 64a1f6d and nobody could have found out, because the job runs only in a
+# PUBLISHING pipeline and no release happened between that commit and 0.9.6.
+# It failed on its first ever execution, in the release it was written to
+# protect, with "RELEASE_TAG: unbound variable".
+#
+# Keyed on RELEASE_TAG rather than PACKAGE_VERSION deliberately: nothing but
+# gitlab-api.sh ever assigns RELEASE_TAG, whereas write-build-info.sh assigns
+# PACKAGE_VERSION itself from the per-format version, so keying on that one
+# would report a script that is correct.
+_scripts_dir = os.path.join(HERE, "..", "scripts")
+_readers = []
+for _name in sorted(os.listdir(_scripts_dir)):
+    if not _name.endswith(".sh") or _name == "gitlab-api.sh":
+        continue
+    with open(os.path.join(_scripts_dir, _name)) as _fh:
+        _body = _fh.read()
+    if re.search(r"\$\{?RELEASE_TAG\b", _body):
+        _readers.append((_name, "release_contract_env" in _body))
+check(_readers, "at least one packaging script reads RELEASE_TAG")
+for _name, _calls in _readers:
+    check(_calls, f"{_name} calls release_contract_env before reading RELEASE_TAG")
+
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)
     sys.exit(1)
