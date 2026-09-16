@@ -1,5 +1,73 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-16 — the WINDOWS package calls Sable and Element Web, both ways
+
+**PASS, measured, not reported.** The published **0.9.7 Windows portable**
+(`Lightning-0.9.7-bc5dcd5-windows-x86_64-portable.zip`, the release bytes, not
+a local build) running in the `lt-windows` guest on the laptop, in the
+encrypted `calltest` room, against **Sable 1.21.0** (`app.sable.moe`) and
+**Element Web** (Element Call, not the legacy 1:1 path):
+
+| | Windows -> peer | peer -> Windows |
+|---|---|---|
+| Sable, audio | PASS, tone ratio **142:1** | PASS, tone ratio **130,224:1** |
+| Sable, screen share | PASS, rendered in Sable | PASS, rendered in Lightning |
+| Element Web, audio | PASS, tone ratio **3,635:1** | PASS, tone ratio **3,147,784:1** |
+| Element Web, screen share | PASS, rendered in Element | PASS, rendered in Lightning |
+
+Each audio direction is a 440+880 Hz tone through a Goertzel detector against a
+1 kHz control, played into ONE endpoint's microphone and recorded at the
+OTHER's speaker, with `pw-link -l` printed in the same run to prove which node
+fed which. The Windows client both STARTED a call Sable joined and JOINED one
+Element started.
+
+What the guest's own log shows:
+
+```
+call media engine built in: yes            (GStreamer 1.28.5, bundled)
+publishing microphone: valve drop= false device-channels= 0 dsp= true level= false
+sfu published our track kind= microphone sid= "TR_AMypAPvCXf8Lcq"
+rtp packets handed to webrtcbin video= false count= 1500
+frames decrypted stream= "PA_LkjTZjF8Tfwa" video= false count= 2500 dropped= 0
+screen share falling back to the CPU: the GL chain is present but cannot run on this machine
+publish first encoded frame screenShare= true afterPublishMs= 83 firstCaptureMs= 34
+frames encrypted stream= "" video= true count= 500 dropped= 0
+share audio published perApplication= false
+camera chain= mjpg (jpeg elements present )
+```
+
+**THE GUEST HAS NO SOUND CARD AT ALL, AND THAT IS WHY THIS TEST EXISTS IN THIS
+SHAPE.** `qemu-system-x86_64` runs with `-nodefaults` and no `-audiodev`; the
+only USB device passed through is a UVC webcam with no audio interface
+(`bInterfaceClass` 0e on every one of its five interfaces). Windows reported
+zero `Win32_SoundDevice` and zero `AudioEndpoint`, so Lightning had nothing to
+open. The audio path is **RDP**: `xfreerdp /sound:sys:pulse /microphone:sys:pulse`
+into the guest gives the session two `Remote Audio` endpoints, and the client's
+`PULSE_SOURCE`/`PULSE_SINK` pin them to dedicated PipeWire nodes
+(`WinTestMic` in, `TestIn` out) that no other endpoint touches. Recreating the
+container to add an audio device was deliberately NOT done: `lt-windows` shares
+a host with the maintainer's hands-off WinApps guest.
+
+WHAT THIS DOES NOT COVER:
+
+* `level= false`: the published Windows build has no `libgstlevel.dll`, so the
+  capture-side level meter is absent there and the mic-silence badge cannot
+  fire. That is the optional-plugin entry waiting on a builder-image rebuild,
+  not a defect in this run. The RTP pad probe carried the proof instead.
+* The GPU share chain cannot run in this VM (no working GL), so the CPU
+  fallback is what was measured. A Windows host with a real GPU is NOT TESTED.
+* macOS remains NOT TESTED.
+* **The camera is NOT TESTED in this run, and deliberately not reported as a
+  failure.** It captured and encoded cleanly — `frames encrypted video= true
+  count= 5000 dropped= 0`, a steady 30 fps, `camera chain= mjpg` — but neither
+  Element nor Lightning's own self-view tile drew an image. `docs/open-items.md`
+  records that exact symptom from an earlier Windows round and WITHDRAWS it:
+  the sensor was shuttered, and a placeholder and black video are
+  indistinguishable. Nothing here establishes which of the two this was, so it
+  is not a defect report. Judging it needs a sensor known to be looking at
+  something. Audio and screen share are unaffected either way.
+
+
 ## 2026-09-16 — calls audible both ways, and the send latency gone
 
 **PASS, on the maintainer's desktop, Lightning (source build) <-> Element Web
