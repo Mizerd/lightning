@@ -1,5 +1,37 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-16 — NO published 0.9.7 package has the capture level meter
+
+**MEASURED, on both artifacts, and it is wider than the Windows note says.**
+0.9.7's headline diagnostic is the capture level meter: silence encrypts
+exactly like speech, so the meter is the only thing in the engine that can tell
+a live microphone from a dead one, and a whole day went into the crypto path
+for a capture that was producing nothing. A live call from each published
+artifact logs the same line:
+
+```
+publishing microphone: valve drop= false device-channels= 0 dsp= true level= false
+```
+
+- **Windows portable** (`Lightning-0.9.7-bc5dcd5-windows-x86_64-portable.zip`):
+  the hand-built builder image does not carry `libgstlevel.dll`. Builder v7 adds
+  it; `stage-windows-runtime.py` keeps the plugin OPTIONAL until v7 is deployed.
+- **AppImage** (`Lightning-0.9.7-x86_64.AppImage`): `libgstlevel` was added to
+  `build-appimage.sh`'s `GST_REQUIRED_PLUGINS` in `8e744c7`, which is AFTER the
+  0.9.7 release commit `bc5dcd5`. So the fix is on `main` and in no release.
+
+Consequence to state plainly rather than bury: **the mic-silence badge and the
+sustained-silence warning cannot fire in any 0.9.7 package.** The `level= false`
+branch is not a failure — the engine deliberately builds the chain without the
+meter when the factory is absent — so a user sees no badge whether their
+microphone is live or dead, which is the exact state the feature was written to
+end. The RTP pad probe (`rtp packets handed to webrtcbin`) still works
+everywhere and is what carried the proof in tonight's interop runs.
+
+NOT a regression and NOT a defect in the code: both halves are packaging, both
+are fixed on `main`, and neither is released.
+
+
 ## 2026-09-16 — the Windows package ships gst-plugins-good binaries without its licence
 
 **OPEN, compliance, pre-existing, and cheap to fix in the NEXT builder image.**
