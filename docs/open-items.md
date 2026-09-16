@@ -606,19 +606,42 @@ gone.
   `SfuMediaEngine.cpp` is indicated**; the `localCameraStreamId()` match works.
   The earlier entry is withdrawn.
 
-  **AND IT CAME BACK ON 2026-09-16, so take the two-command measurement FIRST.**
-  A Windows interop run saw a blank self-view AND a camera-off placeholder in
-  Element while the track published 5000 frames at a steady 30 fps. Stopping the
-  guest returns the webcam to the host, and one frame off `/dev/video0` read
-  `mean=1.9e-07 stddev=5.4e-05` — pure black. The sensor, again. Before reading
-  a blank camera tile as a defect on any platform, grab a frame from the device
-  outside the app and look at its mean:
+  **AND IT CAME BACK ON 2026-09-16 — AND MY EXPLANATION OF IT IS WITHDRAWN.**
+  A Windows interop run saw a blank self-view and a camera-off placeholder in
+  Element while the track published 5000 frames at a steady 30 fps. I stopped
+  the guest, read the webcam on the host (`/dev/video0` mean=1.9e-07,
+  stddev=5.4e-05) and called it the sensor. **Three things are wrong with
+  that.** It measures a different OS through a different driver after the guest
+  released the device. `ffmpeg -frames:v 1` takes a UVC device's FIRST frame,
+  before auto-exposure and AGC converge, and a stddev that low is as consistent
+  with a zero-filled buffer as with a dark room. And decisively: **a dark sensor
+  paints BLACK VIDEO, not a placeholder** — zooming the capture shows the "You"
+  tile is the tile's dark-grey background with a centred crossed-camera glyph,
+  which is the no-picture state, not a video surface full of dark pixels.
 
-  ```sh
-  nix shell nixpkgs#ffmpeg-headless -c \
-      ffmpeg -f v4l2 -i /dev/video0 -frames:v 1 -y /tmp/cam.png
-  magick /tmp/cam.png -colorspace Gray -format '%[fx:mean]' info:
-  ```
+  The check that would have settled it was already on this page: the 2026-09-15
+  entry above confirmed the shutter FROM INSIDE the guest — a lit picture in
+  Settings, and three consecutive stills of a static scene hashing differently
+  (sensor noise, not a frozen frame). Use that, not a host reading.
+
+  **What actually settles it, most decisive first:**
+  1. Take the sensor out of the experiment — a known-good source (a lit scene
+     with the shutter confirmed open, or a synthetic source) in a
+     Lightning-to-Lightning call. If the picture renders, the render path is
+     fine. If it does not, there is a real defect and it has now been explained
+     away twice.
+  2. In the guest, before the call: Windows Camera shows a lit picture, and
+     three stills of a static scene hash differently.
+  3. Screenshot what the FAR end draws, and say which of the two it is: a black
+     rectangle or a camera-off placeholder. They are different defects and my
+     notes have claimed both.
+  4. Any host-side capture at all: `-frames:v 30`, and report mean AND stddev
+     of a LATE frame.
+
+  Until one of those runs, the camera on Windows is **NOT TESTED and NOT
+  EXPLAINED**. It does not block a release; it does block anyone claiming the
+  camera works.
+
 - **THE TRAY BALLOON'S READ-WITHDRAWAL IS CONFIRMED BROKEN ON WINDOWS, no
   longer merely predicted.** Display and click routing PASS again (toast with
   the room avatar; a click raised the app from minimised and opened the room).

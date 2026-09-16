@@ -64,9 +64,11 @@ on the AppImage the plugin entered `GST_REQUIRED_PLUGINS` in `8e744c7`, which
 is AFTER the release commit. So 0.9.7's headline diagnostic, and the
 mic-silence badge that depends on it, cannot fire in anything shipped. Both
 halves are fixed on `main` and neither is released
-(`docs/open-items.md`). The Windows camera published
-5000 frames and rendered nowhere — and that was the SENSOR, measured black off
-the host afterwards, not a defect (`docs/open-items.md`). **Do not repeat
+(`docs/open-items.md`). The Windows camera published 5000
+frames and rendered nowhere, and **the "it was the sensor" explanation is
+WITHDRAWN** — a dark sensor paints black video, and the tile shows the
+no-picture placeholder instead. NOT TESTED and NOT EXPLAINED
+(`docs/open-items.md` carries what would settle it). **Do not repeat
 "encrypted camera and screen-share sending does not carry"**: §16 records that
 as stale since `RtpVp8Payloader.cpp`, and tonight's runs carry encrypted screen
 share to Sable, to Element and to Lightning on another platform.

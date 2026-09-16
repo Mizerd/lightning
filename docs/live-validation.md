@@ -84,22 +84,23 @@ WHAT THIS DOES NOT COVER:
 * The GPU share chain cannot run in this VM (no working GL), so the CPU
   fallback is what was measured. A Windows host with a real GPU is NOT TESTED.
 * macOS remains NOT TESTED.
-* **The camera is NOT TESTED in this run, and deliberately not reported as a
-  failure.** It captured and encoded cleanly — `frames encrypted video= true
-  count= 5000 dropped= 0`, a steady 30 fps, `camera chain= mjpg` — but neither
-  Element nor Lightning's own self-view tile drew an image. `docs/open-items.md`
-  records that exact symptom from an earlier Windows round and WITHDRAWS it:
-  the sensor was shuttered, and a placeholder and black video are
-  indistinguishable. **MEASURED after the run, and it is the sensor again.**
-  With the guest stopped the webcam returns to the host as `/dev/video0`, and
-  one frame off it is `1920x1080 mean=1.9e-07 stddev=5.4e-05` — pure black, and
-  the IR function (`/dev/video2`) reads `mean=0.0035`. The camera published a
-  black picture perfectly. Nothing about the call path is implicated, and the
-  next round should take this measurement FIRST: it is two commands and it has
-  now saved two rounds from chasing a rendering bug that is not there. Audio
-  and screen share are unaffected either way.
+* **The camera is NOT TESTED, and the "it was the sensor" explanation is
+  WITHDRAWN.** It captured and encoded cleanly — `frames encrypted video= true
+  count= 5000 dropped= 0`, a steady 30 fps, `camera chain= mjpg` — and neither
+  Element nor Lightning's own self-view drew a picture. I measured the webcam
+  off the host afterwards (`/dev/video0` mean=1.9e-07) and called it a dark
+  sensor. **That does not hold.** Zoomed, the "You" tile is the tile's
+  dark-grey BACKGROUND with a centred crossed-camera glyph — the no-picture
+  state, not a video surface full of dark pixels, which is what a dark sensor
+  would paint. The measurement was also taken on a different OS through a
+  different driver after the guest released the device, and `ffmpeg -frames:v 1`
+  grabs a UVC device's FIRST frame, before auto-exposure converges. The earlier
+  Windows round settled the same symptom from INSIDE the guest — a lit picture,
+  and three stills of a static scene hashing differently — and that check was
+  available to me and I did not use it.
 
-
+  The camera from this guest is therefore **OPEN, not explained**; what settles
+  it is in `docs/open-items.md`. Audio and screen share are unaffected.
 ## 2026-09-16 — calls audible both ways, and the send latency gone
 
 **PASS, on the maintainer's desktop, Lightning (source build) <-> Element Web
