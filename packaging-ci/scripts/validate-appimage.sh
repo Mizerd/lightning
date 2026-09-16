@@ -135,8 +135,14 @@ find "$tree/usr/qml" -maxdepth 1 -name 'QtQuick' | grep -q . || die "QML modules
 #                   where the feature was simply absent and every check passed.
 #                   Same shape as libgstximagesrc above — a graceful fallback
 #                   is exactly what stops a packaging gap from being noticed.
+#   libgstlevel   — the capture level meter. Absent from 0.9.7 and nothing
+#                   noticed, because the app degrades gracefully and a call
+#                   with a dead microphone looks identical to a healthy one
+#                   without it.
+#   libgstjpeg    — jpegenc/jpegdec for the camera's MJPG chain; without it
+#                   every camera falls back to raw.
 for gst_plugin in libgstwebrtc libgstsctp libgstnice libgstvpx libgstopus \
-                  libgstximagesrc libgstopengl; do
+                  libgstximagesrc libgstopengl libgstlevel libgstjpeg; do
     test -f "$tree/usr/lib/gstreamer-1.0/$gst_plugin.so" \
         || die "$gst_plugin.so missing from the AppImage payload"
 done

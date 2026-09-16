@@ -204,6 +204,23 @@ GST_REQUIRED_PLUGINS=(
     libgstpipewire libgstvideo4linux2 libgstximagesrc
     libgstwebrtcdsp
     libgstaudioparsers libgstplayback libgsttypefindfunctions
+    # libgstlevel — the capture level meter, and the ONLY thing that can tell
+    #               a live microphone from a dead one. Silence encodes and
+    #               encrypts exactly like speech, so every counter downstream
+    #               of the encoder reports a healthy call either way; a whole
+    #               day went into the crypto path on 2026-09-16 for a capture
+    #               that was producing nothing. Measured absent from the
+    #               shipped 0.9.7 AppImage (`publishing microphone: ...
+    #               level= false`), where the app degrades gracefully — which
+    #               is precisely why the absence was silent.
+    # libgstjpeg  — jpegenc/jpegdec, the camera's MJPG chain. Also measured
+    #               absent from 0.9.7: `camera MJPG chain unavailable,
+    #               cameras will use the raw entry: no element "jpegenc"`, and
+    #               raw-only means a USB 2.0 camera cannot reach 720p30.
+    # Both are in gstreamer1.0-plugins-good, which this job already installs,
+    # so REQUIRED is safe here — unlike the Windows lane, whose builder image
+    # is built by hand and where a required entry must follow the rebuild.
+    libgstlevel libgstjpeg
 )
 for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
     [[ -f "$GST_PLUGIN_SRC/$plugin.so" ]] || \
