@@ -101,27 +101,29 @@ GSTREAMER_PLUGIN_DIR = "gstreamer-1.0"
 # fatal again — which is what you want once the app will actually try to load
 # it, because a missing decoder then means every camera silently falls back to
 # raw and nobody finds out until a USB 2.0 camera cannot reach 720p30.
-# AND IT IS OPTIONAL AGAIN FOR ONE PLUGIN, FOR THE REASON THIS BLOCK EXISTS.
+# AND THE ONE PLUGIN THAT WAS OPTIONAL HAS BEEN PROMOTED — 2026-09-16 evening.
 #
-# `libgstlevel.dll` is the capture level meter added on 2026-09-16, and it is
-# the diagnostic that tells a live microphone from a dead one: silence encodes
-# and encrypts exactly like speech, so every counter downstream of the encoder
-# reports a healthy call either way, and a full day went into the crypto path
-# for a capture that was producing nothing.
-#
-# It is REQUIRED on no platform yet, because the Windows builder image is
-# BUILT BY HAND under a fixed tag and does not carry it. Listing it as
-# required is what killed `build-windows` in pipeline 224 — the exact shape
-# CLAUDE.md §16 records for libgstjpeg: "a Dockerfile change alone changes
+# `libgstlevel.dll` is the capture level meter: silence encodes and encrypts
+# exactly like speech, so every counter downstream of the encoder reports a
+# healthy call either way, and a full day went into the crypto path for a
+# capture that was producing nothing. It spent the afternoon OPTIONAL because
+# listing it as required before the hand-built builder image carried it is what
+# killed `build-windows` in pipeline 224 — "a Dockerfile change alone changes
 # nothing", and the required list is only as true as the image's last build.
 #
-# TO PROMOTE IT: add it to `packaging/windows/Dockerfile`, rebuild the builder
-# per lightning-deploy `docs/windows-runner-operations.md` (remembering that
-# its verify stage asserts a plugin COUNT with a literal, which must be bumped
-# with the install loop), point the runner at the new tag, then move this name
-# into GSTREAMER_PLUGINS and add "level" to GSTREAMER_ELEMENTS. Until then the
-# app degrades gracefully and the meter simply does not exist on Windows.
-OPTIONAL_GSTREAMER_PLUGINS: tuple[str, ...] = ("libgstlevel.dll",)
+# The order that made it safe, and the order to repeat for the next one:
+#   1. add the plugin to `packaging/windows/Dockerfile` (bumping the verify
+#      stage's plugin COUNT literal in the same commit — they are one fact in
+#      two places);
+#   2. BUILD the image on the runner host and point `config.toml` at the new
+#      tag, keeping the previous tag in `allowed_images`;
+#   3. `gitlab-runner verify`;
+#   4. only THEN move the name here and add the element below.
+# Builder `fedora44-qt6.11.2-...-v7` carries it, deployed and verified on
+# 2026-09-16; the entry moved after that, not before.
+# Empty again, and the mechanism stays: the next plugin that has to wait for a
+# builder image goes here rather than into GSTREAMER_PLUGINS.
+OPTIONAL_GSTREAMER_PLUGINS: tuple[str, ...] = ()
 
 GSTREAMER_PLUGINS = (
     "libgstapp.dll",               # appsink, appsrc
@@ -164,6 +166,7 @@ GSTREAMER_PLUGINS = (
     # same distinction that shipped Windows for months with libgstsctp-1.0-0
     # present and `sctpenc` missing.
     "libgstjpeg.dll",              # jpegdec (MJPG camera modes)
+    "libgstlevel.dll",             # level — the capture level meter (v7+)
     # jpegdec was OPTIONAL until 2026-09-12 — see
     # OPTIONAL_GSTREAMER_PLUGINS.
     "libgstsrtp.dll",              # srtpenc, srtpdec, used inside dtlssrtp*
@@ -219,7 +222,12 @@ GSTREAMER_ELEMENTS = (
     # `sctpenc` was missing, and Windows received no media the whole time. The
     # DLL is the tin; this list is what asks whether anything is in it.
     "jpegdec",
-    "ksvideosrc", "nicesink", "nicesrc", "opusdec", "opusenc",
+    "ksvideosrc",
+    # level. Staging libgstlevel.dll is NOT this claim: the element and the
+    # plugin share a name, so the Dockerfile symbol probe cannot fail for it.
+    # THIS list is what makes the wine probe ask the real registry.
+    "level",
+    "nicesink", "nicesrc", "opusdec", "opusenc",
     "queue", "rtpbin", "rtpopusdepay", "rtpopuspay", "rtpvp8depay", "rtpvp8pay",
     # Probed even though no Lightning pipeline names them: webrtcbin loads
     # them for the data channel, and their absence broke every incoming track
