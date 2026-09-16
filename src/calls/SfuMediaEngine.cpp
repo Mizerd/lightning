@@ -1,6 +1,9 @@
 #include "calls/SfuMediaEngine.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <memory>
 
 #include <unistd.h>
 
@@ -17,6 +20,8 @@
 #include <thread>
 
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QTimer>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
@@ -298,6 +303,58 @@ QString printableRing(const QString &ring)
 bool shouldReport(quint64 count)
 {
     return count == 1 || count == 10 || count % 500 == 0;
+}
+
+/// RTP PACKETS THAT ACTUALLY LEFT OUR BIN, as opposed to frames the encoder
+/// produced.
+///
+/// THE COUNTER THIS SITS BESIDE WAS MEASURED IN THE WRONG PLACE, and it
+/// misled a whole day of debugging on 2026-09-16. `frames encrypted ...
+/// count= 1500` is taken on the ENCODER's src pad — upstream of the
+/// payloader, the capsfilter and webrtcbin — so it counts what we ENCODED.
+/// It says nothing about what was packetised, nothing about what webrtcbin
+/// accepted and nothing about what reached the network, and it was read as
+/// proof of transmission over and over while the far end heard silence.
+///
+/// This probe sits on the publishing bin's own src pad, the last point we
+/// own: every buffer past it is an RTP packet webrtcbin has taken.
+/// `frames encrypted` climbing with `rtp packets` flat is a payloader eating
+/// the stream; both climbing moves the question off this machine entirely.
+/// OWNERSHIP, because the first cut of this got it wrong and the reviewer
+/// caught it: the probe is never removed, so its user data must outlive the
+/// call, and NOTHING else may free it. A `shared_ptr` held by the probe (as a
+/// raw pointer) and by a 3 s timer meant the timer's destruction freed the
+/// context while the probe kept writing into it — a write-after-free at ~50
+/// buffers a second on a GStreamer streaming thread, on every call.
+///
+/// So: the probe owns the context through its destroy notify, exactly as
+/// `installEncryptProbe` does; the watchdog captures only the COUNTER, which
+/// is separately owned and outlives both.
+struct RtpOutCtx {
+    std::shared_ptr<std::atomic<quint64>> packets;
+    bool video = false;
+};
+
+void rtpOutCtxFree(gpointer data)
+{
+    delete static_cast<RtpOutCtx *>(data);
+}
+
+GstPadProbeReturn countRtpOut(GstPad *, GstPadProbeInfo *info, gpointer user)
+{
+    auto *ctx = static_cast<RtpOutCtx *>(user);
+    if (!ctx)
+        return GST_PAD_PROBE_OK;
+    if (!(GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER))
+        return GST_PAD_PROBE_OK;
+    if (!ctx->packets)
+        return GST_PAD_PROBE_OK;
+    const quint64 n = ++(*ctx->packets);
+    if (shouldReport(n)) {
+        qCInfo(lcSfuMedia) << "rtp packets handed to webrtcbin video="
+                           << ctx->video << "count=" << n;
+    }
+    return GST_PAD_PROBE_OK;
 }
 
 /// Which sender an appsink belongs to. One per received video track.
@@ -856,6 +913,41 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
 {
     auto *engine = static_cast<SfuMediaEngine *>(userData);
     const GstMessageType type = GST_MESSAGE_TYPE(message);
+    // THE CAPTURE'S OWN LEVEL, which is the one thing this engine could
+    // never answer about itself. Handled before the drop below because an
+    // ELEMENT message is neither an error nor a warning. Nothing here
+    // touches a Qt object: the peak is reduced to a double on this
+    // streaming thread and marshalled to the GUI thread like every other
+    // callback in this file.
+    if (type == GST_MESSAGE_ELEMENT && engine) {
+        const GstStructure *fields = gst_message_get_structure(message);
+        const gchar *srcName = GST_MESSAGE_SRC_NAME(message);
+        if (fields && srcName && g_strcmp0(srcName, "miclevel") == 0
+            && gst_structure_has_name(fields, "level")) {
+            double peak = -350.0;
+            if (const GValue *peaks = gst_structure_get_value(fields, "peak")) {
+                // `level` publishes one value per channel in a GValueArray.
+                // The API is deprecated and the element still uses it, so
+                // reading it is not optional; the loudest channel is the
+                // honest answer for "is anything arriving at all".
+                G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+                if (G_VALUE_HOLDS(peaks, G_TYPE_VALUE_ARRAY)) {
+                    auto *array =
+                        static_cast<GValueArray *>(g_value_get_boxed(peaks));
+                    for (guint i = 0; array && i < array->n_values; ++i) {
+                        const GValue *one = g_value_array_get_nth(array, i);
+                        if (one && G_VALUE_HOLDS_DOUBLE(one))
+                            peak = qMax(peak, g_value_get_double(one));
+                    }
+                }
+                G_GNUC_END_IGNORE_DEPRECATIONS
+            }
+            marshal(engine,
+                    [engine, peak] { engine->handleMicLevel(peak); });
+        }
+        gst_message_unref(message);
+        return GST_BUS_DROP;
+    }
     if (type != GST_MESSAGE_ERROR && type != GST_MESSAGE_WARNING) {
         gst_message_unref(message);
         return GST_BUS_DROP;
@@ -897,6 +989,43 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                 << "encrypted VP8 cannot be payloaded by rtpvp8pay: it parses"
                 << "the bitstream. Video send is not carried in an encrypted"
                 << "room until a non-parsing payloader lands.";
+        }
+
+        // THE OTHER HALF OF "I CANNOT HEAR ANYONE", and it had no name
+        // either. The receive chain ends in `autoaudiosink`, which picks a
+        // platform sink and opens whatever the system calls default — and
+        // when that device cannot take the stream the element posts an
+        // ordinary bus error, which this handler logged as one more
+        // `pipeline error` line among many. Observed 2026-09-16 as
+        // `autoaudiosink0-actual-sink-pulse ... code= 11 "The stream is in
+        // the wrong format."` — a USB interface whose active profile was
+        // surround 4.0 — and reported as a call with no sound in either
+        // direction.
+        //
+        // NARROW ON PURPOSE, twice over. The name is matched as a SUBSTRING
+        // because the element that fails is the sink `autoaudiosink` chose,
+        // several names deep inside it, and that name is generated rather
+        // than ours. And the error shape is pinned to negotiation and device
+        // opening, because a pipeline posts errors during ordinary teardown
+        // too (see the top of this function) and a loud line there would be
+        // a false alarm on every hang-up.
+        const bool audioSinkError =
+            element.contains(QLatin1String("audiosink")) && error
+            && ((error->domain == GST_STREAM_ERROR
+                 && error->code == GST_STREAM_ERROR_FORMAT)
+                || (error->domain == GST_CORE_ERROR
+                    && error->code == GST_CORE_ERROR_NEGOTIATION)
+                || (error->domain == GST_RESOURCE_ERROR
+                    && (error->code == GST_RESOURCE_ERROR_OPEN_WRITE
+                        || error->code
+                               == GST_RESOURCE_ERROR_OPEN_READ_WRITE)));
+        if (audioSinkError) {
+            qCWarning(lcSfuMedia)
+                << "THE PLAYBACK DEVICE REFUSED THE CALL'S AUDIO: nothing "
+                   "from this call can be heard until a working output is "
+                   "selected. A format error here usually means the chosen "
+                   "output sits on a profile — surround, or an IEC958 "
+                   "passthrough — that cannot take a plain stereo stream.";
         }
     } else if (error && error->domain == GST_RESOURCE_ERROR
                && (element.startsWith(QLatin1String("micsrc"))
@@ -2252,8 +2381,91 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                   "noise-suppression=true ! audioconvert ")
             : QString();
 
+    // MEASURE WHAT WE ARE ABOUT TO ENCODE.
+    //
+    // Placed after the gain stage and immediately before `opusenc`, so the
+    // number reported is the signal the far end actually receives — not what
+    // the device produced before the user's own gain and the DSP touched it.
+    //
+    // OPTIONAL, and absence must be free, exactly like `webrtcdsp` above:
+    // `level` lives in gst-plugins-good, a description naming an element the
+    // build does not carry fails to PARSE, and that would cost the whole
+    // microphone rather than one diagnostic. With the element missing the
+    // chain is byte-identical to the one that shipped before it.
+    //
+    // 200 ms reports: short enough that a single word registers as a peak,
+    // slow enough to be five messages a second on a bus that drops them
+    // after reducing each to one double.
+    static const bool levelAvailable = [] {
+        GstElementFactory *factory = gst_element_factory_find("level");
+        if (!factory)
+            return false;
+        gst_object_unref(factory);
+        return true;
+    }();
+    const QString levelStage =
+        levelAvailable
+            ? QStringLiteral("! level name=miclevel post-messages=true "
+                             "interval=200000000 ")
+            : QString();
+
+    // A MULTI-INPUT INTERFACE IS NOT A MICROPHONE, AND AVERAGING IT IS NOT A
+    // DOWNMIX. Measured on a Roland Rubix44: four capture channels, a
+    // microphone on input 1, inputs 2-4 empty, and asking for `channels=1`
+    // cost 12.04 dB — the mean of one real signal and three silences. See
+    // captureMixMatrix(). Both stages are empty for one- and two-channel
+    // devices, so the chain those build is byte-identical to today's.
+    //
+    // SCOPED TO THE ELEMENT IT WAS MEASURED ON, deliberately. The caps pin is
+    // a HARD constraint: a device whose real channel count or channel mask
+    // disagrees with what the monitor reported fails `not-negotiated`, and
+    // there is no republish-without-it path — so the failure mode is a dead
+    // microphone for the whole call, which is strictly worse than the 12 dB
+    // this fixes. `pipewiresrc` is the only element this was measured
+    // against, and whether `wasapisrc` or `osxaudiosrc` even publish
+    // `audio.channels` is an assumption, not a measurement. Widening this
+    // needs a device to measure and a negotiation fallback, not optimism.
+    const int captureChannels =
+        m_testDeviceChannels > 0
+            ? m_testDeviceChannels
+            : (micChoice.element == QLatin1String("pipewiresrc")
+                   ? micChoice.binding.channels
+                   : 0);
+    const QString channelCaps =
+        lightning::calls::captureChannelCaps(captureChannels);
+    const QString mixMatrix =
+        lightning::calls::captureMixMatrix(captureChannels);
+    if (!mixMatrix.isEmpty()) {
+        qCInfo(lcSfuMedia)
+            << "multi-input capture device: taking input 1 of"
+            << captureChannels
+            << "rather than their mean — averaging empty inputs would cost"
+            << qRound(20.0 * std::log10(1.0 / captureChannels)) << "dB";
+    }
+
     const QString description =
-        QStringLiteral("%1 ! queue ! audioconvert ! audioresample "
+        QStringLiteral("%1 %7 "
+                       // A DEFAULT `queue` HOLDS ONE SECOND, AND THAT IS
+                       // EXACTLY WHAT THE FAR END HEARD.
+                       //
+                       // `queue` defaults to max-size-time=1000000000
+                       // with leaky=no, so a live capture whose encoder
+                       // falls behind for a moment fills it and NEVER
+                       // drains: the backlog becomes permanent latency
+                       // for the rest of the call. Reported 2026-09-16
+                       // as ~1 s from Lightning to Element against ~0.2 s
+                       // the other way — the same SFU and the same
+                       // network in both directions, so the asymmetry
+                       // was ours.
+                       //
+                       // 100 ms and leaky=downstream: enough to absorb
+                       // scheduling jitter, and when it is not, OLD audio
+                       // is dropped rather than queued. For a
+                       // conversation a dropped moment is always better
+                       // than a second of delay on everything after it.
+                       "! queue max-size-buffers=0 max-size-bytes=0 "
+                       "max-size-time=100000000 leaky=downstream "
+                       "! audioconvert %8 ! audioresample "
                        // MONO, PINNED. Voice is mono — Opus's rtpmap says
                        // `/2` because RFC 7587 fixes that field, not because
                        // the stream is stereo — and leaving the channel
@@ -2291,6 +2503,7 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                        // rebuilt on renegotiation comes up at the user's
                        // level rather than at unity for a moment.
                        "! volume name=micvol volume=%4 "
+                       "%6 "
                        "! opusenc name=audioenc "
                        // ssrc=%3: see nextPublishSsrc(). Without an EXPLICIT
                        // ssrc the payloader has not chosen one when the offer
@@ -2329,7 +2542,13 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                  QString::number(
                      audioFactorPercent(m_microphoneGain.load()) / 100.0,
                      'f', 3),
-                 gainStage);
+                 gainStage, levelStage, channelCaps, mixMatrix);
+
+    qCInfo(lcSfuMedia) << "publishing microphone: valve drop="
+                       << m_microphoneMuted << "device-channels="
+                       << micChoice.binding.channels
+                       << "dsp=" << dspAvailable << "level=" << levelAvailable;
+    m_lastAudioDescription = description;
 
     GError *error = nullptr;
     GstElement *bin =
@@ -2354,6 +2573,7 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     }
     m_publishedBins.insert(cid, bin);
     applyBindingTo(bin, "micsrc", micChoice.binding);
+    resetMicLevelState();
     // Encrypt on the ENCODER's src pad — after encoding, before RTP
     // payloading. That is one whole encoded frame, which is the unit
     // LiveKit and Element Call encrypt.
@@ -2368,6 +2588,39 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     // checked rather than discarded. It used to be thrown away, and a failed
     // link produced an offer with no media section instead of an error.
     GstPad *srcPad = gst_element_get_static_pad(bin, "src");
+    if (srcPad) {
+        auto packets = std::make_shared<std::atomic<quint64>>(0);
+        auto *rtpCtx = new RtpOutCtx{packets, false};
+        gst_pad_add_probe(srcPad,
+                          GstPadProbeType(GST_PAD_PROBE_TYPE_BUFFER
+                                          | GST_PAD_PROBE_TYPE_BUFFER_LIST),
+                          countRtpOut, rtpCtx, rtpOutCtxFree);
+        // A CAPTURE THAT PRODUCES NOTHING MUST SAY SO. Negotiation can fail
+        // without posting anything to the bus — the source simply never
+        // pushes — and every other indicator stays green: the SFU accepts
+        // the declared track, the transport connects, the SDP carries the
+        // audio section, and the only symptom is that nobody can hear you.
+        // Three seconds is far longer than any capture needs to start.
+        QTimer::singleShot(3000, this, [this, packets] {
+            if (packets->load() > 0)
+                return;
+            // READ AT FIRE TIME. Unmuting inside the window would otherwise
+            // report a genuinely dead capture as "muted, working as intended".
+            if (m_microphoneMuted) {
+                qCInfo(lcSfuMedia)
+                    << "no RTP from the microphone after 3s — it is MUTED, "
+                       "which is the valve doing its job";
+                return;
+            }
+            qCWarning(lcSfuMedia)
+                << "THE MICROPHONE PRODUCED NO RTP AT ALL after 3s while "
+                   "UNMUTED: the capture chain never started, nothing was "
+                   "packetised and nobody can hear this device. The call "
+                   "will otherwise look completely healthy — the track is "
+                   "published, the transport is connected and the SDP "
+                   "carries audio.";
+        });
+    }
     GstPad *sinkPad = gst_element_request_pad_simple(m_publisher.webrtc,
                                                      "sink_%u");
     applyPublisherMsid(sinkPad, cid);
@@ -4686,6 +4939,16 @@ void SfuMediaEngine::applyRemoteCandidate(Target target,
 
 void SfuMediaEngine::setMicrophoneMuted(bool muted)
 {
+    // THE VALVE HAS NEVER BEEN LOGGED, and it is the one state that makes a
+    // completely healthy call carry nothing. drop=true discards buffers
+    // before the encoder, so the level meter sees nothing, no frame is
+    // encoded, no RTP is produced — and the SFU still accepts the track, the
+    // transport still connects and the SDP still carries the audio section,
+    // because none of those depend on a single sample flowing. A muted
+    // capture and a stalled one are the same silence in every log this
+    // client writes.
+    if (m_microphoneMuted != muted)
+        qCInfo(lcSfuMedia) << "microphone valve drop=" << muted;
     m_microphoneMuted = muted;
     if (!m_publisher.pipeline)
         return;
@@ -5847,6 +6110,111 @@ void SfuMediaEngine::handleCaptureEnded(const QString &cid)
                          screenShare
                              ? QStringLiteral("screen_share_source_closed")
                              : QStringLiteral("camera_source_closed"));
+}
+
+bool SfuMediaEngine::publishedBinHasElementForTest(
+    const QString &cid, const QString &elementName) const
+{
+    GstElement *bin = m_publishedBins.value(cid, nullptr);
+    if (!bin)
+        return false;
+    GstElement *found =
+        gst_bin_get_by_name(GST_BIN(bin), elementName.toUtf8().constData());
+    if (!found)
+        return false;
+    gst_object_unref(found);
+    return true;
+}
+
+qint64 SfuMediaEngine::micSilenceSince(double peakDb, qint64 silentSinceMs,
+                                       qint64 nowMs)
+{
+    if (peakDb > kMicSilenceCeilingDb)
+        return -1;
+    return silentSinceMs < 0 ? nowMs : silentSinceMs;
+}
+
+bool SfuMediaEngine::micSilenceReached(qint64 silentSinceMs, qint64 nowMs)
+{
+    if (silentSinceMs < 0)
+        return false;
+    return nowMs - silentSinceMs >= kMicSilenceWindowMs;
+}
+
+void SfuMediaEngine::resetMicLevelState()
+{
+    const bool wasAnnounced = m_micSilentAnnounced;
+    m_micSilentSinceMs = -1;
+    m_micSilentAnnounced = false;
+    m_micPeakDb = 0;
+    m_micLastLogMs = 0;
+    // A NEW CAPTURE STARTS UNJUDGED, and the UI has to be told so — the mark
+    // is cleared the same way remoteMediaBlocked clears, or a device that is
+    // replaced while the notice is up keeps it for the rest of the call.
+    if (wasAnnounced)
+        Q_EMIT localAudioSilent(false, 0);
+}
+
+void SfuMediaEngine::handleMicLevel(double peakDb)
+{
+    // MONOTONIC, NOT THE WALL CLOCK. These milliseconds are compared against
+    // each other to measure a DURATION, and an NTP step or a VM clock
+    // correction would either fire the silence warning spuriously or suppress
+    // it for ever (a backward jump makes `now - since` negative). This repo
+    // has a recorded case of a guest clock seven hours out.
+    static QElapsedTimer monotonic;
+    if (!monotonic.isValid())
+        monotonic.start();
+    handleMicLevelAt(peakDb, monotonic.elapsed());
+}
+
+void SfuMediaEngine::handleMicLevelAt(double peakDb, qint64 nowMs)
+{
+    m_micPeakDb = peakDb;
+
+    // MUTED IS SILENT BY REQUEST. The valve drops buffers before the encoder,
+    // so a muted microphone stops posting levels at all -- but a mute applied
+    // mid-window would otherwise leave a stale mark to age out into a false
+    // report the moment the user unmutes.
+    if (m_microphoneMuted) {
+        m_micSilentSinceMs = -1;
+        if (m_micSilentAnnounced) {
+            m_micSilentAnnounced = false;
+            Q_EMIT localAudioSilent(false, peakDb);
+        }
+        return;
+    }
+
+    // THE LEVEL IS LOGGED WHATEVER IT SAYS. "The microphone was live" is
+    // exactly as load-bearing an answer as "it was not", and neither was
+    // previously recoverable from a support log at any level of detail. A
+    // peak in dBFS is a scalar about the user's own device: not audio, not
+    // content, and nothing a room can see.
+    if (m_micLastLogMs == 0 || nowMs - m_micLastLogMs >= 5000) {
+        m_micLastLogMs = nowMs;
+        qCInfo(lcSfuMedia)
+            << "microphone level peak=" << qRound(peakDb) << "dBFS";
+    }
+
+    m_micSilentSinceMs = micSilenceSince(peakDb, m_micSilentSinceMs, nowMs);
+    const bool silent = micSilenceReached(m_micSilentSinceMs, nowMs);
+    if (silent == m_micSilentAnnounced)
+        return;
+    m_micSilentAnnounced = silent;
+    if (silent) {
+        qCWarning(lcSfuMedia)
+            << "THE MICROPHONE IS CAPTURING NOTHING: peak has stayed at or "
+               "below"
+            << kMicSilenceCeilingDb << "dBFS for"
+            << (kMicSilenceWindowMs / 1000)
+            << "s while unmuted — every frame published in that time carried "
+               "silence, and the far end cannot hear this device. Check the "
+               "microphone selected in call settings.";
+    } else {
+        qCInfo(lcSfuMedia) << "microphone is capturing again peak="
+                           << qRound(peakDb) << "dBFS";
+    }
+    Q_EMIT localAudioSilent(silent, peakDb);
 }
 
 void SfuMediaEngine::handlePublishError(const QString &cid)

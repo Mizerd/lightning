@@ -686,6 +686,34 @@ Rectangle {
                 }
             }
 
+            // THE PERSON WHO CANNOT BE HEARD IS THE ONLY ONE WHO CANNOT TELL.
+            //
+            // Sibling of the badge above and the opposite direction: that one
+            // says media from someone else is being dropped, this one says
+            // our own capture has published nothing audible. It exists
+            // because a call whose microphone is dead is indistinguishable,
+            // from every other indicator this UI has, from a call that is
+            // working — the transport connects, the padlock is green and the
+            // frame counters climb, because silence encodes and encrypts
+            // exactly like speech.
+            Loader {
+                objectName: "callHeaderMicSilentBadge"
+                active: app.groupCall.microphoneSilent
+                visible: active
+                sourceComponent: Icon {
+                    name: "warning"
+                    size: 14
+                    color: AppTheme.warning
+                    ToolTip.visible: micSilentHover.hovered
+                    ToolTip.delay: 400
+                    ToolTip.text: qsTr("Your microphone is not picking "
+                                       + "anything up, so nobody here can "
+                                       + "hear you. Check which microphone "
+                                       + "is selected in call settings.")
+                    HoverHandler { id: micSilentHover }
+                }
+            }
+
             // Collapsed, the panel is a one-line strip: who is here, who is
             // talking, and the controls. The bubble row lives ONLY here —
             // expanded, the stage itself already draws every participant, and

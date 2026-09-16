@@ -48,6 +48,95 @@ private Q_SLOTS:
     // SYSTEM DEFAULT STAYS SYSTEM DEFAULT. An empty preference must never be
     // pinned to whatever is default today, or unplugging a headset would
     // strand the user on a device they never chose.
+    // A MULTI-INPUT INTERFACE IS NOT A MICROPHONE.
+    //
+    // Measured on a Roland Rubix44, 2026-09-16, while the maintainer spoke:
+    // input 1 peaked -21 dBFS and inputs 2-4 sat at -86, -67 and -92, while
+    // the chain asking for `channels=1` produced -33 dBFS. That is
+    // 20*log10(1/4) = -12.04 dB, the mean of one voice and three silences,
+    // sent to Element as a perfectly encrypted whisper.
+    //
+    // FAIL-ON-OLD: return QString() unconditionally from captureMixMatrix()
+    // and the three matrix cases fail; from captureChannelCaps() and the
+    // caps case fails. Both measured.
+    void aFourInputInterfaceTakesItsFirstInputNotTheMeanOfFour()
+    {
+        using namespace lightning::calls;
+        QCOMPARE(captureMixMatrix(4),
+                 QStringLiteral("mix-matrix=\"<<(float)1.0,(float)0.0,"
+                                "(float)0.0,(float)0.0>>\""));
+        // Both halves are needed: the matrix alone leaves the source free to
+        // negotiate mono and average before we see a sample, and without the
+        // explicit UNPOSITIONED mask audioconvert refuses the graph outright
+        // with `not-negotiated`.
+        QCOMPARE(captureChannelCaps(4),
+                 QStringLiteral("! audio/x-raw,channels=4,"
+                                "channel-mask=(bitmask)0x0 "));
+    }
+
+    // STEREO IS A MICROPHONE AND MUST KEEP THE DOWNMIX IT HAS. The chain's
+    // own comment records a Windows mic exposed as stereo with signal in one
+    // channel only, where averaging costs 6 dB and being quiet in both ears
+    // beats being absent from one ear. Changing that is a regression, not a
+    // fix, so the boundary is asserted rather than described.
+    void oneAndTwoChannelDevicesAreMixedExactlyAsBefore()
+    {
+        using namespace lightning::calls;
+        for (const int channels : {0, 1, 2}) {
+            QVERIFY2(captureMixMatrix(channels).isEmpty(),
+                     qPrintable(QStringLiteral("channels=%1").arg(channels)));
+            QVERIFY2(captureChannelCaps(channels).isEmpty(),
+                     qPrintable(QStringLiteral("channels=%1").arg(channels)));
+        }
+    }
+
+    // A channel count is device-reported data, so it is bounded like every
+    // other value this file hands to g_object_set.
+    void anAbsurdChannelCountIsRefusedRatherThanBuiltInto()
+    {
+        using namespace lightning::calls;
+        QVERIFY(!captureMixMatrix(8).isEmpty());
+        QVERIFY(!captureMixMatrix(64).isEmpty());
+        QVERIFY(captureMixMatrix(65).isEmpty());
+        QVERIFY(captureMixMatrix(1000000).isEmpty());
+        QVERIFY(captureMixMatrix(-4).isEmpty());
+    }
+
+    // And the count has to SURVIVE resolution, or none of the above is ever
+    // reached: it is read off the monitor's own `audio.channels`.
+    void theBindingCarriesTheDevicesChannelCount()
+    {
+        GstDeviceCandidate rubix;
+        rubix.displayName = QStringLiteral("Rubix44 Analog Surround 4.0");
+        rubix.properties.insert(
+            QStringLiteral("node.name"),
+            QStringLiteral("alsa_input.usb-Roland_Rubix44-00.analog-surround-40"));
+        rubix.properties.insert(QStringLiteral("object.serial"),
+                                QStringLiteral("8732"));
+        rubix.properties.insert(QStringLiteral("audio.channels"),
+                                QStringLiteral("4"));
+        const DeviceBinding binding = resolveDeviceBinding(
+            CaptureKind::Microphone, QStringLiteral("pipewiresrc"),
+            QStringLiteral(
+                "alsa_input.usb-Roland_Rubix44-00.analog-surround-40"),
+            QStringLiteral("Rubix44 Analog Surround 4.0"), {rubix});
+        QCOMPARE(binding.value, QStringLiteral("8732"));
+        QCOMPARE(binding.reason, QStringLiteral("identity"));
+        QCOMPARE(binding.channels, 4);
+
+        // A device that does not publish the key says nothing, and nothing
+        // means "mix it the ordinary way" — never "assume one channel".
+        GstDeviceCandidate plain = rubix;
+        plain.properties.remove(QStringLiteral("audio.channels"));
+        QCOMPARE(resolveDeviceBinding(
+                     CaptureKind::Microphone, QStringLiteral("pipewiresrc"),
+                     QStringLiteral("alsa_input.usb-Roland_Rubix44-00."
+                                    "analog-surround-40"),
+                     QStringLiteral("Rubix44 Analog Surround 4.0"), {plain})
+                     .channels,
+                 0);
+    }
+
     void anEmptyPreferenceBindsNothing()
     {
         const auto candidates = QList<GstDeviceCandidate>{

@@ -487,6 +487,13 @@ public:
         return m_publishedBins.contains(cid);
     }
 
+    /// Test-only: does the bin published under `cid` really contain an
+    /// element named `elementName`? Defined in the .cpp because it calls into
+    /// GStreamer, which an inline accessor would make every including target
+    /// link against (see the QPointer lesson in CLAUDE.md §16).
+    bool publishedBinHasElementForTest(const QString &cid,
+                                       const QString &elementName) const;
+
     /// Test-only: how many of this engine's pipeline buses are holding
     /// messages nobody has read.
     ///
@@ -714,6 +721,26 @@ Q_SIGNALS:
     /// Never a key, a session id or any frame content.
     void remoteMediaBlocked(const QString &streamId, const QString &reason);
 
+    /// OUR OWN MICROPHONE IS DELIVERING NOTHING A LISTENER COULD HEAR.
+    ///
+    /// Every counter in this engine treats silence exactly like speech.
+    /// `opusenc` encodes a silent buffer into a real frame, the encrypt probe
+    /// authenticates it, the payloader packetises it and the far end decrypts
+    /// it — so a call that captures a dead device reports `frames encrypted
+    /// ... count= 500 dropped= 0`, a green padlock, and a connected
+    /// transport, while nobody can hear a word.
+    ///
+    /// That is not hypothetical. On 2026-09-16 a call was reported as
+    /// inaudible in one direction and the whole crypto path was searched for
+    /// it; the capture was bound to a USB audio interface whose line inputs
+    /// had no microphone on them, and the log had said nothing because there
+    /// was nothing in it that could. This signal exists so that question is
+    /// answered by the first line of the next support log instead.
+    ///
+    /// `peakDb` is the capture's peak level in dBFS — a scalar about the
+    /// user's own device, never audio and never content.
+    void localAudioSilent(bool silent, double peakDb);
+
 private:
     struct Peer {
         GstElement *pipeline = nullptr;
@@ -814,6 +841,52 @@ public Q_SLOTS:
     ///     many errors and the user needs one message.
     void handlePublishError(const QString &cid);
 
+    /// A `level` report from the capture chain, already reduced to one peak.
+    /// Runs on the GUI thread; onBusMessage marshals it.
+    void handleMicLevel(double peakDb);
+    /// The same, with the clock supplied — the whole of the time-dependent
+    /// behaviour, so a test needs no wall clock and no sleep.
+    void handleMicLevelAt(double peakDb, qint64 nowMs);
+    /// Forget any silence a previous capture was in. Called when the audio
+    /// bin is built, so a device change starts its own judgement.
+    void resetMicLevelState();
+    bool microphoneSilentForTest() const { return m_micSilentAnnounced; }
+    double micPeakDbForTest() const { return m_micPeakDb; }
+    /// Test-only: pretend the capture device reports this many channels, so a
+    /// test can drive the REAL multi-input description through
+    /// `gst_parse_bin_from_description` instead of asserting a string in
+    /// isolation. Without this nothing proves the mix-matrix serialization
+    /// parses at all — and if it does not, `publishAudio` fails outright and
+    /// the user has no microphone, which is worse than the 12 dB it fixes.
+    void setDeviceChannelsForTest(int channels) { m_testDeviceChannels = channels; }
+    /// The audio description publishAudio() last handed GStreamer. Element
+    /// names, an ssrc and a gain — no user content. Recorded because three
+    /// defects in this repository came from a test composing something that
+    /// RESEMBLED what production composes (CLAUDE.md §16), and the capture
+    /// chain is now assembled from four optional stages.
+    QString lastAudioDescriptionForTest() const { return m_lastAudioDescription; }
+
+public:
+    /// Peak level, in dBFS, at or below which a capture carries nothing a
+    /// listener could hear. Speech peaks around -20 dBFS and even a whisper
+    /// into a badly gained microphone peaks well above this over a window
+    /// this long; `level` reports true digital silence as -350.
+    static constexpr double kMicSilenceCeilingDb = -60.0;
+    /// How long the ceiling must hold before it is reported. Long enough
+    /// that a pause in the conversation is not a diagnosis.
+    static constexpr qint64 kMicSilenceWindowMs = 10000;
+
+    /// PURE. Carry the "silent since" mark forward across one report.
+    /// -1 means the last report was audible. Returns the new mark.
+    ///
+    /// The sentinel is -1 and not 0 deliberately: 0 is a legal instant, and
+    /// a sentinel that collides with a legal value of the thing it guards is
+    /// the shape of bug this whole change exists to catch.
+    static qint64 micSilenceSince(double peakDb, qint64 silentSinceMs,
+                                  qint64 nowMs);
+    /// PURE. Has a mark aged past the window?
+    static bool micSilenceReached(qint64 silentSinceMs, qint64 nowMs);
+
 private:
     bool tokenIsLive(quintptr token, quint64 generation,
                      Target *target = nullptr) const;
@@ -850,6 +923,19 @@ private:
     /// and marshalling first would let it be briefly audible.
     std::atomic<bool> m_outputMuted{false};
     bool m_microphoneMuted = false;
+    /// When the capture first fell to or below kMicSilenceCeilingDb, or -1
+    /// while it is audible. Judged only while the microphone is unmuted:
+    /// muting closes the valve, so a muted capture is silent BY REQUEST and
+    /// reporting it would be noise. -1 while audible; see micSilenceSince().
+    qint64 m_micSilentSinceMs = -1;
+    bool m_micSilentAnnounced = false;
+    /// Last peak, and when it was last written to the log. The level is
+    /// logged on a slow cadence whatever it says, because "the microphone
+    /// was live" is exactly as load-bearing an answer as "it was not".
+    double m_micPeakDb = 0;
+    qint64 m_micLastLogMs = 0;
+    QString m_lastAudioDescription;
+    int m_testDeviceChannels = 0;
     /// Own microphone gain as a PERCENTAGE, 0..200. Atomic because the send
     /// chain is built on the GStreamer streaming thread on renegotiation and
     /// must come up already at the user's level — the same reason

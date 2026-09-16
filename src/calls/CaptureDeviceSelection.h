@@ -72,9 +72,58 @@ struct DeviceBinding {
     /// How it was resolved -- "identity", "display-name" or "shape". Logged,
     /// so a support report says WHY a device was chosen.
     QString reason;
+    /// How many channels the device CAPTURES, from the monitor's own
+    /// `audio.channels`; 0 when it did not say.
+    ///
+    /// Carried because a multi-input audio interface cannot be downmixed the
+    /// way a microphone can. See captureMixMatrix().
+    int channels = 0;
 
     bool isEmpty() const { return property.isEmpty(); }
 };
+
+/// The `audioconvert` mix-matrix that takes a multi-input capture device's
+/// FIRST input, or an empty string when the device should be mixed normally.
+///
+/// WHY THIS EXISTS, measured on the maintainer's Roland Rubix44 on
+/// 2026-09-16. The device captures FOUR channels and publishes no
+/// channel-mask, and a microphone plugged into its input 1 leaves inputs
+/// 2-4 empty. Asking the chain for `channels=1` makes the downmix AVERAGE
+/// all four, so three quarters of the signal is silence:
+///
+///     input 1 (his voice)   -21 dBFS
+///     inputs 2, 3, 4        -86, -67, -92 dBFS
+///     what Lightning sent   -33 dBFS      <- 20*log10(1/4) = -12.04 dB
+///
+/// Twelve decibels below what the device offered, sent to a call as a
+/// perfectly encrypted whisper, and reported as "I cannot hear anything from
+/// Lightning in Element" while the same device worked in Element -- which
+/// takes the input that has the audio rather than the mean of four.
+///
+/// STEREO IS DELIBERATELY UNTOUCHED. A two-channel MICROPHONE is a
+/// microphone, and averaging it is right: SfuMediaEngine's chain comment
+/// records a Windows mic exposed as stereo with signal only in the left
+/// channel, where averaging costs 6 dB and being quiet in both ears beats
+/// being absent from one. Three or more channels is not a microphone, it is
+/// an interface, and the mean of its inputs is not a signal.
+///
+/// KNOWN LIMIT: the first input is a convention, not a discovery. A
+/// microphone on input 3 of such a device still yields silence -- but the
+/// capture level is logged every 5 s and sustained silence is reported, so
+/// that case now says so instead of hiding.
+QString captureMixMatrix(int channels);
+
+/// The caps a multi-input device must be pinned to for that matrix to
+/// negotiate: its own channel count, explicitly UNPOSITIONED.
+///
+/// Both halves are load-bearing. Without the channel count the chain settles
+/// on mono AT THE SOURCE -- measured: every element from `pipewiresrc`
+/// onwards negotiated `channels=1`, so PipeWire performed the averaging
+/// before a sample ever reached us and no downstream matrix could undo it.
+/// Without `channel-mask=0` the graph fails outright with `not-negotiated`,
+/// because `audioconvert` will not handle more than two channels whose
+/// positions nothing has declared.
+QString captureChannelCaps(int channels);
 
 /// The property binding for `element`, or an empty binding meaning "leave the
 /// element alone and let the platform choose".

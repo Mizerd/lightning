@@ -238,6 +238,216 @@ private slots:
         QCOMPARE(SfuMediaEngine::statsTraceIntervalMs(QStringLiteral("9999")), 600000);
     }
 
+    // A CALL THAT CAPTURES A DEAD DEVICE LOOKS EXACTLY LIKE A HEALTHY ONE.
+    //
+    // 2026-09-16: one direction of a call was inaudible and the entire
+    // crypto path was searched for it — key indices, target devices, Olm
+    // identities, RED wrapping, room power levels. The capture was bound to a
+    // USB interface whose line inputs had no microphone on them, and every
+    // indicator this engine has said the call was fine, because `opusenc`
+    // turns a silent buffer into a real frame and the encrypt probe counts it
+    // like any other. `frames encrypted ... count= 500 dropped= 0` is what a
+    // whole call of silence looks like.
+    //
+    // FAIL-ON-OLD: delete `handleMicLevelAt`'s body down to a bare
+    // `m_micPeakDb = peakDb;` and the three signal cases below fail
+    // (0 emissions against 1); revert the `%6` level stage out of the audio
+    // description and `theCaptureChainMeasuresItsOwnLevel` fails on a chain
+    // with no `miclevel` in it. Both measured.
+    void aSustainedlySilentCaptureIsReported()
+    {
+        SfuMediaEngine engine;
+        QSignalSpy spy(&engine, &SfuMediaEngine::localAudioSilent);
+        QVERIFY(spy.isValid());
+
+        // Digital silence, reported every 200 ms as the element does.
+        for (qint64 t = 0; t < SfuMediaEngine::kMicSilenceWindowMs; t += 200)
+            engine.handleMicLevelAt(-350.0, t);
+        QCOMPARE(spy.count(), 0);
+        QVERIFY(!engine.microphoneSilentForTest());
+
+        // The window closes exactly on the boundary, not a report later.
+        engine.handleMicLevelAt(-350.0, SfuMediaEngine::kMicSilenceWindowMs);
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.takeFirst().at(0).toBool(), true);
+        QVERIFY(engine.microphoneSilentForTest());
+    }
+
+    // The pause between two sentences is not a broken microphone.
+    void aQuietMomentIsNotASilentMicrophone()
+    {
+        SfuMediaEngine engine;
+        QSignalSpy spy(&engine, &SfuMediaEngine::localAudioSilent);
+        for (qint64 t = 0; t < SfuMediaEngine::kMicSilenceWindowMs * 3;
+             t += 200) {
+            // Nothing for most of the window, then one word.
+            const bool speaks = (t / 200) % 40 == 0;
+            engine.handleMicLevelAt(speaks ? -18.0 : -350.0, t);
+        }
+        QCOMPARE(spy.count(), 0);
+        QVERIFY(!engine.microphoneSilentForTest());
+    }
+
+    // And it clears itself, or a device that comes back keeps a warning for
+    // the rest of the call — the failure remoteMediaBlocked was fixed for.
+    void aMicrophoneThatComesBackClearsTheNotice()
+    {
+        SfuMediaEngine engine;
+        QSignalSpy spy(&engine, &SfuMediaEngine::localAudioSilent);
+        for (qint64 t = 0; t <= SfuMediaEngine::kMicSilenceWindowMs; t += 200)
+            engine.handleMicLevelAt(-350.0, t);
+        QCOMPARE(spy.count(), 1);
+        engine.handleMicLevelAt(-12.0,
+                                SfuMediaEngine::kMicSilenceWindowMs + 200);
+        QCOMPARE(spy.count(), 2);
+        QCOMPARE(spy.takeLast().at(0).toBool(), false);
+        QVERIFY(!engine.microphoneSilentForTest());
+    }
+
+    // MUTE IS SILENCE BY REQUEST. Judging it would put a warning on the one
+    // state where silence is the correct outcome.
+    void aMutedMicrophoneIsNeverReportedAsSilent()
+    {
+        SfuMediaEngine engine;
+        engine.setMicrophoneMuted(true);
+        QSignalSpy spy(&engine, &SfuMediaEngine::localAudioSilent);
+        for (qint64 t = 0; t < SfuMediaEngine::kMicSilenceWindowMs * 2;
+             t += 200) {
+            engine.handleMicLevelAt(-350.0, t);
+        }
+        QCOMPARE(spy.count(), 0);
+        QVERIFY(!engine.microphoneSilentForTest());
+    }
+
+    // The threshold, stated as a boundary rather than as a number in prose.
+    void theSilenceCeilingIsAPeakNoSpeechStaysUnder()
+    {
+        // -60 dBFS is below any speech peak and above a real room's noise
+        // floor; `level` reports true digital silence as -350.
+        QCOMPARE(SfuMediaEngine::micSilenceSince(-59.0, -1, 1000), qint64(-1));
+        QCOMPARE(SfuMediaEngine::micSilenceSince(-61.0, -1, 1000), qint64(1000));
+        // The mark is CARRIED, not restamped, or the window could never close.
+        QCOMPARE(SfuMediaEngine::micSilenceSince(-61.0, 1000, 5000),
+                 qint64(1000));
+        // And one audible report clears it outright.
+        QCOMPARE(SfuMediaEngine::micSilenceSince(-20.0, 1000, 5000),
+                 qint64(-1));
+        // t=0 IS A LEGAL INSTANT. With 0 as the "audible" sentinel the first
+        // report of a silent capture erased its own mark and the window
+        // started one report late -- which is exactly how this was caught.
+        QCOMPARE(SfuMediaEngine::micSilenceSince(-350.0, -1, 0), qint64(0));
+        QVERIFY(SfuMediaEngine::micSilenceReached(
+            0, SfuMediaEngine::kMicSilenceWindowMs));
+        QVERIFY(!SfuMediaEngine::micSilenceReached(-1, 999999));
+        QVERIFY(!SfuMediaEngine::micSilenceReached(
+            1000, 1000 + SfuMediaEngine::kMicSilenceWindowMs - 1));
+        QVERIFY(SfuMediaEngine::micSilenceReached(
+            1000, 1000 + SfuMediaEngine::kMicSilenceWindowMs));
+    }
+
+    // AND THE MEASUREMENT HAS TO BE IN THE CHAIN PRODUCTION BUILDS, not in
+    // one the test composed to resemble it. Three defects in this repository
+    // came from a test that assembled its own pipeline string; this asks the
+    // engine for the bin it really published and looks inside it.
+    void theCaptureChainMeasuresItsOwnLevel()
+    {
+        GstElementFactory *factory = gst_element_factory_find("level");
+        if (!factory)
+            QSKIP("gst-plugins-good's `level` is absent from this build");
+        gst_object_unref(factory);
+
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy failed(&engine, &SfuMediaEngine::failed);
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-audio"));
+        QCOMPARE(failed.count(), 0);
+        QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-audio")));
+        QVERIFY(engine.publishedBinHasElementForTest(
+            QStringLiteral("cid-audio"), QStringLiteral("miclevel")));
+        // The encoder is still downstream of it: the level reported is what
+        // the far end receives, not what the device produced before gain.
+        QVERIFY(engine.publishedBinHasElementForTest(
+            QStringLiteral("cid-audio"), QStringLiteral("audioenc")));
+        engine.stop();
+    }
+
+    // AND THE STAGES REACH THE CHAIN PRODUCTION ACTUALLY BUILDS.
+    //
+    // captureMixMatrix() being right proves nothing about publishAudio()
+    // using it — the exact gap that shipped a per-application share which
+    // had never parsed (CLAUDE.md §16). This asserts the string the engine
+    // handed GStreamer, and that GStreamer accepted it.
+    //
+    // FAIL-ON-OLD: drop `%7`/`%8` from the description and both halves fail.
+    void theCaptureChainKeepsItsOrdinaryShapeForAnOrdinaryMicrophone()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        QSignalSpy failed(&engine, &SfuMediaEngine::failed);
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-audio"));
+        QCOMPARE(failed.count(), 0);
+        const QString built = engine.lastAudioDescriptionForTest();
+        QVERIFY(!built.isEmpty());
+        // No device, so no multi-input stages: byte-for-byte the chain that
+        // shipped before this existed.
+        QVERIFY2(!built.contains(QStringLiteral("mix-matrix")),
+                 qPrintable(built.left(200)));
+        QVERIFY2(!built.contains(QStringLiteral("channel-mask")),
+                 qPrintable(built.left(200)));
+        QVERIFY(built.contains(QStringLiteral("audio/x-raw,channels=1")));
+        // AND THE CAPTURE QUEUE IS BOUNDED. A default `queue` holds one
+        // second and never leaks it, which is precisely the delay the far
+        // end reported. FAIL-ON-OLD: drop the properties and this fails.
+        QVERIFY2(built.contains(QStringLiteral("leaky=downstream")),
+                 qPrintable(built.left(300)));
+        QVERIFY2(built.contains(QStringLiteral("max-size-time=100000000")),
+                 qPrintable(built.left(300)));
+        engine.stop();
+    }
+
+    // THE MULTI-INPUT CHAIN IS HANDED TO GSTREAMER FOR REAL.
+    //
+    // captureMixMatrix() returning the right string proves nothing about
+    // whether GStreamer ACCEPTS it: the property spelling, the `(float)`
+    // serialization and the nested `<<…>>` array syntax are all things a
+    // string comparison cannot check. If any of them is wrong,
+    // `gst_parse_bin_from_description` fails and publishAudio emits
+    // `audio_source_failed` — no microphone at all, for exactly the users
+    // this targets. That is the recorded publishShareAudio shape (CLAUDE.md
+    // §16): a test that composes something RESEMBLING what production
+    // composes proves nothing.
+    //
+    // FAIL-ON-OLD: corrupt the matrix (drop a `(float)` cast, or use `[..]`
+    // for the array) and this fails at the parse, where the string-equality
+    // tests still pass.
+    void theMultiInputChainParsesAndRuns()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setDeviceChannelsForTest(4);
+        QSignalSpy failed(&engine, &SfuMediaEngine::failed);
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-audio"));
+
+        const QString built = engine.lastAudioDescriptionForTest();
+        QVERIFY2(built.contains(QStringLiteral("mix-matrix")),
+                 qPrintable(built.left(200)));
+        QVERIFY2(built.contains(
+                     QStringLiteral("channels=4,channel-mask=(bitmask)0x0")),
+                 qPrintable(built.left(200)));
+        // The parse is the assertion: a bad matrix never gets this far.
+        QVERIFY2(failed.count() == 0,
+                 failed.isEmpty()
+                     ? "no failure"
+                     : qPrintable(failed.first().at(0).toString()));
+        QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-audio")));
+        QVERIFY(engine.publishedBinHasElementForTest(
+            QStringLiteral("cid-audio"), QStringLiteral("audioenc")));
+        engine.stop();
+    }
+
     void startingAndStoppingIsClean()
     {
         SfuMediaEngine engine;
@@ -1032,6 +1242,32 @@ private slots:
                            .arg(receiver.framesDropped())
                            .arg(failure)),
             30000);
+
+        // AND THE CAPTURE'S OWN LEVEL REACHED THE ENGINE.
+        //
+        // Asserted HERE and not in a pipeline of its own, because a publisher
+        // with no connected peer stalls after its first buffer: webrtcbin
+        // has nowhere to put the data, the queue upstream fills, and `level`
+        // never completes one 200 ms interval, so it posts nothing. A
+        // standalone version of this test therefore failed on correct code.
+        // This is the only harness in the file where media actually moves,
+        // which makes it the only place the claim can be made honestly.
+        //
+        // FAIL-ON-OLD: drop the GST_MESSAGE_ELEMENT branch from onBusMessage
+        // and the peak stays at its initial 0 — measured.
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            sender.micPeakDbForTest() < 0.0,
+            qPrintable(QStringLiteral("no level report reached the engine; "
+                                      "encrypted=%1")
+                           .arg(sender.framesEncrypted())),
+            30000);
+        // Test-source mode publishes a 0.05 sine, about -26 dBFS: audible,
+        // and nowhere near the ceiling a dead device sits under.
+        QVERIFY2(sender.micPeakDbForTest()
+                     > SfuMediaEngine::kMicSilenceCeilingDb,
+                 qPrintable(QStringLiteral("a 0.05 sine measured %1 dBFS")
+                                .arg(sender.micPeakDbForTest())));
+        QVERIFY(!sender.microphoneSilentForTest());
 
         // THE RECEIVE BIN IS REGISTERED, which is what makes retiring it
         // possible at all. Nothing tracked these before: a bin stayed in the

@@ -404,7 +404,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+890"/>
+        <location filename="../src/app/AppController.cpp" line="+891"/>
         <source>Room invitation</source>
         <translation>دعوة إلى غرفة</translation>
     </message>
@@ -454,7 +454,7 @@
         <translation>فاتتك مكالمة صوتية في %1</translation>
     </message>
     <message>
-        <location line="+331"/>
+        <location line="+334"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>أُنشئت الغرفة، لكن تعذّرت إضافتها إلى الفضاء.</translation>
     </message>
@@ -551,24 +551,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1989"/>
+        <location line="+2038"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>تعذّر على Lightning قراءة الملف المحدد.</translation>
     </message>
     <message>
-        <location line="-1995"/>
+        <location line="-2044"/>
         <source>A room-key import is already in progress.</source>
         <translation>هناك استيراد لمفاتيح الغرف قيد التنفيذ بالفعل.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2716"/>
+        <location line="+2765"/>
         <source>Not signed in.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-2714"/>
+        <location line="-2763"/>
         <source>Room-key import failed.</source>
         <translation>فشل استيراد مفاتيح الغرف.</translation>
     </message>
@@ -583,7 +583,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+483"/>
+        <location line="+508"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>تحتاج مكالمات الفيديو إلى خدمة MatrixRTC، وهي غير متوفرة هنا بعد.</translation>
     </message>
@@ -608,7 +608,7 @@
         <translation>الاتصال غير متاح هنا.</translation>
     </message>
     <message>
-        <location line="+173"/>
+        <location line="+197"/>
         <source>Modern room list</source>
         <translation>قائمة غرف حديثة</translation>
     </message>
@@ -1712,7 +1712,12 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+150"/>
+        <location line="+25"/>
+        <source>Your microphone is not picking anything up, so nobody here can hear you. Check which microphone is selected in call settings.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+153"/>
         <source>Show screen shares (%1)</source>
         <translation>إظهار مشاركات الشاشة (%1)</translation>
     </message>
@@ -5889,7 +5894,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+865"/>
+        <location filename="../qml/MessageDelegate.qml" line="+913"/>
         <source>Today</source>
         <translation>اليوم</translation>
     </message>
@@ -5915,7 +5920,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+59"/>
-        <location line="+257"/>
+        <location line="+286"/>
         <source>Sent at %1</source>
         <translation>أُرسلت في %1</translation>
     </message>
@@ -5936,13 +5941,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+117"/>
-        <location line="+1150"/>
+        <location line="+1152"/>
         <location line="+1016"/>
         <source>Reply</source>
         <translation>رد</translation>
     </message>
     <message>
-        <location line="-2146"/>
+        <location line="-2148"/>
         <source>(original message not loaded)</source>
         <translation>(الرسالة الأصلية غير محمّلة)</translation>
     </message>
@@ -6046,23 +6051,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+18"/>
-        <location line="+2382"/>
+        <location line="+2384"/>
         <source>Retry</source>
         <translation>إعادة المحاولة</translation>
     </message>
     <message>
-        <location line="-2345"/>
-        <location line="+1157"/>
+        <location line="-2347"/>
+        <location line="+1159"/>
         <source>Cancel</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-1152"/>
+        <location line="-1154"/>
         <source>Cancel sending this message</source>
         <translation>إلغاء إرسال هذه الرسالة</translation>
     </message>
     <message>
-        <location line="+251"/>
+        <location line="+253"/>
         <location line="+1312"/>
         <source>Hide image</source>
         <translation>إخفاء الصورة</translation>
@@ -6382,12 +6387,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>هدف الرد</translation>
     </message>
     <message>
-        <location line="-2039"/>
+        <location line="-2041"/>
         <source>Show preview</source>
         <translation>إظهار المعاينة</translation>
     </message>
     <message>
-        <location line="+1849"/>
+        <location line="+1851"/>
         <source>Remove edits?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6694,7 +6699,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ملف</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+84"/>
         <source>Older message #%1 (page %2)</source>
         <translation>رسالة أقدم رقم %1 (صفحة %2)</translation>
     </message>
@@ -7204,7 +7209,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>PaginationController</name>
     <message>
-        <location filename="../src/models/PaginationController.h" line="+116"/>
+        <location filename="../src/models/PaginationController.h" line="+138"/>
         <source>Original message is unavailable.</source>
         <translation>الرسالة الأصلية غير متاحة.</translation>
     </message>
@@ -9401,7 +9406,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+347"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+370"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>تعذّر على Lightning إنشاء مجلد التخزين المحلي لهذا الحساب. تحقّق من أذونات نظام الملفات والمساحة الحرة.</translation>
     </message>
@@ -9494,12 +9499,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+62"/>
-        <location line="+2228"/>
+        <location line="+2253"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>تعذّر على Lightning إعادة ضبط الجلسة المحلية لهذا الحساب بالكامل. تحقّق من سجلات التطبيق وأذونات نظام الملفات ثم أعد المحاولة.</translation>
     </message>
     <message>
-        <location line="-2244"/>
+        <location line="-2269"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>أُعيد بناء جلسة Lightning المحلية. نُحّي مخزن التعمية السابق جانبًا ولم يُحذف، وما زال في مجلد بيانات هذا الحساب. يمكنك تسجيل الدخول مجددًا.</translation>
     </message>
@@ -9512,7 +9517,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+223"/>
         <location line="+64"/>
         <location line="+157"/>
-        <location line="+3568"/>
+        <location line="+3690"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+51"/>
@@ -9521,15 +9526,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-3979"/>
+        <location line="-4101"/>
         <location line="+64"/>
         <location line="+157"/>
-        <location line="+3764"/>
+        <location line="+3886"/>
         <source>Unknown room: %1</source>
         <translation>غرفة غير معروفة: %1</translation>
     </message>
     <message>
-        <location line="-3981"/>
+        <location line="-4103"/>
         <location line="+64"/>
         <location line="+157"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -9537,13 +9542,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+548"/>
-        <location line="+1925"/>
+        <location line="+1974"/>
         <location line="+63"/>
         <source>The sticker could not be sent.</source>
         <translation>لا يمكن إرسال الملصق.</translation>
     </message>
     <message>
-        <location line="-975"/>
+        <location line="-999"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9568,7 +9573,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>فشل تسجيل الدخول عبر Rust SDK.</translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="+137"/>
         <source>Matrix session is no longer authorized.</source>
         <translation>لم تعد جلسة Matrix مصرّحًا بها.</translation>
     </message>
@@ -9578,7 +9583,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>فشل إجراء الدعوة. أعد المحاولة.</translation>
     </message>
     <message>
-        <location line="+282"/>
+        <location line="+284"/>
         <location line="+26"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
@@ -9660,12 +9665,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>فاض طابور أحداث Rust SDK.</translation>
     </message>
     <message>
-        <location line="+250"/>
+        <location line="+258"/>
         <source>[unable to decrypt yet]</source>
         <translation>[تعذّر فك التعمية بعد]</translation>
     </message>
     <message>
-        <location line="+476"/>
+        <location line="+541"/>
         <source>Rust SDK send failed.</source>
         <translation>فشل الإرسال عبر Rust SDK.</translation>
     </message>
@@ -13315,7 +13320,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+553"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+592"/>
         <location line="+161"/>
         <location line="+134"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -13369,12 +13374,12 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+545"/>
+        <location line="+575"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>الاتصال غير متاح على هذا الخادم المنزلي.</translation>
     </message>
     <message>
-        <location line="-522"/>
+        <location line="-552"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>محاولات كثيرة جدًا. حاول مرة أخرى بعد قليل.</translation>
     </message>
@@ -13450,12 +13455,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+13"/>
-        <location line="+430"/>
+        <location line="+460"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>تعذر الاتصال بالمكالمة.</translation>
     </message>
     <message>
-        <location line="-428"/>
+        <location line="-458"/>
         <source>The calling service is having trouble.</source>
         <translation>تواجه خدمة الاتصال مشكلة.</translation>
     </message>
@@ -13543,12 +13548,12 @@ Note: importing keys does not verify this session.</source>
         <translation>هذه الغرفة مشفرة، والمكالمات المشفرة غير متاحة بعد في هذا الإصدار.</translation>
     </message>
     <message>
-        <location line="+178"/>
+        <location line="+194"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>تعذر الإعلان عنك في المكالمة.</translation>
     </message>
     <message>
-        <location line="+245"/>
+        <location line="+259"/>
         <source>The call ended because the connection was lost.</source>
         <translation>انتهت المكالمة بسبب فقدان الاتصال.</translation>
     </message>
@@ -14101,7 +14106,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceManager</name>
     <message>
-        <location filename="../src/spaces/SpaceManager.cpp" line="+242"/>
+        <location filename="../src/spaces/SpaceManager.cpp" line="+249"/>
         <source>All rooms</source>
         <translation>كل الغرف</translation>
     </message>
@@ -16054,12 +16059,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+6164"/>
+        <location line="+6285"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location line="-6163"/>
+        <location line="-6284"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
@@ -16114,12 +16119,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <location line="+1"/>
-        <location line="+4756"/>
+        <location line="+4877"/>
         <source>Room information</source>
         <translation>معلومات الغرفة</translation>
     </message>
     <message>
-        <location line="-4535"/>
+        <location line="-4656"/>
         <source>This room has been upgraded.</source>
         <translation>تمت ترقية هذه الغرفة.</translation>
     </message>
@@ -16164,7 +16169,7 @@ Note: importing keys does not verify this session.</source>
         <translation>السجل</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+52"/>
         <source>Jump to date</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16229,7 +16234,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+13"/>
         <source>Nothing is indexed yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16294,7 +16299,7 @@ Note: importing keys does not verify this session.</source>
         <translation>تعذّر إتمام البحث.</translation>
     </message>
     <message>
-        <location line="+3808"/>
+        <location line="+3908"/>
         <source>Loading older messages…</source>
         <translation>جارٍ تحميل رسائل أقدم…</translation>
     </message>
@@ -17838,7 +17843,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2252"/>
+        <location filename="../src/main.cpp" line="+2426"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>عميل Matrix أصلي بـ Qt/QML. الخلفية: --backend={mock,http,rust}. الافتراضي: rust (http في النسخ الخالية من Rust SDK).</translation>
     </message>

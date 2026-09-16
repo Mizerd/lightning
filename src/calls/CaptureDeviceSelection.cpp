@@ -85,10 +85,48 @@ DeviceBinding bindingFrom(const ElementProfile &profile,
         candidate.properties.value(QString::fromLatin1(profile.valueKey));
     if (!valueIsSane(value))
         return {};
-    return DeviceBinding{QString::fromLatin1(profile.property), value, reason};
+    // `audio.channels` is what the monitor says the DEVICE captures, not
+    // what the pipeline will ask for. A device that does not publish it
+    // leaves 0, which every caller reads as "mix it the ordinary way".
+    bool ok = false;
+    const int channels =
+        candidate.properties.value(QStringLiteral("audio.channels")).toInt(&ok);
+    return DeviceBinding{QString::fromLatin1(profile.property), value, reason,
+                         (ok && channels > 0 && channels <= 64) ? channels : 0};
 }
 
 } // namespace
+
+QString captureMixMatrix(int channels)
+{
+    // Two channels or fewer is a microphone; the existing downmix is right
+    // for it and is not touched. See the header for the measurement.
+    if (channels <= 2 || channels > 64)
+        return QString();
+    QStringList row;
+    row.reserve(channels);
+    // Unity on the first input, silence on the rest: one output row, one
+    // coefficient per input. Written with an explicit `(float)` per entry
+    // because gst_parse infers int from a bare 1, and an int matrix is not
+    // the property's type.
+    row << QStringLiteral("(float)1.0");
+    for (int i = 1; i < channels; ++i)
+        row << QStringLiteral("(float)0.0");
+    return QStringLiteral("mix-matrix=\"<<%1>>\"")
+        .arg(row.join(QStringLiteral(",")));
+}
+
+QString captureChannelCaps(int channels)
+{
+    if (channels <= 2 || channels > 64)
+        return QString();
+    // channel-mask=0 says UNPOSITIONED explicitly. These devices publish no
+    // mask at all, and audioconvert refuses more than two channels whose
+    // positions it cannot name.
+    return QStringLiteral(
+               "! audio/x-raw,channels=%1,channel-mask=(bitmask)0x0 ")
+        .arg(channels);
+}
 
 QStringList identityKeysForElement(const QString &element)
 {
