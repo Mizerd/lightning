@@ -1,5 +1,49 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-17 — voice delay: CONFIRMED on Linux, NOT MEASURABLE on Windows over RDP
+
+The maintainer requires a delay claim to hold on **three platforms, Windows
+mandatory**. It currently holds on **one**, and this says why rather than
+padding the count.
+
+**Linux — CONFIRMED** (`docs/live-validation.md`): 265.2 ms baseline, 268.1 ms
+after freezing the sender 1.5 s, delta **+2.9 ms**, against roughly +1000 ms and
+permanent on the unfixed queue.
+
+**Windows — NOT MEASURABLE THROUGH RDP, and the attempt is recorded so nobody
+repeats it.** The guest has no sound card, so its playback rides an RDP audio
+path that has its own adaptive jitter buffer. Four runs of the identical rig,
+minutes apart, on an unchanged call:
+
+```
+291.8 ms   354.1 ms   491.0 ms   545.0 ms
+```
+
+That is the instrument drifting, not the call changing. The stall delta stayed
+small in every run (+1.1, -43, +21, +39 ms — never the +1000 the bug produces),
+which is weak evidence the backlog is absent on Windows too, but an instrument
+that moves 250 ms between identical runs cannot confirm anything.
+
+**What would actually measure it**, and it needs no new insight, only time:
+inject and capture INSIDE the guest — record the guest's own sink to a WAV in
+Windows and move only the file out — which turns a two-host clock problem into
+a one-host one. Or loop the far end's output back into its own input inside the
+guest, detect the return at the sender, and halve, which needs one clock and
+one machine.
+
+**Two confounds this rig has, worth knowing before the next attempt.** Every
+client on the laptop shares ONE virtual microphone, so every client in the call
+captures the burst and sends its own copy — the recording then holds three
+onsets and the earliest wins, attributing the number to the wrong participant.
+And a browser client left in the call keeps capturing that microphone even when
+nobody is looking at it. The detector reports the onset COUNT for exactly this
+reason, and every Windows run above was flagged by it rather than silently
+averaged.
+
+**So: the three-platform bar is NOT met.** One platform is confirmed, and the
+mandatory one is unmeasured.
+
+
 ## 2026-09-16 night — Flathub manifest lint re-run, and what it does NOT cover
 
 **PASS, and proven live.** Re-run in the laptop's `flathub-rig` container
