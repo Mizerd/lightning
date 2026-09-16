@@ -19,7 +19,7 @@ the existing Linux runners.
 | Scope | project 7 only, locked, protected, tagged jobs only |
 | Concurrency | 1 job; 2 polling requests |
 | Job limits | 4 CPU, 8 GiB memory (10 GiB including swap), 2-hour maximum |
-| Builder | `lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7` |
+| Builder | `lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v6` |
 
 The runner manager mounts `/var/run/docker.sock`, which is root-equivalent host
 access. It is constrained by project scope, protected-ref access, unique tags,
@@ -64,10 +64,10 @@ record the resulting image ID and size:
 ```bash
 sudo docker build \
   --label net.smetonis.lightning.task=windows-packaging \
-  -t lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7 \
+  -t lightning-windows-builder:<NEW TAG> \
   -f packaging/windows/Dockerfile .
 sudo docker image inspect \
-  lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7
+  lightning-windows-builder:<NEW TAG>
 ```
 
 Do not use a floating builder image. The official Qt multimedia, FFmpeg and
@@ -111,18 +111,40 @@ printed or copied anywhere.
 Keep the previous builder image on the host until the new one has produced a
 green `build-windows`. Removing it is what makes the rollback impossible.
 
-**v7 IS COMMITTED AND NOT YET BUILT (2026-09-16).** The table and the build
-command above already name v7, so read this first: the recipe and the tin have
-deliberately been apart for the length of one session. The delta from v6 is one
-plugin — `libgstlevel.dll`, the capture level meter — taking the staged count
-from 28 to 29, plus a verify assertion that now prints what it counted instead
-of failing as a bare `test`. Until steps 2-4 below are done on 10.195.35.2, the
-host still pins v6 and its allowlist holds v1-v6, so **any Windows job — a
-manually triggered `windows-package-test` or a publishing pipeline's
-`build-windows` — fails before it starts**, exactly as pipeline 224 did.
-Neither job runs on an ordinary push (both are variable-gated), so the exposure
-is precisely a manual or publishing trigger in that window. Replace this
-paragraph with the real record the moment `gitlab-runner verify` passes on v7.
+**THIS DOCKERFILE CANNOT BE BUILT FROM SCRATCH TODAY, AND THAT IS THE BLOCKER
+IN FRONT OF EVERY BUILDER CHANGE (2026-09-16).** All EIGHT pinned Qt packages
+have left Fedora's repositories. Measured inside the running v6 image, where
+they are installed and no longer downloadable:
+
+```
+GONE  mingw64-qt6-qtbase-6.11.1-1.fc44        GONE  mingw64-qt6-qtsvg-6.11.1-1.fc44
+GONE  mingw64-qt6-qtdeclarative-6.11.1-2.fc44 GONE  mingw64-qt6-qttools-6.11.1-1.fc44
+GONE  mingw64-qt6-qtimageformats-6.11.1-1.fc44 GONE mingw64-qt6-qttranslations-6.11.1-1.fc44
+GONE  mingw64-qt6-qtmultimedia-6.11.1-1.fc44  GONE  qt6-qtshadertools-devel-6.11.1-1.fc44
+```
+
+Fedora has moved the whole mingw Qt stack to **6.11.2-1.fc44**. A v7 build got
+as far as it did only because layers 1-10 came from the v6 cache on this host;
+the first layer that had to reach the network for Qt died with
+`No match for argument: qt6-qtshadertools-devel-6.11.1-1.fc44.x86_64`. On a
+host without that cache, or after any cache prune, the build fails at the FIRST
+Qt line. This is the "a pin is only as durable as Fedora's mirrors" paragraph
+below, repeating for the whole Qt stack instead of four odd packages.
+
+**The Dockerfile in the tree therefore describes an image that does not exist
+and cannot be made, so the pinned tag in `.gitlab-ci.yml` has been put BACK to
+v6** — the image the host actually has. The recipe keeps its improvements
+(`libgstlevel.dll`, the plugin count at 29, the assertion that prints what it
+counted, stall guards on every download); they take effect when an image can be
+built again. CI pointing at an image nobody can build would fail every Windows
+job before it started, which is strictly worse than documented drift.
+
+**The decision this needs, and it is not a packaging decision:** moving the pins
+to 6.11.2 changes the Qt that Windows users get, and it invalidates every cached
+layer, so it is a from-scratch image build and a `windows-package-test` run, not
+an edit. The alternative is fetching the 6.11.1 NVRs from Fedora's archive or
+koji, which keeps today's Qt and adds a fragile source. Until one is chosen, the
+capture level meter cannot reach a Windows package (`docs/open-items.md`).
 
 **v6 IS BUILT AND DEPLOYED (2026-09-12).** Image `sha256:5c628d4b`, 7.23 GB,
 28 staged plugins, `jpegenc` and `jpegdec` both present in `libgstjpeg.dll`.

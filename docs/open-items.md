@@ -1,5 +1,39 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-16 — the Windows builder image cannot be rebuilt: every Qt pin is gone
+
+**BLOCKER, measured, and it blocks the capture level meter reaching Windows.**
+All eight Qt packages `packaging-ci/packaging/windows/Dockerfile` pins have left
+Fedora's repositories; Fedora moved the mingw Qt stack to **6.11.2-1.fc44**.
+Checked from inside the running v6 image, where they are installed and no longer
+downloadable — `mingw64-qt6-{qtbase,qtdeclarative,qtimageformats,qtmultimedia,
+qtsvg,qttools,qttranslations}-6.11.1` and `qt6-qtshadertools-devel-6.11.1`, all
+GONE.
+
+A v7 build reached step 7 of 11 only because layers 1-10 came from the v6 cache
+on that host, and died on the first layer that had to reach the network for Qt:
+`No match for argument: qt6-qtshadertools-devel-6.11.1-1.fc44.x86_64`. On any
+host without that cache the build fails at the FIRST Qt line. The recipe and the
+tin have drifted the way `docs/windows-runner-operations.md` keeps warning
+about, except this time it is the recipe that can no longer be realised.
+
+**Consequently the pinned tag stays at v6.** The Dockerfile keeps its
+improvements — `libgstlevel.dll` staged, the plugin count at 29, an assertion
+that prints what it counted instead of failing as a bare `test`, and a stall
+guard on every download — and they take effect the next time an image can be
+built. Pointing CI at an image nobody can build would fail every Windows job
+before it started.
+
+**The decision, which is not a packaging decision and should not be made by
+default:** bumping the pins to 6.11.2 changes the Qt that Windows users get and
+invalidates every cached layer, so it is a from-scratch image build plus a
+`windows-package-test`, not an edit. The alternative is pulling the 6.11.1 NVRs
+from Fedora's archive or koji, which preserves today's Qt and adds a fragile
+source. Nothing else in the Windows lane moves until one is chosen — including
+the level meter, which is why `libgstlevel.dll` is still OPTIONAL in
+`stage-windows-runtime.py`.
+
+
 ## 2026-09-16 — NO published 0.9.7 package has the capture level meter
 
 **MEASURED, on both artifacts, and it is wider than the Windows note says.**
