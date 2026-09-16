@@ -1,5 +1,34 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-16 — the Windows package ships gst-plugins-good binaries without its licence
+
+**OPEN, compliance, pre-existing, and cheap to fix in the NEXT builder image.**
+`packaging-ci/packaging/windows/Dockerfile` copies licences for
+`gstreamer-1.0 gst-plugins-base-1.0 gst-plugins-bad-1.0 gst-plugins-rs libnice
+opus libvpx libsrtp orc zlib webrtc-audio-processing mingw-runtime`, and
+`stage-windows-runtime.py` ships that directory into the package. **There is no
+`gst-plugins-good-1.0` in it** — verified by listing
+`/usr/share/licenses/lightning-gstreamer` inside the live v6 image, which
+returns twelve names and not that one.
+
+Meanwhile the image stages plugins that ARE gst-plugins-good: `libgstjpeg`,
+`libgstrtp`, `libgstrtpmanager`, `libgstautodetect`, `libgstdirectsound`,
+`libgstdirectsoundsrc`, `libgstvpx` and, from v7, `libgstlevel`. So a Windows
+package distributes LGPL binaries whose licence text it does not carry. The gap
+predates the level meter by months; v7 makes it one plugin wider.
+
+Found by the independent review of the v7 change, which flagged it and
+correctly declined to block on it. NOT fixed here because the fix is one word in
+a `for licensed in` loop and a builder-image rebuild, and folding it into v8
+costs nothing while doing it alone costs a whole rebuild.
+
+UNVERIFIED and worth checking before assuming the one-word fix: that the
+GStreamer MinGW SDK actually exposes `share/licenses/gst-plugins-good-1.0`
+under that name. The sibling `base`/`bad` directories make it very likely, and
+if it is absent the `cp -a` fails loudly at build time rather than shipping a
+gap — which is the right failure.
+
+
 ## 2026-09-16 — after 0.9.6
 
 **THE FILTERED-HISTORY VIEWPORT FILL IS FIXED AND NOT LIVE-TESTED, AND THE
