@@ -1,10 +1,10 @@
 FROM fedora@sha256:6c75d5bf57cb0fa5aa4b92c6a83c86c791644496d9ac230de7711f5b8ec3b898
 
 ARG RUST_TOOLCHAIN=1.95.0
-ARG QT_MULTIMEDIA_VERSION=6.11.1
+ARG QT_MULTIMEDIA_VERSION=6.11.2
 # ENV, not ARG: a --build-arg could otherwise replace this digest and
 # silently disable the checksum gate on a download that is EXECUTED.
-ENV QT_MULTIMEDIA_SHA256=390f8e52ddee3aca5c4de7eead900c84c4fa61ff6d1f0ebea9c7543365c09b0a
+ENV QT_MULTIMEDIA_SHA256=967b5e02ec6b793cdb360622cd6e703132836af983208d678dae4b50f109cd9f
 ARG FFMPEG_VERSION=7.1.1
 # ENV, not ARG: a --build-arg could otherwise replace this digest and
 # silently disable the checksum gate on a download that is EXECUTED.
@@ -15,7 +15,7 @@ LABEL org.opencontainers.image.title="Lightning Windows cross-package builder" \
       org.opencontainers.image.source="https://gitlab.smetonis.net/Mizerd/lightning-deploy" \
       net.smetonis.lightning.builder-kind="linux-cross" \
       net.smetonis.lightning.target="x86_64-pc-windows-gnu" \
-      net.smetonis.lightning.qt="6.11.1" \
+      net.smetonis.lightning.qt="6.11.2" \
       net.smetonis.lightning.ffmpeg="7.1.1" \
       net.smetonis.lightning.rust="${RUST_TOOLCHAIN}"
 
@@ -33,6 +33,18 @@ LABEL org.opencontainers.image.title="Lightning Windows cross-package builder" \
 # mingw64-gcc-c++, both pinned separately and both unchanged. Expect to have to
 # do this again: check with `dnf repoquery` inside the base image rather than
 # assuming a rebuild will reproduce the previous one.
+# QT MOVED 6.11.1 -> 6.11.2 ON 2026-09-16 BECAUSE FEDORA WITHDREW 6.11.1, NOT
+# BECAUSE ANYTHING HERE WANTED A NEWER QT. A v7 build died on
+# `No match for argument: qt6-qtshadertools-devel-6.11.1-1.fc44.x86_64`, and a
+# sweep of all 31 pinned NVRs in this file against the repos found EXACTLY these
+# eight gone and the other 23 still there — so the rot is the Qt stack and
+# nothing else. Re-run that sweep before assuming a future failure is wider than
+# it is, and VALIDATE THE PROBE FIRST: the first version of it used a dnf5
+# argument that does not exist, every query came back empty, and all 31 looked
+# withdrawn. Ask it about a package you know is present and one you know is not.
+#
+# The release numbers are NOT uniform — qtmultimedia is -2 where the rest are
+# -1 — so copy them from `dnf repoquery`, never by editing the version string.
 RUN dnf install -y --setopt=install_weak_deps=False \
         bash \
         ca-certificates \
@@ -54,13 +66,13 @@ RUN dnf install -y --setopt=install_weak_deps=False \
         mingw32-nsis-3.11-3.fc44 \
         mingw64-nsis-3.11-3.fc44 \
         mingw64-openssl-3.2.4-4.fc44 \
-        mingw64-qt6-qtbase-6.11.1-1.fc44 \
-        mingw64-qt6-qtdeclarative-6.11.1-2.fc44 \
-        mingw64-qt6-qtimageformats-6.11.1-1.fc44 \
-        mingw64-qt6-qtmultimedia-6.11.1-1.fc44 \
-        mingw64-qt6-qtsvg-6.11.1-1.fc44 \
-        mingw64-qt6-qttools-6.11.1-1.fc44 \
-        mingw64-qt6-qttranslations-6.11.1-1.fc44 \
+        mingw64-qt6-qtbase-6.11.2-1.fc44 \
+        mingw64-qt6-qtdeclarative-6.11.2-1.fc44 \
+        mingw64-qt6-qtimageformats-6.11.2-1.fc44 \
+        mingw64-qt6-qtmultimedia-6.11.2-2.fc44 \
+        mingw64-qt6-qtsvg-6.11.2-1.fc44 \
+        mingw64-qt6-qttools-6.11.2-1.fc44 \
+        mingw64-qt6-qttranslations-6.11.2-1.fc44 \
         mingw64-sqlite-3.51.3-1.fc44 \
         mingw64-zlib-1.3.2-1.fc44 \
         msitools-0.106.58-1.fc44 \
@@ -153,7 +165,7 @@ RUN set -eu; \
     file /usr/x86_64-w64-mingw32/sys-root/mingw/bin/avcodec-*.dll \
         | grep -F 'PE32+ executable'
 
-# Fedora's 6.11.1 MinGW multimedia RPM contains Qt6Multimedia.dll and the
+# Fedora's 6.11.2 MinGW multimedia RPM contains Qt6Multimedia.dll and the
 # Windows Media Foundation backend but omits the QtMultimedia QML module and the
 # FFmpeg backend plugin. Build both from the matching official Qt source: the
 # quickmultimedia QML module and ffmpegmediaplugin (the FFmpeg decode backend,
@@ -164,7 +176,7 @@ RUN set -eu; \
 # lowercase MinGW header lets it compile. Host ShaderTools supplies qsb.
 RUN set -eu; \
     dnf install -y --setopt=install_weak_deps=False \
-        qt6-qtshadertools-devel-6.11.1-1.fc44.x86_64; \
+        qt6-qtshadertools-devel-6.11.2-1.fc44.x86_64; \
     dnf clean all; \
     rm -rf /var/cache/dnf; \
     ln -sf d3d11.h /usr/x86_64-w64-mingw32/sys-root/mingw/include/D3d11.h; \

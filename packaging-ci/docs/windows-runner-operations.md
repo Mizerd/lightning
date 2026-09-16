@@ -19,7 +19,7 @@ the existing Linux runners.
 | Scope | project 7 only, locked, protected, tagged jobs only |
 | Concurrency | 1 job; 2 polling requests |
 | Job limits | 4 CPU, 8 GiB memory (10 GiB including swap), 2-hour maximum |
-| Builder | `lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v6` |
+| Builder | `lightning-windows-builder:fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7` |
 
 The runner manager mounts `/var/run/docker.sock`, which is root-equivalent host
 access. It is constrained by project scope, protected-ref access, unique tags,
@@ -64,10 +64,10 @@ record the resulting image ID and size:
 ```bash
 sudo docker build \
   --label net.smetonis.lightning.task=windows-packaging \
-  -t lightning-windows-builder:<NEW TAG> \
+  -t lightning-windows-builder:fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7 \
   -f packaging/windows/Dockerfile .
 sudo docker image inspect \
-  lightning-windows-builder:<NEW TAG>
+  lightning-windows-builder:fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7
 ```
 
 Do not use a floating builder image. The official Qt multimedia, FFmpeg and
@@ -97,7 +97,7 @@ printed or copied anywhere.
 1. Commit the `packaging/windows/Dockerfile` change and the NEW tag in
    `.gitlab-ci.yml`, `tests/test-pipeline-config.py`, this file, the README and
    the example config. The tag encodes what changed, e.g.
-   `fedora44-qt6.11.1-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7`.
+   `fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7`.
 2. Build the image on `10.195.35.2` from a checkout of that commit, using the
    `docker build` command above with the new tag.
 3. Edit the host's `config/config.toml`: set `[runners.docker] image` to the new
@@ -111,40 +111,33 @@ printed or copied anywhere.
 Keep the previous builder image on the host until the new one has produced a
 green `build-windows`. Removing it is what makes the rollback impossible.
 
-**THIS DOCKERFILE CANNOT BE BUILT FROM SCRATCH TODAY, AND THAT IS THE BLOCKER
-IN FRONT OF EVERY BUILDER CHANGE (2026-09-16).** All EIGHT pinned Qt packages
-have left Fedora's repositories. Measured inside the running v6 image, where
-they are installed and no longer downloadable:
+**QT MOVED TO 6.11.2 BECAUSE FEDORA WITHDREW 6.11.1 (2026-09-16).** A v7 build
+died on `No match for argument: qt6-qtshadertools-devel-6.11.1-1.fc44.x86_64`:
+Fedora had moved the whole mingw Qt stack to 6.11.2 and the pinned NVRs were
+gone. It had reached step 7 of 11 only because layers 1-10 came from the v6
+cache on this host; on a host without that cache it would have failed at the
+FIRST Qt line. The pins are at 6.11.2 now and the tag says so —
+`fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7`. Nothing here wanted a
+newer Qt; the old one stopped existing.
 
-```
-GONE  mingw64-qt6-qtbase-6.11.1-1.fc44        GONE  mingw64-qt6-qtsvg-6.11.1-1.fc44
-GONE  mingw64-qt6-qtdeclarative-6.11.1-2.fc44 GONE  mingw64-qt6-qttools-6.11.1-1.fc44
-GONE  mingw64-qt6-qtimageformats-6.11.1-1.fc44 GONE mingw64-qt6-qttranslations-6.11.1-1.fc44
-GONE  mingw64-qt6-qtmultimedia-6.11.1-1.fc44  GONE  qt6-qtshadertools-devel-6.11.1-1.fc44
-```
+**A SWEEP FOUND THE ROT IS THE QT STACK AND NOTHING ELSE.** All 31 pinned NVRs
+in the Dockerfile were queried against the repos from inside the running v6
+image: **23 available, 8 gone, and the 8 are exactly the Qt set.** Run that
+sweep before assuming a future failure is wider — and **validate the probe
+first**. The first version used a dnf5 argument that does not exist, every
+query came back empty, and all 31 looked withdrawn; asking it about a package
+known to be present and one known to be absent is what caught it. The working
+shape is `dnf -q repoquery <name>-<version>-<release>.fc44` and testing whether
+the output is non-empty.
 
-Fedora has moved the whole mingw Qt stack to **6.11.2-1.fc44**. A v7 build got
-as far as it did only because layers 1-10 came from the v6 cache on this host;
-the first layer that had to reach the network for Qt died with
-`No match for argument: qt6-qtshadertools-devel-6.11.1-1.fc44.x86_64`. On a
-host without that cache, or after any cache prune, the build fails at the FIRST
-Qt line. This is the "a pin is only as durable as Fedora's mirrors" paragraph
-below, repeating for the whole Qt stack instead of four odd packages.
-
-**The Dockerfile in the tree therefore describes an image that does not exist
-and cannot be made, so the pinned tag in `.gitlab-ci.yml` has been put BACK to
-v6** — the image the host actually has. The recipe keeps its improvements
-(`libgstlevel.dll`, the plugin count at 29, the assertion that prints what it
-counted, stall guards on every download); they take effect when an image can be
-built again. CI pointing at an image nobody can build would fail every Windows
-job before it started, which is strictly worse than documented drift.
-
-**The decision this needs, and it is not a packaging decision:** moving the pins
-to 6.11.2 changes the Qt that Windows users get, and it invalidates every cached
-layer, so it is a from-scratch image build and a `windows-package-test` run, not
-an edit. The alternative is fetching the 6.11.1 NVRs from Fedora's archive or
-koji, which keeps today's Qt and adds a fragile source. Until one is chosen, the
-capture level meter cannot reach a Windows package (`docs/open-items.md`).
+Two details that will bite a careless bump. The release numbers are NOT
+uniform — `qtmultimedia` is `-2` where the other six are `-1` — so copy them
+from `dnf repoquery` rather than editing the version string. And the
+qtmultimedia SOURCE tarball is pinned separately by `QT_MULTIMEDIA_VERSION`
+and `QT_MULTIMEDIA_SHA256`; the new hash was taken from Qt's published
+`.sha256` AND confirmed by downloading the 10.2 MB tarball and hashing it,
+because `download.qt.io` answers without `--location` with a 306-byte mirror
+page that hashes to something plausible and is not the file.
 
 **v6 IS BUILT AND DEPLOYED (2026-09-12).** Image `sha256:5c628d4b`, 7.23 GB,
 28 staged plugins, `jpegenc` and `jpegdec` both present in `libgstjpeg.dll`.
