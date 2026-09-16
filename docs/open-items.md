@@ -1,38 +1,43 @@
 # Open items and the NOT TESTED inventory
 
-## 2026-09-16 — the Windows builder image cannot be rebuilt: every Qt pin is gone
+## 2026-09-16 — the Windows builder's Qt pins rotted; moved to 6.11.2
 
-**BLOCKER, measured, and it blocks the capture level meter reaching Windows.**
-All eight Qt packages `packaging-ci/packaging/windows/Dockerfile` pins have left
-Fedora's repositories; Fedora moved the mingw Qt stack to **6.11.2-1.fc44**.
-Checked from inside the running v6 image, where they are installed and no longer
-downloadable — `mingw64-qt6-{qtbase,qtdeclarative,qtimageformats,qtmultimedia,
-qtsvg,qttools,qttranslations}-6.11.1` and `qt6-qtshadertools-devel-6.11.1`, all
-GONE.
+**RESOLVED IN THE RECIPE, image build in progress at the time of writing.**
+Fedora withdrew every 6.11.1 Qt package the Windows builder pins, so the
+Dockerfile described an image that could not be made. A v7 build died on
+`No match for argument: qt6-qtshadertools-devel-6.11.1-1.fc44.x86_64`, having
+reached step 7 of 11 only because layers 1-10 came from the v6 cache on that
+host; without it the build fails at the FIRST Qt line.
 
-A v7 build reached step 7 of 11 only because layers 1-10 came from the v6 cache
-on that host, and died on the first layer that had to reach the network for Qt:
-`No match for argument: qt6-qtshadertools-devel-6.11.1-1.fc44.x86_64`. On any
-host without that cache the build fails at the FIRST Qt line. The recipe and the
-tin have drifted the way `docs/windows-runner-operations.md` keeps warning
-about, except this time it is the recipe that can no longer be realised.
+Decision taken: **move the pins to 6.11.2** rather than chase the withdrawn
+NVRs through Fedora's archive. A recipe that cannot be realised is worse than a
+version move, and the archive would have added a fragile source to keep a Qt
+that Fedora has already replaced. Consequence to state plainly: **the Qt that
+ships to Windows users moves 6.11.1 -> 6.11.2 with the next Windows package.**
 
-**Consequently the pinned tag stays at v6.** The Dockerfile keeps its
-improvements — `libgstlevel.dll` staged, the plugin count at 29, an assertion
-that prints what it counted instead of failing as a bare `test`, and a stall
-guard on every download — and they take effect the next time an image can be
-built. Pointing CI at an image nobody can build would fail every Windows job
-before it started.
+**The rot is the Qt stack and nothing else** — all 31 pinned NVRs in the
+Dockerfile were queried against the repos from inside the running v6 image:
+23 available, 8 gone, and the 8 are exactly the Qt set. **The first version of
+that probe was wrong and said all 31 were gone**, because it used a dnf5
+argument that does not exist so every query came back empty. Asking it about a
+package known present and one known absent is what caught it, before it reached
+a commit or a report. GENERALISE, and this is the second time in one session:
+**a probe that returns "absent" for everything is a broken probe until it has
+been shown to return "present" for something.**
 
-**The decision, which is not a packaging decision and should not be made by
-default:** bumping the pins to 6.11.2 changes the Qt that Windows users get and
-invalidates every cached layer, so it is a from-scratch image build plus a
-`windows-package-test`, not an edit. The alternative is pulling the 6.11.1 NVRs
-from Fedora's archive or koji, which preserves today's Qt and adds a fragile
-source. Nothing else in the Windows lane moves until one is chosen — including
-the level meter, which is why `libgstlevel.dll` is still OPTIONAL in
-`stage-windows-runtime.py`.
+Two traps recorded beside the pins for the next bump: the release numbers are
+NOT uniform (`qtmultimedia` is `-2`, the other six are `-1`), and the
+qtmultimedia SOURCE tarball is pinned separately — its new sha256 was taken
+from Qt's published `.sha256` AND confirmed by downloading the 10.2 MB file,
+because `download.qt.io` without `--location` answers with a 306-byte mirror
+page that hashes to something plausible and is not the file.
 
+Remaining, and only after the image verifies: point the host's `config.toml` at
+the new tag (keeping v6 in `allowed_images`), restart and `gitlab-runner
+verify`, then the promotion commit moving `libgstlevel.dll` into
+`GSTREAMER_PLUGINS` and `"level"` into `GSTREAMER_ELEMENTS`, then a
+`windows-package-test`. The gst-plugins-good licence gap below should be folded
+into whichever image build comes next.
 
 ## 2026-09-16 — NO published 0.9.7 package has the capture level meter
 

@@ -1410,6 +1410,21 @@ libgstjpeg was, with the promotion procedure written at the declaration. **A
 required-plugin entry and an image rebuild are ONE change, and the entry is
 the half that must come second.**
 
+**FEDORA WITHDREW EVERY 6.11.1 QT PACKAGE THIS IMAGE PINS, SO THE RECIPE COULD
+NOT BE REALISED AT ALL (2026-09-16).** Not a version anyone wanted to move: a
+v7 build died on `No match for argument:
+qt6-qtshadertools-devel-6.11.1-1.fc44.x86_64`, and it had got as far as step 7
+of 11 only because layers 1-10 came from that host's cache. The pins are 6.11.2
+now, so **the Qt shipped to Windows users moves with the next package**. A sweep
+of all 31 pinned NVRs found 23 available and 8 gone, the 8 being exactly the Qt
+set — so do not widen it by assumption. **AND VALIDATE THE PROBE BEFORE
+BELIEVING IT**: the first sweep used a dnf5 argument that does not exist, every
+query returned empty, and all 31 looked withdrawn. A probe that answers "absent"
+for everything is a broken probe until it has answered "present" for something.
+Release numbers are not uniform across a Qt set (`qtmultimedia` was `-2`, the
+rest `-1`), and `download.qt.io` without `--location` hands you a 306-byte
+mirror page that hashes cleanly and is not the tarball.
+
 **AND A DOWNLOAD WITH NO TIMEOUT HANGS THAT BUILD FOREVER AND LOOKS LIKE A SLOW
 COMPILE (2026-09-16).** The first v7 attempt sat SIXTEEN MINUTES at zero CPU
 with no output on a `curl` to gstreamer.freedesktop.org; `curl --silent` has no
