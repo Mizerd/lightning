@@ -1,5 +1,39 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-17 — the 0.9.8 AppImage camera on the MJPG chain, which no release has shipped
+
+**PASS, and this one is a release gate rather than a nicety.** 0.9.8 is the
+FIRST shipped AppImage to carry `libgstjpeg`, so `jpegCameraChainAvailable()`
+now succeeds and its camera takes the **MJPG** chain where every previous
+release took the raw one. The camera evidence gathered earlier tonight was
+measured on 0.9.7 — evidence about a *different chain* — and does not transfer.
+The code comment on that decision is explicit about the risk: the ladder falls
+back on a description that fails to PARSE, and cannot catch one that parses and
+then fails to NEGOTIATE, "which is what an `image/jpeg` capsfilter in front of a
+source offering only raw produces — a camera that is simply dead".
+
+Measured on the pipeline-228 artifact (`Lightning-0.9.8+git20260916.a12088f`),
+in a real encrypted call:
+
+```
+camera chain= mjpg (jpeg elements present )
+capture negotiated caps= image/jpeg
+capture delivered frames count= 10
+frames encrypted stream= "" video= true count= 500
+```
+
+| | stage region |
+|---|---|
+| camera ON (MJPG) | `mean=0.817 stddev=0.198` |
+| camera OFF | `mean=0.913 stddev=0.077` |
+
+RMSE on/off **0.209**. So the new chain negotiates, delivers, encodes AND
+renders — the failure mode the comment warns about did not happen, and it was
+checked before publishing rather than after.
+
+Method is identical to the 0.9.7 run so the two compare, and the tile is judged
+by pixel statistics rather than viewed, because the webcam faces a real room.
+
 ## 2026-09-17 — VOICE DELAY, measured, and the queue fix proven on a shipped binary
 
 **PASS.** Until now the only evidence that 0.9.7 fixed the one-second send
