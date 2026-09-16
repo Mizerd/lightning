@@ -154,16 +154,26 @@ and folded into the v7 image build rather than costing its own rebuild.
 `libsrtp`, `libvpx`, `mingw-runtime`, `opus`, `orc`,
 `webrtc-audio-processing`, `zlib` — and good's is not among them.
 
-**STILL OPEN, because the obvious name is not the name.** I inferred
-`gst-plugins-good-1.0` from its `base`/`bad` siblings and the build refused it:
-`cp: cannot stat '/tmp/gstreamer-sdk/share/licenses/gst-plugins-good-1.0'`. The
-failure was loud and cost one GStreamer layer, which is the right failure — but
-it also left the committed Dockerfile UNBUILDABLE, the same class of problem as
-the Qt pins, so it was reverted to the working set in the same session. Guessing
-again costs a 960 MB download per attempt, so the loop now **prints
-`ls -1 $src/share/licenses` before it copies**: the next build log names every
-directory the SDK ships, and the real name goes in from that listing rather than
-from another inference.
+**SETTLED: THE SDK DOES NOT SHIP IT, so no name would have worked.** I first
+inferred `gst-plugins-good-1.0` from its `base`/`bad` siblings and the build
+refused it — loud, correct, and it cost one GStreamer layer while leaving the
+committed Dockerfile briefly unbuildable. Rather than guess a third time at
+960 MB a go, the SDK was extracted ONCE to a path that is not deleted
+(`/srv/gst-sdk-licences/licence-dirs.txt` on 10.195.35.2): **88 licence
+directories, and nothing matching "good"** — `gst-plugins-bad-1.0`,
+`gst-plugins-base-1.0`, `gst-plugins-rs`, `gst-rtsp-server-1.0` and
+`gstreamer-1.0` are all there; good's is simply absent.
+
+**So this cannot be fixed by copying, and it needs a decision rather than a
+patch.** gst-plugins-good is LGPL-2.1+ and its COPYING lives in the
+gst-plugins-good release, not in the MinGW SDK, so shipping it means sourcing
+the text from upstream and vendoring it — a choice about what this project
+distributes and from where. **It is an LGPL compliance defect, not cosmetics:
+every Windows package Lightning has ever shipped carries gst-plugins-good
+binaries with no licence text.** Shipping another release knowing that is a
+different act from the eight times it shipped unknowingly, which is exactly why
+this is the maintainer's call and is written here instead of being quietly
+patched at 1 a.m.
 
 
 ## 2026-09-16 — after 0.9.6

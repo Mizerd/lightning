@@ -296,20 +296,27 @@ COPY packaging/windows/gst-element-probe.c \
 # image. It was added to the staging script's REQUIRED list before this image
 # carried it once already and killed pipeline 224; the required entry is the
 # half that must come SECOND, after the image is built and deployed.
-# THE LICENCE SET IS INCOMPLETE AND THE FIX IS NOT `gst-plugins-good-1.0`.
+# THE LICENCE SET IS INCOMPLETE AND THE SDK CANNOT FIX IT — SETTLED 2026-09-16.
 # This image stages seven plugins from gst-plugins-good — jpeg, rtp, rtpmanager,
 # autodetect, directsound, directsoundsrc, vpx, and level from v7 — and the loop
-# below never names that set, so every Windows package has shipped LGPL binaries
-# without their licence text. Verified on the ARTIFACT: `unzip -l` on the 0.9.7
-# portable lists twelve directories under licenses/lightning-gstreamer and none
-# of them is good's.
+# below cannot name that set, because **the SDK does not ship its licence**.
+# Extracted once to a path that is not deleted (`/srv/gst-sdk-licences` on
+# 10.195.35.2): 88 licence directories, `gst-plugins-bad-1.0`,
+# `gst-plugins-base-1.0`, `gst-plugins-rs`, `gst-rtsp-server-1.0`,
+# `gstreamer-1.0` — and NOTHING matching "good".
 #
-# Adding `gst-plugins-good-1.0` was tried and the build refused it:
-# `cp: cannot stat '/tmp/gstreamer-sdk/share/licenses/gst-plugins-good-1.0'`.
-# The SDK calls it something else, and guessing again costs a 960 MB download
-# per attempt — so the loop now PRINTS what the SDK actually has before it
-# copies. Read that listing out of the next build log, put the real name in the
-# list, and delete this paragraph down to the line above the `ls`.
+# So `gst-plugins-good-1.0` was not a wrong name, it is an absent one, and the
+# earlier attempt to add it could never have worked. Verified on the ARTIFACT
+# too: `unzip -l` on the shipped 0.9.7 portable lists twelve directories under
+# licenses/lightning-gstreamer and none is good's.
+#
+# The gap is REAL and is an LGPL compliance defect, not cosmetics: every Windows
+# package this project has shipped carries gst-plugins-good binaries with no
+# licence text. Fixing it means SOURCING the text rather than copying it — the
+# set is LGPL-2.1+ and its COPYING comes from the gst-plugins-good release, not
+# from this SDK. That is a maintainer decision about what to ship and from
+# where, so it is written down here and in docs/open-items.md rather than
+# guessed at a third time. The `ls -1` below stays: it is what answered this.
 RUN set -eu; \
     url="https://gstreamer.freedesktop.org/data/pkg/windows/${GSTREAMER_VERSION}/mingw/gstreamer-1.0-mingw-x86_64-${GSTREAMER_VERSION}.exe"; \
     curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
