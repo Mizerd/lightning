@@ -1494,6 +1494,17 @@ packages). **Cancel a doomed pipeline immediately — it keeps running its
 other jobs and HOLDS the runners, so a retry sits pending.** (Third time
 that note has earned its place.)
 
+**ENCRYPTED VIDEO SEND WORKS, AND THE NOTE SAYING IT DOES NOT IS STALE — live
+tested 2026-09-16.** The `rtpvp8pay` entry below is still true about
+`rtpvp8pay`, and it stopped being true about LIGHTNING when
+`src/calls/RtpVp8Payloader.cpp` landed: this client ships its own non-parsing
+VP8 payloader. Measured, laptop, encrypted room, shipped 0.9.7 AppImage:
+`screen share publishing ... encrypted= true` on the sender and
+`frames decrypted stream= ... video= true count= 500 dropped= 0` at the far
+end, both Lightning-to-Lightning and Lightning-to-Sable, and Sable-to-Lightning
+in reverse. Do not repeat "encrypted video send does not carry"; it cost this
+release's notes a false limitation.
+
 **A plugin an ELEMENT loads for itself is invisible to every check we have.**
 Windows shipped for months able to SEND audio and unable to RECEIVE anything,
 because `libgstsctp.dll` was never staged: LiveKit's subscriber offer bundles
