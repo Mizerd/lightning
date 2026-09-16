@@ -1425,16 +1425,19 @@ Release numbers are not uniform across a Qt set (`qtmultimedia` was `-2`, the
 rest `-1`), and `download.qt.io` without `--location` hands you a 306-byte
 mirror page that hashes cleanly and is not the tarball.
 
-**AND A DOWNLOAD WITH NO TIMEOUT HANGS THAT BUILD FOREVER AND LOOKS LIKE A SLOW
-COMPILE (2026-09-16).** The first v7 attempt sat SIXTEEN MINUTES at zero CPU
-with no output on a `curl` to gstreamer.freedesktop.org; `curl --silent` has no
-timeout at all, and the host fetched the same URL at 6.3 MB/s in the same
-minute, so it was the connection and not the mirror. Every download in that
-Dockerfile now carries `--connect-timeout 30 --speed-limit 10000 --speed-time
-60 --retry 3`; the sha256 check after each is untouched and is still the
-integrity gate. **Read a build that is producing no output against the LOAD
-AVERAGE before assuming it is working** — 0.19 on a ten-core box is not a
-compile.
+**A DOWNLOAD WITH NO TIMEOUT CAN HANG A BUILD FOREVER — AND A SLOW ONE LOOKS
+IDENTICAL (2026-09-16).** A v7 attempt sat SIXTEEN MINUTES at near-zero CPU with
+nothing in the log on a `curl` to gstreamer.freedesktop.org, and I recorded that
+as a stall. **It may not have been**: that installer is 960 MB, a later run
+pulled it at ~560 kB/s, and 28 minutes of silence at no CPU is what a healthy
+fetch of it looks like. The first attempt was killed without measuring bytes, so
+the diagnosis was a guess dressed as a finding. Every download there now carries
+`--connect-timeout 30 --speed-limit 10000 --speed-time 60 --retry 3`, which is
+right either way; the sha256 checks are untouched. **The measurement that
+actually distinguishes them is the file**: `stat -c %s
+/proc/<curl-pid>/root/<path>` twice, fifteen seconds apart — zero delta is a
+stall, anything else is slow. Load average tells you a step is not COMPUTING; it
+does not tell you the step is not WORKING.
 
 Builder `...-v6` is now built on 10.195.35.2 (image `sha256:5c628d4b`, 28
 plugins, `jpegenc` and `jpegdec` both in `libgstjpeg.dll`), the host's

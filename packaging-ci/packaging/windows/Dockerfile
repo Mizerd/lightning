@@ -128,14 +128,21 @@ COPY packaging/windows/toolchain-mingw64.cmake \
 # /usr/bin precedes the target bin dir on PATH here; the cross tools are still
 # resolved by their x86_64-w64-mingw32- prefix.
 # EVERY DOWNLOAD IN THIS FILE HAS A STALL GUARD, and it is not decoration.
-# The first attempt at the v7 build sat on a `curl` to gstreamer.freedesktop.org
-# for SIXTEEN MINUTES at zero CPU with no output: a plain `curl --silent` has no
-# timeout at all, so a stalled connection hangs the build forever and looks
-# exactly like a slow compile. The host could fetch the same URL at 6.3 MB/s in
-# the same minute, so it was the connection, not the mirror. `--speed-limit`
-# with `--speed-time` aborts a transfer that drops below 10 kB/s for a minute,
-# `--retry` gives a flaky mirror three goes, and the sha256 check after each
-# download is unchanged and still the integrity gate.
+# A v7 attempt sat on a `curl` to gstreamer.freedesktop.org for SIXTEEN MINUTES
+# at near-zero CPU with nothing in the build log, and a plain `curl --silent`
+# has no timeout at all, so a genuinely stalled connection would hang the build
+# for ever. `--speed-limit` with `--speed-time` aborts a transfer that drops
+# below 10 kB/s for a minute, `--retry` gives a flaky mirror three goes, and the
+# sha256 check after each download is unchanged and still the integrity gate.
+#
+# BE HONEST ABOUT WHAT THAT SIXTEEN MINUTES WAS, because the obvious reading is
+# wrong: **this installer is 960 MB**. A later run fetched it at ~560 kB/s,
+# which is 28 minutes of a step that prints nothing and burns no CPU — and that
+# is indistinguishable from a hang unless you measure the bytes. The first
+# attempt was killed without measuring them, so "it was stalled" is a guess and
+# is recorded here as one. The way to tell, next time, is the file itself:
+#     sudo stat -c %s /proc/<curl-pid>/root/tmp/gstreamer-mingw.exe
+# twice, fifteen seconds apart. A stall is zero delta; slow is not.
 RUN set -eu; \
     url="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"; \
     curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
