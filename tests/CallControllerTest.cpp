@@ -545,6 +545,96 @@ private:
     }
 
 private Q_SLOTS:
+    // A MEDIA KEY THAT ARRIVES BEFORE THE CALL STARTS MUST SURVIVE THE JOIN.
+    //
+    // The peer already in the room sends its key the moment it sees our
+    // membership, which is before join() runs. Those keys used to be
+    // discarded outright — measured 2026-09-16: three per call, and nothing
+    // re-sends them, so the first seconds of every call dropped the far end's
+    // frames and the call header said someone's media could not be decrypted.
+    //
+    // FAIL-ON-OLD: remove the park branch and this fails — the pre-feature
+    // code discarded the key outright.
+    //
+    // WHAT THIS DOES *NOT* COVER, stated rather than implied: the first fix
+    // for the discard was itself a no-op, because join() cleared the list
+    // before applyParkedKeys() could ever see it, and a reviewer found that
+    // by tracing states rather than by any test. This case cannot catch that
+    // regression, because `join()` returns early under `#ifndef
+    // HAVE_LIGHTNING_WEBRTC` and this is the only target that compiles the
+    // controller — so the clear is unreachable here. Covering it needs a
+    // target that defines the guard, which is an accepted follow-up and not
+    // a claim made by this test.
+    void aKeyThatArrivesBeforeTheCallIsParkedRatherThanDiscarded()
+    {
+        SfuCallController call;
+        const QString key = QString::fromUtf8(QByteArray(32, 'k').toBase64());
+        // Idle, no room yet: exactly the state the live log recorded as
+        // `active= false  forThisRoom= false`.
+        QMetaObject::invokeMethod(
+            &call, "onMediaKeyReceived", Qt::DirectConnection,
+            Q_ARG(QString, QString()), Q_ARG(QString, QStringLiteral("@a:x")),
+            Q_ARG(QString, QStringLiteral("DEV1")), Q_ARG(int, 0),
+            Q_ARG(QString, key));
+        QCOMPARE(call.parkedKeyCountForTest(), 1);
+
+        // It survives an ordinary state change; only teardown and the TTL
+        // may remove it.
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QCOMPARE(call.parkedKeyCountForTest(), 1);
+    }
+
+    // AND A MALFORMED KEY NEVER TAKES A SLOT, so a member cannot evict a
+    // legitimate peer's key by sending rubbish.
+    void aMalformedKeyIsRefusedBeforeItCanBeParked()
+    {
+        SfuCallController call;
+        const auto park = [&call](const QString &device, int index,
+                                  const QString &b64) {
+            QMetaObject::invokeMethod(
+                &call, "onMediaKeyReceived", Qt::DirectConnection,
+                Q_ARG(QString, QString()),
+                Q_ARG(QString, QStringLiteral("@a:x")),
+                Q_ARG(QString, device), Q_ARG(int, index), Q_ARG(QString, b64));
+        };
+        const QString good = QString::fromUtf8(QByteArray(32, 'k').toBase64());
+        park(QStringLiteral("DEV1"), 0, good);
+        QCOMPARE(call.parkedKeyCountForTest(), 1);
+
+        // Out of range index, oversized payload, and a key of a length no
+        // cryptor accepts: none of them may consume a slot.
+        park(QStringLiteral("DEV2"), 99, good);
+        park(QStringLiteral("DEV3"), 0, QString(300, QLatin1Char('A')));
+        park(QStringLiteral("DEV4"), 0,
+             QString::fromUtf8(QByteArray(7, 'k').toBase64()));
+        QCOMPARE(call.parkedKeyCountForTest(), 1);
+    }
+
+    // ONE SLOT PER (sender, device, index): a peer re-sending cannot grow the
+    // list, and no sender can crowd out another.
+    void oneSenderCannotCrowdOutAnothersParkedKey()
+    {
+        SfuCallController call;
+        const QString key = QString::fromUtf8(QByteArray(32, 'k').toBase64());
+        const auto park = [&call, &key](const QString &sender, int index) {
+            QMetaObject::invokeMethod(
+                &call, "onMediaKeyReceived", Qt::DirectConnection,
+                Q_ARG(QString, QString()), Q_ARG(QString, sender),
+                Q_ARG(QString, QStringLiteral("DEV")), Q_ARG(int, index),
+                Q_ARG(QString, key));
+        };
+        park(QStringLiteral("@victim:x"), 0);
+        QCOMPARE(call.parkedKeyCountForTest(), 1);
+        // A flood from one sender: repeats replace, and that device is capped.
+        for (int i = 0; i < 40; ++i)
+            park(QStringLiteral("@flood:x"), i % 16);
+        QVERIFY2(call.parkedKeyCountForTest() <= 8,
+                 qPrintable(QStringLiteral("parked=%1")
+                                .arg(call.parkedKeyCountForTest())));
+        // The victim's key is still there. FIFO over one list lost it.
+        QVERIFY(call.hasParkedKeyForTest(QStringLiteral("@victim:x")));
+    }
+
     // THIS SUITE WRITES SETTINGS, SO IT MUST NOT WRITE THE USER'S.
     //
     // It had no isolation at all, and the volume tests below made that

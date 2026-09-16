@@ -294,6 +294,28 @@ void SfuCallController::setClient(MatrixClient *client)
             &SfuCallController::onSfuJoined);
     connect(m_client, &MatrixClient::sfuParticipantsChanged, this,
             &SfuCallController::onSfuParticipants);
+    // THE SFU'S OWN ANSWER TO "DID YOU ACCEPT MY TRACK?", AND NOTHING HAS
+    // EVER LISTENED TO IT.
+    //
+    // `sfuAddTrack` DECLARES a track; LiveKit replies with TrackPublished
+    // carrying the sid it assigned to our cid, and only then is the track
+    // real on the server. rust/src/sfu.rs has emitted that since the
+    // signalling round and `RustSdkMatrixClient` has re-emitted it as
+    // `sfuTrackPublished`, with NO consumer anywhere in this tree — so a
+    // track that was declared and never published was indistinguishable,
+    // from every log this client writes, from one that is carrying audio to
+    // everyone. That is the shape of "I can hear Element and nobody can hear
+    // me", and it cost a full day on 2026-09-16 because the question could
+    // not be asked. Same family as `refreshIndexStats()` and
+    // `fetch_details_for_event`: grep for the CALLER, not the definition.
+    connect(m_client, &MatrixClient::sfuTrackPublished, this,
+            [this](const QString &cid, const QString &sid) {
+                m_publishedTrackSids.insert(cid, sid);
+                qCInfo(lcSfuCall)
+                    << "sfu published our track kind="
+                    << (cid == m_audioCid ? "microphone" : "other")
+                    << "sid=" << sid;
+            });
     connect(m_client, &MatrixClient::sfuSpeakersChanged, this,
             &SfuCallController::onSfuSpeakers);
     // The bridge has emitted this since the interop round and NOBODY was
@@ -477,6 +499,18 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
                 // The per-tile mark reads through mediaBlockedFor(), which
                 // the participant list re-evaluates on this signal.
                 Q_EMIT participantsChanged();
+            });
+    // OUR OWN MICROPHONE, answered by measurement rather than by assumption.
+    // The engine reports a capture that has delivered nothing audible for its
+    // whole window; the call UI says so, because the person who cannot be
+    // heard is the only one who can fix it and the only one who cannot tell.
+    connect(m_engine, &SfuMediaEngine::localAudioSilent, this,
+            [this](bool silent, double peakDb) {
+                Q_UNUSED(peakDb);
+                if (m_microphoneSilent == silent)
+                    return;
+                m_microphoneSilent = silent;
+                Q_EMIT microphoneSilentChanged();
             });
 #else
     Q_UNUSED(engine);
@@ -1582,6 +1616,18 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
         m_blockedStreams.clear();
         Q_EMIT remoteMediaBlockedChanged();
     }
+    // Nor must the microphone notice, for the same reason.
+    if (m_microphoneSilent) {
+        m_microphoneSilent = false;
+        Q_EMIT microphoneSilentChanged();
+    }
+    // NOT CLEARED HERE — that is what defeated the whole fix. A peer already
+    // in the room sends its key the moment it sees our membership, which is
+    // BEFORE join() runs; clearing on join threw away exactly the keys this
+    // list exists to keep, so applyParkedKeys() was provably reached with an
+    // empty list on the ordinary path. Only aged entries go; teardown()
+    // clears the rest, so key material still dies with the call.
+    expireParkedKeys();
     m_speaking.clear();
     m_speakingLevel.clear();
     m_connectionQuality.clear();
@@ -1594,6 +1640,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     if (m_stageState)
         m_stageState->clear();
     m_publishedTrackIds.clear();
+    m_publishedTrackSids.clear();
     // The per-call MAP is dropped; the PREFERENCE is not. Share ids never
     // repeat, so this map would only accumulate one dead entry per share ever
     // seen. What the user chose now lives under the OWNER in settings
@@ -1970,6 +2017,9 @@ void SfuCallController::onSfuJoined(const QString &identity,
         publishTracks();
     }
     setState(State::Connecting);
+    // The peer already in the room may have sent its key before we got here;
+    // those were parked rather than discarded and this is where they land.
+    applyParkedKeys();
     Q_EMIT participantsChanged();
     // The key is minted inside publishTracks(), before the first frame can
     // be encrypted — not here, or we would distribute two in a row.
@@ -2002,6 +2052,21 @@ void SfuCallController::publishTracks()
     m_engine->publishAudio(audioCid);
     m_audioCid = audioCid;
     m_publishedTrackIds.append(audioCid);
+    // DECLARED IS NOT PUBLISHED. If LiveKit has not answered within this
+    // window our audio is going nowhere, however healthy the local counters
+    // look — and the local counters look healthy either way, because they
+    // are taken upstream of the transport.
+    QTimer::singleShot(8000, this, [this, audioCid] {
+        if (!active() || m_audioCid != audioCid)
+            return;
+        if (m_publishedTrackSids.contains(audioCid))
+            return;
+        qCWarning(lcSfuCall)
+            << "THE SFU NEVER CONFIRMED OUR MICROPHONE TRACK: it was declared"
+            << "8s ago and no TrackPublished has come back, so nothing we"
+            << "encode is being forwarded to anyone and every local counter"
+            << "will still say the call is healthy.";
+    });
 
     if (m_cameraOn)
         startCameraCapture();
@@ -2320,6 +2385,96 @@ void SfuCallController::onEnginePublishFailed(const QString &cid,
 #endif
 }
 
+void SfuCallController::expireParkedKeys()
+{
+    if (m_parkedKeys.isEmpty() || !m_parkClock.isValid())
+        return;
+    const qint64 now = m_parkClock.elapsed();
+    const int before = m_parkedKeys.size();
+    m_parkedKeys.removeIf([now](const ParkedKey &k) {
+        return now - k.arrivedMs > kParkedKeyTtlMs;
+    });
+    if (m_parkedKeys.size() != before) {
+        qCInfo(lcSfuCall) << "parked media keys expired count="
+                          << (before - m_parkedKeys.size());
+    }
+}
+
+void SfuCallController::parkMediaKey(const QString &roomId,
+                                     const QString &sender,
+                                     const QString &deviceId, int index,
+                                     const QString &keyBase64)
+{
+    if (!m_parkClock.isValid())
+        m_parkClock.start();
+    expireParkedKeys();
+    const qint64 now = m_parkClock.elapsed();
+
+    // ONE SLOT PER (sender, device, index): a re-send replaces, it does not
+    // accumulate, and a sender cannot consume the list with repeats.
+    for (ParkedKey &k : m_parkedKeys) {
+        if (k.sender == sender && k.deviceId == deviceId && k.index == index) {
+            k.roomId = roomId;
+            k.keyBase64 = keyBase64;
+            k.arrivedMs = now;
+            return;
+        }
+    }
+    // Then a per-DEVICE cap, so one peer rotating keys cannot fill the list.
+    const auto countFor = [this](const QString &s, const QString &d) {
+        int n = 0;
+        for (const ParkedKey &k : m_parkedKeys) {
+            if (k.sender == s && k.deviceId == d)
+                ++n;
+        }
+        return n;
+    };
+    while (countFor(sender, deviceId) >= kMaxParkedKeysPerDevice) {
+        for (int i = 0; i < m_parkedKeys.size(); ++i) {
+            if (m_parkedKeys.at(i).sender == sender
+                && m_parkedKeys.at(i).deviceId == deviceId) {
+                m_parkedKeys.removeAt(i);
+                break;
+            }
+        }
+    }
+    // And a total cap whose eviction falls on whoever holds the MOST, never
+    // on the one key some other peer parked. FIFO over a single list let any
+    // member evict a legitimate peer by sending eight of their own.
+    while (m_parkedKeys.size() >= kMaxParkedKeys) {
+        int victim = 0;
+        int worst = -1;
+        for (int i = 0; i < m_parkedKeys.size(); ++i) {
+            const int n = countFor(m_parkedKeys.at(i).sender,
+                                   m_parkedKeys.at(i).deviceId);
+            if (n > worst) {
+                worst = n;
+                victim = i;
+            }
+        }
+        m_parkedKeys.removeAt(victim);
+    }
+    m_parkedKeys.append(
+        ParkedKey{roomId, sender, deviceId, index, keyBase64, now});
+}
+
+void SfuCallController::applyParkedKeys()
+{
+    expireParkedKeys();
+    if (m_parkedKeys.isEmpty())
+        return;
+    const QList<ParkedKey> pending = m_parkedKeys;
+    // Cleared FIRST. onMediaKeyReceived() parks again when it cannot apply,
+    // and replaying into a list we are still iterating would loop.
+    m_parkedKeys.clear();
+    qCInfo(lcSfuCall) << "replaying media keys that arrived before the call"
+                      << "was active count=" << pending.size();
+    for (const ParkedKey &k : pending) {
+        onMediaKeyReceived(k.roomId.isEmpty() ? m_roomId : k.roomId, k.sender,
+                           k.deviceId, k.index, k.keyBase64);
+    }
+}
+
 void SfuCallController::onMediaKeyReceived(const QString &roomId,
                                             const QString &sender,
                                             const QString &claimedDeviceId,
@@ -2333,11 +2488,17 @@ void SfuCallController::onMediaKeyReceived(const QString &roomId,
     qCInfo(lcSfuCall) << "media key received index=" << keyIndex
                       << "forThisRoom=" << (roomId == m_roomId)
                       << "active=" << active();
-    if (!active() || roomId != m_roomId)
-        return;
-#ifdef HAVE_LIGHTNING_WEBRTC
-    if (!m_engine)
-        return;
+    // VALIDATED AND PARKED OUTSIDE THE WEBRTC GUARD, deliberately. None of
+    // this needs GStreamer — it is bounds-checking and a bounded list — and
+    // §16 records what guarded symbols cost this lane more than once. It also
+    // makes the behaviour reachable from `call-controller-test`, which does
+    // not define HAVE_LIGHTNING_WEBRTC; the first version of these tests
+    // failed for exactly that reason and nothing else.
+    //
+    // VALIDATED BEFORE ANYTHING IS KEPT, parking included. A parked entry is
+    // still a slot, and a member who can send to-device messages could
+    // otherwise fill the list with malformed keys and push out the one that
+    // mattered.
     if (keyIndex < 0 || keyIndex > 15)
         return;
     // Sender-chosen bytes. Bounded before decoding, then length-checked:
@@ -2357,6 +2518,34 @@ void SfuCallController::onMediaKeyReceived(const QString &roomId,
                              << raw.size();
         return;
     }
+
+    if (!active() || roomId != m_roomId) {
+        // A KEY THAT ARRIVES BEFORE WE ARE IN THE CALL IS NOT A KEY TO THROW
+        // AWAY, and throwing it away is what this used to do.
+        //
+        // The peer already in the room sends its media key the moment it sees
+        // our membership, which can be before this controller knows which
+        // room it is joining at all. Measured 2026-09-16: THREE keys per call
+        // arrived with `active= false` and `forThisRoom= false` — the room id
+        // was not yet set — and nothing re-sends them, so the first seconds
+        // of every call dropped the far end's frames for want of a key that
+        // had already been delivered. The badge that then said "media from
+        // someone here cannot be decrypted" was reporting a fault we had
+        // caused ourselves.
+        //
+        // matrix-js-sdk parks exactly this case
+        // (`keysWithoutMatchingRTCMembership`). This is the same idea,
+        // bounded three ways: an age limit, ONE SLOT PER (sender, device,
+        // index) so a flood cannot displace a legitimate peer's key, and a
+        // total cap whose eviction falls on the sender holding the most.
+        // Key material stays in memory, is never logged, and dies with the
+        // call.
+        parkMediaKey(roomId, sender, claimedDeviceId, keyIndex, keyBase64);
+        return;
+    }
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_engine)
+        return;
     // Keys live ONLY in the engine's cryptor, which is the only thing that
     // needs them: never stored, never logged, never in QML.
     //
@@ -2392,7 +2581,9 @@ void SfuCallController::onMediaKeyReceived(const QString &roomId,
     // If the participant list already names their sid, bind it now.
     noteParticipantIdentities();
 #else
-    Q_UNUSED(keyIndex); Q_UNUSED(keyBase64);
+    Q_UNUSED(sender);
+    Q_UNUSED(claimedDeviceId);
+    Q_UNUSED(raw);
 #endif
 }
 
@@ -3136,6 +3327,13 @@ void SfuCallController::teardown(State finalState, const QString &error)
         m_blockedStreams.clear();
         Q_EMIT remoteMediaBlockedChanged();
     }
+    // Nor must the microphone notice, for the same reason.
+    if (m_microphoneSilent) {
+        m_microphoneSilent = false;
+        Q_EMIT microphoneSilentChanged();
+    }
+    // Key material never outlives the call it was sent for.
+    m_parkedKeys.clear();
     m_speaking.clear();
     m_speakingLevel.clear();
     m_connectionQuality.clear();
@@ -3150,6 +3348,7 @@ void SfuCallController::teardown(State finalState, const QString &error)
     if (m_stageState)
         m_stageState->clear();
     m_publishedTrackIds.clear();
+    m_publishedTrackSids.clear();
     // The per-call MAP is dropped; the PREFERENCE is not. Share ids never
     // repeat, so this map would only accumulate one dead entry per share ever
     // seen. What the user chose now lives under the OWNER in settings

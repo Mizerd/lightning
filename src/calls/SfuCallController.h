@@ -59,6 +59,7 @@
 //     late answer from a call the user already left cannot resurrect it.
 #pragma once
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
 #include <QPointer>
@@ -134,6 +135,14 @@ class SfuCallController : public QObject
     /// "fine" is not, and the badge said both. B026.
     Q_PROPERTY(bool remoteMediaBlocked READ remoteMediaBlocked
                    NOTIFY remoteMediaBlockedChanged)
+    /// OUR OWN CAPTURE IS PUBLISHING SILENCE.
+    ///
+    /// The mirror image of `remoteMediaBlocked`, and it went unbuilt for
+    /// longer: nothing in this client could tell a live microphone from a
+    /// dead one, because every counter downstream of the encoder treats
+    /// silence and speech identically. See SfuMediaEngine::localAudioSilent.
+    Q_PROPERTY(bool microphoneSilent READ microphoneSilent
+                   NOTIFY microphoneSilentChanged)
     /// NOTIFY is the MODEL's own countChanged, forwarded, and not
     /// `participantsChanged`. This reader now answers out of
     /// `CallParticipantModel::rowCount()`, and the model is rebuilt from
@@ -307,6 +316,7 @@ public:
     /// True only when every frame we publish is encrypted. Never optimistic.
     bool mediaEncrypted() const { return m_mediaEncrypted; }
     bool remoteMediaBlocked() const { return !m_blockedStreams.isEmpty(); }
+    bool microphoneSilent() const { return m_microphoneSilent; }
     /// Whether THIS participant's media is the blocked one, for a per-tile
     /// mark. Empty identity answers false.
     Q_INVOKABLE bool mediaBlockedFor(const QString &identity) const;
@@ -712,6 +722,19 @@ public:
             m_publishedTrackIds.append(cid);
     }
     QString shareAudioCidForTest() const { return m_shareAudioCid; }
+    /// Test-only: how many media keys are parked waiting for the call to
+    /// start. The bound and the replay are both invisible without it, and
+    /// the first cut of this feature was PROVABLY a no-op because join()
+    /// cleared the list before applyParkedKeys() could ever see it.
+    int parkedKeyCountForTest() const { return m_parkedKeys.size(); }
+    bool hasParkedKeyForTest(const QString &sender) const
+    {
+        for (const ParkedKey &k : m_parkedKeys) {
+            if (k.sender == sender)
+                return true;
+        }
+        return false;
+    }
     /// Put the controller exactly where a real `join()` leaves it while the
     /// homeserver decides: state Preparing, the room and focus recorded, and
     /// a REAL `rtcPublishMembership` in flight, whose op id is returned so
@@ -749,6 +772,7 @@ Q_SIGNALS:
     void stateChanged();
     void mediaStateChanged();
     void remoteMediaBlockedChanged();
+    void microphoneSilentChanged();
     void participantsChanged();
     /// Forwarded from CallParticipantModel::countChanged. See the property.
     void participantCountChanged();
@@ -1155,6 +1179,7 @@ private:
     // Cleared per stream when one of its frames decrypts again, and wholly
     // on teardown, so a badge cannot outlive the call that raised it.
     QSet<QString> m_blockedStreams;
+    bool m_microphoneSilent = false;
     /// Whether the ROOM is encrypted, so call media must be too. Captured at
     /// join from the tri-state the client reports, and UNKNOWN fails closed
     /// to true — a call in a room we cannot prove is unencrypted encrypts.
@@ -1243,6 +1268,38 @@ private:
     QTimer m_retractRetryTimer;
     /// Track ids we published, so leave can unpublish them.
     QStringList m_publishedTrackIds;
+    /// cid -> the sid LiveKit assigned, filled from its TrackPublished
+    /// reply. A cid that never appears here was declared and never published.
+    QHash<QString, QString> m_publishedTrackSids;
+
+    /// A media key delivered before this controller was in the call. Held in
+    /// memory only and replayed on join; see onMediaKeyReceived().
+    struct ParkedKey {
+        QString roomId;
+        QString sender;
+        QString deviceId;
+        int index = 0;
+        QString keyBase64;
+        /// Monotonic, from m_parkClock. Wall-clock milliseconds would make
+        /// the age limit a lie across an NTP step.
+        qint64 arrivedMs = 0;
+    };
+    static constexpr int kMaxParkedKeys = 8;
+    /// At most two indices held for any one sending device, so no sender can
+    /// crowd out another's key.
+    static constexpr int kMaxParkedKeysPerDevice = 2;
+    /// A key nobody claimed within this long was not for a call we joined.
+    static constexpr qint64 kParkedKeyTtlMs = 120000;
+    QList<ParkedKey> m_parkedKeys;
+    QElapsedTimer m_parkClock;
+    /// Keep a validated key that arrived too early. Bounded; see the call site.
+    void parkMediaKey(const QString &roomId, const QString &sender,
+                      const QString &deviceId, int index,
+                      const QString &keyBase64);
+    /// Drop parked keys older than the TTL.
+    void expireParkedKeys();
+    /// Replay whatever arrived early, then forget it.
+    void applyParkedKeys();
     /// The published track id PER KIND. One list plus "unpublish the last
     /// one" cannot express this: with a camera and a screen share live at
     /// once, stopping either one took whichever was published second.
