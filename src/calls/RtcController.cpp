@@ -202,6 +202,33 @@ void RtcController::setRoomEncrypted(const QString &roomId, bool encrypted)
     const auto it = m_encryptedRooms.constFind(roomId);
     if (it != m_encryptedRooms.cend() && it.value() == encrypted)
         return;
+    // ENCRYPTION IS IRREVERSIBLE IN MATRIX, SO THIS RECORD ONLY EVER MOVES
+    // ONE WAY.
+    //
+    // `m.room.encryption` cannot be removed once set: the spec has no
+    // un-encrypt, and every client treats the flag as permanent. A read that
+    // says a room we already know to be encrypted is now PLAINTEXT is
+    // therefore not news, it is a stale or incomplete view -- and obeying it
+    // makes the next call join in the clear.
+    //
+    // Measured live 2026-09-16: the same room read encrypted on one run and
+    // unencrypted on the next, and the unencrypted run sent every frame as
+    // cleartext while the peer ran its decryptor over it. No audio arrived,
+    // and the peer's UI reported the sender as "not encrypted" -- a silent
+    // downgrade of a promise the user was given, which section 6 forbids
+    // outright.
+    //
+    // Refusing the downgrade is the conservative direction in both senses:
+    // the worst case is a call that insists on encryption in a room that
+    // genuinely is not encrypted, which fails LOUDLY and cannot leak.
+    if (!encrypted && it != m_encryptedRooms.cend() && it.value()) {
+        qCWarning(lcRtc)
+            << "refusing to downgrade a known-encrypted room to plaintext"
+            << "room=" << roomId
+            << "— encryption cannot be removed in Matrix, so this read is"
+            << "stale or incomplete; the call stays encrypted";
+        return;
+    }
     m_encryptedRooms.insert(roomId, encrypted);
     Q_EMIT sessionChanged(roomId);
 }

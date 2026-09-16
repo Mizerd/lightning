@@ -2778,6 +2778,30 @@ bool AppController::canStartCall(const QString &roomId) const
 
 bool AppController::startCall(const QString &roomId, bool withVideo)
 {
+    // RE-READ THE ROOM'S ENCRYPTION *NOW*, not at whatever moment this room
+    // was opened.
+    //
+    // setCurrentRoom() records this once on navigation, and the call then
+    // captured that value for its whole life. A snapshot taken minutes
+    // earlier -- or before the room's `m.room.encryption` had landed in a
+    // sync -- makes the call join CLEARTEXT in a room the user was told is
+    // encrypted. Measured live 2026-09-16: the same room logged
+    // `join begin encrypted= true` on one run and `encrypted= false` on the
+    // next, and on the false run every frame went out in the clear while the
+    // peer ran its decryptor over it -- audio that never arrived, and the
+    // peer's own UI reporting the sender as "not encrypted".
+    //
+    // The tri-state is unchanged and still fails CLOSED: not knowing means
+    // encrypted, because the honest failure is a refused call and never a
+    // silent downgrade (section 6).
+    if (!roomId.isEmpty() && m_rtc && m_roomList) {
+        const QVariantMap room = m_roomList->findRoom(roomId);
+        const bool known =
+            room.value(QStringLiteral("encryptionKnown")).toBool();
+        const bool encrypted =
+            room.value(QStringLiteral("encrypted")).toBool();
+        m_rtc->setRoomEncrypted(roomId, !known || encrypted);
+    }
     const QString lane = preferredCallLane(roomId);
     // The call path had NO logging at all, which is why "pressing call does
     // nothing / the app goes away" could not be diagnosed from a user's

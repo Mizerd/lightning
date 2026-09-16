@@ -3714,6 +3714,19 @@ if(BUILD_TESTING)
         add_test(NAME sync-message-row COMMAND sync-message-row-test)
         set_tests_properties(sync-message-row PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+        # A call must never quietly downgrade an encrypted room to cleartext.
+        # A stale room-list read said "not encrypted" for a room that was,
+        # and the call then published media in the clear while the peer ran
+        # its decryptor over it. Pure unit test: no network, no media.
+        qt_add_executable(call-encryption-state-test
+            tests/CallEncryptionStateTest.cpp
+        )
+        lightning_configure_qml_test(call-encryption-state-test)
+        target_include_directories(call-encryption-state-test PRIVATE src)
+        add_test(NAME call-encryption-state COMMAND call-encryption-state-test)
+        set_tests_properties(call-encryption-state PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
 
     # B011: a device whose published identity key is not its own can never
