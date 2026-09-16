@@ -42,6 +42,19 @@ struct DiffOutcome {
     QList<TimelineEvent> items;  // Appended / Prepended / Inserted / Changed / Reset
 };
 
+// The row kind for one bridge `msgtype` string — the Rust side's vocabulary
+// ("text", "notice", "emote", "image", "video", "audio", "file", "sticker",
+// "poll", "location", "state", "call", "encrypted", "redacted"), not Matrix's
+// `m.` names. `Unknown` for anything this client has no row for.
+//
+// SHARED ON PURPOSE. The live-timeline ingest and the sync `timeline_event`
+// path (RustSdkMatrixClient) both translate this field, and they had drifted:
+// the sync path knew notice and emote and called everything else a plain
+// text message, so a media row arriving from sync was typed TextMessage and
+// lost the wording, icon and preview that its real kind carries. Two
+// producers of one field must not disagree.
+TimelineEvent::Type rowTypeForMsgtype(const QString &msgtype);
+
 // Convert one Rust item payload into a TimelineEvent. Virtual rows
 // (date_divider / read_marker / timeline_start) map to the corresponding
 // TimelineEvent virtual types. Undecryptable rows get the localized

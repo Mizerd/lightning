@@ -3864,10 +3864,12 @@ pub unsafe extern "C" fn mx_rust_reload_room_timeline(
                             .unwrap_or("");
                         let content = value.get("content");
 
-                        let (is_encrypted, undecryptable, msgtype, body) =
+                        let (is_encrypted, undecryptable, msgtype, body,
+                             media_filename) =
                             if type_str == "m.room.encrypted" {
                                 undecryptable_count += 1;
-                                (true, true, "encrypted".to_owned(), String::new())
+                                (true, true, "encrypted".to_owned(),
+                                 String::new(), String::new())
                             } else if type_str == "m.room.message" {
                                 let mt = content
                                     .and_then(|c| c.get("msgtype"))
@@ -3878,16 +3880,34 @@ pub unsafe extern "C" fn mx_rust_reload_room_timeline(
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("")
                                     .to_owned();
-                                let kind = match mt {
-                                    "m.notice" => "notice",
-                                    "m.emote" => "emote",
-                                    _ => "text",
-                                }
-                                .to_owned();
+                                // A msgtype with no typed row keeps this
+                                // path's long-standing answer — the spec's
+                                // plain-text fallback, rendered as text —
+                                // while media msgtypes get their real kind.
+                                // See typed_message_row_kind.
+                                //
+                                // NOTE: a media row built here is KIND-ONLY.
+                                // This path emits no media_mxc, mimetype,
+                                // size or dimensions and never did, so the
+                                // row names a file it cannot fetch. Harmless
+                                // today because `reloadRoomTimeline` has no
+                                // callers (see its header comment — it is a
+                                // smoke-test helper); anything that revives
+                                // it must fill those fields too.
+                                let kind = typed_message_row_kind(mt)
+                                    .unwrap_or("text");
+                                let fname = media_filename_for_kind(
+                                    kind,
+                                    &bd,
+                                    content
+                                        .and_then(|c| c.get("filename"))
+                                        .and_then(|v| v.as_str()),
+                                );
+                                let kind = kind.to_owned();
                                 if is_decrypted {
                                     decrypted += 1;
                                 }
-                                (is_decrypted, false, kind, bd)
+                                (is_decrypted, false, kind, bd, fname)
                             } else {
                                 // Skip state / other event types on
                                 // this path — the live sync handles
@@ -3902,6 +3922,7 @@ pub unsafe extern "C" fn mx_rust_reload_room_timeline(
                                 "event_id": event_id,
                                 "sender": sender,
                                 "body": body,
+                                "media_filename": media_filename,
                                 "msgtype": msgtype,
                                 "timestamp_ms": ts_ms,
                                 "is_encrypted": is_encrypted,
@@ -10507,6 +10528,83 @@ fn save_persistent_session(
     Ok(())
 }
 
+/// The C++ row vocabulary for one `m.room.message` msgtype.
+///
+/// `None` means this client has no typed row for the msgtype; each caller
+/// keeps its own long-standing answer for that case rather than having one
+/// imposed here (the live sync drops it, the reload path renders it as text
+/// off the spec's plain-text fallback), because changing either is a separate
+/// decision from the one this function exists to make.
+///
+/// Why this exists at all: the live-sync handler matched `Text | Notice |
+/// Emote` and `_ => return`, so **an image, a video, a voice message or a
+/// file sent to a room with no timeline open produced no notification and no
+/// Activity row** — the whole event was dropped before it could be a row of
+/// any kind. Every consumer downstream had handled media correctly for
+/// versions; only this mapping had not.
+///
+/// **THE CLOSED SET THIS PRODUCES MATTERS TO A PREDICATE TWO LAYERS AWAY.**
+/// Between this and the two other `timeline_event` producers, the only
+/// `msgtype` strings that reach `RustSdkMatrixClient::handleTimelineEvent`
+/// are `text`, `notice`, `emote`, `image`, `video`, `audio`, `file`,
+/// `location` and `encrypted`. That path's `countsAsActivity` test excludes
+/// `StateChange` and `CallEvent`, so adding `"state"` or `"call"` here would
+/// silently stop those rows raising a room's last activity — and adding
+/// `"sticker"` or `"poll"` would newly let them. Do not extend this list
+/// without reading that predicate.
+pub(crate) fn typed_message_row_kind(msgtype: &str) -> Option<&'static str> {
+    Some(match msgtype {
+        "m.text" => "text",
+        "m.notice" => "notice",
+        "m.emote" => "emote",
+        "m.image" => "image",
+        "m.video" => "video",
+        "m.audio" => "audio",
+        "m.file" => "file",
+        "m.location" => "location",
+        _ => return None,
+    })
+}
+
+/// The `media_filename` a row of `kind` carries, matching the LIVE-TIMELINE
+/// producer (`rust/src/timeline.rs`) kind for kind, because two producers of
+/// one field must not disagree:
+///
+///  * `file` prefers MSC2530's explicit `filename` and falls back to the
+///    body — Element puts the CAPTION in the body and the real name in
+///    `filename`, so reading the body alone renames the attachment;
+///  * `image`, `video` and `audio` use the body, which is what those arms of
+///    the live producer do;
+///  * everything else — text-like rows and `location` — has no file. A
+///    location's body is the sender's own words ("Big Ben, London"), not a
+///    filename: `fill_location` keeps it as the BODY on purpose, and
+///    `EventPreview::oneLineSummary`, `NotificationManager` and
+///    `ActivityModel` all have no Location case and read `body`. Moving it
+///    would blank a room-list line, a desktop toast and an Activity row.
+///
+/// The body is carried as the body in every case, exactly as the live
+/// producer does — a media row there sets `body` AND `media_filename`.
+///
+/// AND THIS LIST HAS ITS OWN EXTENSION HAZARD, separate from the one on
+/// `typed_message_row_kind`: `"sticker"` falls to the empty arm here, while
+/// the live producer sets a sticker's `media_filename` from its body
+/// (`rust/src/timeline.rs`, the `Sticker` arm). Invisible today because
+/// `typed_message_row_kind` cannot produce `"sticker"` and
+/// `EventPreview::oneLineSummary` answers the constant "Sticker" for that
+/// kind regardless — but anything that adds a sticker row to the sync path
+/// must add an arm here too, or the two producers disagree again.
+pub(crate) fn media_filename_for_kind(
+    kind: &str,
+    body: &str,
+    explicit_filename: Option<&str>,
+) -> String {
+    match kind {
+        "file" => explicit_filename.unwrap_or(body).to_owned(),
+        "image" | "video" | "audio" => body.to_owned(),
+        _ => String::new(),
+    }
+}
+
 fn install_event_handlers(
     client: &Client,
     events: Arc<Mutex<VecDeque<String>>>,
@@ -10841,12 +10939,23 @@ fn install_event_handlers(
               encryption_info: Option<matrix_sdk::deserialized_responses::EncryptionInfo>| {
             let events = Arc::clone(&plaintext_events);
             async move {
-                let (kind, body) = match &ev.content.msgtype {
-                    MessageType::Text(content) => ("text", content.body.clone()),
-                    MessageType::Notice(content) => ("notice", content.body.clone()),
-                    MessageType::Emote(content) => ("emote", content.body.clone()),
-                    _ => return,
+                // See typed_message_row_kind: a msgtype with no typed row is
+                // dropped here, exactly as it always was. What is NEW is that
+                // media msgtypes now HAVE a typed row, so an image sent to a
+                // room with no timeline open finally notifies.
+                let Some(kind) = typed_message_row_kind(ev.content.msgtype())
+                else {
+                    return;
                 };
+                let body = ev.content.body().to_owned();
+                // Only File consults MSC2530's `filename`, because that is
+                // the only arm of the live producer that does.
+                let explicit_filename = match &ev.content.msgtype {
+                    MessageType::File(content) => content.filename.as_deref(),
+                    _ => None,
+                };
+                let media_filename =
+                    media_filename_for_kind(kind, &body, explicit_filename);
 
                 let is_encrypted = encryption_info.is_some();
                 // v0.6.0 checkpoint 12: notification-relevant metadata for
@@ -10874,6 +10983,7 @@ fn install_event_handlers(
                             "event_id": ev.event_id.to_string(),
                             "sender": ev.sender.to_string(),
                             "body": body,
+                            "media_filename": media_filename,
                             "msgtype": kind,
                             "timestamp_ms": u64::from(ev.origin_server_ts.get()),
                             "is_encrypted": is_encrypted,
@@ -16006,5 +16116,98 @@ mod conversation_recency_tests {
             "content": { "msgtype": "m.text", "body": "hello" },
         }));
         assert_eq!(conversation_timestamp_ms(&zero), None);
+    }
+}
+
+/// The bridge's one `m.room.message` msgtype mapping, and the filename rule
+/// that goes with it.
+///
+/// The case that matters is the media one: before these functions existed the
+/// live-sync handler matched `Text | Notice | Emote` and returned on
+/// everything else, so an image sent to a room with no timeline open produced
+/// no notification and no Activity row.
+#[cfg(test)]
+mod message_row_kind_tests {
+    use super::{media_filename_for_kind, typed_message_row_kind};
+
+    #[test]
+    fn text_like_msgtypes_keep_their_kinds() {
+        for (wire, kind) in
+            [("m.text", "text"), ("m.notice", "notice"), ("m.emote", "emote")]
+        {
+            assert_eq!(typed_message_row_kind(wire), Some(kind), "{wire}");
+        }
+    }
+
+    // THE REGRESSION. Every one of these used to fall through `_ => return`.
+    #[test]
+    fn every_media_msgtype_has_a_row_of_its_own() {
+        for (wire, kind) in [
+            ("m.image", "image"),
+            ("m.video", "video"),
+            ("m.audio", "audio"),
+            ("m.file", "file"),
+            ("m.location", "location"),
+        ] {
+            assert_eq!(typed_message_row_kind(wire), Some(kind), "{wire}");
+        }
+    }
+
+    // A verification request is a msgtype, and it is not a message anybody
+    // said. `None` leaves each caller its own long-standing answer rather
+    // than inventing a row kind here.
+    #[test]
+    fn a_msgtype_with_no_row_answers_none() {
+        for wire in [
+            "m.key.verification.request",
+            "m.server_notice",
+            "com.example.custom",
+            "",
+        ] {
+            assert_eq!(typed_message_row_kind(wire), None, "{wire}");
+        }
+    }
+
+    // ELEMENT PUTS THE CAPTION IN THE BODY AND THE REAL NAME IN `filename`
+    // (MSC2530), and only the File arm of the live producer consults it. A
+    // path that read the body alone would rename the attachment in the room
+    // list the moment the reader opened the room.
+    #[test]
+    fn a_file_prefers_its_explicit_filename_over_the_body() {
+        assert_eq!(
+            media_filename_for_kind("file", "here you go", Some("report.pdf")),
+            "report.pdf"
+        );
+        assert_eq!(
+            media_filename_for_kind("file", "report.pdf", None),
+            "report.pdf"
+        );
+    }
+
+    #[test]
+    fn image_video_and_audio_take_the_body_like_the_live_producer() {
+        for kind in ["image", "video", "audio"] {
+            assert_eq!(
+                media_filename_for_kind(kind, "cat.png", None),
+                "cat.png",
+                "{kind}"
+            );
+        }
+    }
+
+    // A LOCATION HAS NO FILE, AND ITS BODY IS THE SENDER'S OWN WORDS.
+    // `fill_location` keeps them as the BODY on purpose; EventPreview,
+    // NotificationManager and ActivityModel all have no Location case and
+    // read the body, so moving it here would blank a room-list line, a
+    // desktop toast and an Activity row at once.
+    #[test]
+    fn a_location_and_every_text_row_carry_no_filename() {
+        for kind in ["location", "text", "notice", "emote"] {
+            assert_eq!(
+                media_filename_for_kind(kind, "Big Ben, London", None),
+                "",
+                "{kind}"
+            );
+        }
     }
 }

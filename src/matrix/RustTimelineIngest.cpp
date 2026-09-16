@@ -52,7 +52,9 @@ QString boundedProfileName(const QString &name)
     return units >= name.size() ? name : name.left(units);
 }
 
-TimelineEvent::Type messageType(const QString &msgtype)
+} // namespace
+
+TimelineEvent::Type rowTypeForMsgtype(const QString &msgtype)
 {
     if (msgtype == QLatin1String("notice"))
         return TimelineEvent::Notice;
@@ -86,8 +88,6 @@ TimelineEvent::Type messageType(const QString &msgtype)
         return TimelineEvent::Notice;
     return TimelineEvent::Unknown;
 }
-
-} // namespace
 
 TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
 {
@@ -161,7 +161,7 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         item.value(QStringLiteral("timestamp_ms")).toDouble(0)));
     if (!e.timestamp.isValid())
         e.timestamp = QDateTime::currentDateTimeUtc();
-    e.type = messageType(item.value(QStringLiteral("msgtype")).toString());
+    e.type = rowTypeForMsgtype(item.value(QStringLiteral("msgtype")).toString());
 
     e.edited = item.value(QStringLiteral("edited")).toBool(false);
     e.redacted = item.value(QStringLiteral("redacted")).toBool(false);

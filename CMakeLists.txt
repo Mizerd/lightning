@@ -3700,6 +3700,20 @@ if(BUILD_TESTING)
         add_test(NAME rtc-bridge-payload COMMAND rtc-bridge-payload-test)
         set_tests_properties(rtc-bridge-payload PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+        # An image sent to a room with no timeline open produced no
+        # notification and no Activity row: the live-sync handler dropped
+        # every media msgtype, and the bridge's own private copy of the
+        # msgtype mapping called whatever survived a plain text message.
+        # Drives the real dispatcher; no FFI handle, no store, no network.
+        qt_add_executable(sync-message-row-test
+            tests/SyncMessageRowTest.cpp
+        )
+        lightning_configure_qml_test(sync-message-row-test)
+        target_include_directories(sync-message-row-test PRIVATE src)
+        add_test(NAME sync-message-row COMMAND sync-message-row-test)
+        set_tests_properties(sync-message-row PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
 
     # B011: a device whose published identity key is not its own can never

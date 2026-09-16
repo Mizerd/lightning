@@ -92,11 +92,17 @@ QDateTime timestampFromMs(qint64 ms)
 
 TimelineEvent::Type typeFromString(const QString &msgtype)
 {
-    if (msgtype == QLatin1String("notice"))
-        return TimelineEvent::Notice;
-    if (msgtype == QLatin1String("emote"))
-        return TimelineEvent::Emote;
-    return TimelineEvent::TextMessage;
+    // ONE mapping for the whole bridge — see rowTypeForMsgtype. This used to
+    // be a private copy that knew only notice and emote, so every media row
+    // that arrived through sync rather than through a live timeline was typed
+    // TextMessage: no "Sent an image", no Activity icon, no typed preview.
+    const TimelineEvent::Type type =
+        matrix::rust_timeline::rowTypeForMsgtype(msgtype);
+    // This path keeps its own long-standing answer for a kind it has no row
+    // for: a plain message rather than an Unknown row. The live-timeline
+    // ingest deliberately answers Unknown there, because it is rendering a
+    // real timeline and an unrecognised row must not masquerade as text.
+    return type == TimelineEvent::Unknown ? TimelineEvent::TextMessage : type;
 }
 
 QString previewFor(const TimelineEvent &event)
@@ -5449,6 +5455,14 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
     if (!timelineEvent.timestamp.isValid())
         timelineEvent.timestamp = QDateTime::currentDateTimeUtc();
     timelineEvent.type = typeFromString(obj.value(QStringLiteral("msgtype")).toString());
+    // A media row carries BOTH its body and its filename, exactly as the
+    // live-timeline payload does: `EventPreview::oneLineSummary` reads
+    // `mediaFilename` for image/video/audio/file and falls through to `body`
+    // for a location, which has no file and whose body is the sender's own
+    // words. Empty for a text row, and empty from an older bridge, in which
+    // case the preview degrades to "Image" / "Video" / "File" on its own.
+    timelineEvent.mediaFilename =
+        obj.value(QStringLiteral("media_filename")).toString();
     timelineEvent.status = TimelineEvent::Sent;
 
     // v0.5.0-prep+6: propagate the encryption metadata the Rust bridge
