@@ -1,5 +1,39 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-16 — calls audible both ways, and the send latency gone
+
+**PASS, on the maintainer's desktop, Lightning (source build) <-> Element Web
+(Brave), encrypted room, MatrixRTC via the LiveKit focus.**
+
+What he confirmed, in his words: "there was sound in element this time, i heard
+myself"; then, after the queue fix, "delay is good now, its almoast instant".
+Element -> Lightning audio was working throughout.
+
+What the run's own log shows, which is why this is a PASS and not a report:
+
+```
+publishing microphone: valve drop= false device-channels= 4 dsp= true level= true
+sfu published our track kind= microphone sid= "TR_AMSmcx8UZqzsri"
+microphone level peak= -3 dBFS
+frames encrypted stream= "" video= false count= 1000 dropped= 0
+rtp packets handed to webrtcbin video= false count= 500
+```
+
+WHAT THIS DOES NOT COVER, and none of it may be promoted without its own run:
+
+* ONE device, ONE platform: a Roland Rubix44 on PipeWire on NixOS. The
+  multi-input fix is scoped to `pipewiresrc` precisely because nothing else
+  was measured. Windows and macOS are NOT TESTED, and on Windows packages the
+  level meter did not even exist until this round staged `libgstlevel.dll`.
+* Lightning <-> Lightning and Lightning <-> any other MatrixRTC client
+  (Element Desktop, Element X, Sable) are NOT TESTED. Sable was read rather
+  than run: it carries `livekit-client`, `matrix-js-sdk` and `msc3401`
+  references, so it should interoperate, and that is code reading, not a test.
+* The latency improvement is the maintainer's ear, before and after, not a
+  measured figure. The `queue` default it fixes IS measured (1 s, non-leaky).
+* Encrypted camera and screen-share SENDING still does not carry, to anyone.
+  Receiving is fine. See the rtpvp8pay entry.
+
 ## 2026-09-16 — the Flathub build makes real calls (PASS, send direction)
 
 **Rokas, from the sandboxed Flathub build on the Fedora 44 laptop (Wayland),

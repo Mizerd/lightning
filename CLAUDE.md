@@ -1871,6 +1871,68 @@ Dockerfile, and `refreshIndexStats()` with no caller. **The cure is the same
 every time: assert the COUNT, not just the items** — a check that can come back
 silently short is the defect, not its symptom.
 
+**SILENCE ENCRYPTS EXACTLY LIKE SPEECH, AND EVERY COUNTER IN THIS ENGINE SAID
+THE CALL WAS HEALTHY FOR A WHOLE DAY (2026-09-16).** A call was reported
+inaudible in one direction and the crypto path was searched first and
+exhaustively — key indices, `targets=`, the adopt guard, resolved target
+devices, the Olm identity compared byte-for-byte against the server, RED
+wrapping, the to-device payload shape, room power levels, widget capabilities.
+Four real defects were found and fixed on the way and **none of them was the
+report**. `opusenc` turns a silent buffer into a real frame, the encrypt probe
+authenticates it and the far end decrypts it, so `frames encrypted ... count=
+1500 dropped= 0` with a green padlock and a connected transport is exactly what
+a call carrying nothing looks like. The capture chain now carries a `level`
+meter (`microphone level peak= N dBFS`, every 5 s, good news or bad), a
+sustained-silence warning and a call-header badge.
+
+**AND THAT COUNTER WAS MEASURED IN THE WRONG PLACE — it was quoted as proof of
+transmission for six hours and it is not.** `frames encrypted` sits on the
+ENCODER's src pad, upstream of the payloader, the capsfilter and webrtcbin. A
+second counter now sits on the publishing bin's own src pad — `rtp packets
+handed to webrtcbin`, the last point we own. **GENERALISE: a counter upstream
+of the transport says what was PRODUCED, never what was SENT**, and the two are
+one payloader apart. Three more instruments were missing beside it, and each
+had made the fault unaskable: `sfuTrackPublished` (LiveKit's own answer to "did
+you accept my track?") **had no consumer anywhere in the tree**, so a track
+declared and never published looked identical to one carrying audio to
+everyone; the mute VALVE had never been logged, so a muted capture and a
+stalled one were the same silence in every log this client writes; and a
+capture that produces nothing posts nothing, so a stall was invisible until a
+watchdog was given three seconds and a warning.
+
+**A MULTI-INPUT INTERFACE IS NOT A MICROPHONE, AND `channels=1` AVERAGES ITS
+DEAD INPUTS INTO YOUR VOICE.** A Roland Rubix44 presents FOUR unpositioned
+channels; the mic is on input 1. Asking the chain for mono propagated all the
+way back to the source, so PipeWire averaged four channels before a sample
+reached us: measured with the maintainer speaking, input 1 at **-21 dBFS**,
+inputs 2/3/4 at -86/-67/-92, chain output **-33 dBFS** — 20*log10(1/4) to two
+decimals. Fixed with a pinned channel-count capsfilter (`channel-mask=0`,
+UNPOSITIONED — without it `audioconvert` refuses the graph with
+`not-negotiated`) plus a mix-matrix taking input 1. **Stereo stays averaged on
+purpose**: see the Windows one-live-channel mic above. Honouring a device
+preference is itself a regression surface — before 0.9.4 every call used
+`autoaudiosrc` and followed the system default, which is why "it worked before
+0.9.0" was literally true.
+
+**A DEFAULT `queue` HOLDS ONE SECOND AND NEVER LEAKS IT.** `max-size-time`
+defaults to 1000000000 with `leaky=no`, so a live capture whose encoder falls
+behind once fills it and the backlog is permanent latency for the rest of the
+call. Reported as ~1 s Lightning->Element against ~0.2 s the other way, on the
+same SFU over the same network — the asymmetry was ours and it matched the
+queue's capacity. Any queue on a LIVE path needs an explicit bound and
+`leaky=downstream`.
+
+**A MEDIA KEY THAT ARRIVES BEFORE THE CALL IS ACTIVE IS NOT A KEY TO DISCARD.**
+The peer already in the room sends its key the moment it sees our membership,
+which can precede our own SFU session going active; `onMediaKeyReceived`
+returned on `!active()` and nothing re-sends. Measured: THREE keys dropped per
+call, and the badge that then said "media from someone here cannot be
+decrypted" was reporting a fault we had caused ourselves. Parked and replayed
+on join now, bounded and cleared on teardown, exactly as matrix-js-sdk does
+with `keysWithoutMatchingRTCMembership`.
+
+Full account in `docs/round-history.md`, 2026-09-16 (afternoon).
+
 **A WAIT LOOP WHOSE PATTERN MATCHES ITS OWN COMMAND LINE NEVER TERMINATES.**
 `while pgrep -f "ninja|ctest"; do sleep; done` matches the bash process running
 it, so it waits on itself forever; two background shells deadlocked this way in

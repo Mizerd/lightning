@@ -1,5 +1,80 @@
 # Round history
 
+## 2026-09-16 (afternoon) — the call nobody could hear, and four instruments that could not have found it
+
+**Reported:** "calls used to work fine and dandy, now they stink — i hear myself
+from element to lighting but not from ligthing to element." Live-validated FIXED
+the same day: audio both ways, and the send latency down from ~1 s to
+"almost instant".
+
+**It took a whole day and most of that was spent in the wrong subsystem.** The
+crypto path was searched first and exhaustively — key indices, `targets=`, the
+adopt guard, resolved target devices, the Olm identity compared byte-for-byte
+against the server, RED wrapping, the to-device payload shape, room power
+levels, widget capabilities, membership visibility. Four real defects were found
+and fixed on the way (`268afd9`, `4e40467`, `121ea36`, `13b6a57`, the cleartext
+downgrade being the one that mattered) and **not one of them was the report**.
+
+### What it actually was
+
+* **A multi-input capture device lost 12.04 dB to its own downmix.** A Roland
+  Rubix44 presents FOUR channels and publishes no channel-mask; the microphone
+  is on input 1 and inputs 2-4 are empty. The chain asked for `channels=1` and
+  that request propagated all the way back to the source, so PipeWire averaged
+  four channels before a sample reached us. Measured with the maintainer
+  speaking: input 1 at **-21 dBFS**, inputs 2/3/4 at -86/-67/-92, and the chain's
+  output at **-33 dBFS** — 20*log10(1/4) to two decimal places. Element takes the
+  input that has the audio, which is why the same device worked there, and why
+  "same device works on element just fine, has to be app issue" was exactly
+  right. Fixed with a pinned channel-count capsfilter (`channel-mask=0`,
+  UNPOSITIONED) plus an `audioconvert` mix-matrix taking input 1. Stereo is
+  deliberately untouched: a two-channel MICROPHONE is a microphone, and §16
+  already records a Windows mic with signal in one channel only where averaging
+  costs 6 dB and being quiet in both ears beats being absent from one.
+* **A default `queue` holds ONE SECOND and never leaks it.** `max-size-time`
+  defaults to 1000000000 with `leaky=no`, so a live capture whose encoder falls
+  behind once fills it and the backlog becomes permanent latency for the rest of
+  the call. Reported as ~1 s from Lightning to Element against ~0.2 s the other
+  way — same SFU, same network, so the asymmetry was ours, and it matched the
+  queue's capacity almost exactly. Now 100 ms, `leaky=downstream`.
+* **Media keys that arrived before the call was active were discarded.** The peer
+  already in the room sends its key the moment it sees our membership, which can
+  be before our own SFU session reports active. Measured: THREE keys dropped per
+  call, and nothing re-sends them. They are parked and replayed on join now,
+  bounded to 8 and cleared on teardown — the same thing matrix-js-sdk does with
+  `keysWithoutMatchingRTCMembership`.
+
+### The instruments, which are the durable part
+
+**SILENCE ENCRYPTS EXACTLY LIKE SPEECH.** `opusenc` turns a silent buffer into a
+real frame, the encrypt probe authenticates it, the far end decrypts it. A call
+capturing a dead device reports `frames encrypted ... count= 1500 dropped= 0`, a
+green padlock and a connected transport while nobody can hear a word. There is
+now a `level` meter in the capture chain logging `microphone level peak= N dBFS`
+every 5 s whatever it says, a sustained-silence warning, and a badge in the call
+header.
+
+**AND `frames encrypted` WAS MEASURED IN THE WRONG PLACE — it was quoted as proof
+of transmission for six hours and it is not.** The probe sits on the ENCODER's src
+pad, upstream of the payloader, the capsfilter and webrtcbin. A second counter now
+sits on the publishing bin's own src pad: `rtp packets handed to webrtcbin`, the
+last point we own. GENERALISE: a counter upstream of the transport says what was
+PRODUCED, never what was SENT.
+
+**`sfuTrackPublished` HAD NO CONSUMER ANYWHERE IN THE TREE.** LiveKit answers
+`AddTrackRequest` with the sid it assigned, `rust/src/sfu.rs` has emitted it since
+the signalling round and `RustSdkMatrixClient` re-emitted it — and nothing
+listened. So a track declared and never published was indistinguishable from one
+carrying audio to everyone. It is logged now, with an 8 s warning when the
+microphone track is never confirmed. Same family as `refreshIndexStats()` and
+`fetch_details_for_event`: **grep for the CALLER, not the definition.**
+
+**AND THE MUTE VALVE HAD NEVER BEEN LOGGED.** `drop=true` discards buffers before
+the encoder, so a muted capture and a stalled one are the same silence in every
+log this client writes — no level, no frames, no RTP, no error, while the SFU
+still accepts the track and the transport still connects. One run produced
+exactly that shape and it could not be told apart from a stall. Both say so now.
+
 ## 2026-09-16 — the room that loaded one message, and a bound that was wrong by exactly one
 
 The 2026-09-15 round fixed a room that rendered *"No messages here yet"* over a
