@@ -123,11 +123,18 @@ and folded into the v7 image build rather than costing its own rebuild.
 `Lightning/licenses/lightning-gstreamer/` — `gstreamer-1.0`,
 `gst-plugins-base-1.0`, `gst-plugins-bad-1.0`, `gst-plugins-rs`, `libnice`,
 `libsrtp`, `libvpx`, `mingw-runtime`, `opus`, `orc`,
-`webrtc-audio-processing`, `zlib` — and `gst-plugins-good-1.0` is not among
-them. That listing also settles the naming, which had been the one unverified
-part: the convention is `gst-plugins-<set>-1.0`, so the added name is right,
-and if it were wrong the `cp -a` fails loudly under `set -eu` at build time
-rather than shipping another gap.
+`webrtc-audio-processing`, `zlib` — and good's is not among them.
+
+**STILL OPEN, because the obvious name is not the name.** I inferred
+`gst-plugins-good-1.0` from its `base`/`bad` siblings and the build refused it:
+`cp: cannot stat '/tmp/gstreamer-sdk/share/licenses/gst-plugins-good-1.0'`. The
+failure was loud and cost one GStreamer layer, which is the right failure — but
+it also left the committed Dockerfile UNBUILDABLE, the same class of problem as
+the Qt pins, so it was reverted to the working set in the same session. Guessing
+again costs a 960 MB download per attempt, so the loop now **prints
+`ls -1 $src/share/licenses` before it copies**: the next build log names every
+directory the SDK ships, and the real name goes in from that listing rather than
+from another inference.
 
 
 ## 2026-09-16 — after 0.9.6
