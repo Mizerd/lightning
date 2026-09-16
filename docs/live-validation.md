@@ -1,5 +1,52 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-17 — VOICE DELAY, measured, and the queue fix proven on a shipped binary
+
+**PASS.** Until now the only evidence that 0.9.7 fixed the one-second send
+delay was the maintainer's ear ("delay is good now, almost instant"). This is a
+number, from the published AppImage, on two accounts in an encrypted call.
+
+| phase | one-way voice delay |
+|---|---|
+| baseline | **265.2 ms** |
+| after freezing the SENDER for 1.5 s | **268.1 ms** |
+| delta | **+2.9 ms** |
+
+**THE STALL IS THE EXPERIMENT; THE TONE IS ONLY THE RULER.** A default
+GStreamer `queue` is `max-size-time=1s leaky=no`: it adds nothing until
+something downstream falls behind, and then it fills and never drains. So a
+latency measurement on an idle machine reads the SAME on the fixed and unfixed
+trees, and a voice-delay check without an induced stall is decoration by this
+project's own standard. The sender is frozen with `SIGSTOP` and released with
+`SIGCONT` — chosen over a code hook precisely because it needs nothing from the
+build, so the same script discriminates between two SHIPPED binaries. On the
+unfixed tree the delta would be roughly +1000 ms and permanent for the rest of
+the call; here it recovers completely.
+
+**How the number is taken, because latency measurements lie when two clocks are
+compared.** A single sink, `DelayProbe`, receives BOTH a mirror of the burst as
+it enters the near microphone AND whatever the far client plays out. One
+recording therefore holds the same 150 ms burst twice and the gap between them
+is the delay. No wall clock is trusted and no two clocks are ever compared.
+
+**The budget, so the 265 ms is readable rather than alarming:** ~100 ms is
+`webrtcbin`'s receive jitter buffer, which is deliberate (`latency=100`); ~43 ms
+is the harness itself, two `pw-loopback` hops at a 1024/48000 quantum (recorded
+with the run, because an unpinned quantum moves this number by tens of ms);
+Opus frame plus lookahead is ~26 ms; the capture queue's own ceiling is 100 ms
+worst case and ~0 typical.
+
+**AND THE FIRST NUMBER THIS RIG PRODUCED WAS THE INSTRUMENT, NOT THE CALL.** It
+returned exactly 300.0 ms — which was the refractory period in my own onset
+detector. A burst still above threshold when that timer expired was counted a
+second time. **A result equal to a constant inside the instrument is the
+instrument.** Detection is a rising edge through a high threshold after falling
+below a low one now, which cannot manufacture an onset, and the same recording
+then read 227.7 ms.
+
+NOT COVERED: this is Linux to Linux. Per the maintainer, a delay claim needs
+three platforms with Windows mandatory; the other two are recorded separately.
+
 ## 2026-09-16 night — the camera DOES render, on Linux, measured not eyeballed
 
 **PASS for the render path, and it refutes the explanation I gave for Windows.**
