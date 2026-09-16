@@ -4410,6 +4410,24 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    // Response-harvested conversation recency (rust/src/lib.rs,
+    // harvest_room_activity). Timestamps only; it may raise a room's sort key
+    // and may change nothing else about it.
+    //
+    // roomUpdated, not roomsChanged: no room was added, removed or reordered
+    // in the registry — `order` is untouched — so the room-list model's
+    // coalesced per-room reconcile is exactly the right amount of work, and a
+    // structural refresh here would re-run avatar resolution for the whole
+    // list on every sync response that carried a message.
+    if (type == QLatin1String("room_activity")) {
+        const QStringList moved = matrix::rust_rooms::applyRoomActivity(
+            {m_rooms, m_roomOrder},
+            event.value(QStringLiteral("rooms")).toArray());
+        for (const QString &roomId : moved)
+            Q_EMIT roomUpdated(roomId);
+        return;
+    }
+
     if (type.startsWith(QLatin1String("room_list_"))
         && type != QLatin1String("room_list_mode")
         && type != QLatin1String("room_list_sync_state")

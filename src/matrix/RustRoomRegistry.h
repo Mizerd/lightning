@@ -67,6 +67,25 @@ void applySnapshot(Registry registry, const QJsonArray &rooms);
 // rather than corrupting the registry.
 bool applyRoomListDiff(Registry registry, const QJsonObject &event);
 
+// Apply a `room_activity` payload: response-harvested conversation recency,
+// `{ id, last_activity_ms }` per room. Returns the ids whose activity ACTUALLY
+// moved, so the caller signals only those and a quiet payload costs nothing.
+//
+// WHY A SECOND PRODUCER OF THIS FIELD EXISTS AT ALL. Every other room payload
+// derives `last_activity_ms` from matrix-sdk's lazily-computed
+// `Room::latest_event()`. When that value stops moving — and it can, for
+// several reasons, none of them visible from here — the room-list payload
+// keeps re-sending the same old stamp, `RoomInfo::raiseActivity` is monotonic
+// so nothing changes, and the row sits at a stale time and a stale position
+// until the user opens the room. This producer reads the sync responses
+// themselves and needs no SDK-side computation.
+//
+// It carries TIMESTAMPS ONLY — no preview text, no sender, no event id — so a
+// room can be ordered correctly by it while its preview still waits on the
+// SDK. Being monotonic, it can only ever agree with the other producer or
+// improve on it.
+QStringList applyRoomActivity(Registry registry, const QJsonArray &rooms);
+
 // Apply the removal half of a `space_list_reset`: `present` is the COMPLETE
 // set of Space ids the account is joined to, so a Space entry the map holds
 // and `present` does not is one the user has LEFT. Returns how many entries

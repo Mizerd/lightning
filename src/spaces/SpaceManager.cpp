@@ -5,6 +5,11 @@
 SpaceManager::SpaceManager(QObject *parent)
     : QAbstractListModel(parent)
 {
+    // See m_rebuildCoalesce's note: a batch of room updates must cost one
+    // rebuild, not one per room.
+    m_rebuildCoalesce.setSingleShot(true);
+    m_rebuildCoalesce.setInterval(0);
+    connect(&m_rebuildCoalesce, &QTimer::timeout, this, &SpaceManager::rebuild);
 }
 
 void SpaceManager::setClient(MatrixClient *client)
@@ -17,8 +22,10 @@ void SpaceManager::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::roomsChanged,
                 this, &SpaceManager::rebuild);
-        connect(m_client, &MatrixClient::roomUpdated,
-                this, &SpaceManager::rebuild);
+        // COALESCED, unlike roomsChanged below it. A per-room signal can
+        // arrive in a batch; a structural one cannot.
+        connect(m_client, &MatrixClient::roomUpdated, this,
+                [this](const QString &) { m_rebuildCoalesce.start(); });
         connect(m_client, &MatrixClient::loggedOut,
                 this, [this] {
             m_pendingChildAdds.clear(); // account isolation

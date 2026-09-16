@@ -260,6 +260,63 @@ bool applyRoomListDiff(Registry registry, const QJsonObject &event)
     return false;
 }
 
+QStringList applyRoomActivity(Registry registry, const QJsonArray &rooms)
+{
+    QStringList moved;
+    for (const auto &value : rooms) {
+        const QJsonObject obj = value.toObject();
+        const QString id = roomIdOf(obj);
+        if (id.isEmpty())
+            continue;
+        // ONLY A ROOM THE REGISTRY ALREADY KNOWS. This payload carries a
+        // timestamp and nothing else, so a row created from it would have no
+        // name, no membership and no avatar — and `order` is the SDK's index
+        // space, which nothing but a room-list diff may grow.
+        //
+        // AND THE STAMP IS THEN LOST, which an earlier version of this comment
+        // glossed by saying the room "gets its stamp from its own first
+        // payload". That payload's stamp is `room_ordering_timestamp_ms` —
+        // precisely the value this round proved can be 0 or stale, which is
+        // the whole reason the harvest exists. The Rust side holds a
+        // high-water mark, so nothing re-emits: a room that enters the
+        // registry AFTER its stamp was harvested keeps the stale value until
+        // somebody speaks in it again.
+        //
+        // Accepted rather than fixed, and the exposure is narrow: on the first
+        // response the SDK has just computed `latest_event_value` from that
+        // same response, so an ordinary cold start is fine. What is exposed is
+        // a room scrolled into the sliding window later. Closing it means
+        // `room_payload` taking the max of its own stamp and the harvested
+        // mark, which couples the payload builder to the sync loop's state —
+        // worth doing deliberately, not as a footnote to this one.
+        auto it = registry.rooms.find(id);
+        if (it == registry.rooms.end())
+            continue;
+        // TWO PRODUCERS WRITE THIS FIELD AND THEY USE OPPOSITE MECHANISMS.
+        // The C++ live path is a DENY-list over a `TimelineEvent` enum
+        // (`!isVirtual && != StateChange && != CallEvent`); the Rust harvest
+        // is an ALLOW-list of wire type names. Both are monotonic raises, so
+        // the effective policy is their UNION and the stricter side buys
+        // nothing wherever the looser one already raises — which is why this
+        // is benign today and why the new producer cannot make ordering worse.
+        //
+        // It is written down because it is FRAGILE, not because it is broken:
+        // that enum has already moved once (calls left `StateChange` for
+        // `CallEvent`, as its own comment records), the two rules live in two
+        // files and two languages, and only the Rust half has a test. A new
+        // row kind would start raising on one side and not the other, in
+        // silence.
+        const auto ms = static_cast<qint64>(
+            obj.value(QStringLiteral("last_activity_ms")).toDouble(0));
+        // raiseActivity is the one writer of the sort key and it is monotonic
+        // (see RoomInfo.h): an older stamp, an absent one, or a replay of the
+        // same one all answer false and move nothing.
+        if (it->raiseActivity(timestampFromMs(ms)))
+            moved.append(id);
+    }
+    return moved;
+}
+
 // A SPACE THE USER HAS LEFT IS ERASED, NOT BLANKED.
 //
 // `space_list_reset` is a COMPLETE list — Rust builds it from

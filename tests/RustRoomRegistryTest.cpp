@@ -22,6 +22,7 @@
 
 using matrix::rust_rooms::Registry;
 using matrix::rust_rooms::applyIndexReset;
+using matrix::rust_rooms::applyRoomActivity;
 using matrix::rust_rooms::applyRoomListDiff;
 using matrix::rust_rooms::applySnapshot;
 using matrix::rust_rooms::retireAbsentSpaces;
@@ -39,6 +40,25 @@ QJsonObject roomJson(const QString &id, const QString &name = QString())
     obj.insert(QStringLiteral("id"), id);
     obj.insert(QStringLiteral("name"), name.isEmpty() ? id : name);
     obj.insert(QStringLiteral("membership"), QStringLiteral("joined"));
+    return obj;
+}
+
+// `{ id, last_activity_ms }` — the whole shape of a room_activity entry.
+QJsonObject activityJson(const QString &id, qint64 ms)
+{
+    QJsonObject obj;
+    obj.insert(QStringLiteral("id"), id);
+    obj.insert(QStringLiteral("last_activity_ms"), static_cast<double>(ms));
+    return obj;
+}
+
+// A room payload that already carries a stamp, so a test can seed the
+// registry the way production does — through a room-list payload — rather
+// than by writing RoomInfo::lastActivity, which is not a public writer.
+QJsonObject roomJsonAt(const QString &id, qint64 ms)
+{
+    QJsonObject obj = roomJson(id);
+    obj.insert(QStringLiteral("last_activity_ms"), static_cast<double>(ms));
     return obj;
 }
 
@@ -638,6 +658,107 @@ private Q_SLOTS:
             QVERIFY(map.contains(roomId(i)));
         QVERIFY(map.contains(roomId(9)));
         QCOMPARE(order.size(), 3);
+    }
+
+    // THE REPORTED DEFECT, IN THE ORDER PRODUCTION PRODUCES IT.
+    //
+    // "the latest message isn't really loading sometimes on the room channel.
+    // So if you click it, it updates and moves that channel around when it
+    // realizes oh hey the last message wasn't 2 days ago it was 20 mins ago."
+    //
+    // The room-list payload is what goes stale, so the room-list payload is
+    // ingested FIRST here, still carrying the two-day-old stamp, and only then
+    // does the harvested stamp arrive. Handing the registry an already-correct
+    // room and then applying the activity would test the fix's intent instead
+    // of production's ordering.
+    void aHarvestedStampMovesARoomTheRoomListPayloadLeftStale()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        const qint64 twoDaysAgo  = 1'700'000'000'000LL;
+        const qint64 twentyMins  = 1'700'172'800'000LL;
+
+        applyIndexReset(registry, QJsonArray{ roomJsonAt(roomId(0), twoDaysAgo) });
+        QCOMPARE(map.value(roomId(0)).lastActivity.toMSecsSinceEpoch(), twoDaysAgo);
+
+        // The room list re-states what it knew — which is the stale value, over
+        // and over, for as long as the SDK's latest event does not move.
+        applyRoomListDiff(registry, [&] {
+            QJsonObject obj = diff(QStringLiteral("room_list_set"));
+            obj.insert(QStringLiteral("index"), 0);
+            obj.insert(QStringLiteral("room"), roomJsonAt(roomId(0), twoDaysAgo));
+            return obj;
+        }());
+        QCOMPARE(map.value(roomId(0)).lastActivity.toMSecsSinceEpoch(), twoDaysAgo);
+
+        const QStringList moved =
+            applyRoomActivity(registry, QJsonArray{ activityJson(roomId(0), twentyMins) });
+        QCOMPARE(moved, QStringList{ roomId(0) });
+        QCOMPARE(map.value(roomId(0)).lastActivity.toMSecsSinceEpoch(), twentyMins);
+    }
+
+    // The sort key has exactly one writer and it is monotonic. A replay of the
+    // same stamp, an older one, and a missing one are all "nothing happened" —
+    // and each must be reported as nothing happened, because the caller signals
+    // roomUpdated per returned id and a room list that reconciles on every sync
+    // response is the cost this return value exists to avoid.
+    void aStampThatDoesNotMoveTheRoomReportsNothing()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        const qint64 now = 1'700'172'800'000LL;
+        applyIndexReset(registry, QJsonArray{ roomJsonAt(roomId(0), now) });
+
+        QVERIFY(applyRoomActivity(registry, QJsonArray{ activityJson(roomId(0), now) }).isEmpty());
+        QVERIFY(applyRoomActivity(
+                    registry, QJsonArray{ activityJson(roomId(0), now - 3'600'000) }).isEmpty());
+        QVERIFY(applyRoomActivity(registry, QJsonArray{ activityJson(roomId(0), 0) }).isEmpty());
+        QCOMPARE(map.value(roomId(0)).lastActivity.toMSecsSinceEpoch(), now);
+    }
+
+    // A stamp for a room nobody has introduced yet must not conjure a row: it
+    // would have no name, no membership and no avatar, and `order` is the SDK's
+    // index space, which only a room-list diff may grow.
+    void aStampForAnUnknownRoomCreatesNothing()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        applyIndexReset(registry, rooms(2));
+        QVERIFY(applyRoomActivity(
+                    registry,
+                    QJsonArray{ activityJson(roomId(7), 1'700'172'800'000LL) }).isEmpty());
+        QVERIFY(!map.contains(roomId(7)));
+        QCOMPARE(map.size(), 2);
+        QCOMPARE(order.size(), 2);
+    }
+
+    // It carries a timestamp and nothing else: a room's name, membership,
+    // preview and position are untouched by it.
+    void aStampChangesTheSortKeyAndNothingElse()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        applyIndexReset(registry, QJsonArray{
+            roomJson(roomId(0), QStringLiteral("General")),
+            roomJson(roomId(1), QStringLiteral("Random")),
+        });
+        const RoomInfo before = map.value(roomId(1));
+
+        applyRoomActivity(registry, QJsonArray{ activityJson(roomId(1), 1'700'172'800'000LL) });
+
+        const RoomInfo after = map.value(roomId(1));
+        QCOMPARE(after.name, before.name);
+        QCOMPARE(after.membership, before.membership);
+        QCOMPARE(after.lastMessagePreview, before.lastMessagePreview);
+        QCOMPARE(order, (QStringList{ roomId(0), roomId(1) }));
     }
 };
 

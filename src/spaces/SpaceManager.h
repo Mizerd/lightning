@@ -6,6 +6,7 @@
 #include <QHash>
 #include <QList>
 #include <QObject>
+#include <QTimer>
 #include <QPair>
 #include <QSet>
 #include <QString>
@@ -260,6 +261,20 @@ private Q_SLOTS:
                                const QVariantMap &snapshot);
 
 private:
+    /// ONE rebuild per event-loop turn, however many rooms moved in it.
+    ///
+    /// `rebuild()` is a full `beginResetModel()`, an O(all rooms) copy out of
+    /// the client, and a transitive walk of every joined Space — and it was
+    /// wired DIRECTLY to `roomUpdated`, while `RoomListModel` and the tray
+    /// unread counter had both already coalesced the same signal. That was
+    /// survivable only because every existing emitter fired once per
+    /// event-loop turn for one room. The room-activity backstop is the first
+    /// BATCH emitter, so N moved rooms became N full model resets back to
+    /// back on the GUI thread — each one tearing down and rebuilding every
+    /// delegate in the Spaces rail. Coalescing here fixes it for every
+    /// producer rather than for the one that exposed it.
+    QTimer m_rebuildCoalesce;
+
     /// Forgets every roster and every in-flight request, and announces the
     /// ones that were known so a filter built on them re-opens.
     void dropSpaceRosters();

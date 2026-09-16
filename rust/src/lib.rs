@@ -11253,6 +11253,12 @@ async fn run_modern_sync(
         // Bounded latest-event registration state for this sync session.
         let latest_events = client.latest_events().await;
         let mut watched_latest: BTreeSet<OwnedRoomId> = BTreeSet::new();
+        // Response-harvested conversation recency — the backstop the room
+        // list's ordering stamp did not have. See harvest_room_activity.
+        // Owned by this loop, not shared: one task reads and writes it.
+        let mut room_updates_sub = client.subscribe_to_all_room_updates();
+        let mut room_updates_live = true;
+        let mut activity_stamps: HashMap<OwnedRoomId, u64> = HashMap::new();
 
         // Publish the service so room opens can (re)target the single
         // active-room subscription, then apply the room that is ALREADY
@@ -11289,6 +11295,46 @@ async fn run_modern_sync(
                                             &mut watched_latest,
                                             &mut forwarded_order).await;
                     enqueue_spaces(&events, &space_service, &client).await;
+                }
+                updates = room_updates_sub.recv(), if room_updates_live => {
+                    match updates {
+                        Ok(updates) => {
+                            let moved = harvest_room_activity(
+                                &updates, &mut activity_stamps);
+                            if !moved.is_empty() {
+                                let rooms: Vec<serde_json::Value> = moved
+                                    .into_iter()
+                                    .map(|(room_id, ts)| json!({
+                                        "id": room_id.to_string(),
+                                        "last_activity_ms": ts,
+                                    }))
+                                    .collect();
+                                enqueue(&events, json!({
+                                    "type": "room_activity", "rooms": rooms
+                                }));
+                            }
+                        }
+                        // A LAGGED BROADCAST RECEIVER IS A GAP, NOT AN END —
+                        // and treating one as an end is exactly the matrix-sdk
+                        // defect this whole backstop exists to survive
+                        // (matrix-sdk-0.18.0/src/latest_events/mod.rs: its
+                        // `listen_to_updates` folds `Lagged` into "channel has
+                        // been closed" and breaks out of the task for good, so
+                        // one burst past the 128-slot event-cache channel stops
+                        // every room's latest event being recomputed for the
+                        // rest of the session). Keep reading: the next response
+                        // re-stamps every room it carries, and the stamps are a
+                        // high-water mark, so a dropped batch costs at most one
+                        // response's worth of recency.
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        // Cannot happen while this loop holds the Client that
+                        // owns the sender; guarded rather than trusted, because
+                        // a closed receiver returns IMMEDIATELY and would spin
+                        // this select at 100% CPU.
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            room_updates_live = false;
+                        }
+                    }
                 }
                 changed = ignore_list_sub.next() => {
                     if let Some(users) = changed {
@@ -12029,39 +12075,146 @@ async fn enqueue_spaces(
 /// The room-list ordering stamp, in milliseconds.
 ///
 /// Deliberately the SDK's LatestEvent — the message-like event the room-list
-/// preview is built from — and only then `Room::latest_event_timestamp()` as a
-/// fallback.
-///
-/// `latest_event_timestamp()` is the newest event of ANY kind. Opening a room
-/// loads its timeline, which brings state events (a member joining or leaving)
-/// into that answer, so the room jumps up the list; unloading the timeline
-/// takes them back out and it drops again. That is the reported "clicking an
-/// older room moves it upwards, then it drops back down to where it was", and
-/// the tester's own guess — "hidden room updates, like users leaving or
-/// joining" — was right. A room's position must follow what was SAID in it.
-/// The room list's sort key: when a real CONVERSATION last happened here.
+/// preview is built from. A room's position must follow what was SAID in it:
+/// ordering by the newest event of ANY kind makes a room jump for a member
+/// joining or a topic edit, which is the reported "clicking an older room
+/// moves it upwards, then it drops back down to where it was".
 ///
 /// `LatestEventValue` is the SDK's room-list preview value, so every variant
 /// of it is already message-like — that is the whole reason it exists, and it
 /// is what makes this a conversation timestamp rather than an "anything
-/// happened" one.
+/// happened" one. It deliberately does not match only `Remote`: the three
+/// `Local*` variants are the user's OWN message on its way out, and dropping
+/// through on those meant a room you had just spoken in did not rise until
+/// the echo came back from the server.
 ///
-/// Two things this deliberately does NOT do. It does not match only `Remote`:
-/// the three `Local*` variants are the user's OWN message on its way out, and
-/// dropping through on those meant a room you had just spoken in did not rise
-/// until the echo came back from the server. And it does not reach for
-/// `latest_event_timestamp()` except as a last resort, because that one is the
-/// latest event of ANY KIND — a membership change, a topic edit, a room whose
-/// timeline was loaded and brought state events into view. Ordering a
-/// conversation list by that makes rooms jump for things nobody said.
+/// **THERE IS NO SECOND SOURCE HERE, AND THE ONE THIS USED TO NAME WAS THE
+/// SAME FIELD.** Until 2026-09-16 this fell back to
+/// `Room::latest_event_timestamp()` "as a last resort", described as the
+/// newest event of ANY kind. In matrix-sdk-base 0.18.0 that method is
+/// `self.info.read().latest_event_value.timestamp()`
+/// (matrix-sdk-base-0.18.0/src/room/latest_event.rs:30) — literally the
+/// timestamp of the value already passed in as `latest`. So the fallback
+/// could only ever be reached when it was `None` too, and the whole branch
+/// was dead code: this function answers 0 whenever the SDK has no computed
+/// latest event for the room, and 0 crosses the FFI as an INVALID QDateTime
+/// that `RoomInfo::raiseActivity` ignores.
+///
+/// The real backstop is therefore NOT here. It is `room_activity` (see
+/// `harvest_room_activity`), harvested from the sync responses themselves,
+/// which needs no SDK-side computation and cannot go stale while messages
+/// are arriving.
 fn room_ordering_timestamp_ms(
     latest: &matrix_sdk_base::latest_event::LatestEventValue,
-    room: &Room,
 ) -> u64 {
-    if let Some(ts) = latest.timestamp() {
-        return u64::from(ts.get());
+    latest.timestamp().map(|ts| u64::from(ts.get())).unwrap_or(0)
+}
+
+/// Types whose arrival means somebody SAID something in a room.
+///
+/// An ALLOW-LIST on purpose. A deny-list would let every future event type
+/// bump a room by default, and this project has already paid for ordering a
+/// conversation list by "anything happened" twice: the member-join jump above,
+/// and the MatrixRTC membership churn that re-publishes one `m.call.member`
+/// per participant per MINUTE (filtered out of every timeline in
+/// `lightning_event_filter`).
+///
+/// It mirrors matrix-sdk's own notion of a suitable latest event
+/// (`filter_any_message_like_event_content`) with two deliberate differences:
+///
+///  * `m.room.encrypted` IS here and is NOT there. The SDK calls an
+///    undecrypted event "**explicitly** not suitable" because it cannot build
+///    a PREVIEW from it — which is right for a preview and wrong for a sort
+///    key. Somebody spoke; the room moved. This is a timestamp, not text.
+///  * `m.call.invite` / `m.rtc.notification` are NOT here although the SDK
+///    accepts them, because the C++ side already refuses to let a call row
+///    raise a room's activity (`TimelineEvent::CallEvent` in
+///    `RustSdkMatrixClient::handleTimelineEvent`). Two producers of one field
+///    must not disagree.
+const CONVERSATION_EVENT_TYPES: &[&str] = &[
+    "m.room.message",
+    "m.room.encrypted",
+    "m.sticker",
+    "m.poll.start",
+    "org.matrix.msc3381.poll.start",
+];
+
+/// The instant a conversation happened, for ONE raw sync timeline event, or
+/// `None` when the event is not something somebody said.
+///
+/// Pure so it is unit-testable — the harvest around it is not.
+pub(crate) fn conversation_timestamp_ms(
+    raw: &matrix_sdk::ruma::serde::Raw<
+        matrix_sdk::ruma::events::AnySyncTimelineEvent,
+    >,
+) -> Option<u64> {
+    // A STATE EVENT IS NEVER A CONVERSATION, whatever its type says. Checked
+    // FIRST and by the presence of the field rather than by type name, so a
+    // state event using one of the names below (`m.room.message` as a state
+    // event is nonsense but is not impossible to send) cannot slip through.
+    if raw
+        .get_field::<serde_json::Value>("state_key")
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return None;
     }
-    room.latest_event_timestamp().map(|ts| u64::from(ts.get())).unwrap_or(0)
+    let kind = raw.get_field::<String>("type").ok().flatten()?;
+    if !CONVERSATION_EVENT_TYPES.contains(&kind.as_str()) {
+        return None;
+    }
+    let ts = raw.get_field::<UInt>("origin_server_ts").ok().flatten()?;
+    let ts = u64::from(ts);
+    if ts == 0 { None } else { Some(ts) }
+}
+
+/// RESPONSE-HARVESTED RECENCY FOR THE SLIDING LANE.
+///
+/// The classic lane has had this since the Beeper report (see
+/// `run_classic_sync`) and the sliding lane had nothing equivalent: its ONLY
+/// recency source was `Room::latest_event()`, computed by matrix-sdk's lazy
+/// Latest Events API on a separate task — and there are several ways that
+/// value stops moving while messages keep arriving. Its listener task ends
+/// permanently on a single lagged broadcast receive (see the `Lagged` arm in
+/// `run_modern_sync`); it refuses to recompute from the event cache at all
+/// while the room holds an unsent local echo
+/// (matrix-sdk-0.18.0/src/latest_events/latest_event/mod.rs, the
+/// `buffer_of_values_for_local_events` early return); and an event it judges
+/// unsuitable for a PREVIEW — an undecrypted one above all — leaves the stamp
+/// on the last event it liked. Any of those, and the room-list payload keeps
+/// re-sending the SAME old stamp; `raiseActivity` is monotonic so it changes
+/// nothing, and the row sits at a stale time and a stale position until the
+/// user OPENS the room, whose timeline then supplies the real newest event.
+/// That is the reported "the last message wasn't 2 days ago, it was 20 mins
+/// ago".
+///
+/// This needs no SDK-side computation: the events are in the response that
+/// just arrived. `stamps` is the high-water mark per room, and only the rooms
+/// whose mark actually MOVED are returned, so a quiet response emits nothing.
+/// Timestamps only — no bodies, no senders, no event ids cross this path.
+fn harvest_room_activity(
+    updates: &matrix_sdk::sync::RoomUpdates,
+    stamps: &mut HashMap<OwnedRoomId, u64>,
+) -> Vec<(OwnedRoomId, u64)> {
+    let mut moved = Vec::new();
+    for (room_id, update) in &updates.joined {
+        let mut newest = 0u64;
+        for event in &update.timeline.events {
+            if let Some(ts) = conversation_timestamp_ms(event.raw()) {
+                newest = newest.max(ts);
+            }
+        }
+        if newest == 0 {
+            continue;
+        }
+        let entry = stamps.entry(room_id.clone()).or_default();
+        if newest > *entry {
+            *entry = newest;
+            moved.push((room_id.clone(), newest));
+        }
+    }
+    moved
 }
 
 async fn room_payload(room: &Room) -> serde_json::Value {
@@ -12095,7 +12248,7 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "topic": room.topic().unwrap_or_default(),
         "avatar_url": room.avatar_url().map(|url| url.to_string()).unwrap_or_default(),
         "last_message_preview": latest_event_preview_text(&latest_event),
-        "last_activity_ms": room_ordering_timestamp_ms(&latest_event, room),
+        "last_activity_ms": room_ordering_timestamp_ms(&latest_event),
         "unread_count": room.num_unread_notifications().max(notifications.notification_count),
         "highlight_count": room.num_unread_mentions().max(notifications.highlight_count),
         "marked_unread": room.is_marked_unread(),
@@ -15690,5 +15843,168 @@ mod first_sync_watchdog_tests {
         let seen = drain(&events.lock().unwrap());
         assert_eq!(seen.len(), 1,
                    "the watch kept reporting after the sync answered");
+    }
+}
+
+/// The room list's ordering backstop: which raw sync events count as somebody
+/// having SAID something, and which must never move a room.
+///
+/// The cases that matter are the refusals. Every one of them is a shape that
+/// has already moved a room for nothing on this project, or that the SDK's own
+/// latest-event filter refuses for a reason that does not apply to a sort key.
+#[cfg(test)]
+mod conversation_recency_tests {
+    use matrix_sdk::ruma::events::AnySyncTimelineEvent;
+    use matrix_sdk::ruma::serde::Raw;
+    use serde_json::json;
+
+    use super::conversation_timestamp_ms;
+
+    fn raw(value: serde_json::Value) -> Raw<AnySyncTimelineEvent> {
+        Raw::from_json_string(value.to_string()).expect("valid raw event")
+    }
+
+    #[test]
+    fn a_plain_message_is_a_conversation() {
+        let event = raw(json!({
+            "type": "m.room.message",
+            "event_id": "$one",
+            "sender": "@a:example.org",
+            "origin_server_ts": 1_700_000_000_000u64,
+            "content": { "msgtype": "m.text", "body": "hello" },
+        }));
+        assert_eq!(conversation_timestamp_ms(&event), Some(1_700_000_000_000));
+    }
+
+    // THE WHOLE POINT OF THE MSGTYPE-BLIND CHECK. The live `timeline_event`
+    // path forwards m.text / m.notice / m.emote and drops every other msgtype,
+    // so an image was the one kind of message that could not raise a room's
+    // activity from a sync response. Ordering does not care what was sent.
+    #[test]
+    fn an_image_counts_exactly_like_text() {
+        let event = raw(json!({
+            "type": "m.room.message",
+            "event_id": "$two",
+            "sender": "@a:example.org",
+            "origin_server_ts": 1_700_000_000_001u64,
+            "content": { "msgtype": "m.image", "body": "cat.png" },
+        }));
+        assert_eq!(conversation_timestamp_ms(&event), Some(1_700_000_000_001));
+    }
+
+    // matrix-sdk calls an undecrypted event "explicitly not suitable" as a
+    // latest event, because it cannot build a PREVIEW from one. A sort key is
+    // not a preview: somebody spoke, so the room moves.
+    #[test]
+    fn an_encrypted_event_counts_even_though_it_cannot_be_previewed() {
+        let event = raw(json!({
+            "type": "m.room.encrypted",
+            "event_id": "$three",
+            "sender": "@a:example.org",
+            "origin_server_ts": 1_700_000_000_002u64,
+            "content": { "algorithm": "m.megolm.v1.aes-sha2" },
+        }));
+        assert_eq!(conversation_timestamp_ms(&event), Some(1_700_000_000_002));
+    }
+
+    // A member joining must not raise a silent room above one that is being
+    // talked in — the reported "clicking an older room moves it upwards".
+    #[test]
+    fn a_membership_change_is_not_a_conversation() {
+        let event = raw(json!({
+            "type": "m.room.member",
+            "event_id": "$four",
+            "sender": "@a:example.org",
+            "state_key": "@a:example.org",
+            "origin_server_ts": 1_700_000_000_003u64,
+            "content": { "membership": "join" },
+        }));
+        assert_eq!(conversation_timestamp_ms(&event), None);
+    }
+
+    // One per participant per MINUTE in any room that hosts a call. This is
+    // the churn `lightning_event_filter` strips from every timeline; it must
+    // not come back in through the ordering stamp.
+    #[test]
+    fn matrixrtc_membership_churn_is_not_a_conversation() {
+        for kind in ["m.call.member", "org.matrix.msc3401.call.member"] {
+            let event = raw(json!({
+                "type": kind,
+                "event_id": "$five",
+                "sender": "@a:example.org",
+                "state_key": "@a:example.org_DEVICE",
+                "origin_server_ts": 1_700_000_000_004u64,
+                "content": { "memberships": [] },
+            }));
+            assert_eq!(conversation_timestamp_ms(&event), None, "{kind}");
+        }
+    }
+
+    // A reaction is not something said, and a redaction is the removal of
+    // something said. Neither may bump a room.
+    #[test]
+    fn reactions_and_redactions_are_not_conversations() {
+        for kind in ["m.reaction", "m.room.redaction"] {
+            let event = raw(json!({
+                "type": kind,
+                "event_id": "$six",
+                "sender": "@a:example.org",
+                "origin_server_ts": 1_700_000_000_005u64,
+                "content": {},
+            }));
+            assert_eq!(conversation_timestamp_ms(&event), None, "{kind}");
+        }
+    }
+
+    // The C++ side refuses to let a call row raise a room's activity
+    // (TimelineEvent::CallEvent). Two producers of one field must agree, even
+    // though matrix-sdk's own latest-event filter accepts these.
+    #[test]
+    fn a_call_row_does_not_raise_activity_here_either() {
+        for kind in ["m.call.invite", "m.rtc.notification"] {
+            let event = raw(json!({
+                "type": kind,
+                "event_id": "$seven",
+                "sender": "@a:example.org",
+                "origin_server_ts": 1_700_000_000_006u64,
+                "content": {},
+            }));
+            assert_eq!(conversation_timestamp_ms(&event), None, "{kind}");
+        }
+    }
+
+    // A state event wearing a message's type name is still a state event.
+    #[test]
+    fn a_state_key_refuses_the_event_whatever_its_type_says() {
+        let event = raw(json!({
+            "type": "m.room.message",
+            "event_id": "$eight",
+            "sender": "@a:example.org",
+            "state_key": "",
+            "origin_server_ts": 1_700_000_000_007u64,
+            "content": { "msgtype": "m.text", "body": "hello" },
+        }));
+        assert_eq!(conversation_timestamp_ms(&event), None);
+    }
+
+    // 0 crosses the FFI as an INVALID QDateTime and raiseActivity ignores it,
+    // so "no timestamp" and "the epoch" must not be different answers here.
+    #[test]
+    fn a_missing_or_zero_timestamp_is_no_answer_at_all() {
+        let missing = raw(json!({
+            "type": "m.room.message",
+            "event_id": "$nine",
+            "sender": "@a:example.org",
+            "content": { "msgtype": "m.text", "body": "hello" },
+        }));
+        assert_eq!(conversation_timestamp_ms(&missing), None);
+        let zero = raw(json!({
+            "type": "m.room.message",
+            "event_id": "$ten",
+            "sender": "@a:example.org",
+            "origin_server_ts": 0u64,
+            "content": { "msgtype": "m.text", "body": "hello" },
+        }));
+        assert_eq!(conversation_timestamp_ms(&zero), None);
     }
 }
