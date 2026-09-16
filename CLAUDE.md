@@ -1766,6 +1766,40 @@ sliding-sync room list runs at `DEFAULT_LIST_TIMELINE_LIMIT = 1` and any
 versus a healthy room's `items= 2` (one event plus its date divider) is that
 residue, not an empty room.
 
+**AND THE BOUND THAT REPLACED THAT SILENCE WAS WRONG BY EXACTLY ONE MESSAGE
+(2026-09-16).** The fix above keyed "keep walking a filtered run" on
+`eventCount() == 0`. That is a PROXY for the reader's actual condition — *is
+the viewport full?* — and the maintainer's next report was the same room one
+message later: "in this room only a single image loads and I have to scroll up
+for anything else to appear." One loaded image made `eventCount()` non-zero, so
+the room got the ordinary twelve. **A bound keyed on a proxy for the user's
+condition is wrong by exactly the difference between them**; when the honest
+criterion cannot be read where the decision is made, derive it and say so
+rather than taking the nearest readable thing.
+
+**The terminator was in QML, and no previous round had it in frame.** The log
+showed NINE dispatches and stopped; neither controller bound can produce a nine
+(both are twelve), and `TimelinePane.qml`'s `maxViewportFillRetries` is EIGHT,
+plus one from `requestNearTop()`'s redirect, which does not spend the pane's
+counter. That counter's real subject is "the dispatch went nowhere" — and a
+page the filter emptied looks identical to it from QML (zero rows, zero pixels)
+while meaning the opposite: the cursor walked twenty real events towards the
+first message beyond the churn. **Two observations that are identical at the
+point of measurement are not one event.** Filtered pages now spend their own
+budget (`viewportFillEmptyPages` / 60, matching `kMaxFilteredRunStrikes`),
+which is affordable precisely because a page that inserts nothing instantiates
+no delegates; `maxViewportFillRows` (240) still bounds everything the fill puts
+on screen.
+
+**AND THE MOCK COULD NOT EXPRESS A FILTERED PAGE AT ALL, WHICH IS WHY IT
+SHIPPED TWICE.** `setPaginationChunkForTest({})` falls through to three
+synthetic events (`if (!m_paginationChunkOverride.isEmpty())`), so EVERY mock
+page had always added rows — the one pagination shape that matters most here
+had no reachable fixture at the QML layer. `setFilteredPaginationPagesForTest`
+is that fixture now. GENERALISE: before concluding a defect is untestable,
+check whether the harness can even REPRESENT the input. Detail in
+`docs/round-history.md`, 2026-09-16.
+
 **`Timeline::fetch_details_for_event` HAD NEVER BEEN CALLED IN THIS
 REPOSITORY.** `InReplyToDetails::event` is a field on the REPLYING event, not a
 lookup into the loaded timeline, and it starts `Unavailable` — so a reply quote

@@ -1,5 +1,145 @@
 # Round history
 
+## 2026-09-16 — the room that loaded one message, and a bound that was wrong by exactly one
+
+The 2026-09-15 round fixed a room that rendered *"No messages here yet"* over a
+full history. This is the same defect one message later, and the fix it shipped
+is what hid it: the reader's condition was encoded as `eventCount() == 0`, and
+the maintainer's DM had a single image loaded above an otherwise blank
+viewport.
+
+> "In this room only a single image loads and I have to scroll up for anything
+> else to appear."
+
+### What the log already said, and what it did not
+
+The instrumented run that the previous round's counters made possible:
+
+```
+timeline pagination requested reason= viewport_fill generation= 6
+timeline pagination complete reached_start= false nextBatch= 20  filterOffered= 89  droppedRtc= 72
+timeline pagination completed added= 0 signalled= 0 reached_start= false
+... nine rounds, droppedRtc 72 -> 232, added= 0 every time, then it stops
+```
+
+Nine dispatches and then silence, with `reached_start` still false. Neither of
+the two bounds that were raised for exactly this case can produce a nine:
+`PaginationController`'s `m_maxFillRequests` and `kMaxNoProgressStrikes` are
+both twelve. **Eight can**, and eight is `TimelinePane.qml`'s
+`maxViewportFillRetries` — plus one dispatch from `requestNearTop()`'s early
+redirect, which does not spend the pane's counter. The terminator was the QML
+bound, and it was never in the frame of the previous round.
+
+That deduction was then *measured*, not left as a reading: on the unfixed tree
+`anEndlessFilteredRunStillStopsTheAutomaticFill` fails with
+`fillStopped == false` after thirty seconds of unending filtered pages. The
+controller never latches anything, because the pane stops asking at eight and
+the controller's twelve are never reached.
+
+### The root cause is one substitution, in three places
+
+`maxViewportFillRetries` counts "pages that achieved nothing". A page the
+timeline filter emptied looks exactly like one from QML — zero rows, zero
+pixels — and is the opposite of one: the SDK walked twenty real events and the
+pagination cursor moved twenty events closer to the first message beyond the
+churn run. **Two indistinguishable observations, opposite meanings, one
+counter.**
+
+`PaginationController` had the same substitution in its two caps, where
+`eventCount() == 0` stood in for "the reader has nothing to look at". Both are
+proxies for the question the fill actually exists to answer — *is the viewport
+full?* — and both are wrong by one message.
+
+Three changes, and they are the same change:
+
+* `PaginationController` counts pages that COMPLETED against the backend while
+  inserting nothing and not reaching the start (`emptyFillPages`, monotonic per
+  room so QML can compare it across attempts). Its strike bound applies to
+  every such page rather than only to an empty timeline, and the constant is
+  renamed `kMaxFilteredRunStrikes` — `kMaxEmptyTimelineStrikes` named the proxy
+  that was the defect. `m_maxFillRequests` goes 12 -> 60 to match, and its own
+  conditional raise is DELETED: the two numbers count the two halves of one
+  event, and having the smaller one silently decide the allowance is how a
+  bound ends up being set in a place nobody is reading.
+* `TimelinePane.qml` gains the third kind of progress beside `grewHeight` and
+  `grewRows`: a page that walked filtered history, spending
+  `viewportFillEmptyPages` against `maxEmptyFillPages` (60, matching
+  `kMaxFilteredRunStrikes`) instead of the eight meant for a dispatch that
+  went nowhere. `maxViewportFillRetries` keeps its real subject — nothing
+  happened at all — which is what it was written for.
+* `MockMatrixClient` can express a fully filtered page at last
+  (`setFilteredPaginationPagesForTest`). It could not before: an empty chunk
+  override falls through to three synthetic events, so **every mock page had
+  always added rows**, and the single most consequential pagination shape this
+  project has had no reachable fixture at the QML layer. That is why the defect
+  shipped twice.
+
+60 is affordable where 12 was not, and for a reason the other two budgets
+cannot claim: a page that inserts nothing instantiates no delegates, and a
+fully filtered page skips the completion settle. The row cap
+(`maxViewportFillRows`, 240) is untouched and still bounds everything the fill
+puts on screen.
+
+### Not gated on `lastPaginationFullyFiltered()`
+
+The Rust backend can say outright that a page was offered events and the filter
+ate all of them, and the completion-settle decision does read it. The bounds
+deliberately do not. Its documented contract is "false is always the safe
+answer" — safe when it costs a wait, not safe when it decides whether a bound
+exists — and only one backend implements it, so gating on it would leave the
+mock and HTTP backends holding the defect. `inserted == 0 && !hitStart` is the
+condition that matters and every backend reports it.
+
+### The first cut of that overruled a caller, and an existing test said so
+
+`requestViewportFill()` originally kept its raise as
+`qMax(m_maxFillRequests, kMaxFilteredRunStrikes)`. That silently overrules
+`setMaxViewportFillRequests()` — a caller that deliberately NARROWS the budget
+gets 60 anyway — and `fillBudgetBoundsConsecutiveUnproductiveFills` failed on
+it immediately. The pre-existing code had the same `qMax`, and only escaped
+because its branch needed an empty timeline that the test never had. Removing
+the branch outright is both the fix and the simpler code: one cap, honoured as
+configured.
+
+### What was proven, and what was not
+
+Fail-on-old was measured on the tree with the behaviour reverted and the new
+API left in place, so the experiment isolates the decision from the plumbing.
+All three new cases fail there:
+
+* `aFilteredHistoryRunStillFillsTheViewport` — the user-visible one. One
+  message, twenty filtered pages, real messages beyond them; asserts only that
+  the viewport ends up full without anything scrolling it. Unfixed:
+  `contentHeight` stuck under a 620 px viewport.
+* `anEndlessFilteredRunStillStopsTheAutomaticFill` — the bound is larger, not
+  absent.
+* `aFilteredRunIsWalkedEvenWithAMessageAlreadyOnScreen` — the controller layer,
+  with one row in a real `TimelineModel`.
+
+`emptyBatchesStopAutomaticFillButNotUserRequests` moved 12 -> 60 and
+`consecutiveEmptyViewportFillsStillStopTheLoop` read `< 30` against a bound of
+12; both now derive it from the header instead of restating it, so neither can
+go stale the next time the number moves.
+
+**A live Matrix room was NOT exercised.** The verification laptop has no route
+to the homeserver — its WireGuard default route is dead and the wifi it is on
+carries LAN only — so no account could be signed in at all.
+
+### GENERALISE
+
+**A bound keyed on a proxy for the user's condition is wrong by exactly the
+difference between them.** `eventCount() == 0` is not "the viewport is blank",
+and one loaded message is the whole gap. When the honest criterion cannot be
+read where the decision is made, say so and derive it, rather than picking the
+nearest readable thing.
+
+**And two observations that are identical at the point of measurement are not
+one event.** A dispatch that went nowhere and a page that walked twenty
+filtered events are both "no rows, no pixels" in QML. The counter that cannot
+tell them apart will eventually be spent by the wrong one — which is the same
+lesson as the previous round's `added= 0`, one layer up: there, a log line that
+could not distinguish two causes; here, a *budget* that could not.
+
 ## 2026-09-16 (early morning) — 0.9.6 published, and three defects that had never run
 
 ### 0.9.6 is out: pipeline 222, tag `v0.9.6` -> `e177135`

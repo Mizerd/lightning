@@ -2,6 +2,30 @@
 
 ## 2026-09-16 — after 0.9.6
 
+**THE FILTERED-HISTORY VIEWPORT FILL IS FIXED AND NOT LIVE-TESTED, AND THE
+REASON IS WORTH RECORDING.** The 2026-09-16 round (see `docs/round-history.md`)
+makes a room whose recent history is MatrixRTC churn fill its viewport instead
+of stopping after eight pages with one message on screen. It is proven by
+automated coverage that FAILS on the unfixed tree at both layers, including one
+case that asserts only the user-visible outcome — the viewport ends up full
+with nothing scrolling it. **No live Matrix room was opened.** The verification
+laptop has no route to `matrix.smetonis.net`: its WireGuard default route is
+dead and the wifi it is on carries LAN only, so `curl` to the homeserver times
+out and no account can be signed in at all. The live check when a networked
+machine is available: open the DM the maintainer reported, with
+`LIGHTNING_SCROLL_TRACE=1`, and confirm the viewport fills without scrolling
+and the trace shows `filtered=1` with `emptyPages=` climbing rather than
+`fill-declined reason=noProgressBudget`.
+
+**And the budget may still be too small for a long enough call.** 60 pages is
+~1200 filtered events at the 20-per-page the maintainer's log measured. A run
+longer than that still stops with a blank viewport, and the reader is back to
+scrolling. Nothing observed says his room is that long — his capture reached
+232 — but the number is a bounded guess matched to the constant the 2026-09-15
+round already accepted, NOT a measurement. If it is reported again, the trace
+line to read is `fill-declined reason=emptyPageBudget`, and the answer is a
+measurement of how long these runs actually get, not another raise.
+
 **Media messages now notify, but NOT LIVE-TESTED.** `557d21b` makes an image,
 video, voice message or file arriving in a room with no timeline open produce a
 notification and an Activity row. No real desktop notification has been SEEN
