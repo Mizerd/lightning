@@ -59,6 +59,59 @@ void marshal(SfuMediaEngine *engine, Fn &&fn)
                               Qt::QueuedConnection);
 }
 
+/// WHAT EACH SDP SECTION NEGOTIATED, codecs only.
+///
+/// Gated on LIGHTNING_SDP_TRACE because it is a diagnostic, and it emits
+/// ONLY `m=` kinds and `a=rtpmap` codec names. Never the SDP text: that
+/// carries host IPs, and never the ICE ufrag/pwd, which are credentials.
+///
+/// It exists for one question that nothing else in this file can answer.
+/// RED (RFC 2198) wraps the Opus payload, so a receiver hands its frame
+/// decryptor a packet whose first byte is not the Opus TOC that the format
+/// leaves in the clear -- every audio frame then fails its authentication
+/// tag and is dropped, while VIDEO is untouched because RED is audio-only.
+/// That is indistinguishable, from our side, from a key problem: we report
+/// `frames encrypted ... dropped= 0` either way. `rust/src/sfu.rs` asks the
+/// SFU for `disable_red` when the call is encrypted, but that is a request
+/// about the DOWNSTREAM leg; what actually rides our publisher transport is
+/// decided in this SDP, and until now nothing looked.
+QString sdpCodecSummary(const QString &sdp)
+{
+    QString out;
+    QString section;
+    const QList<QStringView> lines = QStringView(sdp).split(u'\n');
+    auto flush = [&out, &section]() {
+        if (!section.isEmpty()) {
+            out += (out.isEmpty() ? QStringLiteral("") : QStringLiteral(" "))
+                 + QStringLiteral("[") + section.trimmed()
+                 + QStringLiteral("]");
+            section.clear();
+        }
+    };
+    for (QStringView raw : lines) {
+        const QStringView line = raw.trimmed();
+        if (line.startsWith(u"m=")) {
+            flush();
+            // "m=audio 9 UDP/TLS/RTP/SAVPF 111 63" -> kind plus the payload
+            // list, which is what tells us whether RED was even offered.
+            const QList<QStringView> f = line.mid(2).split(u' ',
+                                                          Qt::SkipEmptyParts);
+            if (!f.isEmpty())
+                section = f.first().toString();
+        } else if (line.startsWith(u"a=rtpmap:") && !section.isEmpty()) {
+            // "a=rtpmap:111 opus/48000/2"
+            const QStringView body = line.mid(9);
+            const qsizetype sp = body.indexOf(u' ');
+            if (sp > 0) {
+                section += QStringLiteral(" pt") + body.left(sp).toString()
+                         + QStringLiteral("=") + body.mid(sp + 1).toString();
+            }
+        }
+    }
+    flush();
+    return out.isEmpty() ? QStringLiteral("<none>") : out;
+}
+
 /// A monotonic millisecond clock shared by every publish probe.
 ///
 /// Deliberately not the wall clock: these values are DIFFERENCES measured
@@ -4556,6 +4609,11 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
     qCInfo(lcSfuMedia) << "remote description applied kind=" << kind
                        << "target=" << static_cast<int>(target)
                        << "sections=" << gst_sdp_message_medias_len(message);
+    if (!qEnvironmentVariableIsEmpty("LIGHTNING_SDP_TRACE")) {
+        qCInfo(lcSfuMedia) << "  sdp codecs (remote" << kind << "target"
+                           << static_cast<int>(target)
+                           << "):" << sdpCodecSummary(sdp);
+    }
     // Only the SUBSCRIBER connection carries other people's tracks, so only
     // its description tells us who a received pad belongs to. Recorded
     // BEFORE set-remote-description, because pad-added can fire from inside
@@ -5350,14 +5408,28 @@ SfuVideoRouter *SfuMediaEngine::videoRouter() const
     return m_videoRouter.data();
 }
 
-void SfuMediaEngine::setOutboundKey(int index, const QByteArray &rawKey)
+int SfuMediaEngine::adoptedOutboundKeyIndexForTest() const
+{
+    return m_sendCryptor->currentKeyIndex();
+}
+
+void SfuMediaEngine::setOutboundKey(int index, const QByteArray &rawKey,
+                                    bool adopt)
 {
     if (!m_sendCryptor->setKey(index, rawKey))
         return;
-    m_sendCryptor->setCurrentKeyIndex(index);
+    // ADOPTING IS THE SEPARATE DECISION. The key lives in the ring either
+    // way, so a later confirmation can adopt it without re-deriving; what
+    // `adopt` controls is which index our frames actually go out under.
+    if (adopt)
+        m_sendCryptor->setCurrentKeyIndex(index);
     // Published only after the key is really installed, so a probe can never
-    // see "ready" without a usable key behind it.
-    m_sendKeyReady.store(true);
+    // see "ready" without a usable key behind it. A non-adopting install
+    // leaves it ALONE rather than clearing it: the previously adopted key is
+    // still the one in use and still usable, and clearing here would drop
+    // every frame for want of a key we are holding.
+    if (adopt)
+        m_sendKeyReady.store(true);
 }
 
 void SfuMediaEngine::setInboundKey(const QString &senderName, int index,
@@ -5670,6 +5742,11 @@ void SfuMediaEngine::handleLocalDescription(quintptr token, quint64 generation,
     qCInfo(lcSfuMedia) << "local description ready offer=" << offer
                        << "target=" << static_cast<int>(target)
                        << "bytes=" << sdp.size();
+    if (!qEnvironmentVariableIsEmpty("LIGHTNING_SDP_TRACE")) {
+        qCInfo(lcSfuMedia) << "  sdp codecs (local" << (offer ? "offer" : "answer")
+                           << "target" << static_cast<int>(target)
+                           << "):" << sdpCodecSummary(sdp);
+    }
     // WHAT WE ACTUALLY ANSWERED, on the SUBSCRIBER only.
     //
     // A byte count says an answer exists; it does not say whether that

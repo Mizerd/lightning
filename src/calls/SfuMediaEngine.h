@@ -594,7 +594,24 @@ public:
 
     /// Install our own sending key at `index` and make it current. `rawKey`
     /// is 32 raw bytes; never logged, never copied elsewhere.
-    void setOutboundKey(int index, const QByteArray &rawKey);
+    /// Install an outbound key, and say whether to START USING it.
+    ///
+    /// `adopt == false` puts the key in the ring without moving the current
+    /// index, so a key that reached NOBODY does not become the one our frames
+    /// are encrypted under. It is a real state, not a corner case: a
+    /// distribution can fail to dispatch while a peer is still in the call,
+    /// and adopting there encrypts every subsequent frame under a key nobody
+    /// can read -- with `frames encrypted ... dropped= 0` on our side the
+    /// whole time, because from here it looks perfect.
+    void setOutboundKey(int index, const QByteArray &rawKey, bool adopt = true);
+
+    /// Which key index our frames are actually going out under.
+    ///
+    /// DEFINED IN THE .cpp ON PURPOSE: CallFrameCryptor is only
+    /// forward-declared here, and an inline accessor that dereferences it
+    /// would create a link dependency in every target that includes this
+    /// header -- the exact shape that cost 0.8.0 its `build-deb` twice.
+    int adoptedOutboundKeyIndexForTest() const;
     /// Install a key received from one sender, for decrypting THAT sender's
     /// media.
     ///

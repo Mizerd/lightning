@@ -4318,6 +4318,39 @@ private slots:
         }
     }
 
+    /// A KEY THAT REACHED NOBODY MUST NOT BECOME THE KEY WE ENCRYPT UNDER.
+    ///
+    /// Measured live 2026-09-16: a call rotated to index 4 with
+    /// `targets= 0 sfuPeers= 0` while the room membership on the very next log
+    /// line still read two participants. The send was never dispatched, the
+    /// engine adopted the key anyway, and every frame after that was encrypted
+    /// under a key the peer had never received. Element reported "media from
+    /// someone here cannot be decrypted"; this side reported
+    /// `frames encrypted ... dropped= 0` the whole time, which is why it read
+    /// as a mystery rather than a key bug.
+    ///
+    /// FAIL-ON-OLD: drop the `if (adopt)` guard around setCurrentKeyIndex() in
+    /// SfuMediaEngine::setOutboundKey and the middle QCOMPARE reads 2.
+    void anUndeliveredKeyIsInstalledButNotAdopted()
+    {
+        SfuMediaEngine engine;
+        // The first key of a call is undeliverable by definition -- nobody
+        // else has joined yet -- and must still be adopted, or we encrypt
+        // under nothing at all.
+        engine.setOutboundKey(1, QByteArray(32, 'a'));
+        QCOMPARE(engine.adoptedOutboundKeyIndexForTest(), 1);
+
+        // The defect: a rotation that reached nobody while a peer still holds
+        // index 1. The key is installed in the ring, but we keep sending
+        // under the one somebody can actually read.
+        engine.setOutboundKey(2, QByteArray(32, 'b'), /*adopt=*/false);
+        QCOMPARE(engine.adoptedOutboundKeyIndexForTest(), 1);
+
+        // And once a distribution really reaches someone, we move.
+        engine.setOutboundKey(3, QByteArray(32, 'c'), /*adopt=*/true);
+        QCOMPARE(engine.adoptedOutboundKeyIndexForTest(), 3);
+    }
+
 };
 
 QTEST_MAIN(SfuMediaEngineTest)

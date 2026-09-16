@@ -1254,6 +1254,13 @@ private:
     /// two tracks on the wire and either may be absent.
     QString m_shareAudioCid;
     int m_keyIndex = 0;
+    /// The newest outbound key index we KNOW reached at least one device.
+    ///
+    /// -1 until a distribution is confirmed delivered. It is the difference
+    /// between "nobody needs our key yet" and "somebody is holding one", and
+    /// that distinction decides whether a FAILED distribution may become the
+    /// key our frames go out under. See rotateAndDistributeKey().
+    int m_deliveredKeyIndex = -1;
     /// The addressable-device set the last media key actually reached. See
     /// distributeKeyIfNeeded(); an empty set is never recorded.
     QString m_lastKeyTargets;

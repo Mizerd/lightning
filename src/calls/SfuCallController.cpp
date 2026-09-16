@@ -338,6 +338,11 @@ void SfuCallController::setClient(MatrixClient *client)
                 if (ok) {
                     qCInfo(lcSfuCall) << "media key sent index=" << keyIndex
                                       << "delivered=" << delivered;
+                    // SOMEBODY HOLDS THIS ONE. From here on a distribution
+                    // that reaches nobody must not replace it as the key we
+                    // encrypt under -- see rotateAndDistributeKey().
+                    if (delivered > 0)
+                        m_deliveredKeyIndex = keyIndex;
                     return;
                 }
                 qCWarning(lcSfuCall)
@@ -2721,11 +2726,23 @@ void SfuCallController::distributeKeyIfNeeded()
     if (targets == QLatin1String("[]")) {
         const int sfuPeers =
             m_participants.size() > 0 ? m_participants.size() - 1 : 0;
+        // A WITHHELD KEY IS ITS OWN REASON TO ASK THE SERVER AGAIN.
+        //
+        // `sfuPeers > 0` was the only trigger, and the defect this recovers
+        // from is precisely the one where that count is WRONG: measured
+        // 2026-09-16, `sfuPeers= 0` while the room membership read two
+        // participants, so the refresh never fired and the call stayed mute
+        // until teardown. When our current key differs from the newest one a
+        // peer actually took, we are knowingly out of step with somebody and
+        // must keep trying to find them, whatever the SFU list claims.
+        const bool keyWithheld = m_deliveredKeyIndex >= 0
+            && m_keyIndex != m_deliveredKeyIndex;
         qCInfo(lcSfuCall) << "media key: no redistribution, nobody addressable"
-                          << "sfuPeers=" << sfuPeers;
+                          << "sfuPeers=" << sfuPeers
+                          << "keyWithheld=" << keyWithheld;
         // Peers on the SFU and nobody we can name: the same incomplete view
         // noteParticipantIdentities() reports, reached by the other route.
-        if (sfuPeers > 0)
+        if (sfuPeers > 0 || keyWithheld)
             m_rtc->refreshFromServer(m_roomId);
         return;
     }
@@ -2797,8 +2814,43 @@ void SfuCallController::rotateAndDistributeKey()
         m_lastKeyTargets.clear();
     }
 
+    // DO NOT ENCRYPT UNDER A KEY THAT REACHED NOBODY WHILE SOMEBODY IS STILL
+    // HOLDING THE LAST ONE.
+    //
+    // The comment above says distributing first exists so our frames are
+    // never encrypted under a key nobody else has yet. Installing
+    // unconditionally did exactly that on the failure path, and it is not a
+    // theoretical window: measured 2026-09-16, a call rotated to index 4 with
+    // `targets= 0 sfuPeers= 0` while the room membership on the very next
+    // line still read two participants, the send was never dispatched, and
+    // every frame after that was encrypted under a key the peer had never
+    // received. Element reported "media from someone here cannot be
+    // decrypted"; this side reported `frames encrypted ... dropped= 0`
+    // throughout, because from here a key nobody can read looks perfect.
+    //
+    // Being ALONE is the case this must not break: the first key of a call is
+    // undeliverable by definition and must still be adopted, or we encrypt
+    // under nothing. `m_deliveredKeyIndex < 0` is exactly "nobody has ever
+    // taken a key from us", which separates the two.
+    //
+    // The key is still INSTALLED in the ring either way, so adopting it later
+    // costs no re-derivation; only the current index is withheld.
+    const bool reachedNobody = (op == 0);
+    const bool someoneHoldsOurKey = (m_deliveredKeyIndex >= 0);
+    const bool adopt = !(reachedNobody && someoneHoldsOurKey);
+    if (!adopt) {
+        qCWarning(lcSfuCall)
+            << "media key NOT adopted index=" << index
+            << "— it reached nobody; still encrypting under index="
+            << m_deliveredKeyIndex
+            << "which a peer holds. A retry will rotate when someone is"
+            << "addressable again.";
+    }
+    // m_keyIndex is the ALLOCATOR's cursor, not "the key in use": it must
+    // advance even on a withheld key so the next rotation does not hand out
+    // the same index twice with different material.
     m_keyIndex = index;
-    m_engine->setOutboundKey(index, key);
+    m_engine->setOutboundKey(index, key, adopt);
     // Best-effort scrub of our own transit copy. §16 is explicit that this
     // is hygiene, not a guarantee: the base64 QString handed to the bridge
     // is copied and dropped without zeroing.
