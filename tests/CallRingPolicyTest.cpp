@@ -359,6 +359,44 @@ private Q_SLOTS:
                  CallController::EndReason::LocalReject);
     }
 
+    // 2026-09-17: the Answer action's own wiring had no coverage anywhere.
+    //
+    // `callDeclineRequested` has had the case above since it was written;
+    // `callAcceptRequested` arrived with the Answer button and its
+    // AppController lambda — lane selection, the room open, both return
+    // values — was tested at no layer. The NotificationManager suite proves
+    // the button is OFFERED; nothing proved pressing it reaches the call.
+    //
+    // Starts with NO room open, for the reason
+    // aTimelineIdIsNeverHandedToTheRoomOpener states: with the call's room
+    // already current, "it opened the right room" and "it did nothing" are
+    // the same observation.
+    void acceptFromNotificationOpensTheCallsRoom()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *client = mock(controller);
+        QVERIFY(client);
+        QCOMPARE(controller.currentRoomId(), QString());
+        client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
+        QCOMPARE(controller.calls()->state(),
+                 CallController::State::Ringing);
+        // A stale card from an earlier call must not answer this one.
+        Q_EMIT controller.notificationsForTest()->callAcceptRequested(
+            QStringLiteral("some-other-call"));
+        QCOMPARE(controller.currentRoomId(), QString());
+        QCOMPARE(controller.calls()->state(),
+                 CallController::State::Ringing);
+        Q_EMIT controller.notificationsForTest()->callAcceptRequested(
+            QStringLiteral("call-1"));
+        QVERIFY2(!controller.currentRoomId().isEmpty(),
+                 "Answer on the notification left the user wherever they "
+                 "were: the room is opened BEFORE the answer is attempted "
+                 "precisely so a refusal is visible");
+        QCOMPARE(controller.currentRoomId(),
+                 controller.calls()->activeRoomId());
+    }
+
     // A REFUSAL THAT WAS WITHDRAWN MUST STOP BEING SHOWN.
     //
     // `errorReported` reaches Main.qml as `statusBar.lastError = msg`, a
