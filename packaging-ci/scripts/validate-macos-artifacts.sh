@@ -541,6 +541,21 @@ else
     sed 's/^/        /' "$REPORT_DIR/call-media-status.txt" >&2 || true
     failures=$((failures + 1))
 fi
+
+# THE VOICE-DELAY PROPERTY, asked of the same shipped bundle. See
+# assert_queue_selftest in packaging-ci/scripts/lib.sh for what it measures.
+# NOT a hard gate yet, deliberately: a verdict is required, a FAILING verdict
+# only warns until it has reported PASS on every platform once.
+queue_selftest_status=0
+"$CONTENTS/MacOS/$APP_NAME" --call-queue-selftest \
+    >"$REPORT_DIR/queue-selftest.txt" 2>&1 || queue_selftest_status=$?
+check "the bundled app reached a verdict on the voice-delay self-test" \
+    grep -q '^RESULT: ' "$REPORT_DIR/queue-selftest.txt"
+sed 's/^/        /' "$REPORT_DIR/queue-selftest.txt" || true
+if [[ "$queue_selftest_status" != 0 ]]; then
+    printf '  WARNING: macOS voice-delay queue self-test FAILED (exit %s)\n' \
+        "$queue_selftest_status" >&2
+fi
 # THE IMAGE DECODERS, asked of the bundle the same way. macdeployqt copies
 # every plugin in its default categories, so this bundle gets Homebrew
 # qtimageformats' set (webp, tiff, icns, jp2, mng, tga, wbmp) plus qmacheif,

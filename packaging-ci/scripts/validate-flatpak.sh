@@ -67,6 +67,17 @@ call_media_status=$?
 set -e
 assert_call_media_engine Flatpak dist/flatpak-call-media-status.txt "$call_media_status"
 
+# THE VOICE-DELAY PROPERTY, asked of the same shipped artifact. See
+# assert_queue_selftest in lib.sh for what it measures and why it is not yet a
+# hard gate.
+set +e
+timeout 180s flatpak run --user --command=sh "$APP_ID" -c \
+    "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/lightning-matrix --call-queue-selftest" \
+    > dist/flatpak-queue-selftest.txt 2>&1
+queue_selftest_status=$?
+set -e
+assert_queue_selftest Flatpak dist/flatpak-queue-selftest.txt "$queue_selftest_status"
+
 # The image DECODERS, asked of the RUNTIME. The Flatpak is the one Linux
 # format that was never broken here: org.kde.Platform//6.11 ships libqwebp.so
 # and kimg_jxl.so (and 27 more), so this pins a property the runtime provides

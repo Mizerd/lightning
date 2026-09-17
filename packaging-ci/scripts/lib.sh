@@ -70,6 +70,51 @@ assert_call_media_engine() {
         "$label: --call-media-status reported success but exited $status"
 }
 
+# --- the voice-delay property -----------------------------------------------
+#
+# ONE judgement of a `--call-queue-selftest` transcript, shared by every
+# format, for the same reason the two helpers around it exist: the answer is
+# decided by what the SHIPPED artifact does, not by what the source says.
+#
+# What it measures and why it is here: a GStreamer `queue` defaults to holding
+# one second and never dropping any of it, so one moment of a consumer falling
+# behind is permanent added delay for the rest of a call. That was reported
+# live on 2026-09-16 as roughly a second of extra delay in one direction. Every
+# check of it before this one was ACOUSTIC -- two machines, a sound card and a
+# rig -- which is why it existed on Linux alone and why the Windows guest (no
+# sound card at all) could not be measured. The command starves each queue's
+# consumer, runs a plain `queue` beside it as a control, and reports what each
+# still held once the consumer was back at real time.
+#
+# NOT A HARD GATE YET, AND THAT IS DELIBERATE. Pipeline 224 died because a
+# plugin was added to a REQUIRED list before the thing that had to carry it
+# did; the lesson recorded from it is that the entry is the half that must come
+# second. So this asserts only that the command RAN and reached a verdict -- a
+# crash or an empty transcript still fails the build -- and prints the verdict
+# loudly either way.
+#
+# TO PROMOTE IT: once it has reported PASS on deb, rpm, AppImage, snap,
+# Flatpak, macOS and Windows-under-Wine in one pipeline, change the `warn` for
+# a FAIL verdict below into `die`. Do not promote it on one platform's evidence.
+#
+#   $1  format label for the message
+#   $2  path to the captured combined output
+#   $3  the command's exit status
+assert_queue_selftest() {
+    local label="$1" log="$2" status="$3"
+    [[ -s "$log" ]] || die "$label: --call-queue-selftest produced no output at all"
+    cat "$log"
+    grep -q '^RESULT: ' "$log" || die \
+        "$label: --call-queue-selftest never reached a verdict -- it crashed, hung or the build has no media engine. The transcript is above."
+    if [[ "$status" == 0 ]]; then
+        echo "$label: voice-delay queue self-test PASSED (exit 0)"
+    else
+        echo "WARNING: $label: voice-delay queue self-test reported a FAILURE (exit $status)." >&2
+        echo "WARNING: a live queue held a backlog after its consumer had caught up." >&2
+        echo "WARNING: this is NOT yet a hard gate -- see assert_queue_selftest in lib.sh." >&2
+    fi
+}
+
 # --- image format decoders ---------------------------------------------------
 #
 # ONE judgement of an `--image-format-status` transcript, shared by every

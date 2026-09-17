@@ -118,6 +118,16 @@ call_media_status=$?
 set -e
 assert_call_media_engine RPM "$ROOT/dist/rpm-call-media-status.txt" "$call_media_status"
 
+# THE VOICE-DELAY PROPERTY, asked of the same shipped artifact. See
+# assert_queue_selftest in lib.sh for what it measures and why it is not yet a
+# hard gate.
+set +e
+(cd /tmp && timeout 180s /usr/bin/lightning-matrix --call-queue-selftest) \
+    >"$ROOT/dist/rpm-queue-selftest.txt" 2>&1
+queue_selftest_status=$?
+set -e
+assert_queue_selftest RPM "$ROOT/dist/rpm-queue-selftest.txt" "$queue_selftest_status"
+
 # The image DECODERS, proving the spec's image-format Requires/Recommends
 # resolved. rpm's automatic dependency generator cannot see a dlopen'd Qt
 # plugin any more than it can see a GStreamer one, and Fedora's qt6-qtbase-gui

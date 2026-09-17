@@ -98,6 +98,17 @@ call_media_status=$?
 set -e
 assert_call_media_engine snap dist/snap-call-media-status.txt "$call_media_status"
 
+# THE VOICE-DELAY PROPERTY, asked of the same shipped artifact. See
+# assert_queue_selftest in lib.sh for what it measures and why it is not yet a
+# hard gate.
+set +e
+( cd /tmp && timeout 180s env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
+    "$audit/prime/bin/lightning-launch" --call-queue-selftest ) \
+    > dist/snap-queue-selftest.txt 2>&1
+queue_selftest_status=$?
+set -e
+assert_queue_selftest snap dist/snap-queue-selftest.txt "$queue_selftest_status"
+
 # The image DECODERS, through the same launcher: it is what sets QT_PLUGIN_PATH
 # to the snap's own usr/plugins, so running the binary directly would test the
 # payload and silently skip the wiring. The snap takes usr/ from the AppImage's

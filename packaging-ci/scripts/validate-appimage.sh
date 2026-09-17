@@ -71,6 +71,17 @@ call_media_status=$?
 set -e
 assert_call_media_engine AppImage dist/appimage-call-media-status.txt \
     "$call_media_status"
+
+# THE VOICE-DELAY PROPERTY, asked of the same shipped image. See
+# assert_queue_selftest in lib.sh for what it measures and why it is not yet a
+# hard gate.
+set +e
+( cd /tmp && timeout 180s env QT_QPA_PLATFORM=offscreen "$ROOT/$app" --call-queue-selftest ) \
+    > dist/appimage-queue-selftest.txt 2>&1
+queue_selftest_status=$?
+set -e
+assert_queue_selftest AppImage dist/appimage-queue-selftest.txt \
+    "$queue_selftest_status"
 # AND THAT IT IS THE BUNDLE'S OWN GSTREAMER, not the host's. The AppImage is
 # the one Linux package that ships GStreamer, its plugins live in
 # usr/lib/gstreamer-1.0 (not beside the binary), and the AppRun hook points at

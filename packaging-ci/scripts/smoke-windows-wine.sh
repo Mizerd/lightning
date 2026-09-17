@@ -152,10 +152,39 @@ run_gif_status() {
     if grep -Eq 'api_key=|://' <<<"$clean"; then die "gif-status leaked a key or URL: $exe"; fi
 }
 
+# THE VOICE-DELAY PROPERTY, asked of the shipped exe.
+#
+# WINE IS NOT WINDOWS and this does not pretend otherwise -- it is the same
+# caveat every other check in this file carries, and the reason the required
+# ELEMENT list exists beside the required DLL list. What makes it worth having
+# anyway: the property under test is a GStreamer queue's own behaviour under a
+# starved consumer, the binary is the one that ships, and the alternative was
+# nothing at all. The Windows guest has no sound card, so the acoustic rig that
+# measures this on Linux cannot run there; four attempts through RDP drifted
+# 291 -> 545 ms, which is larger than the effect.
+run_queue_selftest() {
+    local exe="$1" log="$2" status=0
+    timeout 300s wine64 "$exe" --call-queue-selftest >"$log" 2>&1 || status=$?
+    cat "$log"
+    grep -q '^RESULT: ' "$log" || {
+        die "the packaged build never reached a verdict on --call-queue-selftest: $exe"
+    }
+    if [[ "$status" == 0 ]]; then
+        echo "Windows (wine): voice-delay queue self-test PASSED"
+    else
+        # NOT a hard gate yet, for the reason recorded in lib.sh's
+        # assert_queue_selftest: pipeline 224 died because a required entry
+        # landed before the thing that had to satisfy it.
+        echo "WARNING: Windows (wine): voice-delay queue self-test FAILED (exit $status)" >&2
+    fi
+}
+
 new_prefix
 run_version "$STAGE/Lightning.exe" "$REPORTS/wine-portable-version.log"
 run_call_media_status "$STAGE/Lightning.exe" \
     "$REPORTS/wine-portable-call-media-status.log"
+run_queue_selftest "$STAGE/Lightning.exe" \
+    "$REPORTS/wine-portable-queue-selftest.log"
 run_image_format_status "$STAGE/Lightning.exe" \
     "$REPORTS/wine-portable-image-format-status.log"
 run_build_info "$STAGE/Lightning.exe" "$REPORTS/wine-portable-build-info.log"

@@ -1039,6 +1039,16 @@ for fmt in sorted(FORMAT_SELECTOR):
           f"validate-{fmt} runs the packaged build's own engine probe")
     check("assert_call_media_engine" in validator,
           f"validate-{fmt} judges the probe through the shared helper")
+    # AND THE VOICE-DELAY PROPERTY, on the same derived-not-written-out basis.
+    # It is the one call-quality claim a release makes that no source check can
+    # see: a GStreamer `queue` defaults to holding a second and never dropping
+    # it, so one moment of a consumer falling behind is permanent delay for the
+    # rest of a call. Every earlier check of it was acoustic — two machines, a
+    # sound card and a rig — which is why it existed on Linux alone.
+    check("--call-queue-selftest" in validator,
+          f"validate-{fmt} measures the voice-delay property on the shipped artifact")
+    check("assert_queue_selftest" in validator,
+          f"validate-{fmt} judges that measurement through the shared helper")
 
 # ONE helper judges all five, so the bar cannot drift between formats. Both
 # halves matter: the first line answers "was it compiled in", the RESULT line
@@ -1051,6 +1061,32 @@ check("call media engine built in: yes" in lib_src,
       "the shared assertion requires the engine to be compiled in")
 check("RESULT: calls can be placed and answered." in lib_src,
       "the shared assertion requires the engine to be runnable")
+
+# The queue self-test's shared judgement, and the two properties that keep it
+# honest: a transcript with no verdict is a hard failure (a crash or a hung
+# probe must not pass), while a FAILING verdict only warns until the check has
+# reported PASS on every platform once. Pipeline 224 died because a required
+# entry landed before the thing that had to satisfy it; the promotion
+# procedure is written at the declaration.
+check("assert_queue_selftest()" in lib_src,
+      "lib.sh defines the shared voice-delay assertion")
+check("never reached a verdict" in lib_src,
+      "the shared assertion fails hard when the probe produced no verdict")
+# Read from the RAW file: the promotion procedure is a COMMENT, and the
+# comment stripper above would eat it — which is how the first version of this
+# check failed on a lib.sh that carries it.
+check("TO PROMOTE IT:" in _read("scripts", "lib.sh"),
+      "the shared assertion records how it becomes a hard gate")
+
+# Windows and macOS are not in FORMAT_SELECTOR and have their own validators,
+# so they are named explicitly — the maintainer's bar is three platforms with
+# WINDOWS MANDATORY, and a sweep over the Linux formats alone cannot meet it.
+_wine_src = _strip_shell_comments(_read("scripts", "smoke-windows-wine.sh"))
+check("--call-queue-selftest" in _wine_src,
+      "the Windows package is asked the voice-delay question too")
+_macos_src = _strip_shell_comments(_read("scripts", "validate-macos-artifacts.sh"))
+check("--call-queue-selftest" in _macos_src,
+      "the macOS bundle is asked the voice-delay question too")
 
 # --- the AppImage/snap bundle, which has nobody to depend on ----------------
 appimage_build = _read("scripts", "build-appimage.sh")
