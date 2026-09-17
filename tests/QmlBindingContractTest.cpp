@@ -538,14 +538,55 @@ private Q_SLOTS:
     // used an exclusive single/double-tap split to keep double-click zoom,
     // which made every close wait out the ~400ms double-click interval;
     // the tap now closes directly and zoom stays on wheel/buttons/keys.
-    void imageViewerClosesInstantlyOnClickAnywhere()
+    void imageViewerClosesInstantlyOutsideThePictureAndZoomsOnIt()
     {
         const QString viewer = read(QStringLiteral("ImageViewerOverlay.qml"));
         QVERIFY(!viewer.isEmpty());
-        // Both the image tap and the scrim tap close, undelayed.
-        QCOMPARE(viewer.count(QStringLiteral("onTapped: viewer.close()")), 2);
-        QVERIFY(!viewer.contains(QStringLiteral("exclusiveSignals")));
+
+        // THIS CONTRACT CHANGED ON 2026-09-17, DELIBERATELY AND ON REQUEST.
+        //
+        // It used to require TWO `onTapped: viewer.close()` — the scrim and
+        // the picture — because a click anywhere closed. The maintainer asked
+        // for the gesture model people arrive with instead: the picture zooms
+        // at the point clicked, and everything around it still closes.
+        //
+        // The two properties the original contract existed to protect are
+        // UNCHANGED and still asserted below, because they are what the live
+        // feedback was actually about:
+        //   * closing never waits out the platform's double-click interval —
+        //     there is still no double-tap handler anywhere;
+        //   * closing never requires the X button — the scrim closes, and so
+        //     does the margin of holder around a fitted picture.
+        // What was given up is closing by clicking the picture itself, which
+        // is the trade that was asked for.
+
+        // The scrim's tap: exactly one, undelayed.
+        QCOMPARE(viewer.count(QStringLiteral("onTapped: viewer.close()")), 1);
+
+        // The picture's tap zooms at the pointer...
+        QVERIFY2(viewer.contains(QStringLiteral("viewer.toggleZoomAt")),
+                 "the picture no longer zooms on click");
+        // ...but still closes when the tap lands OUTSIDE the drawn image.
+        // `imageHolder` is Math.max(flick.width, ...), so it fills the
+        // viewport whatever the picture's size, and that margin is scrim as
+        // far as the user is concerned. Without this band check a click in
+        // the empty space around a small image zooms instead of closing —
+        // which is exactly what was reported the first time this shipped.
+        // Keyed on the COMPARISON, not on an expression the file contains
+        // four times over. The first version of this assertion looked for
+        // `viewer.baseWidth * viewer.zoom`, which also appears in
+        // imageHolder's size and in both image widths — so deleting the whole
+        // band check left it green. A test written to protect a fix must fail
+        // when the fix is removed, and that one could not.
+        QVERIFY2(viewer.contains(QStringLiteral("x < left || x > left + iw")),
+                 "the image tap has no band check, so the margin around a "
+                 "fitted picture is still part of the picture's hit target "
+                 "and a click there zooms instead of closing");
+
+        // Never a double-tap: that is the delay the instant close cannot pay.
         QVERIFY(!viewer.contains(QStringLiteral("onDoubleTapped")));
+        QVERIFY(!viewer.contains(QStringLiteral("exclusiveSignals")));
+
         // Zoom survives through the non-conflicting inputs.
         QVERIFY(viewer.contains(QStringLiteral("WheelHandler")));
         QVERIFY(viewer.contains(QStringLiteral("zoomStep(1.2)")));

@@ -4,13 +4,28 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
-// In-app image viewer. Full-window scrim, pointer-centered wheel zoom,
-// drag panning with grab cursors, double-click fit/actual toggling,
-// previous/next across the images currently loaded in the room timeline
-// (no history is fetched), Save As through the media bridge, animated GIF
-// playback, and a floating shared-control toolbar that fades while idle.
-// Escape or a click on the scrim closes. The SDK timeline is untouched —
-// this is a pure overlay.
+// In-app image viewer. Full-window scrim, click-to-zoom at the pointer,
+// wheel zoom while fitted and wheel PAN once zoomed, drag panning with grab
+// cursors, previous/next across the images currently loaded in the room
+// timeline (no history is fetched, and the list WRAPS at both ends), a
+// thumbnail strip, Save As through the media bridge, animated GIF playback,
+// and floating chrome that gets out of the way while zoomed. Escape or a
+// click on the scrim closes. The SDK timeline is untouched — this is a pure
+// overlay.
+//
+// The gesture model follows the one most people arrive here with (asked for
+// in those words): click the picture to zoom at the point you clicked, wheel
+// to pan once there is somewhere to pan to. Where that model is POORER than
+// what this viewer already had it was NOT adopted — zoom stays continuous
+// over 0.1x-10x rather than a single fixed step, and the +/-/0/F keys stay,
+// because a viewer with no keyboard zoom is worse for the same reason a
+// viewer with no keyboard navigation would be.
+//
+// The header comment used to claim "double-click fit/actual toggling" and
+// "a toolbar that fades while idle". Neither was true: the double-click
+// handler had already been removed and nothing replaced the claim, and the
+// idle fade is now a zoom-driven hide. A stale header is worse than none —
+// it is read as an inventory.
 Popup {
     id: viewer
 
@@ -98,7 +113,6 @@ Popup {
         resetView()
         open()
         loadCurrent()
-        chrome.wake()
     }
 
     /// Open on the images the TIMELINE has loaded, located by media key (or
@@ -167,13 +181,24 @@ Popup {
         bridgeSource = app.mediaBridge.mediaSource(current.mediaKey, "full")
     }
 
+    // WRAPS at both ends: next on the last image is the first, previous on
+    // the first is the last. This used to return early at the bounds, so the
+    // one gesture a person repeats — tap next, tap next, tap next — simply
+    // stopped, with an arrow that vanished rather than a list that came
+    // round. Wrapping makes the set feel like a set.
+    //
+    // The modulo is written twice on purpose: JavaScript's `%` keeps the
+    // sign of the dividend, so `-1 % 5` is `-1`, not `4`.
     function showAt(index) {
-        if (index < 0 || index >= entries.length)
+        if (entries.length === 0)
+            return
+        var n = entries.length
+        index = ((index % n) + n) % n
+        if (index === currentIndex)
             return
         currentIndex = index
         resetView()
         loadCurrent()
-        chrome.wake()
     }
 
     function fitImage(w, h) {
@@ -226,6 +251,24 @@ Popup {
         zoomAt(point !== undefined ? point
                                    : Qt.point(flick.width / 2, flick.height / 2),
                actualSizeZoom)
+    }
+
+    // What a click on the picture jumps to. A fixed step rather than actual
+    // size, because actual size on a 6000px photo is a jump to one corner of
+    // it, and the gesture people expect here is "closer", not "1:1" — which
+    // the 0 key still gives.
+    readonly property real clickZoom: 2.5
+    // True once there is somewhere to pan to, which is also the condition
+    // under which the wheel stops zooming and starts panning.
+    readonly property bool zoomedIn: zoom > 1.0 + 0.001
+
+    /// Toggle between fit and `clickZoom`, anchored at `viewportPoint` (flick
+    /// viewport coordinates) so the pixel under the pointer stays under it.
+    function toggleZoomAt(viewportPoint) {
+        if (zoomedIn)
+            zoomAt(viewportPoint, 1.0)
+        else
+            zoomAt(viewportPoint, clickZoom)
     }
 
     Connections {
@@ -311,8 +354,17 @@ Popup {
         Keys.onLeftPressed: viewer.showAt(viewer.currentIndex - 1)
         Keys.onRightPressed: viewer.showAt(viewer.currentIndex + 1)
         Keys.onPressed: (event) => {
-            chrome.wake()
-            if (event.key === Qt.Key_Plus || event.key === Qt.Key_Equal) {
+            // Down and Space join Right as "next", Up joins Left as
+            // "previous". One axis is not enough: a person who has just
+            // scrolled a list reaches for Down, and Space is the oldest
+            // "advance" key there is.
+            if (event.key === Qt.Key_Down || event.key === Qt.Key_Space) {
+                viewer.showAt(viewer.currentIndex + 1)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Up) {
+                viewer.showAt(viewer.currentIndex - 1)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Plus || event.key === Qt.Key_Equal) {
                 viewer.zoomStep(1.2)
                 event.accepted = true
             } else if (event.key === Qt.Key_Minus) {
@@ -332,30 +384,35 @@ Popup {
             onTapped: viewer.close()
         }
 
-        // Toolbar/chrome auto-hide: fades after idle while the pointer is
-        // still; wakes on movement, keys, navigation, errors, and while
-        // any control is hovered. Reduced motion keeps chrome always on.
+        // CHROME GETS OUT OF THE WAY WHILE ZOOMED, NOT ON A TIMER.
+        //
+        // This was a 2.6s idle fade, and an idle timer is the wrong question:
+        // it hides the controls from someone who is reading a picture and
+        // has simply stopped moving the mouse, and it keeps them over the
+        // picture during the one activity they actually obstruct — zooming
+        // in to look at detail underneath them. Tying it to zoom answers the
+        // real question, "is the user inspecting the image right now", and
+        // it needs no timer, no wake calls and no pointer tracking.
+        //
+        // Three carve-outs, each load-bearing:
+        //   * reduced motion keeps chrome permanently on, as it did before —
+        //     an interface that appears and disappears IS motion;
+        //   * hovering the toolbar keeps it up, so a control cannot vanish
+        //     from under the pointer on its way to being clicked;
+        //   * a load failure keeps it up, because the Retry button lives
+        //     there and a viewer that hid it would be a dead end.
+        //
+        // The close button is deliberately NOT part of this — it is anchored
+        // separately and never fades; see its own note. A way out must never
+        // be conditional, and this gate is not recoverable by pointer the way
+        // the idle fade it replaced was.
         QtObject {
             id: chrome
-            property bool shown: true
-            function wake() {
-                shown = true
-                if (!AppTheme.reducedMotion)
-                    idleTimer.restart()
-            }
-        }
-        Timer {
-            id: idleTimer
-            interval: 2600
-            onTriggered: {
-                if (!AppTheme.reducedMotion && !toolbarHover.hovered
-                        && !viewer.bridgeFailed)
-                    chrome.shown = false
-            }
-        }
-        HoverHandler {
-            // Any pointer movement over the viewer wakes the chrome.
-            onPointChanged: chrome.wake()
+            readonly property bool shown:
+                !viewer.zoomedIn
+                || AppTheme.reducedMotion
+                || toolbarHover.hovered
+                || viewer.bridgeFailed
         }
 
         // ── Image area (fills the window; chrome floats above) ───────────
@@ -369,6 +426,23 @@ Popup {
                 contentHeight: imageHolder.height
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
+                // THE IMAGE TRACKS THE POINTER AND STOPS DEAD. No glide.
+                //
+                // A Flickable flicks by default — Qt's own deceleration is
+                // ~1500 px/s², so letting go mid-drag sent the picture
+                // coasting. That is right for a list, where the content is
+                // long and the gesture is "throw me further", and wrong for
+                // inspecting an image, where the gesture is "put this part
+                // under my eyes" and any coast overshoots the thing you were
+                // aiming at. The model this viewer follows pans 1:1 with no
+                // inertia at all, which is the behaviour asked for.
+                //
+                // Both properties, because they close different doors:
+                // `maximumFlickVelocity: 0` refuses to start a flick, and the
+                // deceleration makes any flick that does start decay inside a
+                // single frame. Dragging is untouched — only the release.
+                maximumFlickVelocity: 0
+                flickDeceleration: 100000
                 // Panning only when zoomed beyond the viewport — otherwise
                 // drags cannot accidentally nudge a fitted image.
                 interactive: imageHolder.width > width + 0.5
@@ -379,19 +453,60 @@ Popup {
                     width: Math.max(flick.width, viewer.baseWidth * viewer.zoom)
                     height: Math.max(flick.height, viewer.baseHeight * viewer.zoom)
 
-                    // A click ANYWHERE — image included — closes the viewer
-                    // IMMEDIATELY (live feedback twice over: closing must
-                    // never require the X button, and must never wait out
-                    // the platform's ~400ms double-click interval, which an
-                    // exclusive single/double-tap split forces). Double-
-                    // click zoom was dropped for that instant close: the
-                    // wheel, the +/- toolbar buttons, and the +/-/0/F keys
-                    // all still zoom. While zoomed, the Flickable steals
-                    // drags for panning before they can count as taps.
+                    // A click on the PICTURE zooms at the point clicked; a
+                    // click anywhere else — the scrim around it — still
+                    // closes, instantly.
+                    //
+                    // THIS REPLACED AN INSTANT CLOSE ON THE PICTURE ITSELF,
+                    // and that was a deliberate decision made on live
+                    // feedback: closing must never require the X button, and
+                    // must never wait out the platform's ~400ms double-click
+                    // interval, which is why the double-click zoom that used
+                    // to live here was dropped rather than kept alongside.
+                    // Neither constraint is broken by this. A single tap is
+                    // not a double tap, so nothing waits for an interval, and
+                    // the scrim is most of the window — plus Escape, plus a
+                    // pinned close button. What IS given up is closing by
+                    // clicking the picture, which is the trade that was
+                    // asked for. If it reads worse in the hand, this handler
+                    // is the one line to put back.
+                    //
+                    // While zoomed the Flickable steals drags for panning
+                    // before they can count as taps, so a pan never zooms.
                     TapHandler {
                         id: imageTap
                         gesturePolicy: TapHandler.WithinBounds
-                        onTapped: viewer.close()
+                        // ONE handler with an explicit band check — NOT a
+                        // second TapHandler on an image-sized child. Tap
+                        // handlers are non-exclusive across subtrees (§16,
+                        // four rounds of exactly this), so a nested pair
+                        // fires BOTH on one click: the inner zoom and the
+                        // outer close.
+                        //
+                        // The band is needed because `imageHolder` is
+                        // `Math.max(flick.width, baseWidth * zoom)` — it
+                        // always fills the viewport, so a fitted image leaves
+                        // a wide margin of holder that is not picture. That
+                        // margin reads as scrim and must close. It used to,
+                        // back when both regions closed and the distinction
+                        // cost nothing; splitting the two gestures is what
+                        // turned the holder's size into a defect.
+                        onTapped: (eventPoint) => {
+                            var iw = viewer.baseWidth * viewer.zoom
+                            var ih = viewer.baseHeight * viewer.zoom
+                            var left = (imageHolder.width - iw) / 2
+                            var top = (imageHolder.height - ih) / 2
+                            var x = eventPoint.position.x
+                            var y = eventPoint.position.y
+                            if (iw <= 0 || ih <= 0
+                                    || x < left || x > left + iw
+                                    || y < top || y > top + ih) {
+                                viewer.close()
+                                return
+                            }
+                            var p = imageHolder.mapToItem(flick, x, y)
+                            viewer.toggleZoomAt(Qt.point(p.x, p.y))
+                        }
                     }
                     // Right-click the picture itself for the actions a person
                     // expects there — asked for in those words, "same as in
@@ -401,7 +516,6 @@ Popup {
                         acceptedButtons: Qt.RightButton
                         gesturePolicy: TapHandler.WithinBounds
                         onTapped: (eventPoint) => {
-                            chrome.wake()
                             var p = imageHolder.mapToItem(
                                 Overlay.overlay,
                                 eventPoint.position.x, eventPoint.position.y)
@@ -470,13 +584,44 @@ Popup {
 
                 WheelHandler {
                     target: null
-                    // Pointer-centered wheel zoom: the image point under
-                    // the cursor stays fixed.
+                    // THE WHEEL PANS A ZOOMED IMAGE AND ZOOMS A FITTED ONE.
+                    // Once the picture is bigger than the window the wheel
+                    // is the gesture for moving around it, which is what a
+                    // scroll wheel means everywhere else; while it fits
+                    // there is nowhere to pan to, so the wheel keeps its
+                    // pointer-centred zoom and nothing is lost.
+                    //
+                    // Ctrl+wheel always zooms, at either size. Without it,
+                    // zooming back OUT by wheel would be unreachable the
+                    // moment zooming in made the image pannable — the
+                    // gesture would work in one direction only. (The model
+                    // this follows drops ctrl+wheel on the floor and accepts
+                    // exactly that; the keys and the toolbar are its way
+                    // back. Keeping it costs nothing and removes a trap.)
                     onWheel: (event) => {
-                        chrome.wake()
-                        const factor = event.angleDelta.y > 0 ? 1.2 : 1 / 1.2
-                        viewer.zoomAt(Qt.point(event.x, event.y),
-                                      viewer.zoom * factor)
+                        var wantsZoom = !flick.interactive
+                                || (event.modifiers & Qt.ControlModifier)
+                        if (wantsZoom) {
+                            const factor = event.angleDelta.y > 0 ? 1.2 : 1 / 1.2
+                            viewer.zoomAt(Qt.point(event.x, event.y),
+                                          viewer.zoom * factor)
+                            return
+                        }
+                        // pixelDelta is populated by trackpads and is zero
+                        // for a notched mouse wheel, where angleDelta is the
+                        // only signal: 120 units is one notch by convention.
+                        var dx = event.pixelDelta.x !== 0
+                                 ? event.pixelDelta.x
+                                 : event.angleDelta.x / 120 * 60
+                        var dy = event.pixelDelta.y !== 0
+                                 ? event.pixelDelta.y
+                                 : event.angleDelta.y / 120 * 60
+                        flick.contentX = Math.max(
+                            0, Math.min(flick.contentWidth - flick.width,
+                                        flick.contentX - dx))
+                        flick.contentY = Math.max(
+                            0, Math.min(flick.contentHeight - flick.height,
+                                        flick.contentY - dy))
                     }
                 }
             }
@@ -551,7 +696,11 @@ Popup {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: AppTheme.spacing12
-                visible: viewer.currentIndex > 0 && chrome.shown
+                // Shown for any SET, not for any position. The list wraps, so
+                // there is no first and no last to disable against — an arrow
+                // that vanished at the ends would be telling the user the set
+                // had run out when it has not.
+                visible: viewer.entries.length > 1 && chrome.shown
                 iconName: "chevron_left"
                 iconSize: 26
                 implicitWidth: 40; implicitHeight: 40
@@ -568,8 +717,7 @@ Popup {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.rightMargin: AppTheme.spacing12
-                visible: viewer.currentIndex < viewer.entries.length - 1
-                         && chrome.shown
+                visible: viewer.entries.length > 1 && chrome.shown
                 iconName: "chevron_right"
                 iconSize: 26
                 implicitWidth: 40; implicitHeight: 40
@@ -590,6 +738,10 @@ Popup {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.margins: AppTheme.spacing12
+            // Clear of the pinned close button, which is no longer part of
+            // this row: 36px of button plus its own margin. Without this the
+            // filename would run underneath it.
+            anchors.rightMargin: AppTheme.spacing12 + 36 + AppTheme.spacing8
             spacing: AppTheme.spacing8
             visible: opacity > 0
             opacity: chrome.shown ? 1.0 : 0.0
@@ -630,14 +782,155 @@ Popup {
                     elide: Label.ElideRight
                 }
             }
-            IconButton {
-                objectName: "viewerCloseButton"
-                iconName: "close"
-                iconSize: 20
-                implicitWidth: 36; implicitHeight: 36
-                iconColorOverride: AppTheme.scrimInk
-                Accessible.name: qsTr("Close image viewer")
-                onClicked: viewer.close()
+        }
+
+        // PINNED. Not part of `chrome.shown`, and this is the one control
+        // that must not be.
+        //
+        // It used to live inside headerRow, which fades with the rest of the
+        // chrome — and once the chrome started hiding on ZOOM rather than on
+        // an idle timer, that became a trap. The old idle fade was
+        // recoverable by any pointer movement; the zoom gate is not. At
+        // opacity 0 the toolbar is `visible: false` and cannot be hovered
+        // back into existence, and a zoomed picture fills the viewport so
+        // every click takes the zoom branch of the band check. A pointer-only
+        // user was left with Escape, or un-zooming first, as the only ways
+        // out of a full-screen overlay.
+        //
+        // A way out must never be conditional, so this one never fades.
+        IconButton {
+            objectName: "viewerCloseButton"
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.margins: AppTheme.spacing12
+            iconName: "close"
+            iconSize: 20
+            implicitWidth: 36; implicitHeight: 36
+            iconColorOverride: AppTheme.scrimInk
+            Accessible.name: qsTr("Close image viewer")
+            onClicked: viewer.close()
+        }
+
+        // ── Thumbnail strip ──────────────────────────────────────────────
+        //
+        // Only for a real SET: one image has nothing to strip. It asks the
+        // bridge for `list_thumb`, the smallest cached kind, so opening a
+        // room's worth of pictures does not pull full payloads for every
+        // one of them just to draw 48px squares.
+        ListView {
+            id: thumbStrip
+            objectName: "viewerThumbnailStrip"
+            orientation: ListView.Horizontal
+            model: viewer.entries
+            spacing: 4
+            clip: true
+            height: 48
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: toolbar.top
+            anchors.bottomMargin: AppTheme.spacing12
+
+            // THE WIDTH IS A WHOLE NUMBER OF THUMBNAILS, NEVER THE RAW
+            // AVAILABLE SPACE.
+            //
+            // `Math.min(available, contentWidth)` cut the strip wherever the
+            // window happened to end, so the first and last tiles were sliced
+            // down the middle — a row of pictures with two ragged stumps on
+            // it. `clip: true` is what makes that visible, and it cannot be
+            // dropped: without it the strip paints over the image instead.
+            //
+            // So the strip is sized to fit N COMPLETE cells and no fraction
+            // of one. `snapMode` keeps that true after a flick, and because
+            // every cell is the same width, a `Contain` scroll from an
+            // aligned position stays aligned.
+            readonly property int cell: 48 + spacing
+            width: {
+                var avail = parent.width - AppTheme.spacing16 * 2
+                var fit = Math.max(1, Math.floor((avail + spacing) / cell))
+                // Sized from the MODEL, never from `contentWidth`.
+                //
+                // `contentWidth` is an output of the ListView, derived from
+                // the delegates it has created — and how many it creates is
+                // derived from `width`. Reading it here is a binding loop:
+                // Qt either logs one or quietly settles on whatever estimate
+                // the view had while items were still being built. Every cell
+                // is a fixed 48px, so the real content width is known from
+                // the entry count without asking the view anything.
+                var all = viewer.entries.length * cell - spacing
+                // The trailing item carries no spacing after it.
+                return Math.min(all, fit * cell - spacing)
+            }
+            snapMode: ListView.SnapToItem
+            visible: opacity > 0
+            opacity: (viewer.entries.length > 1 && chrome.shown) ? 1.0 : 0.0
+            Behavior on opacity {
+                enabled: !AppTheme.reducedMotion
+                NumberAnimation { duration: 180 }
+            }
+            // Keep the current thumbnail reachable as the selection moves —
+            // `Contain` scrolls only when it has fallen off an edge, so the
+            // strip does not lurch on every step.
+            onCurrentIndexChanged: positionViewAtIndex(currentIndex,
+                                                       ListView.Contain)
+            currentIndex: viewer.currentIndex
+
+            // The strip sits over the scrim, whose tap closes the viewer.
+            // Without this, a click on the gap BETWEEN two thumbnails would
+            // close rather than do nothing — the one place a miss is most
+            // likely, since the targets are 48px.
+            TapHandler { onTapped: {} }
+
+            delegate: Item {
+                id: thumbItem
+                required property int index
+                required property var modelData
+                width: 48
+                height: 48
+                readonly property bool isCurrent: index === viewer.currentIndex
+
+                Image {
+                    anchors.fill: parent
+                    source: (modelData.mediaKey || "").length > 0
+                            && app.mediaBridge.supported
+                            ? app.mediaBridge.mediaSource(modelData.mediaKey,
+                                                          "list_thumb")
+                            : (modelData.httpUrl || "")
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    smooth: true
+                    mipmap: true
+                }
+                // Everything that is not the current item recedes; hovering
+                // brings it most of the way back so the strip answers the
+                // pointer before it is clicked.
+                Rectangle {
+                    anchors.fill: parent
+                    color: AppTheme.scrimBackdrop
+                    opacity: thumbItem.isCurrent
+                             ? 0.0 : (thumbHover.hovered ? 0.15 : 0.5)
+                    Behavior on opacity {
+                        enabled: !AppTheme.reducedMotion
+                        NumberAnimation { duration: 120 }
+                    }
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    color: "transparent"
+                    border.width: thumbItem.isCurrent ? 2 : 0
+                    border.color: AppTheme.scrimInk
+                }
+                HoverHandler {
+                    id: thumbHover
+                    cursorShape: Qt.PointingHandCursor
+                }
+                TapHandler { onTapped: viewer.showAt(thumbItem.index) }
+
+                Accessible.role: Accessible.Button
+                Accessible.name: thumbItem.isCurrent
+                    ? qsTr("Image %1 of %2, shown")
+                          .arg(thumbItem.index + 1).arg(viewer.entries.length)
+                    : qsTr("Image %1 of %2")
+                          .arg(thumbItem.index + 1).arg(viewer.entries.length)
+                Accessible.onPressAction: viewer.showAt(thumbItem.index)
             }
         }
 

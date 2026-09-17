@@ -188,9 +188,27 @@ private Q_SLOTS:
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$c"));
         QMetaObject::invokeMethod(m_root, "showAt", Q_ARG(QVariant, QVariant(0)));
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$a"));
-        // Out of bounds is refused rather than clamped onto a neighbour.
+        // NAVIGATION WRAPS, as of 2026-09-17. This used to read "out of
+        // bounds is refused rather than clamped onto a neighbour", and it
+        // stayed green through the change that made `showAt` wrap — by
+        // arithmetic coincidence, not because the contract held. With three
+        // entries at index 0, `3 % 3 == 0 == currentIndex`, so the early
+        // return fired and `$a` was still correct for the wrong reason.
+        //
+        // Both directions are pinned now, and past the coincidence, so the
+        // wrap is actually asserted rather than accidentally survived.
         QMetaObject::invokeMethod(m_root, "showAt", Q_ARG(QVariant, QVariant(3)));
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$a"));
+        QMetaObject::invokeMethod(m_root, "showAt", Q_ARG(QVariant, QVariant(4)));
+        QCOMPARE(call("currentKey").toString(), QStringLiteral("$b"));
+        // Back to the first, then backwards past it: the last entry, not
+        // nothing. JS `%` keeps the DIVIDEND's sign, so -1 % 3 is -1 rather
+        // than 2 — which is why showAt normalises twice, and why asserting
+        // this direction is worth the two lines.
+        QMetaObject::invokeMethod(m_root, "showAt", Q_ARG(QVariant, QVariant(0)));
+        QCOMPARE(call("currentKey").toString(), QStringLiteral("$a"));
+        QMetaObject::invokeMethod(m_root, "showAt", Q_ARG(QVariant, QVariant(-1)));
+        QCOMPARE(call("currentKey").toString(), QStringLiteral("$c"));
     }
 
     // An index the list cannot hold opens nothing at all. Opening "something
