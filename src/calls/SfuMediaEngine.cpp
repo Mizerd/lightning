@@ -3361,7 +3361,23 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                "! %8 ! %7 "
                "! %2 "
                "! tee name=t %4"
-               "t. ! queue "
+               // BOUNDED AND LEAKY, for the reason the audio capture queue
+               // carries in capitals: a default `queue` is
+               // max-size-time=1s with leaky=no, so a software VP8 encoder
+               // that falls behind once fills it and NEVER drains, and the
+               // backlog is permanent latency for the rest of the call.
+               // This is the queue in front of the element §16 measures at
+               // 2.6 cores sustained on a 4K share -- the one most able to
+               // fall behind -- and it holds RAW frames, so a second of
+               // 1280x720 RGBA is ~110 MB of them.
+               //
+               // Leaking is correct here and does not corrupt anything: the
+               // encoder simply encodes fewer frames, which is what falling
+               // behind should look like. It must NOT apply backpressure
+               // instead -- the tee would stall the capture branch and the
+               // self-view with it.
+               "t. ! queue max-size-buffers=0 max-size-bytes=0 "
+               "max-size-time=100000000 leaky=downstream "
                "! valve name=vidvalve drop=false ! %3 name=videoenc "
                // OUR payloader, not rtpvp8pay: see RtpVp8Payloader.h.
                // rtpvp8pay parses the VP8 bitstream and cannot payload an
@@ -6758,18 +6774,24 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     // synthetic in a headless run, and audio still ends in a fakesink because
     // there is no audio device.
     const QString description = mediaKind == QLatin1String("video")
-        ? QStringLiteral("queue ! rtpvp8depay name=recvdepay ! vp8dec "
+        ? QStringLiteral("queue max-size-buffers=0 max-size-bytes=0 "
+                         "max-size-time=200000000 leaky=downstream "
+                         "! rtpvp8depay name=recvdepay ! vp8dec "
                          "! videoconvert ! video/x-raw,format=RGBA "
                          "! appsink name=vidsink emit-signals=true "
                          "sync=false max-buffers=1 drop=true")
         : (engine->testSourceMode()
-               ? QStringLiteral("queue ! rtpopusdepay name=recvdepay "
+               ? QStringLiteral("queue max-size-buffers=0 max-size-bytes=0 "
+                                "max-size-time=200000000 leaky=downstream "
+                                "! rtpopusdepay name=recvdepay "
                                 "! opusdec ! audioconvert "
                                 "! audioresample ! volume name=%1 "
                                 "! fakesink sync=false")
                      .arg(outputVolumeElementName(
                          volumeKeyFor(streamId, trackMid)))
-               : QStringLiteral("queue ! rtpopusdepay name=recvdepay "
+               : QStringLiteral("queue max-size-buffers=0 max-size-bytes=0 "
+                                "max-size-time=200000000 leaky=downstream "
+                                "! rtpopusdepay name=recvdepay "
                                 "! opusdec ! audioconvert "
                                 "! audioresample ! volume name=%1 "
                                 "! autoaudiosink")
