@@ -430,6 +430,7 @@ struct PreflightResult {
         RunGifStatus,  // --gif-status: print provider-configured booleans
         RunGifSelfTest, // --gif-selftest: bounded live provider request
         RunCallMediaStatus, // --call-media-status: probe the media engines
+        RunCallQueueSelfTest, // --call-queue-selftest: the voice-delay check
         RunImageFormatStatus, // --image-format-status: probe the image decoders
         RunSpellStatus, // --spell-status: probe the platform spell checker
         RunDesktopStatus, // --desktop-status: launcher entry + icon association
@@ -574,6 +575,15 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "                       engine is available. Names the first missing\n"
                 "                       GStreamer element when it is not. No network,\n"
                 "                       no GUI, no window.\n"
+                "  --call-queue-selftest\n"
+                "                       Measure the voice-delay property directly: run\n"
+                "                       every queue this build's publish pipeline uses\n"
+                "                       through a starved consumer, beside a plain\n"
+                "                       GStreamer queue as a control, and report what\n"
+                "                       each one held. No network, no GUI, no account,\n"
+                "                       no sound card. Exit 0 when none of the shipped\n"
+                "                       queues kept a backlog its consumer had caught\n"
+                "                       up from. Takes about half a minute.\n"
                 "  --image-format-status\n"
                 "                       Print which image formats this build can decode\n"
                 "                       and whether that covers what Lightning accepts,\n"
@@ -734,6 +744,10 @@ PreflightResult preflightParse(int argc, char *argv[])
             continue;
         }
 #endif
+        if (a == QLatin1String("--call-queue-selftest")) {
+            r.action = PreflightResult::RunCallQueueSelfTest;
+            return r;
+        }
         if (a == QLatin1String("--call-media-status")) {
             r.action = PreflightResult::RunCallMediaStatus;
             return r;
@@ -1941,6 +1955,43 @@ int main(int argc, char *argv[])
             << "call media engine built in: no\n"
             << "\nRESULT: calls will be refused by this build "
                "(configured without GStreamer).\n";
+        return 1;
+#endif
+    }
+    if (pf.action == PreflightResult::RunCallQueueSelfTest) {
+        // THE VOICE-DELAY CHECK, ASKABLE OF A PACKAGE ON EVERY PLATFORM.
+        //
+        // Voice delay had been measured acoustically, which needs two
+        // machines, a sound card and a rig — so it existed for Linux only.
+        // The Windows guest has no sound card at all and its RDP playback
+        // path drifted 250 ms between identical runs, which is larger than
+        // the effect, so the maintainer's bar (three platforms, Windows
+        // mandatory) could not be met that way at all. This asks the
+        // property directly and needs none of it.
+        QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
+        QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
+#ifdef HAVE_LIGHTNING_WEBRTC
+        // A QCoreApplication for the same reason --call-media-status needs
+        // one: the GStreamer bootstrap resolves the bundled plugin directory
+        // from applicationDirPath().
+        QCoreApplication probeApp(argc, argv);
+        DiagnosticStream out(stdout);
+        QString whyNot;
+        if (!lightning::gst::ensureInitialised(&whyNot)) {
+            out << "gstreamer: FAILED (" << whyNot << ")\n"
+                << "\nRESULT: FAIL — GStreamer did not initialise, so no "
+                   "queue could be measured.\n";
+            return 1;
+        }
+        QString report;
+        const int rc = SfuMediaEngine::runQueueSelfTest(&report);
+        out << report;
+        return rc;
+#else
+        DiagnosticStream out(stdout);
+        out << "call media engine built in: no\n"
+            << "\nRESULT: this build has no media engine, so it has no "
+               "queues to measure (configured without GStreamer).\n";
         return 1;
 #endif
     }

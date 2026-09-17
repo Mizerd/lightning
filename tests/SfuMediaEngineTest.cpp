@@ -3001,8 +3001,14 @@ private slots:
         QVERIFY2(code.contains(QStringLiteral("max-size-time=100000000")),
                  "the comment stripper ate the code");
 
-        static const QRegularExpression queueElement(
-            QStringLiteral("\\bqueue(?=\\s)"));
+        // A PIPELINE queue, not a C++ identifier called `queue`. The first
+        // version matched `\bqueue\s` and so matched
+        // `queue = gst_bin_get_by_name(...)` the moment this file gained a
+        // self-test that holds one in a variable. A pipeline queue is always
+        // followed by a pad separator or by one of its own properties.
+        static const QRegularExpression queueElement(QStringLiteral(
+            "\\bqueue(?=\\s+(?:!|max-size|leaky|min-threshold|flush-on-eos"
+            "|silent|name=))"));
         int found = 0;
         QRegularExpressionMatchIterator it = queueElement.globalMatch(code);
         while (it.hasNext()) {

@@ -298,6 +298,40 @@ public:
     void publishVideo(const QString &cid, bool screenShare, int nodeId,
                       int pipewireFd = -1, quint64 windowHandle = 0,
                       const QRect &captureRect = {});
+    /// THE VOICE-DELAY CHECK, HEADLESS, WITH ITS OWN NEGATIVE CONTROL.
+    ///
+    /// The claim a release makes about voice delay is that a live queue does
+    /// not accumulate permanent latency when something downstream falls
+    /// behind. Every attempt to check that acoustically has needed two
+    /// machines, a sound card and a rig — which is why it has only ever been
+    /// done on Linux, why the Windows guest (no sound card, RDP playback
+    /// drifting 250 ms between identical runs) could not be measured at all,
+    /// and why the one Linux run had NO negative control: the pre-fix binary
+    /// was never run, so "the unfixed tree would be +1000 ms" was a
+    /// prediction sitting inside a section headed *measured*.
+    ///
+    /// This asks the question directly instead. It needs no GUI, no account,
+    /// no homeserver, no sound card and no second machine, so it runs from a
+    /// PACKAGE on every platform Lightning ships to:
+    ///
+    ///   * it takes the queue specifications out of the description
+    ///     `videoPipelineDescription()` actually produces, so it cannot test
+    ///     a string that merely RESEMBLES the one production builds — the
+    ///     mistake this file has already shipped three times;
+    ///   * it starves the CONSUMER rather than freezing the process. That is
+    ///     the defect's own mechanism and it is what `SIGSTOP` could not do:
+    ///     freezing stops the producer and the consumer together, so no
+    ///     backlog can form and a flat result means nothing;
+    ///   * it runs a bare `queue` beside each one as a CONTROL, so the
+    ///     difference between bounded-and-leaky and the GStreamer default is
+    ///     measured in the same run on the same machine, rather than being
+    ///     asserted from a comment.
+    ///
+    /// Reports the queue's own `current-level-time` before, during and after
+    /// the starvation. Returns 0 when every shipped queue stayed within its
+    /// bound and recovered.
+    static int runQueueSelfTest(QString *report);
+
     /// WHEN THE "THIS PERSON'S MEDIA CANNOT BE DECRYPTED" BADGE GOES UP,
     /// AND IT IS A PURE STRUCT SO THE THRESHOLDS CAN BE ASSERTED DIRECTLY.
     ///

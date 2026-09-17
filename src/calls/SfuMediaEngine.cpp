@@ -33,6 +33,7 @@
 #include <QMutexLocker>
 #include <QRandomGenerator>
 #include <QSet>
+#include <QTextStream>
 #include <QThread>
 #include <QUrl>
 #include <QVariantMap>
@@ -3323,6 +3324,246 @@ QString SfuMediaEngine::videoRateStage(bool screenShare)
     // worked while the camera did not, and why that element must keep its
     // zero-based timeline (see the `frameIndex` field there).
     return QStringLiteral("videorate name=vidrate skip-to-first=true");
+}
+
+namespace {
+
+/// One queue under test, and what the run measured.
+struct QueueProbeResult {
+    QString spec;
+    bool isControl = false;
+    qint64 settledMs = -1;   ///< level just before the brake goes on
+    qint64 peakMs = -1;      ///< highest level while starved
+    qint64 realtimeMs = -1;  ///< level after the consumer is restored to
+                             ///< REAL TIME, which is all a live encoder ever
+                             ///< gets: this is the "permanent latency"
+                             ///< question, and it is the one that matters
+    qint64 recoveredMs = -1; ///< level after the consumer is let run free
+    bool ran = false;
+    QString error;
+};
+
+/// Read `current-level-time` off a queue, in milliseconds.
+qint64 queueLevelMs(GstElement *queue)
+{
+    guint64 ns = 0;
+    g_object_get(queue, "current-level-time", &ns, nullptr);
+    return static_cast<qint64>(ns / GST_MSECOND);
+}
+
+/// Run ONE queue through settle, starve, recover.
+///
+/// `identity sleep-time` sleeps per buffer, so it starves the CONSUMER while
+/// a live source keeps producing at real time. That is the defect's own
+/// mechanism. Freezing the whole process instead stops both ends together and
+/// cannot produce a backlog at all, which is why the acoustic run that used
+/// SIGSTOP could not distinguish a working fix from an unexercised one.
+QueueProbeResult runOneQueueProbe(const QString &spec, bool isControl)
+{
+    QueueProbeResult out;
+    out.spec = spec;
+    out.isControl = isControl;
+
+    // 10 ms buffers from a live source: the shape a capture delivers.
+    const QString desc =
+        QStringLiteral("audiotestsrc is-live=true samplesperbuffer=480 ! "
+                       "audio/x-raw,rate=48000,channels=1 ! %1 name=q ! "
+                       "identity name=brake sync=false ! "
+                       "fakesink sync=false async=false")
+            .arg(spec);
+
+    GError *error = nullptr;
+    GstElement *pipeline =
+        gst_parse_launch(desc.toUtf8().constData(), &error);
+    if (error || !pipeline) {
+        out.error = error && error->message
+            ? QString::fromUtf8(error->message)
+            : QStringLiteral("could not build the probe pipeline");
+        if (error)
+            g_error_free(error);
+        if (pipeline)
+            gst_object_unref(pipeline);
+        return out;
+    }
+
+    GstElement *queue = gst_bin_get_by_name(GST_BIN(pipeline), "q");
+    GstElement *brake = gst_bin_get_by_name(GST_BIN(pipeline), "brake");
+    if (!queue || !brake) {
+        out.error = QStringLiteral("the probe pipeline lost its own elements");
+        if (queue)
+            gst_object_unref(queue);
+        if (brake)
+            gst_object_unref(brake);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
+        return out;
+    }
+
+    gst_element_set_state(pipeline, GST_STATE_PLAYING);
+    if (gst_element_get_state(pipeline, nullptr, nullptr, 5 * GST_SECOND)
+        == GST_STATE_CHANGE_FAILURE) {
+        out.error = QStringLiteral("the probe pipeline would not reach "
+                                   "PLAYING");
+        gst_object_unref(queue);
+        gst_object_unref(brake);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        gst_object_unref(pipeline);
+        return out;
+    }
+
+    const auto sampleFor = [&](int ms, qint64 *peak) {
+        const qint64 until = QDateTime::currentMSecsSinceEpoch() + ms;
+        qint64 last = -1;
+        while (QDateTime::currentMSecsSinceEpoch() < until) {
+            const qint64 level = queueLevelMs(queue);
+            last = level;
+            if (peak && level > *peak)
+                *peak = level;
+            QThread::msleep(20);
+        }
+        return last;
+    };
+
+    // Settle: 1.5 s of ordinary flow.
+    out.settledMs = sampleFor(1500, nullptr);
+
+    // Starve: 40 ms of sleep per 10 ms buffer makes the consumer four times
+    // slower than the live producer.
+    g_object_set(brake, "sleep-time", guint(40000), nullptr);
+    out.peakMs = 0;
+    sampleFor(2000, &out.peakMs);
+
+    // RESTORE THE CONSUMER TO REAL TIME, WHICH IS ALL A LIVE ENCODER EVER
+    // GETS. This is the half that decides whether a backlog is permanent.
+    // A live source produces exactly one second of audio per second, so a
+    // consumer that merely keeps up can never give back what it fell behind
+    // by — it can only stop falling further. Letting the brake off entirely
+    // (below) lets the consumer outrun the producer, which no encoder in a
+    // real call can do, and a queue that only ever drains in THAT phase has
+    // not shown recovery at all.
+    g_object_set(brake, "sleep-time", guint(10000), nullptr);
+    out.realtimeMs = sampleFor(3000, nullptr);
+
+    // And then free, which says whether the backlog was held or merely
+    // in flight.
+    g_object_set(brake, "sleep-time", guint(0), nullptr);
+    out.recoveredMs = sampleFor(3000, nullptr);
+
+    out.ran = true;
+    gst_object_unref(queue);
+    gst_object_unref(brake);
+    gst_element_set_state(pipeline, GST_STATE_NULL);
+    gst_object_unref(pipeline);
+    return out;
+}
+
+} // namespace
+
+int SfuMediaEngine::runQueueSelfTest(QString *report)
+{
+    QString text;
+    QTextStream out(&text);
+
+    // THE SPECS COME OUT OF THE DESCRIPTION PRODUCTION BUILDS. A test that
+    // composes something resembling what production composes proves nothing —
+    // this file has shipped that mistake three times, most recently a
+    // per-application share that could never parse while its test appended
+    // `! fakesink` to a different string and passed.
+    const QString produced = videoPipelineDescription(
+        QStringLiteral("videotestsrc is-live=true"),
+        videoRateStage(/*screenShare=*/false),
+        QStringLiteral("video/x-raw,width=(int)[1,1280],height=(int)[1,720],"
+                       "framerate=(fraction)30/1,"
+                       "pixel-aspect-ratio=(fraction)1/1"),
+        QStringLiteral("vp8enc"), QString(), 1u,
+        QStringLiteral("videoconvert ! videoscale"),
+        captureEntryFilter(false));
+
+    static const QRegularExpression queueElement(
+        QStringLiteral("queue(?:\\s+[a-z-]+=[^\\s!]+)*"));
+    QStringList specs;
+    QRegularExpressionMatchIterator it = queueElement.globalMatch(produced);
+    while (it.hasNext()) {
+        const QString spec = it.next().captured(0).trimmed();
+        if (!specs.contains(spec))
+            specs.append(spec);
+    }
+
+    out << "queue self-test: the voice-delay property, measured directly\n\n";
+    out << "GStreamer " << gst_version_string() << "\n";
+    out << "queues taken from the publish description: " << specs.size()
+        << "\n"
+        << "(the receive-side queues are built inside a member function and "
+           "are not\n reachable here; the source sweep "
+           "`everyLiveQueueIsBoundedAndLeaky` covers all of\n them, and they "
+           "carry the same kind of bound.)\n\n";
+    if (specs.isEmpty()) {
+        out << "RESULT: FAIL — no queue could be read out of the pipeline "
+               "this build produces, so nothing was tested.\n";
+        out.flush();
+        if (report)
+            *report = text;
+        return 1;
+    }
+
+    QList<QueueProbeResult> results;
+    for (const QString &spec : specs)
+        results.append(runOneQueueProbe(spec, /*isControl=*/false));
+    // The control: GStreamer's default queue, in the same run, on the same
+    // machine, through the same starvation. Without it "the level stayed
+    // low" is a number with nothing to be low COMPARED TO.
+    results.append(runOneQueueProbe(QStringLiteral("queue"),
+                                    /*isControl=*/true));
+
+    bool ok = true;
+    for (const QueueProbeResult &r : results) {
+        out << (r.isControl ? "CONTROL " : "SHIPPED ") << r.spec << "\n";
+        if (!r.ran) {
+            out << "    could not run: " << r.error << "\n\n";
+            if (!r.isControl)
+                ok = false;
+            continue;
+        }
+        out << "    settled                       " << r.settledMs
+            << " ms\n"
+            << "    peak while starved            " << r.peakMs << " ms\n"
+            << "    consumer restored to realtime " << r.realtimeMs
+            << " ms\n"
+            << "    consumer let run free         " << r.recoveredMs
+            << " ms\n";
+        if (!r.isControl) {
+            // A shipped queue must stay near its declared bound while
+            // starved, and must not still be holding a backlog once the
+            // consumer is merely keeping up. 350 ms of headroom is for
+            // scheduling, not for policy: the bounds in the descriptions are
+            // 100 and 200 ms.
+            const bool bounded = r.peakMs <= 450;
+            const bool notHeld = r.realtimeMs <= 350;
+            out << "    bounded while starved:        "
+                << (bounded ? "yes" : "NO") << "\n"
+                << "    gave it back at realtime:     "
+                << (notHeld ? "yes" : "NO") << "\n";
+            if (!bounded || !notHeld)
+                ok = false;
+        }
+        out << "\n";
+    }
+
+    out << (ok
+                ? "RESULT: PASS — every queue this build ships stayed within "
+                  "its bound while its\nconsumer was starved, and was not "
+                  "still holding a backlog once the consumer\nwas merely "
+                  "keeping up. Read the CONTROL line beside them: that is "
+                  "what the\nGStreamer default does on this same machine, in "
+                  "this same run.\n"
+                : "RESULT: FAIL — a live queue was still holding a backlog "
+                  "after its consumer had\ncaught up to real time. That is "
+                  "permanent added delay for the rest of a call.\nCompare it "
+                  "against the CONTROL line above.\n");
+    out.flush();
+    if (report)
+        *report = text;
+    return ok ? 0 : 1;
 }
 
 int SfuMediaEngine::BlockedRunPolicy::failurePercent() const
