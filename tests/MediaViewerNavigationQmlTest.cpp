@@ -34,6 +34,7 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
 
@@ -320,6 +321,125 @@ private Q_SLOTS:
         QVERIFY2(!call("isOpen").toBool(),
                  "Escape did not close the viewer, and the decision to take "
                  "click-to-close off the picture rests on it");
+    }
+
+    // ── 2026-09-18: a thumbnail click CLOSED the viewer ──────────────────
+    //
+    // The strip is the one piece of viewer chrome built out of bare
+    // TapHandlers, and a TapHandler on its default `DragThreshold` policy
+    // never takes an exclusive grab. Handlers are non-exclusive across
+    // subtrees, so the scrim's close handler fired on the same press: the
+    // picture was selected and the viewer shut underneath it. The strip's
+    // own swallow handler — added so a miss BETWEEN two 48px thumbnails
+    // would do nothing rather than close — swallowed nothing for the same
+    // reason.
+    //
+    // The toolbar was never affected (a Control's MouseArea accepts the
+    // press) and neither was the picture (`imageTap` already asks for
+    // WithinBounds), which is exactly why this survived: the two surfaces a
+    // reviewer would try both worked.
+    void clickingAThumbnailSelectsItRatherThanClosingTheViewer()
+    {
+        const QVariantList history = { historyEntry(QStringLiteral("$a")),
+                                       historyEntry(QStringLiteral("$b")),
+                                       historyEntry(QStringLiteral("$c")) };
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(history)),
+            Q_ARG(QVariant, QVariant(0))));
+        QVERIFY(call("isOpen").toBool());
+        QCOMPARE(call("currentKey").toString(), QStringLiteral("$a"));
+
+        auto *strip = m_window->findChild<QQuickItem *>(
+            QStringLiteral("viewerThumbnailStrip"));
+        QVERIFY2(strip, "the thumbnail strip is gone, so this case is "
+                        "testing nothing");
+        // The strip fades in over 180ms and carries `visible: opacity > 0`,
+        // so a click sent before that lands on the scrim and closes the
+        // viewer for a reason that has nothing to do with the defect. Wait
+        // for the state the user is actually clicking in.
+        QTRY_VERIFY(strip->isVisible());
+        QTRY_VERIFY(strip->opacity() > 0.99);
+        auto *content = strip->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        QQuickItem *third = nullptr;
+        const auto thumbs = content->childItems();
+        for (QQuickItem *thumb : thumbs) {
+            const QVariant idx = thumb->property("index");
+            if (idx.isValid() && idx.toInt() == 2) {
+                third = thumb;
+                break;
+            }
+        }
+        QVERIFY2(third, "no delegate for the third thumbnail");
+        // Its REAL geometry, mapped to the window — never a fabricated point.
+        const QPointF centre = third->mapToScene(
+            QPointF(third->width() / 2, third->height() / 2));
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
+                          centre.toPoint());
+        QCoreApplication::processEvents();
+
+        const bool stillOpen = call("isOpen").toBool();
+        const QString key = call("currentKey").toString();
+        QVERIFY2(stillOpen,
+                 qPrintable(QStringLiteral(
+                     "clicking a thumbnail closed the viewer (click at %1,%2 "
+                     "inside a %3x%4 thumbnail; current key after the click: "
+                     "\"%5\"). The scrim's close handler fired on the same "
+                     "press as the thumbnail's own.")
+                     .arg(centre.x()).arg(centre.y())
+                     .arg(third->width()).arg(third->height()).arg(key)));
+        QCOMPARE(key, QStringLiteral("$c"));
+    }
+
+    // The strip's own swallow surface, which exists because the targets are
+    // 48px and a MISS between two of them is the likeliest click in the whole
+    // viewer. It had the same defect as the thumbnails themselves — a bare
+    // TapHandler that swallowed nothing — so a near miss closed the viewer.
+    void aMissBetweenTwoThumbnailsDoesNothingRatherThanClosing()
+    {
+        const QVariantList history = { historyEntry(QStringLiteral("$a")),
+                                       historyEntry(QStringLiteral("$b")),
+                                       historyEntry(QStringLiteral("$c")) };
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(history)),
+            Q_ARG(QVariant, QVariant(0))));
+        QVERIFY(call("isOpen").toBool());
+
+        auto *strip = m_window->findChild<QQuickItem *>(
+            QStringLiteral("viewerThumbnailStrip"));
+        QVERIFY(strip);
+        QTRY_VERIFY(strip->isVisible());
+        QTRY_VERIFY(strip->opacity() > 0.99);
+        auto *content = strip->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        QQuickItem *first = nullptr;
+        QQuickItem *second = nullptr;
+        for (QQuickItem *thumb : content->childItems()) {
+            const QVariant idx = thumb->property("index");
+            if (!idx.isValid())
+                continue;
+            if (idx.toInt() == 0)
+                first = thumb;
+            else if (idx.toInt() == 1)
+                second = thumb;
+        }
+        QVERIFY(first && second);
+        // The real gap between two real delegates — 4px of strip, and the
+        // only part of it that is not a thumbnail.
+        const QPointF a = first->mapToScene(
+            QPointF(first->width(), first->height() / 2));
+        const QPointF b = second->mapToScene(QPointF(0, second->height() / 2));
+        QVERIFY2(b.x() - a.x() >= 2,
+                 "the thumbnails are flush, so this case has no gap to aim at");
+        const QPoint miss(int((a.x() + b.x()) / 2), int(a.y()));
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, miss);
+        QCoreApplication::processEvents();
+
+        QVERIFY2(call("isOpen").toBool(),
+                 "a click in the gap between two thumbnails closed the "
+                 "viewer");
+        // ...and it selected nothing either.
+        QCOMPARE(call("currentKey").toString(), QStringLiteral("$a"));
     }
 
 private:

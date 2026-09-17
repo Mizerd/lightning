@@ -889,7 +889,21 @@ Popup {
             // Without this, a click on the gap BETWEEN two thumbnails would
             // close rather than do nothing — the one place a miss is most
             // likely, since the targets are 48px.
-            TapHandler { onTapped: {} }
+            //
+            // AND IT HAD TO STOP BEING A TapHandler TO SWALLOW ANYTHING.
+            // A TapHandler never suppresses a handler on an ancestor —
+            // handlers are non-exclusive across subtrees (§16, five rounds of
+            // exactly this) and `gesturePolicy` does not change that; it
+            // decides when a handler gives up its own grab. So the scrim's
+            // close handler fired anyway and a near miss closed the viewer,
+            // which is precisely what this was written to prevent.
+            MouseArea {
+                anchors.fill: parent
+                // Below the delegates, so a hit on a thumbnail reaches its
+                // own MouseArea first and only a MISS lands here.
+                z: -1
+                onClicked: {}
+            }
 
             delegate: Item {
                 id: thumbItem
@@ -930,11 +944,25 @@ Popup {
                     border.width: thumbItem.isCurrent ? 2 : 0
                     border.color: AppTheme.scrimInk
                 }
-                HoverHandler {
+                // AN AbstractButton, NOT A TapHandler, AND THAT IS THE FIX.
+                //
+                // A TapHandler here selected the picture and let the scrim's
+                // close handler fire on the same press, so clicking a
+                // thumbnail shut the viewer instead of showing the image.
+                // `gesturePolicy: WithinBounds` does not help — it decides
+                // when this handler gives up its grab, not whether a handler
+                // on an ancestor also sees the press — and nor does a bare
+                // MouseArea. What does is a Control: the toolbar's
+                // IconButtons sit under the same scrim handler and have
+                // never closed the viewer, because QQuickAbstractButton
+                // accepts the press outright.
+                AbstractButton {
                     id: thumbHover
-                    cursorShape: Qt.PointingHandCursor
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    onClicked: viewer.showAt(thumbItem.index)
                 }
-                TapHandler { onTapped: viewer.showAt(thumbItem.index) }
+                HoverHandler { cursorShape: Qt.PointingHandCursor }
 
                 Accessible.role: Accessible.Button
                 Accessible.name: thumbItem.isCurrent
