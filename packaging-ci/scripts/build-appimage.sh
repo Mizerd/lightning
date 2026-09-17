@@ -126,6 +126,26 @@ GST_PLUGIN_DEST="$APPDIR/usr/lib/gstreamer-1.0"
 [[ -d "$GST_PLUGIN_SRC" ]] || die "no GStreamer plugins at $GST_PLUGIN_SRC: the build job did not install the runtime plugin packages, so the AppImage would bundle none and refuse every call"
 mkdir -p "$GST_PLUGIN_DEST"
 
+# THE LICENCE TRAVELS WITH THE BINARIES. Eleven of the plugins staged below
+# are gst-plugins-good (rtp, rtpmanager, vpx, autodetect, pulseaudio, alsa,
+# video4linux2, ximagesrc, level, volume, audioparsers) and this script staged
+# no licence text of any kind -- a grep for licen/COPYING/LICENSE across this
+# file and its validator returned one hit, and it was a comment about HEVC.
+# Every AppImage, and every snap (which repacks the AppImage), has shipped
+# LGPL-2.1 binaries without their licence.
+#
+# The text is vendored in this repository rather than copied from the build
+# host, for the same reason the Windows stage takes it from there: the host
+# packages do not reliably carry it, and a build-time fetch is a build-time
+# network dependency this lane does not have.
+GOOD_LICENSE_SRC="$ROOT/packaging-ci/packaging/common/licenses/gst-plugins-good-1.0"
+[[ -f "$GOOD_LICENSE_SRC/COPYING" ]] || die "the vendored gst-plugins-good licence is missing at $GOOD_LICENSE_SRC: the AppImage bundles its binaries and must carry its licence"
+APPIMAGE_LICENSE_DEST="$APPDIR/usr/share/licenses/lightning-gstreamer/gst-plugins-good-1.0"
+mkdir -p "$APPIMAGE_LICENSE_DEST"
+cp -a "$GOOD_LICENSE_SRC/." "$APPIMAGE_LICENSE_DEST/"
+install -Dm644 "$ROOT/LICENSE" \
+    "$APPDIR/usr/share/licenses/Lightning-GPL-3.0.txt"
+
 # Exactly what the call engine loads, and nothing else -- bundling the whole
 # directory would add tens of megabytes of codecs nothing ever opens. Each name
 # was resolved against this build image from the elements the Linux source

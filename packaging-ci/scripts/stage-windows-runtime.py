@@ -359,6 +359,26 @@ def main() -> None:
     # so their licence texts ship with the binaries that carry them.
     gstreamer_licenses = pathlib.Path("/usr/share/licenses/lightning-gstreamer")
     copy_tree(gstreamer_licenses, licenses / gstreamer_licenses.name)
+    # gst-plugins-good's licence comes from THIS REPOSITORY, not the SDK.
+    #
+    # Seven of the staged plugins are gst-plugins-good binaries and the
+    # upstream MinGW SDK does not ship their licence: extracted and listed
+    # once, it carries 88 licence directories and nothing matching "good". So
+    # every Windows package this project has ever shipped carried LGPL-2.1
+    # binaries with no licence text — a compliance defect, not cosmetics.
+    #
+    # Vendoring it here fixes it without a builder-image rebuild, which is
+    # what had stalled it. Provenance and what is still the maintainer's call
+    # are in PROVENANCE.txt beside the text.
+    good_licenses = (args.source / "packaging-ci" / "packaging" / "common"
+                     / "licenses" / "gst-plugins-good-1.0")
+    if not (good_licenses / "COPYING").is_file():
+        raise SystemExit(
+            f"the vendored gst-plugins-good licence is missing at "
+            f"{good_licenses} — every staged gst-plugins-good binary would "
+            f"ship without it")
+    copy_tree(good_licenses,
+              licenses / "lightning-gstreamer" / "gst-plugins-good-1.0")
 
     (args.stage / "qt.conf").write_text(
         "[Paths]\nPlugins = plugins\nQml2Imports = qml\nTranslations = translations\n",

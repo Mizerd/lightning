@@ -1,0 +1,29 @@
+gst-plugins-good is LGPL-2.1-or-later, and every Lightning package that
+bundles GStreamer carries binaries from it — jpeg, rtp, rtpmanager,
+autodetect, level, vpx and the platform audio sinks among them.
+
+Until now none of those packages carried its licence text. Not an oversight
+that could be fixed by copying: the upstream GStreamer MinGW SDK the Windows
+builder image is made from does not ship it. Extracted once and listed, that
+SDK carries 88 licence directories — gst-plugins-bad-1.0, gst-plugins-base-1.0,
+gst-plugins-rs, gst-rtsp-server-1.0, gstreamer-1.0 — and nothing matching
+"good". The same gap exists in the AppImage, which copies plugins out of the
+Debian host's /usr/lib/x86_64-linux-gnu/gstreamer-1.0 and stages no licence
+text at all, and therefore in the snap, which repacks the AppImage.
+
+So the text is vendored HERE, in this repository, and staged from here by
+every format that bundles those plugins. Nothing has to be fetched at build
+time and no builder image has to be rebuilt.
+
+COPYING in this directory is the canonical GNU Lesser General Public License
+version 2.1 verbatim, which is what gst-plugins-good's own COPYING contains.
+Taken from /usr/share/common-licenses/LGPL-2.1 on Debian 13, 501 lines,
+md5 4bf661c1e3793e55c8d1051bc5e0ae21.
+
+WHAT IS NOT SETTLED HERE, and it is the maintainer's call, not this file's:
+whether Lightning should also publish a written offer for the corresponding
+source of those plugins, and where. LGPL-2.1 section 6 gives several ways to
+satisfy that, and which one fits a desktop download is a decision about the
+project, not about packaging. This directory closes the part that has one
+correct answer — the licence text must travel with the binaries — and leaves
+the part that does not.
