@@ -47,13 +47,18 @@ clear; a media key was adopted though it reached nobody; and a room Lightning
 created would not let its own members join a call. Full account in
 `docs/round-history.md`, 2026-09-16 (afternoon).
 
-**AND THAT `queue` FIX BOUNDED ONE OF THE SEVEN QUEUES IN THAT FILE.** An
-independent review of the 0.9.8 tree found the other six, three on live paths —
-the tee branch feeding `vp8enc` and BOTH receive queues, which are the side a
-listener experiences delay on. All bounded and leaky now, with a SWEEP so the
-eighth cannot be forgotten. The same review withdrew four claims from the
-release notes and the validation record and sent the badge fix back twice.
-Full account in `docs/round-history.md`, 2026-09-17.
+**AND THAT `queue` FIX BOUNDED ONE OF THE ELEVEN QUEUES THIS PROJECT SHIPS.**
+An independent review found six more in `SfuMediaEngine.cpp`; a SECOND round
+found four more OUTSIDE it, in `ShareAudioSources.cpp` and across the whole
+1:1 lane in `GstCallMediaBackend.cpp` — while the commit that fixed the first
+batch claimed "every queue on a live path" and its sweep read ONE FILE of
+three. All eleven are bounded now, and leaky except the one carrying RTP into
+a video depayloader (leaking there corrupts the bitstream downstream of
+webrtcbin, which then sends no PLI; its latency protection is the appsink's
+own `drop=true`). The sweep asserts a PER-FILE count across all three sources.
+**A sweep is only as wide as what it reads, and a count assertion over too few
+files is a confident wrong answer.** Full account in `docs/round-history.md`,
+2026-09-17.
 
 **VOICE DELAY IS NOW ASKABLE OF A PACKAGE: `--call-queue-selftest`.** It had
 only ever been measured acoustically, which needs two machines, a sound card

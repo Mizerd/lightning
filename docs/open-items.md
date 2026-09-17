@@ -270,6 +270,40 @@ rotted for Windows is not repeated elsewhere. A sweep of `packaging-ci/` for
 nothing else; no other lane pins a distro package by exact version.
 
 
+## 2026-09-17 — RESOLVED, and it was never Windows-only
+
+**The licence text is vendored in this repository now**
+(`packaging-ci/packaging/common/licenses/gst-plugins-good-1.0/`) and staged by
+`stage-windows-runtime.py` and `build-appimage.sh`, both of which FAIL if it
+is missing rather than shipping without it. `test-pipeline-config.py` asserts
+the file, its content and both call sites.
+
+**THE SCOPE BELOW WAS WRONG, and a wrong scope is not a basis for a maintainer
+decision.** It framed this as a property of the Windows package. A review
+found the AppImage copies eleven gst-plugins-good binaries out of the build
+host — `libgstrtp`, `libgstrtpmanager`, `libgstvpx`, `libgstautodetect`,
+`libgstpulseaudio`, `libgstalsa`, `libgstvideo4linux2`, `libgstximagesrc`,
+`libgstlevel`, `libgstvolume`, `libgstaudioparsers` — and staged NO licence
+text of any kind: a grep for `licen|COPYING|LICENSE` across that script and
+its validator returned one hit, a comment about HEVC. The snap repacks the
+AppImage, so it inherits the gap. Deb and rpm link the system GStreamer and
+Flatpak uses the runtime's, so those three are clean.
+
+**AND THE BLOCKER WAS AN ASSUMPTION, NOT A CONSTRAINT.** The text below says
+fixing it "means SOURCING the text rather than copying it", which was read as
+needing a 960 MB builder-image rebuild. It does not: the licence is a file,
+the repository is a place to keep a file, and both stages read from the source
+tree they already have.
+
+**STILL THE MAINTAINER'S CALL, and deliberately left open**: whether to
+publish a written offer for the corresponding source of those plugins, and
+where. LGPL-2.1 section 6 allows several ways to satisfy it and the choice is
+about the project, not about packaging. Recorded in PROVENANCE.txt beside the
+text.
+
+The original entry follows, because the evidence in it is what made the fix
+possible.
+
 ## 2026-09-16 — the Windows package ships gst-plugins-good binaries without its licence
 
 **OPEN, compliance, pre-existing, and cheap to fix in the NEXT builder image.**

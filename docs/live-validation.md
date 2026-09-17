@@ -196,6 +196,38 @@ output a bug. What survives in the tree is a fallback for a GstValueArray
 spelling no runtime has been seen using, labelled as such, plus a line that
 names the type once if a third ever appears.
 
+## 2026-09-17 — THE QUEUE SELF-TEST ON THREE LINUX PACKAGES, from CI runners
+
+**PASS on all three, and this is the runner-stability evidence a promotion
+needs.** Pipeline 230, non-publishing, the first pipeline whose validators
+actually run `--call-queue-selftest` against the artifact they just built.
+
+| package | GStreamer | buffers=4 peak / realtime | time=100 ms peak / realtime | CONTROL peak / realtime |
+|---|---|---|---|---|
+| AppImage | 1.26.2 | 40 / 30 ms | 100 / 100 ms | **1000 / 1000 ms** |
+| rpm | 1.28.7 | 40 / 40 ms | 100 / 100 ms | **1000 / 1000 ms** |
+| Flatpak | 1.26.11 | 40 / 40 ms | 100 / 100 ms | **1000 / 1000 ms** |
+
+**Five environments now, four GStreamer versions, two operating systems, and
+the numbers do not move**: the dev shell (1.26.11), a Windows 11 guest running
+the shipped 0.9.8 portable (1.28.5), and these three. The default queue holds
+its full second and is STILL holding it once its consumer is back at real
+time, on every one of them.
+
+That matters twice. It is the measurement itself — a 900 ms difference the
+project had asserted in a source comment since 2026-09-16 and never shown. And
+it is the answer to the objection that these are WALL-CLOCK thresholds
+(peak ≤ 450 ms, realtime ≤ 350 ms) about to become a release gate on shared CI
+runners, where §16 records four CTest suites that flake on timing at -j2: the
+headroom is 4x on the shipped rows and the control is 3x clear of them in the
+other direction, on loaded runners, unchanged to the millisecond across five
+machines.
+
+NOT COVERED: deb, snap, macOS and Windows-under-Wine had not reported when
+this was written, and the transcripts above are from the OLDER build of the
+command — before the control became an assertion and the verdict became an
+exact `VERDICT:` line. A promotion to a hard gate needs the newer one.
+
 ## 2026-09-17 — VOICE DELAY ON REAL WINDOWS, from the shipped 0.9.8 package
 
 **PASS, and this is the platform the maintainer made mandatory.** Not Wine,
