@@ -24,6 +24,19 @@ small in every run (+1.1, -43, +21, +39 ms — never the +1000 the bug produces)
 which is weak evidence the backlog is absent on Windows too, but an instrument
 that moves 250 ms between identical runs cannot confirm anything.
 
+**THE OBVIOUS WORKAROUND WAS TRIED AND IS STRUCTURALLY BLOCKED.** Windows can
+echo a recording device straight back to a playback device — Sound control
+panel, Recording, Remote Audio, Properties, Listen, "Listen to this device" —
+and that would have given the RDP floor and the through-Lightning copy in ONE
+recording, leaving through the same RDP output at the same moment, which
+cancels the drift instead of subtracting it. It was enabled and produced
+digital silence (`peak_env=1`): the guest's only audio device IS the RDP one,
+and Windows will not listen to a device through itself. The setting was
+restored afterwards.
+
+So the floor cannot be measured from inside this guest at all. It needs a guest
+with a real emulated sound card, or a recorder running in Windows.
+
 **What would actually measure it**, and it needs no new insight, only time:
 inject and capture INSIDE the guest — record the guest's own sink to a WAV in
 Windows and move only the file out — which turns a two-host clock problem into
