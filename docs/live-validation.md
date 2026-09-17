@@ -116,6 +116,49 @@ a stream, then clean for ever — is frames arriving before that sender's key is
 installed, which is `no-key-for-index` and NOT "the two ends hold different
 keys", the sentence the 0.9.7 log prints there. Both are fixed in the tree.
 
+## 2026-09-17 — THE LEVEL METER LOGS FROM A PACKAGE AT LAST, and it was printing a sentinel
+
+**PASS for "a published package logs a microphone level and raises the silence
+warning", FAIL for the VALUES it printed** — and the second half is a defect
+that only running a package could have found.
+
+The 0.9.8 Windows portable, unpacked in the guest, session migrated from the
+0.9.7 portable's own data directory (so no password was typed anywhere — see
+the three recorded incidents), in a real call:
+
+```
+microphone level peak= -90  dBFS
+microphone level peak= 0    dBFS
+microphone level peak= -350 dBFS
+...
+THE MICROPHONE IS CAPTURING NOTHING: peak has stayed at or below -60 dBFS
+for 10 s while unmuted
+```
+
+So the element registers, the meter reports, and the silence warning fires —
+which is the 0.9.7 promise that no shipped package could keep and the claim
+0.9.8's notes are built on. **That half is confirmed, on Windows, from a
+package.**
+
+**-350 dBFS IS NOT A MEASUREMENT.** 16-bit audio floors near -96; -350 is the
+bus handler's starting sentinel, surviving because the parser could not read
+the `level` element's peaks at all. `level` posts its per-channel peaks as a
+**GValueArray** in some GStreamer versions and as a **GstValueArray** in
+others, and only the first spelling was read. The Windows package bundles
+1.28.5; the dev shell has 1.26.11 — which is exactly why every local run
+looked healthy. Same family as `msid`, `min-buffers` and Qt 6.8's
+`roleNames()`.
+
+And it is worse than a wrong number: -350 is BELOW the -60 dBFS silence
+ceiling, so the sentinel would drive "your microphone is capturing nothing" on
+evidence that says only "this build could not ask". Both halves are fixed in
+the tree (`dba55ac7`): both spellings are read, a third would be named once
+with its type, and an unreadable level updates NOTHING.
+
+**NOT YET CONFIRMED: that the fix reports real values on 1.28.5.** That needs
+a package built from the fix, and is recorded when one exists. The 0.9.8
+package measured above has the defect.
+
 ## 2026-09-17 — VOICE DELAY ON REAL WINDOWS, from the shipped 0.9.8 package
 
 **PASS, and this is the platform the maintainer made mandatory.** Not Wine,
