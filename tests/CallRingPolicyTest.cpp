@@ -359,6 +359,94 @@ private Q_SLOTS:
                  CallController::EndReason::LocalReject);
     }
 
+    // ── 2026-09-18: the call lane learned a room's encryption only from
+    //    surfaces that OPEN the room ─────────────────────────────────────
+    //
+    // `RtcController::roomEncrypted()` read a map whose only writers were
+    // `startCall()` and `setCurrentRoomId()`. Three of the four surfaces
+    // that reach `SfuCallController::join()` are in-room and happened to
+    // satisfy that; the fourth — IncomingCallPrompt, a global overlay —
+    // opens nothing, so its join found no entry and took the fail-closed
+    // "encrypted" default.
+    //
+    // Live 2026-09-18, two instances of this build in a room with no
+    // `m.room.encryption` at all: the answerer published encrypted and
+    // required encryption inbound, the caller correctly published in the
+    // clear, and the answerer dropped every frame of their audio while its
+    // only diagnostic said "the sender's key never reached this device".
+    // One-way audio, and the evidence pointed at key distribution.
+    //
+    // This case NEVER opens the room and never starts a call, which is the
+    // whole point: it is the state the ring card's Join actually runs in.
+    void theCallLaneSeesARoomsEncryptionWithoutOpeningIt()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        QVERIFY(controller.rtc());
+        // A room the mock reports as known-unencrypted. Asserted rather than
+        // assumed: if the fixture ever ships it as unknown, this case would
+        // pass on broken code.
+        const QVariantMap room = controller.roomList()->findRoom(kRoom);
+        QVERIFY2(!room.isEmpty(), "the fixture room is not in the room list");
+        QVERIFY2(room.value(QStringLiteral("encryptionKnown")).toBool(),
+                 "the fixture room's encryption is UNKNOWN, so fail-closed "
+                 "is the correct answer and this case proves nothing");
+        QVERIFY(!room.value(QStringLiteral("encrypted")).toBool());
+
+        QCOMPARE(controller.currentRoomId(), QString());
+        QVERIFY2(!controller.rtc()->roomEncrypted(kRoom),
+                 "a room the client knows is unencrypted still read as "
+                 "encrypted because nothing had opened it — so a call "
+                 "answered from the incoming-call card requires encryption "
+                 "the caller is not using, and drops all of their media");
+    }
+
+    // ...AND THE FAIL-CLOSED ASSUMPTION MUST NOT MAKE ITSELF PERMANENT.
+    //
+    // Both push sites passed `!known || encrypted`, which fabricates a
+    // KNOWN "encrypted" out of an UNKNOWN room. `setRoomEncrypted`'s
+    // downgrade guard — right in itself, encryption cannot be removed in
+    // Matrix — then refused the correct answer for the rest of the session.
+    // A room opened BEFORE its `m.room.encryption` has synced is the common
+    // way in, and the resolver cannot rescue it: a stored Yes outranks a
+    // resolver No by design.
+    //
+    // This is the half of the production change that the RtcController
+    // cases cannot reach, because the defect is in what AppController
+    // CHOOSES to record.
+    void openingARoomBeforeItsEncryptionIsKnownDoesNotPinItEncrypted()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *client = mock(controller);
+        QVERIFY(client);
+        // The mock gives a freshly joined room `encryptionKnown = false` —
+        // exactly the unsynced window.
+        const QString fresh = QStringLiteral("!fresh:mock.local");
+        QVERIFY(client->joinRoomByIdOrAlias(fresh, {}) != 0);
+        QTRY_VERIFY(!controller.roomList()->findRoom(fresh).isEmpty());
+        QVERIFY2(!controller.roomList()
+                      ->findRoom(fresh)
+                      .value(QStringLiteral("encryptionKnown"))
+                      .toBool(),
+                 "the fixture room's encryption is already KNOWN, so this "
+                 "case never enters the window it is written for");
+
+        controller.openRoom(fresh);
+        QTRY_COMPARE(controller.currentRoomId(), fresh);
+        // Unknown still fails CLOSED. That part must not change.
+        QVERIFY2(controller.rtc()->roomEncrypted(fresh),
+                 "an unknown room stopped failing closed, which is the "
+                 "silent downgrade §6 forbids");
+
+        // ...and now the first KNOWN answer arrives.
+        controller.rtc()->setRoomEncrypted(fresh, false);
+        QVERIFY2(!controller.rtc()->roomEncrypted(fresh),
+                 "opening the room while its encryption was unknown pinned "
+                 "it as encrypted for the session, so every call in it "
+                 "required encryption no peer was using");
+    }
+
     // 2026-09-17: the Answer action's own wiring had no coverage anywhere.
     //
     // `callDeclineRequested` has had the case above since it was written;

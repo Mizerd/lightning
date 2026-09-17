@@ -1606,6 +1606,42 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                         roomId, m_roomInfo->canPublishCallMembership());
                 }
             });
+    // THE CALL LANE ASKS THE ROOM LIST, rather than waiting to be told.
+    //
+    // `RtcController::roomEncrypted()` used to read a map whose only writers
+    // were startCall() and setCurrentRoomId() below — so it was filled only
+    // for a room the user had OPENED or called FROM. The global
+    // incoming-call card opens no room, and a join from it therefore found
+    // nothing and took the fail-closed "encrypted" default. Live
+    // 2026-09-18, in a room with no `m.room.encryption`: the answerer
+    // required encryption, the caller correctly sent in the clear, and the
+    // answerer dropped every frame of their audio while reporting a missing
+    // key.
+    //
+    // The tri-state is the point. `encryptionKnown` false is UNKNOWN, not
+    // "unencrypted": an unknown room must still fail closed, because a
+    // silent downgrade is what §6 forbids. What changes is that it no longer
+    // fails closed for a room the client knows perfectly well.
+    //
+    // Installed ONCE, here, and deliberately not cleared on logout: it
+    // captures `this`, which outlives every account, and RtcController's own
+    // reset clears the per-room record beside it. Clearing the resolver
+    // instead would re-open this defect for the next account.
+    //
+    // `roomInfo()` rather than the room list's `findRoom()`: the Rust
+    // backend indexes it (`m_rooms.value(roomId)`) where the generic path
+    // deep-copies the whole list, and it reads the two fields directly
+    // instead of round-tripping through a seventeen-entry map that also
+    // computes avatars and badges.
+    m_rtc->setEncryptionResolver([this](const QString &roomId) {
+        if (roomId.isEmpty() || !m_client)
+            return RtcController::RoomEncryption::Unknown;
+        const RoomInfo room = m_client->roomInfo(roomId);
+        if (room.id.isEmpty() || !room.encryptionKnown)
+            return RtcController::RoomEncryption::Unknown;
+        return room.encrypted ? RtcController::RoomEncryption::Yes
+                              : RtcController::RoomEncryption::No;
+    });
     connect(m_roomInfo.get(), &RoomInfoController::roomLeft,
             this, [this](const QString &roomId) {
         if (m_currentRoomId == roomId) {
@@ -2883,11 +2919,19 @@ bool AppController::startCall(const QString &roomId, bool withVideo)
     // silent downgrade (section 6).
     if (!roomId.isEmpty() && m_rtc && m_roomList) {
         const QVariantMap room = m_roomList->findRoom(roomId);
+        // ONLY A KNOWN ANSWER IS RECORDED. This passed `!known || encrypted`,
+        // which fabricates a KNOWN "encrypted" out of an UNKNOWN room — and
+        // setRoomEncrypted's downgrade guard then refused the correct answer
+        // for the rest of the session, because a stored `true` cannot say
+        // which of the two it was. Not recording an unknown room is the same
+        // fail-closed outcome (roomEncrypted() treats an absent entry as
+        // encrypted) without the latch.
         const bool known =
             room.value(QStringLiteral("encryptionKnown")).toBool();
-        const bool encrypted =
-            room.value(QStringLiteral("encrypted")).toBool();
-        m_rtc->setRoomEncrypted(roomId, !known || encrypted);
+        if (known) {
+            m_rtc->setRoomEncrypted(
+                roomId, room.value(QStringLiteral("encrypted")).toBool());
+        }
     }
     const QString lane = preferredCallLane(roomId);
     // The call path had NO logging at all, which is why "pressing call does
@@ -3233,11 +3277,19 @@ void AppController::setCurrentRoomId(const QString &roomId)
         // know, and an unknown room must fail CLOSED — treating it as
         // unencrypted would be exactly the silent downgrade §6 forbids.
         const QVariantMap room = m_roomList->findRoom(roomId);
+        // ONLY A KNOWN ANSWER IS RECORDED. This passed `!known || encrypted`,
+        // which fabricates a KNOWN "encrypted" out of an UNKNOWN room — and
+        // setRoomEncrypted's downgrade guard then refused the correct answer
+        // for the rest of the session, because a stored `true` cannot say
+        // which of the two it was. Not recording an unknown room is the same
+        // fail-closed outcome (roomEncrypted() treats an absent entry as
+        // encrypted) without the latch.
         const bool known =
             room.value(QStringLiteral("encryptionKnown")).toBool();
-        const bool encrypted =
-            room.value(QStringLiteral("encrypted")).toBool();
-        m_rtc->setRoomEncrypted(roomId, !known || encrypted);
+        if (known) {
+            m_rtc->setRoomEncrypted(
+                roomId, room.value(QStringLiteral("encrypted")).toBool());
+        }
     }
     // v0.7.x: drop QUEUED thread-participant fetches for the room we just
     // left. Those summary cards are gone; letting their fetches run would

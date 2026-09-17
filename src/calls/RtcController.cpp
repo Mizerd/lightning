@@ -77,6 +77,12 @@ void RtcController::clearForNewSession()
     m_availabilityCategory.clear();
     m_discoveryOp = 0;
     // Room encryption belongs to the account that is going away.
+    //
+    // The RESOLVER is deliberately kept. It captures the owner, which
+    // outlives every account and answers from whatever room list is current,
+    // so clearing it here would leave the next account back where this
+    // record started: pushed-only, and empty for every room nothing has
+    // opened.
     m_encryptedRooms.clear();
     Q_EMIT availabilityChanged();
 }
@@ -195,12 +201,63 @@ void RtcController::setMediaAvailable(bool available)
     Q_EMIT availabilityChanged();
 }
 
+void RtcController::setEncryptionResolver(EncryptionResolver resolver)
+{
+    m_encryptionResolver = std::move(resolver);
+}
+
+/// ASKS FIRST, and only then falls back to what it was told.
+///
+/// The stored map had exactly two writers — AppController::startCall() and
+/// setCurrentRoomId() — so it was filled only for a room the user had OPENED
+/// or called FROM. Three of the four surfaces that reach join() are in-room
+/// and happened to satisfy that; the fourth, the global incoming-call card,
+/// is an overlay that opens nothing, and its join found no entry and took
+/// the fail-closed default. Live 2026-09-18, in a room with no
+/// `m.room.encryption` at all: the answerer published encrypted and required
+/// encryption inbound, the caller correctly published in the clear, and the
+/// answerer dropped every frame — one-way audio whose only diagnostic said
+/// "the sender's key never reached this device".
+///
+/// Pulling removes the class rather than the instance: a surface added
+/// tomorrow cannot forget to push, because there is nothing to push.
+bool RtcController::roomEncrypted(const QString &roomId) const
+{
+    const RoomEncryption stored =
+        m_encryptedRooms.value(roomId, RoomEncryption::Unknown);
+    if (m_encryptionResolver) {
+        switch (m_encryptionResolver(roomId)) {
+        case RoomEncryption::Yes:
+            // REMEMBERED, so the irreversibility guard below covers every
+            // room this client has ever seen encrypted and not merely the
+            // ones something happened to push. Without this the guard's own
+            // claim — "a KNOWN Yes still wins" — would hold only for rooms
+            // that were opened or called from, which is the very gap this
+            // resolver exists to close. One record, not two: a second cache
+            // is how two answers start to disagree.
+            m_encryptedRooms.insert(roomId, RoomEncryption::Yes);
+            return true;
+        case RoomEncryption::No:
+            // A KNOWN Yes still wins. Encryption cannot be removed in
+            // Matrix, so a live read of "no" against a room we have seen
+            // encrypted is a stale or partial view — see setRoomEncrypted.
+            return stored == RoomEncryption::Yes;
+        case RoomEncryption::Unknown:
+            break;
+        }
+    }
+    // Unknown fails CLOSED, exactly as the bare map default did.
+    return stored != RoomEncryption::No;
+}
+
 void RtcController::setRoomEncrypted(const QString &roomId, bool encrypted)
 {
     if (roomId.isEmpty())
         return;
     const auto it = m_encryptedRooms.constFind(roomId);
-    if (it != m_encryptedRooms.cend() && it.value() == encrypted)
+    const RoomEncryption wanted =
+        encrypted ? RoomEncryption::Yes : RoomEncryption::No;
+    if (it != m_encryptedRooms.cend() && it.value() == wanted)
         return;
     // ENCRYPTION IS IRREVERSIBLE IN MATRIX, SO THIS RECORD ONLY EVER MOVES
     // ONE WAY.
@@ -221,7 +278,15 @@ void RtcController::setRoomEncrypted(const QString &roomId, bool encrypted)
     // Refusing the downgrade is the conservative direction in both senses:
     // the worst case is a call that insists on encryption in a room that
     // genuinely is not encrypted, which fails LOUDLY and cannot leak.
-    if (!encrypted && it != m_encryptedRooms.cend() && it.value()) {
+    //
+    // ONLY FROM A KNOWN Yes. The callers USED TO pass `!known || encrypted`,
+    // so an UNKNOWN room was stored as `true` and latched here — the
+    // fail-closed assumption made itself permanent and the correct later
+    // answer was refused for the rest of the session. They record only a
+    // known answer now, and the tri-state is what lets this guard mean what
+    // its text says.
+    if (!encrypted && it != m_encryptedRooms.cend()
+        && it.value() == RoomEncryption::Yes) {
         qCWarning(lcRtc)
             << "refusing to downgrade a known-encrypted room to plaintext"
             << "room=" << roomId
@@ -229,7 +294,7 @@ void RtcController::setRoomEncrypted(const QString &roomId, bool encrypted)
             << "stale or incomplete; the call stays encrypted";
         return;
     }
-    m_encryptedRooms.insert(roomId, encrypted);
+    m_encryptedRooms.insert(roomId, wanted);
     Q_EMIT sessionChanged(roomId);
 }
 
@@ -821,12 +886,13 @@ RtcController::JoinBlock RtcController::joinBlock(const QString &roomId) const
     //
     // Checked BEFORE the media-transport blocker so the reason the user
     // sees is the one that would actually matter to them.
-    // Default TRUE: a room we have not been told about is treated as
-    // encrypted. A boolean cannot say "unknown", and the safe answer to
-    // "might this be encrypted?" is yes — assuming unencrypted would be
-    // the silent downgrade §6 forbids. The owner supplies the real answer
-    // (AppController, from the room's own encrypted/encryptionKnown pair).
-    if (m_encryptedRooms.value(roomId, true) && !m_mediaEncryption)
+    // UNKNOWN is treated as encrypted. The safe answer to "might this be
+    // encrypted?" is yes — assuming unencrypted would be the silent
+    // downgrade §6 forbids. The owner is ASKED for the real answer
+    // (AppController's resolver, from the room's own encrypted /
+    // encryptionKnown pair); it used to have to remember to tell us, and
+    // two of the surfaces that reach a join never did.
+    if (roomEncrypted(roomId) && !m_mediaEncryption)
         return JoinBlock::MediaEncryptionUnavailable;
     // No SFU media engine: joining would publish a membership no peer could
     // connect to, which is the one thing this controller must never do.

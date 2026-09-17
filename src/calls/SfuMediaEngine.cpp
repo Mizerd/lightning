@@ -587,12 +587,25 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             noteCryptoOutcome(ctx, /*failed=*/true);
             if (!ctx->encrypting && !ctx->saidNoKey) {
                 ctx->saidNoKey = true;
+                // TWO CAUSES, AND THIS LINE USED TO NAME ONLY ONE.
+                //
+                // It said "the sender's key never reached this device",
+                // which is one of them. The other is that the sender is not
+                // encrypting AT ALL — the two clients disagree about whether
+                // this call is encrypted — and on 2026-09-18 that is what it
+                // actually was, in a room with no `m.room.encryption` where
+                // the joiner defaulted to requiring it. A whole evening went
+                // into key distribution on the strength of this sentence.
+                // §16: a log line that cannot tell two opposite causes apart
+                // is not a log line.
                 qCWarning(lcSfuMedia)
                     << "call diagnosis: frames are arriving from stream="
                     << ctx->streamId
                     << "and being DROPPED because no media key has been "
-                       "installed for it — the sender's key never reached "
-                       "this device (video=" << ctx->video << ")";
+                       "installed for it — either the sender's key never "
+                       "reached this device, or the sender is not "
+                       "encrypting and we require it (video="
+                    << ctx->video << ")";
             }
             if (shouldReport(ctx->dropped)) {
                 qCWarning(lcSfuMedia)

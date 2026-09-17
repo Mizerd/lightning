@@ -81,6 +81,22 @@ private slots:
 
         client.setCallMediaCapable(true);
         rtc.setClient(&client);
+        // THE SAME RESOLVER THE APP INSTALLS. Without it this harness reads
+        // every room as encrypted (the fail-closed default for a room
+        // nothing has pushed) — so a diagnostic run against an UNENCRYPTED
+        // room would require encryption the peer is not using, drop all of
+        // its media, and report "the sender's key never reached this
+        // device". The harness that exists to reproduce live call defects
+        // would reproduce the one fixed on 2026-09-18 instead.
+        rtc.setEncryptionResolver([&client](const QString &roomId) {
+            if (roomId.isEmpty())
+                return RtcController::RoomEncryption::Unknown;
+            const RoomInfo room = client.roomInfo(roomId);
+            if (room.id.isEmpty() || !room.encryptionKnown)
+                return RtcController::RoomEncryption::Unknown;
+            return room.encrypted ? RtcController::RoomEncryption::Yes
+                                  : RtcController::RoomEncryption::No;
+        });
         rtc.setMediaAvailable(true);
         rtc.setMediaEncryptionAvailable(true);
         group.setClient(&client);

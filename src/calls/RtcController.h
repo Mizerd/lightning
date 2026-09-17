@@ -41,6 +41,8 @@
 //   event would be pure waste.
 #pragma once
 
+#include <functional>
+
 #include <QHash>
 #include <QObject>
 #include <QPointer>
@@ -308,11 +310,30 @@ public:
     /// raise annotates.
     QString ownMembershipEventId(const QString &roomId) const;
 
+    /// What is known about a room's encryption. A BOOL CANNOT SAY UNKNOWN,
+    /// and storing the fail-closed assumption as `true` made the downgrade
+    /// guard in setRoomEncrypted() latch it for the rest of the session — a
+    /// room that read unknown once could never be corrected to unencrypted.
+    enum class RoomEncryption { Unknown, No, Yes };
+
+    /// Answers a room's encryption from whatever the owner considers
+    /// authoritative (AppController: the room list's encrypted /
+    /// encryptionKnown pair). Installed once; consulted on every read.
+    using EncryptionResolver =
+        std::function<RoomEncryption(const QString &roomId)>;
+    void setEncryptionResolver(EncryptionResolver resolver);
+
     /// Whether this room's media must be encrypted. UNKNOWN fails CLOSED to
     /// true: a room we cannot prove is unencrypted is treated as encrypted,
     /// so the honest failure is a refused call, never a cleartext one.
-    bool roomEncrypted(const QString &roomId) const
-    { return m_encryptedRooms.value(roomId, true); }
+    ///
+    /// IT ASKS, rather than reading a map somebody had to remember to fill.
+    /// The map's only writers were startCall() and setCurrentRoomId(), so a
+    /// join from the global incoming-call card — which opens no room — found
+    /// nothing and took the fail-closed default. Live 2026-09-18: the
+    /// answerer required encryption in an UNENCRYPTED room while the caller
+    /// correctly sent in the clear, and dropped every frame of their audio.
+    bool roomEncrypted(const QString &roomId) const;
 
 Q_SIGNALS:
     /// One room's observed session changed (or was read for the first time).
@@ -432,7 +453,13 @@ private:
     /// False until an owner says otherwise: see setMediaEncryptionAvailable.
     bool m_mediaEncryption = false;
     bool m_mediaAvailable = false;
-    QHash<QString, bool> m_encryptedRooms;
+    // `mutable` because roomEncrypted() is const and REMEMBERS a resolver
+    // answer of Yes — see its definition: the irreversibility guard has to
+    // cover every room this client has seen encrypted, not only the ones
+    // something pushed. The class already keeps two such caches
+    // (m_unresolvedIdentitiesLogged above) for the same reason.
+    mutable QHash<QString, RoomEncryption> m_encryptedRooms;
+    EncryptionResolver m_encryptionResolver;
     QHash<QString, bool> m_canPublishMembership;
 
 };
