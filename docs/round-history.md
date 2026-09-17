@@ -1,5 +1,127 @@
 # Round history
 
+## 2026-09-18 — the GUI pass that turned four "needs looking at" items into four defects
+
+The 2026-09-17 round landed five fixes and recorded that none of them had been
+looked at by a person. The pass ran, on a real build, on a fixture account in
+an isolated profile, against a six-level Spaces hierarchy built for it through
+the client-server API. Four of the five verified. It also found four things
+nobody had asked about, three of them in the code that round had just
+written.
+
+### The rail's chevron opened and revealed nothing
+
+Reported as **"a room did not appear under its space until Lightning
+restarted"**, and filed as sync staleness with a discriminating test written
+for it: join or leave a room while the tree is wrong, which forces a room-list
+diff and re-emits the spaces. **The test was run and REFUTED the
+hypothesis** — the tree stayed wrong. So did the structural reading behind it:
+`m.space.child` is in the sliding-sync room list's `required_state`, every
+room in a response gets a notable update, and `enqueue_spaces` is a GLOBAL
+recompute fired by any diff for any room.
+
+It was never sync. Space Home listed the rooms the whole time. `revealed`
+reached the expansion state through `app.railLayout.spaceExpanded(id)` — a
+Q_INVOKABLE, which records NO binding dependency — so it never re-evaluated
+when that state changed. Expanding a Space that HAS subspaces inserts model
+rows, the delegate is rebuilt, and the reveal recomputes as a side effect; a
+LEAF inserts none, so only its `expanded` role changed. The chevron reads that
+role and flipped open. The rooms did not appear until something unrelated
+rebuilt the rail — another Space's toggle, or a restart.
+
+Which means `143abb07` gave every Discord-style category a chevron that could
+be opened and still revealed nothing: the same user report, one step further
+in. **GENERALISE: a binding that reaches state through a function call is not
+bound to it.** Third time in this tree — `root.info` in Space settings and
+`refreshIndexStats()` are the others.
+
+### The image viewer had no keyboard at all
+
+`Popup.focus` defaults to false and this one never set it, so the overlay
+never became the active focus item: Left/Right, Up/Down/Space, the +/-/0/F
+zoom keys and Escape were all dead. `contentItem: FocusScope { focus: true }`
+cannot rescue that. VideoViewerOverlay, written to the same pattern, has
+always set it.
+
+Escape is the half that matters. The round that took click-to-close off the
+picture justified it with "closing is still instant everywhere else — the
+scrim, Escape, the close button", and Escape was not one of them.
+
+Found by driving it: the next ARROW advanced the counter 1 -> 2 -> 3 while
+Right, Down, Space, plus and Escape all left it at "3 of 5", with the window's
+X input focus confirmed and Ctrl+K opening the jump dialog in the same session
+to prove keys reached the application.
+
+### Clicking a thumbnail closed the viewer
+
+The strip is the one piece of viewer chrome built out of bare TapHandlers, and
+a TapHandler never suppresses a handler on an ancestor — so the scrim's close
+fired on the same press: the picture was selected and the viewer shut
+underneath it. `gesturePolicy: TapHandler.WithinBounds` does NOT fix it, which
+is worth recording because it is the obvious first move; the policy decides
+when a handler gives up its OWN grab. A Control does: the toolbar's
+IconButtons sit under the same scrim handler and have never closed the viewer.
+
+The two surfaces a reviewer would try both worked — the toolbar (a Control)
+and the picture itself (`imageTap` already asks for an exclusive grab) —
+which is how a strip full of bare handlers survived.
+
+### And a one-way-audio defect, in an unencrypted room
+
+Two instances, one room with no `m.room.encryption` at all. The caller started
+the call from an in-room surface and correctly published in the clear. The
+answerer answered from the global incoming-call card, logged
+`join begin encrypted= true`, required encryption inbound, and dropped every
+frame — `frames dropped: no key ... count= 500`, never one `frames decrypted`.
+In an ENCRYPTED room the same two instances carried audio both ways.
+
+`RtcController::roomEncrypted()` read a map with exactly two writers,
+`AppController::startCall()` and `setCurrentRoomId()`. It was filled only for
+a room the user had OPENED or called FROM. Three of the four surfaces that
+reach `join()` are in-room and happened to satisfy that; the fourth is an
+overlay that opens nothing. **Grep for the caller, not the definition** — the
+fourth occurrence of that shape here.
+
+A second, independent bug sat in the same read: both writers passed
+`!known || encrypted`, fabricating a KNOWN "encrypted" out of an UNKNOWN room,
+and `setRoomEncrypted`'s downgrade guard — right in itself, encryption cannot
+be removed in Matrix — then latched it for the session.
+
+The record is a tri-state now and it is PULLED: `roomEncrypted()` asks an
+installed resolver, falling back to the stored value, with Unknown still
+failing CLOSED. A resolver "yes" is remembered so the irreversibility guard
+covers every room the client has seen encrypted, not only the pushed ones. The
+writers record only a KNOWN answer. Pulling removes the class rather than the
+instance: a surface added tomorrow cannot forget to push, because there is
+nothing to push.
+
+The drop diagnostic now names both causes. It said "the sender's key never
+reached this device", which is one of them and was not this one; a whole
+evening went into key distribution on the strength of that sentence. The
+opposite asymmetry — a peer ENCRYPTING into a call we believe is clear is
+passed through and counted as flowing — is recorded in `docs/open-items.md`
+rather than fixed: it fails in the safe direction, and telling it from real
+cleartext needs a windowed frame-crypto trailer test.
+
+### What the pass verified
+
+Star/bell clear on a muted favourite; the viewer's click-to-zoom, pointer
+anchoring, chrome-hide, pinned close and **both** empty bands closing; six
+levels of rail hierarchy with every child under its own parent; the rail's
+width stops at 90 / 100 / 140 % with the rendered pixel width equal to the
+stored value every time, the narrowest surviving three restarts and the scale
+round trip returning to where it started; the code block's scrollbar clear of
+the widest line on three fixtures including one overflowing both axes; the
+banner resolving to the deployed key against a real federated user with two
+DIFFERENT values set; and a real incoming call whose D-Bus `Notify` carries
+`accept`/`Join` beside `decline`.
+
+Panning stops dead on release — three captures over 1.5 s, byte-identical.
+Horizontal wheel does not pan: `WheelHandler.orientation` defaults to
+`Qt::Vertical`, so a horizontal-only event never reaches the handler's `x`
+branch. Recorded, not fixed — a second handler risks double-applying on a
+trackpad and the rig cannot produce one.
+
 ## 2026-09-17 (second review round) — the sweep that read one file, and three verdicts that could not fail
 
 The same reviewer, a second time, on the work the first round produced. It

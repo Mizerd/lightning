@@ -1673,6 +1673,24 @@ MODAL with `dim:false`); a facepile tap also pinned the bubble's action
 toolbar; a receipt popover opened displaced because its handler lives in
 `receiptRow`, not the strip. Any overlaid affordance needs an explicit
 band exclusion in the handler beneath it. Recurred in three rounds.
+**AND `gesturePolicy: WithinBounds` DOES NOT CLOSE IT — measured
+2026-09-18.** The policy decides when a handler gives up its OWN grab, not
+whether another handler sees the press. What does is a Control: a
+`QQuickAbstractButton` accepts the press outright, which is why the image
+viewer's toolbar was never affected by the scrim handler that made a click
+on a THUMBNAIL close the viewer.
+
+**A BINDING THAT REACHES STATE THROUGH A FUNCTION CALL IS NOT BOUND TO IT,
+and a PUSHED record is only as complete as the callers that remembered to
+push.** Both bit on 2026-09-18. A rail leaf's chevron opened and revealed
+none of its rooms, because `revealed` asked a Q_INVOKABLE for the expansion
+state and so never re-evaluated — reported as a room that "did not appear
+until a restart", and the sync hypothesis written for it was tested and
+REFUTED. And a call in an unencrypted room carried audio ONE WAY, because
+`RtcController::roomEncrypted()` read a map whose two writers both required
+the room to be OPEN, and the incoming-call card is an overlay that opens
+none. Both are now PULLED. Full account in `docs/round-history.md`,
+2026-09-18.
 
 **Timeline test conventions — do not "re-fix" these.** The rotated
 Flickable + Column has no `positionViewAtIndex`,

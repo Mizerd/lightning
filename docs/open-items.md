@@ -1,5 +1,29 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-18 — a peer ENCRYPTING into a call we believe is clear is not reported
+
+Found while fixing the opposite direction (the joiner requiring encryption in
+an unencrypted room — see `docs/round-history.md`, 2026-09-18). The receive
+probe's two branches are not symmetric:
+
+* `required` and no key -> the frame is DROPPED, counted, and announced.
+* NOT required and no key -> the frame is **passed through and counted as
+  `passed`** (`src/calls/SfuMediaEngine.cpp`, the `!haveKey && !required`
+  branch). A peer that IS encrypting then feeds ciphertext into the
+  depayloader while `frames in the clear` climbs and the log reports media
+  flowing normally.
+
+It fails in the safe direction — garbage downstream, never a plaintext leak,
+and the confidentiality-critical branch does drop — which is why it is
+recorded rather than fixed. Telling "ciphertext on a call we believe is
+clear" from real cleartext needs the frame-crypto trailer test
+(`CallFrameCryptor.cpp`: the IV-length byte must be 12), used as a WINDOWED
+verdict and never per frame, because a clear frame passes it ~1 time in 256.
+
+The 2026-09-18 fix removes the common way the two clients disagree at all, so
+this state should now be rare. It is written down because a known gap with no
+written home gets rediscovered from a user report.
+
 ## 2026-09-17 — the Flathub REPO lint finally ran, and its two errors are the harness
 
 The maintainer's gate is "on the vm that supports flatpak, run the full lint
