@@ -88,9 +88,19 @@ def main() -> int:
 
     version = tree_version()
     pending = f"v{version}"
-    known = subprocess.run(
+    # A FAILED `git` MUST NOT LOOK LIKE "NO TAGS". Without this, "git is
+    # missing", "not a repository" and "the tag fetch failed" all produced the
+    # same empty list as a legitimately tagless shallow clone — and each one
+    # then degraded into a green job with two note: lines, on a manifest
+    # carrying any sha at all. Measured with a git shim exiting 128.
+    tags_run = subprocess.run(
         ["git", "-C", str(ROOT), "tag", "--list", "v*"],
-        capture_output=True, text=True).stdout.split()
+        capture_output=True, text=True)
+    if tags_run.returncode != 0:
+        print(f"  FAIL: could not list tags: git exited {tags_run.returncode}"
+              f" — {tags_run.stderr.strip() or 'no stderr'}")
+        return 1
+    known = tags_run.stdout.split()
 
     def key(t: str):
         return tuple(int(x) for x in t[1:].split("."))
@@ -130,7 +140,30 @@ def main() -> int:
         # `newest != pending` and the previous-release spelling is refused
         # again, so a pin that was never updated cannot hide behind it.
         allowed = {pending, newest}
-        window = newest == pending and second is not None
+        # THE WINDOW IS THE TAGGED COMMIT ITSELF, NOT THE WHOLE RELEASE CYCLE.
+        #
+        # Keying it on `newest == pending` alone was wrong in a way that
+        # defeated the check's own purpose: the release commit bumps the tree
+        # version, so that condition holds from the moment v<X> is tagged
+        # until the version is bumped for the NEXT release — the entire
+        # inter-release life of the repository. A stale pin would have drawn
+        # only a note for all of it, and the very drift this gate was written
+        # for (the manifest at v0.9.6 while the tree was 0.9.7) is that state.
+        # It would have caught its own motivating defect one release late.
+        #
+        # The real window is the minutes between `finalize-release` creating
+        # the tag and the re-pin commit landing — during which HEAD IS the
+        # tagged commit, because nothing else has been pushed yet. Keyed on
+        # that, it closes the instant any commit lands on main.
+        head = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+            capture_output=True, text=True).stdout.strip()
+        newest_commit = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "--verify", "--quiet",
+             f"{newest}^{{commit}}"],
+            capture_output=True, text=True).stdout.strip()
+        window = (newest == pending and second is not None
+                  and bool(head) and head == newest_commit)
         if window:
             allowed.add(second)
         check(tag in allowed,

@@ -6,6 +6,7 @@ verify, and release jobs are gated only on PUBLISH_PACKAGES (so both release
 actions include them), that they are correctly wired downstream of validation
 and each other, and that a build-only pipeline excludes them entirely.
 """
+import ast
 import os
 import re
 import sys
@@ -88,6 +89,21 @@ FORMAT_SELECTOR = {
     "deb": "apt", "rpm": "dnf",
     "flatpak": "flatpak", "appimage": "appimage", "snap": "snap",
 }
+# AND IT IS CROSS-CHECKED AGAINST THE FILE, because a hard-coded list is
+# exactly what it looks like. Several checks below iterate FORMAT_SELECTOR and
+# read as "derived, so a new format cannot slip through" — they are not: a
+# sixth Linux format could be added to .gitlab-ci.yml and silently skip both
+# the call-media probe and the voice-delay self-test with this suite green.
+# The two lists have ALREADY diverged once (six validate-* jobs against five
+# entries), benign only because validate-deb-ubuntu reuses validate-deb.sh.
+_UBUNTU_REUSES = {"deb-ubuntu": "deb"}
+_derived_formats = {
+    _UBUNTU_REUSES.get(j[len("validate-"):], j[len("validate-"):])
+    for j in validators
+}
+check(_derived_formats == set(FORMAT_SELECTOR),
+      "FORMAT_SELECTOR names exactly the formats .gitlab-ci.yml validates "
+      f"(file: {sorted(_derived_formats)}, list: {sorted(FORMAT_SELECTOR)})")
 for fmt, selector in FORMAT_SELECTOR.items():
     for prefix in ("build-", "validate-"):
         job = prefix + fmt
@@ -886,8 +902,28 @@ for element in ("sctpenc", "sctpdec"):
 # raw entry and its 10 fps ceiling, with nothing in any log to say why. Both
 # ship in libgstjpeg.dll, which is the same assumption that hid sctpenc for
 # months while its plugin was staged.
-for element in ("jpegdec", "jpegenc"):
-    check(f'"{element}"' in win_stage_src,
+# AND THE ELEMENT LIST IS PARSED, NOT GREPPED. A raw-text search for the
+# quoted name passes on a file where the entry has been moved into a COMMENT —
+# measured: delete the tuple entry, mention it in a comment, and the probe
+# silently stops asking while this suite stays green. The `>= 30` floor in
+# validate-windows-artifacts.sh does not trip either, and until now NOTHING
+# asserted the count; 43 lived only in a commit message.
+_win_elements = None
+for _node in ast.walk(ast.parse(win_stage_src)):
+    if isinstance(_node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "GSTREAMER_ELEMENTS"
+            for t in _node.targets):
+        _win_elements = [
+            e.value for e in _node.value.elts
+            if isinstance(e, ast.Constant) and isinstance(e.value, str)
+        ]
+check(_win_elements is not None,
+      "GSTREAMER_ELEMENTS is a parseable literal in stage-windows-runtime.py")
+check(len(_win_elements or []) == 43,
+      f"the Windows element probe asks for 43 elements (found "
+      f"{len(_win_elements or [])})")
+for element in ("jpegdec", "jpegenc", "level", "sctpenc", "sctpdec"):
+    check(element in (_win_elements or []),
           f"the Windows element probe covers {element}")
 
 # ---------------------------------------------------------------------------
@@ -1029,6 +1065,32 @@ check("-DLIGHTNING_REQUIRE_WEBRTC=ON" in _flatpak_code,
 check("-DLIGHTNING_REQUIRE_WEBRTC=ON" in configure_src,
       "configure-build.sh fails at configure when the probe finds nothing")
 
+# --- gst-plugins-good's licence travels with its binaries -------------------
+#
+# Eleven of the plugins the AppImage stages and seven of the ones the Windows
+# image stages are gst-plugins-good, which is LGPL-2.1-or-later. Neither format
+# carried its licence text, because the upstream MinGW SDK does not ship it
+# (88 licence directories, nothing matching "good") and the AppImage script
+# staged no licence text at all. The snap inherits the AppImage's.
+#
+# The text is vendored in this repository so no build-time fetch and no
+# builder-image rebuild is needed; these assertions are what stop it being
+# dropped again, and what would notice if the file itself went missing.
+_good_license = os.path.join(HERE, "..", "packaging", "common", "licenses",
+                             "gst-plugins-good-1.0", "COPYING")
+check(os.path.isfile(_good_license),
+      "the gst-plugins-good licence text is vendored in the repository")
+with open(_good_license, encoding="utf-8") as handle:
+    _good_text = handle.read()
+check("GNU LESSER GENERAL PUBLIC LICENSE" in _good_text
+      and "Version 2.1" in _good_text,
+      "the vendored text is the LGPL 2.1")
+for script, label in (("stage-windows-runtime.py", "the Windows stage"),
+                      ("build-appimage.sh", "the AppImage build")):
+    src = _read("scripts", script)
+    check("gst-plugins-good-1.0" in src,
+          f"{label} ships the gst-plugins-good licence")
+
 # --- 3. every format asks the SHIPPED artifact ------------------------------
 #
 # Derived from the format list above rather than written out, so a new Linux
@@ -1070,8 +1132,23 @@ check("RESULT: calls can be placed and answered." in lib_src,
 # procedure is written at the declaration.
 check("assert_queue_selftest()" in lib_src,
       "lib.sh defines the shared voice-delay assertion")
-check("never reached a verdict" in lib_src,
-      "the shared assertion fails hard when the probe produced no verdict")
+# THREE OUTCOMES, NOT TWO. "measured and failed" and "could not measure" must
+# not share an exit path: a prefix grep on `^RESULT: ` let a transcript reading
+# "no element audiotestsrc" three times through as a warning.
+check("VERDICT: " in lib_src,
+      "the shared assertion keys on an exact VERDICT line, not a prefix")
+check("unmeasurable)" in lib_src,
+      "the shared assertion has a distinct unmeasurable outcome")
+check("measured NOTHING" in lib_src,
+      "the shared assertion fails hard when nothing was measured")
+# And ONE implementation, not three. Both non-Linux validators source lib.sh.
+for script in ("smoke-windows-wine.sh", "validate-macos-artifacts.sh"):
+    src = _strip_shell_comments(_read("scripts", script))
+    check("assert_queue_selftest" in src,
+          f"{script} judges the self-test through the shared helper")
+    check("timeout " in src.split("--call-queue-selftest")[0].rsplit("\n", 3)[-1]
+          or "timeout 300s" in src,
+          f"{script} bounds the self-test with a timeout")
 # Read from the RAW file: the promotion procedure is a COMMENT, and the
 # comment stripper above would eat it — which is how the first version of this
 # check failed on a lib.sh that carries it.

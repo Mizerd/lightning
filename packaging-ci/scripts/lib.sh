@@ -72,47 +72,83 @@ assert_call_media_engine() {
 
 # --- the voice-delay property -----------------------------------------------
 #
-# ONE judgement of a `--call-queue-selftest` transcript, shared by every
-# format, for the same reason the two helpers around it exist: the answer is
-# decided by what the SHIPPED artifact does, not by what the source says.
+# THE ONE judgement of a `--call-queue-selftest` transcript, and it really is
+# one now: deb, rpm, AppImage, snap, Flatpak, the Windows portable under Wine
+# and the macOS bundle all call THIS function. It had three copies for a few
+# hours and the promotion note below named one place to change.
 #
 # What it measures and why it is here: a GStreamer `queue` defaults to holding
 # one second and never dropping any of it, so one moment of a consumer falling
 # behind is permanent added delay for the rest of a call. That was reported
-# live on 2026-09-16 as roughly a second of extra delay in one direction. Every
-# check of it before this one was ACOUSTIC -- two machines, a sound card and a
-# rig -- which is why it existed on Linux alone and why the Windows guest (no
-# sound card at all) could not be measured. The command starves each queue's
-# consumer, runs a plain `queue` beside it as a control, and reports what each
-# still held once the consumer was back at real time.
+# live on 2026-09-16 as roughly a second of extra delay in one direction.
+# Every check of it before this one was ACOUSTIC -- two machines, a sound card
+# and a rig -- which is why it existed on Linux alone and why the Windows guest
+# (no sound card at all) could not be measured.
 #
-# NOT A HARD GATE YET, AND THAT IS DELIBERATE. Pipeline 224 died because a
-# plugin was added to a REQUIRED list before the thing that had to carry it
-# did; the lesson recorded from it is that the entry is the half that must come
-# second. So this asserts only that the command RAN and reached a verdict -- a
-# crash or an empty transcript still fails the build -- and prints the verdict
-# loudly either way.
+# THREE OUTCOMES, NOT TWO, and keeping them apart is the whole point:
 #
-# TO PROMOTE IT: once it has reported PASS on deb, rpm, AppImage, snap,
-# Flatpak, macOS and Windows-under-Wine in one pipeline, change the `warn` for
-# a FAIL verdict below into `die`. Do not promote it on one platform's evidence.
+#   VERDICT: pass          measured, and every shipped queue behaved
+#   VERDICT: fail          measured, and one did not
+#   VERDICT: unmeasurable  NOTHING was measured -- no media engine, GStreamer
+#                          did not initialise, an element could not be made,
+#                          or the CONTROL queue did not hold its second, which
+#                          means the starvation itself did not happen
+#
+# `unmeasurable` DIES. "Measured and failed" and "could not measure" must not
+# share an exit path: an earlier version matched `^RESULT: ` with a prefix
+# grep, so a transcript reading "no element audiotestsrc" three times passed
+# the gate as a warning. The sibling helper above has always used `grep -qx`
+# on an exact sentence for exactly this reason.
+#
+# `fail` only WARNS, deliberately. Pipeline 224 died because a plugin was added
+# to a REQUIRED list before the image that had to carry it was rebuilt, and the
+# lesson recorded from it is that the entry is the half that must come second.
+#
+# TO PROMOTE IT: once it reports `VERDICT: pass` on deb, rpm, AppImage, snap,
+# Flatpak, Windows-under-Wine and macOS in one pipeline, AND a repeat-run
+# measurement on the real CI runners shows the wall-clock thresholds inside
+# `runQueueSelfTest` are stable there (§16 records four CTest suites that flake
+# on timing at -j2), change the `fail` branch below from a warning to `die`.
+# Change it HERE; there is nowhere else. Note macOS is `allow_failure` per §14,
+# so promoting it cannot make the Mac block a release either way.
 #
 #   $1  format label for the message
 #   $2  path to the captured combined output
 #   $3  the command's exit status
+#   $4  optional: "soft" -- report and return 1 instead of dying, for a
+#       validator that accumulates failures and reports at the end
 assert_queue_selftest() {
-    local label="$1" log="$2" status="$3"
-    [[ -s "$log" ]] || die "$label: --call-queue-selftest produced no output at all"
+    local label="$1" log="$2" status="$3" mode="${4:-hard}"
+    local complain=die
+    [[ "$mode" == "soft" ]] && complain=_queue_selftest_soft_complain
+    [[ -s "$log" ]] || $complain "$label: --call-queue-selftest produced no output at all"
     cat "$log"
-    grep -q '^RESULT: ' "$log" || die \
-        "$label: --call-queue-selftest never reached a verdict -- it crashed, hung or the build has no media engine. The transcript is above."
-    if [[ "$status" == 0 ]]; then
-        echo "$label: voice-delay queue self-test PASSED (exit 0)"
-    else
-        echo "WARNING: $label: voice-delay queue self-test reported a FAILURE (exit $status)." >&2
-        echo "WARNING: a live queue held a backlog after its consumer had caught up." >&2
+    local verdict
+    verdict="$(grep -m1 '^VERDICT: ' "$log" | awk '{print $2}')"
+    case "$verdict" in
+    pass)
+        echo "$label: voice-delay queue self-test VERDICT: pass (exit $status)"
+        return 0
+        ;;
+    fail)
+        echo "WARNING: $label: voice-delay queue self-test VERDICT: fail (exit $status)." >&2
+        echo "WARNING: a live queue kept a backlog its consumer had caught up from." >&2
         echo "WARNING: this is NOT yet a hard gate -- see assert_queue_selftest in lib.sh." >&2
-    fi
+        return 0
+        ;;
+    unmeasurable)
+        $complain "$label: --call-queue-selftest measured NOTHING. The transcript above says why. A run that could not measure is not a run that passed."
+        return 1
+        ;;
+    *)
+        $complain "$label: --call-queue-selftest printed no VERDICT line at all -- it crashed, hung, or is an older build. The transcript is above."
+        return 1
+        ;;
+    esac
+}
+
+_queue_selftest_soft_complain() {
+    printf '  FAIL: %s\n' "$1" >&2
 }
 
 # --- image format decoders ---------------------------------------------------

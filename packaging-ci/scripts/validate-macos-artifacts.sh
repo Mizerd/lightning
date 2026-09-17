@@ -546,15 +546,19 @@ fi
 # assert_queue_selftest in packaging-ci/scripts/lib.sh for what it measures.
 # NOT a hard gate yet, deliberately: a verdict is required, a FAILING verdict
 # only warns until it has reported PASS on every platform once.
+#
+# TIMEOUT, like every other call site. Without one a hung probe burns the Mac
+# mini to the three-hour job ceiling, on the one host this project has a
+# standing history of nursing back online.
 queue_selftest_status=0
-"$CONTENTS/MacOS/$APP_NAME" --call-queue-selftest \
+timeout 300s "$CONTENTS/MacOS/$APP_NAME" --call-queue-selftest \
     >"$REPORT_DIR/queue-selftest.txt" 2>&1 || queue_selftest_status=$?
-check "the bundled app reached a verdict on the voice-delay self-test" \
-    grep -q '^RESULT: ' "$REPORT_DIR/queue-selftest.txt"
-sed 's/^/        /' "$REPORT_DIR/queue-selftest.txt" || true
-if [[ "$queue_selftest_status" != 0 ]]; then
-    printf '  WARNING: macOS voice-delay queue self-test FAILED (exit %s)\n' \
-        "$queue_selftest_status" >&2
+# ONE judgement, shared with every other format, in SOFT mode: this validator
+# accumulates failures and reports them together rather than dying on the
+# first, so the helper reports and returns instead of exiting.
+if ! assert_queue_selftest macOS "$REPORT_DIR/queue-selftest.txt" \
+        "$queue_selftest_status" soft; then
+    failures=$((failures + 1))
 fi
 # THE IMAGE DECODERS, asked of the bundle the same way. macdeployqt copies
 # every plugin in its default categories, so this bundle gets Homebrew

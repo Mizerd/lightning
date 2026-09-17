@@ -165,18 +165,10 @@ run_gif_status() {
 run_queue_selftest() {
     local exe="$1" log="$2" status=0
     timeout 300s wine64 "$exe" --call-queue-selftest >"$log" 2>&1 || status=$?
-    cat "$log"
-    grep -q '^RESULT: ' "$log" || {
-        die "the packaged build never reached a verdict on --call-queue-selftest: $exe"
-    }
-    if [[ "$status" == 0 ]]; then
-        echo "Windows (wine): voice-delay queue self-test PASSED"
-    else
-        # NOT a hard gate yet, for the reason recorded in lib.sh's
-        # assert_queue_selftest: pipeline 224 died because a required entry
-        # landed before the thing that had to satisfy it.
-        echo "WARNING: Windows (wine): voice-delay queue self-test FAILED (exit $status)" >&2
-    fi
+    # ONE judgement, shared with every Linux format and with macOS. This was a
+    # second implementation for a few hours, while lib.sh's promotion note
+    # named one place to change.
+    assert_queue_selftest "Windows (wine)" "$log" "$status"
 }
 
 new_prefix
