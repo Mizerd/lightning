@@ -1112,7 +1112,8 @@ check("jpeg" not in _macos_required.split(),
       "jpeg is not in the macOS REQUIRED plugin list yet")
 
 for script, label in (("validate-windows-artifacts.sh", "the Windows validator"),
-                      ("validate-appimage.sh", "the AppImage validator")):
+                      ("validate-appimage.sh", "the AppImage validator"),
+                      ("validate-snap.sh", "the snap validator")):
     src = _strip_shell_comments(_read("scripts", script))
     check("gst-plugins-good-1.0" in src,
           f"{label} asserts the licence is in the extracted payload")

@@ -67,6 +67,20 @@ test -x "$audit/prime/usr/bin/lightning-updater" || die "update helper missing f
 test -f "$audit/prime/meta/gui/lightning.desktop" || die "snap desktop file missing"
 test -f "$audit/prime/meta/gui/lightning.png" || die "snap icon missing"
 test -x "$audit/prime/bin/lightning-launch" || die "launcher missing"
+# THE LGPL TEXT FOR THE gst-plugins-good BINARIES THIS SNAP CARRIES, asserted
+# on the unsquashed payload.
+#
+# The snap repacks the AppImage, so the licence's presence FOLLOWS from the
+# AppImage's — which is exactly the reasoning that would let it go missing
+# without anybody noticing. This project's own rule is to assert the payload
+# and not the script that was supposed to fill it; sctp, ximagesrc, the Qt TLS
+# backend and the Wayland shell integration were each named in a script and
+# absent from a package.
+snap_good_license="$audit/prime/usr/share/licenses/lightning-gstreamer/gst-plugins-good-1.0/COPYING"
+test -s "$snap_good_license" \
+    || die "the snap bundles gst-plugins-good binaries and carries no licence for them: usr/share/licenses/lightning-gstreamer/gst-plugins-good-1.0/COPYING is missing or empty"
+grep -q "GNU LESSER GENERAL PUBLIC LICENSE" "$snap_good_license" \
+    || die "the staged gst-plugins-good licence in the snap is not the LGPL text"
 
 # Run through the snap launcher with $SNAP simulated (snapd would provide
 # it at runtime); everything but base-system libs must come from the snap.
