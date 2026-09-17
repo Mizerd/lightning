@@ -266,6 +266,62 @@ private Q_SLOTS:
         QCOMPARE(call("entryCount").toInt(), int(loaded.size()));
     }
 
+    // ── 2026-09-18: the viewer had no keyboard at all ────────────────────
+    //
+    // Every key this overlay declares — Left/Right, Up/Down/Space,
+    // +/-/0/F, and Escape through `closePolicy: Popup.CloseOnEscape` — was
+    // dead, because `Popup.focus` defaults to FALSE and this one never set
+    // it. `contentItem: FocusScope { focus: true }` cannot help: a focus
+    // scope inside a popup that never takes active focus never becomes the
+    // active focus item either. The sibling VideoViewerOverlay, written to
+    // the same pattern, sets `focus: true` and works.
+    //
+    // Found on a real build: clicking the next ARROW advanced the counter
+    // 1 -> 2 -> 3 while Right, Down, Space, plus and Escape all left it at
+    // "3 of 5", with the window's X input focus confirmed and Ctrl+K proving
+    // in the same session that keys reached the application.
+    //
+    // Escape is the half that matters most: the round that took
+    // click-to-close off the picture justified it by "closing is still
+    // instant everywhere else — the scrim, Escape, the close button", and
+    // Escape was not one of them.
+    void theViewersKeyboardReachesIt()
+    {
+        const QVariantList history = { historyEntry(QStringLiteral("$a")),
+                                       historyEntry(QStringLiteral("$b")),
+                                       historyEntry(QStringLiteral("$c")) };
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(history)),
+            Q_ARG(QVariant, QVariant(1))));
+        QVERIFY(call("isOpen").toBool());
+        QCOMPARE(call("currentKey").toString(), QStringLiteral("$b"));
+
+        QTest::keyClick(m_window, Qt::Key_Right);
+        QVERIFY2(call("currentKey").toString() == QStringLiteral("$c"),
+                 "Right did nothing: the popup never takes active focus, so "
+                 "no key the viewer declares can reach it");
+        QTest::keyClick(m_window, Qt::Key_Left);
+        QCOMPARE(call("currentKey").toString(), QStringLiteral("$b"));
+        // Down and Space are "next", Up is "previous" — one axis is not
+        // enough for someone who has just been scrolling a list.
+        QTest::keyClick(m_window, Qt::Key_Down);
+        QCOMPARE(call("currentKey").toString(), QStringLiteral("$c"));
+        QTest::keyClick(m_window, Qt::Key_Up);
+        QCOMPARE(call("currentKey").toString(), QStringLiteral("$b"));
+        QTest::keyClick(m_window, Qt::Key_Space);
+        QCOMPARE(call("currentKey").toString(), QStringLiteral("$c"));
+        // ...and it wraps, at the end as at the start.
+        QTest::keyClick(m_window, Qt::Key_Right);
+        QCOMPARE(call("currentKey").toString(), QStringLiteral("$a"));
+        QTest::keyClick(m_window, Qt::Key_Left);
+        QCOMPARE(call("currentKey").toString(), QStringLiteral("$c"));
+
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QVERIFY2(!call("isOpen").toBool(),
+                 "Escape did not close the viewer, and the decision to take "
+                 "click-to-close off the picture rests on it");
+    }
+
 private:
     QTemporaryDir m_configHome;
 };

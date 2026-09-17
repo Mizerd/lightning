@@ -46,6 +46,18 @@ Popup {
     height: parent ? parent.height : 600
     modal: true
     padding: 0
+    // A POPUP DOES NOT TAKE FOCUS UNLESS IT ASKS FOR IT, and this one did
+    // not — so every key the viewer declares was dead: Left/Right,
+    // Up/Down/Space, +/-/0/F, and Escape through the close policy below.
+    // `contentItem: FocusScope { focus: true }` cannot rescue it; a focus
+    // scope inside a popup that never becomes the active focus item never
+    // becomes one either. VideoViewerOverlay, written to the same pattern,
+    // has always set this.
+    //
+    // Escape is the half that matters most: taking click-to-close off the
+    // picture was justified by "closing is still instant everywhere else —
+    // the scrim, Escape, the close button", and Escape was not one of them.
+    focus: true
     closePolicy: Popup.CloseOnEscape
 
     // Entries from TimelineModel::imageEntries(); each has
