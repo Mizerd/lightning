@@ -1384,6 +1384,15 @@ private slots:
                 [&](const QString &, const QString &, const QString &) {
                     trackArrived = true;
                 });
+        // THE ANNOUNCEMENT, not a log line, and not the policy struct called
+        // directly. Every other case over the badge drives
+        // `BlockedRunPolicy::note()` itself, which is the row-window lesson
+        // verbatim: a policy test that invokes the policy proves nothing
+        // about whether production ever reaches it. This one runs real frames
+        // through the real probe in a real engine and watches the signal the
+        // call controller listens to.
+        QSignalSpy blocked(&receiver, &SfuMediaEngine::remoteMediaBlocked);
+        QVERIFY(blocked.isValid());
 
         LogCapture log;
         sender.start();
@@ -1426,6 +1435,23 @@ private slots:
                      "failure, which is the defect. log:\n%1")
                                 .arg(log.text())));
         QCOMPARE(receiver.framesDecrypted(), quint64(0));
+
+        // AND THE UI IS TOLD, with the reason that sends a reader to key
+        // DISTRIBUTION rather than to key agreement. Queued to the engine's
+        // thread, so it is waited for rather than read.
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            blocked.count() > 0,
+            qPrintable(QStringLiteral(
+                "%1 frames were dropped for want of a key and the call "
+                "header was never told. log:\n%2")
+                           .arg(receiver.framesDropped())
+                           .arg(log.text())),
+            20000);
+        const QList<QVariant> raised = blocked.first();
+        QVERIFY2(!raised.at(0).toString().isEmpty(),
+                 "the badge was raised without naming a stream, so no tile "
+                 "can carry it");
+        QCOMPARE(raised.at(1).toString(), QStringLiteral("no_key"));
 
         sender.stop();
         receiver.stop();
@@ -3051,6 +3077,44 @@ private slots:
             }
             QCOMPARE(found, lane.expected);
         }
+    }
+
+    // THE SHAPE THE DEFECT ACTUALLY HAS, taken from a live log rather than
+    // imagined.
+    //
+    // Every occurrence in the maintainer's receiving client, across two days
+    // and five different stream ids, is the same: a burst of about ten
+    // undecryptable frames within ~160 ms of a NEW sender's stream appearing,
+    // and then nothing at all — no `count= 50`, no `count= 100`, ever —
+    // against 5074 and 103203 frames that passed. That is frames arriving
+    // before that sender's key is installed.
+    //
+    // 0.9.7 badged on the first of those ten, which is the defect the
+    // maintainer reported: a warning every time a peer joins. The sizing
+    // evidence belongs in the suite, not only in a doc, or the next person to
+    // tune these thresholds has nothing to tune them against.
+    void theLiveBurstAtAStreamsStartNeverRaisesTheBadge()
+    {
+        using Policy = SfuMediaEngine::BlockedRunPolicy;
+        Policy p;
+        bool raise = false;
+        int announcements = 0;
+        // Ten bad frames at the very start, then a long clean call.
+        for (int i = 0; i < 5074; ++i) {
+            if (p.note(/*failed=*/i < 10, &raise))
+                ++announcements;
+        }
+        QCOMPARE(announcements, 0);
+        QVERIFY(!p.announced);
+
+        // And the burst must not be able to badge even if it is the ONLY
+        // thing seen so far — a stream that delivers ten frames and stops is
+        // not a stream anybody is failing to hear.
+        Policy fresh;
+        for (int i = 0; i < 10; ++i)
+            fresh.note(/*failed=*/true, &raise);
+        QVERIFY(!fresh.announced);
+        QCOMPARE(fresh.failurePercent(), -1);
     }
 
     // THE CAMERA MUST NAME ITS SOURCE, and this is a source scan because the
