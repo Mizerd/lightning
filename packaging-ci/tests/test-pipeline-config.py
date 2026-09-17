@@ -878,6 +878,17 @@ for needle in ("libgstwebrtc.dll", "libgstnice.dll", "libgstdtls.dll",
 for element in ("sctpenc", "sctpdec"):
     check(f'"{element}"' in win_stage_src,
           f"the Windows element probe covers {element}")
+# BOTH HALVES OF THE MJPG CAMERA DECISION, and jpegenc is the half that is
+# easy to leave out because nothing in the media pipeline uses it.
+# SfuMediaEngine::jpegCameraChainAvailable() decides whether a Windows camera
+# takes the MJPG chain at all by BUILDING `videotestsrc ! jpegenc ! <entry>
+# ! fakesink`, so an unregistered jpegenc silently demotes every camera to the
+# raw entry and its 10 fps ceiling, with nothing in any log to say why. Both
+# ship in libgstjpeg.dll, which is the same assumption that hid sctpenc for
+# months while its plugin was staged.
+for element in ("jpegdec", "jpegenc"):
+    check(f'"{element}"' in win_stage_src,
+          f"the Windows element probe covers {element}")
 
 # ---------------------------------------------------------------------------
 # The call media engine must be BUILT INTO every Linux package (2026-08-27).

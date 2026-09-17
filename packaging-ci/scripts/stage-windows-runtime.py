@@ -222,6 +222,17 @@ GSTREAMER_ELEMENTS = (
     # `sctpenc` was missing, and Windows received no media the whole time. The
     # DLL is the tin; this list is what asks whether anything is in it.
     "jpegdec",
+    # AND jpegenc, WHICH IS NOT DECORATION BESIDE IT.
+    #
+    # The app decides whether a camera takes the MJPG chain at all by BUILDING
+    # `videotestsrc ! jpegenc ! <entry> ! fakesink` once per process
+    # (SfuMediaEngine::jpegCameraChainAvailable). So jpegenc is a runtime
+    # requirement of the DECISION, not just of some test: if it ever fails to
+    # register, every Windows camera silently demotes to the raw entry and the
+    # 10 fps ceiling comes back with nothing in any log to say why. Both
+    # elements ship in libgstjpeg.dll today, which is exactly the assumption
+    # that made `sctpenc` invisible while its plugin was present.
+    "jpegenc",
     "ksvideosrc",
     # level. Staging libgstlevel.dll is NOT this claim: the element and the
     # plugin share a name, so the Dockerfile symbol probe cannot fail for it.
