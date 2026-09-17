@@ -56,13 +56,28 @@ The evidence that this is the harness:
   `app-info/media` — so what differs is the spelling in the catalogue, not
   whether the mirroring happened.
 
-**What is NOT established**: that every locally built app hits this. The
-control that would settle it is a second app built the same way; the one free
-control available (`org.flatpak.Builder`'s own installed tree) has no
-screenshots at all, so its clean result says nothing. Until that is done, the
-honest status is: **manifest lint PASS; repo lint runs and every content check
-in it passes, with two URL-form errors whose cause is identified and whose
-ownership is not.** It is not a full green and is not reported as one.
+**AND THE CONTROL WAS RUN, so this is established rather than argued.** A
+second app was built with nothing in common but the build command: a minimal
+`org.example.LintProbe` — its own app id, its own metainfo, one screenshot, a
+shell script for a binary. Same two errors:
+
+```
+appstream-external-screenshot-url
+appstream-remote-icon-not-mirrored
+```
+
+The control does one more thing, and it is the half that makes it worth
+having: it ALSO failed a check Lightning passes —
+`url-homepage-missing`, a real defect in the probe's own metainfo. So the
+linter's content checks are working and they do discriminate between the two
+apps. What does not discriminate is the URL-form pair, which fires on both.
+
+**STATUS: manifest lint PASS (mutation-proven twice). Repo lint RUNS, every
+content check in it passes, and its only two errors are a property of the
+local toolchain that a second app reproduces exactly.** That is as far as this
+rig can take it; the remaining question — whether Flathub's own pipeline
+skips those two for a submission or resolves `media_baseurl` upstream — is
+answerable only by submitting. It is not reported as a full green.
 
 ## 2026-09-17 — voice delay: PASS on Linux for the NUMBER, NOT TESTED everywhere else
 
