@@ -1979,9 +1979,10 @@ int main(int argc, char *argv[])
         QString whyNot;
         if (!lightning::gst::ensureInitialised(&whyNot)) {
             out << "gstreamer: FAILED (" << whyNot << ")\n"
-                << "\nRESULT: FAIL — GStreamer did not initialise, so no "
-                   "queue could be measured.\n";
-            return 1;
+                << "\nRESULT: nothing was measured — GStreamer did not "
+                   "initialise.\n"
+                << "VERDICT: unmeasurable\n";
+            return 2;
         }
         QString report;
         const int rc = SfuMediaEngine::runQueueSelfTest(&report);
@@ -1990,9 +1991,10 @@ int main(int argc, char *argv[])
 #else
         DiagnosticStream out(stdout);
         out << "call media engine built in: no\n"
-            << "\nRESULT: this build has no media engine, so it has no "
-               "queues to measure (configured without GStreamer).\n";
-        return 1;
+            << "\nRESULT: nothing was measured — this build has no media "
+               "engine (configured\nwithout GStreamer).\n"
+            << "VERDICT: unmeasurable\n";
+        return 2;
 #endif
     }
     if (pf.action == PreflightResult::RunImageFormatStatus) {

@@ -2078,6 +2078,34 @@ void SfuCallController::onSfuParticipants(const QVariantList &updates)
     if (!active())
         return;
     const bool setChanged = mergeParticipants(updates);
+    // A BADGE MUST NOT OUTLIVE THE STREAM THAT RAISED IT.
+    //
+    // `m_blockedStreams` was only ever emptied by an explicit clear verdict
+    // from the engine or at call teardown — so a peer who was badged and then
+    // LEFT kept `remoteMediaBlocked` true for the rest of the call: a warning
+    // on the call header with no tile to attribute it to, because
+    // mediaBlockedFor() can no longer match anyone. The comment at teardown
+    // says the mark must never outlive the CALL; it must never outlive the
+    // STREAM.
+    if (setChanged && !m_blockedStreams.isEmpty()) {
+        const bool had = true;
+        QSet<QString> live;
+        for (const QVariant &entry : m_participants) {
+            const QString sid =
+                streamIdForIdentity(entry.toMap()
+                                        .value(QStringLiteral("identity"))
+                                        .toString());
+            if (!sid.isEmpty())
+                live.insert(sid);
+        }
+        const int before = m_blockedStreams.size();
+        m_blockedStreams.intersect(live);
+        if (m_blockedStreams.size() != before) {
+            if (had != !m_blockedStreams.isEmpty())
+                Q_EMIT remoteMediaBlockedChanged();
+            Q_EMIT participantsChanged();
+        }
+    }
     // A LEAVER must stop being able to decrypt, so any change in the set
     // rotates the key. Rotating on joins too is the simple, safe choice:
     // the alternative is tracking who is new, and being wrong about that
