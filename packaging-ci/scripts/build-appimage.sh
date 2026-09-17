@@ -141,8 +141,21 @@ mkdir -p "$GST_PLUGIN_DEST"
 GOOD_LICENSE_SRC="$ROOT/packaging-ci/packaging/common/licenses/gst-plugins-good-1.0"
 [[ -f "$GOOD_LICENSE_SRC/COPYING" ]] || die "the vendored gst-plugins-good licence is missing at $GOOD_LICENSE_SRC: the AppImage bundles its binaries and must carry its licence"
 APPIMAGE_LICENSE_DEST="$APPDIR/usr/share/licenses/lightning-gstreamer/gst-plugins-good-1.0"
-mkdir -p "$APPIMAGE_LICENSE_DEST"
-cp -a "$GOOD_LICENSE_SRC/." "$APPIMAGE_LICENSE_DEST/"
+# `install -m`, NOT `mkdir -p` + `cp -a`, and the difference failed a job.
+#
+# Git records only the executable bit, so a fresh CI checkout takes its modes
+# from the runner's umask — which is 0000 in this image, giving 666 files and
+# 777 directories. `cp -a` faithfully preserved that into the payload and
+# `validate-appimage`'s world-writable scan rejected the AppImage:
+# `error: world-writable content`. Nothing about the licence text was wrong;
+# the copy carried a permission the repository never had.
+#
+# Pinning the mode makes the result independent of the umask the build happens
+# to run under, which is what every other staged file here already does.
+install -d -m 0755 "$APPIMAGE_LICENSE_DEST"
+install -m 0644 "$GOOD_LICENSE_SRC/COPYING" "$APPIMAGE_LICENSE_DEST/COPYING"
+install -m 0644 "$GOOD_LICENSE_SRC/PROVENANCE.txt" \
+    "$APPIMAGE_LICENSE_DEST/PROVENANCE.txt"
 install -Dm644 "$ROOT/LICENSE" \
     "$APPDIR/usr/share/licenses/Lightning-GPL-3.0.txt"
 

@@ -377,8 +377,18 @@ def main() -> None:
             f"the vendored gst-plugins-good licence is missing at "
             f"{good_licenses} — every staged gst-plugins-good binary would "
             f"ship without it")
-    copy_tree(good_licenses,
-              licenses / "lightning-gstreamer" / "gst-plugins-good-1.0")
+    # Copied with an EXPLICIT mode rather than through copy_tree, which
+    # preserves the source's. Git records only the executable bit, so a fresh
+    # CI checkout takes its modes from the runner's umask — 0000 in these
+    # images, giving 666 files. That is invisible in a ZIP on Windows, but the
+    # identical `cp -a` in the AppImage lane carried 666 into the payload and
+    # `validate-appimage`'s world-writable scan rejected the build. Same
+    # source tree, same hazard; pinned here for the same reason.
+    good_dest = licenses / "lightning-gstreamer" / "gst-plugins-good-1.0"
+    good_dest.mkdir(parents=True, exist_ok=True)
+    for name in ("COPYING", "PROVENANCE.txt"):
+        shutil.copyfile(good_licenses / name, good_dest / name)
+        (good_dest / name).chmod(0o644)
 
     (args.stage / "qt.conf").write_text(
         "[Paths]\nPlugins = plugins\nQml2Imports = qml\nTranslations = translations\n",
