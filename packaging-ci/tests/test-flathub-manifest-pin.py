@@ -95,11 +95,53 @@ def main() -> int:
     def key(t: str):
         return tuple(int(x) for x in t[1:].split("."))
 
-    newest = max((t for t in known if re.fullmatch(r"v\d+\.\d+\.\d+", t)),
-                 key=key, default=None)
-    check(tag in {pending, newest} if newest else tag == pending,
-          f"the pin names either the newest existing tag ({newest}) or the "
-          f"version this tree is being released as ({pending}) — it is {tag}")
+    releases = sorted((t for t in known if re.fullmatch(r"v\d+\.\d+\.\d+", t)),
+                      key=key)
+    newest = releases[-1] if releases else None
+    second = releases[-2] if len(releases) > 1 else None
+
+    if newest is None:
+        # A CHECK THAT CANNOT RUN MUST SAY SO, NOT FAIL AND NOT PASS QUIETLY.
+        #
+        # This is the only entry in config-tests that needs the repository's
+        # TAGS, and a CI clone decides on its own whether it has any: a
+        # shallow fetch carries none. Without this branch `newest` is None,
+        # the predicate collapses to `tag == pending`, and a correct pin at
+        # the newest published release fails a gate for a property of the
+        # clone. The peel check below already degrades with a note; this one
+        # used to degrade into a hard failure.
+        print(f"  note: this clone carries no release tags, so the pin "
+              f"({tag}) can only be checked for SHAPE here — run this where "
+              f"tags are fetched before trusting it")
+    else:
+        # The pin may name the newest published release, or the version this
+        # tree is being released as, or — ONLY while the tree is still the
+        # version that was just tagged — the release before it.
+        #
+        # That last window is structural, not sloppiness: a release commit
+        # cannot pin its own sha, because the sha does not exist until the
+        # commit does. So between `finalize-release` creating v<pending> and
+        # the re-pin commit that follows it, the manifest legitimately names
+        # the PREVIOUS release while `newest` has already moved on. Without
+        # this clause every pipeline in that window dies on a gate that is
+        # reporting correct state.
+        #
+        # It closes itself. The moment development moves to the next version,
+        # `newest != pending` and the previous-release spelling is refused
+        # again, so a pin that was never updated cannot hide behind it.
+        allowed = {pending, newest}
+        window = newest == pending and second is not None
+        if window:
+            allowed.add(second)
+        check(tag in allowed,
+              f"the pin names the newest existing tag ({newest}), the version "
+              f"this tree is being released as ({pending})"
+              + (f", or the release before it ({second}) while the re-pin is "
+                 f"outstanding" if window else "")
+              + f" — it is {tag}")
+        if window and tag == second:
+            print(f"  note: the re-pin to {newest} is OUTSTANDING — the "
+                  f"submission manifest still names {second}")
 
     exists = subprocess.run(
         ["git", "-C", str(ROOT), "rev-parse", "--verify", "--quiet", f"{tag}^{{commit}}"],
