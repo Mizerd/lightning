@@ -4,9 +4,22 @@
 //! proposal for it and exactly one existing implementation, so this module is
 //! written for INTEROPERABILITY rather than for a Lightning-only feature:
 //!
-//!   * READ prefers the stable field `m.banner_url` and falls back to
-//!     `chat.commet.profile_banner`, the unstable key Commet already ships and
-//!     Sable and Haven read.
+//!   * READ asks for BOTH `m.banner_url` (the stable MSC4427 name) and
+//!     `chat.commet.profile_banner` (the unstable key Commet already ships
+//!     and Sable and Haven read), and when the two DISAGREE it takes the
+//!     unstable one. See `resolve_banner`: neither field carries a timestamp,
+//!     so age cannot break the tie and the rule falls back to provenance —
+//!     the deployed key is the one single-name clients write. It is a
+//!     heuristic and it CAN be wrong (a half-successful write from Lightning
+//!     itself produces the one case where the stable name is newer); the
+//!     reasoning, including that counter-example, is at the call site. A
+//!     disagreement is logged. This is a transitional rule, not a permanent
+//!     preference for an unstable name over a stable one.
+//!
+//!     It used to stop at the first usable value with the stable name first.
+//!     Measured 2026-09-17 on a live account, that showed an OLD banner
+//!     permanently while every Commet-family client showed the current one,
+//!     because the stale value sat on the server where no restart reached it.
 //!   * WRITE sets BOTH, so a banner set in Lightning shows up in those clients
 //!     and vice versa. Two round trips is the price of not being the odd one
 //!     out; a banner nobody else can see is not a banner.
@@ -213,6 +226,21 @@ pub(crate) fn is_usable_banner(value: &str) -> bool {
     value.starts_with("mxc://") && value.len() > "mxc://".len() && value.len() <= 512
 }
 
+/// Pick the banner when BOTH field names answered.
+///
+/// Extracted from the fetch so the rule can be stated once and tested. It
+/// cannot be tested where it is used: that code lives inside an async closure
+/// behind two live HTTP GETs, and a rule that can only be exercised against a
+/// real homeserver is a rule with no regression test.
+///
+/// Neither field carries a timestamp, so age cannot order them. Provenance
+/// can — see the long note at the call site. When only one name is set, both
+/// arms give the same answer.
+pub(crate) fn resolve_banner(stable: Option<String>,
+                             unstable: Option<String>) -> String {
+    unstable.or(stable).unwrap_or_default()
+}
+
 fn banner_from_body(field: &str, body: &str) -> Option<String> {
     // The body is `{ "<field>": <value> }`; the value is the only thing read,
     // and only as a string.
@@ -253,26 +281,92 @@ pub(crate) fn fetch_profile_banner(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let mut banner = String::new();
-        // Stable first, then the deployed unstable key. A server that answers
-        // the stable field at all is one whose answer we trust, so an empty
-        // stable answer still falls through — the two names coexist for now
-        // and a banner set by Commet lives under the second one.
+        // BOTH NAMES ARE READ, ALWAYS. This used to stop at the first usable
+        // value, stable name first — and that made a disagreement between the
+        // two permanent in the wrong direction.
+        //
+        // Measured 2026-09-17 against a real account, which is what settled
+        // it: the same user carried two DIFFERENT mxc URIs, `m.banner_url`
+        // holding an old banner and `chat.commet.profile_banner` the current
+        // one. Sable showed the new banner and Lightning showed the old one,
+        // for as long as the account existed — no cache to clear, no restart
+        // that helped, because the staleness was on the server.
+        //
+        // Neither field carries a timestamp (MSC4133 profile fields have no
+        // metadata at all), so age cannot break the tie. What is left is
+        // PROVENANCE, and the honest version of that argument is narrower
+        // than it first looks.
+        //
+        // Lightning writes both names in one operation, so its ORDINARY
+        // writes keep them equal. A divergence therefore usually means a
+        // client that writes exactly one name, and the only such name
+        // deployed today is the Commet key — the one Commet, Sable and Haven
+        // read and write. On that reading the unstable name is the one that
+        // moved last, which is what the observed case looked like.
+        //
+        // BUT LIGHTNING CAN PRODUCE A DIVERGENCE TOO, and pretending
+        // otherwise is how a rule outlives its reason. `set_own_profile_banner`
+        // below reports success on `wrote_any`, not on both — so a write
+        // where the stable field succeeds and the unstable one fails leaves
+        // them disagreeing with the STABLE name holding the newer value, and
+        // this rule then prefers the older one. That case is loud (the user
+        // just set a banner and immediately sees the previous one) where the
+        // case this fixes is silent and permanent, which is why the rule is
+        // still the better default — not because it cannot be wrong.
+        //
+        // A disagreement is REPORTED, because this rule can be wrong and a
+        // silent wrong answer here is indistinguishable from the defect it
+        // replaced. `eprintln!` rather than tracing: `tracing` is not a
+        // direct dependency of this crate and adding one incidentally is
+        // exactly what the dependency rule forbids — the same reasoning, and
+        // the same mechanism, as timeline.rs's in-flight diagnostic. stderr
+        // is where matrix-sdk's own spans land, so the lines read together.
+        //
+        // The URIs are included: an mxc is not a secret, this function hands
+        // one to the UI two statements later, and knowing WHICH value won is
+        // the whole point of the line.
+        //
+        // That makes this a TRANSITIONAL rule, not a permanent preference for
+        // an unstable name over a stable one. The day a client ships that
+        // writes `m.banner_url` alone, this tie-break becomes wrong and the
+        // right answer becomes whatever the spec gives us to order them by.
+        // When only one field is set — the ordinary case — the two branches
+        // agree and this behaves exactly as before.
         //
         // `supported` is decided by ACCOUNTING, not by whichever field
         // happened to be asked last: the server is unsupported only when
         // every attempt came back unrecognised. An M_NOT_FOUND — no such
         // field — is a supported server answering "there is no banner".
+        // BOTH REQUESTS GO OUT AT ONCE. Reading both names means two GETs
+        // where the old code could stop after one, and awaited in a loop that
+        // is two round trips end to end — reported immediately as "the banner
+        // takes about a second to load". Concurrently it is ONE round trip,
+        // which is also better than the code this replaced: that stopped
+        // early only when the STABLE name was set, and for a user whose
+        // banner was set by any Commet-family client it always paid for two
+        // serialized requests anyway.
+        let (stable_answer, unstable_answer) = tokio::join!(
+            profile_field::get(&client, uid.as_str(), BANNER_FIELD,
+                               BANNER_REQUEST_TIMEOUT),
+            profile_field::get(&client, uid.as_str(), BANNER_FIELD_UNSTABLE,
+                               BANNER_REQUEST_TIMEOUT),
+        );
+
+        let mut stable_value: Option<String> = None;
+        let mut unstable_value: Option<String> = None;
         let mut any_answered = false;
         let mut any_unrecognised = false;
-        for field in [BANNER_FIELD, BANNER_FIELD_UNSTABLE] {
-            match profile_field::get(&client, uid.as_str(), field,
-                                    BANNER_REQUEST_TIMEOUT).await {
+        for (field, result) in [(BANNER_FIELD, stable_answer),
+                                (BANNER_FIELD_UNSTABLE, unstable_answer)] {
+            match result {
                 Ok(answer) if answer.status == 200 => {
                     any_answered = true;
                     if let Some(value) = banner_from_body(field, &answer.body) {
-                        banner = value;
-                        break;
+                        if field == BANNER_FIELD {
+                            stable_value = Some(value);
+                        } else {
+                            unstable_value = Some(value);
+                        }
                     }
                 }
                 Ok(answer) => {
@@ -289,6 +383,17 @@ pub(crate) fn fetch_profile_banner(
                 Err(_) => any_answered = true,
             }
         }
+        if let (Some(s), Some(u)) = (stable_value.as_deref(),
+                                     unstable_value.as_deref()) {
+            if s != u {
+                eprintln!(
+                    "lightning: profile banner fields disagree for {uid}: \
+                     m.banner_url={s} chat.commet.profile_banner={u} \
+                     — taking the deployed key"
+                );
+            }
+        }
+        let banner = resolve_banner(stable_value, unstable_value);
         let supported = any_answered || !any_unrecognised;
         if !timelines.lifecycle_current(lifecycle) {
             return;
@@ -638,6 +743,41 @@ mod tests {
         assert!(!is_usable_banner(""));
         // Bounded: a profile field is remote text.
         assert!(!is_usable_banner(&format!("mxc://{}", "a".repeat(600))));
+    }
+
+    // THE DEPLOYED KEY WINS A DISAGREEMENT, AND A REAL ACCOUNT IS WHY.
+    //
+    // Measured 2026-09-17 on a live profile: `m.banner_url` held one mxc and
+    // `chat.commet.profile_banner` held a different one. The read stopped at
+    // the first usable value with the stable name first, so Lightning showed
+    // the old banner permanently while every Commet-family client showed the
+    // new one. Nothing local could fix it — the stale value was server-side,
+    // so no cache clear and no restart touched it.
+    //
+    // This case fails on that code: it returned the stable value.
+    #[test]
+    fn a_disagreement_between_the_two_names_resolves_to_the_deployed_one() {
+        let stable = "mxc://example.org/old".to_owned();
+        let unstable = "mxc://example.org/new".to_owned();
+
+        assert_eq!(
+            resolve_banner(Some(stable.clone()), Some(unstable.clone())),
+            unstable,
+            "the stable name won a disagreement, which is the defect: \
+             Lightning writes BOTH names together, so only a client that \
+             writes exactly one can make them differ — and the deployed key \
+             is the one such clients write"
+        );
+
+        // The ordinary cases are an identity: one name set, that name wins.
+        assert_eq!(resolve_banner(Some(stable.clone()), None), stable);
+        assert_eq!(resolve_banner(None, Some(unstable.clone())), unstable);
+        // Agreement is not a tie-break at all.
+        assert_eq!(resolve_banner(Some(stable.clone()), Some(stable.clone())),
+                   stable);
+        // No banner anywhere is the empty string, which is what the bridge
+        // reads as "this user has none" — not an error.
+        assert_eq!(resolve_banner(None, None), "");
     }
 
     #[test]
