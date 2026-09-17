@@ -47,6 +47,26 @@ clear; a media key was adopted though it reached nobody; and a room Lightning
 created would not let its own members join a call. Full account in
 `docs/round-history.md`, 2026-09-16 (afternoon).
 
+**AND THAT `queue` FIX BOUNDED ONE OF THE SEVEN QUEUES IN THAT FILE.** An
+independent review of the 0.9.8 tree found the other six, three on live paths —
+the tee branch feeding `vp8enc` and BOTH receive queues, which are the side a
+listener experiences delay on. All bounded and leaky now, with a SWEEP so the
+eighth cannot be forgotten. The same review withdrew four claims from the
+release notes and the validation record and sent the badge fix back twice.
+Full account in `docs/round-history.md`, 2026-09-17.
+
+**VOICE DELAY IS NOW ASKABLE OF A PACKAGE: `--call-queue-selftest`.** It had
+only ever been measured acoustically, which needs two machines, a sound card
+and a rig — so it existed for Linux alone, and the Windows guest (no sound
+card; RDP playback drifting 291 -> 545 ms, larger than the effect) could not be
+measured at all. The command starves the CONSUMER of every queue the publish
+pipeline actually builds, runs a plain `queue` beside them as a CONTROL, and
+reports what each still held once the consumer was back at REAL TIME — all a
+live encoder ever gets. Measured: shipped 90-100 ms, **default 1000 ms and
+still 1000 ms**. That 900 ms is what this file has asserted since 2026-09-16
+and never demonstrated. **`SIGSTOP` cannot show it** — freezing stops producer
+and consumer together, so no backlog forms and a flat result means nothing.
+
 **LIVE-VALIDATED PASS, AND NO LONGER NARROWLY — this paragraph was written on
 release day and was overtaken the same night.** What it originally recorded
 stands: Lightning <-> Element Web, audio both ways, latency "almost instant",
@@ -2064,6 +2084,31 @@ on join now, bounded and cleared on teardown, exactly as matrix-js-sdk does
 with `keysWithoutMatchingRTCMembership`.
 
 Full account in `docs/round-history.md`, 2026-09-16 (afternoon).
+
+**`git checkout --` TO UNDO A MUTATION TEST ALSO DISCARDS THE REAL WORK IN
+THAT FILE.** A two-constant mutation was reverted that way and took a
+just-written header with it. Mutate a COPY: `cp` the file aside, mutate, build,
+run, `cp` it back. Never `git checkout` a file that also holds uncommitted
+work — the mutation is one hunk and the restore is the whole file.
+
+**A SOURCE SWEEP CAN MATCH YOUR OWN C++.** `everyLiveQueueIsBoundedAndLeaky`
+looked for `\bqueue\s` and began reporting `queue = gst_bin_get_by_name(...)`
+as an unbounded pipeline queue the moment the same file gained a variable of
+that name. A sweep over source text has no idea what is a string literal; give
+it something only the thing under test can satisfy — a pipeline queue is
+followed by a pad separator or by one of its OWN properties.
+
+**A FLATPAK-BUILDER RUNNING INSIDE `org.flatpak.Builder` NEEDS A SESSION BUS,
+AND SAYS SOMETHING ELSE WHEN IT HAS NONE.** It resolves its sdk by running
+`flatpak info` ON THE HOST through the spawn portal, so with no bus it dies at
+init on `Unable to find sdk org.kde.Sdk version 6.11` — while
+`flatpak info org.kde.Sdk//6.11` in the same shell prints the ref. Three
+Flathub repo-lint attempts produced nothing on that. `dbus-run-session` is the
+whole fix; D-Bus activates the portal itself. Detail in `docs/open-items.md`.
+
+**AND `cmd | tail` MAKES `$?` THE STATUS OF `tail`.** It reported
+`builder rc=0` over a build that had never started, three times. `PIPESTATUS`
+is the command's own status.
 
 **A WAIT LOOP WHOSE PATTERN MATCHES ITS OWN COMMAND LINE NEVER TERMINATES.**
 `while pgrep -f "ninja|ctest"; do sleep; done` matches the bash process running
