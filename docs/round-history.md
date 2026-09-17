@@ -1,5 +1,103 @@
 # Round history
 
+## 2026-09-17 (second review round) — the sweep that read one file, and three verdicts that could not fail
+
+The same reviewer, a second time, on the work the first round produced. It
+returned CHANGES_REQUESTED again and it was right to.
+
+### The fix that claimed more than it did
+
+`161b04c`'s subject was "every queue on a live path" and its sweep read ONE
+FILE of three. Four more bare queues were shipping: the share-audio publish
+path (whose SIBLING forty lines up was bounded), and the whole 1:1 lane in
+`GstCallMediaBackend` — capture and both receive queues — which is the SAME
+defect 0.9.7 fixed in the SFU lane, in a backend installed in every WebRTC
+build. Eleven queues, not seven. **A sweep is only as wide as what it reads,
+and a count assertion over too few files is a confident wrong answer.** The
+sweep reads all three media sources now with a per-file count.
+
+The claim had also been copied into four places — the commit message, the
+test's own comment, CLAUDE.md §2, the release notes — and into the self-test
+TRANSCRIPT, which every package validator prints into its log. A false claim
+shipped inside an artifact.
+
+### And one queue should not have been made leaky at all
+
+The video RECEIVE queue holds RTP PACKETS in front of the depayloader.
+Leaking there does not drop a frame, it corrupts the VP8 bitstream — and the
+drop is DOWNSTREAM of webrtcbin, which therefore sees no loss and sends no PLI
+(nothing in this tree sends one). Its latency protection already existed two
+elements on, at `appsink max-buffers=1 drop=true`, which discards a late frame
+after decoding it intact. Bound kept, leak removed, and the sweep exempts
+exactly that shape and nothing else.
+
+### Three things that could not fail
+
+**The self-test reported PASS when its control never ran.** `ok` was only set
+false by a SHIPPED probe. So a control that failed to start left the verdict
+at PASS — and if the starvation mechanism itself ever stopped working, every
+row would read low, shipped and control alike, and the run would report PASS
+having demonstrated nothing. The control is the entire evidentiary basis of
+the measurement and it was printed, never asserted. It must now hold ≥500 ms.
+
+**A probe that measured nothing printed a fabricated FAIL.** Outside the dev
+shell all three rows read `could not run: no element "audiotestsrc"` and the
+verdict read "a live queue was still holding a backlog after its consumer had
+caught up" — a specific measured fact that never happened, in a release log.
+Three outcomes now, on an exact `VERDICT:` line: pass, fail, **unmeasurable**,
+and unmeasurable DIES where fail only warns.
+
+**The `jpegenc` ratchet was a raw-text grep.** Deleting the tuple entry fails
+it; moving the quoted name into a COMMENT passes green while the Wine probe
+silently stops asking. AST-parsed now, with the count asserted — 43 had lived
+only in a commit message.
+
+### The gate that would have caught its own defect one release late
+
+`test-flathub-manifest-pin.py`'s tag-window clause keyed on
+`newest == pending`, which holds from the moment a release is tagged until the
+version is bumped for the next one — the whole inter-release life of the
+repository. The drift it was written for (manifest at v0.9.6 while the tree
+was 0.9.7) IS that state. And its `git tag --list` had no `check=True`, so a
+broken git was indistinguishable from a tagless clone: measured with a shim
+exiting 128, `all 5 checks passed`, rc=0, over a pin carrying any sha.
+
+### The licence gap was never Windows-only
+
+Recorded as a property of the Windows package. The AppImage stages ELEVEN
+gst-plugins-good binaries and staged no licence text at all — a grep for
+licen/COPYING/LICENSE across that script and its validator returned one hit, a
+comment about HEVC — and the snap repacks the AppImage. And the blocker was an
+assumption: "sourcing the text" had been read as needing a 960 MB builder
+image rebuild. It needed a file in this repository.
+
+### What it measured, in the end
+
+Pipeline 230 finished **14/14**, every Linux format asked of the artifact its
+own job had just built. Seven environments, five GStreamer versions, two
+operating systems: shipped queues at 40 and 90-100 ms, the GStreamer default
+at **1000 ms and still 1000 ms** once its consumer is back at real time. The
+numbers do not move. That is both the measurement and the answer to whether
+wall-clock thresholds are safe as a gate on shared runners.
+
+### Mistakes made in this round
+
+**I "fixed" a value that was a measurement.** A package logged `microphone
+level peak= -350 dBFS`; 16-bit audio floors near -96 and -350 is also the bus
+handler's own starting value, so I guarded any reading that low out of the
+silence detector. Then measured: `gst-launch-1.0 audiotestsrc wave=silence !
+level` posts `-349.99999992181608`. It is the element's floor for digital
+silence — the guard would have made "your microphone is capturing nothing"
+unreachable for a genuinely dead microphone while leaving it working for a
+quiet room. The suite already said so in a comment and I changed four fixtures
+away from it. Withdrawn before shipping. **Ask the instrument before calling
+its output a bug.**
+
+**I hypothesised that MJPG was the Windows camera's cause and it was not.**
+The A/B ran — move `libgstjpeg.dll` out of the package, no rebuild needed —
+and the picture appeared on BOTH chains, at both ends. Recorded as NOT
+REPRODUCED rather than fixed, with what to check instead of what to guess.
+
 ## 2026-09-17 — the review round: four claims withdrawn, six queues found, and voice delay made askable of a package
 
 An independent read-only review of the 0.9.8 tree, asked for the handoff it
