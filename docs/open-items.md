@@ -1,14 +1,22 @@
 # Open items and the NOT TESTED inventory
 
-## 2026-09-17 — voice delay: CONFIRMED on Linux, NOT MEASURABLE on Windows over RDP
+## 2026-09-17 — voice delay: PASS on Linux for the NUMBER, NOT TESTED everywhere else
 
 The maintainer requires a delay claim to hold on **three platforms, Windows
-mandatory**. It currently holds on **one**, and this says why rather than
-padding the count.
+mandatory**. It holds on **one**, for less than it first claimed, and this says
+so rather than padding the count. §3 of the guide allows exactly PASS, FAIL and
+NOT TESTED, and this section used to say "CONFIRMED" and "NOT MEASURABLE".
 
-**Linux — CONFIRMED** (`docs/live-validation.md`): 265.2 ms baseline, 268.1 ms
-after freezing the sender 1.5 s, delta **+2.9 ms**, against roughly +1000 ms and
-permanent on the unfixed queue.
+**Linux — PASS for the number** (`docs/live-validation.md`): 265.2 ms baseline,
+268.1 ms after freezing the sender 1.5 s, delta **+2.9 ms**.
+
+**Linux — NOT TESTED for the claim that the queue fix is what produced it.**
+There is no negative control: the pre-fix binary was never run, so "against
+roughly +1000 ms on the unfixed queue" was a prediction, and it has been struck
+from the live-validation entry. The induced stall may also not exercise the
+mechanism at all — `SIGSTOP` freezes producer and consumer together, and the
+defect is the consumer falling behind the producer. Both are recorded in full
+beside the measurement.
 
 **Windows — NOT MEASURABLE THROUGH RDP, and the attempt is recorded so nobody
 repeats it.** The guest has no sound card, so its playback rides an RDP audio
@@ -732,8 +740,17 @@ gone.
   happen. And it is **not frames arriving with nowhere to go** — that warning
   exists and never fired.
 
-  So capture, negotiation, encode and publish are all healthy, and the fault is
-  **downstream of capture, in getting a frame onto a surface**. In QML terms the
+  So capture, negotiation, DECODE, encode and publish are all healthy — and
+  that last part is no longer an inference from the capture counter, which sits
+  on `capsrc`'s src pad UPSTREAM of `jpegdec` and the encoder and so could only
+  ever say what the camera produced. The publishing bin's own encoder pad
+  logged `publish first encoded frame screenShare= false afterPublishMs= 894
+  firstCaptureMs= 786`, and the encrypt probe on that same pad then climbed
+  past 6500 while the capture counter reached 2000 — the rate stage duplicating
+  a 10 fps capture up to the pinned 30. So `jpegdec`, the newest and least
+  exercised element in that chain, is exonerated too.
+
+  The fault is **downstream of capture, in getting a frame onto a surface**. In QML terms the
   tile's `videoLoader` is `visible: active && item && item.hasFrame`, where
   `hasFrame` is `videoSink.videoSize.width > 0` — so the self-view sink never
   received a sized frame while the tee's other branch encoded 2000. That is the

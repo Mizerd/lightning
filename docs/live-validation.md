@@ -27,18 +27,36 @@ frames encrypted stream= "" video= true count= 500
 | camera ON (MJPG) | `mean=0.817 stddev=0.198` |
 | camera OFF | `mean=0.913 stddev=0.077` |
 
-RMSE on/off **0.209**. So the new chain negotiates, delivers, encodes AND
-renders — the failure mode the comment warns about did not happen, and it was
-checked before publishing rather than after.
+RMSE on/off **0.209**. So the new chain negotiates, delivers, encodes, and the
+stage region CHANGES when the camera is turned on.
 
-Method is identical to the 0.9.7 run so the two compare, and the tile is judged
-by pixel statistics rather than viewed, because the webcam faces a real room.
+**"AND RENDERS" IS WITHDRAWN — 2026-09-17, on review.** A changed region is not
+a picture. ON is DARKER and noisier than OFF, which is also the signature of
+the dark tile with a crossed-camera glyph that `docs/open-items.md` records as
+the no-picture state, and of a black rectangle, and of any layout change. The
+method cannot tell those apart from a camera image.
 
-## 2026-09-17 — VOICE DELAY, measured, and the queue fix proven on a shipped binary
+**And "method is identical to the 0.9.7 run" was false in the direction that
+matters.** The 0.9.7 entry below ALSO recorded the sensor itself
+(`mean=0.115 stddev=0.209`, a real contrasty scene) as a cross-check; this run
+recorded no sensor reading at all, so it is strictly weaker. Worth noting the
+0.9.7 pair does not correlate either — sensor `mean=0.115` against a rendered
+region of `mean=0.574`, five times brighter than its own source, which is
+evidence AGAINST that render claim rather than for it.
 
-**PASS.** Until now the only evidence that 0.9.7 fixed the one-second send
-delay was the maintainer's ear ("delay is good now, almost instant"). This is a
-number, from the published AppImage, on two accounts in an encrypted call.
+What this entry does carry, and it is the release gate it was run for: the
+MJPG chain that 0.9.8 newly takes builds, negotiates `image/jpeg`, delivers
+frames and encodes them, and the application does not fall back or fail. The
+picture itself is NOT TESTED on either chain.
+
+## 2026-09-17 — VOICE DELAY on Linux: a number, and NOT a proof of the queue fix
+
+**PASS for "the delay is about a quarter of a second and does not grow after a
+stall". NOT TESTED for "the queue fix is what makes that true"** — read the
+retraction below before quoting either. Until now the only evidence that 0.9.7
+fixed the one-second send delay was the maintainer's ear ("delay is good now,
+almost instant"). This is a number, from the published AppImage, on two
+accounts in an encrypted call.
 
 | phase | one-way voice delay |
 |---|---|
@@ -53,9 +71,38 @@ latency measurement on an idle machine reads the SAME on the fixed and unfixed
 trees, and a voice-delay check without an induced stall is decoration by this
 project's own standard. The sender is frozen with `SIGSTOP` and released with
 `SIGCONT` — chosen over a code hook precisely because it needs nothing from the
-build, so the same script discriminates between two SHIPPED binaries. On the
-unfixed tree the delta would be roughly +1000 ms and permanent for the rest of
-the call; here it recovers completely.
+build, so the same script discriminates between two SHIPPED binaries.
+
+**AND THAT PARAGRAPH IS A DESIGN INTENTION, NOT A RESULT — RETRACTED
+2026-09-17 after an independent review.** It used to end "on the unfixed tree
+the delta would be roughly +1000 ms and permanent", which is a PREDICTION in
+the conditional mood sitting inside a section headed *measured*. **The unfixed
+binary was never run.** §18 of the guide says a regression test that does not
+fail on the old code is decoration, and that applies to a measurement exactly
+as it does to a test.
+
+**Worse, the mechanism and the method may not meet.** The defect is the
+ENCODER falling behind the CAPTURE — a relative rate difference. `SIGSTOP`
+freezes the whole process, so the producer and the consumer stop TOGETHER and
+no backlog can form by the named mechanism; any backlog would have to come
+from the audio server's own record buffer draining on resume, and that was
+never measured. **A delta of +2.9 ms is equally consistent with "the fix
+works" and with "nothing ever entered the queue."**
+
+Two more limits on this number, for whoever quotes it next. It was taken on
+the **0.9.7** AppImage, which captures through `pipewiresrc`; 0.9.8 ships
+`pulsesrc`, so it is a measurement of a chain the next release does not have.
+And the harness — `DelayProbe`, the burst generator, the onset detector —
+exists in neither this repository nor the vault, which is the same failure
+§2 records for `verify-release.sh`, on a detector that was already wrong once
+in this very entry.
+
+What would settle it, in order of cost: log the queue's own
+`current-level-time`, or run with `GST_DEBUG=queue_dataflow:5` and look for
+the element saying it is full and leaking — an internal property with a direct
+readout, needing no acoustics, no sound card and therefore no RDP, which is
+also how it could be answered on Windows. Then run the identical script
+against a published PRE-FIX binary as a negative control.
 
 **How the number is taken, because latency measurements lie when two clocks are
 compared.** A single sink, `DelayProbe`, receives BOTH a mirror of the burst as
@@ -77,6 +124,15 @@ second time. **A result equal to a constant inside the instrument is the
 instrument.** Detection is a rising edge through a high threshold after falling
 below a low one now, which cannot manufacture an onset, and the same recording
 then read 227.7 ms.
+
+**The 227.7 ms above and the 265.2 ms headline are different runs, not a
+discrepancy**: 227.7 ms was the re-read of the recording that had produced the
+detector artefact, minutes earlier and before the rig was re-pinned at a
+1024/48000 quantum. The headline is the later run whose budget is itemised
+here. Neither is repeated enough to carry a ± figure, and the same rig on
+Windows produced stall deltas of +1.1, -43, +21 and +39 ms — a -43 ms negative
+delta means the noise floor of this instrument exceeds ±40 ms somewhere, and
+it has not been characterised.
 
 NOT COVERED: this is Linux to Linux. Per the maintainer, a delay claim needs
 three platforms with Windows mandatory; the other two are recorded separately.
@@ -275,8 +331,6 @@ WHAT THIS DOES NOT COVER, and none of it may be promoted without its own run:
   references, so it should interoperate, and that is code reading, not a test.
 * The latency improvement is the maintainer's ear, before and after, not a
   measured figure. The `queue` default it fixes IS measured (1 s, non-leaky).
-* Encrypted camera and screen-share SENDING still does not carry, to anyone.
-  Receiving is fine. See the rtpvp8pay entry.
 
 ## 2026-09-16 — the Flathub build makes real calls (PASS, send direction)
 
