@@ -2043,6 +2043,20 @@ with `keysWithoutMatchingRTCMembership`.
 
 Full account in `docs/round-history.md`, 2026-09-16 (afternoon).
 
+**A VALUE THAT LOOKS IMPOSSIBLE FOR THE SIGNAL MAY BE EXACTLY WHAT THE
+INSTRUMENT EMITS AT ITS LIMIT.** A published Windows package logged
+`microphone level peak= -350 dBFS`. 16-bit audio floors near -96, and -350 is
+also the bus handler's own starting value, so it was read as "the parser
+failed" and guarded out of the silence detector. Measured afterwards:
+`gst-launch-1.0 audiotestsrc wave=silence ! level` posts
+`peak=(GValueArray)< -349.99999992181608 >` — it is the ELEMENT'S floor for
+digital silence, the handler starts there to match it, and the guard would
+have made "your microphone is capturing nothing" unreachable for a genuinely
+dead microphone while leaving it working for a quiet room. The suite already
+said so in a comment and four fixtures were changed away from it instead.
+Withdrawn before it shipped (`7a9fbef4`). **Ask the instrument before calling
+its output a bug.**
+
 **`git checkout --` TO UNDO A MUTATION TEST ALSO DISCARDS THE REAL WORK IN
 THAT FILE.** A two-constant mutation was reverted that way and took a
 just-written header with it. Mutate a COPY: `cp` the file aside, mutate, build,
