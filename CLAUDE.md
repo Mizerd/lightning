@@ -26,16 +26,34 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.9.7** (`v0.9.7` -> `bc5dcd5`), tagged
-2026-09-16 by **project 6** pipeline **225, 25/25 — fully green, every job**.
-Notes in `docs/releases/v0.9.7.md`. **THE WORKING TREE IS ON 0.9.8** — a
-release commit is prepared and the version reads 0.9.8 in `CMakeLists.txt`
-(both `project()` and `APP_VERSION_LABEL`), `rust/Cargo.toml`,
-`rust/Cargo.lock` and `README.md`. "Latest published" and "what the tree says"
-are different facts, and this sentence used to state the second while meaning
-the first. `tests/VersionConsistencyTest.cpp` compares all five, so a bump
-cannot half-land — **and there is a SIXTH location it does
-NOT compare, the AppStream metainfo; see §14.**
+Latest published release: **Lightning 0.9.8** (`v0.9.8` -> `c04ea54`), tagged
+2026-09-17 by **project 6** pipeline **240, 25/25 — fully green, every job,
+first attempt**. Notes in `docs/releases/v0.9.8.md`. The tree and the published
+release are the same thing again; "latest published" and "what the tree says"
+are different facts and this sentence has stated the wrong one before.
+`tests/VersionConsistencyTest.cpp` compares five locations so a bump cannot
+half-land — **and there is a SIXTH it does NOT compare, the AppStream
+metainfo; see §14.** The root Flathub manifest is a SEVENTH and is re-pinned
+to `v0.9.8` / `c04ea54f…`, which is the post-release step
+`test-flathub-manifest-pin.py` deliberately waits for.
+
+**THE ANONYMOUS VERIFICATION BAR PASSED IN FULL for 0.9.8** on 2026-09-17: all
+**eleven** package links 200 with the count asserted, the signed manifest
+reading 0.9.8 / `v0.9.8` with six artifacts all carrying `mirror_url` and macOS
+correctly ABSENT, the Ed25519 signature VERIFIED against the key extracted from
+the shipped `.deb` with a one-field-changed copy REJECTED, the GitHub tag
+peeling to `c04ea54f5cae…`, 11 mirror assets, and the `.deb` fetched FROM
+GITHUB matching the GitLab-signed SHA-256.
+
+**IT WAS CUT AFTER A DRESS REHEARSAL, AND THE REHEARSAL IS WHY IT WAS CLEAN.**
+The review approved and then observed that three checks added that day had
+never executed. Two failed on their first run — `validate-appimage` and
+`validate-snap`, both `error: world-writable content` — because git records
+only the executable bit, so a CI checkout under `umask 0000` gives 666 files
+and `cp -a` copied that into the payload. Fixed with `install -m 0644` and
+re-rehearsed. It would have died in the release pipeline after building every
+format. **A job that exists and looks right is not a job that has run**, for
+the fourth time here and the first time it cost only rehearsal minutes.
 
 **A CALLS RELEASE, AND THE FIRST WHERE THE CALL PATH IS INSTRUMENTED.** Six
 defects, all found on 2026-09-16 from one report ("i hear myself from element
@@ -135,46 +153,17 @@ the metainfo (§14's sixth location) and 224 on `build-windows`, where a
 plugin was added to the REQUIRED list before the hand-built image carried it
 (§16). Cancel a doomed pipeline immediately — it holds the runners.
 
-Previous release: **Lightning 0.9.6** (`v0.9.6` -> `e177135`), tagged
-2026-09-16 by pipeline **222, 24/25**; notes in `docs/releases/v0.9.6.md`. Its
-one red job was a script bug in the reporter, not a defect in the release.
+Previous release: **Lightning 0.9.7** (`v0.9.7` -> `bc5dcd5`), tagged
+2026-09-16 by pipeline **225, 25/25**; notes in `docs/releases/v0.9.7.md`. Its
+own bar passed in full on 2026-09-16. It is the release whose three headline
+promises could not fire in any shipped package, which is what 0.9.8 is for.
 
-**THAT RED JOB IS FIXED AND THE FIX IS NOW PROVEN (`a051b9a`).**
-`report-optional-assets` ran green for the first time ever in pipeline 225 —
-it had failed on its FIRST EVER execution in 222, which is what the paragraph
-below records. `report-optional-assets` died on
-`RELEASE_TAG: unbound variable`: it called `gitlab_api_init` and never
-`release_contract_env`, which is the function that sets that variable, and
-under `set -u` that is an immediate failure rather than a wrong value. It is
-NOT `allow_failure`, so the pipeline reports `failed` while the release is
-complete — the tag, all eleven package links, the signed manifest and the
-GitHub mirror were all created before it ran, and nothing needs it. **It failed
-on its FIRST EVER execution**: added in `64a1f6d`, and no release happened
-between then and 0.9.6, so nothing could have found out. Same shape as the
-unregistered test file and the Windows Dockerfile that had been unbuildable for
-ten days — a job that exists and looks right is not a job that has run.
-`test-pipeline-config.py` now sweeps every packaging script that READS
-`RELEASE_TAG` and requires it to call `release_contract_env` (six today).
-
-**0.9.6 IS THE FIRST RELEASE WITH macOS SINCE THE 413, AND IT PROVES THE
-LOOPBACK RELAY IN A REAL PUBLISHING PIPELINE.** `Lightning-0.9.6-e177135-macos-arm64.zip`
-is attached to the release and 200s anonymously. The macOS paragraph below is
-now history rather than a live operator item for this release.
-
-Source validation at the release commit, run locally rather than quoted from
-CI: `cargo test` **430 passed, 0 failed, 5 ignored, 435 total**;
-`ctest --test-dir build-rust` **208 passed, 0 failed, 208 total**;
-`ctest --test-dir build` **204 passed, 0 failed, 204 total**; and the
-`-DLIGHTNING_ENABLE_WEBRTC=OFF` build over every target, `rc=0`.
-
-The anonymous verification bar (§14) was run for **0.9.6** on 2026-09-16 and
-PASSED IN FULL: **all eleven** package links 200 (ten packages plus
-`SHA256SUMS`, macOS among them); the manifest reads 0.9.6 / `v0.9.6` with six
-artifacts all carrying `mirror_url` and macOS correctly ABSENT; the Ed25519
-signature VERIFIED against the key extracted from the shipped `.deb`
-(`pnNX0yQ…`, key id `lightning-release-2026a`) with a one-field-changed copy
-REJECTED; the GitHub tag peels to `e177135`; 11 mirror assets; and the `.deb`
-fetched FROM THE MIRROR matches the GitLab-signed SHA-256 exactly.
+**0.9.6's RECORD HAS MOVED to `docs/release-operations.md`,** under "0.9.6,
+and the first macOS release since the 413". Its one red job, the fix that
+proved it, its macOS asset and its source-validation numbers are all there.
+What stays here is the LESSON that came out of it, immediately below: the
+verification bar had been silently checking one link fewer than every release
+had.
 
 **AND THE BAR ITSELF HAD BEEN UNDER-REPORTING BY ONE LINK ON EVERY PREVIOUS
 RUN.** `verify-release.sh` wrote its link list with `"\n".join(...)` and read

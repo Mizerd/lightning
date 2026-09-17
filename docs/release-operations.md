@@ -301,3 +301,54 @@ Once the grant is applied, 0.9.5 can get its macOS asset with
 the longest `data-lg-match` token first and consumes the asset; it was correct
 at 0.9.5 only by luck of GitHub's listing order before that. See the website
 repo's `tools/check-assets.py`.
+
+## 0.9.6, and the first macOS release since the 413
+
+**MOVED here from CLAUDE.md §2 on 2026-09-17**, in the same commit that took
+that file past 140,000 characters — the seventh such move, and the rule §16
+states: past roughly 140,000 the answer is a new file and a pointer, never a
+longer section, because at 150,000 it truncates SILENTLY and drops §§17-19 from
+agent context. It went because it is the record of ONE RELEASE and §16 is a
+lesson index. The lesson it produced — the bar under-reporting by one link —
+stayed behind. Nothing was deleted.
+
+Before it: **Lightning 0.9.6** (`v0.9.6` -> `e177135`), tagged
+2026-09-16 by pipeline **222, 24/25**; notes in `docs/releases/v0.9.6.md`. Its
+one red job was a script bug in the reporter, not a defect in the release.
+
+**THAT RED JOB IS FIXED AND THE FIX IS NOW PROVEN (`a051b9a`).**
+`report-optional-assets` ran green for the first time ever in pipeline 225 —
+it had failed on its FIRST EVER execution in 222, which is what the paragraph
+below records. `report-optional-assets` died on
+`RELEASE_TAG: unbound variable`: it called `gitlab_api_init` and never
+`release_contract_env`, which is the function that sets that variable, and
+under `set -u` that is an immediate failure rather than a wrong value. It is
+NOT `allow_failure`, so the pipeline reports `failed` while the release is
+complete — the tag, all eleven package links, the signed manifest and the
+GitHub mirror were all created before it ran, and nothing needs it. **It failed
+on its FIRST EVER execution**: added in `64a1f6d`, and no release happened
+between then and 0.9.6, so nothing could have found out. Same shape as the
+unregistered test file and the Windows Dockerfile that had been unbuildable for
+ten days — a job that exists and looks right is not a job that has run.
+`test-pipeline-config.py` now sweeps every packaging script that READS
+`RELEASE_TAG` and requires it to call `release_contract_env` (six today).
+
+**0.9.6 IS THE FIRST RELEASE WITH macOS SINCE THE 413, AND IT PROVES THE
+LOOPBACK RELAY IN A REAL PUBLISHING PIPELINE.** `Lightning-0.9.6-e177135-macos-arm64.zip`
+is attached to the release and 200s anonymously. The macOS paragraph below is
+now history rather than a live operator item for this release.
+
+Source validation at the release commit, run locally rather than quoted from
+CI: `cargo test` **430 passed, 0 failed, 5 ignored, 435 total**;
+`ctest --test-dir build-rust` **208 passed, 0 failed, 208 total**;
+`ctest --test-dir build` **204 passed, 0 failed, 204 total**; and the
+`-DLIGHTNING_ENABLE_WEBRTC=OFF` build over every target, `rc=0`.
+
+The anonymous verification bar (§14) was run for **0.9.6** on 2026-09-16 and
+PASSED IN FULL: **all eleven** package links 200 (ten packages plus
+`SHA256SUMS`, macOS among them); the manifest reads 0.9.6 / `v0.9.6` with six
+artifacts all carrying `mirror_url` and macOS correctly ABSENT; the Ed25519
+signature VERIFIED against the key extracted from the shipped `.deb`
+(`pnNX0yQ…`, key id `lightning-release-2026a`) with a one-field-changed copy
+REJECTED; the GitHub tag peels to `e177135`; 11 mirror assets; and the `.deb`
+fetched FROM THE MIRROR matches the GitLab-signed SHA-256 exactly.
