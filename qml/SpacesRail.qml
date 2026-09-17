@@ -105,6 +105,70 @@ Rectangle {
     // Bumped on every SpaceManager change so the revealed-rooms bindings
     // (function calls, which QML tracks through this read) re-evaluate.
     property int spacesRevision: 0
+
+    // HOW MUCH DEPTH THIS RAIL CAN SHOW, DERIVED FROM ITS WIDTH.
+    //
+    // A tile is 40px and is centred, so the most it can be nudged right
+    // before it touches the edge is half the leftover. At the rail's minimum
+    // (68px) that is 14px — which is exactly the constant this used to be
+    // hardcoded to, back when the rail could not be resized at all. Every
+    // wider rail buys proportionally more.
+    //
+    // This is the whole mechanism behind "make it resizable and show more
+    // layers when it is wide enough": nothing counts levels or switches
+    // modes, the indentation simply runs out later. Depth itself stays
+    // bounded by the model (kMaxHierarchyDepth), so a malformed or looping
+    // space graph cannot walk off the end however wide this gets.
+    readonly property int railTileSize: AppTheme.scaled(40)
+    readonly property int indentBudget:
+        Math.max(0, Math.floor((width - railTileSize) / 2))
+    // 6px per level: at the narrowest stop that is two clear steps before the
+    // budget runs out, and a third that butts against the edge — which is
+    // precisely where a user put the boundary when they said depth 2 fits
+    // comfortably and depth 3 does not.
+    //
+    // SCALED, like the tile it indents. An unscaled step would mean the rail
+    // showed fewer levels the larger a person set their interface, which is
+    // backwards.
+    readonly property int indentStep: AppTheme.scaled(6)
+
+    // ── The rail's width has STOPS, not a range ──────────────────────────
+    //
+    // Dragging to an arbitrary width can always land half a level short: the
+    // budget runs out mid-step, so the widest tier is drawn at the same
+    // indent as the one above it and the tree stops reading as a tree. The
+    // user is choosing HOW MUCH DEPTH TO SEE, and that is a whole number —
+    // so the control offers exactly those widths and nothing between them.
+    //
+    // A stop for N levels needs `indentBudget >= N * indentStep`, and the
+    // budget is half the leftover after the tile, hence tile + 2·N·step.
+    // The first stop is the width the rail was FIXED at before it could be
+    // resized at all, so the default is unchanged and already affords the
+    // two levels it always did.
+    readonly property int minRailWidth: AppTheme.scaled(68)
+    readonly property int maxIndentLevels: 6
+    function widthForLevels(levels) {
+        return Math.max(root.minRailWidth,
+                        root.railTileSize + 2 * levels * root.indentStep)
+    }
+    /// The nearest stop to `px`. Used both when persisting a drag and when
+    /// reading a stored width back, so a value saved by an older build — or
+    /// hand-edited — is corrected rather than honoured.
+    function snapWidth(px) {
+        var best = root.widthForLevels(0)
+        var bestGap = Math.abs(px - best)
+        for (var n = 1; n <= root.maxIndentLevels; ++n) {
+            var w = root.widthForLevels(n)
+            var gap = Math.abs(px - w)
+            // `<` not `<=`: ties keep the NARROWER stop, so a drag that lands
+            // exactly between two never silently claims depth it cannot draw.
+            if (gap < bestGap) {
+                best = w
+                bestGap = gap
+            }
+        }
+        return best
+    }
     function revealCount(spaceId) {
         if (!app.railLayout || !app.railLayout.spaceExpanded(spaceId))
             return 0
@@ -118,14 +182,36 @@ Rectangle {
         next[spaceId] = revealCount(spaceId) + 5
         railReveal = next
     }
-    // The space's joined child rooms, most recently active first — the
+    // The space's DIRECT joined child rooms, most recently active first — the
     // quick-access reading of "top rooms". Unjoined children are join
     // offers, not rooms this rail can open; they live on Space Home.
+    //
+    // DIRECT, NOT TRANSITIVE, AND THAT IS THE WHOLE BUG.
+    //
+    // This called `childRoomsDetailed`, which returns the entire subtree, so
+    // every room of every descendant Space was listed under every ancestor
+    // tile — a Discord bridge with server spaces and category subspaces drew
+    // each channel under its category, its server AND the umbrella above
+    // them. Reported 2026-09-17 with a tree diagram; the reporter's words
+    // were "the hierarchy is like… out of order".
+    //
+    // The call site went stale rather than being wrong when written: it was
+    // added when the rail had no subspace nesting at all, where transitive
+    // was a defensible reading of "what this Space contains". Six days later
+    // the rail gained real nesting, and the commit that added it fixed this
+    // exact flattening in every other surface and missed this one line. The
+    // Channels column is protected from the same mistake by a contract test
+    // that bans the accessor BY NAME; the rail had no such test.
+    //
+    // `directChildRoomsDetailed` had to gain `lastActivity` for this — see
+    // SpaceManager.cpp. Without it the sort below silently degrades to state
+    // order (the `|| 0` guards keep it from being NaN, which is worse: it
+    // would not have looked broken).
     function topRoomsInSpace(spaceId) {
         void spacesRevision
         if (!app.spaces || !spaceId || spaceId.charAt(0) !== "!")
             return []
-        var rooms = app.spaces.childRoomsDetailed(spaceId)
+        var rooms = app.spaces.directChildRoomsDetailed(spaceId)
         rooms.sort(function(a, b) {
             return (b.lastActivity || 0) - (a.lastActivity || 0)
         })
@@ -424,11 +510,18 @@ Rectangle {
                 // Above its neighbours while it travels over them.
                 z: spaceItem.dragged ? 10 : 0
                 // Indentation: a filed Space steps in a little, a subspace
-                // steps in per level. Capped so a deep tree cannot walk the
-                // tile off a 68px rail.
+                // steps in per level, and the whole thing is clamped to
+                // whatever the rail's CURRENT width can carry.
+                //
+                // The clamp used to be the literal 14, which was right for
+                // exactly one rail width because the rail had exactly one
+                // width. Now it is `root.indentBudget`, so widening the rail
+                // reveals more depth and narrowing it back hides it again,
+                // with no mode to switch and no level to count.
                 readonly property int tileIndent:
-                    Math.min(14, (inFolder ? 7 : 0)
-                                 + (hierarchyChild ? Math.min(2, level) * 6 : 0))
+                    Math.min(root.indentBudget,
+                             (inFolder ? AppTheme.scaled(7) : 0)
+                             + (hierarchyChild ? level * root.indentStep : 0))
                 readonly property int revealed:
                     isRealSpace ? root.revealCount(spaceItem.spaceId) : 0
                 readonly property var revealedRooms:

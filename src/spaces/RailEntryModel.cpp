@@ -233,10 +233,27 @@ void RailEntryModel::refresh()
         entry.insert(QStringLiteral("hierarchyChild"), false);
         // A folder is arrangeable; a pseudo row never is.
         entry.insert(QStringLiteral("draggable"), !pseudo);
+        // EXPANDABLE MEANS "REVEALS SOMETHING", NOT "HAS SUBSPACES".
+        //
+        // This read `childSpaceCount > 0` alone, and the chevron is the ONLY
+        // expansion trigger in the rail — so a Space with rooms and no
+        // subspaces could never be opened at all. That is every
+        // Discord-style category, and it is half of a user report on
+        // 2026-09-17: the leaf spaces that actually hold the channels showed
+        // none of them.
+        //
+        // It cannot use `childCount` instead: that one is TRANSITIVE, so an
+        // umbrella Space whose rooms all live in subspaces would claim to be
+        // expandable and then reveal nothing — which is the complaint the
+        // childSpaceCount gate was added to fix in the first place. The
+        // honest question needs the third count.
         const int childSpaces =
             entry.value(QStringLiteral("childSpaceCount")).toInt();
+        const int directRooms =
+            entry.value(QStringLiteral("directChildRoomCount")).toInt();
         entry.insert(QStringLiteral("expandable"),
-                     !folder && !pseudo && childSpaces > 0);
+                     !folder && !pseudo
+                         && (childSpaces > 0 || directRooms > 0));
         entry.insert(QStringLiteral("expanded"),
                      !folder && !pseudo
                          && m_layout->spaceExpanded(spaceId));
@@ -287,9 +304,15 @@ void RailEntryModel::appendSubspaces(const QString &parentId,
         // Matrix owns this row's position. Offering to drag it would offer to
         // change a hierarchy this layer cannot change.
         entry.insert(QStringLiteral("draggable"), false);
+        // Same rule as the top-level rows above, and for the same reason: a
+        // nested Space that holds only rooms is exactly the case the reporter
+        // hit, and it is reached through THIS branch, not that one.
         const int childSpaces =
             entry.value(QStringLiteral("childSpaceCount")).toInt();
-        entry.insert(QStringLiteral("expandable"), childSpaces > 0);
+        const int directRooms =
+            entry.value(QStringLiteral("directChildRoomCount")).toInt();
+        entry.insert(QStringLiteral("expandable"),
+                     childSpaces > 0 || directRooms > 0);
         entry.insert(QStringLiteral("expanded"),
                      m_layout->spaceExpanded(childId));
         rows.append(entry);

@@ -115,6 +115,7 @@ private Q_SLOTS:
     void gifPolicyDefaultsPersistAndClamp();
     void messageLayoutAndTextScalePersistAndClamp();
     void interfaceZoomAndRoomFilterPersistAndClamp();
+    void spacesRailWidthDefaultsToTheOldFixedWidthAndClamps();
     void appearanceIsPerAccountWithGlobalFallback();
     void switchingAccountsReAnnouncesTheRoomListFilter();
     void uiFontPersistsPerAccountAndValidates();
@@ -652,6 +653,62 @@ void SettingsSessionTest::themeChangeEmitsSignal()
     // Setting the same value again must not re-emit.
     settings.setTheme(SettingsManager::PurpleDuskTheme);
     QCOMPARE(spy.count(), 1);
+}
+
+// THE RAIL'S WIDTH DEFAULTS TO WHAT IT WAS FIXED AT, AND IS CLAMPED ON READ.
+//
+// The Spaces rail became resizable on 2026-09-17; before that it was pinned
+// to 68px on every platform. Two properties matter and neither is obvious
+// from the setter:
+//
+//   * the DEFAULT is the old fixed width, so an install that has never
+//     touched the divider looks exactly as it did — a panel that silently
+//     changed size on upgrade would be a regression dressed as a feature;
+//   * the clamp is applied on READ as well as on write, because the store is
+//     a file a person can edit, and the rail's width decides how far a
+//     nested Space can be indented. An out-of-range value would hand the
+//     shell either a sliver with no room for a 40px tile or an icon strip
+//     wide enough to crowd out the room list.
+void SettingsSessionTest::spacesRailWidthDefaultsToTheOldFixedWidthAndClamps()
+{
+    SettingsManager settings;
+    QCOMPARE(settings.spacesRailWidth(), 68);
+
+    // Hand-edited nonsense, both directions, snapped on read by a FRESH
+    // manager — the same shape shareQuality uses above.
+    QSettings raw;
+    raw.setValue(QStringLiteral("shell/spacesRailWidth"), 4000);
+    raw.sync();
+    SettingsManager tooWide;
+    QCOMPARE(tooWide.spacesRailWidth(), 260);
+
+    raw.setValue(QStringLiteral("shell/spacesRailWidth"), 0);
+    raw.sync();
+    SettingsManager tooNarrow;
+    QCOMPARE(tooNarrow.spacesRailWidth(), 68);
+
+    // Round trip, and the signal fires once per real change. Started from a
+    // known stored value rather than from whatever the writes above left
+    // behind: asserting a change to a value already held asserts a no-op,
+    // which is how a test comes to blame the code for its own setup.
+    raw.setValue(QStringLiteral("shell/spacesRailWidth"), 68);
+    raw.sync();
+    SettingsManager fresh;
+    QSignalSpy spy(&fresh, &SettingsManager::spacesRailWidthChanged);
+    fresh.setSpacesRailWidth(180);
+    QCOMPARE(fresh.spacesRailWidth(), 180);
+    QCOMPARE(spy.count(), 1);
+    // Writing the value it already holds announces nothing.
+    fresh.setSpacesRailWidth(180);
+    QCOMPARE(spy.count(), 1);
+    // ...and an out-of-range value that CLAMPS to the value already held is
+    // also a no-op, which is the case a naive guard misses.
+    fresh.setSpacesRailWidth(300);
+    QCOMPARE(fresh.spacesRailWidth(), 260);
+    QCOMPARE(spy.count(), 2);
+    fresh.setSpacesRailWidth(9999);
+    QCOMPARE(fresh.spacesRailWidth(), 260);
+    QCOMPARE(spy.count(), 2);
 }
 
 void SettingsSessionTest::shareQualityDefaultsPersistAndSnap()

@@ -613,6 +613,50 @@ private slots:
                  "child Spaces are being turned into nested categories again");
     }
 
+    // THE RAIL REVEALS DIRECT CHILDREN, AND THIS IS THE BAN THAT SAYS SO.
+    //
+    // `subspacesAreNeverNestedInTheChannelsColumn` below bans the transitive
+    // accessor BY NAME in SpaceChannelModel.cpp, and that ban is the only
+    // reason the Channels column never drifted. The rail had no equivalent,
+    // and it drifted: `topRoomsInSpace` kept calling `childRoomsDetailed`
+    // through the round that gave the rail real subspace nesting, so every
+    // room of every descendant was listed under every ancestor. A user
+    // bridging Discord reported it on 2026-09-17 with a tree diagram.
+    //
+    // A source scan is the right instrument here specifically because the
+    // defect is a CALL SITE choosing the wrong one of two correct accessors.
+    // The behavioural half is pinned in RailLayoutTest; nothing there can see
+    // which function the QML calls.
+    void theRailRevealsOnlyDirectChildRooms()
+    {
+        const QString rail =
+            withoutComments(read(QStringLiteral("SpacesRail.qml")));
+        QVERIFY(!rail.isEmpty());
+        QVERIFY2(rail.contains(QStringLiteral("directChildRoomsDetailed(")),
+                 "the rail does not ask for a Space's direct children at all");
+        // Keyed on the RECEIVER, not on the argument's spelling: rename
+        // `spaceId` and an argument-shaped literal stops banning anything,
+        // silently. `spaces.directChildRoomsDetailed(` does not contain
+        // `spaces.childRoomsDetailed(`, so this still excludes the fix.
+        QVERIFY2(!rail.contains(QStringLiteral("spaces.childRoomsDetailed(")),
+                 "the rail reveals a Space's TRANSITIVE rooms, so every "
+                 "subspace's rooms appear under it AND under each of its "
+                 "ancestors");
+        // The accessor the rail must not regain is still the RIGHT one for
+        // its own callers — this bans a call site, never the function.
+        //
+        // Anchored on the DEFINITION, and comment-stripped. `contains(
+        // "childRoomsDetailed")` could not fail: it is a substring of
+        // `directChildRoomsDetailed`, which stays; and readSrc returns the
+        // raw file, so a comment mentioning the name satisfied it on its own.
+        const QString manager = withoutComments(
+            readSrc(QStringLiteral("spaces/SpaceManager.cpp")));
+        QVERIFY2(manager.contains(
+                     QStringLiteral("SpaceManager::childRoomsDetailed(")),
+                 "the transitive accessor was deleted rather than left to "
+                 "the surfaces that legitimately want the whole subtree");
+    }
+
     void theRailDragLivesInAModelSoTheRowsCanMove()
     {
         // A JS array rebuilt on every change makes every change a model RESET:

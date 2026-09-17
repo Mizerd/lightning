@@ -60,10 +60,19 @@ public:
         // state permits cycles; see rebuild() for how one is chosen and why
         // it is stable.
         ParentSpaceIdRole,
-        // How many joined child SPACES this one has — the rail's expander
-        // gate. Zero means "nothing to expand", which is a different fact
-        // from "no rooms".
+        // How many joined child SPACES this one has. Zero means "no
+        // subspaces", which is a different fact from "no rooms" — and
+        // treating the two as one is what made the rail's chevron
+        // unreachable on a Space whose children are all rooms.
         ChildSpaceCountRole,
+        // How many DIRECT joined rooms this Space has of its own.
+        //
+        // The third count, and the only one that answers "would expanding
+        // this reveal anything": ChildCountRole is transitive (a Space whose
+        // rooms all live in subspaces has a big one and nothing of its own),
+        // ChildSpaceCountRole counts only subspaces. The rail's expander
+        // needs `ChildSpaceCountRole > 0 || DirectChildRoomCountRole > 0`.
+        DirectChildRoomCountRole,
     };
 
     // Well-known pseudo-space ids surfaced through the model as extra rows
@@ -284,6 +293,17 @@ private:
         // Direct joined child SPACES whose primary parent is this one, in
         // m.space.child order.
         QStringList childSpaceIds;
+        // How many of `childRoomIds` are DIRECT joined non-space children.
+        //
+        // Separate from `childRoomIds.size()` (transitive) and from
+        // `childSpaceIds.size()` (subspaces only) because the rail needs the
+        // third question neither of those answers: does expanding this tile
+        // reveal ANYTHING? A Space whose rooms all live in subspaces has a
+        // large transitive count and nothing of its own to show, and a Space
+        // full of rooms with no subspaces has zero child spaces — the rail's
+        // chevron keyed on the latter and so never appeared on the second
+        // kind, which is every Discord-style category.
+        int directChildRoomCount = 0;
         int unreadTotal = 0;        // Sum of children's unread counts.
         int highlightTotal = 0;
         // Real depth in the hierarchy: 0 for a root, +1 per level. Was

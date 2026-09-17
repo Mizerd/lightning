@@ -477,6 +477,17 @@ Item {
             id: splitHandle
             implicitWidth: 1
 
+            // EVERY handle here is live again.
+            //
+            // For a few hours this delegate carried an `inert` branch that
+            // stripped the hover and press tints and the grab mask from the
+            // FIRST handle, because the Spaces rail was pinned 68/68/68 and
+            // its divider could not move anything — it looked draggable and
+            // was not, which a user reported (as a macOS fault; it was not,
+            // the rail was fixed on every platform). Making the rail
+            // resizable removes the reason rather than the symptom, so the
+            // branch is gone. Do not reintroduce it without first checking
+            // that some column is fixed again.
             containmentMask: grabMask
             Item {
                 id: grabMask
@@ -499,13 +510,83 @@ Item {
         // Windows asked for every panel to be hideable "screen real estate
         // wise". A SplitView child collapses when it is not visible, and its
         // handle goes with it.
+        // RESIZABLE SINCE 2026-09-17, and it buys DEPTH rather than labels.
+        //
+        // It was pinned 68/68/68 — a 40px tile with 14px either side, enough
+        // to centre an icon and nothing else. That 14px is also the entire
+        // indentation budget, which is why a nested Space tree stopped
+        // reading as nested after two levels: there was nowhere left to step
+        // in. A user bridging Discord hit exactly that (umbrella → server →
+        // category is three), and the options on the table were a hard depth
+        // limit of 1 or 2, the way some other clients do it.
+        //
+        // Widening is the third option and the only one that does not throw
+        // information away: the rail shows as much depth as it has room for,
+        // the person decides how much room that is, and at the default width
+        // nothing changes for anyone who never touches it. The depth itself
+        // stays bounded by the model (kMaxHierarchyDepth), so a malformed or
+        // looping graph cannot walk off the end however wide the rail gets.
         SpacesRail {
+            id: spacesRail
             objectName: "spacesRail"
             visible: app.settings.spacesRailVisible
-            SplitView.preferredWidth: 68
-            SplitView.minimumWidth:   68
-            SplitView.maximumWidth:   68
+            // The stored width is snapped on the way in as well as on the
+            // way out, so a value written by an older build — or edited by
+            // hand — is corrected rather than honoured. The stops are
+            // computed by the rail because they are made of scaled pixels
+            // and `AppTheme.scaled` folds in both the text scale and the
+            // font's optical factor; C++ knows neither, so a second copy
+            // there would drift at every zoom level except 100%.
+            //
+            // BOTH authorities, not either: the stop range says what is
+            // drawable at the current scale, the setter's clamp says what is
+            // storable at ANY scale, and the drag must satisfy both. They do
+            // not agree at the floor — `scaled()` spans ×0.891…×1.582, so at
+            // the smallest interface the narrowest stop is 61 while the
+            // setter clamps at 68. Binding to the stop alone let a user drag
+            // to 61, stored 68, and snapped that to the NEXT stop up on the
+            // following launch: their narrowest choice quietly widened every
+            // restart.
+            SplitView.preferredWidth:
+                spacesRail.snapWidth(app.settings.spacesRailWidth)
+            SplitView.minimumWidth:
+                Math.max(app.settings.spacesRailMinWidth,
+                         spacesRail.widthForLevels(0))
+            SplitView.maximumWidth:
+                Math.min(app.settings.spacesRailMaxWidth,
+                         spacesRail.widthForLevels(spacesRail.maxIndentLevels))
             onCreateSpaceRequested: roomsPanel.startConversation("space")
+            // Saved on the falling edge of `resizing`, not per pixel — see
+            // the long note on the rooms column, which learned this the hard
+            // way: a release produces no widthChanged, so without the
+            // Connections below the final width is never offered and nothing
+            // is ever persisted.
+            onWidthChanged: if (!SplitView.view.resizing) railWidthSaver.restart()
+            Connections {
+                target: spacesRail.SplitView.view
+                function onResizingChanged() {
+                    if (!spacesRail.SplitView.view.resizing)
+                        railWidthSaver.restart()
+                }
+            }
+            Timer {
+                id: railWidthSaver
+                interval: 250
+                onTriggered: {
+                    if (!spacesRail.visible || spacesRail.width <= 0)
+                        return
+                    // Snap on release: the drag is continuous, the result is
+                    // not. Assigned back to preferredWidth explicitly rather
+                    // than left to the binding above — SplitView writes
+                    // preferredWidth itself while dragging, which breaks that
+                    // binding, so without this the divider would keep the
+                    // loose width it was dropped at while the SETTING held
+                    // the snapped one.
+                    var snapped = spacesRail.snapWidth(spacesRail.width)
+                    app.settings.spacesRailWidth = snapped
+                    spacesRail.SplitView.preferredWidth = snapped
+                }
+            }
         }
 
         // ── Rooms column ──────────────────────────────────────────────────

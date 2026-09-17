@@ -114,7 +114,22 @@ private Q_SLOTS:
         // And a Space inside a folder is indented by the same mechanism, so
         // the two groupings cannot render as two different kinds of nesting.
         QVERIFY(rail.contains(QStringLiteral("tileIndent")));
-        QVERIFY(rail.contains(QStringLiteral("inFolder ? 7 : 0")));
+        // Keyed on the MECHANISM, not on the number. This asserted the
+        // literal `inFolder ? 7 : 0`, which broke on 2026-09-17 when the
+        // folder inset was scaled — a change that strengthened the very
+        // contract this case exists for, because the rail's per-level step
+        // and tile are scaled and an unscaled inset made a filed Space nest
+        // differently at any interface size but 100%. A value literal in a
+        // mechanism contract fails on the fixes as readily as on the
+        // regressions.
+        QVERIFY2(rail.contains(QStringLiteral("inFolder ?")),
+                 "a Space inside a folder no longer contributes to the same "
+                 "tileIndent, so folder nesting and hierarchy nesting can "
+                 "render as two different kinds of indent");
+        QVERIFY2(rail.contains(QStringLiteral("inFolder ? AppTheme.scaled(")),
+                 "the folder inset is unscaled while the per-level step and "
+                 "the tile are scaled, so a filed Space's offset shrinks "
+                 "relative to everything around it as the interface grows");
     }
 
     void roomAvatarsFallBackToInitialsNeverHash()

@@ -54,6 +54,7 @@ constexpr auto kSpaceBannersVisible = "shell/spaceBannersVisible";
 constexpr auto kSpaceBannerExpanded = "shell/spaceBannerExpanded";
 constexpr auto kRoomListVisible   = "shell/roomListVisible";
 constexpr auto kRoomListWidth     = "shell/roomListWidth";
+constexpr auto kSpacesRailWidth   = "shell/spacesRailWidth";
 constexpr auto kSidePanelWidth    = "shell/sidePanelWidth";
 constexpr auto kCloseToTray       = "shell/closeToTray";
 constexpr auto kWindowGeometry    = "shell/windowGeometry";
@@ -2166,6 +2167,30 @@ void SettingsManager::setRoomListWidth(int px)
         return;
     m_store->setValue(kRoomListWidth, clamped);
     Q_EMIT roomListWidthChanged();
+}
+
+int SettingsManager::spacesRailWidth() const
+{
+    // Defaults to the MINIMUM, which is the width the rail was fixed at until
+    // it became resizable. An existing install therefore sees no change at
+    // all until its owner drags the divider, which is the only honest default
+    // for a panel that was not adjustable yesterday.
+    //
+    // Clamped on read for the same reason roomListWidth is: a hand-edited
+    // config must not be able to hand the shell a 4000px icon strip.
+    const int stored = m_store->value(kSpacesRailWidth,
+                                      kSpacesRailMinWidth).toInt();
+    return std::clamp(stored, kSpacesRailMinWidth, kSpacesRailMaxWidth);
+}
+
+void SettingsManager::setSpacesRailWidth(int px)
+{
+    const int clamped =
+        std::clamp(px, kSpacesRailMinWidth, kSpacesRailMaxWidth);
+    if (spacesRailWidth() == clamped)
+        return;
+    m_store->setValue(kSpacesRailWidth, clamped);
+    Q_EMIT spacesRailWidthChanged();
 }
 
 int SettingsManager::sidePanelWidth() const

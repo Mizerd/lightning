@@ -204,6 +204,8 @@ class SettingsManager : public QObject
                    WRITE setRoomListVisible NOTIFY roomListVisibleChanged)
     Q_PROPERTY(int roomListWidth READ roomListWidth
                    WRITE setRoomListWidth NOTIFY roomListWidthChanged)
+    Q_PROPERTY(int spacesRailWidth READ spacesRailWidth
+                   WRITE setSpacesRailWidth NOTIFY spacesRailWidthChanged)
     Q_PROPERTY(int sidePanelWidth READ sidePanelWidth
                    WRITE setSidePanelWidth NOTIFY sidePanelWidthChanged)
     // The clamps, exposed so a slider cannot invent its own bounds. Written
@@ -217,6 +219,18 @@ class SettingsManager : public QObject
     Q_PROPERTY(int roomListMaxWidth READ roomListMaxWidth CONSTANT)
     Q_PROPERTY(int sidePanelMinWidth READ sidePanelMinWidth CONSTANT)
     Q_PROPERTY(int sidePanelMaxWidth READ sidePanelMaxWidth CONSTANT)
+    // Same rule for the Spaces rail, with one difference worth stating: the
+    // rail's DRAGGABLE bounds are not these. It snaps to stops made of
+    // scaled pixels, and `AppTheme.scaled` folds in the text scale and the
+    // font's optical factor, neither of which C++ knows — so the stops are
+    // computed in QML and a second copy here would drift at every zoom but
+    // 100%. These are the STORAGE bound: what may be written to disk and
+    // read back at any scale. MainScreen intersects the two, because they
+    // genuinely disagree at the floor (the narrowest stop is 61 at the
+    // smallest interface, this floor is 68) and honouring only one let the
+    // narrowest choice widen itself on every restart.
+    Q_PROPERTY(int spacesRailMinWidth READ spacesRailMinWidth CONSTANT)
+    Q_PROPERTY(int spacesRailMaxWidth READ spacesRailMaxWidth CONSTANT)
     // Closing the window puts Lightning in the system tray instead of
     // quitting. OFF by default and gated on the platform actually having a
     // tray: closing a window into a tray that does not exist is closing it
@@ -659,6 +673,8 @@ public:
     void setRoomListVisible(bool v);
     int roomListWidth() const;
     void setRoomListWidth(int px);
+    int spacesRailWidth() const;
+    void setSpacesRailWidth(int px);
     int sidePanelWidth() const;
     void setSidePanelWidth(int px);
     bool closeToTray() const;
@@ -678,10 +694,19 @@ public:
     // than being retyped in a Layout binding that can drift from it.
     static constexpr int kRoomListMinWidth = 200;
     static constexpr int kRoomListMaxWidth = 560;
+    // The rail's floor is the width it was FIXED at until 2026-09-17: a 40px
+    // tile with 14px either side, which is exactly enough to centre an icon
+    // and nothing else. Widening it buys indentation, and indentation is what
+    // lets a nested Space tree read as nested — so the ceiling is set by how
+    // deep a tree is worth showing rather than by how wide a label would be.
+    static constexpr int kSpacesRailMinWidth = 68;
+    static constexpr int kSpacesRailMaxWidth = 260;
     static constexpr int kSidePanelMinWidth = 240;
     static constexpr int kSidePanelMaxWidth = 640;
     static constexpr int roomListMinWidth() { return kRoomListMinWidth; }
     static constexpr int roomListMaxWidth() { return kRoomListMaxWidth; }
+    static constexpr int spacesRailMinWidth() { return kSpacesRailMinWidth; }
+    static constexpr int spacesRailMaxWidth() { return kSpacesRailMaxWidth; }
     static constexpr int sidePanelMinWidth() { return kSidePanelMinWidth; }
     static constexpr int sidePanelMaxWidth() { return kSidePanelMaxWidth; }
     bool verificationWarningDismissed() const;
@@ -1060,6 +1085,7 @@ Q_SIGNALS:
     void spaceBannerExpandedChanged();
     void roomListVisibleChanged();
     void roomListWidthChanged();
+    void spacesRailWidthChanged();
     void sidePanelWidthChanged();
     void closeToTrayChanged();
     void startInTrayChanged();

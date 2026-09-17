@@ -315,6 +315,7 @@ QVariant SpaceManager::data(const QModelIndex &index, int role) const
     case LevelRole:       return s.level;
     case ParentSpaceIdRole: return s.parentSpaceId;
     case ChildSpaceCountRole: return int(s.childSpaceIds.size());
+    case DirectChildRoomCountRole: return s.directChildRoomCount;
     }
     return {};
 }
@@ -332,6 +333,7 @@ QHash<int, QByteArray> SpaceManager::roleNames() const
         { LevelRole,       "level" },
         { ParentSpaceIdRole, "parentSpaceId" },
         { ChildSpaceCountRole, "childSpaceCount" },
+        { DirectChildRoomCountRole, "directChildRoomCount" },
     };
 }
 
@@ -520,6 +522,21 @@ QVariantList SpaceManager::directChildRoomsDetailed(
             { QStringLiteral("hasUnread"),        it->hasUnreadMessages },
             { QStringLiteral("unreadCount"),      it->unreadCount },
             { QStringLiteral("highlightCount"),   it->highlightCount },
+            // CARRIED BECAUSE A CALLER SORTS ON IT, AND SILENTLY GOT
+            // `undefined` WHEN IT WAS NOT HERE.
+            //
+            // The rail's inline room reveal orders by activity and takes the
+            // top few. It used to call childRoomsDetailed(), which is the
+            // TRANSITIVE list and carries this key; moving it to the direct
+            // list — which is the actual fix for showing a subspace's rooms
+            // under its ancestors — would have handed the comparator
+            // `undefined - undefined`, i.e. NaN, on every pair. The sort then
+            // does nothing and "top rooms by activity" quietly becomes
+            // whatever order the state happened to be in, with no error
+            // anywhere. The two accessors are still not interchangeable in
+            // the other direction either: `encrypted` above is here and not
+            // there.
+            { QStringLiteral("lastActivity"),     it->lastActivity },
         });
     }
     return out;
@@ -819,6 +836,10 @@ void SpaceManager::rebuild()
                 continue;
             }
             m_spaceChildRoomIds.insert(childId);
+            // Counted HERE rather than derived later, because this loop has
+            // already applied every filter the count has to respect: direct,
+            // joined, and not itself a Space.
+            e.directChildRoomCount += 1;
         }
         m_spaces.append(std::move(e));
     }

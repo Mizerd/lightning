@@ -600,6 +600,223 @@ private Q_SLOTS:
                  "switching back to Classic did not restore the tile");
     }
 
+    // A SPACE WHOSE CHILDREN ARE ROOMS CAN BE EXPANDED.
+    //
+    // `expandable` gates the chevron, and the chevron is the ONLY expansion
+    // trigger in the rail — the tile itself deliberately has no double-tap.
+    // So a Space this returns false for cannot be opened by any means, and
+    // its rooms are unreachable from the rail entirely.
+    //
+    // It was computed from `childSpaceCount > 0`, i.e. subspaces only, so
+    // exactly this shape — rooms, no subspaces — was permanently shut. That
+    // is every leaf category in a bridged Discord tree, and it is half of a
+    // user report on 2026-09-17: the spaces that actually held the channels
+    // showed none of them.
+    //
+    // The other half is why this cannot simply switch to `childCount`: that
+    // is TRANSITIVE, so an umbrella Space owning nothing directly would claim
+    // to expand and then reveal nothing — the very complaint the subspace
+    // gate was introduced to fix. Hence a third count, asserted here in both
+    // directions.
+    void aSpaceWithRoomsButNoSubspacesCanStillBeExpanded()
+    {
+        RoomInfo channel;
+        channel.id = QStringLiteral("!chan:x");
+        channel.name = QStringLiteral("general");
+        channel.isSpace = false;
+        channel.membership = RoomInfo::Joined;
+
+        FakeClient client;
+        client.roomList = {
+            // A leaf category: one room, no subspaces.
+            spaceRoom(QStringLiteral("!cat:x"), QStringLiteral("Category"),
+                      { QStringLiteral("!chan:x") }),
+            // An umbrella with neither rooms nor subspaces of its own.
+            spaceRoom(QStringLiteral("!empty:x"), QStringLiteral("Empty")),
+            channel,
+        };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        RailEntryModel model;
+        model.setSources(&spaces, &store);
+
+        auto expandableOf = [&model](const QString &id) {
+            for (int row = 0; row < model.rowCount(); ++row) {
+                const QModelIndex idx = model.index(row, 0);
+                if (model.data(idx, RailEntryModel::EntryIdRole).toString()
+                    == id) {
+                    return model.data(idx, RailEntryModel::ExpandableRole)
+                        .toBool();
+                }
+            }
+            return false;
+        };
+
+        QVERIFY2(expandableOf(QStringLiteral("!cat:x")),
+                 "a Space with a joined room and no subspaces is not "
+                 "expandable, so its chevron never appears and its rooms "
+                 "cannot be reached from the rail at all");
+        QVERIFY2(!expandableOf(QStringLiteral("!empty:x")),
+                 "a Space with nothing in it offers a chevron that opens "
+                 "nothing");
+    }
+
+    // DUSK'S TREE, AS REPORTED, BUILT AND ASSERTED.
+    //
+    // A user bridging Discord on 2026-09-17 drew the shape they had and the
+    // shape they wanted. What they had:
+    //
+    //   Discord Category
+    //     ├─ channel a … channel l     <- EVERY descendant's rooms, flattened
+    //     ├─ Server 1
+    //     │    ├─ channel a … f        <- again
+    //     │    ├─ category 1           <- and the categories showed NOTHING
+    //     │    └─ category 2
+    //     └─ Server 2 …
+    //
+    // Their words for it: "the hierarchy is like… out of order."
+    //
+    // This builds that exact three-level tree and asserts the shape they
+    // asked for: a room belongs to the space that owns it DIRECTLY, and to
+    // no ancestor. Written as one fixture rather than as unit assertions on
+    // single accessors because the report was about a STRUCTURE — two
+    // accessors can each be right while the tree they compose is wrong.
+    void duskTreeListsEachChannelOnlyUnderItsOwnCategory()
+    {
+        auto room = [](const QString &id, const QString &name) {
+            RoomInfo r;
+            r.id = id;
+            r.name = name;
+            r.isSpace = false;
+            r.membership = RoomInfo::Joined;
+            return r;
+        };
+
+        FakeClient client;
+        client.roomList = {
+            spaceRoom(QStringLiteral("!umbrella:x"),
+                      QStringLiteral("Discord Category"),
+                      { QStringLiteral("!server1:x"),
+                        QStringLiteral("!server2:x") }),
+            spaceRoom(QStringLiteral("!server1:x"), QStringLiteral("Server 1"),
+                      { QStringLiteral("!cat1:x"), QStringLiteral("!cat2:x") },
+                      { QStringLiteral("!umbrella:x") }),
+            spaceRoom(QStringLiteral("!server2:x"), QStringLiteral("Server 2"),
+                      { QStringLiteral("!cat3:x") },
+                      { QStringLiteral("!umbrella:x") }),
+            spaceRoom(QStringLiteral("!cat1:x"), QStringLiteral("category 1"),
+                      { QStringLiteral("!chanA:x"), QStringLiteral("!chanB:x") },
+                      { QStringLiteral("!server1:x") }),
+            spaceRoom(QStringLiteral("!cat2:x"), QStringLiteral("category 2"),
+                      { QStringLiteral("!chanC:x") },
+                      { QStringLiteral("!server1:x") }),
+            spaceRoom(QStringLiteral("!cat3:x"), QStringLiteral("category 3"),
+                      { QStringLiteral("!chanD:x") },
+                      { QStringLiteral("!server2:x") }),
+            room(QStringLiteral("!chanA:x"), QStringLiteral("channel a")),
+            room(QStringLiteral("!chanB:x"), QStringLiteral("channel b")),
+            room(QStringLiteral("!chanC:x"), QStringLiteral("channel c")),
+            room(QStringLiteral("!chanD:x"), QStringLiteral("channel d")),
+        };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+
+        auto directIds = [&spaces](const QString &spaceId) {
+            QStringList out;
+            const QVariantList rows = spaces.directChildRoomsDetailed(spaceId);
+            for (const QVariant &v : rows)
+                out << v.toMap().value(QStringLiteral("roomId")).toString();
+            out.sort();
+            return out;
+        };
+
+        // THE DEFECT, stated directly: neither the umbrella nor either server
+        // owns a single channel, so the rail must reveal none under them.
+        QCOMPARE(directIds(QStringLiteral("!umbrella:x")), QStringList{});
+        QCOMPARE(directIds(QStringLiteral("!server1:x")), QStringList{});
+        QCOMPARE(directIds(QStringLiteral("!server2:x")), QStringList{});
+
+        // Each channel appears under exactly the category that owns it.
+        QCOMPARE(directIds(QStringLiteral("!cat1:x")),
+                 (QStringList{ QStringLiteral("!chanA:x"),
+                               QStringLiteral("!chanB:x") }));
+        QCOMPARE(directIds(QStringLiteral("!cat2:x")),
+                 QStringList{ QStringLiteral("!chanC:x") });
+        QCOMPARE(directIds(QStringLiteral("!cat3:x")),
+                 QStringList{ QStringLiteral("!chanD:x") });
+
+        // And the OTHER half of the report: those categories must be
+        // openable. Every one of them has rooms and no subspaces, which is
+        // precisely the shape whose chevron never appeared.
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        RailEntryModel model;
+        model.setSources(&spaces, &store);
+
+        // Row lookup that reports ABSENT separately from NOT-EXPANDABLE. A
+        // bare bool conflates them, and the first draft of this test did:
+        // `!cat1:x` is two levels down and `appendSubspaces` returns early
+        // while an ancestor is collapsed, so the row did not exist and the
+        // lambda's `false` default read as "the fix does not work". A
+        // failure has to say which of the two it is.
+        auto rowOf = [&model](const QString &id) {
+            for (int row = 0; row < model.rowCount(); ++row) {
+                if (model.data(model.index(row, 0),
+                               RailEntryModel::EntryIdRole).toString() == id) {
+                    return row;
+                }
+            }
+            return -1;
+        };
+        auto expandableOf = [&model, &rowOf](const QString &id) {
+            const int row = rowOf(id);
+            return row >= 0
+                && model.data(model.index(row, 0),
+                              RailEntryModel::ExpandableRole).toBool();
+        };
+
+        QVERIFY2(rowOf(QStringLiteral("!umbrella:x")) >= 0,
+                 "the root space is not in the rail at all");
+        QVERIFY2(expandableOf(QStringLiteral("!umbrella:x")),
+                 "the umbrella has subspaces and cannot be opened");
+
+        // Nested rows only exist once their ancestors are open — the rail is
+        // a tree, not a flat list, and that is deliberate. Walk down the way
+        // a user would, one chevron at a time.
+        QVERIFY2(rowOf(QStringLiteral("!server1:x")) < 0,
+                 "a subspace is listed while its parent is collapsed");
+        store.setSpaceExpanded(QStringLiteral("!umbrella:x"), true);
+        QVERIFY2(rowOf(QStringLiteral("!server1:x")) >= 0,
+                 "expanding the umbrella did not reveal its servers");
+        QVERIFY2(expandableOf(QStringLiteral("!server1:x")),
+                 "a server holding categories cannot be opened");
+
+        store.setSpaceExpanded(QStringLiteral("!server1:x"), true);
+        QVERIFY2(rowOf(QStringLiteral("!cat1:x")) >= 0,
+                 "expanding the server did not reveal its categories");
+        QVERIFY2(expandableOf(QStringLiteral("!cat1:x")),
+                 "a category holding channels cannot be opened, so those "
+                 "channels are unreachable from the rail");
+
+        // The transitive primitive is UNCHANGED and still transitive — the
+        // Channels column and the Classic filter both depend on it, and the
+        // fix was the rail calling the wrong one of two correct accessors,
+        // never the accessors themselves.
+        QStringList transitive;
+        const QVariantList all =
+            spaces.childRoomsDetailed(QStringLiteral("!umbrella:x"));
+        for (const QVariant &v : all)
+            transitive << v.toMap().value(QStringLiteral("roomId")).toString();
+        transitive.sort();
+        QCOMPARE(transitive,
+                 (QStringList{ QStringLiteral("!chanA:x"),
+                               QStringLiteral("!chanB:x"),
+                               QStringLiteral("!chanC:x"),
+                               QStringLiteral("!chanD:x") }));
+    }
+
     // ── The gesture ──────────────────────────────────────────────────────
 
     void aPreviewDragMovesRowsWithoutWritingAnything()
