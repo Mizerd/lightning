@@ -1166,9 +1166,19 @@ for script in ("smoke-windows-wine.sh", "validate-macos-artifacts.sh"):
     src = _strip_shell_comments(_read("scripts", script))
     check("assert_queue_selftest" in src,
           f"{script} judges the self-test through the shared helper")
-    check("timeout " in src.split("--call-queue-selftest")[0].rsplit("\n", 3)[-1]
-          or "timeout 300s" in src,
-          f"{script} bounds the self-test with a timeout")
+    check("timeout 300s" in src or "run_bounded 300" in src,
+          f"{script} bounds the self-test in time")
+# AND THE BOUND EXISTS ON macOS. `timeout` is GNU coreutils and macOS does not
+# ship it: adding one there failed the job with `timeout: command not found`,
+# which the self-test gate then reported correctly as "no VERDICT line at all".
+# The gate was right; the bound was not portable.
+check("run_bounded()" in lib_src,
+      "lib.sh provides a time bound that does not need GNU coreutils")
+check("gtimeout" in lib_src,
+      "the bound tries Homebrew's coreutils name before falling back")
+_macos_src2 = _strip_shell_comments(_read("scripts", "validate-macos-artifacts.sh"))
+check("timeout 300s" not in _macos_src2,
+      "the macOS validator does not call GNU timeout, which it has not got")
 # Read from the RAW file: the promotion procedure is a COMMENT, and the
 # comment stripper above would eat it — which is how the first version of this
 # check failed on a lib.sh that carries it.

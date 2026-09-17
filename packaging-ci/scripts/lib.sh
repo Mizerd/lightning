@@ -70,6 +70,47 @@ assert_call_media_engine() {
         "$label: --call-media-status reported success but exited $status"
 }
 
+# --- a time bound that exists on macOS too -----------------------------------
+#
+# `timeout` is GNU coreutils and macOS does not ship it. Adding one to the
+# macOS validator failed that job with `timeout: command not found`, which the
+# self-test gate then reported correctly as "printed no VERDICT line at all" —
+# the gate behaved exactly as designed over a command that never ran, which is
+# the one outcome it was written to catch. The bound is still worth having: an
+# unbounded hung probe burns the Mac mini to the three-hour job ceiling.
+#
+# Homebrew's coreutils installs it as `gtimeout`. When neither exists, a plain
+# background-and-poll watchdog does the same job with nothing but the shell.
+#
+#   $1  seconds
+#   $@  the command
+run_bounded() {
+    local secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$secs" "$@"
+        return $?
+    fi
+    if command -v gtimeout >/dev/null 2>&1; then
+        gtimeout "$secs" "$@"
+        return $?
+    fi
+    "$@" &
+    local pid=$! waited=0
+    while kill -0 "$pid" 2>/dev/null; do
+        if [[ "$waited" -ge "$secs" ]]; then
+            kill -TERM "$pid" 2>/dev/null
+            sleep 2
+            kill -KILL "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null
+            return 124
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    wait "$pid"
+    return $?
+}
+
 # --- the voice-delay property -----------------------------------------------
 #
 # THE ONE judgement of a `--call-queue-selftest` transcript, and it really is

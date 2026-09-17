@@ -551,7 +551,7 @@ fi
 # mini to the three-hour job ceiling, on the one host this project has a
 # standing history of nursing back online.
 queue_selftest_status=0
-timeout 300s "$CONTENTS/MacOS/$APP_NAME" --call-queue-selftest \
+run_bounded 300 "$CONTENTS/MacOS/$APP_NAME" --call-queue-selftest \
     >"$REPORT_DIR/queue-selftest.txt" 2>&1 || queue_selftest_status=$?
 # ONE judgement, shared with every other format, in SOFT mode: this validator
 # accumulates failures and reports them together rather than dying on the
