@@ -212,6 +212,47 @@ output a bug. What survives in the tree is a fallback for a GstValueArray
 spelling no runtime has been seen using, labelled as such, plus a line that
 names the type once if a third ever appears.
 
+## 2026-09-17 — WINDOWS AND macOS PACKAGES, and a degradation nobody could see
+
+**PASS on both, pipeline 235.** With the six Linux formats from 230 this is
+every platform Lightning ships, each asked of the artifact its own job built.
+
+| package | GStreamer | buffers=4 | time=100 ms | CONTROL | verdict |
+|---|---|---|---|---|---|
+| Windows portable (under Wine) | 1.28.5 | 40 / 40 ms | 100 / 100 ms | **1000 / 1000 ms** | pass |
+| macOS bundle (arm64, real hardware) | 1.28.6 | 40 / 40 ms | 100 / 100 ms | **1000 / 1000 ms** | pass |
+
+The Windows job also reports `bundled GStreamer registered all 43 required
+elements under Wine` — `jpegenc`, `jpegdec` and `level` among them — and
+`camera compressed (MJPG) chain: available`.
+
+**AND macOS ANSWERED THE SAME QUESTION WITH `unavailable`**, which is a real
+finding and the reason that line was added:
+
+```
+lightning.calls.sfu: camera MJPG chain unavailable, cameras will use the raw
+entry: no element "jpegenc"
+camera compressed (MJPG) chain: unavailable — cameras will use the raw entry
+and may be rate-limited
+```
+
+The macOS bundle has never staged `libgstjpeg.dylib`. So every macOS camera
+has been taking the raw entry — the degradation Windows measures at 5 fps at
+1080p against 30 — and **no check this project had could have seen it**: the
+bundle asserts the plugin list against itself, which is true by construction.
+Staged as OPTIONAL now, because the staging loop dies on a missing required
+plugin and macOS is `allow_failure`, so requiring it before proving the host
+SDK carries it would cost a release its macOS asset in silence. Promotion
+procedure at the declaration.
+
+**TWO FAILURES ON THE WAY, both in checks I had just added, and both caught by
+the gate rather than by a user.** macOS has no GNU `timeout`, so the bound I
+added died with `command not found` — and the self-test gate refused the run
+for having no `VERDICT:` line, which is exactly what it is for. And the
+Windows portable runs under Wine, whose output is CRLF, so `VERDICT: pass\r`
+matched no case and failed a job whose measurement had PASSED. A prefix grep
+on `^RESULT: ` would have let both through as warnings.
+
 ## 2026-09-17 — THE QUEUE SELF-TEST ON THREE LINUX PACKAGES, from CI runners
 
 **PASS on all three, and this is the runner-stability evidence a promotion
