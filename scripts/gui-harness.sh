@@ -15,15 +15,23 @@
 # /dev/uinput (an ACL entry is enough, no group needed), and ImageMagick for
 # shot_pid's crop.
 #
-# SCROLLING IS scripts/gui-wheel.py, NOT ydotool. ydotool 1.0.4 has no wheel
-# command at all — its `click` takes buttons 0x00-0x07 and a wheel is
-# REL_WHEEL, an axis. `pdrag` below scrolls a Flickable that is `interactive`,
-# but a desktop ScrollView is not, and that made whole panels unreachable
-# (the Space Home settings' "Leave Space" among them). gui-wheel.py creates
-# its own uinput mouse and emits REL_WHEEL directly:
+# SCROLLING IS scripts/gui-wheel.py. `pdrag` below scrolls a Flickable that is
+# `interactive`, but a desktop ScrollView is not, and that made whole panels
+# unreachable (the Space Home settings' "Leave Space" among them).
+# gui-wheel.py creates its own uinput mouse and emits REL_WHEEL directly:
 #     python3 scripts/gui-wheel.py -8 80    # 8 clicks DOWN, 80ms apart
 # Position the pointer over the target pane first (moveto), because a wheel
 # event goes to whatever is under the cursor.
+#
+# THIS USED TO SAY "ydotool 1.0.4 has no wheel command at all", and that was
+# true of its COMMANDS and wrong about the tool. Read out of the pinned
+# binary on 2026-09-17: the four commands really are click/mousemove/type/key,
+# and `mousemove` carries `-w, --wheel  Move mouse wheel relatively`, so
+# `ydotool mousemove -w -y -5` emits the axis without a second uinput device.
+# gui-wheel.py stays the documented path because it is the one that has
+# actually driven a capture here; the ydotool flag is recorded so the next
+# session does not rebuild a device it does not need. NOT EXERCISED — a
+# capability read out of a binary is not a capability that has scrolled a pane.
 #
 # ALWAYS drive a throwaway fixture account on an ISOLATED XDG profile, and
 # confirm it from /proc/<pid>/environ before terminating anything. The
@@ -133,7 +141,31 @@ pidclick() {   # pidclick <pid> <x> <y>  — coords RELATIVE to the window frame
 }
 
 typepid() { focus_pid "$1" && guard_pid "$1" && ydotool type --key-delay 12 -- "$2"; sleep 0.2; }
-keypid()  { focus_pid "$1" && guard_pid "$1" && ydotool key "${@:2}"; sleep 0.25; }
+
+# keypid <pid> <keycode>:<pressed>...   e.g.  keypid "$PID" 28:1 28:0   (Return)
+#
+# RAW LINUX KEYCODES, NOT KEY NAMES. ydotool 1.0.4's own help says it: "Since
+# there's no way to know how many keyboard layouts are there in the world,
+# we're using raw keycodes now", and — the half that costs a session —
+# "Non-interpretable values, such as 0, aaa, l0l, will only cause a delay".
+# So `keypid $PID Return` typed nothing and reported SUCCESS, which is how it
+# reached a capture and was diagnosed as a focus problem instead. The guard
+# below turns that silence into a refusal; it is the only reason this is a
+# function and not a one-liner. Codes are the KEY_* values in
+# /usr/include/linux/input-event-codes.h (28 Return, 1 Escape, 15 Tab,
+# 14 BackSpace, 29 LeftCtrl, 42 LeftShift, 56 LeftAlt, 103/108/105/106 arrows).
+keypid()  {
+    local pid="$1" arg
+    for arg in "${@:2}"; do
+        [[ "$arg" =~ ^[0-9]+:[01]$ ]] && continue
+        echo "keypid: '$arg' is not a <keycode>:<pressed> pair — ydotool 1.0.4" \
+             "takes raw keycodes and silently DELAYS on anything else." \
+             "Return is 28:1 28:0." >&2
+        return 2
+    done
+    focus_pid "$pid" && guard_pid "$pid" && ydotool key "${@:2}"
+    sleep 0.25
+}
 
 shot_pid() {   # shot_pid <pid> <out.png> — full screen, cropped to the window
     local pid="$1" out="$2" g gx gy gw gh
