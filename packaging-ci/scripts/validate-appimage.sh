@@ -157,6 +157,19 @@ for gst_plugin in libgstwebrtc libgstsctp libgstnice libgstvpx libgstopus \
     test -f "$tree/usr/lib/gstreamer-1.0/$gst_plugin.so" \
         || die "$gst_plugin.so missing from the AppImage payload"
 done
+# AND THE LGPL TEXT FOR THEM, asserted on the extracted payload. Eleven of the
+# plugins staged above are gst-plugins-good, and this image carried them with
+# no licence of any kind until 2026-09-17 — a grep for licen/COPYING/LICENSE
+# across the build script and this validator returned ONE hit, a comment about
+# HEVC. The snap repacks this image, so it inherited the gap. The text is
+# vendored in the repository and staged from there; checking the SCRIPT would
+# pass on an image the copy never reached, which is the lesson four earlier
+# packaging defects here all share.
+good_license="$tree/usr/share/licenses/lightning-gstreamer/gst-plugins-good-1.0/COPYING"
+test -s "$good_license" \
+    || die "the AppImage bundles gst-plugins-good binaries and carries no licence for them: usr/share/licenses/lightning-gstreamer/gst-plugins-good-1.0/COPYING is missing or empty"
+grep -q "GNU LESSER GENERAL PUBLIC LICENSE" "$good_license" \
+    || die "the staged gst-plugins-good licence is not the LGPL text"
 # NSS'S OWN PKCS#11 MODULES, and this one cost an entire call lane.
 #
 # Debian builds libsrtp2 against NSS. `ldd` names libnss3 and friends, so the

@@ -452,6 +452,21 @@ done
 # and a second login on the next PC -- the exact defect the portable ZIP is for.
 # Nothing reads its contents, so this asserts only that it is a real file.
 [[ -s "$EXTRACTED/portable.marker" ]] || die "portable.marker in the ZIP is empty"
+# THE LGPL TEXT FOR THE PLUGINS THIS ZIP ACTUALLY CARRIES, asserted on the
+# EXTRACTED artifact rather than on the staging script. Seven of the bundled
+# plugins are gst-plugins-good and every Windows package this project has
+# shipped carried them with no licence at all — the upstream MinGW SDK does
+# not ship the file, so it is vendored in the repository and staged from
+# there. A check on the script would pass on a package the copy never reached;
+# this is the same lesson as sctp, ximagesrc, the Qt TLS backend and the
+# Wayland shell integration, all four of which were present in a script and
+# absent from a payload.
+good_license="$EXTRACTED/licenses/lightning-gstreamer/gst-plugins-good-1.0/COPYING"
+[[ -s "$good_license" ]] || \
+    die "the portable ZIP bundles gst-plugins-good binaries and carries no licence for them: $good_license is missing or empty"
+grep -q "GNU LESSER GENERAL PUBLIC LICENSE" "$good_license" || \
+    die "the staged gst-plugins-good licence is not the LGPL text"
+
 # An inherited windows-msi marker would send a portable user through msiexec
 # against a directory no MSI owns.
 [[ ! -e "$EXTRACTED/.lightning-install-type" ]] || \

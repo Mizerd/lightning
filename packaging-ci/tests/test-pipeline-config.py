@@ -1090,6 +1090,16 @@ for script, label in (("stage-windows-runtime.py", "the Windows stage"),
     src = _read("scripts", script)
     check("gst-plugins-good-1.0" in src,
           f"{label} ships the gst-plugins-good licence")
+# AND THE VALIDATORS ASK THE PAYLOAD, not the script that was supposed to fill
+# it. sctp, ximagesrc, the Qt TLS backend and the Wayland shell integration
+# were each named in a script and absent from a package.
+for script, label in (("validate-windows-artifacts.sh", "the Windows validator"),
+                      ("validate-appimage.sh", "the AppImage validator")):
+    src = _strip_shell_comments(_read("scripts", script))
+    check("gst-plugins-good-1.0" in src,
+          f"{label} asserts the licence is in the extracted payload")
+    check("GNU LESSER GENERAL PUBLIC LICENSE" in src,
+          f"{label} checks the staged text is the LGPL, not just a file")
 
 # --- 3. every format asks the SHIPPED artifact ------------------------------
 #
