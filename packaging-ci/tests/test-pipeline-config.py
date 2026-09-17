@@ -1124,6 +1124,26 @@ check("call media engine built in: yes" in lib_src,
 check("RESULT: calls can be placed and answered." in lib_src,
       "the shared assertion requires the engine to be runnable")
 
+# AND THE COMPRESSED CAMERA CHAIN IS REPORTED BY EVERY FORMAT'S STATUS PROBE.
+#
+# Windows asks the shipped registry for `jpegdec`/`jpegenc` by name; every
+# Linux lane asserted only that libgstjpeg.so was in the payload, which is the
+# distinction that shipped Windows with libgstsctp present and sctpenc
+# missing. The published 0.9.7 AppImage logged `no element "jpegenc"` in a real
+# call and nothing in that lane could have said so first.
+#
+# REPORTED, not required: a camera falls back to the raw entry without it
+# (measured at 5 fps against 30 on Windows), so a missing plugin is a
+# degradation and not a refusal. This asserts the LINE exists, so the answer
+# is in every validator's log.
+with open(os.path.join(HERE, "..", "..", "src", "main.cpp"),
+          encoding="utf-8") as handle:
+    _main_cpp = handle.read()
+check("camera compressed (MJPG) chain: " in _main_cpp,
+      "--call-media-status reports whether the compressed camera chain works")
+check("jpegCameraChainAvailable()" in _main_cpp,
+      "it asks the engine's own probe rather than listing a file")
+
 # The queue self-test's shared judgement, and the two properties that keep it
 # honest: a transcript with no verdict is a hard failure (a crash or a hung
 # probe must not pass), while a FAILING verdict only warns until the check has

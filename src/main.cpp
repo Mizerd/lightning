@@ -1831,6 +1831,29 @@ static int printCallMediaStatus()
                 : QStringLiteral("unavailable (%1)").arg(sfuWhy))
         << "\n";
 
+    // THE COMPRESSED CAMERA CHAIN, ASKED RATHER THAN INFERRED.
+    //
+    // Windows probes for `jpegdec` and `jpegenc` by NAME against the shipped
+    // package's own GStreamer registry. Every Linux lane asserts only that
+    // `libgstjpeg.so` is in the payload — which is the exact distinction that
+    // shipped Windows for months with `libgstsctp-1.0-0.dll` present and
+    // `sctpenc` missing: the DLL is the tin, not what is in it. The published
+    // 0.9.7 AppImage logged `no element "jpegenc"` in a real call and nothing
+    // in that lane could have said so beforehand.
+    //
+    // REPORTED, NOT REQUIRED, and that is deliberate. A camera falls back to
+    // the raw entry without it — measured on Windows as 5 fps at 1080p
+    // against 30 — so a missing plugin is a degradation, not a refusal, and
+    // putting it in the engine's required set would make a distro without it
+    // refuse calls outright. This line is what lets a validator, or a
+    // tester's log, see the degradation before a user reports it.
+    out << "camera compressed (MJPG) chain: "
+        << (SfuMediaEngine::jpegCameraChainAvailable()
+                ? QStringLiteral("available")
+                : QStringLiteral("unavailable — cameras will use the raw "
+                                 "entry and may be rate-limited"))
+        << "\n";
+
     // The SFU engine alone decides the exit code: it is the one every
     // MatrixRTC call runs through, and the 1:1 lane's button is disabled in
     // the UI regardless.
