@@ -3848,6 +3848,17 @@ if(BUILD_TESTING)
             PRIVATE HAVE_QT_DBUS=1)
     endif()
     add_test(NAME notification-manager COMMAND notification-manager-test)
+    # THE DAEMON'S ABSENCE IS A PROPERTY OF THE TEST, NOT OF THE HOST.
+    #
+    # The call cases have asserted since 2026-08-18 that "the DBus daemon is
+    # absent here", which is true in CI and FALSE on a KDE desktop — the same
+    # binary would take the daemon branch there, so the tray-fallback case
+    # would pass or fail depending on whose machine ran it. Point the session
+    # bus at an address nothing is listening on. QDBusConnection caches the
+    # connection per thread on first use, so this has to be the environment
+    # rather than anything a case can do.
+    set_tests_properties(notification-manager PROPERTIES
+        ENVIRONMENT "DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/lightning-no-daemon")
 
     # v0.5.11: safe link previews — URL extraction with scheme allow-list,
     # GIF MIME classification, encrypted-room privacy gating, bounded cache,

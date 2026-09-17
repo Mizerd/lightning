@@ -1000,6 +1000,9 @@ void NotificationManager::showIncomingCall(const QString &roomId,
     m_activeCallRtcLane = rtcLane;
     m_callRingDeadlineMs = QDateTime::currentMSecsSinceEpoch()
         + qint64(qBound(5, ringSeconds, 300)) * 1000;
+    // A new call gets its own balloon. Cleared in stopIncomingCall() too,
+    // for the reason the acceptOffered/rtcLane reset states there.
+    m_activeCallTrayDelivered = false;
     deliverCallNotification();
     if (sound)
         m_callRingTimer.start();
@@ -1030,6 +1033,7 @@ void NotificationManager::stopIncomingCall(const QString &callId)
     // away from being wrong.
     m_activeCallAcceptOffered = false;
     m_activeCallRtcLane = false;
+    m_activeCallTrayDelivered = false;
     m_activeCallId.clear();
     m_activeCallRoomId.clear();
     m_activeCallTitle.clear();
@@ -1039,13 +1043,14 @@ void NotificationManager::stopIncomingCall(const QString &callId)
 
 void NotificationManager::deliverCallNotification()
 {
-#ifdef HAVE_QT_DBUS
     if (m_activeCallId.isEmpty())
         return;
+#ifdef HAVE_QT_DBUS
     QDBusInterface notifications(kService, kPath, kInterface,
                                  QDBusConnection::sessionBus());
     if (!notifications.isValid()) {
         qCInfo(lcNotify) << "notification service unavailable";
+        deliverCallThroughTray();
         return;
     }
     const QStringList actions = callActions(m_activeCallAcceptOffered,
@@ -1081,6 +1086,68 @@ void NotificationManager::deliverCallNotification()
                           { QStringLiteral("eventId"), QString() },
                           { QStringLiteral("threadRootId"), QString() },
                       });
+        return;
     }
+    qCWarning(lcNotify) << "notification server refused the call card:"
+                        << reply.error().name();
 #endif
+    // NO FREEDESKTOP CARD — and until 2026-09-17 that meant NO NOTIFICATION.
+    //
+    // The 2026-09-05 round gave every notification a tray-balloon fallback
+    // when there is no daemon, and deliverCallNotification() is the one
+    // producer in this file that does not go through deliver()/deliverNow(),
+    // so it never learned about it. On Windows and macOS `HAVE_QT_DBUS` is
+    // undefined (CMakeLists: `NOT WIN32 AND NOT APPLE`) and this whole
+    // function compiled to `{ }` — not a card without buttons, no card at
+    // all — while showGeneric()'s "Missed call" notice DID reach the tray.
+    // The only desktop evidence of a call on Windows was the notice that it
+    // was already over.
+    //
+    // A balloon cannot carry Accept/Decline: QSystemTrayIcon::showMessage
+    // takes title/body/icon/timeout and emits messageClicked, and there is
+    // no other signal. So the CLICK is the affordance. It routes through the
+    // same path every other balloon does — onFallbackMessageClicked ->
+    // emitOpenFor -> AppController::routeNotificationOpen — which raises the
+    // window and opens the room, and IncomingCallPrompt is gated on the CALL
+    // STATE rather than on notifications, so Join/Answer/Decline are already
+    // on screen when the room arrives.
+    deliverCallThroughTray();
+}
+
+// ONE BALLOON PER CALL, not one per ring tick.
+//
+// The freedesktop card is re-Notify()'d every 5s with `replaces_id` so the
+// themed ring repeats in place. A balloon has no such verb — raising it
+// again is a NEW toast with a new platform sound — so re-delivering on every
+// tick would alert twelve times a minute. The repeat is a daemon capability
+// and it does not survive the translation; say so rather than fake it.
+//
+// Latched on the ATTEMPT, not on the delivery. deliverThroughTray() refuses
+// when there is no visible tray icon, and on the platforms this path exists
+// for that is not a transient state to retry through: refreshTrayState()
+// shows the icon for the whole time notifications are enabled, so an icon
+// that is absent when a call rings means the user asked for no notifications.
+// Latching on success instead would turn "you switched notifications off"
+// into a 5-second retry loop, and — because no test can raise a real system
+// tray offscreen — would leave the once-per-call contract with no way to be
+// asserted at all.
+bool NotificationManager::deliverCallThroughTray()
+{
+    if (m_activeCallTrayDelivered)
+        return false;
+    m_activeCallTrayDelivered = true;
+    ++m_callTrayAttempts;
+    const QVariantMap payload{
+        { QStringLiteral("roomId"), m_activeCallRoomId },
+        { QStringLiteral("eventId"), QString() },
+        { QStringLiteral("threadRootId"), QString() },
+    };
+    m_lastCallTrayPayload = payload;
+    if (!deliverThroughTray(m_activeCallTitle, m_activeCallBody, payload,
+                            QImage())) {
+        qCInfo(lcNotify) << "incoming call could not be announced: no "
+                            "notification service and no tray balloon";
+        return false;
+    }
+    return true;
 }

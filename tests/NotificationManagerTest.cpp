@@ -622,6 +622,83 @@ private Q_SLOTS:
         manager.stopIncomingCall(QString());
     }
 
+    // ── 2026-09-17: the ring is the one notification with no fallback ───
+    //
+    // Every other producer reaches deliverNow(), which has fallen back to the
+    // tray balloon since 2026-09-05 — "no notifications on windows at all".
+    // deliverCallNotification() builds its own card and never went near it,
+    // and its WHOLE BODY sat inside `#ifdef HAVE_QT_DBUS` with no `#else`,
+    // so on Windows and macOS it compiled to an empty function: not a card
+    // without Accept/Decline, no card at all. The "Missed call" notice that
+    // follows a ring DID reach the tray (showGeneric -> deliver), so the only
+    // desktop evidence of a call on those platforms was the notice that it
+    // was already over.
+    //
+    // Driven on a DBus BUILD with no reachable bus, which is what the CMake
+    // ENVIRONMENT pin is for: a fix that lived only in an `#else` could never
+    // be executed by any test this project runs.
+    void anIncomingCallIsAnnouncedWhereThereIsNoFreedesktopDaemon()
+    {
+        NotificationManager manager;
+        QCOMPARE(manager.callTrayAttemptsForTest(), 0);
+        manager.showIncomingCall(QStringLiteral("!ring:example.org"),
+                                 QStringLiteral("call-1"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("bob is calling in Room"),
+                                 /*sound=*/true, /*ringSeconds=*/60,
+                                 /*acceptOffered=*/true, /*rtcLane=*/true);
+        QVERIFY2(manager.callTrayAttemptsForTest() == 1,
+                 "an incoming call raised with no reachable notification "
+                 "service never reached the tray balloon: on Windows and "
+                 "macOS that is the ONLY delivery there is, so the call was "
+                 "not announced on the desktop at all");
+        // The click identity the balloon was BUILT with — this is what
+        // routes the user to the ringing room, where IncomingCallPrompt
+        // (gated on call state, never on notifications) offers Answer.
+        QCOMPARE(manager.lastCallTrayPayloadForTest()
+                     .value(QStringLiteral("roomId")).toString(),
+                 QStringLiteral("!ring:example.org"));
+        // §8: never a composite timeline id, and never an event id the
+        // opener would try to jump to.
+        QCOMPARE(manager.lastCallTrayPayloadForTest()
+                     .value(QStringLiteral("eventId")).toString(),
+                 QString());
+        manager.stopIncomingCall(QStringLiteral("call-1"));
+    }
+
+    // The repeat is a DAEMON capability and does not survive the translation.
+    // A freedesktop card is re-Notify()'d with `replaces_id` every 5s so the
+    // themed ring repeats IN PLACE; a balloon has no such verb, so the same
+    // loop would raise twelve separate toasts a minute, each with its own
+    // platform sound. Pins BOTH edges: 0 is the unfixed tree, 4 is the naive
+    // fix that delivers on every tick.
+    void theCallBalloonIsRaisedOncePerCallNotOncePerRingTick()
+    {
+        NotificationManager manager;
+        manager.showIncomingCall(QStringLiteral("!ring:example.org"),
+                                 QStringLiteral("call-1"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"),
+                                 /*sound=*/true, /*ringSeconds=*/60);
+        QCOMPARE(manager.callTrayAttemptsForTest(), 1);
+        for (int i = 0; i < 3; ++i)
+            QVERIFY(QMetaObject::invokeMethod(&manager, "onCallRingTick"));
+        QCOMPARE(manager.callTrayAttemptsForTest(), 1);
+        // ...and the NEXT call gets its own, or a second call in the same
+        // session would arrive in silence.
+        manager.stopIncomingCall(QStringLiteral("call-1"));
+        manager.showIncomingCall(QStringLiteral("!other:example.org"),
+                                 QStringLiteral("call-2"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"),
+                                 /*sound=*/true, /*ringSeconds=*/60);
+        QCOMPARE(manager.callTrayAttemptsForTest(), 2);
+        QCOMPARE(manager.lastCallTrayPayloadForTest()
+                     .value(QStringLiteral("roomId")).toString(),
+                 QStringLiteral("!other:example.org"));
+        manager.stopIncomingCall(QStringLiteral("call-2"));
+    }
+
     void clearPendingRetiresTheRing()
     {
         NotificationManager manager;
@@ -1215,6 +1292,7 @@ void NotificationManagerTest::everySlotTheseCasesDriveByNameStillExists()
         QByteArrayLiteral("onNotificationClosed"),
         QByteArrayLiteral("onNotificationReplied"),
         QByteArrayLiteral("onFallbackMessageClicked"),
+        QByteArrayLiteral("onCallRingTick"),
     };
     for (const QByteArray &name : names) {
         bool found = false;

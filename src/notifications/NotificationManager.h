@@ -225,6 +225,14 @@ public:
     void setFallbackTray(TrayIcon *tray);
     void deliverThroughTrayForTest(const QVariantMap &payload)
     { m_lastFallbackPayload = payload; }
+    // How many times the incoming-call ring has ASKED the tray for a balloon,
+    // and the payload it asked with. The attempt is what the test needs, not
+    // the delivery: an offscreen test has no tray at all, so a counter that
+    // only moved on success could not tell "the ring never reached the
+    // fallback" (the defect) from "there was no tray" (the environment).
+    int callTrayAttemptsForTest() const { return m_callTrayAttempts; }
+    QVariantMap lastCallTrayPayloadForTest() const
+    { return m_lastCallTrayPayload; }
     // Deliveries parked waiting for an avatar fetch (see deliver()). They
     // have no notification id yet, so closeRoomNotifications cannot observe
     // them through the payload map — this is how a test sees that a read
@@ -330,6 +338,9 @@ private:
     void emitOpenFor(const QVariantMap &payload);
     /// The balloon delivery, for builds and sessions with no freedesktop
     /// daemon. True when the tray showed it.
+    // The incoming-call ring's own tray delivery — see the long note at the
+    // definition for why it is latched and why the repeat does not survive.
+    bool deliverCallThroughTray();
     bool deliverThroughTray(const QString &title, const QString &body,
                             const QVariantMap &payload, const QImage &avatar);
     QPointer<TrayIcon> m_fallbackTray;
@@ -374,6 +385,11 @@ private:
     bool m_activeCallAcceptOffered = false;
     bool m_activeCallRtcLane = false;
     quint32 m_activeCallNotificationId = 0;
+    // Whether this call has already been announced through the tray balloon.
+    // Reset on every raise AND on every stop.
+    bool m_activeCallTrayDelivered = false;
+    int m_callTrayAttempts = 0;
+    QVariantMap m_lastCallTrayPayload;
     qint64 m_callRingDeadlineMs = 0;
     QTimer m_callRingTimer;
     int m_genericNoticeCount = 0;
