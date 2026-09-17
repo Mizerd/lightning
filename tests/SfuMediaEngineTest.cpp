@@ -3028,9 +3028,15 @@ private slots:
         // unbounded pipeline queue the moment this file gained a variable of
         // that name. A pipeline queue is followed by a pad separator or by
         // one of its own properties.
+        // ANY property, not a list of the ones used today: naming them
+        // leaves a queue whose FIRST property is something else (say
+        // `use-buffering=`) silently unmatched, and the per-file count would
+        // not notice because it would be unchanged. A pipeline queue is
+        // followed by a pad separator or by `something=`; the C++ identifier
+        // that made the first version fail is followed by ` = `, and `=` is
+        // not a lowercase letter.
         static const QRegularExpression queueElement(QStringLiteral(
-            "\\bqueue(?=\\s+(?:!|max-size|leaky|min-threshold|flush-on-eos"
-            "|silent|name=))"));
+            "\\bqueue(?=\\s+(?:!|[a-z][a-z0-9-]*=))"));
 
         for (const Lane &lane : lanes) {
             QFile file(QString::fromUtf8(lane.path));

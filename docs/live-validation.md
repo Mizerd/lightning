@@ -69,8 +69,14 @@ the raw entry — the one every release before 0.9.8 used.
 | MJPG chain | 0.683 | 0.128 | `camera chain= mjpg`, `image/jpeg 1920x1080 30/1` |
 
 **Both chains drew a picture** — a recognisable photograph of the room the
-webcam faces, not merely a region that changed: three times the variance of
-the off-state, and the same scene visible in both captures. `publish first
+webcam faces (a desk edge and the corner of a laptop, lit from one side), not
+merely a region that changed: three times the variance of the off-state, and
+the same scene in both. **How that was judged, because a sibling entry was
+withdrawn two commits earlier for offering statistics alone**: the captures
+were taken INSIDE the guest's own session and inspected directly, not read off
+an RDP framebuffer — that framebuffer had been returning stale frames, one of
+them a desktop twelve hours old. The statistics are the cross-check, not the
+claim. `publish first
 encoded frame screenShare= false` on both.
 
 **AND THE FAR END GOT IT.** The Linux AppImage in the same call logged
@@ -134,6 +140,16 @@ a test password landing in a visible field). It restored the session,
 |---|---|---|---|---|
 | Windows 0.9.8 -> Linux | 9.97e+05 | 3.43e+06 | 4.51e+04 | **TONE PRESENT** (98.1x) |
 | Linux -> Windows 0.9.8 | 9.04e+07 | 1.02e+08 | 35.6 | **TONE PRESENT** (5.4e+06x) |
+
+**Where each was measured**, because omitting that is what collapsed "twelve
+legs measured" to six. Outbound: the tone is played into the host sink
+xfreerdp forwards as the guest's microphone, and recorded at the sink the
+Linux client plays into — `pw-link` proves both ends of that routing.
+Inbound: recorded at the host sink xfreerdp writes the guest's playback into,
+because the guest has no sound card at all. So the inbound number includes the
+RDP audio path. That path is why an ABSOLUTE latency cannot be taken this way
+(it drifted 291 -> 545 ms across identical runs); it does not trouble a
+presence/absence ratio six orders of magnitude clear of its own control.
 
 And the level meter reported REAL SIGNAL from that package while the tone was
 playing — `microphone level peak= -3 dBFS`, `-2`, `-5` — which is the other

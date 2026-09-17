@@ -84,7 +84,7 @@ every one of the three. So Windows, Sable, Element Call and cross-platform
 Lightning<->Lightning are TESTED. **macOS is still NOT TESTED**, and so is any
 MatrixRTC client other than those three.
 
-Two limits that are real and two claims that are NOT. **NO published 0.9.7
+Two limits that are real, and one of them is now closed. **NO published 0.9.7
 package has the capture level meter** — measured, `level= false` in a real call
 from the Windows portable AND from the AppImage. On Windows the hand-built
 builder image does not carry `libgstlevel.dll` (builder **v7** adds it, §16);
