@@ -72,6 +72,18 @@ still 1000 ms**. That 900 ms is what this file has asserted since 2026-09-16
 and never demonstrated. **`SIGSTOP` cannot show it** — freezing stops producer
 and consumer together, so no backlog forms and a flat result means nothing.
 
+**MEASURED ON SEVEN ENVIRONMENTS, FIVE GSTREAMER VERSIONS, TWO OPERATING
+SYSTEMS, AND THE NUMBERS DO NOT MOVE**: all six Linux formats (pipeline 230,
+14/14 green, each asked of the artifact its own job built), the dev shell, and
+a Windows 11 guest running the shipped 0.9.8 portable. Shipped queues 40 and
+90-100 ms; the default 1000 ms and still 1000 ms. It is wired into every
+package validator through ONE helper in `packaging-ci/scripts/lib.sh` and is
+deliberately NOT a hard gate yet — a transcript with no verdict, or one saying
+`VERDICT: unmeasurable`, fails the build; a `VERDICT: fail` only warns. The
+promotion procedure is written at that declaration and requires the newer
+command to report `pass` on all seven in ONE pipeline first. **A required
+entry is the half that must come second** (§16, pipeline 224).
+
 **LIVE-VALIDATED PASS, AND NO LONGER NARROWLY — this paragraph was written on
 release day and was overtaken the same night.** What it originally recorded
 stands: Lightning <-> Element Web, audio both ways, latency "almost instant",
