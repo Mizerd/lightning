@@ -235,3 +235,69 @@ first that could be installed **AS** an update. The procedure is in
 - Windows packages remain **unsigned**; the signed update manifest is
   the integrity guarantee on every platform. Do not describe the
   packages as signed.
+
+## 0.9.5, and the 413 that kept macOS out of it
+
+**MOVED here from CLAUDE.md §2 on 2026-09-17**, when that file reached 140,211
+characters against a hard 150,000 limit that truncates SILENTLY and drops its
+own tail — §§17-19 — from agent context. It is the sixth such move and it
+happened the way §16 says it should: in the same commit as the entry that
+crossed the line. Nothing was deleted.
+
+Previous release: **Lightning 0.9.5** (`v0.9.5` -> `8d5d0ca`), tagged
+2026-09-13 by pipeline **215, 23/24** — the one red job is `macos-package-test`,
+`allow_failure`, and it is NOT a false negative: see the macOS paragraph below.
+Notes in `docs/releases/v0.9.5.md`. Its bar passed in full on 2026-09-13, with
+the one-link undercount above.
+
+**0.9.5 SHIPPED WITHOUT macOS, AND THAT IS A LIVE OPERATOR ITEM, NOT A
+FOOTNOTE.** `macos-package-test` built the bundle on the Mac mini and passed
+every check in it (`Lightning 0.9.5`, 289,460,224 bytes, calls, plugin
+directory, registry helper, image formats, signature, no secrets) and then died
+on `413 Payload Too Large` uploading the artifact — the ~100 MiB cap in front
+of `gitlab.smetonis.net`. The job is `allow_failure` and `publish-packages`
+needs it `optional`, deliberately, so one sleeping Mac cannot block a release;
+the price is that the pipeline goes green and macOS simply is not there.
+0.9.4's artifact cleared that limit by **2,534 bytes**, so there was never any
+headroom.
+
+**FIXED FOR EVERY FUTURE RELEASE, 2026-09-13 — via a loopback relay, not the
+obvious change.** `macos-package-test` uploads again, PROVEN on pipeline 216:
+a **104,920,261 byte** artifact — 62,661 bytes OVER the cap that produced the
+413 — answered `201 Created`. The runner now dials `127.0.0.1:8929` and Apple's
+own `python3`, which the gate does not touch, carries the last hop to
+`10.195.35.2:80`; a `KeepAlive` LaunchAgent in the `runner` account's own home
+runs it, no admin used. It is a WORKAROUND: granting `gitlab-runner` Local
+Network access removes it. **DO NOT BACKFILL 0.9.5** — a publishing pipeline
+builds every format, the rebuilds are different bytes, and
+`publish-update-manifest.sh` says "the per-release copy cannot be re-published
+(different bytes, immutable conflict)", so it would break verification against
+the already-signed 0.9.5 manifest. 0.9.5 stays without macOS; **0.9.6 GOT
+it — pipeline 222 published the bundle and the anonymous bar fetched it, so
+the relay is proven end to end in a real publishing run, not just on 216.**
+Full account in `docs/macos-packaging.md`.
+
+**AND THE OBVIOUS FIX DOES NOT WORK ON THIS HOST — TRIED AND MEASURED
+2026-09-13.** Pointing the Mac runner's `url` at `http://10.195.35.2`, the way
+the Windows manager already does, makes `gitlab-runner` fail with
+`connect: no route to host` — while `ping`, `nc`, `curl`, `/usr/bin/python3`
+and Homebrew's `openssl` all reach that address from the same shell in the same
+minute. The runner reaches LOOPBACK (connection refused on a closed port) and
+the PUBLIC internet (`is valid`) and fails on **every** local-subnet address.
+That is macOS 26's **Local Network privacy gate**, which returns `EHOSTUNREACH`
+and is recorded PER BINARY. It needs a GUI grant — System Settings → Privacy &
+Security → Local Network → `gitlab-runner` — which cannot be done over SSH
+(`tccutil` only resets, and the non-admin `runner` account has no Full Disk
+Access to read the TCC record). **Leaving the internal URL in place without the
+grant takes the runner OFFLINE entirely**, which is worse than the 413; it was
+reverted the same session and verifies `is valid`. Full evidence table in
+`docs/macos-packaging.md` under "THE ENDPOINT CHANGE ALONE DOES NOT WORK".
+Once the grant is applied, 0.9.5 can get its macOS asset with
+`RELEASE_ACTION=attach-existing` — no tag is touched.
+
+**0.9.5 IS THE FIRST RELEASE WITH TWO `.deb` FILES** (Debian 13 and Ubuntu
+26.04). No version-free suffix separates `lightning_X_amd64.deb` from
+`lightning_X_ubuntu2604_amd64.deb`, so the website's asset matching resolves
+the longest `data-lg-match` token first and consumes the asset; it was correct
+at 0.9.5 only by luck of GitHub's listing order before that. See the website
+repo's `tools/check-assets.py`.
