@@ -116,6 +116,40 @@ a stream, then clean for ever — is frames arriving before that sender's key is
 installed, which is `no-key-for-index` and NOT "the two ends hold different
 keys", the sentence the 0.9.7 log prints there. Both are fixed in the tree.
 
+## 2026-09-17 — A 0.9.8 WINDOWS PACKAGE IN A REAL CALL: audio both ways, measured
+
+**PASS.** Until this run no 0.9.8 package had been run by anyone, on any
+platform — the interop matrix in the release notes was measured on 0.9.7
+binaries, and 0.9.8 moves the entire Windows Qt stack from 6.11.1 to 6.11.2
+and adds a required plugin, so it does not transfer.
+
+The Windows portable from the packaging pipeline, unpacked in the guest,
+**session migrated from the 0.9.7 portable's own data directory** — which
+exercises the 0.9.7 -> 0.9.8 store migration on Windows as a side effect, and
+means no password was typed anywhere (this rig has three recorded incidents of
+a test password landing in a visible field). It restored the session,
+`3 secret(s) loaded`, and joined a call against the published Linux AppImage.
+
+| leg | 440 Hz | 880 Hz | 1 kHz control | verdict |
+|---|---|---|---|---|
+| Windows 0.9.8 -> Linux | 9.97e+05 | 3.43e+06 | 4.51e+04 | **TONE PRESENT** (98.1x) |
+| Linux -> Windows 0.9.8 | 9.04e+07 | 1.02e+08 | 35.6 | **TONE PRESENT** (5.4e+06x) |
+
+And the level meter reported REAL SIGNAL from that package while the tone was
+playing — `microphone level peak= -3 dBFS`, `-2`, `-5` — which is the other
+half of the 0.9.8 headline and the thing no package had ever been seen doing.
+
+**A RIG TRAP WORTH THE NOTE, because it looked exactly like a defect.** The
+first Windows -> Linux run found NO TONE while the far end was decrypting
+2000 frames from that stream. The guest's level line had stopped entirely at
+07:09:50 and `rtp packets handed to webrtcbin` had gone from 50/s to 500
+packets in ten minutes. That reads as a capture stall in the client. It was
+not: `WinTestMic` is a null sink, PipeWire SUSPENDS an idle node, xfreerdp
+then feeds the guest nothing, and the guest's capture has nothing to produce.
+Playing the tone resumed the node and the counters came straight back. **Wake
+the rig before measuring it, and do not read an idle null sink as a stalled
+client.**
+
 ## 2026-09-17 — THE LEVEL METER LOGS FROM A PACKAGE AT LAST (and -350 dBFS is correct)
 
 **PASS.** A published package logs a microphone level and raises the silence
