@@ -59,15 +59,42 @@ Rectangle {
 
     readonly property bool horizontalOverflow:
         codeFlick.contentWidth > codeFlick.width + 1
-    // The Flickable's own bottomMargin is part of its scrollable extent, so
-    // the horizontal bar's reserved band counts as content the reader can
-    // reach — otherwise the last line would sit permanently under the bar.
+    // DELIBERATELY WIDTH-INDEPENDENT, and that is load-bearing rather than
+    // stylistic. This read `contentHeight + bottomMargin > height + 1`, which
+    // reaches codeFlick.height — which is bodyArea's, which carries
+    // horizontalBarSpace, which is decided by horizontalOverflow, which is
+    // decided by the width that `verticalBarSpace` below now consumes. That
+    // is a cycle, and this component already has a registered test against
+    // binding loops because this exact sizing chain has produced real ones.
+    //
+    // The two forms are algebraically identical: bottomMargin is
+    // horizontalBarSpace on BOTH sides of the old comparison and cancels,
+    // and the Math.min collapses to the same predicate either way.
     readonly property bool verticalOverflow:
-        codeFlick.contentHeight + codeFlick.bottomMargin > codeFlick.height + 1
+        codeArea.implicitHeight > root.maxBodyHeight + 1
     // Room for the horizontal bar so it never paints over the last line. The
     // bar is attached to the Flickable and anchors to ITS bottom edge, so the
     // band has to be inside the Flickable (as bottomMargin), not below it.
     readonly property real horizontalBarSpace: root.horizontalOverflow ? 8 : 0
+    // THE SAME BAND FOR THE VERTICAL BAR, AND ITS ABSENCE WAS THE DEFECT.
+    //
+    // An attached ScrollBar overlays the Flickable's right edge and takes no
+    // layout width, while MessageDelegate lays a code segment out at
+    // `min(segmentCap, implicitWidth)` — its own natural width. So a block
+    // that fits under the cap has a viewport exactly as wide as its widest
+    // line, ZERO horizontal scroll range, and a 6px bar painted over that
+    // line's last characters with nowhere to scroll them clear. Reported
+    // 2026-09-17 against an ASCII tree: tall enough to raise the bar, narrow
+    // enough not to clamp.
+    //
+    // The clamped case had it too, just disguised — at maximum contentX the
+    // content's right edge aligned with the viewport's, which is under the
+    // bar. One band fixes both.
+    //
+    // It rides contentWidth rather than a rightMargin because the overflow
+    // predicate, the Right key and the wheel router all clamp on contentWidth
+    // and none of them reads a margin.
+    readonly property real verticalBarSpace: root.verticalOverflow ? 8 : 0
 
     // The natural width of the widest line — used ONLY so a two-word snippet
     // does not stretch the bubble. It is CLAMPED, because the widest line is
@@ -75,7 +102,7 @@ Rectangle {
     // place: past the clamp the overflow becomes contentX, never geometry.
     readonly property real naturalContentWidth:
         gutterText.implicitWidth + root.gutterGap + codeArea.implicitWidth
-        + 2 * root.framePadding
+        + root.verticalBarSpace + 2 * root.framePadding
     implicitWidth: Math.min(
         Math.max(root.naturalContentWidth,
                  headerRow.implicitWidth + 2 * root.framePadding),
@@ -274,7 +301,12 @@ Rectangle {
                 height: parent.height
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
-                contentWidth: codeArea.implicitWidth
+                // The band is part of the SCROLLABLE EXTENT, not a margin:
+                // see root.verticalBarSpace. In the natural-width case this
+                // simply parks the bar past the last glyph; in the clamped
+                // case it means maximum contentX leaves the widest line's
+                // right edge inside the viewport instead of under the bar.
+                contentWidth: codeArea.implicitWidth + root.verticalBarSpace
                 contentHeight: codeArea.implicitHeight
                 bottomMargin: root.horizontalBarSpace
 

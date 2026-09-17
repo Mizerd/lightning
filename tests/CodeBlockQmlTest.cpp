@@ -464,6 +464,65 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
+    // THE VERTICAL BAR NEVER PAINTS OVER THE WIDEST LINE.
+    //
+    // An attached ScrollBar overlays the Flickable's right edge and takes no
+    // layout width, and MessageDelegate lays a code segment out at its own
+    // natural width — so a block that fits under the cap had a viewport
+    // exactly as wide as its widest line, ZERO horizontal scroll range, and a
+    // 6px bar drawn over that line's last characters with nowhere to scroll
+    // them clear. Reported 2026-09-17 against an ASCII tree: tall enough to
+    // raise the bar, narrow enough not to clamp.
+    //
+    // The horizontal bar has had a reserved band since it was written
+    // (`horizontalBarSpace`); the vertical one simply never got one. This
+    // asserts the band exists in the SCROLLABLE EXTENT, which is where it has
+    // to be — a rightMargin would not do, because the overflow predicate, the
+    // Right key and the wheel router all clamp on contentWidth and none of
+    // them reads a margin.
+    //
+    // Fails on the unfixed tree by construction: contentWidth was exactly
+    // codeArea.implicitWidth there, so the difference is 0 and not >= 6.
+    void theVerticalBarNeverPaintsOverTheWidestLine()
+    {
+        Harness h;
+        QVERIFY(build(h, repeatedLines(400, QStringLiteral("row "))));
+        QTRY_VERIFY_WITH_TIMEOUT(h.block->height() > 0.0, kTimeoutMs);
+
+        QVERIFY2(h.block->property("verticalOverflow").toBool(),
+                 "the fixture is not tall enough to raise a vertical bar, so "
+                 "this case would prove nothing");
+
+        auto *scroll = h.find(QStringLiteral("codeBlockScroll"));
+        auto *text = h.find(QStringLiteral("codeBlockText"));
+        QVERIFY(scroll != nullptr);
+        QVERIFY(text != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(text->implicitWidth() > 0.0, kTimeoutMs);
+
+        const qreal contentWidth = scroll->property("contentWidth").toReal();
+        const qreal band = contentWidth - text->implicitWidth();
+        QVERIFY2(band >= 6.0,
+                 qPrintable(QStringLiteral(
+                     "the scrollable extent is %1 and the widest line is %2, "
+                     "leaving %3px for a 6px scrollbar — the bar is painting "
+                     "over the code")
+                         .arg(contentWidth).arg(text->implicitWidth())
+                         .arg(band)));
+
+        // And the band is NOT free-floating: it is exactly the reserve, so a
+        // future change that widens contentWidth for some other reason does
+        // not accidentally satisfy this case.
+        QCOMPARE(band, h.block->property("verticalBarSpace").toReal());
+
+        // A block with nothing to scroll vertically reserves NOTHING, so
+        // every short block stays pixel-identical to before the fix.
+        Harness shortBlock;
+        QVERIFY(build(shortBlock, QStringLiteral("one line")));
+        QTRY_VERIFY_WITH_TIMEOUT(shortBlock.block->height() > 0.0, kTimeoutMs);
+        QVERIFY(!shortBlock.block->property("verticalOverflow").toBool());
+        QCOMPARE(shortBlock.block->property("verticalBarSpace").toReal(), 0.0);
+    }
+
     // The height is bounded, and the content that does not fit is reachable
     // by scrolling rather than simply lost.
     void boundedHeightCapsAndTheContentStillScrollsPastIt()
