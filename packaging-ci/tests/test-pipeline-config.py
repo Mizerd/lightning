@@ -1161,6 +1161,14 @@ check("unmeasurable)" in lib_src,
       "the shared assertion has a distinct unmeasurable outcome")
 check("measured NOTHING" in lib_src,
       "the shared assertion fails hard when nothing was measured")
+# AND IT READS A CRLF TRANSCRIPT. The Windows portable runs under Wine and its
+# output is CRLF, so the verdict read as `pass\r`, matched no case, and failed
+# a job whose measurement had PASSED — with a message saying the line was
+# absent while it was right there in the log above it.
+check("tr -d " in lib_src,
+      "the shared assertion strips CR before reading the verdict")
+check("does not understand" in lib_src,
+      "an unreadable verdict is reported as its own fault, not as a missing line")
 # And ONE implementation, not three. Both non-Linux validators source lib.sh.
 for script in ("smoke-windows-wine.sh", "validate-macos-artifacts.sh"):
     src = _strip_shell_comments(_read("scripts", script))

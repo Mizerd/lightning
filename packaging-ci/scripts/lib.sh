@@ -164,8 +164,14 @@ assert_queue_selftest() {
     [[ "$mode" == "soft" ]] && complain=_queue_selftest_soft_complain
     [[ -s "$log" ]] || $complain "$label: --call-queue-selftest produced no output at all"
     cat "$log"
+    # STRIP CR. The Windows portable runs under Wine and its output is CRLF,
+    # so the verdict read as `pass\r`, matched no case, and fell through to
+    # the catch-all — failing a job whose measurement had PASSED, with a
+    # message saying the line was absent when it was right there. Every other
+    # transcript this helper reads is LF; this one is not, and nothing else in
+    # the file had needed to care.
     local verdict
-    verdict="$(grep -m1 '^VERDICT: ' "$log" | awk '{print $2}')"
+    verdict="$(grep -m1 '^VERDICT: ' "$log" | tr -d '\r' | awk '{print $2}')"
     case "$verdict" in
     pass)
         echo "$label: voice-delay queue self-test VERDICT: pass (exit $status)"
@@ -181,8 +187,17 @@ assert_queue_selftest() {
         $complain "$label: --call-queue-selftest measured NOTHING. The transcript above says why. A run that could not measure is not a run that passed."
         return 1
         ;;
+    "")
+        # NO LINE AT ALL: the command never reached its own report.
+        $complain "$label: --call-queue-selftest printed no VERDICT line at all -- it crashed, hung, was not found, or is an older build. The transcript is above."
+        return 1
+        ;;
     *)
-        $complain "$label: --call-queue-selftest printed no VERDICT line at all -- it crashed, hung, or is an older build. The transcript is above."
+        # A LINE THIS HELPER CANNOT READ is a different fault from no line,
+        # and saying "no VERDICT line at all" over a transcript that plainly
+        # has one sends the next reader looking for a crash that did not
+        # happen. It cost one Windows job exactly that.
+        $complain "$label: --call-queue-selftest reported a VERDICT this check does not understand: '$verdict'. The transcript is above."
         return 1
         ;;
     esac
