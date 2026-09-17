@@ -1093,6 +1093,24 @@ for script, label in (("stage-windows-runtime.py", "the Windows stage"),
 # AND THE VALIDATORS ASK THE PAYLOAD, not the script that was supposed to fill
 # it. sctp, ximagesrc, the Qt TLS backend and the Wayland shell integration
 # were each named in a script and absent from a package.
+# THE macOS BUNDLE'S OPTIONAL JPEG PLUGIN, staged before it is required.
+#
+# The new `camera compressed (MJPG) chain:` line reported `unavailable ... no
+# element "jpegenc"` from the SHIPPED macOS bundle on its first run, so macOS
+# cameras have been taking the raw entry — the degradation Windows measures at
+# 5 fps against 30. The staging loop `die`s on a missing REQUIRED plugin and
+# macOS is allow_failure, so requiring it before proving it stages would cost
+# a release its macOS asset silently. That is pipeline 224's lesson on the
+# other platform: the entry is the half that comes second.
+_macos_stage = _strip_shell_comments(_read("scripts", "stage-macos-gstreamer.sh"))
+check("OPTIONAL_PLUGINS=(jpeg)" in _macos_stage,
+      "the macOS stage carries the JPEG plugin as OPTIONAL, not required")
+check("TO PROMOTE IT:" in _read("scripts", "stage-macos-gstreamer.sh"),
+      "the macOS stage records how that becomes required")
+_macos_required = _macos_stage.split("PLUGINS=(")[1].split(")")[0]
+check("jpeg" not in _macos_required.split(),
+      "jpeg is not in the macOS REQUIRED plugin list yet")
+
 for script, label in (("validate-windows-artifacts.sh", "the Windows validator"),
                       ("validate-appimage.sh", "the AppImage validator")):
     src = _strip_shell_comments(_read("scripts", script))

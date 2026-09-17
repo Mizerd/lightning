@@ -126,6 +126,18 @@ MAIN_BINARY="$CONTENTS/MacOS/$APP_NAME"
 #                        reachable from a pipeline description)
 #   coreelements         queue valve capsfilter fakesink identity tee funnel
 #   dtls                 dtlssrtpenc/dtlssrtpdec/dtlsenc/dtlsdec
+#   jpeg                 jpegenc/jpegdec — the camera's compressed chain. The
+#                        application DECIDES whether a camera uses it by
+#                        building `videotestsrc ! jpegenc ! <entry> !
+#                        fakesink` once per process, so jpegenc is a runtime
+#                        requirement of the decision and not only of a test.
+#                        Without it a camera falls back to the raw entry —
+#                        measured on Windows as 5 fps at 1080p against 30.
+#                        Added 2026-09-17, after the new `camera compressed
+#                        (MJPG) chain:` line in --call-media-status reported
+#                        `unavailable ... no element "jpegenc"` from the
+#                        SHIPPED macOS bundle on its very first run. Nothing
+#                        before that line could have said so.
 #   level                level — the per-participant loudness meter
 #   nice                 nicesrc/nicesink (ICE)
 #   opus                 opusenc/opusdec
@@ -150,6 +162,20 @@ PLUGINS=(
     rtp rtpmanager sctp srtp videoconvertscale videorate videotestsrc
     volume vpx webrtc webrtcdsp
 )
+
+# OPTIONAL, AND THE ORDER MATTERS — this is the Windows lesson, on the other
+# platform. `libgstjpeg.dll` was added to the Windows REQUIRED list before the
+# hand-built builder image carried it and killed pipeline 224; the rule written
+# from it is that a required entry and the thing that has to satisfy it are ONE
+# change, and the entry is the half that comes second. The loop below `die`s on
+# a missing required plugin, and macOS is `allow_failure`, so getting this
+# wrong costs the release its macOS asset silently.
+#
+# TO PROMOTE IT: once a macOS job reports `staged optional GStreamer plugin:
+# jpeg` and `camera compressed (MJPG) chain: available`, move `jpeg` into
+# PLUGINS above and add it to the required list in validate-macos-artifacts.sh
+# — both, in one change.
+OPTIONAL_PLUGINS=(jpeg)
 
 rm -rf -- "$PLUGIN_DIR" "$SUPPORT_DIR" "$CONTENTS/MacOS/gstreamer-1.0"
 mkdir -p "$PLUGIN_DIR" "$SUPPORT_DIR"
@@ -206,7 +232,20 @@ for p in "${PLUGINS[@]}"; do
     [[ -f "$src" ]] || die "GStreamer plugin not found in the SDK: $src"
     copy_thin "$src" "$PLUGIN_DIR/libgst${p}.dylib"
 done
-printf 'staged %d GStreamer plugins\n' "${#PLUGINS[@]}"
+staged_optional=0
+for p in "${OPTIONAL_PLUGINS[@]}"; do
+    src="$GST_PREFIX/lib/gstreamer-1.0/libgst${p}.dylib"
+    if [[ -f "$src" ]]; then
+        copy_thin "$src" "$PLUGIN_DIR/libgst${p}.dylib"
+        staged_optional=$((staged_optional + 1))
+        printf 'staged optional GStreamer plugin: %s\n' "$p"
+    else
+        printf 'WARNING: optional GStreamer plugin not in the SDK: %s (%s)\n' \
+            "$p" "$src" >&2
+    fi
+done
+printf 'staged %d GStreamer plugins (+%d optional)\n' \
+    "${#PLUGINS[@]}" "$staged_optional"
 
 # THE REGISTRY HELPER, which was the one piece of the runtime this script
 # deliberately left out.
@@ -270,6 +309,14 @@ printf '%s\n' "$MAIN_BINARY" >>"$work/queue"
 printf '%s\n' "$SCANNER_DEST" >>"$work/queue"
 for p in "${PLUGINS[@]}"; do
     printf '%s\n' "$PLUGIN_DIR/libgst${p}.dylib" >>"$work/queue"
+done
+# The OPTIONAL ones are seeded from what was actually staged, not from the
+# list: seeding a name that was not copied would put a non-existent file in
+# the dependency walk, and a plugin that IS copied and not walked keeps its
+# host rpaths and cannot load from the bundle at all. Either way silently.
+for p in "${OPTIONAL_PLUGINS[@]}"; do
+    [[ -f "$PLUGIN_DIR/libgst${p}.dylib" ]] \
+        && printf '%s\n' "$PLUGIN_DIR/libgst${p}.dylib" >>"$work/queue"
 done
 while [[ -s "$work/queue" ]]; do
     : >"$work/next"
