@@ -434,12 +434,12 @@
         <translation>%1 يتصل في %2</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+21"/>
         <source>Incoming call</source>
         <translation>مكالمة واردة</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+30"/>
         <source>Missed call</source>
         <translation>مكالمة فائتة</translation>
     </message>
@@ -454,7 +454,7 @@
         <translation>فاتتك مكالمة صوتية في %1</translation>
     </message>
     <message>
-        <location line="+334"/>
+        <location line="+358"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>أُنشئت الغرفة، لكن تعذّرت إضافتها إلى الفضاء.</translation>
     </message>
@@ -1828,7 +1828,7 @@
         <translation>%1، غير مقروءة</translation>
     </message>
     <message>
-        <location line="+171"/>
+        <location line="+182"/>
         <source>Remove from favourites</source>
         <translation type="unfinished">إزالة من المفضلة</translation>
     </message>
@@ -3971,24 +3971,24 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ImageViewerOverlay</name>
     <message>
-        <location filename="../qml/ImageViewerOverlay.qml" line="+264"/>
+        <location filename="../qml/ImageViewerOverlay.qml" line="+307"/>
         <source>Copy image</source>
         <translation>نسخ الصورة</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+19"/>
-        <location line="+463"/>
+        <location line="+662"/>
         <source>Save image as…</source>
         <translation>حفظ الصورة باسم…</translation>
     </message>
     <message>
-        <location line="-470"/>
+        <location line="-669"/>
         <source>Close</source>
         <translation>إغلاق</translation>
     </message>
     <message>
-        <location line="+249"/>
+        <location line="+332"/>
         <source>The image could not be loaded.</source>
         <translation>تعذّر تحميل الصورة.</translation>
     </message>
@@ -3998,12 +3998,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>إعادة المحاولة</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+24"/>
         <source>Previous image</source>
         <translation>الصورة السابقة</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+17"/>
         <source>Next image</source>
         <translation>الصورة التالية</translation>
     </message>
@@ -4018,7 +4018,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>إغلاق عارض الصور</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+110"/>
+        <source>Image %1 of %2, shown</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Image %1 of %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+37"/>
         <source>Zoom out</source>
         <translation>تصغير</translation>
     </message>
@@ -4859,7 +4869,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+601"/>
+        <location filename="../qml/MainScreen.qml" line="+651"/>
         <source>Switching account…</source>
         <translation>جارٍ تبديل الحساب…</translation>
     </message>
@@ -7082,12 +7092,12 @@ Signing out and signing in again is the only fix.</source>
     <name>NotificationManager</name>
     <message>
         <location filename="../src/notifications/NotificationManager.cpp" line="+732"/>
-        <location line="+254"/>
+        <location line="+217"/>
         <source>Open</source>
         <translation>فتح</translation>
     </message>
     <message>
-        <location line="-249"/>
+        <location line="-212"/>
         <source>Mark as read</source>
         <translation type="unfinished">تعليم كمقروءة</translation>
     </message>
@@ -7102,7 +7112,17 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+244"/>
+        <location line="+214"/>
+        <source>Join</source>
+        <translation type="unfinished">انضمام</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Answer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Decline</source>
         <translation>رفض</translation>
     </message>
@@ -7110,7 +7130,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-718"/>
+        <location line="-693"/>
         <source>Matrix room</source>
         <translation>غرفة Matrix</translation>
     </message>
@@ -14673,7 +14693,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+439"/>
+        <location filename="../qml/SpacesRail.qml" line="+489"/>
         <source>Folder: %1</source>
         <translation>مجلد: %1</translation>
     </message>
@@ -17843,7 +17863,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2426"/>
+        <location filename="../src/main.cpp" line="+2502"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>عميل Matrix أصلي بـ Qt/QML. الخلفية: --backend={mock,http,rust}. الافتراضي: rust (http في النسخ الخالية من Rust SDK).</translation>
     </message>
