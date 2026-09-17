@@ -1,5 +1,69 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-17 — the Flathub REPO lint finally ran, and its two errors are the harness
+
+The maintainer's gate is "on the vm that supports flatpak, run the full lint
+and confirm it is good for submission". `flatpak-builder-lint manifest` has
+passed for a while and is mutation-proven twice. The `builddir` and `repo`
+lints need a real sandbox build, and **three attempts produced nothing at
+all** — the third was reported here as "the build failed to produce a repo",
+which was true and unexplained.
+
+**WHY, and it is worth remembering: no session bus.** `flatpak-builder` running
+inside the `org.flatpak.Builder` sandbox resolves its sdk by running
+`flatpak info` ON THE HOST through the spawn portal (`FB: Running 'flatpak info
+--arch=x86_64 --show-commit org.kde.Sdk 6.11' on host`). That needs a session
+bus carrying `org.freedesktop.Flatpak`, and the rig container had none, so
+every build died at init with
+
+```
+Failed to init: Unable to find sdk org.kde.Sdk version 6.11
+```
+
+while `flatpak info org.kde.Sdk//6.11` in the same shell printed the ref.
+`dbus-run-session` is the entire fix — D-Bus activates the portal from
+`/usr/libexec/flatpak-portal` on its own; nothing has to be started by hand.
+
+**THE BUILD NOW RUNS END TO END** and the repo lint with it: Qt and Rust
+compile inside the sandbox from the GitHub mirror at the pinned tag, the app
+and its `.Debug` export to an OSTree repo (93.0 MB and 213.3 MB), all four
+screenshots download and land in `files/share/app-info/media`, icons export at
+six sizes plus the SVG, and the desktop file, icon and metainfo are renamed to
+the app id.
+
+**Two errors remain, and both are about the FORM of appstream media URLs, not
+about the manifest:**
+
+```
+appstream-external-screenshot-url
+appstream-remote-icon-not-mirrored
+```
+
+The evidence that this is the harness:
+
+* `flatpak-builder` passes `--media-baseurl` to `appstreamcli compose` (the
+  flag is in the binary's own strings), so the catalogue is written as
+  `<components media_baseurl="https://dl.flathub.org/media/">` plus RELATIVE
+  image paths. That is the canonical AppStream form.
+* the linter tests each `<image>` with
+  `startswith("https://dl.flathub.org/media")` and **never resolves
+  media_baseurl** — the string does not appear anywhere in
+  `flatpak_builder_lint`.
+* `--compose-url-policy=full` does not change the output.
+* REFUTED on the way: that Debian's flatpak-builder 1.4.4 and Flathub's 1.4.9
+  differ here. A full rebuild under 1.4.9 produced exactly the same two errors.
+* The screenshots themselves ARE mirrored — the files are in
+  `app-info/media` — so what differs is the spelling in the catalogue, not
+  whether the mirroring happened.
+
+**What is NOT established**: that every locally built app hits this. The
+control that would settle it is a second app built the same way; the one free
+control available (`org.flatpak.Builder`'s own installed tree) has no
+screenshots at all, so its clean result says nothing. Until that is done, the
+honest status is: **manifest lint PASS; repo lint runs and every content check
+in it passes, with two URL-form errors whose cause is identified and whose
+ownership is not.** It is not a full green and is not reported as one.
+
 ## 2026-09-17 — voice delay: PASS on Linux for the NUMBER, NOT TESTED everywhere else
 
 The maintainer requires a delay claim to hold on **three platforms, Windows

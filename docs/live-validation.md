@@ -49,6 +49,54 @@ MJPG chain that 0.9.8 newly takes builds, negotiates `image/jpeg`, delivers
 frames and encodes them, and the application does not fall back or fail. The
 picture itself is NOT TESTED on either chain.
 
+## 2026-09-17 — THE QUEUE PROPERTY, MEASURED WITH A CONTROL: 900 ms, and it is permanent
+
+**PASS on Linux, from `--call-queue-selftest`.** This is the entry that
+replaces the retracted half of the acoustic run below. It measures the property
+the voice-delay claim is ABOUT — a live queue does not accumulate latency it
+cannot give back — rather than an end-to-end number that depends on a rig.
+
+Dev-shell build, GStreamer 1.26.11, one command, about thirty seconds:
+
+| queue | peak while starved | consumer back at REAL TIME | consumer let run free |
+|---|---|---|---|
+| `queue max-size-buffers=4 leaky=downstream` | 40 ms | 40 ms | 0 ms |
+| `queue max-size-time=100000000 leaky=downstream` | 100 ms | 90 ms | 0 ms |
+| **CONTROL** `queue` (GStreamer's default) | **1000 ms** | **1000 ms** | 0 ms |
+
+**The third column is the whole result.** A live source produces one second of
+audio per second, so a consumer that merely KEEPS UP can never give back what
+it fell behind by — and a plain `queue` is still holding its full second there.
+That 900 ms difference is what this project has asserted in a source comment
+since 2026-09-16 and had never demonstrated. The fourth column is the consumer
+running FASTER than real time, which nothing in a call can do; a queue that
+only drains in that column has shown nothing, which is why the column exists.
+
+Three properties make this evidence rather than decoration, and each answers a
+specific objection raised against the acoustic run:
+
+* **it tests the string production builds.** The queue specifications are read
+  out of what `videoPipelineDescription()` returns, not written out again
+  beside it. `docs/round-history.md` records three separate occasions where a
+  test composed something *resembling* what production composes and passed on
+  a feature that had never worked.
+* **it starves the CONSUMER.** The defect is the encoder falling behind the
+  capture, a relative rate difference. `SIGSTOP` — the acoustic run's method —
+  freezes producer and consumer TOGETHER, so no backlog can form by that
+  mechanism at all and a flat result is consistent with the fix working and
+  with nothing ever entering the queue. `identity sleep-time` slows one end.
+* **it carries its own negative control**, in the same run on the same machine.
+
+NOT COVERED, and said plainly. This is a PROPERTY of the queues, not a
+mouth-to-ear latency: it does not measure the network, the SFU, the jitter
+buffer or the far end, and it cannot replace an acoustic number for "how long
+until the other person hears me". The receive-side queues are built inside a
+member function and cannot be read out here, so the command covers the two
+publish-path specs; the source sweep `everyLiveQueueIsBoundedAndLeaky` covers
+all seven statically. And the run above is a DEV-SHELL BUILD — the same command
+against Windows, macOS and Linux PACKAGES is what the maintainer's three-
+platform bar asks for, and is recorded separately when those artifacts exist.
+
 ## 2026-09-17 — VOICE DELAY on Linux: a number, and NOT a proof of the queue fix
 
 **PASS for "the delay is about a quarter of a second and does not grow after a

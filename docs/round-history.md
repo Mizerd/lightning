@@ -1,5 +1,151 @@
 # Round history
 
+## 2026-09-17 — the review round: four claims withdrawn, six queues found, and voice delay made askable of a package
+
+An independent read-only review of the 0.9.8 tree, asked for the handoff it
+would normally get and told to be hard about it. It returned
+CHANGES_REQUESTED. Everything below came out of it; nothing here was found by
+using the application.
+
+### What it found in the tree
+
+**SIX OF THE SEVEN QUEUES IN THE MEDIA ENGINE WERE UNBOUNDED, in the file whose
+comment says in capitals that a default queue holds one second.** 0.9.7 bounded
+the audio capture queue after a report of ~1 s of extra delay in one direction,
+and stopped there. Three of the six were live paths: the tee branch feeding
+`vp8enc` (the element measured at 2.6 cores sustained on a 4K share, so the one
+most able to fall behind, and it holds RAW frames — a second of 1280x720 RGBA
+is ~110 MB), and BOTH receive queues, which are on the side where a listener
+actually experiences delay. The measurement that "proved" the send-side fix
+could not have seen them; it was taken on the audio send path. Fixed in
+`161b04c`, with a SWEEP rather than seven assertions so the eighth queue cannot
+be forgotten.
+
+**THE BADGE FIX FROM THE NIGHT BEFORE HAD THE OPPOSITE HOLE.** `2b6f6ce`
+replaced "badge on the first undecryptable frame" with "badge on fifty
+consecutive failures", and a consecutive run is reset by ANY good frame — so a
+stream delivering one usable frame in every fifty never badges at all. The
+first version badged on one bad frame; the second could badge on none, on a
+security-adjacent E2EE indicator. It is a failure RATE over a sliding window
+now, raised at 90% and cleared at 25% so it cannot flap, as a PURE STRUCT on
+SfuMediaEngine — because what made both wrong answers invisible is that every
+existing test over that probe asserts LOG LINES, and the log lines did not
+change in either revision (`76b640a`).
+
+**AND THAT FIX ASSERTED A ROOT CAUSE ITS INSTRUMENT COULD NOT SEE.** Its commit
+message and source comment both stated that the one bad frame in 3101 came from
+a media-key rotation leaving frames in flight. The evidence was
+`decrypt failed count= 1 passed= 3101`, and that line cannot identify a
+rotation: `decryptFrame` returned an empty QByteArray for SIX distinct faults
+and the probe saw only `isEmpty()`. The design argues against the stated cause
+too — the cryptor keeps a 16-slot ring and rotation advances by one, so the
+previous key is still installed. Claim withdrawn; `DecryptFailure` names which
+of the six it was, with the key index, so the next live call answers it.
+
+**A GATE WRITTEN THE NIGHT BEFORE WOULD HAVE FAILED ON RELEASE NIGHT, TWICE.**
+`test-flathub-manifest-pin.py` landed after the release commit, so its FIRST
+EVER EXECUTION would have been the release pipeline — the shape this guide
+records three times, and the shape that killed 223 and 224. With no tags in the
+clone (a shallow CI fetch) its predicate collapsed to `tag == pending` and a
+correct pin failed. And after the tag landed, the allowed set became
+{v0.9.8} while the manifest still said v0.9.7, so every pipeline failed until
+the re-pin — a window that is structural, because a release commit cannot pin
+its own sha (`ea4432e`).
+
+**`jpegenc` was never probed in the Windows package** although the app decides
+whether a camera takes the compressed path by BUILDING a chain through it
+(`763493e`). Same shape as `libgstsctp-1.0-0.dll` present while `sctpenc` was
+missing.
+
+### Four claims withdrawn
+
+Detail in `docs/live-validation.md` and `docs/releases/v0.9.8.md`; in short:
+"and renders" on the 0.9.8 camera (a changed stage region is not a picture, and
+ON was DARKER than OFF, which is also the no-picture signature); "the queue fix
+proven on a shipped binary" (the unfixed binary was never run); "both packages
+were checked by running them" (a Wine registry probe proves an element
+REGISTERS); and "interoperability, measured" (twelve legs claimed, six carry a
+number — a tone cannot measure a screen share).
+
+### Two claims that got STRONGER on the same read
+
+The Windows camera's encode half was being inferred from the capture counter,
+which sits on `capsrc`'s src pad — upstream of `jpegdec`, the scaler and the
+encoder — so it could only ever say what the CAMERA produced. The failing
+session's own log carries the real line: `publish first encoded frame
+screenShare= false afterPublishMs= 894 firstCaptureMs= 786`, on the publishing
+bin's encoder pad, with the encrypt probe on that same pad then climbing past
+6500 while the capture counter reached 2000 (the rate stage duplicating a
+10 fps capture up to the pinned 30). So `jpegdec` — the newest and least
+exercised element in that chain — is exonerated, and the search narrows onto
+getting a decoded frame onto a surface.
+
+### And the blocker was replaced rather than documented
+
+**`--call-queue-selftest`** (`88c5668`). Voice delay had only ever been measured
+acoustically, which needs two machines, a sound card and a rig — hence Linux
+only, hence a Windows guest that could not be measured at all (no sound card;
+RDP playback drifting 291 -> 545 ms, larger than the effect), hence a bar of
+three platforms that could not be met that way.
+
+One command asks the property directly, with no GUI, account, homeserver, sound
+card or second machine, against a PACKAGE:
+
+  SHIPPED queue max-size-buffers=4 leaky=downstream
+      peak while starved 40 ms    at realtime 40 ms    free 0 ms
+  SHIPPED queue max-size-time=100000000 leaky=downstream
+      peak while starved 100 ms   at realtime 90 ms    free 0 ms
+  CONTROL queue
+      peak while starved 1000 ms  at realtime 1000 ms  free 0 ms
+
+Three things make that evidence. The specs are read out of the description
+`videoPipelineDescription()` produces, so it cannot test a string that merely
+RESEMBLES production's — this file has shipped that mistake three times. It
+STARVES THE CONSUMER with `identity sleep-time`, which is the defect's own
+mechanism and the thing `SIGSTOP` cannot do (freezing stops producer and
+consumer together, so no backlog forms and a flat result means nothing). And it
+runs a plain `queue` beside each one as a CONTROL in the same run.
+
+The phase that decides it is the third: the consumer is restored to REAL TIME,
+which is all a live encoder ever gets. A live source makes one second of audio
+per second, so a consumer that merely keeps up can never give back what it fell
+behind by. **The default still holds its full second there.** That 900 ms is
+the number this project has asserted in a source comment since 2026-09-16 and
+never demonstrated.
+
+### The Flathub repo lint ran for the first time, and what stopped it was a session bus
+
+Three attempts produced nothing and the third was reported as "the build failed
+to produce a repo". The cause: `flatpak-builder` inside the `org.flatpak.Builder`
+sandbox resolves its sdk by running `flatpak info` ON THE HOST through the spawn
+portal, which needs a session bus carrying `org.freedesktop.Flatpak`. The rig
+container has none, so every build died at init on "Unable to find sdk
+org.kde.Sdk version 6.11" — while `flatpak info org.kde.Sdk//6.11` in the same
+shell printed the ref. `dbus-run-session` is the entire fix; D-Bus activates the
+portal from `/usr/libexec/flatpak-portal` by itself.
+
+REFUTED on the way, and recorded rather than dropped: that Debian's
+flatpak-builder 1.4.4 and Flathub's 1.4.9 differ here. A full rebuild under
+1.4.9 produced the same two errors.
+
+Two smaller traps paid for: `cmd | tail` makes `$?` the status of tail (it
+reported `builder rc=0` over a build that never started — use `PIPESTATUS`), and
+the flatpak sandbox maps host uid 1000 to nobody, so a work directory owned by
+the host user is read-only inside it.
+
+### Mistakes made in this round
+
+**`git checkout --` to undo a mutation test also discarded the real work in the
+same file.** The header carrying `BlockedRunPolicy` was reverted to HEAD along
+with a two-constant mutation, and had to be written again. Mutate a COPY, or
+back the file up first — `cp` before, `cp` back after, never `git checkout`.
+
+**A source sweep matched C++.** `everyLiveQueueIsBoundedAndLeaky` looked for
+`\bqueue\s` and reported `queue = gst_bin_get_by_name(...)` as an unbounded
+pipeline queue the moment the self-test gave the file a variable of that name.
+A pipeline queue is followed by a pad separator or by one of its own
+properties; the regex says so now.
+
 ## 2026-09-16 (afternoon) — the call nobody could hear, and four instruments that could not have found it
 
 **Reported:** "calls used to work fine and dandy, now they stink — i hear myself
