@@ -1083,10 +1083,28 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     && m_settings->notificationSound()
                         != 0 /* SoundOff */;
                 m_announcedCallId = callId;
+                // Whether the card offers an answer is decided HERE, from the
+                // same sources IncomingCallPrompt reads, and passed down —
+                // the notification never forms its own opinion. A button
+                // labelled Answer that cannot answer is worse than no button.
+                const bool rtcLane = m_calls->rtcRing();
+                // AND THE ANSWER IS USUALLY NOT KNOWN YET. An RTC ring names
+                // a room nothing has necessarily asked about, and the join
+                // gate needs a session read that is dispatched
+                // asynchronously — so at this instant it is normally closed.
+                // Kick the read the card would kick, and let the
+                // sessionChanged handler below open the button when it lands.
+                // Without this the Answer button would never appear in the
+                // one situation the feature exists for: app in the
+                // background, room not open.
+                if (rtcLane)
+                    m_rtc->refresh(roomId);
+                const bool acceptOffered = callAcceptOffered(roomId, rtcLane);
                 m_notifications->showIncomingCall(
                     roomId, callId, tr("Incoming call"), body, sound,
                     static_cast<int>(qBound<qint64>(
-                        qint64(5), remainingMs / 1000, qint64(300))));
+                        qint64(5), remainingMs / 1000, qint64(300))),
+                    acceptOffered, rtcLane);
             });
     connect(m_calls.get(), &CallController::incomingCallEnded, this,
             [this](const QString &roomId, const QString &callId,
@@ -1127,6 +1145,75 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this](const QString &callId) {
                 if (m_calls->activeCallId() == callId)
                     m_calls->rejectIncoming();
+            });
+    // THE JOIN GATE OPENS LATE, SO THE CARD HAS TO BE TOLD.
+    //
+    // `refresh()` above dispatches a session read and returns; the answer
+    // arrives here. While the same call is still ringing, redraw the card
+    // with the gate as it now stands — `setCallAcceptOffered` replaces the
+    // notification in place and deliberately does NOT touch the ring
+    // deadline, so a late answer never extends the ring.
+    connect(m_rtc.get(), &RtcController::sessionChanged, this,
+            [this](const QString &roomId) {
+                const QString callId = m_calls->activeCallId();
+                if (callId.isEmpty() || callId != m_announcedCallId)
+                    return;
+                if (roomId.isEmpty() || roomId != m_calls->activeRoomId())
+                    return;
+                const bool rtcLane = m_calls->rtcRing();
+                m_notifications->setCallAcceptOffered(
+                    callId, callAcceptOffered(roomId, rtcLane), rtcLane);
+            });
+    // ANSWERING FROM THE NOTIFICATION, and it has to pick the lane.
+    //
+    // `incomingCallStarted` is emitted from two places — the legacy
+    // `m.call.invite` path and the MatrixRTC one — and they are answered by
+    // DIFFERENT code. `CallController::answer()` refuses an RTC ring outright
+    // with `rtc_unsupported`, so a naive accept -> answer() would do nothing
+    // for the common case, which is exactly the "this accept does nothing"
+    // report IncomingCallPrompt was written to kill.
+    //
+    // The room is opened BEFORE acting, deliberately: if the join is refused
+    // the user is already looking at the card that can say why, instead of
+    // pressing a button that fails silently somewhere they cannot see.
+    connect(m_notifications.get(),
+            &NotificationManager::callAcceptRequested, this,
+            [this](const QString &callId) {
+                if (m_calls->activeCallId() != callId)
+                    return;
+                const QString roomId = m_calls->activeRoomId();
+                routeNotificationOpen(roomId, QString(), QString());
+                // BOTH RETURNS ARE READ. IncomingCallPrompt's Accept reads
+                // answer()'s bool and says why: "discarding it is what made a
+                // refusal indistinguishable from a dead button". The same is
+                // true here and worse — the card has already been retired, so
+                // a silent refusal leaves the user in an open room with no
+                // ring, no explanation and nothing to press.
+                //
+                // `acceptOffered` being true does not promise success:
+                // `no_remote_offer` is a timing condition no predicate can
+                // see in advance, and the RTC join can still be refused by
+                // state that moved between the ring and the press.
+                const bool rtcLane = m_calls->rtcRing();
+                const bool ok = rtcLane
+                    ? m_groupCall->join(roomId, /*withVideo=*/false)
+                    : m_calls->answer();
+                if (ok) {
+                    qCInfo(lcApp) << "notification accept lane="
+                                  << (rtcLane ? "matrixrtc" : "legacy")
+                                  << "ok= true";
+                } else {
+                    // The room is already open, so the in-room surfaces are
+                    // what the user sees next. This line is what makes the
+                    // difference askable when they report "I pressed Answer
+                    // and nothing happened".
+                    qCWarning(lcApp) << "notification accept REFUSED lane="
+                                     << (rtcLane ? "matrixrtc" : "legacy")
+                                     << "refusal="
+                                     << (rtcLane
+                                             ? m_rtc->joinBlockReason(roomId)
+                                             : m_calls->lastRefusal());
+                }
             });
     m_pinned->setClient(m_client.get());
     m_roomUpgrade->setClient(m_client.get());
@@ -3537,6 +3624,29 @@ void AppController::applyControlPalette(const QVariantMap &roles)
 // the QML handler: it then covers the Activity Center row as well, which
 // routes through the same signal, and the QML assignment that follows becomes
 // a no-op (same value, setCurrentRoomId early-returns).
+bool AppController::callAcceptOffered(const QString &roomId,
+                                      bool rtcLane) const
+{
+    if (roomId.isEmpty())
+        return false;
+    if (!rtcLane) {
+        // The legacy lane's gate, matching IncomingCallPrompt's
+        // `legacyAcceptOffered`. Note this is necessary and not sufficient:
+        // answer() can still refuse with `no_remote_offer`, which is a timing
+        // condition no predicate can see in advance.
+        return m_calls && m_calls->mediaBackendAvailable();
+    }
+    // The MatrixRTC gate, matching the card's `canJoinRtc`: a transport must
+    // be reachable for that room, and this device must not already be in the
+    // call — joining one you are in is meaningless, and the controls are
+    // already up elsewhere.
+    if (!m_rtc || !m_groupCall)
+        return false;
+    if (!m_rtc->joinBlockReason(roomId).isEmpty())
+        return false;
+    return !(m_groupCall->active() && m_groupCall->roomId() == roomId);
+}
+
 void AppController::routeNotificationOpen(const QString &roomId,
                                           const QString &eventId,
                                           const QString &threadRootId)

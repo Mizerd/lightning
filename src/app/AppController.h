@@ -1341,6 +1341,16 @@ private:
     // and then re-emits notificationOpenRequested for the QML half — the
     // window raise, the thread panel and the jump to the event. See the
     // definition for what selecting-without-opening did.
+    /// Whether the incoming-call notification may offer to answer.
+    ///
+    /// ONE computation, two callers — the raise site and the late update that
+    /// follows an RTC session read. The surfaces that already answer this
+    /// question (IncomingCallPrompt, RoomCallBanner, CallEventDelegate) share
+    /// one gate for a reason their own comment states: "a second opinion
+    /// about whether a call is joinable is exactly the drift those two
+    /// already guard against". Two copies here would have been a fifth and a
+    /// sixth.
+    bool callAcceptOffered(const QString &roomId, bool rtcLane) const;
     void routeNotificationOpen(const QString &roomId, const QString &eventId,
                                const QString &threadRootId);
     void setCurrentScreen(Screen s);

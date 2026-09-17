@@ -497,6 +497,87 @@ private Q_SLOTS:
         QCOMPARE(manager.activeCallIdForTest(), QString());
     }
 
+    // THE CALL CARD OFFERS AN ANSWER, AND THE WHOLE LIST IS PINNED.
+    //
+    // From 2026-08-18 to 2026-09-17 the incoming-call notification carried
+    // Open and Decline and nothing else — the one notification whose entire
+    // purpose is a decision made in seconds could only be used to say no.
+    // A registered, passing notification suite never noticed, and the reason
+    // is structural: the action list was a literal built inline INSIDE the
+    // Notify() call, this suite runs with no daemon so Notify() never
+    // executes, and nothing could observe what the card offered. Extracting
+    // `callActions` is what makes the contract testable at all.
+    //
+    // Asserting the EXACT list, not `contains("accept")`: CLAUDE.md records
+    // the same lesson from three separate defects — a check that can come
+    // back silently short is the defect, not its symptom.
+    void theCallCardOffersAnswerAndDecline()
+    {
+        // MatrixRTC ring: the verb is Join, because an RTC call belongs to
+        // the room and may already be in progress.
+        QCOMPARE(NotificationManager::callActions(/*acceptOffered=*/true,
+                                                  /*rtcLane=*/true),
+                 (QStringList{ QStringLiteral("default"), QObject::tr("Open"),
+                               QStringLiteral("accept"), QObject::tr("Join"),
+                               QStringLiteral("decline"),
+                               QObject::tr("Decline") }));
+        // Legacy 1:1 invite: the verb is Answer.
+        QCOMPARE(NotificationManager::callActions(true, /*rtcLane=*/false),
+                 (QStringList{ QStringLiteral("default"), QObject::tr("Open"),
+                               QStringLiteral("accept"),
+                               QObject::tr("Answer"),
+                               QStringLiteral("decline"),
+                               QObject::tr("Decline") }));
+        // Not answerable — no media backend, or the join is blocked. NO
+        // accept key at all, because a button labelled Answer that cannot
+        // answer is the "this accept does nothing" report all over again.
+        QCOMPARE(NotificationManager::callActions(/*acceptOffered=*/false,
+                                                  false),
+                 (QStringList{ QStringLiteral("default"), QObject::tr("Open"),
+                               QStringLiteral("decline"),
+                               QObject::tr("Decline") }));
+        // Decline is LAST in every shape: the destructive action is the one
+        // a mis-aimed click must be least likely to reach.
+        for (bool offered : { true, false }) {
+            for (bool rtc : { true, false }) {
+                const QStringList a =
+                    NotificationManager::callActions(offered, rtc);
+                QCOMPARE(a.at(a.size() - 2), QStringLiteral("decline"));
+            }
+        }
+    }
+
+    // Mirrors declineActionMatchesTheDeliveredId exactly, because the two
+    // actions must agree about WHICH card they belong to: an action arriving
+    // for a stale notification id would answer a call the user is no longer
+    // being offered.
+    void acceptActionMatchesTheDeliveredId()
+    {
+        NotificationManager manager;
+        QSignalSpy accepted(&manager,
+                            &NotificationManager::callAcceptRequested);
+        manager.showIncomingCall(QStringLiteral("!r:x"),
+                                 QStringLiteral("call-1"),
+                                 QStringLiteral("Incoming call"),
+                                 QStringLiteral("body"), true, 60,
+                                 /*acceptOffered=*/true, /*rtcLane=*/true);
+        manager.setActiveCallNotificationIdForTest(42);
+        QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                  Q_ARG(quint32, 7u),
+                                  Q_ARG(QString, QStringLiteral("accept")));
+        QCOMPARE(accepted.count(), 0);
+        QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                  Q_ARG(quint32, 42u),
+                                  Q_ARG(QString, QStringLiteral("accept")));
+        QCOMPARE(accepted.count(), 1);
+        QCOMPARE(accepted.first().at(0).toString(),
+                 QStringLiteral("call-1"));
+        // Retired BEFORE the signal, like decline: answering ends the ring,
+        // and a re-delivery racing the answer would put a dead card back up.
+        QVERIFY(!manager.callRingActiveForTest());
+        QCOMPARE(manager.activeCallIdForTest(), QString());
+    }
+
     void declineActionMatchesTheDeliveredId()
     {
         NotificationManager manager;

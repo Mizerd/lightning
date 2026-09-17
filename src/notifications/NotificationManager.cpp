@@ -843,6 +843,25 @@ void NotificationManager::emitOpenFor(const QVariantMap &payload)
 
 void NotificationManager::onActionInvoked(quint32 id, const QString &action)
 {
+    // Mirrors the decline branch below exactly, including the id check: an
+    // action can only arrive for the card that is CURRENTLY showing, or a
+    // stale notification from a previous call would answer this one.
+    //
+    // Guard-neutral: onActionInvoked sits outside every HAVE_QT_DBUS block
+    // and names no D-Bus type, so this compiles on Windows and macOS. It
+    // simply never fires there, because nothing delivers a card with buttons.
+    if (action == QLatin1String("accept")) {
+        if (id != 0 && id == m_activeCallNotificationId
+            && !m_activeCallId.isEmpty()) {
+            const QString callId = m_activeCallId;
+            // Retire the card BEFORE emitting: answering ends the ring, and
+            // a re-delivery racing the answer would put a dead card back on
+            // screen. Same ordering the decline path uses.
+            stopIncomingCall(callId);
+            Q_EMIT callAcceptRequested(callId);
+        }
+        return;
+    }
     if (action == QLatin1String("decline")) {
         if (id != 0 && id == m_activeCallNotificationId
             && !m_activeCallId.isEmpty()) {
@@ -925,11 +944,47 @@ void NotificationManager::onNotificationClosed(quint32 id, quint32 reason)
     forgetPayload(id);
 }
 
+QStringList NotificationManager::callActions(bool acceptOffered, bool rtcLane)
+{
+    QStringList actions{ QStringLiteral("default"), tr("Open") };
+    if (acceptOffered) {
+        // The verb follows the lane, exactly as IncomingCallPrompt's buttons
+        // do: a MatrixRTC ring is JOINED (it is a room's call, possibly
+        // already in progress), a legacy 1:1 invite is ANSWERED. Saying
+        // "Answer" for an RTC ring would be the same small lie the body text
+        // still tells, and this is the half that is a button.
+        actions << QStringLiteral("accept")
+                << (rtcLane ? tr("Join") : tr("Answer"));
+    }
+    // Decline stays LAST. The destructive action is the one a mis-aimed click
+    // must be least likely to hit, and on every daemon these render left to
+    // right in the order given.
+    actions << QStringLiteral("decline") << tr("Decline");
+    return actions;
+}
+
+void NotificationManager::setCallAcceptOffered(const QString &callId,
+                                               bool offered, bool rtcLane)
+{
+    if (callId.isEmpty() || m_activeCallId != callId)
+        return;
+    if (m_activeCallAcceptOffered == offered
+        && m_activeCallRtcLane == rtcLane) {
+        return;
+    }
+    m_activeCallAcceptOffered = offered;
+    m_activeCallRtcLane = rtcLane;
+    // Redraw only. The deadline and the ring timer are untouched on purpose —
+    // see the header.
+    deliverCallNotification();
+}
+
 void NotificationManager::showIncomingCall(const QString &roomId,
                                            const QString &callId,
                                            const QString &title,
                                            const QString &safeBody,
-                                           bool sound, int ringSeconds)
+                                           bool sound, int ringSeconds,
+                                           bool acceptOffered, bool rtcLane)
 {
     if (callId.isEmpty())
         return;
@@ -941,6 +996,8 @@ void NotificationManager::showIncomingCall(const QString &roomId,
     m_activeCallTitle = title;
     m_activeCallBody = safeBody;
     m_activeCallSound = sound;
+    m_activeCallAcceptOffered = acceptOffered;
+    m_activeCallRtcLane = rtcLane;
     m_callRingDeadlineMs = QDateTime::currentMSecsSinceEpoch()
         + qint64(qBound(5, ringSeconds, 300)) * 1000;
     deliverCallNotification();
@@ -965,6 +1022,14 @@ void NotificationManager::stopIncomingCall(const QString &callId)
     }
 #endif
     m_activeCallNotificationId = 0;
+    // Reset with the rest of the m_activeCall* family. showIncomingCall()
+    // assigns both on every raise, so nothing depends on this today — but
+    // they are the only two fields in that family that a caller may leave to
+    // a DEFAULT (`acceptOffered = false, rtcLane = false`), and a field whose
+    // correctness rests on "every caller happens to set it" is one caller
+    // away from being wrong.
+    m_activeCallAcceptOffered = false;
+    m_activeCallRtcLane = false;
     m_activeCallId.clear();
     m_activeCallRoomId.clear();
     m_activeCallTitle.clear();
@@ -983,8 +1048,8 @@ void NotificationManager::deliverCallNotification()
         qCInfo(lcNotify) << "notification service unavailable";
         return;
     }
-    const QStringList actions{ QStringLiteral("default"), tr("Open"),
-                               QStringLiteral("decline"), tr("Decline") };
+    const QStringList actions = callActions(m_activeCallAcceptOffered,
+                                            m_activeCallRtcLane);
     const NotificationIdentity identity = notificationIdentity();
     QVariantMap hints{
         { QStringLiteral("desktop-entry"), identity.desktopEntry },

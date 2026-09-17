@@ -142,16 +142,59 @@ public:
                      const QString &roomId = QString(),
                      const QString &avatarMxc = QString());
 
-    // 2026-08-18 round 2: incoming voice call. One notification with a
-    // Decline action; while ringing it is re-delivered every few seconds
-    // (replacing itself) so the themed call sound repeats — the closest
-    // honest "ring" the freedesktop notification API offers, since
-    // Lightning bundles no audio and plays none itself. `sound` false
-    // shows a silent card (ringForCalls off / sound mode off). Bounded by
-    // `ringSeconds`, and stopped by stopIncomingCall().
+    // 2026-08-18 round 2: incoming voice call. While ringing it is
+    // re-delivered every few seconds (replacing itself) so the themed call
+    // sound repeats — the closest honest "ring" the freedesktop notification
+    // API offers, since Lightning bundles no audio and plays none itself.
+    // `sound` false shows a silent card (ringForCalls off / sound mode off).
+    // Bounded by `ringSeconds`, and stopped by stopIncomingCall().
+    //
+    // 2026-09-17: it offers ANSWERING, which it never did. The card carried
+    // Open and Decline and nothing else from the day it was written, so the
+    // one notification whose whole purpose is a decision you make in seconds
+    // could only ever be used to say no.
+    //
+    // `acceptOffered` and `rtcLane` are INPUTS rather than things this class
+    // works out, and deliberately so. Whether a call can be answered is a
+    // question with one answer and several askers — IncomingCallPrompt,
+    // RoomCallBanner and CallEventDelegate already share one gate, and that
+    // file's own comment warns that "a second opinion about whether a call is
+    // joinable is exactly the drift those two already guard against". A
+    // notification that computed its own would be the fourth opinion. The
+    // caller that already knows passes the answer down.
     void showIncomingCall(const QString &roomId, const QString &callId,
                           const QString &title, const QString &safeBody,
-                          bool sound, int ringSeconds);
+                          bool sound, int ringSeconds,
+                          bool acceptOffered = false, bool rtcLane = false);
+
+    /// The action list the freedesktop card is delivered with.
+    ///
+    /// Static and public ONLY so it can be tested. It used to be a literal
+    /// built inline inside the Notify() call, which made it structurally
+    /// unobservable: the test suite runs with no daemon, so Notify() never
+    /// executes, and nothing anywhere could see what the card offered. That
+    /// is how a call notification with no way to answer survived from
+    /// 2026-08-18 to 2026-09-17 with a registered, passing notification
+    /// suite. Pin the WHOLE list, not the presence of one key.
+    static QStringList callActions(bool acceptOffered, bool rtcLane);
+    /// Update whether the showing call card offers an answer, and redraw it.
+    ///
+    /// THE GATE IS NOT KNOWN WHEN THE CARD IS FIRST RAISED, and that is not a
+    /// timing accident — it is the normal case. A MatrixRTC ring names a room
+    /// nothing has necessarily asked about, and whether it can be joined
+    /// depends on a session read that is dispatched asynchronously. Computing
+    /// the answer during the ring and storing it means computing it before
+    /// anything could know, so the button would never appear precisely when
+    /// the feature matters: app in the background, room not open.
+    ///
+    /// Deliberately NOT showIncomingCall() again: that resets the ring
+    /// deadline and restarts the sound timer, so a late answer would extend
+    /// the ring every time it arrived. This only redraws (the freedesktop
+    /// card is replaced in place by id) and leaves the deadline alone. A
+    /// mismatched or absent call id is a no-op.
+    void setCallAcceptOffered(const QString &callId, bool offered,
+                              bool rtcLane);
+
     // Retire the incoming-call notification (call ended or was handled on
     // another device). Safe to call when nothing is showing.
     void stopIncomingCall(const QString &callId);
@@ -214,6 +257,13 @@ Q_SIGNALS:
                        const QString &threadRootId);
     // The user pressed Decline on the incoming-call notification.
     void callDeclineRequested(const QString &callId);
+    /// The user pressed Answer/Join on the incoming-call notification.
+    ///
+    /// Unconditional, like every other signal here: signals name no D-Bus
+    /// type, so they compile on Windows and macOS where the delivery that
+    /// raises them does not. Keeping them outside the guard is what stops
+    /// this header becoming the next `QDBusReply does not name a type`.
+    void callAcceptRequested(const QString &callId);
     // v0.9.0 notification actions. Both carry the ACCOUNT the notification
     // was raised for, because a desktop notification outlives the account
     // that produced it: the user can switch accounts, or sign out entirely,
@@ -320,6 +370,9 @@ private:
     QString m_activeCallTitle;
     QString m_activeCallBody;
     bool m_activeCallSound = false;
+    // Passed in by the raise site, never derived here — see showIncomingCall.
+    bool m_activeCallAcceptOffered = false;
+    bool m_activeCallRtcLane = false;
     quint32 m_activeCallNotificationId = 0;
     qint64 m_callRingDeadlineMs = 0;
     QTimer m_callRingTimer;
