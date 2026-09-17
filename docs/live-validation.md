@@ -116,11 +116,11 @@ a stream, then clean for ever — is frames arriving before that sender's key is
 installed, which is `no-key-for-index` and NOT "the two ends hold different
 keys", the sentence the 0.9.7 log prints there. Both are fixed in the tree.
 
-## 2026-09-17 — THE LEVEL METER LOGS FROM A PACKAGE AT LAST, and it was printing a sentinel
+## 2026-09-17 — THE LEVEL METER LOGS FROM A PACKAGE AT LAST (and -350 dBFS is correct)
 
-**PASS for "a published package logs a microphone level and raises the silence
-warning", FAIL for the VALUES it printed** — and the second half is a defect
-that only running a package could have found.
+**PASS.** A published package logs a microphone level and raises the silence
+warning — the 0.9.7 promise no shipped package could keep, and the claim
+0.9.8's notes are built on.
 
 The 0.9.8 Windows portable, unpacked in the guest, session migrated from the
 0.9.7 portable's own data directory (so no password was typed anywhere — see
@@ -135,29 +135,32 @@ THE MICROPHONE IS CAPTURING NOTHING: peak has stayed at or below -60 dBFS
 for 10 s while unmuted
 ```
 
-So the element registers, the meter reports, and the silence warning fires —
-which is the 0.9.7 promise that no shipped package could keep and the claim
-0.9.8's notes are built on. **That half is confirmed, on Windows, from a
-package.**
+The element registers, the meter reports, and the silence warning fires. The
+guest's only microphone is an RDP endpoint with nothing playing into it, so
+the capture really was silent and the warning really was correct.
 
-**-350 dBFS IS NOT A MEASUREMENT.** 16-bit audio floors near -96; -350 is the
-bus handler's starting sentinel, surviving because the parser could not read
-the `level` element's peaks at all. `level` posts its per-channel peaks as a
-**GValueArray** in some GStreamer versions and as a **GstValueArray** in
-others, and only the first spelling was read. The Windows package bundles
-1.28.5; the dev shell has 1.26.11 — which is exactly why every local run
-looked healthy. Same family as `msid`, `min-buffers` and Qt 6.8's
-`roleNames()`.
+**AND -350 dBFS IS THE RIGHT ANSWER, WHICH I GOT WRONG FIRST.** 16-bit audio
+floors near -96, so -350 looked impossible, and it matches the value the bus
+handler starts each message at — so it was read as "the parser failed" and a
+guard was written to ignore any reading that low. Then it was measured:
 
-And it is worse than a wrong number: -350 is BELOW the -60 dBFS silence
-ceiling, so the sentinel would drive "your microphone is capturing nothing" on
-evidence that says only "this build could not ask". Both halves are fixed in
-the tree (`dba55ac7`): both spellings are read, a third would be named once
-with its type, and an unreadable level updates NOTHING.
+```
+gst-launch-1.0 audiotestsrc wave=silence ! level
+  -> peak=(GValueArray)< -349.99999992181608 >
+```
 
-**NOT YET CONFIRMED: that the fix reports real values on 1.28.5.** That needs
-a package built from the fix, and is recorded when one exists. The 0.9.8
-package measured above has the defect.
+That is the ELEMENT'S OWN FLOOR for true digital silence, which is exactly the
+condition the silence warning exists for. The guard would have made that
+warning unreachable for a genuinely dead microphone while leaving it working
+for a merely quiet room — the precise inversion of the feature. It was
+withdrawn before it shipped, and the starting value was -350 on purpose all
+along.
+
+**GENERALISE: a value that looks impossible for the SIGNAL may be exactly what
+the INSTRUMENT emits at its limit.** Ask the instrument before calling its
+output a bug. What survives in the tree is a fallback for a GstValueArray
+spelling no runtime has been seen using, labelled as such, plus a line that
+names the type once if a third ever appears.
 
 ## 2026-09-17 — VOICE DELAY ON REAL WINDOWS, from the shipped 0.9.8 package
 

@@ -953,14 +953,6 @@ public:
     /// into a badly gained microphone peaks well above this over a window
     /// this long; `level` reports true digital silence as -350.
     static constexpr double kMicSilenceCeilingDb = -60.0;
-    /// Below this, the reading is the bus handler's "could not read" sentinel
-    /// and NOT a measurement. 16-bit audio floors near -96 dBFS, so anything
-    /// this far down cannot have come from a microphone. A package printed
-    /// `microphone level peak= -350 dBFS` before this existed, and -350 is
-    /// under the silence ceiling — so the sentinel would have driven the
-    /// "your microphone is capturing nothing" warning on evidence that says
-    /// only "this build could not ask".
-    static constexpr double kMicLevelUnreadableDb = -300.0;
     /// How long the ceiling must hold before it is reported. Long enough
     /// that a pause in the conversation is not a diagnosis.
     static constexpr qint64 kMicSilenceWindowMs = 10000;

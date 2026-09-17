@@ -986,13 +986,19 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                             peak = qMax(peak, g_value_get_double(one));
                     }
                 } else if (GST_VALUE_HOLDS_ARRAY(peaks)) {
-                    // THE OTHER SPELLING, and a package found it. `level`
-                    // posts its per-channel peaks as a GValueArray in some
-                    // GStreamer versions and as a GstValueArray in others,
-                    // and only the first was read here -- so on the runtime
-                    // the Windows package bundles (1.28.5) every message fell
-                    // through to the -350 sentinel below and that sentinel
-                    // was then printed as if it were a dBFS reading.
+                    // THE OTHER SPELLING. `level` publishes its per-channel
+                    // peaks through the deprecated GValueArray above; a
+                    // GstValueArray is the modern equivalent and costs
+                    // nothing to accept.
+                    //
+                    // HONEST ABOUT WHAT THIS IS: no runtime has been observed
+                    // using it. 1.26.11 posts a GValueArray (measured with
+                    // `gst-launch-1.0 ... ! level`), and the 1.28.5 the
+                    // Windows package bundles reported sane values through
+                    // the branch above, so it uses one too. This is a
+                    // fallback for a version that has not appeared yet, not a
+                    // fix for an observed fault -- and it only ever runs when
+                    // the working path has already failed.
                     const guint n = gst_value_array_get_size(peaks);
                     for (guint i = 0; i < n; ++i) {
                         const GValue *one = gst_value_array_get_value(peaks, i);
@@ -6570,31 +6576,23 @@ void SfuMediaEngine::handleMicLevel(double peakDb)
 
 void SfuMediaEngine::handleMicLevelAt(double peakDb, qint64 nowMs)
 {
-    // AN UNREADABLE LEVEL IS NOT A SILENT MICROPHONE, and printing the
-    // sentinel as a number said it was.
+    // -350 dBFS IS A MEASUREMENT, NOT A SENTINEL, AND I NEARLY BROKE THIS.
     //
-    // The bus handler starts each message at -350 and raises it to whatever
-    // the `level` element posted. When it cannot read the element's peak
-    // array, -350 survives — and a package logged `microphone level peak=
-    // -350 dBFS`, which is not a value 16-bit audio can produce and is not a
-    // measurement at all. Worse, it is below the silence ceiling, so it would
-    // drive the "your microphone is capturing nothing" warning on evidence
-    // that says only "this build could not ask".
+    // A published Windows package logged `microphone level peak= -350 dBFS`
+    // and it was read here as "the parser failed" — 16-bit audio floors near
+    // -96, so the number looked impossible. A guard was written to ignore any
+    // reading that low. It was WRONG, and measured to be wrong before it
+    // shipped: `gst-launch-1.0 audiotestsrc wave=silence ! level` reports
+    // `peak=(GValueArray)< -349.99999992181608 >`. That is the element's own
+    // floor for TRUE DIGITAL SILENCE, which is precisely the condition the
+    // silence warning exists for — so the guard would have made the warning
+    // unreachable for a genuinely dead microphone while leaving it working
+    // for a quiet room. The bus handler's -350 starting value was chosen to
+    // match that floor on purpose.
     //
-    // This repo already has the rule, from `canNotifyRoom`: a value that
-    // cannot say "unknown" will be read as one of the answers. So an
-    // unreadable level updates NOTHING — not the badge, not the silence
-    // window — and says so.
-    if (peakDb <= kMicLevelUnreadableDb) {
-        if (m_micLastLogMs == 0 || nowMs - m_micLastLogMs >= 5000) {
-            m_micLastLogMs = nowMs;
-            qCWarning(lcSfuMedia)
-                << "microphone level: UNREADABLE — the level element posted "
-                   "no peak this build could parse, so neither the level nor "
-                   "the silence warning can be trusted in this call";
-        }
-        return;
-    }
+    // GENERALISE: a value that looks impossible for the SIGNAL may be exactly
+    // what the INSTRUMENT emits at its limit. Ask the instrument before
+    // calling its output a bug.
     m_micPeakDb = peakDb;
 
     // MUTED IS SILENT BY REQUEST. The valve drops buffers before the encoder,

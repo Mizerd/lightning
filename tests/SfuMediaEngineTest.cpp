@@ -137,19 +137,6 @@ QByteArray engineSource()
         return {};
     return file.readAll();
 }
-/// DIGITAL SILENCE, NOT THE BUS HANDLER'S SENTINEL.
-///
-/// The mic-level cases used to pass -350.0 for "silent", which is the value
-/// the level parser leaves behind when it CANNOT READ the element's peak at
-/// all — a number 16-bit audio cannot produce. A published Windows package
-/// logged `microphone level peak= -350 dBFS`, and that is what exposed it.
-/// -90 is a real floor, and is what the same package reported for real
-/// silence.
-///
-/// At FILE scope on purpose: moc rejects a non-function declaration inside a
-/// `private slots:` section outright ("Not a signal or slot declaration").
-constexpr double kSilentDb = -90.0;
-
 #define SOURCE_UNDER_TEST engineSource()
 } // namespace
 
@@ -275,12 +262,12 @@ private slots:
 
         // Digital silence, reported every 200 ms as the element does.
         for (qint64 t = 0; t < SfuMediaEngine::kMicSilenceWindowMs; t += 200)
-            engine.handleMicLevelAt(kSilentDb, t);
+            engine.handleMicLevelAt(-350.0, t);
         QCOMPARE(spy.count(), 0);
         QVERIFY(!engine.microphoneSilentForTest());
 
         // The window closes exactly on the boundary, not a report later.
-        engine.handleMicLevelAt(kSilentDb, SfuMediaEngine::kMicSilenceWindowMs);
+        engine.handleMicLevelAt(-350.0, SfuMediaEngine::kMicSilenceWindowMs);
         QCOMPARE(spy.count(), 1);
         QCOMPARE(spy.takeFirst().at(0).toBool(), true);
         QVERIFY(engine.microphoneSilentForTest());
@@ -295,7 +282,7 @@ private slots:
              t += 200) {
             // Nothing for most of the window, then one word.
             const bool speaks = (t / 200) % 40 == 0;
-            engine.handleMicLevelAt(speaks ? -18.0 : kSilentDb, t);
+            engine.handleMicLevelAt(speaks ? -18.0 : -350.0, t);
         }
         QCOMPARE(spy.count(), 0);
         QVERIFY(!engine.microphoneSilentForTest());
@@ -308,47 +295,13 @@ private slots:
         SfuMediaEngine engine;
         QSignalSpy spy(&engine, &SfuMediaEngine::localAudioSilent);
         for (qint64 t = 0; t <= SfuMediaEngine::kMicSilenceWindowMs; t += 200)
-            engine.handleMicLevelAt(kSilentDb, t);
+            engine.handleMicLevelAt(-350.0, t);
         QCOMPARE(spy.count(), 1);
         engine.handleMicLevelAt(-12.0,
                                 SfuMediaEngine::kMicSilenceWindowMs + 200);
         QCOMPARE(spy.count(), 2);
         QCOMPARE(spy.takeLast().at(0).toBool(), false);
         QVERIFY(!engine.microphoneSilentForTest());
-    }
-
-    // AN UNREADABLE LEVEL IS NOT A SILENT MICROPHONE.
-    //
-    // Found by running a published package: on the GStreamer the Windows
-    // build bundles (1.28.5) the `level` element posts its peaks in a
-    // spelling the parser did not read, so messages fell through to the -350
-    // sentinel — and -350 is below the silence ceiling, so it would have
-    // driven "your microphone is capturing nothing" on evidence that says
-    // only "this build could not ask". Same rule as `canNotifyRoom`: a value
-    // that cannot say "unknown" gets read as one of the answers.
-    //
-    // FAIL-ON-OLD: remove the kMicLevelUnreadableDb guard from
-    // handleMicLevelAt and this fails with 1 emission against 0.
-    void anUnreadableLevelNeverReportsASilentMicrophone()
-    {
-        SfuMediaEngine engine;
-        QSignalSpy spy(&engine, &SfuMediaEngine::localAudioSilent);
-        QVERIFY(spy.isValid());
-        for (qint64 t = 0; t <= SfuMediaEngine::kMicSilenceWindowMs * 3;
-             t += 200) {
-            engine.handleMicLevelAt(SfuMediaEngine::kMicLevelUnreadableDb, t);
-        }
-        QCOMPARE(spy.count(), 0);
-        QVERIFY(!engine.microphoneSilentForTest());
-
-        // And a real reading afterwards is still judged normally, so the
-        // guard cannot wedge the detector shut.
-        for (qint64 t = SfuMediaEngine::kMicSilenceWindowMs * 3;
-             t <= SfuMediaEngine::kMicSilenceWindowMs * 4; t += 200) {
-            engine.handleMicLevelAt(kSilentDb, t);
-        }
-        QCOMPARE(spy.count(), 1);
-        QCOMPARE(spy.takeFirst().at(0).toBool(), true);
     }
 
     // MUTE IS SILENCE BY REQUEST. Judging it would put a warning on the one
@@ -360,7 +313,7 @@ private slots:
         QSignalSpy spy(&engine, &SfuMediaEngine::localAudioSilent);
         for (qint64 t = 0; t < SfuMediaEngine::kMicSilenceWindowMs * 2;
              t += 200) {
-            engine.handleMicLevelAt(kSilentDb, t);
+            engine.handleMicLevelAt(-350.0, t);
         }
         QCOMPARE(spy.count(), 0);
         QVERIFY(!engine.microphoneSilentForTest());
@@ -370,10 +323,11 @@ private slots:
     void theSilenceCeilingIsAPeakNoSpeechStaysUnder()
     {
         // -60 dBFS is below any speech peak and above a real room's noise
-        // floor. `micSilenceSince` is a PURE predicate and is deliberately
-        // still exercised at -350 below: the sentinel guard lives in
-        // handleMicLevelAt, one layer up, so this function must keep treating
-        // any low number as low.
+        // floor; `level` reports true digital silence as -350. MEASURED, not
+        // assumed: `gst-launch-1.0 audiotestsrc wave=silence ! level` posts
+        // `peak=(GValueArray)< -349.99999992181608 >`. That matters because
+        // -350 was briefly mistaken for a parser sentinel and nearly guarded
+        // out of the silence detector.
         QCOMPARE(SfuMediaEngine::micSilenceSince(-59.0, -1, 1000), qint64(-1));
         QCOMPARE(SfuMediaEngine::micSilenceSince(-61.0, -1, 1000), qint64(1000));
         // The mark is CARRIED, not restamped, or the window could never close.
