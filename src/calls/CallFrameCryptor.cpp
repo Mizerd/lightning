@@ -291,13 +291,41 @@ QByteArray CallFrameCryptor::encryptFrame(const QByteArray &payload,
     return out;
 }
 
-QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
-                                          FrameKind kind)
+const char *CallFrameCryptor::decryptFailureName(DecryptFailure reason)
 {
+    switch (reason) {
+    case DecryptFailure::None:          return "none";
+    case DecryptFailure::ShortWire:     return "short-wire";
+    case DecryptFailure::BadIvLength:   return "bad-iv-length";
+    case DecryptFailure::NoKeyForIndex: return "no-key-for-index";
+    case DecryptFailure::ShortBody:     return "short-body";
+    case DecryptFailure::CipherInit:    return "cipher-init";
+    case DecryptFailure::AuthTag:       return "auth-tag";
+    }
+    return "?";
+}
+
+QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
+                                          FrameKind kind,
+                                          DecryptDiagnosis *why)
+{
+    // A local diagnosis so every early return can name itself without
+    // testing the pointer, and the caller's is written once at the end of
+    // each path. `fail` is the only way out that is not a plaintext.
+    DecryptDiagnosis diag;
+    const auto fail = [&](DecryptFailure reason) {
+        diag.reason = reason;
+        if (why)
+            *why = diag;
+        return QByteArray();
+    };
+    if (why)
+        *why = diag;
+
     QMutexLocker lock(&m_mutex);
     const int header = headerBytes(kind);
     if (wire.size() < header + kTagBytes + kIvBytes + kTrailerBytes)
-        return {};
+        return fail(DecryptFailure::ShortWire);
 
     // The trailer names the IV length and the key index. Both are remote
     // input, so both are validated before being used as offsets.
@@ -305,15 +333,19 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
         static_cast<unsigned char>(wire.at(wire.size() - 2));
     const int keyIndex =
         static_cast<unsigned char>(wire.at(wire.size() - 1));
+    diag.keyIndex = keyIndex;
     if (ivLength != kIvBytes)
-        return {};
+        return fail(DecryptFailure::BadIvLength);
     if (!hasKey(keyIndex))
-        return {}; // unknown key: drop, never render cleartext
+        // Unknown key: drop, never render cleartext. This is the reason that
+        // was being read as "the two ends hold different keys" — it is not;
+        // it is "nothing was ever installed at the index this frame names".
+        return fail(DecryptFailure::NoKeyForIndex);
 
     const int suffix = ivLength + kTrailerBytes;
     const int bodyLen = wire.size() - header - suffix;
     if (bodyLen < kTagBytes)
-        return {};
+        return fail(DecryptFailure::ShortBody);
     const int cipherLen = bodyLen - kTagBytes;
 
     const char *base = wire.constData();
@@ -325,7 +357,7 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
 
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     if (!ctx)
-        return {};
+        return fail(DecryptFailure::CipherInit);
 
     bool ok = EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, nullptr,
                                  nullptr) == 1
@@ -369,7 +401,11 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
     }
     EVP_CIPHER_CTX_free(ctx);
     if (!ok)
-        return {};
+        // Everything from DecryptInit to the tag check lands here. In
+        // practice it is the tag: the three init calls fail only if OpenSSL
+        // itself is broken, and by this point the key and IV are both the
+        // right length.
+        return fail(DecryptFailure::AuthTag);
     plain.resize(plainLen + finalLen);
 
     QByteArray out;

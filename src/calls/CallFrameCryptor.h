@@ -106,10 +106,37 @@ public:
     QByteArray encryptFrame(const QByteArray &payload, FrameKind kind,
                             quint32 ssrc, quint32 rtpTimestamp);
 
+    /// WHY A FRAME DID NOT DECRYPT, because "empty" is six different faults.
+    ///
+    /// An empty return used to be the whole answer, and the six causes below
+    /// send whoever reads the log to six different places: a key that never
+    /// arrived is a DISTRIBUTION problem, a tag mismatch is a key AGREEMENT
+    /// problem, and a short wire is neither. A live call was diagnosed as
+    /// "frames in flight across a key rotation" on nothing more than an empty
+    /// return, which is a hypothesis wearing a measurement's clothes.
+    enum class DecryptFailure {
+        None,           ///< Decrypted.
+        ShortWire,      ///< Fewer bytes than header + tag + iv + trailer.
+        BadIvLength,    ///< The trailer's IV length is not the one we write.
+        NoKeyForIndex,  ///< No key installed at the index the frame names.
+        ShortBody,      ///< Body too short to hold the tag.
+        CipherInit,     ///< OpenSSL refused to start.
+        AuthTag,        ///< GCM tag mismatch: wrong key, or a tampered frame.
+    };
+    /// The failure, and the key index the frame named when one was readable.
+    struct DecryptDiagnosis {
+        DecryptFailure reason = DecryptFailure::None;
+        int keyIndex = -1;
+    };
+    /// A one-word name for a failure, for a log line.
+    static const char *decryptFailureName(DecryptFailure reason);
+
     /// Decrypt one wire-form payload. Empty means "could not decrypt": a
     /// wrong key, a truncated frame, or a failed authentication tag. The
-    /// caller must DROP the frame; there is no cleartext fallback.
-    QByteArray decryptFrame(const QByteArray &wire, FrameKind kind);
+    /// caller must DROP the frame; there is no cleartext fallback. Pass
+    /// `why` to find out which of the six it was.
+    QByteArray decryptFrame(const QByteArray &wire, FrameKind kind,
+                            DecryptDiagnosis *why = nullptr);
 
     /// Test seam: pin the per-SSRC counter so a known-answer test can assert
     /// an exact IV. Production seeds it randomly.

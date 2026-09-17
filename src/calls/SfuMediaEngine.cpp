@@ -1,6 +1,7 @@
 #include "calls/SfuMediaEngine.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <memory>
@@ -212,6 +213,17 @@ void announceBlocked(SfuMediaEngine *engine, const QString &streamId,
         Qt::QueuedConnection);
 }
 
+/// Why the frames in the window are failing, for the badge's reason string.
+///
+/// WHY a frame failed and whether ENOUGH of them did are different questions,
+/// and this file used to answer the first by asserting. The commit that
+/// introduced the run gate said in its message and in a source comment that
+/// the one bad frame in three thousand it was written for came from a media
+/// key rotation. An empty return from the cryptor is SIX faults and nothing
+/// here could tell them apart. It can now — `CallFrameCryptor::DecryptFailure`
+/// — and the next live call will say which.
+enum class CryptoDropCause { None, NoKey, Undecryptable };
+
 struct CryptoProbeCtx {
     SfuMediaEngine *engine = nullptr;
     /// Shared, not raw: a receive cryptor belongs to a sender who can leave
@@ -278,32 +290,41 @@ struct CryptoProbeCtx {
     /// counters above).
     bool saidNoKey = false;
     bool saidFailed = false;
-    // Whether the UI has been told this stream is blocked. Separate from the
-    // two log-once flags above: those stay set for the life of the stream so
-    // the log is not flooded, while this one has to go back down when frames
-    // decrypt again or the badge would never clear. B026.
-    bool blockedAnnounced = false;
     bool saidWorking = false;
-    /// CONSECUTIVE undecryptable frames, reset by any frame that decrypts.
+    /// THE SLIDING WINDOW OF FRAME OUTCOMES THE BADGE IS DECIDED ON.
     ///
-    /// The badge used to be raised by the FIRST bad frame, and that is wrong:
-    /// a media-key rotation legitimately leaves a handful of frames in flight
-    /// that were encrypted under the other key, so a perfectly healthy call
-    /// briefly told the user that somebody could not be heard. Measured in a
-    /// live four-party call on 2026-09-16: `decrypt failed count= 1
-    /// passed= 3101` — one frame in three thousand, and a warning on screen.
-    ///
-    /// A genuine key mismatch does not produce one bad frame, it produces
-    /// ALL of them, so a short run distinguishes the two with no loss of
-    /// sensitivity. `kBlockedRunFrames` at 50 is about one second of audio
-    /// and well under two of video, which is far faster than a user could
-    /// report the fault themselves.
-    int consecutiveDrops = 0;
+    /// The policy is a pure struct on SfuMediaEngine so its thresholds can be
+    /// asserted directly rather than through a log line — which is all the
+    /// crypto probe's existing tests could reach, and is why two wrong
+    /// answers shipped here. The probe runs on one streaming thread and owns
+    /// this, so no locking (same reasoning as the counters above).
+    SfuMediaEngine::BlockedRunPolicy blocked;
+    /// The cause of the most recent failure, so the badge names what is
+    /// happening NOW. Both drop paths feed one window, and they are different
+    /// faults: "no key has arrived for this sender" sends whoever reads it to
+    /// key distribution, "the key does not decrypt these frames" to key
+    /// agreement.
+    CryptoDropCause lastCause = CryptoDropCause::None;
 };
 
-/// How many frames in a row must fail before the UI says a stream is blocked.
-/// See `CryptoProbeCtx::consecutiveDrops` for why this is not 1.
-static constexpr int kBlockedRunFrames = 50;
+/// Record one frame outcome and tell the UI only if the verdict MOVED.
+///
+/// SEND SIDE NEVER BADGES. `encrypting` means these are our own frames, and
+/// our own encryption failing is a different message to a different person —
+/// but the outcome is still recorded, so nothing carries a stale window.
+static void noteCryptoOutcome(CryptoProbeCtx *ctx, bool failed)
+{
+    bool raise = false;
+    if (!ctx->blocked.note(failed, &raise))
+        return;
+    if (ctx->encrypting || !ctx->engine)
+        return;
+    announceBlocked(ctx->engine, ctx->streamId,
+                    !raise ? QString()
+                           : ctx->lastCause == CryptoDropCause::NoKey
+                               ? QStringLiteral("no_key")
+                               : QStringLiteral("undecryptable"));
+}
 
 /// A key ring's name, fit to print.
 ///
@@ -561,13 +582,8 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             ++ctx->dropped;
             if (ctx->totalDropped)
                 ctx->totalDropped->fetch_add(1);
-            ++ctx->consecutiveDrops;
-            if (!ctx->encrypting && !ctx->blockedAnnounced && ctx->engine
-                && ctx->consecutiveDrops >= kBlockedRunFrames) {
-                ctx->blockedAnnounced = true;
-                announceBlocked(ctx->engine, ctx->streamId,
-                                QStringLiteral("no_key"));
-            }
+            ctx->lastCause = CryptoDropCause::NoKey;
+            noteCryptoOutcome(ctx, /*failed=*/true);
             if (!ctx->encrypting && !ctx->saidNoKey) {
                 ctx->saidNoKey = true;
                 qCWarning(lcSfuMedia)
@@ -588,6 +604,10 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         ++ctx->passed;
         if (ctx->total)
             ctx->total->fetch_add(1);
+        // A FRAME THAT PASSES IN THE CLEAR IS STILL AN OUTCOME. This branch
+        // recorded nothing, so a stream that stopped requiring encryption
+        // mid-call kept the window it had when it did.
+        noteCryptoOutcome(ctx, /*failed=*/false);
         if (shouldReport(ctx->passed)) {
             // NAME THE STREAM. Without it this line says only "some video is
             // flowing", so a harness cannot tell a SCREEN SHARE from a camera
@@ -631,6 +651,7 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
     gst_buffer_unmap(buffer, &map);
 
     QByteArray output;
+    CallFrameCryptor::DecryptDiagnosis why;
     if (ctx->encrypting) {
         // ssrc/timestamp feed the IV. The PTS is the frame's own timestamp,
         // and the per-SSRC counter inside the cryptor is what guarantees a
@@ -643,7 +664,7 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         output = cryptor->encryptFrame(input, kind, ctx->ivStream,
                                        timestamp);
     } else {
-        output = cryptor->decryptFrame(input, kind);
+        output = cryptor->decryptFrame(input, kind, &why);
     }
 
     if (output.isEmpty()) {
@@ -657,48 +678,43 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         ++ctx->dropped;
         if (ctx->totalDropped)
             ctx->totalDropped->fetch_add(1);
-        ++ctx->consecutiveDrops;
-        if (!ctx->encrypting && !ctx->blockedAnnounced && ctx->engine
-            && ctx->consecutiveDrops >= kBlockedRunFrames) {
-            ctx->blockedAnnounced = true;
-            announceBlocked(ctx->engine, ctx->streamId,
-                            QStringLiteral("undecryptable"));
-        }
+        ctx->lastCause = CryptoDropCause::Undecryptable;
+        noteCryptoOutcome(ctx, /*failed=*/true);
         if (!ctx->encrypting && !ctx->saidFailed) {
             ctx->saidFailed = true;
+            // NAME THE CAUSE, DO NOT INFER IT. This line asserted "the two
+            // ends hold different keys" from an empty return — which is one
+            // of SIX faults that produce one, and `no-key-for-index` means
+            // very nearly the opposite of what it claimed. The cryptor says
+            // which now.
             qCWarning(lcSfuMedia)
                 << "call diagnosis: frames from stream=" << ctx->streamId
-                << "will not DECRYPT although a key is installed for it — "
-                   "the two ends hold different keys, or the frames are not "
-                   "the ones this key was issued for (video=" << ctx->video
-                << ")";
+                << "will not DECRYPT: reason="
+                << CallFrameCryptor::decryptFailureName(why.reason)
+                << "keyIndex=" << why.keyIndex
+                << "(video=" << ctx->video << ")";
         }
         if (shouldReport(ctx->dropped)) {
             qCWarning(lcSfuMedia)
                 << (ctx->encrypting ? "encrypt failed" : "decrypt failed")
                 << "stream=" << ctx->streamId
                 << "video=" << ctx->video << "count=" << ctx->dropped
-                << "passed=" << ctx->passed;
+                << "passed=" << ctx->passed << "reason="
+                << (ctx->encrypting
+                        ? "n/a"
+                        : CallFrameCryptor::decryptFailureName(why.reason));
         }
         return GST_PAD_PROBE_DROP;
     }
     ++ctx->passed;
     if (ctx->total)
         ctx->total->fetch_add(1);
-    // ANY GOOD FRAME RESETS THE RUN. Without this the counter is a lifetime
-    // total wearing a different name: a call that drops one frame per key
-    // rotation would still reach the threshold after fifty rotations and
-    // raise the badge on a stream that has been fine all along. What the
-    // badge is for is a run of failures with nothing getting through.
-    ctx->consecutiveDrops = 0;
-    // A FRAME DECRYPTED, SO THE BADGE COMES OFF. The two log-once flags stay
-    // set on purpose, so the log is not flooded by a stream that flaps; the
-    // UI has to be told the other way, or a participant who recovers keeps a
-    // "cannot be decrypted" mark for the rest of the call. B026.
-    if (!ctx->encrypting && ctx->blockedAnnounced && ctx->engine) {
-        ctx->blockedAnnounced = false;
-        announceBlocked(ctx->engine, ctx->streamId, QString());
-    }
+    // A FRAME DECRYPTED, SO THE BADGE COMES OFF ONCE ENOUGH OF THEM DO. The
+    // two log-once flags stay set on purpose, so the log is not flooded by a
+    // stream that flaps; the UI has to be told the other way, or a
+    // participant who recovers keeps a "cannot be decrypted" mark for the
+    // rest of the call. B026.
+    noteCryptoOutcome(ctx, /*failed=*/false);
     if (!ctx->encrypting && !ctx->saidWorking) {
         ctx->saidWorking = true;
         qCInfo(lcSfuMedia)
@@ -3307,6 +3323,44 @@ QString SfuMediaEngine::videoRateStage(bool screenShare)
     // worked while the camera did not, and why that element must keep its
     // zero-based timeline (see the `frameIndex` field there).
     return QStringLiteral("videorate name=vidrate skip-to-first=true");
+}
+
+int SfuMediaEngine::BlockedRunPolicy::failurePercent() const
+{
+    if (observed < kMinObserved)
+        return -1;
+    return failures * 100 / observed;
+}
+
+bool SfuMediaEngine::BlockedRunPolicy::note(bool failed, bool *raise)
+{
+    if (observed == kWindow) {
+        if (recent[static_cast<size_t>(next)])
+            --failures;
+    } else {
+        ++observed;
+    }
+    recent[static_cast<size_t>(next)] = failed;
+    if (failed)
+        ++failures;
+    next = (next + 1) % kWindow;
+
+    const int percent = failurePercent();
+    if (percent < 0)
+        return false;
+    if (!announced && percent >= kRaisePercent) {
+        announced = true;
+        if (raise)
+            *raise = true;
+        return true;
+    }
+    if (announced && percent <= kClearPercent) {
+        announced = false;
+        if (raise)
+            *raise = false;
+        return true;
+    }
+    return false;
 }
 
 QString SfuMediaEngine::videoPipelineDescription(const QString &source,

@@ -27,6 +27,7 @@
 // homeserver chose to advertise) — no third-party STUN fallback.
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <memory>
 
@@ -297,6 +298,52 @@ public:
     void publishVideo(const QString &cid, bool screenShare, int nodeId,
                       int pipewireFd = -1, quint64 windowHandle = 0,
                       const QRect &captureRect = {});
+    /// WHEN THE "THIS PERSON'S MEDIA CANNOT BE DECRYPTED" BADGE GOES UP,
+    /// AND IT IS A PURE STRUCT SO THE THRESHOLDS CAN BE ASSERTED DIRECTLY.
+    ///
+    /// Two wrong answers have already shipped here and neither was visible
+    /// from a log line — which is the only thing the crypto probe's other
+    /// tests assert, so they passed on both:
+    ///
+    ///   * badge on the FIRST failed frame. Measured in a live four-party
+    ///     call, 2026-09-16: `decrypt failed count= 1 passed= 3101` — one
+    ///     frame in three thousand put a warning on screen.
+    ///   * badge on a RUN of consecutive failures. Any single good frame
+    ///     resets the run, so a stream delivering one usable frame in every
+    ///     fifty never reaches the threshold and never badges at all: the
+    ///     user hears garbage and the call looks perfect. The first version
+    ///     badged on one bad frame; the second could badge on none.
+    ///
+    /// A RATE OVER A SLIDING WINDOW has neither hole, and hysteresis (raise
+    /// high, clear low) stops a stream sitting on one threshold from flapping
+    /// the badge. The ring makes it O(1) per frame on the streaming thread.
+    struct BlockedRunPolicy {
+        /// How many recent outcomes the verdict is taken over.
+        static constexpr int kWindow = 100;
+        /// Raise at this percentage of the window failing...
+        static constexpr int kRaisePercent = 90;
+        /// ...clear only at this much lower one.
+        static constexpr int kClearPercent = 25;
+        /// Never judge a track on fewer outcomes than this.
+        static constexpr int kMinObserved = 50;
+
+        std::array<bool, kWindow> recent{};
+        int next = 0;
+        int observed = 0;
+        int failures = 0;
+        bool announced = false;
+
+        /// Record one frame outcome.
+        ///
+        /// Returns true ONLY when the UI must be told something it does not
+        /// already believe, with `*raise` saying which way. A caller that
+        /// ignores the return value emits nothing, which is the common case.
+        bool note(bool failed, bool *raise);
+        /// The window's current failure percentage, or -1 while it holds
+        /// fewer than `kMinObserved` outcomes.
+        int failurePercent() const;
+    };
+
     /// The VIDEO publish pipeline, as a gst_parse description.
     ///
     /// Exposed so the SCREEN-SHARE shape — which adds a `tee` and a self-view

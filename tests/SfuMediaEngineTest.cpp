@@ -2867,6 +2867,103 @@ private slots:
         }
     }
 
+    // THE BADGE'S OWN DECISION, WITH BOTH WRONG ANSWERS THAT SHIPPED PINNED
+    // AS CASES. This asserts the ANNOUNCEMENT, not a log line — the crypto
+    // probe's other tests assert log lines, and a log line is exactly what
+    // did not change when the badge went from "one bad frame" to "fifty in a
+    // row", so they passed on both broken versions.
+    void theBlockedBadgeNeedsARateNotABadFrameOrARun()
+    {
+        using Policy = SfuMediaEngine::BlockedRunPolicy;
+
+        // CASE 1 — THE DEFECT THE MAINTAINER REPORTED. A live four-party
+        // call measured `decrypt failed count= 1 passed= 3101`. One frame in
+        // three thousand must never put a warning on screen.
+        {
+            Policy p;
+            bool raise = false;
+            int announcements = 0;
+            for (int i = 0; i < 3102; ++i) {
+                const bool failed = (i == 1500);
+                if (p.note(failed, &raise))
+                    ++announcements;
+            }
+            QCOMPARE(announcements, 0);
+            QVERIFY(!p.announced);
+        }
+
+        // CASE 2 — THE HOLE THE FIRST FIX HAD. A consecutive-run gate is
+        // reset by ANY good frame, so a stream delivering one usable frame in
+        // every fifty never badges: the user hears garbage and the call looks
+        // perfect. 98% failure must raise.
+        {
+            Policy p;
+            bool raise = false;
+            bool raised = false;
+            for (int i = 0; i < 600; ++i) {
+                if (p.note(/*failed=*/(i % 50) != 0, &raise) && raise)
+                    raised = true;
+            }
+            QVERIFY2(raised,
+                     "a stream failing 98% of its frames never badged — that "
+                     "is the consecutive-run hole, and it is worse than the "
+                     "defect it replaced");
+        }
+
+        // CASE 3 — a total key mismatch badges, and reasonably fast. Nothing
+        // before kMinObserved, and raised by the time the window is full.
+        {
+            Policy p;
+            bool raise = false;
+            int raisedAt = -1;
+            for (int i = 0; i < Policy::kWindow; ++i) {
+                if (p.note(/*failed=*/true, &raise) && raise && raisedAt < 0)
+                    raisedAt = i;
+            }
+            QCOMPARE(raisedAt, Policy::kMinObserved - 1);
+        }
+
+        // CASE 4 — IT COMES OFF AGAIN. A participant whose keys arrive must
+        // not keep a "cannot be decrypted" mark for the rest of the call.
+        {
+            Policy p;
+            bool raise = false;
+            for (int i = 0; i < Policy::kWindow; ++i)
+                p.note(/*failed=*/true, &raise);
+            QVERIFY(p.announced);
+            bool cleared = false;
+            for (int i = 0; i < Policy::kWindow; ++i) {
+                if (p.note(/*failed=*/false, &raise) && !raise)
+                    cleared = true;
+            }
+            QVERIFY2(cleared, "the badge never came off a recovered stream");
+            QVERIFY(!p.announced);
+        }
+
+        // CASE 5 — HYSTERESIS. A stream held exactly at the raise threshold
+        // must not flap: once raised, it stays raised until the failure rate
+        // falls all the way to the clear threshold.
+        {
+            Policy p;
+            bool raise = false;
+            for (int i = 0; i < Policy::kWindow; ++i)
+                p.note(/*failed=*/true, &raise);
+            QVERIFY(p.announced);
+            int moves = 0;
+            // 50% failures: below the raise threshold, above the clear one.
+            for (int i = 0; i < Policy::kWindow * 4; ++i) {
+                if (p.note(/*failed=*/(i % 2) == 0, &raise))
+                    ++moves;
+            }
+            QCOMPARE(moves, 0);
+            QVERIFY(p.announced);
+        }
+
+        // And the thresholds are ordered, or the two above are vacuous.
+        QVERIFY(Policy::kClearPercent < Policy::kRaisePercent);
+        QVERIFY(Policy::kMinObserved <= Policy::kWindow);
+    }
+
     // EVERY QUEUE ON A LIVE PATH IS BOUNDED AND LEAKY, AND THIS IS A SOURCE
     // SCAN BECAUSE FOUR OF THE SEVEN ARE NOT REACHABLE AS PURE FUNCTIONS.
     //
