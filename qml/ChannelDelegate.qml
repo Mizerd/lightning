@@ -234,11 +234,21 @@ ItemDelegate {
         // a favourite — favourites rise to the top of their group and nothing
         // said why — an EMPTY outline while the row is hovered, inviting one,
         // and a click toggles the same m.favourite tag the row's menu writes.
-        // Between the name and the call glyph so the unread pill never
-        // moves; a row that is neither favourite nor hovered has no star and
-        // reserves no width. Drawn rather than a glyph: the bundled icon
-        // subset is instanced at FILL 0, so it has only the outline, and one
-        // path drawn twice keeps the two states the same shape.
+        // Between the name and whichever state mark sits to its right, so the
+        // unread pill never moves; a row that is neither favourite nor hovered
+        // has no star and reserves no width. Drawn rather than a glyph: the
+        // bundled icon subset is instanced at FILL 0, so it has only the
+        // outline, and one path drawn twice keeps the two states the same
+        // shape.
+        //
+        // IT MUST FOLLOW THE MUTE GLYPH, NOT ONLY THE CALL GLYPH. The marks on
+        // this edge are a CHAIN, and anchoring to `callGlyph.left` alone read
+        // the chain as if the bell were not in it: the bell pins itself to
+        // `parent.right` with the same 14px margin the collapsed call glyph
+        // takes, so in a muted room with no pill and no call both landed on
+        // the same pixels and the star was drawn through the bell. Two things
+        // anchored to one edge from opposite ends need something arbitrating
+        // them — see the timeline row's right rail, same defect, same cause.
         Loader {
             id: favouriteStar
             objectName: "channelFavouriteStar"
@@ -249,8 +259,9 @@ ItemDelegate {
             visible: active
             width: active ? 16 : 0
             height: 16
-            anchors.right: callGlyph.left
-            anchors.rightMargin: callGlyph.width > 0 ? 6 : 0
+            anchors.right: mutedGlyph.active ? mutedGlyph.left : callGlyph.left
+            anchors.rightMargin:
+                (mutedGlyph.active || callGlyph.width > 0) ? 6 : 0
             anchors.verticalCenter: parent.verticalCenter
             sourceComponent: Item {
                 Canvas {
@@ -332,10 +343,19 @@ ItemDelegate {
             }
         }
 
-        // Only when muted, so it does not become permanent furniture.
+        // Only when muted, so it does not become permanent furniture. It owns
+        // the rightmost slot whenever it is shown — the pill and a live call
+        // both suppress it — and `favouriteStar` anchors to its left edge, so
+        // it carries an explicit zero width when inactive: a Loader with no
+        // item must contribute nothing to the chain, or the star inherits a
+        // stale offset on a row that was muted and no longer is.
         Loader {
+            id: mutedGlyph
+            objectName: "channelMutedGlyph"
             active: root.muted && !root.showsPill && !callGlyph.live
             visible: active
+            width: active ? 14 : 0
+            height: 14
             anchors.right: parent.right
             anchors.rightMargin: 14
             anchors.verticalCenter: parent.verticalCenter

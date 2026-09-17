@@ -24,6 +24,7 @@
 #include <QtTest/QtTest>
 
 #include <QQmlComponent>
+#include <QQmlContext>
 #include <QQmlEngine>
 #include <QQmlError>
 #include <QQuickItem>
@@ -40,6 +41,9 @@ private:
         // Declared FIRST so it is destroyed LAST: the warnings lambda holds a
         // reference and the engine can still emit during its own teardown.
         QStringList warnings;
+        // Same reason, one layer down: the engine's root context holds this as
+        // a context property, so it must outlive the engine.
+        std::unique_ptr<QObject> appStub;
         std::unique_ptr<QQmlEngine> engine;
         std::unique_ptr<QQuickWindow> window;
         std::unique_ptr<QObject> rootOwner;
@@ -55,7 +59,18 @@ private:
 
     // `body` is the component declaration the Loader loads, exactly as the
     // presenter writes it: the row type plus a width binding and NO height.
-    bool build(Harness &h, const QString &body)
+    // `withAppStub` is OPT-IN, and deliberately so: every case here predates it
+    // and runs with `app` undefined, which the delegate guards for on purpose
+    // (a row built from inside a property-change handler can see it missing).
+    // Introducing the stub globally would change what those cases exercise.
+    //
+    // The stub carries `roomList` and NOTHING else. `roomFavouritesSupported`
+    // is what gates the favourite star, and the ABSENCE of `app.settings` is
+    // load-bearing in the other direction: `refreshNotificationMode()` returns
+    // early without it, so a literal `notificationMode:` set by a case
+    // survives instead of being overwritten from a settings lookup that would
+    // answer 0 for a room no settings object knows about.
+    bool build(Harness &h, const QString &body, bool withAppStub = false)
     {
         h.engine = std::make_unique<QQmlEngine>();
         connect(h.engine.get(), &QQmlEngine::warnings, this,
@@ -63,6 +78,27 @@ private:
                     for (const auto &e : errors)
                         h.warnings << e.toString();
                 });
+        if (withAppStub) {
+            QQmlComponent stub(h.engine.get());
+            stub.setData(QByteArrayLiteral(R"(
+import QtQuick
+QtObject {
+    property QtObject roomList: QtObject {
+        property bool roomFavouritesSupported: true
+    }
+}
+)"),
+                         QUrl(QStringLiteral("qrc:/channelrowtest-appstub.qml")));
+            if (!stub.errors().isEmpty()) {
+                qWarning("%s", qPrintable(stub.errorString()));
+                return false;
+            }
+            h.appStub.reset(stub.create());
+            if (!h.appStub)
+                return false;
+            h.engine->rootContext()->setContextProperty(
+                QStringLiteral("app"), h.appStub.get());
+        }
         QQmlComponent component(h.engine.get());
         const QString source = QStringLiteral(R"(
 import QtQuick
@@ -285,6 +321,77 @@ private Q_SLOTS:
         // The shared component, so the two layouts' menus cannot drift.
         QVERIFY(QString::fromUtf8(menu->metaObject()->className())
                     .contains(QStringLiteral("RoomActionsMenu")));
+    }
+
+    // A MUTED FAVOURITE DREW ITS STAR THROUGH THE BELL (reported 2026-09-17).
+    //
+    // The marks on this row's right edge are a chain — pill, call glyph, mute
+    // glyph, star — but the bell was not in it: it pinned itself to
+    // `parent.right` at a 14px margin while the star anchored to
+    // `callGlyph.left`, and a collapsed call glyph sits at that same 14px
+    // margin. So with no pill and no call the two landed on the same pixels.
+    //
+    // Only geometry can see this. Every one of these marks is declared
+    // correctly in isolation and a source scan reads the file as fine; what is
+    // wrong is the relationship between two anchor chains, which exists only
+    // once both items are instantiated and laid out. Same defect and same
+    // cause as the timeline row's right rail (CLAUDE.md §16).
+    void aMutedFavouriteDrawsItsStarClearOfTheBell()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral(R"(
+        ChannelDelegate {
+            width: 300
+            roomId: "!room:example.org"
+            channelName: "general"
+            isFavourite: true
+            notificationMode: 2
+        })"),
+                         /*withAppStub=*/true));
+        QQuickItem *row = h.item();
+        QVERIFY(row);
+
+        QQuickItem *star =
+            row->findChild<QQuickItem *>(QStringLiteral("channelFavouriteStar"));
+        QQuickItem *bell =
+            row->findChild<QQuickItem *>(QStringLiteral("channelMutedGlyph"));
+        QVERIFY2(star != nullptr, "the row has no favourite star at all");
+        QVERIFY2(bell != nullptr, "the row has no mute glyph at all");
+
+        // PRECONDITIONS, NOT DECORATION. If either mark is not actually shown
+        // the overlap assertion below is vacuously true, and this suite would
+        // then pass on the very code it was written to catch — the failure
+        // mode CLAUDE.md records three separate times. Assert both are live
+        // before asserting anything about where they are.
+        QVERIFY2(star->property("active").toBool(),
+                 "the favourite star is not shown on a favourited row, so the "
+                 "overlap assertion below would prove nothing");
+        QVERIFY2(bell->property("active").toBool(),
+                 "the mute glyph is not shown on a muted row, so the overlap "
+                 "assertion below would prove nothing");
+        QVERIFY(star->width() > 0);
+        QVERIFY(bell->width() > 0);
+
+        const QRectF starRect = star->mapRectToScene(
+            QRectF(0, 0, star->width(), star->height()));
+        const QRectF bellRect = bell->mapRectToScene(
+            QRectF(0, 0, bell->width(), bell->height()));
+
+        QVERIFY2(!starRect.intersects(bellRect),
+                 qPrintable(
+                     QStringLiteral(
+                         "the favourite star and the mute glyph overlap: star "
+                         "x=[%1,%2] bell x=[%3,%4]. A muted favourite draws "
+                         "one mark on top of the other.")
+                         .arg(starRect.left())
+                         .arg(starRect.right())
+                         .arg(bellRect.left())
+                         .arg(bellRect.right())));
+
+        // And the star belongs to the LEFT of the bell, not merely beside it:
+        // the bell owns the rightmost slot whenever it is shown.
+        QVERIFY2(starRect.right() <= bellRect.left(),
+                 "the favourite star is not left of the mute glyph");
     }
 };
 
