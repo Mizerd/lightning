@@ -985,6 +985,33 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                         if (one && G_VALUE_HOLDS_DOUBLE(one))
                             peak = qMax(peak, g_value_get_double(one));
                     }
+                } else if (GST_VALUE_HOLDS_ARRAY(peaks)) {
+                    // THE OTHER SPELLING, and a package found it. `level`
+                    // posts its per-channel peaks as a GValueArray in some
+                    // GStreamer versions and as a GstValueArray in others,
+                    // and only the first was read here -- so on the runtime
+                    // the Windows package bundles (1.28.5) every message fell
+                    // through to the -350 sentinel below and that sentinel
+                    // was then printed as if it were a dBFS reading.
+                    const guint n = gst_value_array_get_size(peaks);
+                    for (guint i = 0; i < n; ++i) {
+                        const GValue *one = gst_value_array_get_value(peaks, i);
+                        if (one && G_VALUE_HOLDS_DOUBLE(one))
+                            peak = qMax(peak, g_value_get_double(one));
+                    }
+                } else {
+                    // A THIRD SPELLING WOULD BE SILENT TOO. Name the type
+                    // once so the next one costs a log line rather than a
+                    // round trip.
+                    static std::atomic<bool> saidOnce{false};
+                    if (!saidOnce.exchange(true)) {
+                        qCWarning(lcSfuMedia)
+                            << "the capture level meter posted a peak this "
+                               "build cannot read: type="
+                            << G_VALUE_TYPE_NAME(peaks)
+                            << "- the microphone level and the silence "
+                               "warning are BOTH unavailable in this build";
+                    }
                 }
                 G_GNUC_END_IGNORE_DEPRECATIONS
             }
@@ -6543,6 +6570,31 @@ void SfuMediaEngine::handleMicLevel(double peakDb)
 
 void SfuMediaEngine::handleMicLevelAt(double peakDb, qint64 nowMs)
 {
+    // AN UNREADABLE LEVEL IS NOT A SILENT MICROPHONE, and printing the
+    // sentinel as a number said it was.
+    //
+    // The bus handler starts each message at -350 and raises it to whatever
+    // the `level` element posted. When it cannot read the element's peak
+    // array, -350 survives — and a package logged `microphone level peak=
+    // -350 dBFS`, which is not a value 16-bit audio can produce and is not a
+    // measurement at all. Worse, it is below the silence ceiling, so it would
+    // drive the "your microphone is capturing nothing" warning on evidence
+    // that says only "this build could not ask".
+    //
+    // This repo already has the rule, from `canNotifyRoom`: a value that
+    // cannot say "unknown" will be read as one of the answers. So an
+    // unreadable level updates NOTHING — not the badge, not the silence
+    // window — and says so.
+    if (peakDb <= kMicLevelUnreadableDb) {
+        if (m_micLastLogMs == 0 || nowMs - m_micLastLogMs >= 5000) {
+            m_micLastLogMs = nowMs;
+            qCWarning(lcSfuMedia)
+                << "microphone level: UNREADABLE — the level element posted "
+                   "no peak this build could parse, so neither the level nor "
+                   "the silence warning can be trusted in this call";
+        }
+        return;
+    }
     m_micPeakDb = peakDb;
 
     // MUTED IS SILENT BY REQUEST. The valve drops buffers before the encoder,
