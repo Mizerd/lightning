@@ -204,15 +204,22 @@ actually run `--call-queue-selftest` against the artifact they just built.
 
 | package | GStreamer | buffers=4 peak / realtime | time=100 ms peak / realtime | CONTROL peak / realtime |
 |---|---|---|---|---|
+| deb (Debian 13) | 1.26.2 | 40 / 40 ms | 100 / 100 ms | **1000 / 1000 ms** |
+| deb (Ubuntu 26.04) | 1.28.2 | 40 / 40 ms | 100 / 90 ms | **1000 / 1000 ms** |
+| rpm (Fedora) | 1.28.7 | 40 / 40 ms | 100 / 100 ms | **1000 / 1000 ms** |
 | AppImage | 1.26.2 | 40 / 30 ms | 100 / 100 ms | **1000 / 1000 ms** |
-| rpm | 1.28.7 | 40 / 40 ms | 100 / 100 ms | **1000 / 1000 ms** |
 | Flatpak | 1.26.11 | 40 / 40 ms | 100 / 100 ms | **1000 / 1000 ms** |
+| snap | 1.26.2 | 40 / 40 ms | 100 / 90 ms | **1000 / 1000 ms** |
 
-**Five environments now, four GStreamer versions, two operating systems, and
-the numbers do not move**: the dev shell (1.26.11), a Windows 11 guest running
-the shipped 0.9.8 portable (1.28.5), and these three. The default queue holds
-its full second and is STILL holding it once its consumer is back at real
-time, on every one of them.
+Pipeline 230 finished **14/14 green**, so that is every Linux format this
+project ships, each asked of the artifact its own job had just built.
+
+**SEVEN ENVIRONMENTS, FIVE GSTREAMER VERSIONS, TWO OPERATING SYSTEMS, AND THE
+NUMBERS DO NOT MOVE**: the six above, plus the dev shell (1.26.11) and a
+Windows 11 guest running the shipped 0.9.8 portable (1.28.5). The default
+queue holds its full second and is STILL holding it once its consumer is back
+at real time, on every one of them. The shipped bounds never exceeded their
+own declared ceiling anywhere.
 
 That matters twice. It is the measurement itself — a 900 ms difference the
 project had asserted in a source comment since 2026-09-16 and never shown. And
