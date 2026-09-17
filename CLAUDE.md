@@ -87,11 +87,19 @@ on the AppImage the plugin entered `GST_REQUIRED_PLUGINS` in `8e744c7`, which
 is AFTER the release commit. So 0.9.7's headline diagnostic, and the
 mic-silence badge that depends on it, cannot fire in anything shipped. Both
 halves are fixed on `main` and neither is released
-(`docs/open-items.md`). The Windows camera published 5000
-frames and rendered nowhere, and **the "it was the sensor" explanation is
-WITHDRAWN** — a dark sensor paints black video, and the tile shows the
-no-picture placeholder instead. NOT TESTED and NOT EXPLAINED
-(`docs/open-items.md` carries what would settle it). **Do not repeat
+(`docs/open-items.md`). **THE WINDOWS CAMERA DID NOT REPRODUCE ON
+2026-09-17, and that refutes two hypotheses including my own next one.** Same
+published 0.9.7 package, same guest, same camera: the self-view drew a real
+picture on the compressed chain AND on the raw one (forced by moving
+`libgstjpeg.dll` out of the package, which needs no new build), and the far end
+logged `frames decrypted ... video= true count= 1000 dropped= 0` with no
+`NOT rendered` warnings. Nothing in the code changed in between, so this is
+NOT a fix — it means the fault is not a property of the package, the chain, the
+camera or the renderer, and the next step is to find what DIFFERED between the
+two sessions rather than to guess at the pipeline again. **NOT REPRODUCED, NOT
+EXPLAINED**; nobody may say it works and nobody may say the picture never
+arrives. Same run quantified the ceiling the JPEG plugin removes: the raw chain
+negotiated **5 fps** at 1080p where the compressed chain negotiated 30. **Do not repeat
 "encrypted camera and screen-share sending does not carry"**: §16 records that
 as stale since `RtpVp8Payloader.cpp`, and tonight's runs carry encrypted screen
 share to Sable, to Element and to Lightning on another platform.
