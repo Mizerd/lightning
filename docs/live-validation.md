@@ -49,6 +49,73 @@ MJPG chain that 0.9.8 newly takes builds, negotiates `image/jpeg`, delivers
 frames and encodes them, and the application does not fall back or fail. The
 picture itself is NOT TESTED on either chain.
 
+## 2026-09-17 — THE WINDOWS CAMERA RENDERS, on both chains, near AND far
+
+**PASS, and it REFUTES the hypothesis I was about to spend the morning on.**
+Published **0.9.7 Windows portable**, the same package and the same guest that
+produced the failing session on 2026-09-16, in a real call against the
+published Linux AppImage.
+
+The experiment needed no new build. The application decides whether a camera
+takes the compressed chain by BUILDING `videotestsrc ! jpegenc ! <entry> !
+fakesink` once per process, so moving `libgstjpeg.dll` out of the package's
+plugin directory (and deleting GStreamer's cached registry beside it) forces
+the raw entry — the one every release before 0.9.8 used.
+
+| self-view tile, same crop | mean | stddev | log |
+|---|---|---|---|
+| camera OFF | 0.934 | 0.043 | — |
+| RAW chain | 0.605 | 0.119 | `camera chain= raw (jpeg elements absent )`, `video/x-raw YUY2 1920x1080 5/1` |
+| MJPG chain | 0.683 | 0.128 | `camera chain= mjpg`, `image/jpeg 1920x1080 30/1` |
+
+**Both chains drew a picture** — a recognisable photograph of the room the
+webcam faces, not merely a region that changed: three times the variance of
+the off-state, and the same scene visible in both captures. `publish first
+encoded frame screenShare= false` on both.
+
+**AND THE FAR END GOT IT.** The Linux AppImage in the same call logged
+`received track attributed= true ... kind= "video"`, a running receive chain,
+and `frames decrypted ... video= true count= 1000 dropped= 0` starting at the
+second the Windows camera was switched on, with ZERO
+`video frames decrypted but NOT rendered` warnings in its whole log.
+
+**So "the camera does not display on Windows" DOES NOT REPRODUCE**, and
+"MJPG is the cause" is refuted by an A/B in one session with one package.
+Nothing in the code changed between the failing session and this one, so this
+does not say the defect was fixed — it says the defect is not a property of
+the package, the chain, or the camera, and whatever condition produced it on
+2026-09-16 is not present today. `docs/open-items.md` carries what that leaves.
+
+**What the same run DOES quantify: the raw chain's rate ceiling.** It
+negotiated **5 fps** at 1080p where the compressed chain negotiated 30 — which
+is the bandwidth ceiling `libgstjpeg` exists to remove, measured on the
+platform the "Windows camera runs at 10 fps" item was filed against.
+
+## 2026-09-17 — THE FALSE DECRYPTION BADGE, CAUGHT LIVE, and the shape of it
+
+**The defect the maintainer reported, reproduced and measured** on published
+0.9.7 binaries: a red warning marker on a participant's tile in a call where
+everything worked. The receiving client's log says exactly what raised it:
+
+```
+decrypt failed stream= "PA_iya5jz6bhMZG" video= false count= 1  passed= 5074
+decrypt failed stream= "PA_iya5jz6bhMZG" video= true  count= 1  passed= 2759
+decrypt failed stream= "PA_iya5jz6bhMZG" video= false count= 10 passed= 5074
+```
+
+**Every occurrence in that log has the same shape**, across two days and five
+different stream ids: a burst of about ten undecryptable frames within ~160 ms
+of a NEW sender's stream appearing, and then nothing — no `count= 50`, no
+`count= 100`, ever. Against 5074 and 103203 frames that passed.
+
+That is the sizing evidence for the fix. Badging on the FIRST failure (0.9.7's
+behaviour) raises a warning every time a peer joins. A rate over a 100-frame
+window sees 10%, which is nowhere near the 90% it raises at, while a genuine
+key mismatch is 100% of every window. And the shape — a burst at the start of
+a stream, then clean for ever — is frames arriving before that sender's key is
+installed, which is `no-key-for-index` and NOT "the two ends hold different
+keys", the sentence the 0.9.7 log prints there. Both are fixed in the tree.
+
 ## 2026-09-17 — THE QUEUE PROPERTY, MEASURED WITH A CONTROL: 900 ms, and it is permanent
 
 **PASS on Linux, from `--call-queue-selftest`.** This is the entry that

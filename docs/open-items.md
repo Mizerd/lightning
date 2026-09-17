@@ -825,9 +825,33 @@ gone.
   tee; the far end fails through `cameraKnown && cameraOn` and mid routing.
   They may have different causes and the logs should be read separately.
 
-  Camera on Windows is **NOT TESTED and NOT EXPLAINED**, but it is no longer
-  unbounded. It does not block a release; it does block anyone saying the
-  camera works.
+  **AND ON 2026-09-17 IT DID NOT REPRODUCE AT ALL.** Same package, same guest,
+  same camera, in a real call against the published Linux AppImage: the
+  self-view drew a recognisable picture on the MJPG chain AND on the raw chain
+  (forced by moving `libgstjpeg.dll` out of the package, which needs no new
+  build), and the far end logged `frames decrypted ... video= true count= 1000
+  dropped= 0` with zero `NOT rendered` warnings. Numbers and method in
+  `docs/live-validation.md`.
+
+  So the hypothesis above — that the fault is in the self-view branch, and the
+  narrower one that MJPG is the cause — is **REFUTED by an A/B in one session**.
+  Nothing in the code changed between the failing session and this one, so this
+  does not say the defect was fixed. It says the defect is not a property of
+  the package, the chain, the camera or the renderer, and that whatever
+  produced it on 2026-09-16 was not present a day later.
+
+  **What that leaves, and it is the honest remaining gap**: an intermittent
+  fault with no identified trigger. The next step is no longer a hypothesis
+  about the pipeline — it is to find what differed between the two sessions.
+  Candidates worth checking before guessing again: the guest's clock (it has
+  been wrong by seven hours once already, and an expired membership makes a
+  participant's video vanish at the far end), how many stale RTC memberships
+  were in the room, and whether the far end that saw nothing was Sable or
+  Element rather than Lightning.
+
+  Camera on Windows is **NOT REPRODUCED, NOT EXPLAINED**. It does not block a
+  release. Nobody may say it is fixed, and nobody may say the picture never
+  arrives either — it arrived, measured, at both ends.
 
 - **THE TRAY BALLOON'S READ-WITHDRAWAL IS CONFIRMED BROKEN ON WINDOWS, no
   longer merely predicted.** Display and click routing PASS again (toast with
