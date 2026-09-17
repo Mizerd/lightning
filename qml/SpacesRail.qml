@@ -522,8 +522,26 @@ Rectangle {
                     Math.min(root.indentBudget,
                              (inFolder ? AppTheme.scaled(7) : 0)
                              + (hierarchyChild ? level * root.indentStep : 0))
+                // GATED ON THE `expanded` ROLE, NOT ON A FUNCTION CALL.
+                //
+                // `revealCount()` asks `app.railLayout.spaceExpanded(id)`,
+                // which is a Q_INVOKABLE — so a binding that reaches the
+                // expansion state only through it records NO dependency on
+                // it and never re-evaluates when it changes. Expanding a
+                // Space that HAS subspaces inserts model rows, which rebuilds
+                // the delegate and hides that; a LEAF category inserts none,
+                // so its chevron flipped open (that reads the role, which
+                // does update) and its rooms stayed hidden until an unrelated
+                // toggle or an app restart rebuilt the rail.
+                //
+                // Reported as "a room did not appear under its space until
+                // Lightning restarted" and filed as sync staleness. It was
+                // not: Space Home listed the rooms the whole time. Same shape
+                // as `root.info` in Space settings — a CALL where a binding
+                // was needed.
                 readonly property int revealed:
-                    isRealSpace ? root.revealCount(spaceItem.spaceId) : 0
+                    (isRealSpace && spaceItem.expanded)
+                        ? root.revealCount(spaceItem.spaceId) : 0
                 readonly property var revealedRooms:
                     revealed > 0 ? root.topRoomsInSpace(spaceItem.spaceId) : []
 

@@ -72,6 +72,7 @@
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
+#include "auth/AuthManager.h"
 #include "matrix/MatrixClient.h"
 #include "spaces/RailEntryModel.h"
 #include "spaces/RailLayoutStore.h"
@@ -623,6 +624,119 @@ private slots:
         QCOMPARE(entries()->rowForEntry(b), rowABefore + 1);
         QCOMPARE(entries()->rowForEntry(c), rowABefore + 2);
         QCOMPARE(rowTopScene(a), yABefore);
+    }
+
+    // ── 2026-09-17: expanding a LEAF Space revealed nothing until the rail
+    //    was rebuilt by something else ─────────────────────────────────────
+    //
+    // Reproduced on a real account: a Discord-style category — rooms, no
+    // subspaces — got its chevron from 143abb07, flipped it to "open" on a
+    // click, and listed none of its rooms. Collapsing and re-expanding an
+    // UNRELATED Space above it made them appear; so did restarting the app,
+    // which is how it was first reported ("a room did not appear under its
+    // space until Lightning restarted") and why it was filed as a sync
+    // staleness bug. It is not one. The state was in the store the whole
+    // time: Space Home listed both rooms while the rail showed neither.
+    //
+    // `revealed` called `root.revealCount(spaceId)`, which asks
+    // `app.railLayout.spaceExpanded(spaceId)` — a Q_INVOKABLE, so the binding
+    // records NO dependency on the expansion state and never re-evaluates
+    // when it changes. Expanding a Space that HAS subspaces inserts model
+    // rows, which rebuilds delegates and hides the defect; a leaf inserts
+    // none, so only its `expanded` ROLE changes — the chevron reads that role
+    // and flips, and the reveal, which did not, stays at its creation-time
+    // zero. Exactly the shape the space-identity suite was written for:
+    // "neither half can see a binding that never re-evaluates, which is what
+    // `root.info` (a spaceInfo() CALL) was".
+    //
+    // Substitutes its own hierarchy and puts the shared one back, so the drag
+    // cases above are untouched whatever order this file is run in.
+    void expandingALeafSpaceRevealsItsRoomsWithoutRebuildingTheRail()
+    {
+        // Production wiring, not the substituted hierarchy the drag cases
+        // use: `topRoomsInSpace()` reads `app.spaces`, which is the
+        // controller's OWN SpaceManager, so a locally-fed model would leave
+        // the reveal empty for a reason that has nothing to do with the bug.
+        // That manager is empty until the mock account is logged in — the
+        // drag cases never needed it and so never did.
+        QSignalSpy loginSpy(m_controller->auth(),
+                            &AuthManager::loginSucceeded);
+        m_controller->auth()->login(QStringLiteral("https://mock.local"),
+                                    QStringLiteral("alice"),
+                                    QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(kSignalTimeoutMs));
+        QTest::qWait(200);
+        entries()->setSources(m_controller->spaces(), store());
+        QCoreApplication::processEvents();
+        QTest::qWait(50);
+
+        // A LEAF: direct rooms to reveal, and no subspaces whose insertion
+        // would rebuild the delegate for us. Discovered from the live model
+        // rather than pinned to a mock id, so a change to the mock's
+        // hierarchy fails this loudly instead of silently testing nothing.
+        SpaceManager *spaces = m_controller->spaces();
+        QString leafId;
+        int leafRooms = 0;
+        const QVariantList all = spaces->allSpaces();
+        for (const QVariant &entry : all) {
+            const QVariantMap row = entry.toMap();
+            const QString id =
+                row.value(QStringLiteral("spaceId")).toString();
+            if (id.isEmpty()
+                || row.value(QStringLiteral("childSpaceCount")).toInt() > 0) {
+                continue;
+            }
+            const int rooms = spaces->directChildRoomsDetailed(id).size();
+            if (rooms > 0) {
+                leafId = id;
+                leafRooms = rooms;
+                break;
+            }
+        }
+        QVERIFY2(!leafId.isEmpty(),
+                 "the fixture has no Space with rooms and no subspaces, so "
+                 "this case cannot exercise the leaf path at all");
+
+        store()->setSpaceExpanded(leafId, false);
+        QCoreApplication::processEvents();
+        QTest::qWait(50);
+
+        QQuickItem *tile = delegateFor(leafId);
+        QVERIFY2(tile, "the leaf Space has no delegate in the rail at all");
+        QCOMPARE(tile->property("expandable").toBool(), true);
+        QCOMPARE(tile->property("revealed").toInt(), 0);
+
+        // Production's own toggle — the chevron's TapHandler calls exactly
+        // this. It inserts and removes no model row, which is the whole
+        // point: nothing else can rebuild the delegate for us.
+        const int rowsBefore = entries()->rowCount();
+        store()->toggleSpaceExpanded(leafId);
+        QCoreApplication::processEvents();
+        QTest::qWait(50);
+        QCOMPARE(entries()->rowCount(), rowsBefore);
+
+        tile = delegateFor(leafId);
+        QVERIFY(tile);
+        // The role the chevron reads DID update — that is why the control
+        // looked like it worked.
+        QCOMPARE(tile->property("expanded").toBool(), true);
+        QVERIFY2(tile->property("revealed").toInt() > 0,
+                 "the chevron opened and the reveal count stayed at its "
+                 "creation-time zero: a leaf Space inserts no rows, so "
+                 "nothing rebuilds the delegate and the rooms appear only "
+                 "after an unrelated toggle or an app restart");
+        QCOMPARE(tile->property("revealedRooms").toList().size(), leafRooms);
+
+        // ...and closing it puts them away again, through the same binding.
+        store()->toggleSpaceExpanded(leafId);
+        QCoreApplication::processEvents();
+        QTest::qWait(50);
+        tile = delegateFor(leafId);
+        QVERIFY(tile);
+        QCOMPARE(tile->property("revealed").toInt(), 0);
+
+        entries()->setSources(m_spaces, store());
+        QCoreApplication::processEvents();
     }
 };
 
