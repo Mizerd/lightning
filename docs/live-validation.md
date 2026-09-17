@@ -116,6 +116,40 @@ a stream, then clean for ever — is frames arriving before that sender's key is
 installed, which is `no-key-for-index` and NOT "the two ends hold different
 keys", the sentence the 0.9.7 log prints there. Both are fixed in the tree.
 
+## 2026-09-17 — VOICE DELAY ON REAL WINDOWS, from the shipped 0.9.8 package
+
+**PASS, and this is the platform the maintainer made mandatory.** Not Wine,
+not a rig, not a differential against an RDP path that drifts 250 ms between
+identical runs — the shipped `Lightning-0.9.8-...-windows-x86_64-portable.zip`
+unpacked in the Windows 11 guest and asked directly. **The guest has no audio
+hardware at all**, which is exactly why every acoustic attempt at this number
+failed, and exactly why this one does not care.
+
+```
+Lightning 0.9.8 / GStreamer 1.28.5 / Windows 11 guest
+
+SHIPPED queue max-size-buffers=4 leaky=downstream
+    peak while starved  40 ms   at realtime   40 ms   free  0 ms
+SHIPPED queue max-size-time=100000000 leaky=downstream
+    peak while starved 100 ms   at realtime  100 ms   free 10 ms
+CONTROL queue
+    peak while starved 1000 ms  at realtime 1000 ms   free  0 ms
+
+RESULT: PASS    exit code 0
+```
+
+**The same numbers as Linux, to the millisecond on the shipped queues and on
+the control**, from a different GStreamer (1.28.5 against the dev shell's
+1.26.11) on a different operating system. The control holds a full second and
+is STILL holding it once its consumer is back at real time — which is all a
+live encoder ever gets — while the shipped bound gives back everything above
+100 ms.
+
+Two platforms of the three now, with Windows among them. How it was run, for
+whoever repeats it: a batch job dropped on the host share and picked up by a
+loop running inside the guest, so no GUI, no clicking and no screenshot is in
+the path.
+
 ## 2026-09-17 — THE QUEUE PROPERTY, MEASURED WITH A CONTROL: 900 ms, and it is permanent
 
 **PASS on Linux, from `--call-queue-selftest`.** This is the entry that
