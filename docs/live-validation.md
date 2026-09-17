@@ -1,5 +1,38 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-18 — the unencrypted-room call carries audio BOTH ways, from the ring card
+
+**PASS**, and it is the retest the fix commit (`9a11d97`) reported as
+NOT TESTED. Two instances of that build on one machine, two fixture accounts,
+the same room the defect was found in: no `m.room.encryption` state at all,
+and the answerer joins from the **global incoming-call card** without ever
+opening the room — the exact path that had no record to read.
+
+| | before (`c52507a6`) | after (`9a11d97`) |
+|---|---|---|
+| answerer's join | `join begin encrypted= true` | `join begin encrypted= false` |
+| answerer sends | `frames encrypted` | `frames in the clear out` |
+| answerer receives | `frames dropped: no key ... count= 500`, never one decrypt | `frames in the clear in stream= ... count= 500` |
+| dropped frames | 500 and climbing | **0** |
+| caller receives | yes (it had the answerer's key) | `frames in the clear in ... count= 1000` |
+
+So audio flows in both directions, the answerer drops nothing, and the two
+clients agree about the call's encryption without either of them having opened
+the room.
+
+Also confirmed in the same session, and NOT changed by this fix: in an
+**encrypted** room the same two instances carry audio both ways, with a brief
+11-frame drop at join while the peer's key arrives. That is the bounded
+startup window, not this defect.
+
+Still **NOT TESTED**: anything on Windows or macOS — the Windows guest's
+staged artifact predates every fix from this round — and the notification
+card's own Answer BUTTON, which cannot be pressed from another D-Bus
+connection (the daemon owns the `ActionInvoked` signal). What was captured
+live off the session bus is the `Notify` call itself, carrying
+`accept`/`Join` beside `decline`/`Decline`; the AppController handler behind
+that action is covered by `acceptFromNotificationOpensTheCallsRoom`.
+
 ## 2026-09-17 — the 0.9.8 AppImage camera on the MJPG chain, which no release has shipped
 
 **PASS, and this one is a release gate rather than a nicety.** 0.9.8 is the
