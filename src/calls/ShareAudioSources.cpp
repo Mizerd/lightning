@@ -203,7 +203,14 @@ QString encodedTrackDescription(const QString &sourceDescription, quint32 ssrc)
     // element's `name=sharesrc` therefore lives in the source descriptions
     // themselves.
     return QStringLiteral(
-               "%1 ! queue ! audioconvert ! audioresample "
+               // BOUNDED AND LEAKY, like every other live queue. A default
+               // `queue` is max-size-time=1s with leaky=no, so one moment of
+               // the encoder falling behind becomes permanent latency for the
+               // rest of the call. Its sibling at the top of this file was
+               // bounded and this one was not.
+               "%1 ! queue max-size-buffers=0 max-size-bytes=0 "
+               "max-size-time=100000000 leaky=downstream "
+               "! audioconvert ! audioresample "
                "! audio/x-raw,channels=2,rate=48000 "
                // Its own valve, so that muting the share's audio can never
                // touch the microphone — they are two tracks and the user

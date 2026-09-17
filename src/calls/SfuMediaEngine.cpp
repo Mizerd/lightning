@@ -970,7 +970,20 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
         const gchar *srcName = GST_MESSAGE_SRC_NAME(message);
         if (fields && srcName && g_strcmp0(srcName, "miclevel") == 0
             && gst_structure_has_name(fields, "level")) {
+            // -350 IS A REAL READING — it is the `level` element's own
+            // floor for digital silence (measured:
+            // `gst-launch-1.0 audiotestsrc wave=silence ! level` posts
+            // -349.99999992181608). So the starting value cannot double as
+            // "could not read": a parse that matched nothing would hand the
+            // engine a number meaning SILENT and raise "your microphone is
+            // capturing nothing" on a live microphone.
+            //
+            // The flag is on the BRANCH, not the value. That distinction is
+            // the whole lesson of the withdrawal in `7a9fbef4`, which tried
+            // to guard the value instead and would have made the silence
+            // warning unreachable for a genuinely dead microphone.
             double peak = -350.0;
+            bool readable = false;
             if (const GValue *peaks = gst_structure_get_value(fields, "peak")) {
                 // `level` publishes one value per channel in a GValueArray.
                 // The API is deprecated and the element still uses it, so
@@ -982,8 +995,10 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                         static_cast<GValueArray *>(g_value_get_boxed(peaks));
                     for (guint i = 0; array && i < array->n_values; ++i) {
                         const GValue *one = g_value_array_get_nth(array, i);
-                        if (one && G_VALUE_HOLDS_DOUBLE(one))
+                        if (one && G_VALUE_HOLDS_DOUBLE(one)) {
                             peak = qMax(peak, g_value_get_double(one));
+                            readable = true;
+                        }
                     }
                 } else if (GST_VALUE_HOLDS_ARRAY(peaks)) {
                     // THE OTHER SPELLING. `level` publishes its per-channel
@@ -1002,8 +1017,10 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                     const guint n = gst_value_array_get_size(peaks);
                     for (guint i = 0; i < n; ++i) {
                         const GValue *one = gst_value_array_get_value(peaks, i);
-                        if (one && G_VALUE_HOLDS_DOUBLE(one))
+                        if (one && G_VALUE_HOLDS_DOUBLE(one)) {
                             peak = qMax(peak, g_value_get_double(one));
+                            readable = true;
+                        }
                     }
                 } else {
                     // A THIRD SPELLING WOULD BE SILENT TOO. Name the type
@@ -1021,8 +1038,13 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                 }
                 G_GNUC_END_IGNORE_DEPRECATIONS
             }
-            marshal(engine,
-                    [engine, peak] { engine->handleMicLevel(peak); });
+            // NOTHING IS REPORTED WHEN NOTHING WAS READ. The engine judges
+            // silence on what it is given, and an unread message is not
+            // evidence of silence.
+            if (readable) {
+                marshal(engine,
+                        [engine, peak] { engine->handleMicLevel(peak); });
+            }
         }
         gst_message_unref(message);
         return GST_BUS_DROP;
@@ -3524,19 +3546,28 @@ int SfuMediaEngine::runQueueSelfTest(QString *report)
 
     out << "queue self-test: the voice-delay property, measured directly\n\n";
     out << "GStreamer " << gst_version_string() << "\n";
-    out << "queues taken from the publish description: " << specs.size()
-        << "\n"
-        << "(the receive-side queues are built inside a member function and "
-           "are not\n reachable here; the source sweep "
-           "`everyLiveQueueIsBoundedAndLeaky` covers all of\n them, and they "
-           "carry the same kind of bound.)\n\n";
+    // WHAT THIS DOES AND DOES NOT MEASURE, in the transcript, because this
+    // text is what a release validator prints and a reader will take it for
+    // the whole story otherwise. An earlier version said the source sweep
+    // "covers all of them" while that sweep read ONE FILE of three.
+    out << "queues measured here: " << specs.size()
+        << ", taken from the description videoPipelineDescription()\n"
+           "actually returns. NOT measured: the receive-side queues and the\n"
+           "self-view branch (built inside member functions, not reachable\n"
+           "from a static function), the share-audio queues, and the whole\n"
+           "1:1 lane in GstCallMediaBackend. Those are covered STATICALLY by\n"
+           "`everyLiveQueueIsBoundedAndLeaky`, which asserts a per-file count\n"
+           "across all three media sources (11 queues) — that is a different\n"
+           "claim from the behavioural one below, and neither substitutes for\n"
+           "the other.\n\n";
     if (specs.isEmpty()) {
-        out << "RESULT: FAIL — no queue could be read out of the pipeline "
-               "this build produces, so nothing was tested.\n";
+        out << "RESULT: nothing was measured — no queue could be read out of "
+               "the pipeline this build\nproduces.\n"
+            << "VERDICT: unmeasurable\n";
         out.flush();
         if (report)
             *report = text;
-        return 1;
+        return 2;
     }
 
     QList<QueueProbeResult> results;
@@ -3549,13 +3580,36 @@ int SfuMediaEngine::runQueueSelfTest(QString *report)
                                     /*isControl=*/true));
 
     bool ok = true;
+    bool measured = true;   ///< every probe, INCLUDING the control, ran
+    qint64 controlHeldMs = -1;
     for (const QueueProbeResult &r : results) {
         out << (r.isControl ? "CONTROL " : "SHIPPED ") << r.spec << "\n";
         if (!r.ran) {
+            // A PROBE THAT DID NOT RUN IS NOT A FAILED QUEUE. Reporting it as
+            // one printed "a live queue was still holding a backlog" over a
+            // run where no element could even be created — a verdict
+            // asserting a measured fact that never happened, inside a release
+            // validation log.
             out << "    could not run: " << r.error << "\n\n";
-            if (!r.isControl)
-                ok = false;
+            measured = false;
             continue;
+        }
+        if (r.isControl)
+            controlHeldMs = r.realtimeMs;
+        // A BUFFER-COUNT BOUND IS NOT A TIME BOUND, and this probe feeds
+        // 10 ms buffers. `max-size-buffers=4` therefore reads as 40 ms here
+        // while the same queue on the real video path holds 4 FRAMES — 133 ms
+        // at 30 fps and 800 ms at the 5 fps a raw-chain camera was measured
+        // negotiating. Say so beside the number rather than letting it be
+        // quoted as the shipped figure.
+        if (r.spec.contains(QStringLiteral("max-size-buffers="))
+            && !r.spec.contains(QStringLiteral("max-size-time="))) {
+            out << "    NOTE: this bound is in BUFFERS, and this probe uses "
+                   "10 ms buffers.\n"
+                   "          On the video path the same bound is 4 frames = "
+                   "133 ms at 30 fps,\n"
+                   "          800 ms at 5 fps. The milliseconds below are the "
+                   "PROBE'S, not\n          the shipped path's.\n";
         }
         out << "    settled                       " << r.settledMs
             << " ms\n"
@@ -3582,17 +3636,46 @@ int SfuMediaEngine::runQueueSelfTest(QString *report)
         out << "\n";
     }
 
+    // THE CONTROL IS ASSERTED, NOT JUST PRINTED. It is the entire
+    // evidentiary basis of this measurement: if the starvation mechanism
+    // stops working — `identity sleep-time` changing meaning, a source that
+    // is not live, a machine where the sampler misses the peak — then EVERY
+    // row reads low, shipped and control alike, and a verdict taken from the
+    // shipped rows alone says PASS over a run that demonstrated nothing.
+    // A default queue that does not hold most of a second here means the
+    // experiment did not happen.
+    static constexpr qint64 kControlMustHoldMs = 500;
+    if (measured && controlHeldMs < kControlMustHoldMs) {
+        out << "the CONTROL queue held only " << controlHeldMs
+            << " ms with its consumer starved and then restored.\n"
+               "A GStreamer default queue holds a full second, so the "
+               "starvation did not\nhappen and nothing here was "
+               "demonstrated.\n\n";
+        measured = false;
+    }
+
+    if (!measured) {
+        out << "RESULT: nothing was measured — see the rows above. This is "
+               "NOT a statement\nabout any queue in this build.\n"
+            << "VERDICT: unmeasurable\n";
+        out.flush();
+        if (report)
+            *report = text;
+        return 2;
+    }
+
     out << (ok
-                ? "RESULT: PASS — every queue this build ships stayed within "
-                  "its bound while its\nconsumer was starved, and was not "
-                  "still holding a backlog once the consumer\nwas merely "
-                  "keeping up. Read the CONTROL line beside them: that is "
-                  "what the\nGStreamer default does on this same machine, in "
-                  "this same run.\n"
-                : "RESULT: FAIL — a live queue was still holding a backlog "
-                  "after its consumer had\ncaught up to real time. That is "
-                  "permanent added delay for the rest of a call.\nCompare it "
-                  "against the CONTROL line above.\n");
+                ? "RESULT: every queue this build ships stayed within its "
+                  "bound while its\nconsumer was starved, and was not still "
+                  "holding a backlog once the consumer\nwas merely keeping "
+                  "up. Read the CONTROL line beside them: that is what the\n"
+                  "GStreamer default does on this same machine, in this same "
+                  "run.\n"
+                : "RESULT: a live queue was still holding a backlog after its "
+                  "consumer had\ncaught up to real time. That is permanent "
+                  "added delay for the rest of a call.\nCompare it against "
+                  "the CONTROL line above.\n")
+        << (ok ? "VERDICT: pass\n" : "VERDICT: fail\n");
     out.flush();
     if (report)
         *report = text;
@@ -7119,13 +7202,33 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     // synthetic in a headless run, and audio still ends in a fakesink because
     // there is no audio device.
     const QString description = mediaKind == QLatin1String("video")
+        // BOUNDED, AND DELIBERATELY *NOT* LEAKY — unlike every other queue in
+        // this file, and the difference is the payload.
+        //
+        // This queue holds RTP PACKETS, in front of the depayloader. Dropping
+        // one is not dropping a frame: it corrupts the VP8 bitstream, and the
+        // drop happens DOWNSTREAM of webrtcbin, so webrtcbin sees no loss and
+        // sends no PLI — nothing in this tree sends one (`pli` appears here
+        // only as a read-only statistic), so the decoder would stay corrupt
+        // until the sender's next keyframe on its own schedule.
+        //
+        // It does not need to leak: the latency protection is already two
+        // elements downstream, where `appsink max-buffers=1 drop=true` throws
+        // away a late frame after it has been decoded intact. The bound is
+        // kept so this can never become the one-second hoard a default queue
+        // is.
         ? QStringLiteral("queue max-size-buffers=0 max-size-bytes=0 "
-                         "max-size-time=200000000 leaky=downstream "
+                         "max-size-time=200000000 "
                          "! rtpvp8depay name=recvdepay ! vp8dec "
                          "! videoconvert ! video/x-raw,format=RGBA "
                          "! appsink name=vidsink emit-signals=true "
                          "sync=false max-buffers=1 drop=true")
         : (engine->testSourceMode()
+               // LEAKY IS SAFE ON AUDIO AND NOT ON VIDEO. An Opus frame is
+               // independent and the decoder conceals a dropped one, so
+               // preferring a lost moment to a permanent second of delay is
+               // the right trade here — and it is the wrong one for the
+               // video queue above, which carries RTP into a depayloader.
                ? QStringLiteral("queue max-size-buffers=0 max-size-bytes=0 "
                                 "max-size-time=200000000 leaky=downstream "
                                 "! rtpopusdepay name=recvdepay "

@@ -2968,71 +2968,89 @@ private slots:
         QVERIFY(Policy::kMinObserved <= Policy::kWindow);
     }
 
-    // EVERY QUEUE ON A LIVE PATH IS BOUNDED AND LEAKY, AND THIS IS A SOURCE
-    // SCAN BECAUSE FOUR OF THE SEVEN ARE NOT REACHABLE AS PURE FUNCTIONS.
+    // EVERY QUEUE ON EVERY LIVE MEDIA PATH IS BOUNDED, AND LEAKY UNLESS IT
+    // CARRIES RTP INTO A DEPAYLOADER. A SOURCE SCAN, ACROSS THREE FILES.
     //
     // `queue` defaults to max-size-time=1000000000 with leaky=no. On a live
-    // media path that is a permanent latency bomb: one moment of a consumer
-    // falling behind fills it, and because it never leaks the backlog stays
-    // for the rest of the call. That defect was found and fixed on the AUDIO
-    // CAPTURE queue on 2026-09-16 -- reported as ~1 s Lightning->Element
-    // against ~0.2 s the other way -- and the fix bounded exactly one of the
-    // seven queues in this file. The other six were left at the default,
-    // including the one feeding the video encoder (the element measured at
-    // 2.6 cores sustained on a 4K share, i.e. the one most able to fall
-    // behind) and the three on the RECEIVE side, which is the side where the
-    // listener actually experiences delay.
+    // path that is a permanent latency bomb: one moment of a consumer falling
+    // behind fills it, and because it never leaks the backlog stays for the
+    // rest of the call. Found and fixed on the SFU lane's audio capture queue
+    // on 2026-09-16 after a live report of ~1 s of one-directional delay —
+    // and that fix bounded ONE of the eleven queues this project ships.
     //
-    // A per-queue test would have to be remembered for the eighth queue.
-    // This one cannot be forgotten: it finds every queue that is used as a
-    // pipeline element and requires an explicit bound and leaky=downstream
-    // on each. The count is asserted too, so a scan that matches nothing --
-    // because the descriptions moved, or the literal splicing broke -- fails
-    // instead of passing vacuously.
+    // THE FIRST VERSION OF THIS SWEEP READ ONE FILE, AND A REVIEW FOUND FOUR
+    // MORE BARE QUEUES OUTSIDE IT while the commit that added it claimed
+    // "every queue on a live path": the share-audio publish path, and the
+    // whole 1:1 lane in `GstCallMediaBackend` — capture AND receive — which
+    // is installed in every WebRTC build and is the same defect in the other
+    // lane. A sweep is only as wide as what it reads, and a count assertion
+    // over too few files is a confident wrong answer.
+    //
+    // Per-file counts, so a queue that MOVES between these files cannot keep
+    // the total right while leaving a hole.
     void everyLiveQueueIsBoundedAndLeaky()
     {
-        QString code = QString::fromUtf8(engineSource());
-        QVERIFY(!code.isEmpty());
-        code.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
-        // Splice adjacent string literals, so a queue whose properties are
-        // continued on the next source line reads as one element. The
-        // pattern is quote-whitespace-quote, which cannot match the `", "`
-        // separating entries in an element-name array.
-        code.remove(QRegularExpression(QStringLiteral("\"\\s*\"")));
+        struct Lane { const char *path; int expected; };
+        const QList<Lane> lanes = {
+            { SOURCE_DIR "/src/calls/SfuMediaEngine.cpp", 7 },
+            { SOURCE_DIR "/src/calls/ShareAudioSources.cpp", 2 },
+            { SOURCE_DIR "/src/calls/GstCallMediaBackend.cpp", 2 },
+        };
 
-        // The stripper and the splice must both have worked, or every
-        // assertion below is vacuous.
-        QVERIFY2(code.contains(QStringLiteral("max-size-time=100000000")),
-                 "the comment stripper ate the code");
-
-        // A PIPELINE queue, not a C++ identifier called `queue`. The first
-        // version matched `\bqueue\s` and so matched
-        // `queue = gst_bin_get_by_name(...)` the moment this file gained a
-        // self-test that holds one in a variable. A pipeline queue is always
-        // followed by a pad separator or by one of its own properties.
+        // A PIPELINE queue, not a C++ identifier called `queue`. Matching
+        // `\bqueue\s` reported `queue = gst_bin_get_by_name(...)` as an
+        // unbounded pipeline queue the moment this file gained a variable of
+        // that name. A pipeline queue is followed by a pad separator or by
+        // one of its own properties.
         static const QRegularExpression queueElement(QStringLiteral(
             "\\bqueue(?=\\s+(?:!|max-size|leaky|min-threshold|flush-on-eos"
             "|silent|name=))"));
-        int found = 0;
-        QRegularExpressionMatchIterator it = queueElement.globalMatch(code);
-        while (it.hasNext()) {
-            const QRegularExpressionMatch m = it.next();
-            ++found;
-            // The element's own properties end at the next pad separator.
-            const QString tail = code.mid(m.capturedStart(), 220);
-            const QString props = tail.section(QLatin1Char('!'), 0, 0);
-            QVERIFY2(props.contains(QStringLiteral("leaky=downstream")),
-                     qPrintable(QStringLiteral(
-                         "a queue on a live path is not leaky: '%1' -- a "
-                         "default queue holds one second and never drains")
-                                    .arg(props.trimmed())));
-            QVERIFY2(props.contains(QStringLiteral("max-size-time="))
-                         || props.contains(QStringLiteral("max-size-buffers=")),
-                     qPrintable(QStringLiteral(
-                         "a queue on a live path carries no explicit bound: "
-                         "'%1'").arg(props.trimmed())));
+
+        for (const Lane &lane : lanes) {
+            QFile file(QString::fromUtf8(lane.path));
+            QVERIFY2(file.open(QIODevice::ReadOnly), lane.path);
+            QString code = QString::fromUtf8(file.readAll());
+            QVERIFY(!code.isEmpty());
+            code.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
+            // Splice adjacent string literals, so a queue whose properties
+            // continue on the next source line reads as one element. The
+            // pattern is quote-whitespace-quote, which cannot match the
+            // `", "` separating entries in an element-name array.
+            code.remove(QRegularExpression(QStringLiteral("\"\\s*\"")));
+
+            int found = 0;
+            QRegularExpressionMatchIterator it = queueElement.globalMatch(code);
+            while (it.hasNext()) {
+                const QRegularExpressionMatch m = it.next();
+                ++found;
+                const QString tail = code.mid(m.capturedStart(), 260);
+                const QString props = tail.section(QLatin1Char('!'), 0, 0);
+                const QString next = tail.section(QLatin1Char('!'), 1, 1);
+                QVERIFY2(props.contains(QStringLiteral("max-size-time="))
+                             || props.contains(
+                                 QStringLiteral("max-size-buffers=")),
+                         qPrintable(QStringLiteral(
+                             "%1: a queue on a live path carries no explicit "
+                             "bound: '%2'")
+                                        .arg(QString::fromUtf8(lane.path),
+                                             props.trimmed())));
+                // THE ONE EXEMPTION, and it is narrow on purpose: a queue
+                // feeding a VIDEO depayloader holds RTP packets, so leaking
+                // corrupts the bitstream — and the drop is downstream of
+                // webrtcbin, which therefore sends no PLI. Its latency
+                // protection is the appsink's own `drop=true`.
+                if (next.contains(QStringLiteral("rtpvp8depay")))
+                    continue;
+                QVERIFY2(props.contains(QStringLiteral("leaky=downstream")),
+                         qPrintable(QStringLiteral(
+                             "%1: a queue on a live path is not leaky: '%2' "
+                             "— a default queue holds one second and never "
+                             "drains")
+                                        .arg(QString::fromUtf8(lane.path),
+                                             props.trimmed())));
+            }
+            QCOMPARE(found, lane.expected);
         }
-        QCOMPARE(found, 7);
     }
 
     // THE CAMERA MUST NAME ITS SOURCE, and this is a source scan because the

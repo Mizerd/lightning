@@ -264,7 +264,14 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     const int payload = qBound(96, opusPayloadType, 127);
     const QString description = QStringLiteral(
         "webrtcbin name=wb bundle-policy=max-bundle latency=100 "
-        "%1 ! queue ! audioconvert ! audioresample "
+        // BOUNDED AND LEAKY. This is the SAME queue, in the OTHER LANE, as
+        // the one 0.9.7 fixed in SfuMediaEngine after a live report of ~1 s
+        // of one-directional delay -- and it was left at the GStreamer
+        // default, which holds a second and never drops any of it. Every 1:1
+        // call has shipped with it.
+        "%1 ! queue max-size-buffers=0 max-size-bytes=0 "
+        "max-size-time=100000000 leaky=downstream "
+        "! audioconvert ! audioresample "
         // valve name=micvalve: drop=true stops buffers reaching the encoder,
         // so NOTHING is published while muted. Lowering volume here would
         // still send audio and is not mute.
@@ -860,13 +867,28 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
     const QString sink = backend->m_audioSinkElement.isEmpty()
         ? QStringLiteral("autoaudiosink")
         : backend->m_audioSinkElement;
+    // BOUNDED AND LEAKY, both modes. This is the RECEIVE side, which is the
+    // side a listener experiences delay on: a momentary stall on the
+    // listening machine fills a default queue with a second of audio that
+    // leaky=no can never give back. 200 ms because this queue is fed by
+    // webrtcbin's own jitter buffer and drained by a hardware clock, so it
+    // only has to absorb local scheduling jitter. Leaking is safe HERE and
+    // is deliberately not done on a video receive queue: an Opus frame is
+    // independent and the decoder conceals a dropped one, while dropping RTP
+    // in front of a VP8 depayloader corrupts the bitstream with no PLI to
+    // recover from.
+    const QString recvQueue = QStringLiteral(
+        "queue max-size-buffers=0 max-size-bytes=0 "
+        "max-size-time=200000000 leaky=downstream ");
     const QString descriptionString = backend->m_testTone
-        ? QStringLiteral("queue ! rtpopusdepay ! opusdec ! audioconvert "
-                         "! audioresample ! volume name=outvol "
-                         "! fakesink sync=false")
-        : QStringLiteral("queue ! rtpopusdepay ! opusdec ! audioconvert "
-                         "! audioresample ! volume name=outvol ! %1")
-              .arg(sink);
+        ? recvQueue
+            + QStringLiteral("! rtpopusdepay ! opusdec ! audioconvert "
+                             "! audioresample ! volume name=outvol "
+                             "! fakesink sync=false")
+        : recvQueue
+            + QStringLiteral("! rtpopusdepay ! opusdec ! audioconvert "
+                             "! audioresample ! volume name=outvol ! %1")
+                  .arg(sink);
     const QByteArray descriptionUtf8 = descriptionString.toUtf8();
     const char *description = descriptionUtf8.constData();
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
