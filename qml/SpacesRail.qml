@@ -1255,8 +1255,25 @@ Rectangle {
                 // and that is not a thing to rely on twice.
                 Rectangle {
                     objectName: "railCapBackdrop"
-                    visible: spaceItem.capSeamTop > 0
-                             || spaceItem.capSeamBottom > 0
+                    // ── VISIBLE WHENEVER THE ROW IS PAST THE CAP ─────
+                    //
+                    // It was gated on the SEAM, and the seam is gated on the
+                    // row above already being at the cap — so in the common
+                    // case, a parent shallower than the cap owning a child at
+                    // it, the backdrop was never drawn. The cap layer's
+                    // rounded corners then exposed whatever was behind them,
+                    // which is the GRANDPARENT's band: measured on a capture
+                    // as two rows where x 5..8 reads the depth-2 tone instead
+                    // of the depth-3 one. Reported as a stray corner beside
+                    // the teal and purple tiles, and it is exactly the notch
+                    // this rectangle exists to fill.
+                    //
+                    // The seam and the backdrop are different questions. The
+                    // seam asks "is there air here"; the backdrop asks "what
+                    // colour is behind this child's corners", and the answer
+                    // to the second is "its parent" on every row past the
+                    // cap, air or no air.
+                    visible: spaceItem.trueBandDepth > root.maxBandLayers
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.leftMargin: root.bandInset(root.maxBandLayers)
