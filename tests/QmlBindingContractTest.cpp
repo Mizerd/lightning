@@ -1800,6 +1800,62 @@ private Q_SLOTS:
         }
     }
 
+    // ── 2026-09-18: the video overlay's double-tap does not reach the
+    //    control bar ────────────────────────────────────────────────────
+    //
+    // `overlayTap` is a SIBLING of `VideoControlBar`, so it covers the bar's
+    // whole rectangle. Its buttons and slider are Controls and accept the
+    // press; its background, its time label and the gaps between controls
+    // are not. A click there toggled playback, and a DOUBLE click — a user
+    // reaching for play and missing by a few pixels — CLOSED the overlay.
+    // The image viewer has carried a band check on its own tap since the
+    // two gestures were split; this is the same check.
+    void theVideoOverlayTapExcludesItsControlBar()
+    {
+        const QString src = read(QStringLiteral("VideoViewerOverlay.qml"));
+        QVERIFY(!src.isEmpty());
+        const int at = src.indexOf(QStringLiteral("id: overlayTap"));
+        QVERIFY2(at >= 0, "the video overlay's tap handler is gone, so this "
+                          "case is testing nothing");
+        const int close = src.indexOf(QStringLiteral("onDoubleTapped"), at);
+        QVERIFY2(close > at, "the overlay tap no longer closes on a double "
+                             "tap — re-anchor this case");
+        // EACH HANDLER'S OWN BODY, sliced by brace depth. A window that
+        // spans both lets the single tap's check satisfy the double tap's —
+        // which is exactly what a first version of this case did, and the
+        // mutation that removed the close's exclusion passed it.
+        const auto bodyOf = [&src](int from) {
+            const int open = src.indexOf(QLatin1Char('{'), from);
+            if (open < 0)
+                return QString{};
+            int depth = 0;
+            for (int i = open; i < src.size(); ++i) {
+                if (src.at(i) == QLatin1Char('{'))
+                    ++depth;
+                else if (src.at(i) == QLatin1Char('}') && --depth == 0)
+                    return src.mid(open, i - open + 1);
+            }
+            return QString{};
+        };
+        // BOTH gestures, not just one: the close is the expensive half, but
+        // a stray play/pause on the bar is the one that happens every time.
+        const int tapped = src.indexOf(QStringLiteral("onTapped:"), at);
+        QVERIFY2(tapped > at && tapped < close,
+                 "the overlay tap has no single-tap handler before its "
+                 "double-tap one — re-anchor this case");
+        const QString tapBody = bodyOf(tapped);
+        const QString doubleBody = bodyOf(close);
+        QVERIFY2(!tapBody.isEmpty() && !doubleBody.isEmpty(),
+                 "could not slice the overlay tap handlers' bodies");
+        QVERIFY2(tapBody.contains(QStringLiteral("onTheBar(")),
+                 "a single click on the video control bar's background still "
+                 "toggles playback");
+        QVERIFY2(doubleBody.contains(QStringLiteral("onTheBar(")),
+                 "a DOUBLE click on the video control bar's background still "
+                 "closes the overlay — a user reaching for play and missing "
+                 "by a few pixels loses the video");
+    }
+
     // ── 2026-09-18: selection mode really does suspend the row ──────────
     //
     // The selection TapHandler carries

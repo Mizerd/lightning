@@ -112,12 +112,31 @@ Popup {
             // single tap by the whole double-click interval — the same
             // "laggy pause" the inline card had). A double-tap toggles
             // twice — net no state change — then exits.
-            onTapped: {
+            //
+            // BUT NOT OVER THE CONTROL BAR. This handler is a SIBLING of the
+            // bar, so it covers the bar's whole rectangle: its buttons and
+            // slider are Controls and accept the press, but its background,
+            // its time label and the gaps between controls are not. A click
+            // there toggled playback, and a DOUBLE click — a user reaching
+            // for play and missing by a few pixels — closed the overlay and
+            // lost the video. The image viewer has carried a band check on
+            // its own tap since the day the two gestures were split; this is
+            // the same check, on the one band that has competing controls.
+            function onTheBar(y) {
+                return overlayBar.visible && y >= overlayBar.y
+            }
+            onTapped: (eventPoint) => {
+                if (onTheBar(eventPoint.position.y))
+                    return
                 if (!root.player) return
                 root.player.playbackState === MediaPlayer.PlayingState
                     ? root.player.pause() : root.player.play()
             }
-            onDoubleTapped: root.close()
+            onDoubleTapped: (eventPoint) => {
+                if (onTheBar(eventPoint.position.y))
+                    return
+                root.close()
+            }
         }
         HoverHandler { id: overlayHover }
 

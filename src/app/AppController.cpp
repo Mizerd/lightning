@@ -1633,6 +1633,24 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // deep-copies the whole list, and it reads the two fields directly
     // instead of round-tripping through a seventeen-entry map that also
     // computes avatars and badges.
+    // THE CALL BUTTON'S GATE IS A Q_INVOKABLE, SO IT NEEDS A REVISION.
+    //
+    // `canStartCall()` reads transport discovery, the room's own observed
+    // session and the membership capability — all asynchronous, all with
+    // change signals here, and none of them visible to a QML binding that
+    // only calls the function. The binding gates `visible:`, not `enabled:`,
+    // so a stale "no" leaves the button ABSENT until the user navigates away
+    // and back.
+    connect(m_rtc.get(), &RtcController::availabilityChanged, this,
+            [this] {
+                ++m_callGateRevision;
+                Q_EMIT callGateRevisionChanged();
+            });
+    connect(m_rtc.get(), &RtcController::sessionChanged, this,
+            [this](const QString &) {
+                ++m_callGateRevision;
+                Q_EMIT callGateRevisionChanged();
+            });
     m_rtc->setEncryptionResolver([this](const QString &roomId) {
         if (roomId.isEmpty() || !m_client)
             return RtcController::RoomEncryption::Unknown;

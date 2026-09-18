@@ -243,6 +243,16 @@ class AppController : public QObject
 
     // v0.5.6 Encrypted room-key import.
     Q_PROPERTY(QString roomKeyImportState READ roomKeyImportState NOTIFY roomKeyImportStateChanged)
+    /// Bumped whenever anything `canStartCall()` reads has changed: RTC
+    /// transport availability, or one room's observed session. A QML binding
+    /// that calls `canStartCall()` must read this too, or it evaluates once
+    /// at room-open and never again — which leaves the call button ABSENT
+    /// (it gates `visible:`, not `enabled:`) until the user navigates away
+    /// and back. One property rather than a tick per QML file, so the two
+    /// gates that must agree cannot drift apart in their dependencies
+    /// either.
+    Q_PROPERTY(int callGateRevision READ callGateRevision
+                   NOTIFY callGateRevisionChanged)
     Q_PROPERTY(int roomKeyImportImportedCount READ roomKeyImportImportedCount NOTIFY roomKeyImportStateChanged)
     Q_PROPERTY(int roomKeyImportTotalCount READ roomKeyImportTotalCount NOTIFY roomKeyImportStateChanged)
     Q_PROPERTY(int roomKeyImportAffectedRoomCount READ roomKeyImportAffectedRoomCount NOTIFY roomKeyImportStateChanged)
@@ -706,6 +716,11 @@ public:
     Q_INVOKABLE bool startCall(const QString &roomId, bool withVideo = false);
     /// Whether `startCall` would do anything for this room — the gate the
     /// room-header button uses, so a dead button is never offered.
+    ///
+    /// A binding on this ALONE goes stale. It is a Q_INVOKABLE, so Qt records
+    /// no dependency, and its answer rides RtcController state that arrives
+    /// asynchronously — transport discovery, the room's own session, the
+    /// membership capability. Read `callGateRevision` beside it.
     Q_INVOKABLE bool canStartCall(const QString &roomId) const;
     /// The single user a legacy 1:1 call in `roomId` would be placed to, or
     /// empty when the room is not a genuine two-party DM (see the .cpp).
@@ -713,6 +728,7 @@ public:
     /// Which lane `startCall` would use: "matrixrtc", "legacy" or "" for
     /// none. Diagnostics and tests; not shown in normal UI.
     Q_INVOKABLE QString preferredCallLane(const QString &roomId) const;
+    int callGateRevision() const { return m_callGateRevision; }
     RtcController *rtc() const;
     SfuCallController *groupCall() const;
     CallDeviceController *callDevices() const;
@@ -1331,6 +1347,7 @@ Q_SIGNALS:
     void securityStateChanged();
     void encryptionIdentityBrokenChanged();
     void roomKeyImportStateChanged();
+    void callGateRevisionChanged();
     // Emitted after a successful room-key import completes, with the
     // aggregate counts the UI should display. Non-secret.
     void roomKeyImportCompleted(int imported, int total, int affectedRooms);
@@ -1595,6 +1612,8 @@ private:
     std::unique_ptr<ThreadManager> m_threads;
     std::unique_ptr<PresenceManager> m_presence;
     std::unique_ptr<CallController> m_calls;
+    /// See the Q_PROPERTY: bumped from RtcController's own change signals.
+    int m_callGateRevision = 0;
     std::unique_ptr<RtcController> m_rtc;
     std::unique_ptr<SfuCallController> m_groupCall;
     std::unique_ptr<CallDeviceController> m_callDevices;

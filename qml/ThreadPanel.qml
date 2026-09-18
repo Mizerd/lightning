@@ -27,10 +27,27 @@ Rectangle {
 
     readonly property string panelRoomId:
         app.thread.active ? app.thread.roomId : app.currentRoomId
-    readonly property string panelRoomName: {
-        var room = app.roomList.findRoom(panelRoomId)
-        return room && room.name ? room.name : ""
+    /// The panel's room, RE-READ when the room list changes.
+    ///
+    /// `findRoom()` is a Q_INVOKABLE, so a binding that only calls it takes
+    /// its answer at open and keeps it. TimelinePane solves this with
+    /// `refreshCurrentRoom()` on the same two signals; this is that, for the
+    /// thread panel. It matters most for `roomEncrypted` below, which picks
+    /// the link-preview disclosure wording and the auto-load policy — a
+    /// stale `false` shows the weaker sentence about what the server sees.
+    property var panelRoom: ({})
+    function refreshPanelRoom() {
+        panelRoom = panelRoomId === "" ? ({})
+                                       : app.roomList.findRoom(panelRoomId)
     }
+    onPanelRoomIdChanged: refreshPanelRoom()
+    Connections {
+        target: app.roomList
+        function onDataChanged() { panel.refreshPanelRoom() }
+        function onModelReset() { panel.refreshPanelRoom() }
+    }
+    readonly property string panelRoomName:
+        panelRoom && panelRoom.name ? panelRoom.name : ""
 
     // Presentation-only normalization for the reply preview.
     //
@@ -161,7 +178,7 @@ Rectangle {
             replyList.positionAtNavigationRow(row)
         }
     }
-    Component.onCompleted: refreshRoot()
+    Component.onCompleted: { refreshRoot(); refreshPanelRoom() }
 
     ColumnLayout {
         anchors.fill: parent
@@ -752,10 +769,12 @@ Rectangle {
                         && hoveredActionsKey !== "")
                         hoveredActionsKey = ""
                 }
-                property bool roomEncrypted: {
-                    var info = app.roomList.findRoom(app.thread.roomId)
-                    return info && info.encrypted === true
-                }
+                // From the panel's re-read record, not a bare findRoom()
+                // call: see `panelRoom`. This value chooses the link-preview
+                // disclosure wording and the auto-load policy, so a stale
+                // `false` understates what the user's server can see.
+                property bool roomEncrypted:
+                    panel.panelRoom && panel.panelRoom.encrypted === true
                 function stateGroupExpanded(groupId) { return true }
                 function toggleStateGroup(groupId) {}
                 property var openImage: panel.openImage

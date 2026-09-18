@@ -4621,6 +4621,17 @@ ApplicationWindow {
         clauses << expr.mid(last).trimmed();
         clauses.removeAll(QString());
 
+        // AND THE GATE MUST CARRY ITS OWN DEPENDENCY. `canStartCall()` is a
+        // Q_INVOKABLE: a binding that only calls it evaluates once at
+        // room-open and never again, and because this gates `visible:`
+        // rather than `enabled:`, a stale "no" means the button is ABSENT
+        // until the user navigates away and back. Asserted on the BUTTON,
+        // and the clause loop below then carries it to the shortcut.
+        QVERIFY2(expr.contains(QStringLiteral("app.callGateRevision")),
+                 "the call button gates on canStartCall() without reading "
+                 "callGateRevision, so RTC state arriving after the room was "
+                 "opened never reaches the button");
+
         // PRESENT-TOKEN CONTROL: if the slice or the split stops working
         // this case must say so, not silently check nothing.
         QVERIFY2(clauses.size() >= 4,

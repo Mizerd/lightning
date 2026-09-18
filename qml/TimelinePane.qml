@@ -1160,6 +1160,12 @@ Rectangle {
                         // present and dead.
                         visible: app.currentRoomId !== ""
                                  && app.canStartCall(app.currentRoomId)
+                                 // The DEPENDENCY for the call above: `canStartCall` is a
+                                 // Q_INVOKABLE, so Qt records nothing, and its answer rides
+                                 // RTC state that lands asynchronously. Without this the
+                                 // gate evaluates once at room-open and the button stays
+                                 // ABSENT until the user navigates away and back.
+                                 && app.callGateRevision >= 0
                                  && !app.groupCall.active
                                  && (app.calls.state === CallController.Idle
                                      || app.calls.state

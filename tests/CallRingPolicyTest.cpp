@@ -359,6 +359,42 @@ private Q_SLOTS:
                  CallController::EndReason::LocalReject);
     }
 
+    // ── 2026-09-18: the call button's gate had no dependency ────────────
+    //
+    // `canStartCall()` is a Q_INVOKABLE, so a QML binding on it records no
+    // dependency, and its answer rides RtcController state that arrives
+    // asynchronously — transport discovery, the room's own observed session,
+    // the membership capability. The binding gates `visible:` rather than
+    // `enabled:`, so a stale "no" leaves the call button ABSENT until the
+    // user navigates away and back. `callGateRevision` is what both gates
+    // read; this pins that it actually moves.
+    void theCallGateRevisionMovesWithTheStateItsAnswerDependsOn()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        QVERIFY(controller.rtc());
+        QSignalSpy bumped(&controller,
+                          &AppController::callGateRevisionChanged);
+        const int before = controller.callGateRevision();
+
+        // Transport availability: the first thing `canStartCall` consults.
+        controller.rtc()->setMediaAvailable(
+            !controller.rtc()->mediaAvailable());
+        QVERIFY2(controller.callGateRevision() > before,
+                 "RTC availability changed and the call gate's revision did "
+                 "not move, so every binding on canStartCall() keeps the "
+                 "answer it had at room-open");
+        QVERIFY(bumped.count() >= 1);
+
+        // ...and one room's session, which is per-room and arrives later.
+        const int afterAvailability = controller.callGateRevision();
+        controller.rtc()->setRoomEncrypted(QStringLiteral("!sess:mock.local"),
+                                           true);
+        QVERIFY2(controller.callGateRevision() > afterAvailability,
+                 "a room's session changed and the call gate's revision did "
+                 "not move");
+    }
+
     // ── 2026-09-18: the call lane learned a room's encryption only from
     //    surfaces that OPEN the room ─────────────────────────────────────
     //
