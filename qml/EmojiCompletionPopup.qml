@@ -80,14 +80,35 @@ Popup {
                 // The image itself, resolved through the authenticated media
                 // path exactly as the timeline resolves one.
                 Image {
+                    id: completionImage
                     Layout.preferredWidth: 20
                     Layout.preferredHeight: 20
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     sourceSize.width: 40
-                    source: app.mediaBridge.supported && modelData.url
+                    // RE-ASKED WHEN THE BYTES LAND. `mxcImageSource` returns
+                    // an empty string on a cache miss and dispatches a fetch;
+                    // the answer arrives as `mediaCached`, and a binding that
+                    // does not touch a counter bumped from it never asks
+                    // again. So a custom emoji shown here for the first time
+                    // stayed a blank 20px gap for the session. Every other
+                    // call site in the tree pairs the two — EmojiPicker's
+                    // `resolveTick`, MediaListThumbnail's `refresh()` — and
+                    // these two were the exceptions.
+                    property int resolveTick: 0
+                    source: {
+                        var _tick = resolveTick
+                        return app.mediaBridge.supported && modelData.url
                             ? app.mediaBridge.mxcImageSource(modelData.url, 40)
                             : ""
+                    }
+                    Connections {
+                        target: app.mediaBridge
+                        function onMediaCached(cacheKey) {
+                            if (cacheKey.endsWith(":" + modelData.url))
+                                completionImage.resolveTick++
+                        }
+                    }
                 }
                 Label {
                     Layout.fillWidth: true

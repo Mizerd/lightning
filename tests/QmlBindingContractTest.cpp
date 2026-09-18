@@ -1800,6 +1800,210 @@ private Q_SLOTS:
         }
     }
 
+    // ── 2026-09-18: selection mode really does suspend the row ──────────
+    //
+    // The selection TapHandler carries
+    // `grabPermissions: PointerHandler.CanTakeOverFromAnything` and a comment
+    // claiming "everything a row normally does — open an image, follow a
+    // link, add a reaction — is suspended while selecting". It was not. Grab
+    // permissions govern who may take an EXCLUSIVE grab; pointer events are
+    // delivered innermost-first, so a handler on a CHILD acts before the
+    // row's ever sees the press. Reproduced on a real build: clicking a
+    // picture while picking messages to forward opened the full-screen
+    // viewer over the picker.
+    //
+    // DERIVED, so a surface added later cannot quietly opt out: every
+    // TapHandler and MouseArea in the delegate must either be gated on
+    // `rowActionsEnabled`, be the selection handler itself, or be one of the
+    // two exceptions named below — each of which carries its reason in the
+    // source beside it.
+    void everyRowSurfaceIsSuspendedWhileSelecting()
+    {
+        const QString src = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(!src.isEmpty());
+        QVERIFY2(src.contains(QStringLiteral("property bool rowActionsEnabled")),
+                 "the gate is gone, so this case is testing nothing");
+
+        const QStringList lines = src.split(QLatin1Char('\n'));
+        int handlers = 0;
+        int gated = 0;
+        QStringList offenders;
+        for (int i = 0; i < lines.size(); ++i) {
+            const QString trimmed = lines.at(i).trimmed();
+            if (trimmed != QLatin1String("TapHandler {")
+                && trimmed != QLatin1String("MouseArea {")) {
+                continue;
+            }
+            // The block, by brace depth — a fixed window after the name is
+            // defeated by any comment inside it, which is the shape that has
+            // cost this suite four cases.
+            QString block = lines.at(i);
+            int depth = lines.at(i).count(QLatin1Char('{'))
+                        - lines.at(i).count(QLatin1Char('}'));
+            int j = i + 1;
+            while (j < lines.size() && depth > 0) {
+                block += QLatin1Char('\n') + lines.at(j);
+                depth += lines.at(j).count(QLatin1Char('{'))
+                         - lines.at(j).count(QLatin1Char('}'));
+                ++j;
+            }
+            ++handlers;
+            const bool isSelection =
+                block.contains(QStringLiteral("toggleSelectionForThisRow"));
+            // The two documented exceptions: the right-click menu, which is
+            // how selection mode is left as well as entered, and the failed
+            // local echo's retry/cancel, which is not a selectable row.
+            const bool isContextMenu =
+                block.contains(QStringLiteral("acceptedButtons: Qt.RightButton"));
+            const bool isLocalEchoRecovery =
+                block.contains(QStringLiteral("retrySend("))
+                || block.contains(QStringLiteral("cancelSend("));
+            if (isSelection || isContextMenu || isLocalEchoRecovery)
+                continue;
+            if (block.contains(QStringLiteral("rowActionsEnabled"))) {
+                ++gated;
+                continue;
+            }
+            offenders << QStringLiteral("line %1").arg(i + 1);
+        }
+        QVERIFY2(handlers >= 20,
+                 qPrintable(QStringLiteral("only %1 handler blocks found; the "
+                                           "scan has stopped matching the file")
+                                .arg(handlers)));
+        QVERIFY2(offenders.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "MessageDelegate handlers that still act while the user "
+                     "is picking messages to forward: %1. Pointer events go "
+                     "innermost-first, so the row's selection handler cannot "
+                     "suppress them however its grabPermissions are set — "
+                     "each one needs `enabled: root.rowActionsEnabled`, or a "
+                     "documented reason not to")
+                     .arg(offenders.join(QStringLiteral(", ")))));
+        QVERIFY2(gated >= 15,
+                 qPrintable(QStringLiteral("only %1 gated surfaces; the file "
+                                           "has lost most of its gating")
+                                .arg(gated)));
+    }
+
+    // ── 2026-09-18: a file that asks for an mxc image must also listen
+    //    for the answer ────────────────────────────────────────────────
+    //
+    // `MediaBridge::mxcImageSource` returns an EMPTY STRING on a cache miss
+    // and dispatches a fetch; the answer arrives later as `mediaCached`. A
+    // binding that never touches a counter bumped from that signal asks
+    // exactly once, gets nothing, and shows a blank square for the life of
+    // the surface. Every call site in the tree paired the two except two:
+    // the `:shortcode` completion popup and the sticker-pack editor, where
+    // custom emoji and pack images rendered empty on first use and appeared
+    // only if the bytes happened to be cached already.
+    //
+    // DERIVED from the call sites, so a new one cannot be added without
+    // either the handler or a deliberate edit to this case.
+    void everyFileThatAsksForAnMxcImageListensForTheAnswer()
+    {
+        QDir dir(QStringLiteral(QML_DIR));
+        const QStringList files =
+            dir.entryList({ QStringLiteral("*.qml") }, QDir::Files);
+        QVERIFY2(files.size() > 50, "the QML directory scan found almost "
+                                    "nothing, so this case audits nothing");
+        int callers = 0;
+        for (const QString &file : files) {
+            const QString src = read(file);
+            if (!src.contains(QStringLiteral("mxcImageSource(")))
+                continue;
+            ++callers;
+            QVERIFY2(src.contains(QStringLiteral("onMediaCached")),
+                     qPrintable(QStringLiteral(
+                         "%1 calls mxcImageSource() and never listens for "
+                         "mediaCached, so every image it asks for before the "
+                         "bytes are cached stays blank for the life of the "
+                         "surface — the binding asks once and the answer "
+                         "arrives on a signal nothing here is connected to")
+                         .arg(file)));
+        }
+        QVERIFY2(callers >= 5,
+                 qPrintable(QStringLiteral("only %1 caller(s) found; the scan "
+                                           "has stopped matching the tree")
+                                .arg(callers)));
+    }
+
+    // ── 2026-09-18: every binding that reads the poll's answer TEXT must
+    //    touch `answerRevision` ─────────────────────────────────────────
+    //
+    // `answerTexts()` reads `answerModel.get(i).answerText`, and a ListModel
+    // `setProperty()` edit carries no QML-tracked dependency — so a binding
+    // that calls it re-evaluates on a row being ADDED and never on a row
+    // being TYPED INTO. `previewAnswers` and `formValid` both open with a
+    // bare `answerRevision` read and both say why; `dirty` did not.
+    //
+    // The consequence was a silent draft loss: a poll typed only into answer
+    // rows, with the question still empty, left `dirty` false, which kept
+    // `Popup.CloseOnPressOutside` in the closePolicy and sent `maybeClose()`
+    // down the branch that does not ask. A click outside destroyed the
+    // draft, and so did Cancel and the X.
+    //
+    // DERIVED, not pinned: the rule is "every binding calling answerTexts()",
+    // so a fourth one added tomorrow is covered without editing this case.
+    void everyPollBindingOnAnswerTextTouchesTheRevision()
+    {
+        const QString src = read(QStringLiteral("CreatePollDialog.qml"));
+        QVERIFY(!src.isEmpty());
+        QVERIFY2(src.contains(QStringLiteral("property int answerRevision")),
+                 "the revision counter is gone, so this case is testing "
+                 "nothing");
+
+        // Walk the file collecting each `readonly property ... :` binding
+        // and the text of its expression, stopping at the next declaration
+        // or a closing brace at the declaration's own depth.
+        const QStringList lines = src.split(QLatin1Char('\n'));
+        static const QRegularExpression decl(
+            QStringLiteral("^\\s*(readonly\\s+)?property\\s+\\S+\\s+(\\w+)\\s*:"));
+        int checked = 0;
+        for (int i = 0; i < lines.size(); ++i) {
+            const auto m = decl.match(lines.at(i));
+            if (!m.hasMatch())
+                continue;
+            const QString name = m.captured(2);
+            // The expression: this line plus every following line until the
+            // next declaration or a line that closes the block.
+            QString expr = lines.at(i);
+            int braces = expr.count(QLatin1Char('{')) - expr.count(QLatin1Char('}'));
+            int j = i + 1;
+            while (j < lines.size()
+                   && (braces > 0
+                       || (!decl.match(lines.at(j)).hasMatch()
+                           && !lines.at(j).trimmed().startsWith(
+                                  QLatin1String("function "))
+                           && !lines.at(j).trimmed().isEmpty()
+                           && !lines.at(j).trimmed().startsWith(
+                                  QLatin1String("//"))))) {
+                expr += QLatin1Char('\n') + lines.at(j);
+                braces += lines.at(j).count(QLatin1Char('{'))
+                          - lines.at(j).count(QLatin1Char('}'));
+                ++j;
+                if (braces <= 0 && expr.contains(QLatin1Char('{')))
+                    break;
+            }
+            if (!expr.contains(QStringLiteral("answerTexts()")))
+                continue;
+            ++checked;
+            QVERIFY2(expr.contains(QStringLiteral("answerRevision")),
+                     qPrintable(QStringLiteral(
+                         "CreatePollDialog's `%1` reads the answer TEXT "
+                         "through answerTexts() without touching "
+                         "answerRevision, so it never re-evaluates when a "
+                         "row is typed into — only when one is added. For "
+                         "`dirty` that meant a draft typed into the answers "
+                         "alone was discarded by a click outside, with no "
+                         "confirmation.").arg(name)));
+        }
+        QVERIFY2(checked >= 3,
+                 qPrintable(QStringLiteral(
+                     "only %1 binding(s) on answerTexts() were found; the "
+                     "scan has stopped matching the file it audits")
+                     .arg(checked)));
+    }
+
 };
 
 QTEST_MAIN(QmlBindingContractTest)

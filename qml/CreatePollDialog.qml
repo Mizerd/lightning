@@ -78,8 +78,21 @@ Dialog {
     // Anything typed makes the poll "dirty": click-outside no longer
     // discards silently, and Cancel/X ask before dropping the draft.
     // Escape stays a deliberate close for keyboard users.
-    readonly property bool dirty:
-        questionField.text.trim().length > 0 || answerTexts().length > 0
+    //
+    // THE SAME EXPLICIT `answerRevision` ITS TWO SIBLINGS CARRY, and it was
+    // the only one of the three without it. `answerTexts()` reads
+    // `answerModel.get(i).answerText`, and a ListModel `setProperty()` edit
+    // carries no QML-tracked dependency — so a draft typed ONLY into answer
+    // rows, with the question still empty, left `dirty` false. That kept
+    // `Popup.CloseOnPressOutside` in the closePolicy below and sent
+    // `maybeClose()` down the branch that does not ask: a click anywhere
+    // outside destroyed the draft silently, and so did Cancel and the X.
+    // The mitigation was three lines above the defect.
+    readonly property bool dirty: {
+        answerRevision
+        return questionField.text.trim().length > 0
+               || answerTexts().length > 0
+    }
     function maybeClose() {
         if (dirty)
             discardConfirm.open()

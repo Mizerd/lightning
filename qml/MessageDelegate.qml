@@ -38,6 +38,22 @@ Item {
     /// the pane, which is what already resolves it for the header.
     property string sourceRoomName: ""
     readonly property bool selectionMode: app.forward.selecting === true
+    /// WHAT A ROW'S OWN SURFACES ARE GATED ON WHILE SELECTING.
+    ///
+    /// The selection TapHandler below carries
+    /// `grabPermissions: CanTakeOverFromAnything` and a comment claiming
+    /// "everything a row normally does — open an image, follow a link, add a
+    /// reaction — is suspended while selecting". It is not: grab permissions
+    /// govern who may take an EXCLUSIVE grab, and pointer events are
+    /// delivered innermost-first, so a handler on a child acts before the
+    /// row's ever sees the press. Reproduced 2026-09-18 — clicking a picture
+    /// while picking messages to forward opened the full-screen viewer over
+    /// the picker.
+    ///
+    /// So the suspension is explicit, on each surface, and derived from one
+    /// name so a surface added later is a one-word change rather than a
+    /// silent regression.
+    readonly property bool rowActionsEnabled: !root.selectionMode
     // MESSAGES select. A call card or a state row has an event id too, and
     // the circle drew over the call card's own glyph (2026-09-05 screenshot);
     // forwarding "X started a call" is not a thing anyone asked for.
@@ -1291,6 +1307,9 @@ Item {
                 }
             }
             TapHandler {
+                // DELIBERATELY NOT gated on `rowActionsEnabled`. The context
+                // menu is how selection mode is LEFT as well as entered, and
+                // a right-click is not the gesture the picker consumes.
                 acceptedButtons: Qt.RightButton
                 onTapped: (eventPoint, button) => {
                     var p = bubbleRow.mapToItem(root, eventPoint.position.x,
@@ -1327,6 +1346,7 @@ Item {
                     // context menu still comes through from the bubble
                     // handler above.
                     TapHandler {
+                        enabled: root.rowActionsEnabled
                         acceptedButtons: Qt.LeftButton
                         onTapped: root.openSenderProfileForRow()
                     }
@@ -1482,6 +1502,7 @@ Item {
                 // or press Escape to close). Does not consume media/link taps,
                 // which have their own handlers on top.
                 TapHandler {
+                    enabled: root.rowActionsEnabled
                     acceptedButtons: Qt.LeftButton
                     onTapped: (eventPoint) => {
                         // Seventh occurrence: the "edited" marker opens the
@@ -1631,6 +1652,7 @@ Item {
                                 cursorShape: Qt.PointingHandCursor
                             }
                             TapHandler {
+                                enabled: root.rowActionsEnabled
                                 acceptedButtons: Qt.LeftButton
                                 onTapped: root.openSenderProfileForRow()
                             }
@@ -1769,6 +1791,7 @@ Item {
                         // read as clickable.
                         HoverHandler { id: replyHover }
                         TapHandler {
+                            enabled: root.rowActionsEnabled
                             cursorShape: Qt.PointingHandCursor
                             // Routes through the view contract, never
                             // app.pagination: inside the thread panel that
@@ -2466,7 +2489,8 @@ Item {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.timelineModel.retryDecryption()
+                                enabled: root.rowActionsEnabled
+                        onClicked: root.timelineModel.retryDecryption()
                             }
                         }
                         Label {
@@ -2477,7 +2501,8 @@ Item {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: app.showSettingsSection("security")
+                                enabled: root.rowActionsEnabled
+                        onClicked: app.showSettingsSection("security")
                             }
                         }
                     }
@@ -2555,7 +2580,8 @@ Item {
                                 // from the day it shipped, and silently so —
                                 // restoring a key that is not there is not an
                                 // error, it is a no-op.
-                                onTapped: app.linkPreviews.restorePreviewForEvent(
+                                enabled: root.rowActionsEnabled
+                    onTapped: app.linkPreviews.restorePreviewForEvent(
                                     root.previewRoomId, root.actionKey)
                             }
                         }
@@ -2655,7 +2681,9 @@ Item {
                                                  ? Accessible.Button : Accessible.StaticText
                                 TapHandler {
                                     enabled: model.edited === true
-                                    onTapped: root.openEditHistory(model.eventId)
+                                             && root.rowActionsEnabled
+                                    onTapped:
+                                        root.openEditHistory(model.eventId)
                                 }
                             }
                         }
@@ -2676,7 +2704,12 @@ Item {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.timelineModel.retrySend(
+                                // NOT gated on `rowActionsEnabled`: a failed local
+                        // echo is not selectable (`rowSelectable` excludes
+                        // it), so the picker has nothing to lose here and
+                        // retrying or cancelling a stuck send mid-pick is a
+                        // reasonable thing to want.
+                        onClicked: root.timelineModel.retrySend(
                                                root.sourceModelRow(index))
                             }
                         }
@@ -3436,6 +3469,7 @@ Item {
                     }
                     MouseArea {
                         id: reactionMouse
+                        enabled: root.rowActionsEnabled
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         // Deliberately does NOT take focus, for the same
@@ -3536,6 +3570,7 @@ Item {
                 HoverHandler { id: addChipHover }
                 MouseArea {
                     id: addChipMouse
+                    enabled: root.rowActionsEnabled
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
                     onClicked: reactionAddChip.activate()
@@ -3743,6 +3778,7 @@ Item {
             }
 
             TapHandler {
+                enabled: root.rowActionsEnabled
                 // Click → the full reader list (2026-08-18 tester report #2):
                 // everything the bridge delivered (up to 16, newest first)
                 // plus a truthful "+N more" tail — never fabricated names.
@@ -4711,6 +4747,7 @@ Item {
             MouseArea {
                 anchors.fill: parent
                 enabled: (directMedia.p.url || "").length > 0
+                             && root.rowActionsEnabled
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: app.media.openWebUrl(directMedia.p.url)
             }
@@ -4817,7 +4854,9 @@ Item {
             // Whole card opens the URL (loaded state only).
             MouseArea {
                 anchors.fill: parent
-                enabled: card.st === "loaded" && (card.p.url || "").length > 0
+                enabled: card.st === "loaded"
+                         && (card.p.url || "").length > 0
+                         && root.rowActionsEnabled
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: app.media.openWebUrl(card.p.url)
             }
@@ -5574,7 +5613,7 @@ Item {
 
             MouseArea {
                 anchors.fill: parent
-                enabled: !root.mediaHidden
+                enabled: !root.mediaHidden && root.rowActionsEnabled
                 visible: enabled
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
@@ -5745,6 +5784,7 @@ Item {
                             // opacity, not the saved state.
                             TapHandler {
                                 enabled: gifStarButton.revealed
+                                         && root.rowActionsEnabled
                                 onTapped: gifStarButton.activate()
                             }
                             // v0.6.6 review (L2): ignore key-repeat — held
@@ -5976,7 +6016,7 @@ Item {
             ToolTip.visible: stickerHover.hovered && (model.body || "").length > 0
             ToolTip.delay: 400
             TapHandler {
-                enabled: !root.mediaHidden
+                enabled: !root.mediaHidden && root.rowActionsEnabled
                 onTapped: {
                     if (stickerBox.bridgeFailed) {
                         stickerBox.refreshBridgeSource()
@@ -6318,7 +6358,7 @@ Item {
                 }
             }
             TapHandler {
-                enabled: !videoBox.playerActive
+                enabled: !videoBox.playerActive && root.rowActionsEnabled
                 onTapped: {
                     if (videoBox.bridgeFailed) {
                         videoBox.refreshBridgeSource()

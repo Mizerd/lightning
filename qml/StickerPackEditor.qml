@@ -206,14 +206,32 @@ Dialog {
                     spacing: AppTheme.spacing8
 
                     Image {
+                        id: packRowImage
                         Layout.preferredWidth: 28
                         Layout.preferredHeight: 28
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
                         sourceSize.width: 56
-                        source: app.mediaBridge.supported && imageRow.url
+                        // RE-ASKED WHEN THE BYTES LAND — see the same note in
+                        // EmojiCompletionPopup. `mxcImageSource` answers
+                        // empty on a miss and dispatches; without a counter
+                        // bumped from `mediaCached` this binding never asks
+                        // again, and a pack opened for editing before its
+                        // images are cached shows a column of blank squares.
+                        property int resolveTick: 0
+                        source: {
+                            var _tick = resolveTick
+                            return app.mediaBridge.supported && imageRow.url
                                 ? app.mediaBridge.mxcImageSource(imageRow.url, 56)
                                 : ""
+                        }
+                        Connections {
+                            target: app.mediaBridge
+                            function onMediaCached(cacheKey) {
+                                if (cacheKey.endsWith(":" + imageRow.url))
+                                    packRowImage.resolveTick++
+                            }
+                        }
                     }
 
                     // Either the name, or the field that is renaming it.
