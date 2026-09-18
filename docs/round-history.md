@@ -1,5 +1,136 @@
 # Round history
 
+## 2026-09-19 (night) — a control placed by its box, and a ladder solved over a chain nobody draws
+
+Four maintainer reports from one screenshot, one independent review that came
+back `CHANGES_REQUESTED`, and a binding loop that had been in every launch log
+for as long as anyone had been reading them. Organised by lesson.
+
+### A change handler on a LOCAL binding runs inside a stranger's evaluation
+
+`HomePane` logged `Binding loop detected for property "displayName"` on every
+launch. Instrumented rather than guessed, and the order came back unambiguous:
+`displayName` eval ENTER, then `activeUserIdChanged`, then the handler's write,
+then the warning.
+
+`displayName` falls back to the localpart, so it reads `activeUserId`.
+`activeUserId` was itself a BINDING, and a QML binding is evaluated LAZILY — on
+its first READ. That first read happened INSIDE `displayName`'s own evaluation,
+so the id moved from `""` to the real one mid-binding, `onActiveUserIdChanged`
+ran synchronously, and it wrote `activeAccount` — a dependency `displayName`
+had already captured. Qt abandons an evaluation whose dependencies move under
+it, so the greeting kept whatever the aborted pass left behind.
+
+The rail's account tile and the Settings identity card were already right:
+both drive their refresh from `Connections` on the manager's own signals and
+read `app.accounts.activeUserId` DIRECTLY, with no local binding in between.
+**GENERALISE: a change handler on a local binding fires during that binding's
+first read — which is whenever some other binding happened to reach it first —
+so what it writes is written inside a stranger's evaluation.**
+
+The gate went into `QmlComponentLoadTest`, which had HomePane in neither its
+covered list nor its recorded-exclusion list. A binding loop is a load-time
+fact invisible to every source scan: the component loads, the root is non-null,
+and a property silently keeps whatever the abandoned pass left. All 31 listed
+components were already loop-free; the assertion is now general.
+
+**And the data-driven case could not see this one**, which is why it has a
+dedicated sibling: the mock login leaves no account record, so
+`app.accounts.activeUserId` is `""` and a binding on it never changes value.
+The focused case writes a real record with the secret store DETACHED (so it
+puts no token in anyone's keyring) and removes it again on every exit path —
+without that, its own leftovers made the run after it behave differently.
+
+### "Clipping" was two things overlapping, and the reference was wrong
+
+The maintainer marked a selected Space whose expander had lost its right arm.
+Nothing was clipped. The active ring is drawn OUTSIDE its tile
+(`anchors.margins: -4`), so a selected tile's visible edge is not
+`tileColumnX` — and the chevron's gap was measured to the TILE. They occupied
+the same pixels, and only on the one tile the user had just clicked, which is
+why every capture taken while auditing that column looked fine.
+
+**GENERALISE: when something is drawn outside its own bounds, every neighbour
+budgeted against those bounds is budgeted against the wrong edge.** The same
+literal was still next door — the tile's hover plate at `-3`, reaching further
+out than the ring it shadows — and the revealed-room plate carried
+`radius: 10`, concentric only at 100% scale. Both derive from one token now.
+
+(An earlier version of this entry, and of the source comment, asserted that the
+ring "won because it is declared later". It is not: the chevron is declared
+after the ring and neither carries a `z`. The overlap was real and the
+direction was narrated rather than measured — the same slip §16 already
+records for this exact glyph.)
+
+### The box never changed size; the INK did
+
+"The chevrons are not centered in their box, and i dont like that the box
+changes sizes between states." The plate was a constant 10x22. MEASURED at
+dpr 1.5: `expand_more`'s ink is 12x6 device px and `chevron_right`'s is 7x12 —
+**the two glyphs' ink boxes are transposes of each other**, so a tall narrow
+pill holds a wide flat mark in one state and a tall thin one in the other, and
+the pair reads as two different boxes. A SQUARE plate sized from the wider ink
+is the only shape that looks the same around both.
+
+Both glyphs also sit high in their own box, by different amounts (1.33 and
+0.67 of the rise as measured in the square plate). That is the vertical half
+of the rule this file already carried for x: **place the INK, never the box.**
+
+### A ladder solved over a chain that is never drawn
+
+The maintainer asked for more contrast between nesting levels. The first fix
+re-solved the region tone ladder for an even 2.4 ΔL* per rung — and the
+independent review computed what that did to the boundaries a reader actually
+sees:
+
+| drawn boundary | before | after the "fix" |
+|---|---|---|
+| rail -> depth 1 | 3.17 | **4.85** |
+| depth 1 -> 2 | 2.99 | **2.30** |
+| depth 2 -> 3 | 3.02 | **2.47** |
+
+Rung 0 is the FOLDER container; hierarchy regions index the ladder from 1. So
+the chain a reader sees is `rail -> r1 -> r2 -> r3`, and solving rungs 0-4 as
+one even chain solved a ladder **whose first link is invisible** — making the
+loudest boundary 53% louder and every inner one ~20% fainter, which is the
+exact opposite of the report. **GENERALISE: solve for the sequence that is
+PAINTED, not the sequence the data structure happens to hold.**
+
+Rungs 1-4 are now solved for an even 3.4 ΔL* along the drawn chain, and rung 0
+separately as the folder step. The sRGB half of the lesson stands: equal alpha
+steps are NOT equal lightness steps, and the two ladders are not even the same
+shape — against a light rail the solved alphas come out nearly even, because
+at L* 85 the curve is locally straight.
+
+### The suite that certified eleven themes was measuring one
+
+`theRegionLadderIsEvenOnEveryTheme` set `settings.theme` 1..11 and counted to
+eleven. But `AppTheme.mode` is written only by a `Binding` in `Main.qml`, which
+that suite never loads — so `mode` stayed 0, `effectiveTheme` stayed on the
+system default, and **eleven iterations measured ONE palette while the case
+passed**. It writes `mode` on the singleton now and asserts the palettes are
+DISTINCT. Mutation-proved: with the write removed it reports "11 presets were
+selected but only 1 distinct palettes came back". Same family as every other
+count assertion in §16 — a check that can come back silently short is the
+defect, not its symptom.
+
+### A resting slab is not a hover state
+
+The expander's plate was first filled with `AppTheme.hover`. Measured, that is
+L* 19.75 on the depth-1 region — above the ladder's deliberate ceiling (16.99)
+AND above the room list beside it (13.83). One per expandable Space would have
+rebuilt exactly what the ceiling round measured and removed: the rail as the
+brightest vertical band in the window. It steps the rail's own ladder now, two
+rungs above whatever it sits on, which follows every theme by construction.
+
+### And the pgrep trap caught me twice in one night
+
+`pkill -f "<pattern>"` where the pattern appears in the command line running it
+kills the shell itself. Two background runs died with exit 144 this way — once
+a build-and-test run, once an SSH tunnel — both times because the pattern was
+written literally in the same command. The lesson was already in CLAUDE.md for
+`pgrep`; it applies to every `-f` match, including the one you are typing.
+
 ## 2026-09-18 (evening) — the rail redesign, and the six defects that read correctly as source
 
 Eleven commits, driven almost entirely by the maintainer looking at the thing

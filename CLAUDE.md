@@ -1477,6 +1477,51 @@ slab behind a run of tiles also reads as SELECTION, and one rung landed within
 is not the same as moving its anchor**, and the first fix did only the first.
 Discord's ENTIRE three-plane chrome spans 9.46 ΔL*; that is the budget.
 
+**A CHANGE HANDLER ON A LOCAL BINDING RUNS INSIDE A STRANGER'S EVALUATION.**
+`HomePane` logged `Binding loop detected for property "displayName"` on every
+launch. A QML binding is evaluated LAZILY, on its first READ — and
+`activeUserId`'s first read happened INSIDE `displayName`'s own evaluation
+(which reads it for the localpart fallback), so the id moved from "" to the
+real one mid-binding, `onActiveUserIdChanged` ran synchronously, and it wrote
+`activeAccount`, a dependency `displayName` had already captured. Qt abandons
+an evaluation whose dependencies move under it. The rail's account tile and the
+Settings identity card were always right: drive the refresh from `Connections`
+on the MANAGER's own signals and read `app.accounts.activeUserId` directly,
+with no local binding in between. A binding loop is a LOAD-TIME fact no source
+scan can see — the component loads, the root is non-null, and the property
+keeps whatever the aborted pass left — so the gate is in
+`QmlComponentLoadTest`, which asserts every listed component loads loop-free.
+
+**SOLVE FOR THE SEQUENCE THAT IS PAINTED, NOT THE ONE THE DATA HOLDS.** The
+rail's region ladder was re-solved for an even step per rung and made the
+reported problem WORSE: rung 0 is the FOLDER container and hierarchy regions
+index from 1, so the chain a reader sees is `rail -> r1 -> r2 -> r3` and the
+solve covered a ladder whose first link is never drawn — the loudest boundary
+got 53% louder and every inner one ~20% fainter. Caught by computing the drawn
+boundaries in review, not by reading the numbers. Related and equally
+expensive: **equal alpha steps are not equal LIGHTNESS steps**, and one
+hand-picked list cannot serve a light rail and a dark one.
+
+**AND THE SUITE THAT CERTIFIED ELEVEN THEMES WAS MEASURING ONE.**
+`theRegionLadderIsEvenOnEveryTheme` set `settings.theme` 1..11, but
+`AppTheme.mode` is written only by a `Binding` in `Main.qml`, which that suite
+never loads — so eleven iterations read ONE palette while `themesChecked`
+counted to eleven and the case passed. It writes `mode` on the singleton now
+and asserts the palettes are DISTINCT. Assert the COUNT of what actually
+varied, never the count of loop iterations.
+
+**A THING DRAWN OUTSIDE ITS OWN BOUNDS MAKES EVERY NEIGHBOUR'S BUDGET WRONG.**
+Reported as a "clipped" chevron: nothing was clipped — the active ring is drawn
+OUTSIDE its tile, so a selected tile's visible edge is not `tileColumnX`, and
+the expander's gap was measured to the tile. They shared pixels, and only on
+the tile the user had just clicked, so every audit capture looked fine. Two
+siblings carried the same literal. Corollary, from the same round: **place the
+INK, never the box** — `expand_more`'s ink is 12x6 device px and
+`chevron_right`'s is 7x12, transposes of each other, so one plate around both
+reads as two different boxes unless it is square.
+
+Full account in `docs/round-history.md`, 2026-09-19.
+
 **Timeline test conventions — do not "re-fix" these.** The rotated
 Flickable + Column has no `positionViewAtIndex`,
 `positionViewAtBeginning` or `itemAtIndex`; `QMetaObject::invokeMethod`
