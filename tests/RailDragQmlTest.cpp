@@ -377,7 +377,12 @@ private slots:
         // the rail's own flick-scrolling. A steal under a REAL pointer would
         // be a production finding, not a harness one, and must not be papered
         // over here.
-        m_window->resize(68, 700);
+        // 160, NOT the production MINIMUM of 68. The rail's indent budget is
+        // half the leftover after the tile, so at 68 a step of 12 affords ONE
+        // level — and the nesting cases below need three distinct indents to
+        // be measuring anything. A user who wants that depth drags the rail
+        // out to the stop that affords it; this window is that stop.
+        m_window->resize(160, 700);
         m_rail->setParentItem(m_window->contentItem());
         m_rail->setSize(QSizeF(m_window->width(), m_window->height()));
         m_window->show();

@@ -1147,6 +1147,137 @@ private Q_SLOTS:
                             RailEntryModel::ExpandableRole).toBool());
     }
 
+    // ── 2026-09-18: the tree guides ──────────────────────────────────────
+    //
+    // The rail draws the hierarchy as a tree, and everything it needs to do
+    // that comes from the LEVEL SEQUENCE of the rows rather than from the
+    // Space graph — so the tree follows a drag preview instead of showing the
+    // arrangement the user is leaving. Two values per row:
+    //
+    //   treeLastChild  no later row is a sibling, so this branch takes the
+    //                  corner of the elbow instead of the tee.
+    //   treeGuides     one bool per ANCESTOR column, outermost first: does a
+    //                  vertical pass through this row there? It does exactly
+    //                  when the ancestor one level deeper has a later sibling.
+    //
+    // The second rule is the one that is easy to get subtly wrong, and the
+    // wrong version looks right on a shallow tree. Under a LAST child, no
+    // line may be drawn in the ancestor's column — otherwise a line runs down
+    // past the end of a branch to nothing. This fixture is built to have
+    // exactly that shape:
+    //
+    //   Root
+    //   ├── A            (has a later sibling: B)
+    //   │   └── A1       so A's column carries a line on A1's row
+    //   └── B            (last)
+    //       └── B1       and B's column must be CLEAR on B1's row
+    void theTreeGuidesFollowTheRowsRatherThanTheGraph()
+    {
+        FakeClient client;
+        client.roomList = {
+            spaceRoom(QStringLiteral("!root:x"), QStringLiteral("Root"),
+                      { QStringLiteral("!a:x"), QStringLiteral("!b:x") }),
+            spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A"),
+                      { QStringLiteral("!a1:x") },
+                      { QStringLiteral("!root:x") }),
+            spaceRoom(QStringLiteral("!a1:x"), QStringLiteral("A1"), {},
+                      { QStringLiteral("!a:x") }),
+            spaceRoom(QStringLiteral("!b:x"), QStringLiteral("B"),
+                      { QStringLiteral("!b1:x") },
+                      { QStringLiteral("!root:x") }),
+            spaceRoom(QStringLiteral("!b1:x"), QStringLiteral("B1"),
+                      { QStringLiteral("!b1a:x") },
+                      { QStringLiteral("!b:x") }),
+            // THE THIRD LEVEL IS NOT DECORATION. Without it the fixture
+            // cannot tell the rule apart from "draw a line whenever the next
+            // row is deeper", which is the plausible wrong version: B1 was
+            // the last row, so both rules answered "no line" for the same
+            // reason. With B1a below it, the wrong rule draws a line in B's
+            // column on B1's row — under a branch that has already ended.
+            spaceRoom(QStringLiteral("!b1a:x"), QStringLiteral("B1a"), {},
+                      { QStringLiteral("!b1:x") }),
+        };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        RailEntryModel model;
+        model.setSources(&spaces, &store);
+        for (const QString &id : { QStringLiteral("!root:x"),
+                                   QStringLiteral("!a:x"),
+                                   QStringLiteral("!b:x"),
+                                   QStringLiteral("!b1:x") }) {
+            store.setSpaceExpanded(id, true);
+        }
+
+        const auto guidesOf = [&model](const QString &id) {
+            const int row = model.rowForEntry(id);
+            return model.data(model.index(row, 0),
+                              RailEntryModel::TreeGuidesRole).toList();
+        };
+        const auto lastOf = [&model](const QString &id) {
+            const int row = model.rowForEntry(id);
+            return model.data(model.index(row, 0),
+                              RailEntryModel::TreeLastChildRole).toBool();
+        };
+
+        // The fixture has to actually have the shape described above, or
+        // every assertion below is about a tree that is not there.
+        QCOMPARE(model.rowForEntry(QStringLiteral("!a1:x")),
+                 model.rowForEntry(QStringLiteral("!a:x")) + 1);
+        QCOMPARE(model.rowForEntry(QStringLiteral("!b:x")),
+                 model.rowForEntry(QStringLiteral("!a1:x")) + 1);
+
+        // A root is its own trunk: no columns, and never "the last child" of
+        // anything, because the rows around it are other trunks.
+        QVERIFY(guidesOf(QStringLiteral("!root:x")).isEmpty());
+        QVERIFY(!lastOf(QStringLiteral("!root:x")));
+
+        // Depth 1: no ancestor columns, and A is followed by B.
+        QVERIFY(guidesOf(QStringLiteral("!a:x")).isEmpty());
+        QVERIFY2(!lastOf(QStringLiteral("!a:x")),
+                 "A is drawn as the last branch although B follows it");
+        QVERIFY2(lastOf(QStringLiteral("!b:x")),
+                 "B is drawn with a tee although nothing follows it");
+
+        // Depth 2, and the whole point of the case.
+        const QVariantList a1 = guidesOf(QStringLiteral("!a1:x"));
+        QCOMPARE(a1.size(), 1);
+        QVERIFY2(a1.at(0).toBool(),
+                 "no line is drawn in A's column on A1's row, so the branch "
+                 "down to B is broken in the middle");
+        const QVariantList b1 = guidesOf(QStringLiteral("!b1:x"));
+        QCOMPARE(b1.size(), 1);
+        QVERIFY2(!b1.at(0).toBool(),
+                 "a line is drawn in B's column on B1's row although B is the "
+                 "last branch — it runs past the end of the tree to nothing");
+        QVERIFY(lastOf(QStringLiteral("!a1:x")));
+        QVERIFY(lastOf(QStringLiteral("!b1:x")));
+
+        // Depth 3, and this is the row the wrong rule gets wrong. B1a sits
+        // under B1 under B, and B is the root's LAST child — so BOTH ancestor
+        // columns must be clear. A rule that draws a line whenever the next
+        // row is deeper puts one in B's column on B1's row, and the picture
+        // grows a line running past the end of the tree.
+        const QVariantList b1row = guidesOf(QStringLiteral("!b1:x"));
+        QCOMPARE(b1row.size(), 1);
+        QVERIFY2(!b1row.at(0).toBool(),
+                 "a line is drawn in B's column on B1's row although B is the "
+                 "root's last child and B1a is merely deeper");
+        const QVariantList b1a = guidesOf(QStringLiteral("!b1a:x"));
+        QCOMPARE(b1a.size(), 2);
+        QVERIFY2(!b1a.at(0).toBool() && !b1a.at(1).toBool(),
+                 "B1a's ancestor columns are not both clear, so the deepest "
+                 "branch of the tree has lines beside it that lead nowhere");
+
+        // Collapsing a branch removes its rows, and the guides follow the
+        // rows: with A shut, B is still the last child and A1 is gone.
+        store.setSpaceExpanded(QStringLiteral("!a:x"), false);
+        QCOMPARE(model.rowForEntry(QStringLiteral("!a1:x")), -1);
+        QVERIFY(!lastOf(QStringLiteral("!a:x")));
+        QVERIFY(lastOf(QStringLiteral("!b:x")));
+    }
+
     void aCyclicHierarchyKeepsEverySpaceReachableAndTerminates()
     {
         // A -> B -> A is legal state. A naive walk never returns; a walk that

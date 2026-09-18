@@ -142,15 +142,48 @@ Rectangle {
         railRoomTileSize + AppTheme.scaled(4)
     readonly property int indentBudget:
         Math.max(0, Math.floor((width - railTileSize) / 2))
-    // 6px per level: at the narrowest stop that is two clear steps before the
-    // budget runs out, and a third that butts against the edge — which is
-    // precisely where a user put the boundary when they said depth 2 fits
-    // comfortably and depth 3 does not.
+    // ONE STEP IS ONE TREE COLUMN, and the elbow that crosses it has to be
+    // SEEN. It was 6px, chosen when depth was a slight offset and nothing was
+    // drawn in the gutter: at that size the horizontal into each tile was
+    // three pixels long and the maintainer's report on the first live build
+    // was exactly that — "make it bend to the right too on the bottom and
+    // connect to the icons".
+    //
+    // 18 is the smallest step at which the BEND IS STILL VISIBLE PAST THE
+    // CHEVRON. The twisty sits on the elbow and interrupts the line it opens,
+    // so it eats the first half of the horizontal: at 12 the whole 9px ran
+    // behind the glyph and the tree looked like plain verticals again. At 18
+    // the horizontal is 15px, roughly half of it clear of the glyph, and the
+    // line visibly turns and touches the icon.
+    //
+    // THE COST IS DEPTH PER PIXEL, and it is real: `widthForLevels` is
+    // tile + 2·n·step, so the stops go 76 / 112 / 148 / 184 / 220 / 256 at
+    // 100% where they used to go 68 / 76 / 88 / 100 / 112. The rail that
+    // showed six levels of indent at 112px now shows two. That is the trade
+    // the request makes deliberately — six levels of indent with no visible
+    // structure is what prompted it — and it is why a rail that runs out of
+    // room needs somewhere to put the depth it cannot draw.
     //
     // SCALED, like the tile it indents. An unscaled step would mean the rail
     // showed fewer levels the larger a person set their interface, which is
     // backwards.
-    readonly property int indentStep: AppTheme.scaled(6)
+    readonly property int indentStep: AppTheme.scaled(18)
+    /// How far INSIDE a tile's left edge that tile's own descender runs.
+    /// Small on purpose: the line then leaves the bottom-left corner of the
+    /// icon it belongs to rather than floating in the gutter beside it.
+    readonly property int treeColumnInset: AppTheme.scaled(3)
+    /// Where the vertical for column `depth` sits, in delegate coordinates —
+    /// just inside the depth-`depth` tile's left edge, so it descends out of
+    /// that tile and crosses the whole step to reach the next one.
+    function treeColumnX(depth, rowWidth) {
+        return rowWidth / 2 - root.railTileSize / 2
+               + depth * root.indentStep + root.treeColumnInset
+    }
+    /// Thin, but not a hairline. One pixel disappeared into the rail's flat
+    /// background at a glance; two is followable without becoming a rule,
+    /// and it scales so a 140% interface does not get a thinner-looking tree
+    /// than a 100% one.
+    readonly property int treeLineWidth: Math.max(2, AppTheme.scaled(2))
 
     // ── The rail's width has STOPS, not a range ──────────────────────────
     //
@@ -494,6 +527,8 @@ Rectangle {
                 required property bool dropTarget
                 required property bool folderLast
                 required property bool draggable
+                required property bool treeLastChild
+                required property var treeGuides
 
                 readonly property bool isFolder: kind === "folder"
                 readonly property bool isHome: pseudo && spaceId === ""
@@ -659,16 +694,109 @@ Rectangle {
                     anchors.bottomMargin: 2
                 }
 
-                // Connector notch for a nested subspace, so the rail mirrors
-                // the Matrix hierarchy rather than only indenting for it.
-                Rectangle {
-                    visible: spaceItem.hierarchyChild
-                             && !expandChevronArea.visible
-                    width: root.indentStep; height: 2; radius: 1
-                    color: AppTheme.border
-                    anchors.verticalCenter: spaceTile.verticalCenter
-                    anchors.right: spaceTile.left
-                    anchors.rightMargin: 1
+                // ── The tree ────────────────────────────────────────────
+                //
+                // One vertical per ANCESTOR, an elbow into this row's own
+                // tile, and a descender out of a tile whose children are
+                // showing. Together they draw the hierarchy the way a file
+                // tree does, which is the whole point: an indent alone says
+                // "deeper than the row above" and never says WHICH row above.
+                //
+                // Every shape here is decided by the MODEL (`treeGuides`,
+                // `treeLastChild`), which derives them from the row order —
+                // so the tree follows a drag preview instead of showing the
+                // arrangement being left behind. Nothing in this block reads
+                // the Space graph.
+                //
+                // Behind the tiles and the chevron (`z: -1`), so a line can
+                // never be drawn over a tile it passes.
+                Item {
+                    id: treeGuides
+                    objectName: "railTreeGuides"
+                    anchors.fill: parent
+                    z: -1
+                    visible: spaceItem.isRealSpace && !root.dragging
+                    readonly property real tileTop: AppTheme.scaled(4)
+                    readonly property real tileMid:
+                        tileTop + root.railTileSize / 2
+                    readonly property real tileBottom:
+                        tileTop + root.railTileSize
+                    // STRONG ENOUGH TO FOLLOW. `AppTheme.border` is a
+                    // divider ink meant to sit between filled surfaces; on
+                    // the rail's flat background a 1px line in it is close to
+                    // invisible, which the first live capture showed.
+                    readonly property color ink: AppTheme.borderStrong
+                    // FULL ROW, NOT THE TILE BAND. A delegate is the tile
+                    // band PLUS whatever rooms it has revealed, and the rows
+                    // are spaced apart — so a line drawn only over the band
+                    // came out as a column of dashes with the gaps exactly
+                    // where a reader's eye needs the line to continue.
+                    readonly property real runHeight:
+                        spaceItem.height + list.spacing
+
+                    // An ancestor's vertical, drawn only where that ancestor
+                    // still has a branch below this row. Under the LAST
+                    // branch of a subtree the column is deliberately empty —
+                    // a line there would run past the end of the tree.
+                    Repeater {
+                        model: spaceItem.treeGuides
+                        delegate: Rectangle {
+                            required property int index
+                            required property var modelData
+                            visible: modelData === true
+                            x: root.treeColumnX(index, spaceItem.width)
+                            y: 0
+                            width: root.treeLineWidth
+                            height: treeGuides.runHeight
+                            color: treeGuides.ink
+                        }
+                    }
+
+                    // This row's own elbow. Full height when a sibling
+                    // follows (a tee), stopping at the tile's middle when
+                    // this is the last branch (a corner).
+                    Rectangle {
+                        visible: spaceItem.level > 0
+                        x: root.treeColumnX(spaceItem.level - 1,
+                                            spaceItem.width)
+                        y: 0
+                        width: root.treeLineWidth
+                        // +lineWidth on the corner: the vertical has to
+                        // reach the FAR edge of the horizontal it turns into,
+                        // or a 2px line leaves a 2px notch at the bend.
+                        height: spaceItem.treeLastChild
+                                ? treeGuides.tileMid + root.treeLineWidth
+                                : treeGuides.runHeight
+                        color: treeGuides.ink
+                    }
+                    Rectangle {
+                        visible: spaceItem.level > 0
+                        x: root.treeColumnX(spaceItem.level - 1,
+                                            spaceItem.width)
+                        y: treeGuides.tileMid
+                        width: Math.max(0, spaceTile.x - x)
+                        height: root.treeLineWidth
+                        color: treeGuides.ink
+                    }
+
+                    // The descender: a Space showing its children owns the
+                    // column those children's elbows arrive on, and the line
+                    // has to leave its tile for them to arrive at anything.
+                    Rectangle {
+                        visible: spaceItem.expandable && spaceItem.expanded
+                        x: root.treeColumnX(spaceItem.level, spaceItem.width)
+                        // STARTS INSIDE THE TILE, by its corner radius. The
+                        // tile is a rounded rectangle, so at the inset where
+                        // this line runs its painted bottom is HIGHER than
+                        // its bounding box — starting at the box left a gap
+                        // between the icon and the line leaving it. The tile
+                        // is painted over this layer, so the overlap costs
+                        // nothing and the line emerges exactly at the curve.
+                        y: treeGuides.tileBottom - AppTheme.radiusLg
+                        width: root.treeLineWidth
+                        height: Math.max(0, treeGuides.runHeight - y)
+                        color: treeGuides.ink
+                    }
                 }
 
                 // The expander: a quiet tree glyph living ENTIRELY in the
@@ -698,7 +826,21 @@ Rectangle {
                     width: Math.max(0, spaceTile.x - 4)
                     height: root.railTileSize
                     y: AppTheme.scaled(4)
+                    // THE TWISTY INTERRUPTS THE LINE IT SITS ON. Without
+                    // this the tree's vertical ran straight through the
+                    // glyph — reported as the chevron clipping, and that is
+                    // what it looks like. A file tree draws the twisty OVER
+                    // its guide; the rail-coloured disc is how that is done
+                    // when the guide is a sibling item rather than a gap.
+                    Rectangle {
+                        anchors.centerIn: expandGlyph
+                        width: expandGlyph.size + AppTheme.scaled(3)
+                        height: width
+                        radius: width / 2
+                        color: AppTheme.rail
+                    }
                     Icon {
+                        id: expandGlyph
                         objectName: "railSpaceExpandGlyph"
                         // THE GLYPH HUGS ITS OWN TILE, NOT THE RAIL'S EDGE.
                         //
@@ -717,7 +859,19 @@ Rectangle {
                         // from the tile at every level, so anchoring to it
                         // makes the distance constant too, and the glyph
                         // travels with its tile.
-                        anchors.right: parent.right
+                        //
+                        // SINCE THE TREE, it is placed on the elbow instead:
+                        // the column where this row's own branch meets its
+                        // parent's guide, which is half a step left of the
+                        // tile at EVERY level including the top one (there
+                        // `treeColumnX(-1)` is simply that same half step).
+                        // A twisty sitting on the line it opens is what every
+                        // file tree does, and it keeps the constant gap the
+                        // earlier fix was about — the glyph still travels
+                        // with its tile, it is just now also on the tree.
+                        x: root.treeColumnX(spaceItem.level - 1,
+                                            spaceItem.width)
+                           - expandChevronArea.x - size / 2
                         anchors.verticalCenter: parent.verticalCenter
                         name: spaceItem.expanded ? "expand_more" : "chevron_right"
                         // SCALED, like the tile and the per-level step. A

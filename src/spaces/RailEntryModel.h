@@ -118,6 +118,24 @@ public:
         FolderLastRole,
         /// Whether the user may drag this row at all.
         DraggableRole,
+        /// ── Tree guides ──────────────────────────────────────────────
+        ///
+        /// Everything the rail needs to draw the hierarchy as a tree, and
+        /// all of it derived from the LEVEL SEQUENCE of the rows themselves
+        /// rather than from the Space graph. That matters for one reason:
+        /// the rows are reordered live during a drag, and a guide computed
+        /// from the graph would draw the arrangement the user is leaving
+        /// rather than the one under their pointer.
+        ///
+        /// True when no later row is a sibling of this one — the row that
+        /// gets the corner of the elbow rather than the tee.
+        TreeLastChildRole,
+        /// One bool per ANCESTOR column, outermost first, `level - 1` of
+        /// them: does a vertical pass through this row at that column?
+        /// It does exactly when the ancestor one level deeper has a later
+        /// sibling, which is what stops a line being drawn under the last
+        /// branch of a subtree.
+        TreeGuidesRole,
     };
 
     explicit RailEntryModel(QObject *parent = nullptr);
@@ -198,6 +216,16 @@ Q_SIGNALS:
 
 private:
     void applyRows(QVector<QVariantMap> rows);
+    /// Stamps `treeLastChild` and `treeGuides` onto every row. Called from
+    /// applyRows(), which is the one chokepoint every row set passes
+    /// through — including the drag preview, so the tree the user sees
+    /// while dragging is the tree they will get.
+    static void stampTreeGuides(QVector<QVariantMap> &rows);
+    /// Does the depth-`level` ancestor of row `row` have a later sibling?
+    /// Scans forward for the first row at that level or shallower: a row at
+    /// exactly that level is the sibling, anything shallower ends the run.
+    static bool hasLaterSiblingAt(const QVector<QVariantMap> &rows, int row,
+                                  int level);
     void appendSubspaces(const QString &parentId,
                          const QString &owningFolderId,
                          const QHash<QString, QVariantMap> &byId,
