@@ -7800,7 +7800,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RailEntryModel</name>
     <message>
-        <location filename="../src/spaces/RailEntryModel.cpp" line="+202"/>
+        <location filename="../src/spaces/RailEntryModel.cpp" line="+205"/>
         <source>Direct Messages</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14580,7 +14580,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+684"/>
+        <location filename="../qml/SpacesRail.qml" line="+698"/>
         <source>All Spaces</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14600,7 +14600,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+188"/>
+        <location line="+181"/>
         <source>Folder: %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14620,17 +14620,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+298"/>
-        <source>Open this Space&apos;s own tree — the rail is too narrow to draw it here</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>Open this space&apos;s own tree</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+2"/>
+        <location line="+337"/>
         <source>Collapse space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14640,7 +14630,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+370"/>
+        <location line="+375"/>
         <location line="+3"/>
         <source>Show more rooms</source>
         <translation type="unfinished"></translation>

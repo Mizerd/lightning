@@ -833,23 +833,6 @@ Rectangle {
                     root.treeFocusId === ""
                     || (spaceItem.index >= root.focusRow
                         && spaceItem.index <= root.focusEnd)
-                /// Its children would sit deeper than the rail can draw, so
-                /// its expander DIVES instead of opening in place — the Space
-                /// becomes the trunk and gets the whole budget back. Without
-                /// this the rows piled up at one indent and claimed to be
-                /// siblings.
-                //
-                // `>=`, ON THE ROW'S OWN LEVEL. It was `drawnLevel + 1 >=`,
-                // which fires one level EARLY: a row at level L is drawn at
-                // L·step and needs L <= drawableLevels, so its children fit
-                // exactly when L + 1 <= drawableLevels — that is, it must
-                // dive when L >= drawableLevels. The off-by-one put the dive
-                // affordance on rows whose children fit perfectly well, and
-                // inside a dive it put it on EXPANDED rows, whose twisty then
-                // said the opposite of the truth.
-                readonly property bool divesInstead:
-                    spaceItem.isRealSpace && spaceItem.expandable
-                    && spaceItem.drawnLevel >= root.drawableLevels
                 /// This row's depth AS DRAWN. Inside a dive the focused Space
                 /// is the trunk, so everything under it is measured from
                 /// there and gets the rail's whole indent budget again.
@@ -1145,9 +1128,16 @@ Rectangle {
                     // it does nothing now". `expandable` is the model's own
                     // answer (childSpaceCount > 0) and was already computed;
                     // the chevron simply never read it.
+                    // ON HOVER ONLY — an expanded Space no longer keeps one
+                    // parked on its elbow. The chevron has to interrupt the
+                    // line it sits on to be legible, so every expanded row was
+                    // carrying a permanent break in its own corner; at rest
+                    // the tree is now unbroken, and pointing at a row puts the
+                    // control exactly where that row's corner is. Whether a
+                    // Space is open was never the chevron's job anyway: its
+                    // children are either drawn beneath it or they are not.
                     visible: spaceItem.isRealSpace && spaceItem.expandable
-                             && (spaceHover.hovered || spaceItem.expanded)
-                             && !root.dragging
+                             && spaceHover.hovered && !root.dragging
                     anchors.left: parent.left
                     // The BOX still spans the whole gutter, so the target
                     // stays as large as the space allows — up to the accent
@@ -1229,16 +1219,16 @@ Rectangle {
                         // would land deeper than the rail can draw does not
                         // open in place — it opens as a DIVE, and the glyph
                         // has to say so before the click rather than after.
-                        // A DIVE IS NOT A COLLAPSED TWISTY. Reusing
-                        // `chevron_right` for it meant an expanded Space at
-                        // the depth limit showed the glyph for "closed" — the
-                        // one per-row indicator the rail has, stating the
-                        // opposite of what the row was doing. An arrow says
-                        // "go in there", which is what the click does.
-                        name: spaceItem.divesInstead
-                              ? "arrow_forward"
-                              : (spaceItem.expanded ? "expand_more"
-                                                    : "chevron_right")
+                        // ONE MEANING: open or closed. A separate glyph for
+                        // "this one dives" was tried twice and rejected both
+                        // times — as `chevron_right` it was indistinguishable
+                        // from "collapsed", and as an arrow it read as a
+                        // stray mark in the gutter rather than as part of the
+                        // tree. The dive needs no glyph of its own: expanding
+                        // a Space too deep to draw re-bases the rail by
+                        // itself, and the chip at the top says where you are.
+                        name: spaceItem.expanded ? "expand_more"
+                                                 : "chevron_right"
                         // SCALED, like the tile and the per-level step. A
                         // bare 10 shrank against everything around it as the
                         // interface grew — the same defect the rail's indent
@@ -1253,29 +1243,13 @@ Rectangle {
                     }
                     HoverHandler { id: chevronHover }
                     TapHandler {
-                        onTapped: {
-                            if (spaceItem.divesInstead) {
-                                root.treeFocusId = spaceItem.spaceId
-                                if (app.railLayout)
-                                    app.railLayout.setSpaceExpanded(
-                                        spaceItem.spaceId, true)
-                                return
-                            }
-                            app.railLayout.toggleSpaceExpanded(
-                                spaceItem.spaceId)
-                        }
+                        onTapped: app.railLayout.toggleSpaceExpanded(
+                                      spaceItem.spaceId)
                     }
-                    ToolTip.visible: chevronHover.hovered
-                                     && spaceItem.divesInstead
-                    ToolTip.text: qsTr("Open this Space's own tree — the "
-                                       + "rail is too narrow to draw it here")
-                    ToolTip.delay: 300
                     Accessible.role: Accessible.Button
-                    Accessible.name: spaceItem.divesInstead
-                                     ? qsTr("Open this space's own tree")
-                                     : (spaceItem.expanded
-                                        ? qsTr("Collapse space")
-                                        : qsTr("Expand space"))
+                    Accessible.name: spaceItem.expanded
+                                     ? qsTr("Collapse space")
+                                     : qsTr("Expand space")
                 }
 
                 Rectangle {
