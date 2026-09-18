@@ -892,6 +892,65 @@ private slots:
                  "after an unrelated toggle or an app restart");
         QCOMPARE(tile->property("revealedRooms").toList().size(), leafRooms);
 
+        // ── AND A ROOM IS ACTUALLY DRAWN ────────────────────────────────
+        //
+        // Everything above this reads MODEL properties, and that is how the
+        // whole revealed-rooms column went missing in a shipped build while
+        // this case — and a full CTest run — stayed green. A careless edit
+        // deleted the column's `visible`, `y`, `width` and `spacing`; a
+        // Column with no width lays out nothing, so no Space revealed any
+        // room anywhere, and `revealed` went on reporting a happy number the
+        // whole time.
+        //
+        // The size is asserted as a RATIO of the Space tile, not a literal:
+        // a room tier is 0.7 of it, which is what says "this is a room and
+        // that is a Space" once the indent was taken away. And the x, because
+        // one shared axis is the rail's whole layout rule.
+        QQuickItem *roomTile = descendantNamed(
+            tile, QStringLiteral("railRevealedRoomTile"));
+        QVERIFY2(roomTile, "the reveal count is non-zero and NO room tile "
+                           "exists in the delegate — the column is laying out "
+                           "nothing");
+        QVERIFY2(roomTile->width() > 1 && roomTile->height() > 1,
+                 qPrintable(QStringLiteral(
+                     "a revealed room tile is %1x%2 — it is in the tree and "
+                     "has no size, so nothing is on screen")
+                     .arg(roomTile->width()).arg(roomTile->height())));
+        const qreal spaceTileSize =
+            m_rail->property("railTileSize").toReal();
+        const qreal ratio = roomTile->width() / spaceTileSize;
+        QVERIFY2(qAbs(ratio - 0.7) < 0.04,
+                 qPrintable(QStringLiteral(
+                     "a revealed room tile is %1 against a Space tile of %2 — "
+                     "a ratio of %3 where the rail's one size cue is 0.7")
+                     .arg(roomTile->width()).arg(spaceTileSize).arg(ratio)));
+        const qreal roomCentre =
+            roomTile->mapToItem(m_rail, QPointF(0, 0)).x()
+            + roomTile->width() / 2;
+        const qreal columnCentre =
+            m_rail->property("tileColumnX").toReal() + spaceTileSize / 2;
+        QVERIFY2(qAbs(roomCentre - columnCentre) < 1.0,
+                 qPrintable(QStringLiteral(
+                     "a revealed room is centred on x=%1 and every other tile "
+                     "on x=%2 — the column has two axes")
+                     .arg(roomCentre).arg(columnCentre)));
+
+        // AND IT IS BELOW THE SPACE TILE, which is the assertion that
+        // actually discriminates. A first version checked the tile's size and
+        // x and PASSED on the broken code: a room tile carries its own width
+        // and its own absolute x, so it keeps both even when the column
+        // around it has neither. What the column owns is WHERE the run
+        // starts — strip its `y` and every revealed room is drawn on top of
+        // the Space tile it belongs to.
+        const qreal bandHeight =
+            tile->property("tileBandHeight").toReal();
+        const qreal roomTop = roomTile->mapToItem(tile, QPointF(0, 0)).y();
+        QVERIFY2(roomTop >= bandHeight - 1,
+                 qPrintable(QStringLiteral(
+                     "a revealed room starts at y=%1 inside a tile band %2 "
+                     "tall — the rooms are drawn over the Space that owns "
+                     "them").arg(roomTop).arg(bandHeight)));
+
         // ...and closing it puts them away again, through the same binding.
         store()->toggleSpaceExpanded(leafId);
         QCoreApplication::processEvents();
@@ -1707,7 +1766,16 @@ private slots:
             for (int i = 1; i < rungs.size(); ++i) {
                 const QColor rung = rungs.at(i).value<QColor>();
                 const double ratio = contrast(previous, rung);
-                QVERIFY2(ratio >= 1.30,
+                    // 1.20, and it was 1.30. The ladder was given a CEILING on
+                // 2026-09-18 — without one it climbed to L*62 in a theme
+                // whose base is L*6 and made the rail the brightest band in
+                // the window, 5.25:1 against the room-list column beside it.
+                // A receding column affords about 2.1:1 in total, so three
+                // rungs inside it are ~1.26-1.30 steps and no threshold
+                // written against the unbounded ladder can survive that.
+                // What this still pins is the thing that matters: the rungs
+                // are EVEN, and none of them collapses into its neighbour.
+                QVERIFY2(ratio >= 1.20,
                          qPrintable(QStringLiteral(
                              "theme %1: region rung %2 (%3) is %4:1 against "
                              "the one outside it (%5) — below the step a 2px "

@@ -1139,20 +1139,44 @@ QtObject {
     // luminance near white than near black, so a ladder tuned on a dark
     // preset arrives washed out on a light one. The light alphas are solved
     // for the same ~1.45:1 target rather than copied.
+    //
+    // ── AND THE LADDER HAS A CEILING NOW, WHICH IT DID NOT ────────────
+    //
+    // Derived from `text` at escalating alpha, nothing stopped it, and it
+    // climbed to L*62 in a theme whose base is L*6. A design critique
+    // measured the result: the far-left rail was **the brightest vertical
+    // band in the window**, 5.25:1 brighter than the room-list column beside
+    // it. In Discord, Slack, Element and Linear the leftmost rail is the
+    // DARKEST surface in the app — it is chrome, it recedes. Worse, a light
+    // grey slab behind a run of tiles is the universal language of SELECTION
+    // or drag-over, so the feature was speaking the wrong verb; and nine of
+    // sixteen tiles measured under 2:1 against the band behind them, which is
+    // structural rather than bad luck with a fixture, because a ramp that
+    // sweeps L*21..62 must cross most of the generated avatar palette.
+    //
+    // THE HONEST CONSTRAINT: you cannot have a rail darker than its
+    // neighbour, depth encoded by tone, AND many depth levels. This picks the
+    // first two and pays for it in the third — the ceiling is about
+    // `cardElevated`, the steps are ~1.13-1.39 rather than 1.45, and the
+    // INSET was widened from 1px to 2px in the same change so the shape
+    // carries what the tone gave up.
     readonly property bool _railIsDark: rail.hslLightness < 0.5
     readonly property var _railNestAlphas:
-        _railIsDark ? [0.06, 0.16, 0.26, 0.37, 0.49, 0.60]
-                    : [0.10, 0.19, 0.35, 0.51, 0.66, 0.79]
+        _railIsDark ? [0.05, 0.11, 0.18, 0.26, 0.34]
+                    : [0.07, 0.16, 0.28, 0.42, 0.55]
     readonly property var railNestSurfaces: [
         Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[0])),
         Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[1])),
         Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[2])),
         Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[3])),
-        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[4])),
-        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[5]))
+        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[4]))
     ]
     // Kept as its own name for anything outside the rail that reads it.
-    readonly property color railNestSurface: railNestSurfaces[2]
+    // It has no consumers today; a critique flagged it as a trap — a mid-grey
+    // named "surface" sitting in a near-black theme — so it is pinned to the
+    // FIRST hierarchy rung rather than a deep one, which is the value anyone
+    // reaching for "the rail's group surface" would actually mean.
+    readonly property color railNestSurface: railNestSurfaces[1]
 
     readonly property color surface:             _p.surface
     readonly property color card:                surface

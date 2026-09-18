@@ -169,7 +169,10 @@ Rectangle {
     /// The ink inside that box — about 0.26 of the font size for this glyph.
     /// Used to place it, because placing the BOX leaves a quarter of the
     /// gutter as side bearing and pushes the mark away from its tile.
-    readonly property int chevronInkWidth: Math.round(chevronGlyphSize * 0.26)
+    /// 0.36, and it was 0.26 — 4px of ink for a control, which a critique
+    /// could not find on screen without knowing where to look. The gutter is
+    /// 14 and the advance about 9, so this still clears both sides.
+    readonly property int chevronInkWidth: Math.round(chevronGlyphSize * 0.36)
     /// Ink to tile. Two pixels: a control belongs to the thing it acts on.
     readonly property int chevronTileGap: AppTheme.scaled(2)
     /// NOTE: the box's width is the glyph's ADVANCE, not `chevronGlyphSize`,
@@ -299,9 +302,25 @@ Rectangle {
     /// and 2/3/4/5 gives that edge in a rail 20px narrower than the one
     /// 3/5/7/9 was drawn for. A 1px step is 1.5 device px on a HiDPI screen
     /// and is visible.
-    readonly property int maxBandLayers: 4
-    readonly property int bandInsetBase: AppTheme.scaled(2)
-    readonly property int bandInsetStep: AppTheme.scaled(1)
+    /// THREE, and it was four. The tone ladder now has a ceiling (see
+    /// `AppTheme.railNestSurfaces`) because the rail had become the brightest
+    /// band in the window, and a shorter ladder is what a dark rail affords:
+    /// the total range a receding column can spend is about 2.8:1, and five
+    /// rungs inside it are steps nobody can see.
+    ///
+    /// THE INSET TAKES OVER WHAT THE TONE GAVE UP. Three 1px hairlines at
+    /// 1.45:1 were measured reading as "a botched drop shadow" rather than as
+    /// nested boxes; 2px steps at a quieter tone read as edges. Bounded by
+    /// the chevron: its ink starts at x=7, so the deepest inset must stay at
+    /// or under 6, which 2/4/6 is exactly.
+    readonly property int maxBandLayers: 3
+    /// Base 1, step 2 — so the ladder is 1/3/5 and the DEEPEST inset is 5.
+    /// It was 2/4/6, and 6 is exactly where the chevron's ink now starts:
+    /// widening the ink to make it a real control pushed its left edge onto
+    /// the innermost band's edge, which the geometric case caught. The step
+    /// is what carries the shape, so the step is what is kept.
+    readonly property int bandInsetBase: AppTheme.scaled(1)
+    readonly property int bandInsetStep: AppTheme.scaled(2)
     /// Rung 0 is a FOLDER's container, which sits one step OUTSIDE hierarchy
     /// depth 1 because it contains it.
     function bandInset(depth) {
@@ -493,11 +512,13 @@ Rectangle {
         // delegate's: its other arm is `expansionCol.visible`, which is false
         // for the whole of a drag. This function is only ever asked during
         // one, so the two agree exactly when it matters.
+        // THE SAME UNCAPPED DEPTH the delegate uses. A capped one disagreed
+        // with the delegate on every row past the cap, and this arithmetic is
+        // what the drag maps the pointer through.
         var owns = e.bandNextLevel > e.level
-        var layers = Math.min(maxBandLayers,
-                              Math.max(0, e.level) + (owns ? 1 : 0))
-        var gap = layers > 0 && e.bandNextLevel >= 0
-                  && e.bandNextLevel < layers
+        var depth = Math.max(0, e.level) + (owns ? 1 : 0)
+        var gap = depth > 0 && e.bandNextLevel >= 0
+                  && e.bandNextLevel < depth
                   ? (e.bandNextLevel < 1 ? groupBreakGap : groupGap) : 0
         return tile + 2 * rowPad + gap
     }
@@ -565,6 +586,23 @@ Rectangle {
     // The dragged block's own slot is the GAP its tile came out of — the tile
     // is drawn under the pointer, not here. There is nothing to group with and
     // nowhere new to move, so a pointer over it holds everything still.
+    /// Can the entry currently being dragged be dropped ONTO a tile?
+    ///
+    /// Only a top-level entry can: a folder is a top-level grouping, so a
+    /// subspace has nothing to be filed into, and the model refuses it.
+    /// Asking here as well is not a second copy of that rule — it is what
+    /// stops the view from sending a gesture somewhere the model will decline
+    /// and then doing nothing at all with it.
+    function draggedCanGroup() {
+        var held = app.railEntries ? app.railEntries.draggingEntryId : ""
+        if (!held)
+            return false
+        var row = app.railEntries.rowForEntry(held)
+        if (row < 0)
+            return false
+        var entry = app.railEntries.entryAt(row)
+        return !!entry && entry.hierarchyChild !== true
+    }
     function rowIsDraggedBlock(row) {
         var entry = app.railEntries.entryAt(row)
         if (!entry)
@@ -581,6 +619,25 @@ Rectangle {
         if (!root.dragging)
             return
         var reading = readingAt(contentY)
+        // ── A DRAG THAT CANNOT GROUP HAS NO "DO NOTHING" READING ─────────
+        //
+        // `readingAt` answers "the pointer is ON a tile" or "it is in a gap",
+        // and a tile reading means GROUP. A subspace cannot be grouped — a
+        // rail folder is a top-level device — so `hoverGroup()` refused it
+        // and returned, moving nothing. The tile bands are most of the
+        // column's height, so a subspace drag was inert almost everywhere the
+        // pointer could be: it lifted, it followed, and it never reordered.
+        //
+        // For those drags a tile is not a target, it is a POSITION: above its
+        // midpoint means before it, below means after. `legalGap()` then
+        // snaps that to a boundary between the dragged row's own siblings, so
+        // this cannot turn into a reparent.
+        if (reading.row !== undefined && !draggedCanGroup()) {
+            var rowMid = rowTop(reading.row) + rowBand(reading.row) / 2
+            app.railEntries.hoverGap(contentY < rowMid ? reading.row
+                                                       : reading.row + 1)
+            return
+        }
         if (reading.row !== undefined) {
             // A target the pointer has LEFT must stop being lit AND stop
             // being armed: `endDrag` groups on the flag, not on where the
@@ -662,6 +719,11 @@ Rectangle {
             objectName: "spacesRailList"
             Layout.fillWidth: true
             Layout.fillHeight: true
+            // AIR BEFORE THE DIVIDER. There was none: a scrolled rail clipped
+            // its last tile flat, mid-monogram, with the bottom cluster's
+            // divider jammed against the cut edge — measured at 0px, against
+            // 10px of clearance on the divider at the top of the rail.
+            Layout.bottomMargin: root.railTileGap
             // A real model, so a preview reorder is a MOVE and not a reset.
             model: app.railEntries
             clip: true
@@ -672,6 +734,30 @@ Rectangle {
             reuseItems: false
 
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
+
+            // ── The bottom fade ──────────────────────────────────────────
+            //
+            // A guillotined tile is the loudest "this is broken" artefact a
+            // scrolling column can produce, and it is also the ONLY thing
+            // here that says the rail scrolls at all — there is no persistent
+            // scrollbar and no other indicator. A partly-scrolled tile
+            // dissolves into the rail instead of being cut flat.
+            //
+            // A direct child of the ListView, NOT of its contentItem: a child
+            // of the content scrolls with it and the fade would slide away
+            // from the edge it exists to soften.
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: AppTheme.scaled(16)
+                z: 5
+                visible: list.contentHeight > list.height
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "transparent" }
+                    GradientStop { position: 1.0; color: AppTheme.rail }
+                }
+            }
 
             // What makes the rearrangement read as movement rather than as a
             // jump. `displaced` covers the rows the moved one pushed past.
@@ -816,10 +902,24 @@ Rectangle {
                 /// own run continues BRIDGES it (see the Repeater's height).
                 /// So what a reader sees between two sibling runs is the
                 /// parent's tint, at full height, which is the separation.
+                /// KEYED ON THE TRUE DEPTH, not the capped one, and that
+                /// distinction is a real defect the capped version shipped.
+                ///
+                /// `bandLayers` stops at `maxBandLayers`, so a row at depth 7
+                /// followed by one at depth 4 compared 4 < 4 and spent NO
+                /// gap — while the tint alternation, which only ever promised
+                /// that a parent differs from its child, put both regions on
+                /// the same rung. Measured: a deep-level-8 run and a
+                /// burst-space run rendered as one unbroken `#91969D` with no
+                /// boundary pixel between them, at the same inset.
+                ///
+                /// The uncapped depth restores the guarantee the cap broke:
+                /// two regions can still share a tint, and they can no longer
+                /// TOUCH while doing it.
                 readonly property int trailingGap:
-                    spaceItem.bandLayers > 0
+                    spaceItem.trueBandDepth > 0
                     && spaceItem.bandNextLevel >= 0
-                    && spaceItem.bandNextLevel < spaceItem.bandLayers
+                    && spaceItem.bandNextLevel < spaceItem.trueBandDepth
                     ? (spaceItem.bandNextLevel < 1 ? root.groupBreakGap
                                                    : root.groupGap)
                     : 0
@@ -1239,6 +1339,18 @@ Rectangle {
                                                  0.16 * Math.max(
                                                      0, spaceItem.bandLayers - 1)))
                     }
+                    // A HOVER PLATE, because there was no affordance at
+                    // all: a 4px speck with nothing under it does not say
+                    // "press me". Centred on the ink, not on the gutter.
+                    Rectangle {
+                        anchors.centerIn: expandGlyph
+                        width: AppTheme.scaled(20)
+                        height: width
+                        radius: AppTheme.radiusSm
+                        color: AppTheme.hover
+                        visible: chevronHover.hovered
+                        z: -1
+                    }
                     HoverHandler { id: chevronHover }
                     TapHandler {
                         gesturePolicy: TapHandler.WithinBounds
@@ -1313,7 +1425,13 @@ Rectangle {
                         // plain icon ink otherwise. accentText was the ink for
                         // a solid fill that no longer exists, and on a soft
                         // wash it is unreadable.
-                        color: spaceItem.isActive ? AppTheme.accent
+                        // WHITE WHEN SELECTED, and it was the ACCENT on an
+                        // accent wash: measured 1.41:1, against 5.95:1 for
+                        // the unselected tile beside it. Selection made the
+                        // one item you most need to read four times harder to
+                        // read. The wash carries "you are here"; the glyph's
+                        // job is to stay legible on it.
+                        color: spaceItem.isActive ? AppTheme.text
                                                   : AppTheme.textSecondary
                     }
 
@@ -1597,27 +1715,36 @@ Rectangle {
 
                 Column {
                     id: expansionCol
-                    // ── Drag to rearrange, within this Space ──────────────
+                    // ── ITS OWN GEOMETRY, AND IT LOST IT ────────────────
                     //
-                    // ON THE COLUMN, NOT ON EACH ROW, and that is the whole
-                    // of why the first attempt did nothing. A per-row handler
-                    // activated correctly — instrumented, `active=true` with
-                    // the right index — and never deactivated, because
-                    // setting the preview changes the Repeater's model, which
-                    // REBUILDS the delegates and destroys the handler holding
-                    // the gesture. No deactivation, no commit, and a capture
-                    // that looked like it had worked because the tap
-                    // underneath had opened the room and the activity sort
-                    // re-ran.
+                    // `visible`, `y`, `width` and `spacing` were deleted by a
+                    // careless edit that removed a sibling block and took the
+                    // four lines above it. ONE mistake, three live failures,
+                    // and every one of them looked like a different bug:
                     //
-                    // The column outlives its rows, so the gesture does too.
-                    // GENERALISE: a handler that lives on an item its own
-                    // side effect rebuilds cannot finish what it starts.
+                    //  * no Space revealed any room anywhere, because a
+                    //    Column with no width lays out nothing;
+                    //  * `visible` defaulted to TRUE, so the delegate added
+                    //    `expansionCol.height + 2` to EVERY row while
+                    //    `rowBand()` — which the drag's pointer arithmetic
+                    //    accumulates — did not, drifting ~2px per row;
+                    //  * so a drop landed a row and a half from the pointer
+                    //    and silently made a folder out of a Space the user
+                    //    was never pointing at.
                     //
-                    // VERTICAL ONLY, and it cannot leave this Space: a room's
-                    // membership is Matrix's, and this decides only the order
-                    // the rail shows them in. Same division the subspace drag
-                    // makes — reorder is the rail's, reparent is not.
+                    // A full CTest run passed throughout: the mock fixture
+                    // reveals no rooms, so the Column is empty there and the
+                    // divergence is zero. GENERALISE: when a slice-and-splice
+                    // edit removes a block, diff what it actually removed —
+                    // the boundary you searched for is not the boundary you
+                    // meant.
+                    visible: spaceItem.revealed > 0
+                             && spaceItem.revealedRooms.length > 0
+                             && !root.dragging
+                    y: spaceItem.tileBandHeight
+                    width: parent.width
+                    spacing: 2
+
                     Repeater {
                         id: roomRepeater
                         model: !expansionCol.visible
@@ -2000,8 +2127,12 @@ Rectangle {
                 // square BOUNDING BOX of a circular avatar with no inset, so
                 // its centre sat 33px from a disc of radius 29.5 — about two
                 // thirds of the dot hanging off the corner, over bare rail.
-                anchors.rightMargin: Math.round(root.railTileSize * 0.15)
-                anchors.bottomMargin: Math.round(root.railTileSize * 0.15)
+                // ON THE EDGE, not inside the face. 0.15 put the dot's
+                // centre 11.5px from a circle of radius 24 — fully inside the
+                // avatar, reading as a sticker ON the person rather than as a
+                // status AT their edge. 0.065 lands it on the 45-degree point.
+                anchors.rightMargin: Math.round(root.railTileSize * 0.065)
+                anchors.bottomMargin: Math.round(root.railTileSize * 0.065)
                 width: AppTheme.scaled(11)
                 height: AppTheme.scaled(11)
                 radius: height / 2
