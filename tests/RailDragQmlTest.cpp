@@ -626,6 +626,106 @@ private slots:
         QCOMPARE(rowTopScene(a), yABefore);
     }
 
+    // ── 2026-09-18: the expander sat nowhere near the tile it expands ───
+    //
+    // Reported in those words — "way too far off on the left, and unevenly
+    // distanced" — and measured on a real build at the 112px stop before
+    // touching anything: the gap between the chevron and its own tile ran
+    // 20, 23, 26, 29, 32px down five levels of nesting, and even a top-level
+    // Space sat 20px clear of its tile against the rail's edge.
+    //
+    // The glyph was `anchors.centerIn` its gutter, and the gutter is the
+    // whole width left of the tile — so it sat at HALF the tile's own offset
+    // and drifted half as fast as the thing it belongs to. It is anchored to
+    // the gutter's right edge now, which is already a constant 4px from the
+    // tile at every level.
+    //
+    // GEOMETRIC, on real delegates, because nothing else can see this: the
+    // old arrangement was correct QML and read perfectly well as source.
+    void theExpanderSitsTheSameDistanceFromItsTileAtEveryLevel()
+    {
+        RailFakeClient nested;
+        RoomInfo lv0 = joinedSpace(QStringLiteral("!lv0:example.org"),
+                                   QStringLiteral("Level 0"));
+        lv0.childRoomIds = { QStringLiteral("!lv1:example.org") };
+        RoomInfo lv1 = joinedSpace(QStringLiteral("!lv1:example.org"),
+                                   QStringLiteral("Level 1"));
+        lv1.childRoomIds = { QStringLiteral("!lv2:example.org") };
+        RoomInfo lv2 = joinedSpace(QStringLiteral("!lv2:example.org"),
+                                   QStringLiteral("Level 2"));
+        lv2.childRoomIds = { QStringLiteral("!chan:example.org") };
+        nested.roomList = { lv0, lv1, lv2,
+                            joinedRoom(QStringLiteral("!chan:example.org"),
+                                       QStringLiteral("Channel")) };
+        SpaceManager nestedSpaces;
+        nestedSpaces.setClient(&nested);
+        for (const QString &id : { QStringLiteral("!lv0:example.org"),
+                                   QStringLiteral("!lv1:example.org"),
+                                   QStringLiteral("!lv2:example.org") }) {
+            store()->setSpaceExpanded(id, true);
+        }
+        entries()->setSources(&nestedSpaces, store());
+        QCoreApplication::processEvents();
+        QTest::qWait(60);
+
+        QList<qreal> gaps;
+        QList<qreal> tileLefts;
+        for (const QString &id : { QStringLiteral("!lv0:example.org"),
+                                   QStringLiteral("!lv1:example.org"),
+                                   QStringLiteral("!lv2:example.org") }) {
+            QQuickItem *row = delegateFor(id);
+            QVERIFY2(row, qPrintable(QStringLiteral("no rail row for %1 — the "
+                                                    "nested fixture did not "
+                                                    "build").arg(id)));
+            auto *glyph = row->findChild<QQuickItem *>(
+                QStringLiteral("railSpaceExpandGlyph"));
+            auto *tile = row->findChild<QQuickItem *>(
+                QStringLiteral("railSpaceTile"));
+            QVERIFY2(glyph && tile,
+                     qPrintable(QStringLiteral("row %1 has no expander or no "
+                                               "tile").arg(id)));
+            QVERIFY2(glyph->width() > 0,
+                     "the expander glyph has no width, so its position says "
+                     "nothing");
+            const QPointF glyphRight =
+                glyph->mapToItem(row, QPointF(glyph->width(), 0));
+            const QPointF tileLeft = tile->mapToItem(row, QPointF(0, 0));
+            gaps << tileLeft.x() - glyphRight.x();
+            tileLefts << tileLeft.x();
+        }
+
+        // The fixture has to actually NEST, or a constant gap is trivial.
+        QVERIFY2(tileLefts.at(1) > tileLefts.at(0)
+                     && tileLefts.at(2) > tileLefts.at(1),
+                 "the three rows are at the same indent, so this case cannot "
+                 "see a gap that grows with depth");
+
+        for (int i = 0; i < gaps.size(); ++i) {
+            QVERIFY2(gaps.at(i) >= 0,
+                     qPrintable(QStringLiteral("the expander overlaps its own "
+                                               "tile at level %1 (gap %2)")
+                                    .arg(i).arg(gaps.at(i))));
+            QVERIFY2(qAbs(gaps.at(i) - gaps.at(0)) < 1.0,
+                     qPrintable(QStringLiteral(
+                         "the expander is %1px from its tile at level %2 and "
+                         "%3px at level 0 — it drifts at a different rate "
+                         "from the tile it expands, so no two levels are "
+                         "spaced alike")
+                         .arg(gaps.at(i)).arg(i).arg(gaps.at(0))));
+        }
+        // ...and it is CLOSE to it, not parked against the rail's edge. Half
+        // a tile is generous and still catches the old arrangement, whose
+        // gap was 20px against a 40px tile at the very first level.
+        QVERIFY2(gaps.at(0) < 20.0,
+                 qPrintable(QStringLiteral("the expander sits %1px from its "
+                                           "tile — far enough to read as "
+                                           "belonging to the rail rather than "
+                                           "to the Space").arg(gaps.at(0))));
+
+        entries()->setSources(m_spaces, store());
+        QCoreApplication::processEvents();
+    }
+
     // ── 2026-09-17: expanding a LEAF Space revealed nothing until the rail
     //    was rebuilt by something else ─────────────────────────────────────
     //

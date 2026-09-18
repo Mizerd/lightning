@@ -120,6 +120,15 @@ Rectangle {
     // bounded by the model (kMaxHierarchyDepth), so a malformed or looping
     // space graph cannot walk off the end however wide this gets.
     readonly property int railTileSize: AppTheme.scaled(40)
+    /// A row's height while a drag is live — the tile plus 4px above and
+    /// below. The divider row (Home, or People when it is shown) adds its
+    /// own band for the handoff rule beneath it.
+    ///
+    /// ONE SOURCE, because the drag's row arithmetic accumulates these and
+    /// the delegate draws them: a literal in either place is a mis-drop at
+    /// any interface size but the one it was written at.
+    readonly property int normalRowBand: railTileSize + AppTheme.scaled(8)
+    readonly property int dividerRowBand: normalRowBand + AppTheme.scaled(10)
     readonly property int indentBudget:
         Math.max(0, Math.floor((width - railTileSize) / 2))
     // 6px per level: at the narrowest stop that is two clear steps before the
@@ -251,7 +260,8 @@ Rectangle {
             return false
         var first = app.railEntries.entryAt(0)
         firstRowBand = (first && first.pseudo === true
-                        && (first.spaceId || "") === "") ? 58 : 48
+                        && (first.spaceId || "") === "")
+                       ? root.dividerRowBand : root.normalRowBand
         dragViewportY = list.mapFromItem(null, 0, sceneY).y
         dragContentY = dragViewportY + list.contentY
         return true
@@ -259,9 +269,9 @@ Rectangle {
 
     // Home's row is taller than the rest (it carries the handoff divider).
     // Sampled once per gesture rather than per pointer move.
-    property int firstRowBand: 48
+    property int firstRowBand: normalRowBand
     function rowBand(index) {
-        return index === 0 ? firstRowBand : 48
+        return index === 0 ? firstRowBand : normalRowBand
     }
     // DERIVED from the row heights, not read off `itemAtIndex(i).y`.
     //
@@ -492,7 +502,21 @@ Rectangle {
                 // the tabs from each other.
                 readonly property bool carriesDivider:
                     root.peopleTabVisible ? isPeople : isHome
-                readonly property int tileBandHeight: carriesDivider ? 58 : 48
+                // SCALED, WITH THE TILE IT HOLDS. Measured on a real build:
+                // the rail widened from 112 to 152 between 100% and 140%
+                // interface and the tile stayed exactly 38px of colour — all
+                // the extra width went into the gutters. Every calculation
+                // around it already used `railTileSize`, which IS scaled, so
+                // the drawn tile was the one thing that did not move. The
+                // band is `tile + 8` (4px above and below) and the divider
+                // row adds its own 10.
+                //
+                // NOTE for the next reader: the 2026-09-17 note on this file
+                // said "at 140% the tiles grew and the indent did not". The
+                // tiles did not grow either; both were unscaled, and only
+                // the indent was fixed at the time.
+                readonly property int tileBandHeight:
+                    carriesDivider ? root.dividerRowBand : root.normalRowBand
                 height: tileBandHeight
                         + (expansionCol.visible ? expansionCol.height + 2 : 0)
 
@@ -653,15 +677,40 @@ Rectangle {
                              && (spaceHover.hovered || spaceItem.expanded)
                              && !root.dragging
                     anchors.left: parent.left
-                    // Up to the accent ring's outer edge (tile - 4px) — the
-                    // glyph can never overlap it.
+                    // The BOX still spans the whole gutter, so the target
+                    // stays as large as the space allows — up to the accent
+                    // ring's outer edge (tile - 4px), which the glyph can
+                    // never overlap.
                     width: Math.max(0, spaceTile.x - 4)
-                    height: 40
-                    y: 4
+                    height: root.railTileSize
+                    y: AppTheme.scaled(4)
                     Icon {
-                        anchors.centerIn: parent
+                        objectName: "railSpaceExpandGlyph"
+                        // THE GLYPH HUGS ITS OWN TILE, NOT THE RAIL'S EDGE.
+                        //
+                        // It was `anchors.centerIn: parent`, and the parent
+                        // is the whole gutter — so the chevron sat at HALF
+                        // the tile's own offset and drifted only half as
+                        // fast as the tile it belongs to. Measured on a real
+                        // build at the 112px stop: the gap between chevron
+                        // and tile ran 20, 23, 26, 29, 32px down five levels
+                        // of nesting, and even the top level sat 20px clear
+                        // of its tile against the rail's left edge. Reported
+                        // in those terms — "way too far off on the left, and
+                        // unevenly distanced".
+                        //
+                        // The box's right edge is already a CONSTANT 4px
+                        // from the tile at every level, so anchoring to it
+                        // makes the distance constant too, and the glyph
+                        // travels with its tile.
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
                         name: spaceItem.expanded ? "expand_more" : "chevron_right"
-                        size: 10
+                        // SCALED, like the tile and the per-level step. A
+                        // bare 10 shrank against everything around it as the
+                        // interface grew — the same defect the rail's indent
+                        // and its folder inset both carried.
+                        size: AppTheme.scaled(10)
                         color: chevronHover.hovered ? AppTheme.text
                                                     : AppTheme.textMuted
                     }
@@ -678,10 +727,11 @@ Rectangle {
 
                 Rectangle {
                     id: spaceTile
-                    width: 40; height: 40
+                    objectName: "railSpaceTile"
+                    width: root.railTileSize; height: root.railTileSize
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.horizontalCenterOffset: spaceItem.tileIndent
-                    y: 4 + spaceItem.dragLift
+                    y: AppTheme.scaled(4) + spaceItem.dragLift
                     radius: AppTheme.radiusLg
                     // ACTIVE is ONE language for every tile in the rail: the
                     // accent ring above, plus a soft accent WASH here (a tint,

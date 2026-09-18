@@ -696,7 +696,15 @@ private slots:
         const QString rail = withoutComments(read(QStringLiteral("SpacesRail.qml")));
         QVERIFY2(rail.contains(QStringLiteral("readonly property real dragLift:")),
                  "the dragged tile does not follow the pointer");
-        QVERIFY2(rail.contains(QStringLiteral("y: 4 + spaceItem.dragLift")),
+        // KEYED ON THE MECHANISM, not on the offset. This pinned
+        // `y: 4 + spaceItem.dragLift` and broke on 2026-09-18 when the tile's
+        // own inset was SCALED — a change that strengthened the very contract
+        // this case exists for, because the rail's tile and band are scaled
+        // and an unscaled inset drew the tile off its band at any interface
+        // size but 100%. Same shape as the folder inset in
+        // TesterReport2ContractTest: a value literal in a mechanism contract
+        // fails on the fixes as readily as on the regressions.
+        QVERIFY2(rail.contains(QStringLiteral("+ spaceItem.dragLift")),
                  "the lift is computed but never applied to the tile");
         QVERIFY2(!rail.contains(QStringLiteral("railInsertionLine")),
                  "the insertion line came back");
