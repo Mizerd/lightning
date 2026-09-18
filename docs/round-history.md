@@ -284,6 +284,104 @@ a bound property is a one-way door unless it is put back.** Three instances in
 one day — the follow checkbox, the rail's width, and (in the other direction)
 the account tile that was never a binding at all.
 
+### The rail draws the hierarchy as a tree
+
+Asked for in those words — connect the Spaces and their subspaces with lines
+like a tree — with two conditions attached: the chevrons must not break, and
+"make the ui super clear, since this can confuse users".
+
+Every row now carries a vertical for each ancestor that still has a branch
+below it, an elbow that turns right and touches its own icon, and a descender
+leaving the bottom-left of its tile when its children are showing.
+
+**The shapes come from the ROW ORDER, not from the Space graph**
+(`RailEntryModel::stampTreeGuides`, called from `applyRows`, the one chokepoint
+every row set passes through). That is deliberate and it is what makes dragging
+work: the preview rows ARE the model, so the tree shown while rearranging is
+the tree the release will produce. It was confirmed live — a root Space dragged
+from the top of the rail to the bottom carried its entire expanded subtree, two
+levels of subspaces and their revealed rooms, and the tree redrew in the new
+position with every elbow and corner intact.
+
+Two values per row. `treeLastChild` picks the corner over the tee.
+`treeGuides` is one bool per ancestor column: a line is drawn there when the
+ancestor ONE LEVEL DEEPER has a later sibling. **The plausible wrong rule is
+"draw when the next row is deeper", and it is right on a shallow tree** — it
+only diverges once a LAST child has children of its own, where it puts a line
+in a column whose branch has already ended. The fixture carries a third level
+specifically to separate them; without it both rules answer the same and the
+case passes on either.
+
+#### The indent step went 6 to 18, and that is the whole cost
+
+Written at 6 first, because 6 was the existing indent and changing it moves
+every width stop. The lines drew, and the maintainer's reply was exact: "make
+it bend to the right too on the bottom and connect to the icons". At 6 the
+horizontal into each tile is three pixels. At 12 it is nine, and the chevron —
+which sits ON the elbow and interrupts the line it opens — covered all of it,
+so the tree looked like plain verticals again. 18 leaves 15px of horizontal,
+about half of it clear of the glyph.
+
+`widthForLevels` is tile + 2·n·step, so the stops moved from
+68/76/88/100/112 to 76/112/148/184/220/256 at 100%. **The rail that showed six
+levels of indent at 112px now shows two.** Depth became something the rail has
+to be widened for, which is what forced the second half of the feature.
+
+#### Too deep to draw: the rail dives
+
+`tileIndent` has always clamped at `indentBudget`, so past the budget every row
+was drawn at the SAME indent as its own parent — two tiles side by side
+claiming to be siblings when one contains the other. **The tree made that
+worse before it made it better**: the columns were computed from the UNCLAMPED
+level, so a column landed to the right of a tile that had stopped moving and
+the elbow came out with negative width and vanished. Both are clamped together
+now (`drawnTreeLevel`).
+
+Past the clamp the rail dives: the ancestor that brings the deepest row back
+inside the budget becomes the trunk, its subtree is drawn from there with the
+whole budget available again, and a chip at the top names the Space to come
+back to. **It happens by itself.** Offering the dive and leaving the rest piled
+up was the first version and it was the wrong half — the pile is the confusing
+state, and a reader has no way to know those two rows are a parent and a child.
+
+Leaving is one click and it COLLAPSES UNTIL THE TREE FITS. Collapsing only the
+Space being left is not enough and the live build showed it: the depth that
+forced the dive can come from a SIBLING branch, so the tree was still too deep,
+the automatic dive fired again, and the chip visibly did nothing.
+
+The chip names its DESTINATION, not where the reader already is. The focused
+Space is drawn as the trunk directly below it, so naming that said the same
+thing twice and left the useful fact unsaid.
+
+#### Three details that only a magnified capture could show
+
+None of them is visible at 100%, and none is reachable by a test:
+
+* **The line ran straight through the chevron.** Reported as the chevron
+  clipping, and that is exactly what it looks like. It sits on a rail-coloured
+  disc now, which is how a file tree draws a twisty over its guide.
+* **A 2px line left a 2px notch at the corner** — the vertical stopped at the
+  tile's middle instead of reaching the far edge of the horizontal it turns
+  into.
+* **The descender started at the tile's BOUNDING BOX**, which on a rounded tile
+  is below where the icon actually ends, leaving a gap between the icon and the
+  line leaving it. It starts a corner radius higher, behind the tile.
+
+And one more from a 700% capture: the horizontal was positioned AT the tile's
+middle rather than centred on it, so a 2px line hung one pixel below the
+chevron it runs out of.
+
+#### A misreading the instrument corrected
+
+A later audit capture at 140% appeared to show the deepest tile clamped onto
+its parent's indent — the exact failure the dive exists to prevent — and the
+pixel measurement agreed: two tiles at left=200. A `console.log` in
+`autoDiveIfNeeded` answered it in one restart: `deepest=4 drawable=4`. The two
+tiles are SIBLINGS at level 4, and the rail was right to decline. **The rooms
+revealed under a Space are not model rows**, so counting depth off a screenshot
+by eye counts the wrong things; the model's own numbers are the only ones worth
+reading.
+
 ## 2026-09-17 (second review round) — the sweep that read one file, and three verdicts that could not fail
 
 The same reviewer, a second time, on the work the first round produced. It

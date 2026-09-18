@@ -1,5 +1,44 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-18 — the Spaces rail draws its hierarchy as a tree
+
+**PASS**, on the laptop rig (Xvfb :99, fixture account in its own XDG
+profile) against a six-level Space hierarchy built for it through the
+client-server API.
+
+**The tree.** At the 256px stop, 100% interface size, with the whole
+hierarchy expanded: every level's line leaves its parent's tile, runs past
+that Space's revealed rooms, and turns right into the child's icon. Tees
+where a sibling follows, corners where none does, and a clear column where a
+branch has ended. Chevrons sit on their corners with the line interrupted
+behind them. Measured at 700%: ancestor guide to elbow column is exactly one
+indent step, elbow column to tile is the step minus the inset, and both hold
+at every level.
+
+**Rearranging.** A root Space dragged from the top of the rail to the bottom
+carried its ENTIRE expanded subtree — two levels of subspaces, their revealed
+rooms and a four-deep branch — and the tree redrew in the new position with
+every elbow, spine and corner intact. During the gesture the lines are
+deliberately absent and the tile follows the pointer with its preview slot
+held open, unchanged from before the tree existed.
+
+**Diving.** At the 112px stop the rail dives by itself and draws the subtree
+correctly; the chip reads "Server 1" over a trunk of "category 1". One click
+on it lands on a two-level tree of Server 1 with its own children, elbows and
+corners intact, and the chip then reads "Discord Catego…". Repeatable.
+
+**At 140%** the whole thing scales: step, tile, line width and chevron. A
+five-row branch at the 256px stop drew every level distinctly, and the
+automatic dive correctly declined (the model's deepest level equalled what the
+rail could draw).
+
+**What this does NOT cover.** Only the Text size slider was exercised for
+scaling; **Interface zoom** (`QT_SCALE_FACTOR`, applied at startup) was not
+touched. Dragging was exercised on a ROOT Space only — subspaces are not
+draggable by design, and no drag was performed while the rail was dived.
+Nothing here says the tree is legible to someone who has not been staring at
+it; that is what the screenshot audit is for.
+
 ## 2026-09-18 — the Spaces rail follows the interface size, live and both ways
 
 **PASS**, measured by pixel scan on the running client (laptop rig, Xvfb :99,
