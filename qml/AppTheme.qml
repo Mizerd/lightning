@@ -35,13 +35,22 @@ QtObject {
     // Raw SettingsManager::Theme enum int, pushed in from Main.qml.
     property int mode: 0
     // Content text scale (Settings → Appearance → Text size), pushed in from
-    // Main.qml as settings.textScale / 100. Applies to message/content text
-    // through scaled(); fixed chrome and icon sizes stay unscaled.
+    // Main.qml as settings.textScale / 100.
+    //
+    // NOT TEXT ONLY, whatever the name says. `scaled()` drives ~250 call
+    // sites and a couple of dozen of them are GEOMETRY — most visibly the
+    // Spaces rail, whose width stops, indent step, tiles and badges all
+    // follow it so that a wider interface shows the same nesting legibly.
+    // The setting's own caption said "interface chrome and icons keep their
+    // size" until 2026-09-18, when it was corrected to match this.
+    //
+    // Whole-window scaling is a DIFFERENT control: Settings → Appearance →
+    // Interface zoom, which sets QT_SCALE_FACTOR at startup and multiplies
+    // everything, including what this produces.
     property real textScale: 1.0
-    // Content text scale. Folds in the UI font's optical correction so the
-    // text-size slider and the font picker stay independent; Manrope (the
-    // default) has factor 1.0, so nothing changes unless the user picks
-    // another family. Fixed chrome and icon sizes stay unscaled.
+    // Folds in the UI font's optical correction so the text-size slider and
+    // the font picker stay independent; Manrope (the default) has factor
+    // 1.0, so nothing changes unless the user picks another family.
     function scaled(px) { return Math.round(px * textScale * uiFontOptical) }
 
     // THE TOP STRIP IS ONE BAND ACROSS THE WHOLE WINDOW. The room list's

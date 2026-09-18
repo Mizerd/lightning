@@ -2291,8 +2291,18 @@ Item {
                             lineHeightMode: Text.ProportionalHeight
                             color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.textMeta
-                            text: qsTr("Scales message and list text. Interface chrome "
-                                       + "and icons keep their size.")
+                            // ACCURATE SINCE 2026-09-18. This used to read
+                            // "interface chrome and icons keep their size",
+                            // which stopped being true when the Spaces rail
+                            // gained scaled width stops (143abb07) and scaled
+                            // tiles: the rail is the most visible chrome in
+                            // the window and it moves with this slider.
+                            text: qsTr("Scales message and list text, and the "
+                                       + "Spaces rail with it, so its nesting "
+                                       + "levels stay readable at any size. "
+                                       + "Other chrome keeps its size — "
+                                       + "Interface zoom below scales the "
+                                       + "whole window.")
                         }
 
                         // ── Interface zoom (whole-UI scale via

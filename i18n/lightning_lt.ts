@@ -428,7 +428,7 @@
         <translation>%1 skambina %2</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+27"/>
         <source>Incoming call</source>
         <translation>Įeinantis skambutis</translation>
     </message>
@@ -448,7 +448,7 @@
         <translation>Praleidote balso skambutį %1</translation>
     </message>
     <message>
-        <location line="+358"/>
+        <location line="+403"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Kambarys buvo sukurtas, bet nepavyko jo pridėti prie erdvės.</translation>
     </message>
@@ -458,7 +458,7 @@
         <translation>Kambarys buvo sukurtas, bet nepavyko nustatyti jo paveikslo.</translation>
     </message>
     <message>
-        <location line="+91"/>
+        <location line="+145"/>
         <source>Could not switch accounts — returning to the previous account.</source>
         <translation>Nepavyko perjungti paskyrų – grįžtama į ankstesnę paskyrą.</translation>
     </message>
@@ -545,24 +545,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2038"/>
+        <location line="+2077"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning nepavyko nuskaityti pasirinkto failo.</translation>
     </message>
     <message>
-        <location line="-2044"/>
+        <location line="-2083"/>
         <source>A room-key import is already in progress.</source>
         <translation>Jau vyksta kambario rakto importavimas.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2765"/>
+        <location line="+2804"/>
         <source>Not signed in.</source>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-2763"/>
+        <location line="-2802"/>
         <source>Room-key import failed.</source>
         <translation>Nepavyko importuoti kambario rakto.</translation>
     </message>
@@ -577,7 +577,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+508"/>
+        <location line="+516"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>Vaizdo skambučiams reikalinga MatrixRTC paslauga, kuri čia dar nepasiekiama.</translation>
     </message>
@@ -633,14 +633,14 @@
     </message>
     <message>
         <location line="+11"/>
-        <location line="+1211"/>
+        <location line="+1242"/>
         <location line="+46"/>
         <location line="+68"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Šioje versijoje nėra Rust SDK posistemės.</translation>
     </message>
     <message>
-        <location line="-1094"/>
+        <location line="-1117"/>
         <source>Choose a local image file.</source>
         <translation>Pasirinkite vietinį vaizdo failą.</translation>
     </message>
@@ -684,7 +684,7 @@
         <translation>Nepavyko išsaugoti piktogramos.</translation>
     </message>
     <message>
-        <location line="+372"/>
+        <location line="+395"/>
         <source>No room is open.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -852,7 +852,7 @@
 <context>
     <name>AppTheme</name>
     <message>
-        <location filename="../qml/AppTheme.qml" line="+864"/>
+        <location filename="../qml/AppTheme.qml" line="+873"/>
         <source>Storm</source>
         <translation>Audra</translation>
     </message>
@@ -1486,7 +1486,7 @@
 <context>
     <name>CallPipWindow</name>
     <message>
-        <location filename="../qml/CallPipWindow.qml" line="+133"/>
+        <location filename="../qml/CallPipWindow.qml" line="+153"/>
         <source>Lightning call</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1850,7 +1850,7 @@
 <context>
     <name>CodeBlock</name>
     <message>
-        <location filename="../qml/CodeBlock.qml" line="+100"/>
+        <location filename="../qml/CodeBlock.qml" line="+127"/>
         <source>Code block, %1, %2 lines</source>
         <translation>Kodo blokas, %1, %2 eilutės</translation>
     </message>
@@ -1870,7 +1870,7 @@
         <translation>Nukopijuokite kodą</translation>
     </message>
     <message>
-        <location line="+108"/>
+        <location line="+113"/>
         <source>Code</source>
         <translation>Kodas</translation>
     </message>
@@ -2114,7 +2114,7 @@
 <context>
     <name>CreatePollDialog</name>
     <message>
-        <location filename="../qml/CreatePollDialog.qml" line="+119"/>
+        <location filename="../qml/CreatePollDialog.qml" line="+132"/>
         <source>Discard this poll draft?</source>
         <translation>Išmesti šį apklausos juodraštį?</translation>
     </message>
@@ -3720,12 +3720,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>HomePane</name>
     <message>
-        <location filename="../qml/HomePane.qml" line="+33"/>
+        <location filename="../qml/HomePane.qml" line="+49"/>
         <source>there</source>
         <translation>ten</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+60"/>
         <source>Yesterday</source>
         <translation>vakar</translation>
     </message>
@@ -3944,24 +3944,24 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ImageViewerOverlay</name>
     <message>
-        <location filename="../qml/ImageViewerOverlay.qml" line="+307"/>
+        <location filename="../qml/ImageViewerOverlay.qml" line="+319"/>
         <source>Copy image</source>
         <translation>Kopijuoti vaizdą</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+19"/>
-        <location line="+662"/>
+        <location line="+772"/>
         <source>Save image as…</source>
         <translation>Išsaugoti vaizdą kaip…</translation>
     </message>
     <message>
-        <location line="-669"/>
+        <location line="-779"/>
         <source>Close</source>
         <translation>Uždaryti</translation>
     </message>
     <message>
-        <location line="+332"/>
+        <location line="+352"/>
         <source>The image could not be loaded.</source>
         <translation>Nepavyko įkelti vaizdo.</translation>
     </message>
@@ -3981,17 +3981,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>Kitas vaizdas</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+46"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+35"/>
         <source>Close image viewer</source>
         <translation>Uždaryti vaizdų peržiūros priemonę</translation>
     </message>
     <message>
-        <location line="+110"/>
+        <location line="+177"/>
         <source>Image %1 of %2, shown</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4839,7 +4839,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+651"/>
+        <location filename="../qml/MainScreen.qml" line="+724"/>
         <source>Switching account…</source>
         <translation>Perjungiama paskyra…</translation>
     </message>
@@ -5862,7 +5862,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+913"/>
+        <location filename="../qml/MessageDelegate.qml" line="+929"/>
         <source>Today</source>
         <translation>Šiandien</translation>
     </message>
@@ -5882,23 +5882,23 @@ Signing out and signing in again is the only fix.</source>
         <translation>Nauji pranešimai</translation>
     </message>
     <message>
-        <location line="+226"/>
+        <location line="+229"/>
         <source>Avatar for %1</source>
         <translation>%1 pseudoportretas</translation>
     </message>
     <message>
-        <location line="+59"/>
-        <location line="+286"/>
+        <location line="+60"/>
+        <location line="+306"/>
         <source>Sent at %1</source>
         <translation>Išsiųsta %1</translation>
     </message>
     <message>
-        <location line="-44"/>
+        <location line="-45"/>
         <source>Sender: %1</source>
         <translation>Siuntėjas: %1</translation>
     </message>
     <message>
-        <location line="+129"/>
+        <location line="+130"/>
         <source>Go to message from %1</source>
         <translation>Eiti į pranešimą nuo %1</translation>
     </message>
@@ -5908,14 +5908,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>Eikite į pradinį pranešimą</translation>
     </message>
     <message>
-        <location line="+117"/>
-        <location line="+1152"/>
-        <location line="+1016"/>
+        <location line="+118"/>
+        <location line="+1162"/>
+        <location line="+1019"/>
         <source>Reply</source>
         <translation>Atsakyti</translation>
     </message>
     <message>
-        <location line="-2148"/>
+        <location line="-2161"/>
         <source>(original message not loaded)</source>
         <translation>(originali žinutė neįkelta)</translation>
     </message>
@@ -5970,12 +5970,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Bandykite iššifruoti dar kartą</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+12"/>
         <source>Security settings</source>
         <translation>Apsaugos nustatymai</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+64"/>
         <source>Show preview</source>
         <translation>Rodyti peržiūrą</translation>
     </message>
@@ -5985,7 +5985,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Dar kartą parodykite nuorodos peržiūrą</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+55"/>
         <source>Uploading</source>
         <translation>Įkeliama</translation>
     </message>
@@ -6020,30 +6020,30 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+18"/>
-        <location line="+2384"/>
+        <location line="+20"/>
+        <location line="+2395"/>
         <source>Retry</source>
         <translation>Bandykite dar kartą</translation>
     </message>
     <message>
-        <location line="-2347"/>
-        <location line="+1159"/>
+        <location line="-2353"/>
+        <location line="+1162"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-1154"/>
+        <location line="-1157"/>
         <source>Cancel sending this message</source>
         <translation>Atšaukti šio pranešimo siuntimą</translation>
     </message>
     <message>
         <location line="+253"/>
-        <location line="+1312"/>
+        <location line="+1315"/>
         <source>Hide image</source>
         <translation>Slėpti vaizdą</translation>
     </message>
     <message>
-        <location line="-1308"/>
+        <location line="-1311"/>
         <source>Hide</source>
         <translation>Slėpti</translation>
     </message>
@@ -6108,7 +6108,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>pasirinktiniai jaustukai</translation>
     </message>
     <message>
-        <location line="+112"/>
+        <location line="+113"/>
         <source>Reaction %1, %2, selected</source>
         <translation>Reakcija %1, %2, pasirinkta</translation>
     </message>
@@ -6118,7 +6118,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Reakcija %1, %2</translation>
     </message>
     <message>
-        <location line="+89"/>
+        <location line="+90"/>
         <location line="+4"/>
         <source>Add reaction</source>
         <translation>Pridėti reakciją</translation>
@@ -6149,7 +6149,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Skaitė %1, %2 ir %3 kiti</translation>
     </message>
     <message>
-        <location line="+280"/>
+        <location line="+281"/>
         <source>Message · %1 · %2</source>
         <translation>Pranešimas · %1 · %2</translation>
     </message>
@@ -6200,23 +6200,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2281"/>
+        <location line="+2285"/>
         <source>Save as…</source>
         <translation>Išsaugoti kaip…</translation>
     </message>
     <message>
-        <location line="-2251"/>
+        <location line="-2255"/>
         <source>Show image</source>
         <translation>Rodyti vaizdą</translation>
     </message>
     <message>
         <location line="+20"/>
-        <location line="+697"/>
+        <location line="+700"/>
         <source>Show link preview</source>
         <translation>Rodyti nuorodos peržiūrą</translation>
     </message>
     <message>
-        <location line="-688"/>
+        <location line="-691"/>
         <source>Copy image</source>
         <translation>Kopijuoti vaizdą</translation>
     </message>
@@ -6241,8 +6241,8 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1305"/>
-        <location line="+1312"/>
+        <location line="-1308"/>
+        <location line="+1315"/>
         <source>Edit</source>
         <translation>Redaguoti</translation>
     </message>
@@ -6387,14 +6387,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>Atsakymo tikslas</translation>
     </message>
     <message>
-        <location line="+154"/>
-        <location line="+118"/>
+        <location line="+155"/>
+        <location line="+120"/>
         <source>Dismiss link preview</source>
         <translation>Atsisakyti nuorodos peržiūros</translation>
     </message>
     <message>
-        <location line="-117"/>
-        <location line="+118"/>
+        <location line="-119"/>
+        <location line="+120"/>
         <source>Dismiss preview</source>
         <translation>Atsisakyti peržiūros</translation>
     </message>
@@ -6434,7 +6434,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Išsaugoti vaizdą</translation>
     </message>
     <message>
-        <location line="+92"/>
+        <location line="+93"/>
         <source>Image failed to load — click to retry</source>
         <translation>Nepavyko įkelti vaizdo – spustelėkite ir bandykite dar kartą</translation>
     </message>
@@ -7257,7 +7257,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+30"/>
         <source>Following a list does not block anyone by itself. Lightning will tell you when someone is covered by a list you follow, and you decide what to do — this is somebody else&apos;s judgement, not a setting.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10095,7 +10095,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>SendLaterDialog</name>
     <message>
-        <location filename="../qml/SendLaterDialog.qml" line="+112"/>
+        <location filename="../qml/SendLaterDialog.qml" line="+125"/>
         <source>Send later</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10234,34 +10234,34 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <location line="+598"/>
         <location line="+676"/>
-        <location line="+3377"/>
+        <location line="+3387"/>
         <source>Account</source>
         <translation>Paskyra</translation>
     </message>
     <message>
-        <location line="-4654"/>
+        <location line="-4664"/>
         <source>account profile</source>
         <translation>paskyros profilis</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5662"/>
+        <location line="+5672"/>
         <source>Homeserver</source>
         <translation>Namų serveris</translation>
     </message>
     <message>
-        <location line="-5662"/>
+        <location line="-5672"/>
         <source>homeserver server url</source>
         <translation>namų serverio serverio url</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5696"/>
+        <location line="+5706"/>
         <source>Start minimized</source>
         <translation>Pradėti iki minimumo</translation>
     </message>
     <message>
-        <location line="-5696"/>
+        <location line="-5706"/>
         <source>startup minimized</source>
         <translation>paleidimas sumažintas</translation>
     </message>
@@ -10336,35 +10336,35 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2210"/>
+        <location line="+2220"/>
         <location line="+16"/>
         <source>Interface zoom</source>
         <translation>Sąsajos priartinimas</translation>
     </message>
     <message>
-        <location line="-2225"/>
+        <location line="-2235"/>
         <source>interface zoom scale bigger ui size</source>
         <translation>sąsajos mastelio keitimas didesnis vartotojo sąsajos dydis</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2294"/>
+        <location line="+2304"/>
         <source>Font</source>
         <translation>Šriftas</translation>
     </message>
     <message>
-        <location line="-2294"/>
+        <location line="-2304"/>
         <source>font family typeface</source>
         <translation>šriftų šeimos šriftas</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2469"/>
+        <location line="+2479"/>
         <source>Code font</source>
         <translation>Kodo šriftas</translation>
     </message>
     <message>
-        <location line="-2468"/>
+        <location line="-2478"/>
         <source>code font monospace mono fixed width typeface</source>
         <translation>kodo šriftas monospace mono fiksuoto pločio šriftas</translation>
     </message>
@@ -10376,35 +10376,35 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+2535"/>
+        <location line="+2545"/>
         <source>Your own fonts</source>
         <translation>Savo šriftus</translation>
     </message>
     <message>
-        <location line="-2534"/>
+        <location line="-2544"/>
         <source>import font file ttf otf install custom typeface</source>
         <translation>importuoti šrifto failą ttf otf įdiegti pasirinktinį šriftą</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2947"/>
+        <location line="+2957"/>
         <source>Language</source>
         <translation>Kalba</translation>
     </message>
     <message>
-        <location line="-2947"/>
+        <location line="-2957"/>
         <source>language locale</source>
         <translation>kalbos lokalę</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+1098"/>
-        <location line="+1651"/>
+        <location line="+1661"/>
         <source>Show room activity</source>
         <translation>Rodyti kambario veiklą</translation>
     </message>
     <message>
-        <location line="-2748"/>
+        <location line="-2758"/>
         <source>room activity membership joins leaves profile</source>
         <translation>Kambario veiklos narystė prisijungia prie profilio</translation>
     </message>
@@ -10418,48 +10418,48 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-9"/>
-        <location line="+2792"/>
+        <location line="+2802"/>
         <source>Mouse-wheel speed</source>
         <translation>Pelės rato greitis</translation>
     </message>
     <message>
-        <location line="-2791"/>
+        <location line="-2801"/>
         <source>wheel speed scroll timeline</source>
         <translation>rato greičio slinkties laiko juosta</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+1126"/>
-        <location line="+1644"/>
+        <location line="+1654"/>
         <source>Joins, leaves and invites</source>
         <translation>Prisijungimai, išėjimai ir kvietimai</translation>
     </message>
     <message>
-        <location line="-2769"/>
+        <location line="-2779"/>
         <source>membership join leave invite kick ban activity hide</source>
         <translation>narystė prisijungti išeiti pakviesti kick uždrausti veiklą slėpti</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+1131"/>
-        <location line="+1646"/>
+        <location line="+1656"/>
         <source>Display name and avatar changes</source>
         <translation>Rodomas vardas ir pseudoportretas</translation>
     </message>
     <message>
-        <location line="-2776"/>
+        <location line="-2786"/>
         <source>profile change display name avatar activity hide</source>
         <translation>profilio keitimas rodomas vardas pseudoportreto veikla slėpti</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+1135"/>
-        <location line="+1876"/>
+        <location line="+1886"/>
         <source>Reduce motion</source>
         <translation>Sumažinti judesį</translation>
     </message>
     <message>
-        <location line="-3010"/>
+        <location line="-3020"/>
         <source>reduced motion animation accessibility vestibular</source>
         <translation>sumažintas judesys animacija prieinamumas vestibuliarinis</translation>
     </message>
@@ -10473,35 +10473,35 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-8"/>
         <location line="+1138"/>
-        <location line="+1883"/>
+        <location line="+1893"/>
         <source>Smooth scrolling</source>
         <translation>Sklandus slinkimas</translation>
     </message>
     <message>
-        <location line="-3020"/>
+        <location line="-3030"/>
         <source>smooth scrolling scroll wheel glide animation instant jumpy mouse</source>
         <translation>sklandžiai slinkantis slinkties ratukas slydimo animacija momentinė šokinėjanti pelė</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3041"/>
+        <location line="+3051"/>
         <source>Clock</source>
         <translation>Laikrodis</translation>
     </message>
     <message>
-        <location line="-3040"/>
+        <location line="-3050"/>
         <source>clock 24 hour time format am pm timestamp</source>
         <translation>laikrodis 24 valandų laiko formatas am pm laiko žymė</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+1137"/>
-        <location line="+1959"/>
+        <location line="+1969"/>
         <source>Show Space banners</source>
         <translation>Rodyti erdvių reklamjuostes</translation>
     </message>
     <message>
-        <location line="-3095"/>
+        <location line="-3105"/>
         <source>space banner header image hide show</source>
         <translation>erdvės reklamjuostės antraštės vaizdas slėpti rodyti</translation>
     </message>
@@ -10514,35 +10514,35 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+3128"/>
+        <location line="+3138"/>
         <source>Conversation list width</source>
         <translation>Pokalbių sąrašo plotis</translation>
     </message>
     <message>
-        <location line="-3127"/>
+        <location line="-3137"/>
         <source>room list width panel size sidebar</source>
         <translation>kambarių sąrašo pločio skydelio dydžio šoninė juosta</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3142"/>
+        <location line="+3152"/>
         <source>Side panel width</source>
         <translation>Šoninės plokštės plotis</translation>
     </message>
     <message>
-        <location line="-3141"/>
+        <location line="-3151"/>
         <source>side panel width members threads size</source>
         <translation>šoninio skydelio plotis nariai gijos dydis</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+1135"/>
-        <location line="+2022"/>
+        <location line="+2032"/>
         <source>Enter starts a new line</source>
         <translation>Enter pradeda naują eilutę</translation>
     </message>
     <message>
-        <location line="-3156"/>
+        <location line="-3166"/>
         <source>enter newline send composer message box return</source>
         <translation>įvesti naują eilutę siųsti rašymo laukas žinutės laukelis grįžti</translation>
     </message>
@@ -10558,46 +10558,46 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-14"/>
         <location line="+1139"/>
-        <location line="+2129"/>
+        <location line="+2139"/>
         <source>Send text with an attachment as its caption</source>
         <translation>Siųsti tekstą su priedu kaip antraštę</translation>
     </message>
     <message>
-        <location line="-3267"/>
+        <location line="-3277"/>
         <source>caption attachment upload text description</source>
         <translation>antraštės priedo įkėlimo teksto aprašas</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3301"/>
+        <location line="+3311"/>
         <source>Message box buttons</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3300"/>
+        <location line="-3310"/>
         <source>composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3172"/>
+        <location line="+3182"/>
         <source>Check spelling as you type</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3171"/>
+        <location line="-3181"/>
         <source>spell spelling checker dictionary typo underline language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3179"/>
+        <location line="+3189"/>
         <location line="+13"/>
         <source>Spelling language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3191"/>
+        <location line="-3201"/>
         <source>spell spelling language dictionary automatic system</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10607,23 +10607,23 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+507"/>
         <location line="+684"/>
-        <location line="+2174"/>
+        <location line="+2184"/>
         <source>Keyboard shortcuts</source>
         <translation>Spartieji klavišai</translation>
     </message>
     <message>
-        <location line="-3369"/>
+        <location line="-3379"/>
         <source>keyboard shortcut shortcuts key keys binding rebind hotkey</source>
         <translation>spartieji klavišai spartieji klavišai klavišų klavišai privalomas perrišimas spartusis klavišas</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3500"/>
+        <location line="+3510"/>
         <source>Reset all shortcuts</source>
         <translation>Iš naujo nustatyti visus sparčiuosius klavišus</translation>
     </message>
     <message>
-        <location line="-3499"/>
+        <location line="-3509"/>
         <source>reset shortcuts default keys</source>
         <translation>iš naujo nustatyti sparčiuosius klavišus, numatytuosius klavišus</translation>
     </message>
@@ -10665,12 +10665,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+11"/>
         <location line="+1015"/>
-        <location line="+3218"/>
+        <location line="+3228"/>
         <source>Desktop notifications</source>
         <translation>Darbalaukio pranešimai</translation>
     </message>
     <message>
-        <location line="-4232"/>
+        <location line="-4242"/>
         <source>notifications desktop enable</source>
         <translation>pranešimų darbalaukio įgalinimas</translation>
     </message>
@@ -10682,12 +10682,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+458"/>
         <location line="+688"/>
-        <location line="+3062"/>
+        <location line="+3072"/>
         <source>Notifications</source>
         <translation>Pranešimai</translation>
     </message>
     <message>
-        <location line="-4251"/>
+        <location line="-4261"/>
         <source>microphone mic input device voice call audio sound</source>
         <translation>mikrofonas mikrofono įvesties įrenginys balso skambučio garsas</translation>
     </message>
@@ -10719,13 +10719,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4484"/>
+        <location line="+4494"/>
         <location line="+26"/>
         <source>Media playback volume</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4509"/>
+        <location line="-4519"/>
         <source>volume sound audio video voice message playback level media loud</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10761,12 +10761,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+4235"/>
+        <location line="+4245"/>
         <source>Notification preview</source>
         <translation>Pranešimo peržiūra</translation>
     </message>
     <message>
-        <location line="-4234"/>
+        <location line="-4244"/>
         <source>notification preview privacy sender message</source>
         <translation>pranešimo peržiūros privatumo siuntėjo pranešimas</translation>
     </message>
@@ -10782,23 +10782,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4296"/>
+        <location line="+4306"/>
         <source>Notification sound</source>
         <translation>Pranešimo garsas</translation>
     </message>
     <message>
-        <location line="-4295"/>
+        <location line="-4305"/>
         <source>notification sound mute</source>
         <translation>pranešimo garso nutildymas</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3497"/>
+        <location line="+3507"/>
         <source>Only exchange messages with verified devices</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3496"/>
+        <location line="-3506"/>
         <source>invisible crypto msc4153 cross-signed verified device trust insecure exclude encryption</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10809,12 +10809,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3549"/>
+        <location line="+3559"/>
         <source>Read receipts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3548"/>
+        <location line="-3558"/>
         <source>read receipt receipts private seen ticks blue m.read.private privacy</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10826,23 +10826,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-4"/>
-        <location line="+3588"/>
+        <location line="+3598"/>
         <source>Let others see when I am typing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3587"/>
+        <location line="-3597"/>
         <source>typing notice notification composing indicator privacy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+3629"/>
+        <location line="+3639"/>
         <source>Share my online status</source>
         <translation>Pasidalykite savo būsena internete</translation>
     </message>
     <message>
-        <location line="-3628"/>
+        <location line="-3638"/>
         <source>presence online idle offline status share</source>
         <translation>buvimas internete neaktyvus neprisijungus būsenos bendrinimas</translation>
     </message>
@@ -10853,12 +10853,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3651"/>
+        <location line="+3661"/>
         <source>Ignored users</source>
         <translation>Ignoruojami vartotojai</translation>
     </message>
     <message>
-        <location line="-3650"/>
+        <location line="-3660"/>
         <source>ignore ignored block user mute person hide</source>
         <translation>ignoruoti ignoruojamas blokuoti vartotojas nutildyti asmenį slėpti</translation>
     </message>
@@ -10886,20 +10886,20 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+384"/>
         <location line="+700"/>
-        <location line="+4834"/>
+        <location line="+4844"/>
         <location line="+529"/>
         <source>Sessions</source>
         <translation>Sesijos</translation>
     </message>
     <message>
-        <location line="-6491"/>
+        <location line="-6501"/>
         <location line="+959"/>
-        <location line="+2882"/>
+        <location line="+2892"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation>Automatiškai įkelti peržiūras nešifruotuose kambariuose</translation>
     </message>
     <message>
-        <location line="-3840"/>
+        <location line="-3850"/>
         <source>link preview privacy</source>
         <translation>nuorodos peržiūros privatumas</translation>
     </message>
@@ -10911,24 +10911,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+3843"/>
+        <location line="+3853"/>
         <source>Load previews in encrypted rooms</source>
         <translation>Įkelti peržiūras šifruotuose kambariuose</translation>
     </message>
     <message>
-        <location line="-3842"/>
+        <location line="-3852"/>
         <source>link preview encrypted</source>
         <translation>nuorodos peržiūra užšifruota</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3914"/>
+        <location line="+3924"/>
         <location line="+7"/>
         <source>Autoplay and prefetch media</source>
         <translation>Automatinis paleidimas ir išankstinis laikmenos gavimas</translation>
     </message>
     <message>
-        <location line="-3920"/>
+        <location line="-3930"/>
         <source>gif autoplay prefetch video audio media</source>
         <translation>gif automatinis paleidimas iš anksto paimkite vaizdo įrašo garso laikmeną</translation>
     </message>
@@ -10939,12 +10939,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3957"/>
+        <location line="+3967"/>
         <source>GIF safe search</source>
         <translation>GIF saugi paieška</translation>
     </message>
     <message>
-        <location line="-3956"/>
+        <location line="-3966"/>
         <source>gif safe search rating</source>
         <translation>gif saugios paieškos įvertinimas</translation>
     </message>
@@ -10957,36 +10957,36 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+3982"/>
+        <location line="+3992"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation>Pageidaujamas GIF teikėjas</translation>
     </message>
     <message>
-        <location line="-3988"/>
+        <location line="-3998"/>
         <source>gif provider giphy klipy</source>
         <translation>gif teikėjas giphy klipy</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4021"/>
+        <location line="+4031"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation>Saugokite neseniai naudotus GIF</translation>
     </message>
     <message>
-        <location line="-4023"/>
+        <location line="-4033"/>
         <source>gif recents store</source>
         <translation>gif naujausi saugykla</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5578"/>
+        <location line="+5588"/>
         <source>Security status</source>
         <translation>Saugumo būsena</translation>
     </message>
     <message>
-        <location line="-5577"/>
+        <location line="-5587"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>e2ee šifravimo būsenos kryžminio pasirašymo atsarginė kopija</translation>
     </message>
@@ -10994,19 +10994,19 @@ Signing out and signing in again is the only fix.</source>
         <location line="+1"/>
         <location line="+406"/>
         <location line="+696"/>
-        <location line="+2307"/>
+        <location line="+2317"/>
         <source>Privacy &amp; security</source>
         <translation>Privatumas ir saugumas</translation>
     </message>
     <message>
-        <location line="-3408"/>
-        <location line="+7003"/>
+        <location line="-3418"/>
+        <location line="+7013"/>
         <location line="+19"/>
         <source>Recovery key or passphrase</source>
         <translation>Atkūrimo raktas arba slaptafrazė</translation>
     </message>
     <message>
-        <location line="-7021"/>
+        <location line="-7031"/>
         <source>recovery key passphrase backup restore</source>
         <translation>atkūrimo rakto slaptafrazės atsarginės kopijos atkūrimas</translation>
     </message>
@@ -11019,23 +11019,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+7087"/>
+        <location line="+7097"/>
         <source>Import room keys</source>
         <translation>Importuoti kambario raktus</translation>
     </message>
     <message>
-        <location line="-7086"/>
+        <location line="-7096"/>
         <source>import room keys export</source>
         <translation>importuoti kambario raktus eksportuoti</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+7310"/>
+        <location line="+7320"/>
         <source>Danger Zone</source>
         <translation>Pavojaus zona</translation>
     </message>
     <message>
-        <location line="-7309"/>
+        <location line="-7319"/>
         <source>reset danger local session</source>
         <translation>iš naujo nustatyti pavojaus vietinę sesiją</translation>
     </message>
@@ -11046,34 +11046,34 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6772"/>
+        <location line="+6782"/>
         <source>Current session</source>
         <translation>Dabartinė sesija</translation>
     </message>
     <message>
-        <location line="-6771"/>
+        <location line="-6781"/>
         <source>device id session status</source>
         <translation>įrenginio ID seanso būsena</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5952"/>
+        <location line="+5962"/>
         <source>Sign in another device</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5951"/>
+        <location line="-5961"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+6825"/>
+        <location line="+6835"/>
         <source>Verify this session</source>
         <translation>Patvirtinkite šią sesiją</translation>
     </message>
     <message>
-        <location line="-6824"/>
+        <location line="-6834"/>
         <source>verify verification sas cross-signing</source>
         <translation>patikrinkite patikrinimą kaip kryžminį pasirašymą</translation>
     </message>
@@ -11094,12 +11094,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+375"/>
         <location line="+707"/>
-        <location line="+6298"/>
+        <location line="+6308"/>
         <source>Labs</source>
         <translation>Laboratorijos</translation>
     </message>
     <message>
-        <location line="-7386"/>
+        <location line="-7396"/>
         <source>Sync mode</source>
         <translation>Sinchronizavimo režimas</translation>
     </message>
@@ -11120,12 +11120,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+7428"/>
+        <location line="+7438"/>
         <source>Refresh current room</source>
         <translation>Atnaujinti esamą kambarį</translation>
     </message>
     <message>
-        <location line="-7427"/>
+        <location line="-7437"/>
         <source>refresh reload timeline</source>
         <translation>atnaujinti iš naujo įkėlimo laiko juostą</translation>
     </message>
@@ -11134,12 +11134,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+1"/>
         <location line="+374"/>
         <location line="+754"/>
-        <location line="+6333"/>
+        <location line="+6343"/>
         <source>About</source>
         <translation>Apie</translation>
     </message>
     <message>
-        <location line="-7462"/>
+        <location line="-7472"/>
         <source>about version license</source>
         <translation>apie versijos licenciją</translation>
     </message>
@@ -11178,37 +11178,37 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+4578"/>
+        <location line="+4588"/>
         <location line="+198"/>
         <location line="+1320"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-5926"/>
+        <location line="-5936"/>
         <source>Needs attention</source>
         <translation>Reikia dėmesio</translation>
     </message>
     <message>
         <location line="+35"/>
         <location line="+692"/>
-        <location line="+3249"/>
+        <location line="+3259"/>
         <source>Sound &amp; video</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3766"/>
+        <location line="-3776"/>
         <source>Clear the search index?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3215"/>
+        <location line="+3225"/>
         <source>Clear index</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3202"/>
+        <location line="-3212"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11224,14 +11224,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4181"/>
+        <location line="+4191"/>
         <location line="+416"/>
         <location line="+1962"/>
         <source>Clear</source>
         <translation>Aišku</translation>
     </message>
     <message>
-        <location line="-6549"/>
+        <location line="-6559"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>Pašalinti visus teikėjo GIF, kuriuos išsaugojote šiame įrenginyje? GIF failai, kuriuos išsaugojote pokalbiuose, neturi įtakos. To negalima anuliuoti.</translation>
     </message>
@@ -11421,12 +11421,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+13"/>
-        <location line="+2992"/>
+        <location line="+3002"/>
         <source>Edit</source>
         <translation>Redaguoti</translation>
     </message>
     <message>
-        <location line="-2991"/>
+        <location line="-3001"/>
         <source>Create</source>
         <translation>Sukurti</translation>
     </message>
@@ -11476,12 +11476,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Pranešimo teksto dydis</translation>
     </message>
     <message>
-        <location line="+66"/>
-        <source>Scales message and list text. Interface chrome and icons keep their size.</source>
-        <translation>Pakeičia pranešimo ir sąrašo tekstą. Sąsajos chromas ir piktogramos išlaiko savo dydį.</translation>
-    </message>
-    <message>
-        <location line="+87"/>
+        <location line="+163"/>
         <source>Scales the entire interface — text, icons and layout. Ctrl+= and Ctrl+- adjust it anywhere. Takes effect the next time Lightning starts.</source>
         <translation>Pakeičia visą sąsają – tekstą, piktogramas ir išdėstymą. Ctrl+= ir Ctrl+- koreguokite jį bet kur. Įsigalios kitą kartą, kai prasidės Lightning.</translation>
     </message>
@@ -12257,13 +12252,18 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation>Garsas grojamas tik tada, kai rodomas pranešimas, todėl nutildyti ir aktyvūs kambariai tyli. Plyšiai sujungiami į vieną įspėjimą.</translation>
     </message>
     <message>
-        <location line="-4337"/>
-        <location line="+4351"/>
+        <location line="-4347"/>
+        <location line="+4361"/>
         <source>Ring for incoming voice calls</source>
         <translation>Skambėti įeinantiems balso skambučiams</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="-2262"/>
+        <source>Scales message and list text, and the Spaces rail with it, so its nesting levels stay readable at any size. Other chrome keeps its size — Interface zoom below scales the whole window.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2268"/>
         <source>Repeat the call sound while an incoming voice call is ringing. Turning this off still shows the call — it only silences the ring.</source>
         <translation>Pakartokite skambučio garsą, kai skamba įeinantis balso skambutis. Išjungus tai vis tiek rodomas skambutis – tik nutildomas skambutis.</translation>
     </message>
@@ -14615,7 +14615,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+489"/>
+        <location filename="../qml/SpacesRail.qml" line="+585"/>
         <source>Folder: %1</source>
         <translation>Aplankas: %1</translation>
     </message>
@@ -14635,7 +14635,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Kiti kambariai</translation>
     </message>
     <message>
-        <location line="+121"/>
+        <location line="+149"/>
         <source>Collapse space</source>
         <translation>Sutraukti erdvę</translation>
     </message>
@@ -14645,19 +14645,19 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Išplėsti erdvę</translation>
     </message>
     <message>
-        <location line="+357"/>
+        <location line="+370"/>
         <location line="+3"/>
         <source>Show more rooms</source>
         <translation>Rodyti daugiau kambarių</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+23"/>
         <location line="+1"/>
         <source>Create a Space</source>
         <translation>Sukurkite erdvę</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+57"/>
         <source>Settings — this session is not verified</source>
         <translation>Nustatymai – ši sesija nepatvirtinta</translation>
     </message>
@@ -14672,12 +14672,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Nustatymai</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+72"/>
         <source>Account menu for %1</source>
         <translation>%1 paskyros meniu</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+36"/>
         <location line="+3"/>
         <source>Connected</source>
         <translation>Prisijungta</translation>
@@ -14954,12 +14954,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+115"/>
+        <location line="+133"/>
         <source>Rename</source>
         <translation type="unfinished">Pervardyti</translation>
     </message>
     <message>
-        <location line="-103"/>
+        <location line="-121"/>
         <source>Leave the name empty to use the default — for a room&apos;s pack that is the room&apos;s own name.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14969,7 +14969,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+91"/>
+        <location line="+109"/>
         <source>Save</source>
         <translation type="unfinished">Išsaugoti</translation>
     </message>
@@ -15461,7 +15461,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>ThreadPanel</name>
     <message>
-        <location filename="../qml/ThreadPanel.qml" line="+78"/>
+        <location filename="../qml/ThreadPanel.qml" line="+95"/>
         <source>Yesterday</source>
         <translation>vakar</translation>
     </message>
@@ -15607,7 +15607,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Dar nėra atsakymų. Pradėkite pokalbį žemiau.</translation>
     </message>
     <message>
-        <location line="+330"/>
+        <location line="+332"/>
         <source>Loading older replies…</source>
         <translation>Įkeliami senesni atsakymai…</translation>
     </message>
@@ -15983,12 +15983,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+143"/>
-        <location line="+6285"/>
+        <location line="+6291"/>
         <source>Space</source>
         <translation>Erdvė</translation>
     </message>
     <message>
-        <location line="-6284"/>
+        <location line="-6290"/>
         <source>Home</source>
         <translation>Pradžia</translation>
     </message>
@@ -15999,7 +15999,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Kambarys užšifruotas</translation>
     </message>
     <message>
-        <location line="+95"/>
+        <location line="+101"/>
         <location line="+1"/>
         <source>Start a voice call</source>
         <translation>Pradėkite balso skambutį</translation>
