@@ -290,6 +290,16 @@ Rectangle {
     /// tenant. It is a column with a control in it and it is now sized by the
     /// whole control rather than by the mark inside it:
     /// inset 3 + plate 12 + gap 2 + ring 2 = 19.
+    ///
+    /// AND IT COSTS WIDTH ON BOTH SIDES, deliberately. This is ONE token for
+    /// both edges because the tile column is centred on it, and centring is
+    /// what fixed "top and bottom ui is not centered and stuck to the right
+    /// side". So sizing the left gutter by its tenants adds the same air on
+    /// the right, and the rail goes 68 -> 78 logical px at 100%. That is the
+    /// price of the gutter holding a real control rather than a loose mark,
+    /// and it is worth saying out loud because this file also records "the
+    /// space bar is a bit too wide for comfort" as a report from the same
+    /// maintainer. If it has to come back, the plate is the thing to shrink.
     readonly property int railSideMargin: AppTheme.scaled(19)
     /// THE WIDTH NOW BUYS SOMETHING. It used to buy indent, then lanes; both
     /// were spent on structure rather than on content, so dragging the rail
@@ -403,20 +413,21 @@ Rectangle {
     /// THE INSET TAKES OVER WHAT THE TONE GAVE UP. Three 1px hairlines at
     /// 1.45:1 were measured reading as "a botched drop shadow" rather than as
     /// nested boxes; 2px steps at a quieter tone read as edges. Bounded by
-    /// the chevron: its ink starts at x=7, so the deepest inset must stay at
-    /// or under 6, which 2/4/6 is exactly.
+    /// the expander, which has to sit INSIDE the innermost region: the
+    /// deepest inset is `bandInset(maxBandLayers)` and it is the left wall of
+    /// the chevron's slot (`chevronSlotLeft`), so the two move together and
+    /// neither may be changed alone.
     readonly property int maxBandLayers: 3
-    /// Base 1, step 2 — so the ladder is 1/3/5 and the DEEPEST inset is 5.
-    /// It was 2/4/6, and 6 is exactly where the chevron's ink now starts:
-    /// widening the ink to make it a real control pushed its left edge onto
-    /// the innermost band's edge, which the geometric case caught. The step
-    /// is what carries the shape, so the step is what is kept.
+    /// Base 1, step 1 — so the ladder is 1/2/3 and the DEEPEST inset is 3.
+    /// Previous ladders were 2/4/6 and 1/3/5; each time the deepest inset
+    /// moved, it moved the wall the expander is clamped against.
     readonly property int bandInsetBase: AppTheme.scaled(1)
     /// 1, and it was 2. The widening to 2 was made so "the shape carries
     /// what the tone gave up" when the ladder was flattened to ΔL* 3. The
-    /// ladder now steps an even 2.4 in LIGHTNESS rather than evenly in alpha
-    /// (AppTheme), so tone carries the nesting again and the inset can hand
-    /// back the 2px — which is most of what the expander's plate needed.
+    /// ladder now steps an even 3.4 in LIGHTNESS along the chain that is
+    /// actually drawn (AppTheme) rather than evenly in alpha, so tone carries
+    /// the nesting again and the inset can hand back the 2px — which is most
+    /// of what the expander's plate needed.
     readonly property int bandInsetStep: AppTheme.scaled(1)
     /// Rung 0 is a FOLDER's container, which sits one step OUTSIDE hierarchy
     /// depth 1 because it contains it.
@@ -444,7 +455,8 @@ Rectangle {
         // and Material names non-concentric nesting as the thing that makes
         // corners look unbalanced — so the ladder steps down by
         // `bandInsetStep`, the same number the inset steps in by, and no
-        // other. 16 - 2/4/6 gives 14/12/10.
+        // other: the radius steps by `bandInsetStep`, exactly as the inset
+        // does, which is what keeps them concentric at any ladder.
         return Math.max(AppTheme.scaled(4),
                         AppTheme.scaled(16)
                         - Math.min(depth, maxBandLayers) * bandInsetStep)
