@@ -104,15 +104,23 @@ private Q_SLOTS:
         // The rail's rows became a real QAbstractListModel in 2026-08-25
         // (RailEntryModel, so a preview drag can MOVE rows rather than reset
         // them), so the roles are required properties on the delegate rather
-        // than fields on a `modelData` map. What this case is here to hold is
-        // unchanged: the nesting LEVEL is what drives the indent, and the
-        // indent is a centre offset rather than a margin.
+        // than fields on a `modelData` map.
+        //
+        // AND THE INDENT IS GONE, deliberately. This used to require a centre
+        // OFFSET per level; on 2026-09-18 that offset was reported as "they
+        // keep sticking out more and more and create like a wave pattern" and
+        // the depth moved into lanes in a fixed gutter, with every tile at one
+        // x. What survives is the part that was always the point: the nesting
+        // LEVEL is what the rail renders the hierarchy from.
         QVERIFY(rail.contains(QStringLiteral("required property int level")));
-        QVERIFY(rail.contains(QStringLiteral("hierarchyChild ?")));
-        QVERIFY(rail.contains(
-            QStringLiteral("anchors.horizontalCenterOffset:")));
-        // And a Space inside a folder is indented by the same mechanism, so
-        // the two groupings cannot render as two different kinds of nesting.
+        QVERIFY2(rail.contains(QStringLiteral("drawnTreeLevel")),
+                 "the rail no longer derives anything from a row's depth");
+        QVERIFY2(!rail.contains(
+                     QStringLiteral("anchors.horizontalCenterOffset:")),
+                 "a tile is offset per level again — that is the wave");
+        // A Space inside a FOLDER keeps its own small inset — the folder's
+        // container band needs an edge to show — and it is the one thing
+        // `tileIndent` still carries.
         QVERIFY(rail.contains(QStringLiteral("tileIndent")));
         // Keyed on the MECHANISM, not on the number. This asserted the
         // literal `inFolder ? 7 : 0`, which broke on 2026-09-17 when the

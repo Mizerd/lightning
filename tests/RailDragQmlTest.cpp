@@ -666,7 +666,7 @@ private slots:
     //
     // GEOMETRIC, on real delegates, because nothing else can see this: the
     // old arrangement was correct QML and read perfectly well as source.
-    void theExpanderSitsTheSameDistanceFromItsTileAtEveryLevel()
+    void nestingMovesTheTreeAndNotTheTiles()
     {
         RailFakeClient nested;
         RoomInfo lv0 = joinedSpace(QStringLiteral("!lv0:example.org"),
@@ -711,52 +711,54 @@ private slots:
             QVERIFY2(glyph->width() > 0,
                      "the expander glyph has no width, so its position says "
                      "nothing");
-            const QPointF glyphRight =
-                glyph->mapToItem(row, QPointF(glyph->width(), 0));
+            const QPointF glyphLeft = glyph->mapToItem(row, QPointF(0, 0));
             const QPointF tileLeft = tile->mapToItem(row, QPointF(0, 0));
-            gaps << tileLeft.x() - glyphRight.x();
+            // Signed, and measured FROM the tile: the expander is a badge on
+            // it now, so what must hold is that it keeps one place on the
+            // tile — not that it stands some distance outside it.
+            gaps << glyphLeft.x() - tileLeft.x();
             tileLefts << tileLeft.x();
         }
 
-        // The fixture has to actually NEST, or a constant gap is trivial.
-        QVERIFY2(tileLefts.at(1) > tileLefts.at(0)
-                     && tileLefts.at(2) > tileLefts.at(1),
-                 "the three rows are at the same indent, so this case cannot "
-                 "see a gap that grows with depth");
-
-        // NO DRIFT WITH DEPTH — that is the report this case exists for, and
-        // it is a statement about the rows that HAVE a parent. Level 0 is
-        // measured too, but separately: a root has no elbow to sit on, so
-        // since 2026-09-18 its expander hugs its own tile instead of standing
-        // in the column where a parent's line would have turned. Requiring
-        // one gap across all three would force the root back out into blank
-        // rail, which is the thing that was reported in the first place.
-        for (int i = 0; i < gaps.size(); ++i) {
-            QVERIFY2(gaps.at(i) >= 0,
-                     qPrintable(QStringLiteral("the expander overlaps its own "
-                                               "tile at level %1 (gap %2)")
-                                    .arg(i).arg(gaps.at(i))));
+        // ── THE TILES DO NOT MOVE ────────────────────────────────────
+        //
+        // This case used to require the OPPOSITE — that each level's tile sat
+        // further right than the one above — and that requirement was the
+        // defect. Reported as "they keep sticking out more and more and create
+        // like a wave pattern": a per-level step walks a 40px tile off its own
+        // axis inside a rail that starts at 68px, and then walks it back, so
+        // the column has no baseline anywhere. Depth moved into lanes in a
+        // fixed gutter and the tiles stay put. Element renders no nesting at
+        // all while narrow and Nheko multiplies its indent by zero — the same
+        // conclusion reached twice by people who shipped it.
+        for (int i = 1; i < tileLefts.size(); ++i) {
+            QVERIFY2(qAbs(tileLefts.at(i) - tileLefts.at(0)) < 1.0,
+                     qPrintable(QStringLiteral(
+                         "a depth-%1 tile sits at x=%2 while a root sits at "
+                         "x=%3 — the column steps with depth again, which is "
+                         "the wave this case exists to prevent")
+                         .arg(i).arg(tileLefts.at(i)).arg(tileLefts.at(0))));
         }
-        QVERIFY2(qAbs(gaps.at(2) - gaps.at(1)) < 1.0,
-                 qPrintable(QStringLiteral(
-                     "the expander is %1px from its tile at level 2 and %2px "
-                     "at level 1 — it drifts at a different rate from the "
-                     "tile it expands, so no two nested levels are spaced "
-                     "alike").arg(gaps.at(2)).arg(gaps.at(1))));
-        QVERIFY2(gaps.at(0) <= gaps.at(1) + 1.0,
-                 qPrintable(QStringLiteral(
-                     "a ROOT's expander is %1px from its tile while a nested "
-                     "one is %2px — the root has no line to stand on, so it "
-                     "must not sit further out than the rows that do")
-                     .arg(gaps.at(0)).arg(gaps.at(1))));
-        // ...and it is CLOSE to it, not parked against the rail's edge. Half
-        // a tile is generous and still catches the old arrangement, whose
-        // gap was 20px against a 40px tile at the very first level.
-        QVERIFY2(gaps.at(0) < 20.0,
-                 qPrintable(QStringLiteral("the expander sits %1px from its "
-                                           "tile — far enough to read as "
-                                           "belonging to the rail rather than "
-                                           "to the Space").arg(gaps.at(0))));
+
+        // And the expander keeps ONE place on the tile it belongs to, at every
+        // depth — the other half of the original report, which was that the
+        // chevrons were "unevenly distanced". It is a badge on the tile now,
+        // so this is a statement about where on the tile it sits.
+        for (int i = 0; i < gaps.size(); ++i) {
+            QVERIFY2(qAbs(gaps.at(i) - gaps.at(0)) < 1.0,
+                     qPrintable(QStringLiteral(
+                         "the expander is %1px from its tile's left edge at "
+                         "depth %2 and %3px at the root — it does not keep one "
+                         "place on the tile it belongs to")
+                         .arg(gaps.at(i)).arg(i).arg(gaps.at(0))));
+            const qreal tileEdge =
+                m_rail->property("railTileSize").toReal();
+            QVERIFY2(gaps.at(i) >= 0 && gaps.at(i) < tileEdge,
+                     qPrintable(QStringLiteral(
+                         "the expander is %1px from its tile's left edge, "
+                         "which is not on the tile at all")
+                         .arg(gaps.at(i))));
+        }
 
         entries()->setSources(m_spaces, store());
         QCoreApplication::processEvents();
@@ -915,12 +917,18 @@ private slots:
     // can draw. A screenshot can suggest that; only this can hold it.
     void aTreeTooDeepToDrawDivesInsteadOfPilingUp()
     {
+        // DERIVED FROM THE RAIL, not a literal. It was six levels, and the
+        // left-aligned layout then afforded five at this window — the case
+        // stopped exercising the dive at all and said so rather than passing.
+        // Three levels past whatever the rail can draw always overflows.
+        const int drawableForFixture =
+            m_rail->property("drawableLevels").toInt();
+        QVERIFY2(drawableForFixture >= 1,
+                 "the rail reports it can draw no levels at all");
         RailFakeClient deep;
         QList<RoomInfo> rooms;
         QStringList chain;
-        // Six levels, each the only child of the one above — the shape the
-        // maintainer's own fixture has and the one that overflows soonest.
-        for (int i = 0; i < 6; ++i)
+        for (int i = 0; i < drawableForFixture + 3; ++i)
             chain << QStringLiteral("!lvl%1:example.org").arg(i);
         for (int i = 0; i < chain.size(); ++i) {
             RoomInfo info = joinedSpace(chain.at(i),
@@ -939,11 +947,9 @@ private slots:
         QTest::qWait(120);
 
         const int drawable = m_rail->property("drawableLevels").toInt();
-        QVERIFY2(drawable >= 1 && drawable < 5,
-                 qPrintable(QStringLiteral(
-                     "the rail claims it can draw %1 levels at this width; "
-                     "the fixture needs it to run out before six or this "
-                     "case is not exercising the dive at all").arg(drawable)));
+        QVERIFY2(drawable == drawableForFixture,
+                 "the rail's drawable depth changed while the fixture was "
+                 "being built, so the chain may not overflow it");
 
         // The rail must have dived, and the fixture must be deep enough to
         // have forced it.

@@ -146,44 +146,57 @@ Rectangle {
     /// reads as clipped while every shallower tile has a whole step of
     /// clearance. Measured at 0px on three different widths.
     readonly property int railEdgeMargin: AppTheme.scaled(4)
-    readonly property int indentBudget:
-        Math.max(0, Math.floor((width - railTileSize) / 2) - railEdgeMargin)
-    // ONE STEP IS ONE TREE COLUMN, and the elbow that crosses it has to be
-    // SEEN. It was 6px, chosen when depth was a slight offset and nothing was
-    // drawn in the gutter: at that size the horizontal into each tile was
-    // three pixels long and the maintainer's report on the first live build
-    // was exactly that — "make it bend to the right too on the bottom and
-    // connect to the icons".
-    //
-    // 18 is the smallest step at which the BEND IS STILL VISIBLE PAST THE
-    // CHEVRON. The twisty sits on the elbow and interrupts the line it opens,
-    // so it eats the first half of the horizontal: at 12 the whole 9px ran
-    // behind the glyph and the tree looked like plain verticals again. At 18
-    // the horizontal is 15px, roughly half of it clear of the glyph, and the
-    // line visibly turns and touches the icon.
-    //
-    // THE COST IS DEPTH PER PIXEL, and it is real: `widthForLevels` is
-    // tile + 2·n·step, so the stops go 76 / 112 / 148 / 184 / 220 / 256 at
-    // 100% where they used to go 68 / 76 / 88 / 100 / 112. The rail that
-    // showed six levels of indent at 112px now shows two. That is the trade
-    // the request makes deliberately — six levels of indent with no visible
-    // structure is what prompted it — and it is why a rail that runs out of
-    // room needs somewhere to put the depth it cannot draw.
-    //
-    // SCALED, like the tile it indents. An unscaled step would mean the rail
-    // showed fewer levels the larger a person set their interface, which is
-    // backwards.
-    readonly property int indentStep: AppTheme.scaled(18)
+    /// ── THE TILES DO NOT MOVE. THE TREE DOES. ──────────────────────────
+    ///
+    /// Indenting each level was the obvious thing and it was wrong twice over.
+    /// Reported as "they keep sticking out more and more and create like a
+    /// wave pattern": with tiles at 40px in a rail that starts at 68, a step
+    /// per level walks the column off its own axis and then walks it back,
+    /// and there is no edge left anywhere for the eye to use as a baseline.
+    ///
+    /// Nobody ships that. Element renders no nesting AT ALL while its panel is
+    /// narrow — its own end-to-end test asserts the subspaces are not visible —
+    /// and pressing the chevron widens the whole panel first. Nheko, the one
+    /// other Qt client that keeps a deep tree in a narrow rail, multiplies its
+    /// indent by ZERO when collapsed. Discord's guild list gives a foldered
+    /// server no horizontal offset whatsoever and expresses the grouping with
+    /// a tinted pill behind the run.
+    ///
+    /// So every tile sits at ONE x, at every depth, forever, and the depth is
+    /// carried by LANES in a fixed gutter to their left — a ruler read against
+    /// a stationary origin rather than a ramp with none. The elbow's run into
+    /// the tile is reserved BEFORE the lanes, so the connector into each icon
+    /// is a constant width at every depth and can never be squeezed to the
+    /// three pixels that prompted "make it bend to the right too on the bottom
+    /// and connect to the icons".
+    readonly property int elbowRun: AppTheme.scaled(12)
+    /// The widest a lane is ever drawn. Past this the gutter stops growing,
+    /// which is why the rail's stops stop as well.
+    readonly property int laneMaxPitch: AppTheme.scaled(10)
+    readonly property int laneRegion:
+        Math.max(0, Math.min(width - elbowRun - railTileSize - railEdgeMargin,
+                             laneMaxPitch * maxIndentLevels))
+    readonly property int lanePitch:
+        Math.max(AppTheme.scaled(4),
+                 Math.min(laneMaxPitch,
+                          Math.floor(laneRegion / Math.max(1, maxIndentLevels))))
+    /// THE one x. Every Space tile, every revealed room, the add button, the
+    /// cog and the account avatar all start here.
+    readonly property int tileColumnX: laneRegion + elbowRun
+    /// How many lanes the gutter can actually show. Anything deeper dives,
+    /// exactly as before — the dive is unchanged, it just has a much larger
+    /// budget to work inside.
+    readonly property int drawableLevels:
+        Math.max(1, Math.floor(laneRegion / lanePitch))
+
     /// How far INSIDE a tile's left edge that tile's own descender runs.
     /// Small on purpose: the line then leaves the bottom-left corner of the
     /// icon it belongs to rather than floating in the gutter beside it.
     readonly property int treeColumnInset: AppTheme.scaled(3)
-    /// Where the vertical for column `depth` sits, in delegate coordinates —
-    /// just inside the depth-`depth` tile's left edge, so it descends out of
-    /// that tile and crosses the whole step to reach the next one.
-    function treeColumnX(depth, rowWidth) {
-        return rowWidth / 2 - root.railTileSize / 2
-               + depth * root.indentStep + root.treeColumnInset
+    /// Where the vertical for lane `depth` sits. Packed against the rail's
+    /// left edge, NOT stepping with the tiles — that is the whole change.
+    function treeColumnX(depth) {
+        return depth * root.lanePitch + root.treeColumnInset
     }
     /// Thin, but not a hairline. One pixel disappeared into the rail's flat
     /// background at a glance; two is followable without becoming a rule,
@@ -199,19 +212,16 @@ Rectangle {
     // user is choosing HOW MUCH DEPTH TO SEE, and that is a whole number —
     // so the control offers exactly those widths and nothing between them.
     //
-    // A stop for N levels needs `indentBudget >= N * indentStep`, and the
-    // budget is half the leftover after the tile, hence tile + 2·N·step.
-    // The first stop is the width the rail was FIXED at before it could be
-    // resized at all, so the default is unchanged and already affords the
-    // two levels it always did.
+    // A stop for N levels needs N lanes at the comfortable pitch on top of
+    // the tile, its elbow run and the edge margin. Past six lanes the gutter
+    // stops growing, so the widest stop is the last width that changes
+    // anything — dragging further would buy nothing and is not offered.
     readonly property int minRailWidth: AppTheme.scaled(68)
     readonly property int maxIndentLevels: 6
     function widthForLevels(levels) {
-        // The margin is in the STOP as well as in the budget, or the widest
-        // stop stops affording the level it is named for.
         return Math.max(root.minRailWidth,
-                        root.railTileSize + 2 * levels * root.indentStep
-                        + 2 * root.railEdgeMargin)
+                        root.elbowRun + root.railTileSize + root.railEdgeMargin
+                        + levels * root.laneMaxPitch)
     }
     /// The nearest stop to `px`. Used both when persisting a drag and when
     /// reading a stored width back, so a value saved by an older build — or
@@ -244,10 +254,6 @@ Rectangle {
     // out. Session state, like `railReveal`: "show me inside this" is a
     // momentary request, not how someone wants their rail arranged.
     property string treeFocusId: ""
-    /// How many levels of indent the rail can currently draw. At least one,
-    /// so the narrowest rail still distinguishes a child from its parent.
-    readonly property int drawableLevels:
-        Math.max(1, Math.floor(indentBudget / indentStep))
 
     // Resolved ONCE per model or focus change rather than per delegate: the
     // focused row, the last row of its subtree, and the level its contents
@@ -877,11 +883,12 @@ Rectangle {
                 // width. Now it is `root.indentBudget`, so widening the rail
                 // reveals more depth and narrowing it back hides it again,
                 // with no mode to switch and no level to count.
+                /// THE ONLY horizontal offset a tile has left, and it is
+                /// not about the hierarchy: a Space filed in a rail FOLDER is
+                /// nudged in so the folder's own container band has an edge to
+                /// show. Hierarchy depth moved to the lanes.
                 readonly property int tileIndent:
-                    Math.min(root.indentBudget,
-                             (inFolder ? AppTheme.scaled(7) : 0)
-                             + (hierarchyChild
-                                ? spaceItem.drawnLevel * root.indentStep : 0))
+                    inFolder ? AppTheme.scaled(7) : 0
                 // GATED ON THE `expanded` ROLE, NOT ON A FUNCTION CALL.
                 //
                 // `revealCount()` asks `app.railLayout.spaceExpanded(id)`,
@@ -979,7 +986,7 @@ Rectangle {
                     width: Math.round(root.railTileSize * 0.8)
                     height: 2; radius: 2
                     color: AppTheme.border
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    x: root.tileColumnX
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: 2
                 }
@@ -1041,7 +1048,7 @@ Rectangle {
                             required property int index
                             required property var modelData
                             visible: modelData === true
-                            x: root.treeColumnX(index, spaceItem.width)
+                            x: root.treeColumnX(index)
                             y: 0
                             width: root.treeLineWidth
                             height: treeGuides.runHeight
@@ -1049,33 +1056,33 @@ Rectangle {
                         }
                     }
 
-                    // This row's own elbow. Full height when a sibling
-                    // follows (a tee), stopping at the tile's middle when
-                    // this is the last branch (a corner).
+                    // This row's own elbow: a vertical down its parent's
+                    // lane, and a horizontal into its tile. Uninterrupted —
+                    // the chevron moved onto the tile, so nothing stands on
+                    // the line any more. Full height when a sibling follows
+                    // (a tee), stopping at the tile's middle when this is the
+                    // last branch (a corner).
                     Rectangle {
                         visible: spaceItem.drawnTreeLevel > 0
-                        x: root.treeColumnX(spaceItem.drawnTreeLevel - 1,
-                                            spaceItem.width)
+                        x: root.treeColumnX(spaceItem.drawnTreeLevel - 1)
                         y: 0
                         width: root.treeLineWidth
-                        // +lineWidth on the corner: the vertical has to
-                        // reach the FAR edge of the horizontal it turns into,
-                        // or a 2px line leaves a 2px notch at the bend.
+                        // +lineWidth on the corner: the vertical has to reach
+                        // the FAR edge of the horizontal it turns into, or a
+                        // 2px line leaves a 2px notch at the bend.
                         height: spaceItem.treeLastChild
-                                ? treeGuides.tileMid
-                                  + root.treeLineWidth / 2
+                                ? treeGuides.tileMid + root.treeLineWidth / 2
                                 : treeGuides.runHeight
                         color: treeGuides.ink
                     }
                     Rectangle {
                         visible: spaceItem.drawnTreeLevel > 0
-                        x: root.treeColumnX(spaceItem.drawnTreeLevel - 1,
-                                            spaceItem.width)
                         // CENTRED on the tile's middle, not starting there.
-                        // A 2px line hung one pixel below the chevron it runs
+                        // A 2px line hung one pixel below the chevron it ran
                         // out of, which is the sort of thing that reads as
                         // "not quite aligned" without being nameable —
                         // measured at 700% on a live capture.
+                        x: root.treeColumnX(spaceItem.drawnTreeLevel - 1)
                         y: treeGuides.tileMid - root.treeLineWidth / 2
                         width: Math.max(0, spaceTile.x - x)
                         height: root.treeLineWidth
@@ -1096,8 +1103,7 @@ Rectangle {
                         // connecting a Space to its sibling.
                         visible: spaceItem.expandable && spaceItem.expanded
                                  && spaceItem.treeHasChildRow
-                        x: root.treeColumnX(spaceItem.drawnTreeLevel,
-                                            spaceItem.width)
+                        x: root.treeColumnX(spaceItem.drawnTreeLevel)
                         // STARTS INSIDE THE TILE, by its corner radius. The
                         // tile is a rounded rectangle, so at the inset where
                         // this line runs its painted bottom is HIGHER than
@@ -1121,6 +1127,22 @@ Rectangle {
                 Item {
                     id: expandChevronArea
                     objectName: "railSpaceExpandChevron"
+                    // ── ON THE TILE, not in the gutter ──────────────────
+                    //
+                    // The gutter belongs to the lanes now, and a lane is four
+                    // to ten pixels wide — a twelve-pixel glyph cannot stand
+                    // in one without covering its neighbours. It also has no
+                    // business there: the lanes say what CONTAINS this Space,
+                    // and the chevron says what this Space is DOING, which is
+                    // a fact about the tile.
+                    //
+                    // So it is a badge in the tile's bottom-left corner, at
+                    // the same place on every tile at every depth. It is
+                    // PERMANENT for a Space with something to open — hover-only
+                    // was tried for one revision and the report was immediate,
+                    // "I don't see how to collapse it" — and it never touches a
+                    // line, so the tree behind it stays unbroken.
+                    //
                     // ONLY WHEN THERE IS SOMETHING TO EXPAND. It used to
                     // appear on hover over ANY real Space, so a Space with no
                     // joined subspaces offered a control that opened nothing
@@ -1128,121 +1150,50 @@ Rectangle {
                     // it does nothing now". `expandable` is the model's own
                     // answer (childSpaceCount > 0) and was already computed;
                     // the chevron simply never read it.
-                    // ON HOVER ONLY — an expanded Space no longer keeps one
-                    // parked on its elbow. The chevron has to interrupt the
-                    // line it sits on to be legible, so every expanded row was
-                    // carrying a permanent break in its own corner; at rest
-                    // the tree is now unbroken, and pointing at a row puts the
-                    // control exactly where that row's corner is. Whether a
-                    // Space is open was never the chevron's job anyway: its
-                    // children are either drawn beneath it or they are not.
                     visible: spaceItem.isRealSpace && spaceItem.expandable
-                             && spaceHover.hovered && !root.dragging
-                    anchors.left: parent.left
-                    // The BOX still spans the whole gutter, so the target
-                    // stays as large as the space allows — up to the accent
-                    // ring's outer edge (tile - 4px), which the glyph can
-                    // never overlap.
-                    width: Math.max(0, spaceTile.x - 4)
-                    height: root.railTileSize
-                    y: AppTheme.scaled(4)
-                    // THE TWISTY INTERRUPTS THE LINE IT SITS ON. Without
-                    // this the tree's vertical ran straight through the
-                    // glyph — reported as the chevron clipping, and that is
-                    // what it looks like. A file tree draws the twisty OVER
-                    // its guide; the rail-coloured disc is how that is done
-                    // when the guide is a sibling item rather than a gap.
+                             && !root.dragging
+                    // STRADDLING THE CORNER, not sitting inside it. A badge
+                    // fully on the tile covered the initials, which are the
+                    // only thing identifying a Space in an icon rail. Centred
+                    // on the corner itself it reads as a notch taken out of
+                    // the tile and leaves the middle alone.
+                    width: AppTheme.scaled(14)
+                    height: width
+                    x: spaceTile.x - width / 2 + AppTheme.scaled(3)
+                    y: spaceTile.y + root.railTileSize - width / 2
+                       - AppTheme.scaled(3)
+                    z: 2
+
                     Rectangle {
-                        anchors.centerIn: expandGlyph
-                        // NO PADDING ON TOP OF THE GLYPH BOX. The box is
-                        // already wider than the ink inside it, so adding to
-                        // it punched a hole in the guide twice the width of
-                        // the thing it was masking.
-                        width: expandGlyph.size
-                        height: width
+                        anchors.fill: parent
                         radius: width / 2
+                        // The rail's own colour, so the badge reads as a notch
+                        // taken out of the tile rather than as something
+                        // floating on top of the avatar.
                         color: AppTheme.rail
+                        border.color: AppTheme.border
+                        border.width: 1
                     }
                     Icon {
                         id: expandGlyph
                         objectName: "railSpaceExpandGlyph"
-                        // THE GLYPH HUGS ITS OWN TILE, NOT THE RAIL'S EDGE.
-                        //
-                        // It was `anchors.centerIn: parent`, and the parent
-                        // is the whole gutter — so the chevron sat at HALF
-                        // the tile's own offset and drifted only half as
-                        // fast as the tile it belongs to. Measured on a real
-                        // build at the 112px stop: the gap between chevron
-                        // and tile ran 20, 23, 26, 29, 32px down five levels
-                        // of nesting, and even the top level sat 20px clear
-                        // of its tile against the rail's left edge. Reported
-                        // in those terms — "way too far off on the left, and
-                        // unevenly distanced".
-                        //
-                        // The box's right edge is already a CONSTANT 4px
-                        // from the tile at every level, so anchoring to it
-                        // makes the distance constant too, and the glyph
-                        // travels with its tile.
-                        //
-                        // SINCE THE TREE, it is placed on the elbow instead:
-                        // the column where this row's own branch meets its
-                        // parent's guide, which is half a step left of the
-                        // tile at EVERY level including the top one (there
-                        // `treeColumnX(-1)` is simply that same half step).
-                        // A twisty sitting on the line it opens is what every
-                        // file tree does, and it keeps the constant gap the
-                        // earlier fix was about — the glyph still travels
-                        // with its tile, it is just now also on the tree.
-                        // TWO PLACEMENTS, because there are two situations.
-                        //
-                        // A row WITH a parent sits on its elbow, centred on
-                        // the column its line turns in — rounded, or a 2px
-                        // guide and an odd glyph land half a pixel apart and
-                        // the tick reads as off-axis.
-                        //
-                        // A ROOT has no elbow. Putting it on the column where
-                        // one WOULD be left a tick floating in a whole
-                        // indent step of blank rail with no line at either
-                        // end — and at 140% in a narrow dived rail that
-                        // column is outside the rail, so the glyph was
-                        // clipped by the window edge with one pixel showing.
-                        // It goes back to hugging its own tile, which is
-                        // where it sat before the tree existed.
-                        x: spaceItem.drawnTreeLevel > 0
-                           ? Math.round(
-                                 root.treeColumnX(spaceItem.drawnTreeLevel - 1,
-                                                  spaceItem.width)
-                                 - expandChevronArea.x - size / 2)
-                           : Math.max(0, expandChevronArea.width - size)
-                        anchors.verticalCenter: parent.verticalCenter
-                        // THREE STATES, NOT TWO. A Space whose children
-                        // would land deeper than the rail can draw does not
-                        // open in place — it opens as a DIVE, and the glyph
-                        // has to say so before the click rather than after.
+                        anchors.centerIn: parent
                         // ONE MEANING: open or closed. A separate glyph for
                         // "this one dives" was tried twice and rejected both
                         // times — as `chevron_right` it was indistinguishable
-                        // from "collapsed", and as an arrow it read as a
-                        // stray mark in the gutter rather than as part of the
-                        // tree. The dive needs no glyph of its own: expanding
+                        // from "collapsed", and as an arrow it read as a stray
+                        // mark. The dive needs no glyph of its own: expanding
                         // a Space too deep to draw re-bases the rail by
                         // itself, and the chip at the top says where you are.
                         name: spaceItem.expanded ? "expand_more"
                                                  : "chevron_right"
-                        // SCALED, like the tile and the per-level step. A
-                        // bare 10 shrank against everything around it as the
-                        // interface grew — the same defect the rail's indent
-                        // and its folder inset both carried.
-                        // 12, not 10. At 10 the drawn ink is SIX device
-                        // pixels wide at 100% — a speck sitting in a hole
-                        // twice its size, which is why the elbow read as
-                        // three disconnected fragments rather than a corner.
-                        size: AppTheme.scaled(12)
+                        size: AppTheme.scaled(11)
                         color: chevronHover.hovered ? AppTheme.text
-                                                    : AppTheme.textMuted
+                                                    : AppTheme.textSecondary
                     }
                     HoverHandler { id: chevronHover }
                     TapHandler {
+                        gesturePolicy: TapHandler.WithinBounds
                         onTapped: app.railLayout.toggleSpaceExpanded(
                                       spaceItem.spaceId)
                     }
@@ -1256,8 +1207,7 @@ Rectangle {
                     id: spaceTile
                     objectName: "railSpaceTile"
                     width: root.railTileSize; height: root.railTileSize
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.horizontalCenterOffset: spaceItem.tileIndent
+                    x: root.tileColumnX + spaceItem.tileIndent
                     y: AppTheme.scaled(4) + spaceItem.dragLift
                     radius: AppTheme.radiusLg
                     // ACTIVE is ONE language for every tile in the rail: the
@@ -1547,12 +1497,14 @@ Rectangle {
                                 height: root.railRoomTileSize
                                 radius: AppTheme.radiusMd
                                 color: "transparent"
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                // One level deeper than the OWNING tile — a
-                                // nested space's rooms step in further, not
-                                // back to a flat offset.
-                                anchors.horizontalCenterOffset:
-                                    spaceItem.tileIndent + 5
+                                // THE SAME x AS EVERY OTHER TILE. A room used
+                                // to sit half a step further in, giving the
+                                // expansion column an offset that lined up
+                                // with nothing; now its 28px size is what
+                                // says it is a room, exactly as Element's own
+                                // one-step avatar shrink does, and the column
+                                // stays a column.
+                                x: root.tileColumnX + spaceItem.tileIndent
                                 anchors.verticalCenter: parent.verticalCenter
                                 Avatar {
                                     anchors.fill: parent
@@ -1638,9 +1590,7 @@ Rectangle {
                                                      : AppTheme.cardElevated
                             border.color: AppTheme.border
                             border.width: 1
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            anchors.horizontalCenterOffset:
-                                spaceItem.tileIndent + 5
+                            x: root.tileColumnX + spaceItem.tileIndent
                             anchors.verticalCenter: parent.verticalCenter
                             Label {
                                 anchors.centerIn: parent
@@ -1682,7 +1632,7 @@ Rectangle {
                     id: railAddSpaceButton
                     objectName: "railAddSpaceButton"
                     y: AppTheme.scaled(4)
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    x: root.tileColumnX
                     implicitWidth: root.railTileSize
                     implicitHeight: root.railTileSize
                     radius: AppTheme.radiusLg
@@ -1724,7 +1674,11 @@ Rectangle {
         IconButton {
             id: railSettingsButton
             objectName: "railSettingsButton"
-            Layout.alignment: Qt.AlignHCenter
+            // LEFT, with the trunk. The tiles above are no longer centred,
+            // so a centred cog and avatar would be the only two things in the
+            // rail that move when it is widened.
+            Layout.alignment: Qt.AlignLeft
+            Layout.leftMargin: root.tileColumnX
             implicitWidth: root.railTileSize
             implicitHeight: root.railTileSize
             radius: AppTheme.radiusLg
@@ -1791,7 +1745,11 @@ Rectangle {
         Item {
             id: railAccount
             objectName: "railAccountTile"
-            Layout.alignment: Qt.AlignHCenter
+            // LEFT, with the trunk. The tiles above are no longer centred,
+            // so a centred cog and avatar would be the only two things in the
+            // rail that move when it is widened.
+            Layout.alignment: Qt.AlignLeft
+            Layout.leftMargin: root.tileColumnX
             // implicitWidth, NOT width: this is a ColumnLayout child, and a
             // layout takes an aligned item's PREFERRED size — which falls
             // back to whatever `width` happened to be at the first pass and
