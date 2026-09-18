@@ -1673,12 +1673,17 @@ MODAL with `dim:false`); a facepile tap also pinned the bubble's action
 toolbar; a receipt popover opened displaced because its handler lives in
 `receiptRow`, not the strip. Any overlaid affordance needs an explicit
 band exclusion in the handler beneath it. Recurred in three rounds.
-**AND `gesturePolicy: WithinBounds` DOES NOT CLOSE IT — measured
-2026-09-18.** The policy decides when a handler gives up its OWN grab, not
-whether another handler sees the press. What does is a Control: a
-`QQuickAbstractButton` accepts the press outright, which is why the image
-viewer's toolbar was never affected by the scrim handler that made a click
-on a THUMBNAIL close the viewer.
+**AND `gesturePolicy: WithinBounds` IS WHAT CLOSES IT.** On the default
+`DragThreshold` a TapHandler takes only a PASSIVE grab and the ancestor's
+handler fires on the same press; `WithinBounds` takes the exclusive grab and
+it does not. The image viewer's thumbnail strip shipped without it and a
+click on a thumbnail closed the viewer, while `imageTap` two hundred lines
+above — which has always asked for it — zooms the picture without closing.
+**This block said the opposite for a few hours**, on a measurement taken
+through a fixture whose target was `visible: opacity > 0` behind a 180ms
+fade, so the click never reached the handler under test: the same failure,
+a different cause. Make the fixture prove it can HIT the thing before
+concluding anything about what the thing does.
 
 **A BINDING THAT REACHES STATE THROUGH A FUNCTION CALL IS NOT BOUND TO IT,
 and a PUSHED record is only as complete as the callers that remembered to

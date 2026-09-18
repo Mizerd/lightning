@@ -54,17 +54,28 @@ to prove keys reached the application.
 
 ### Clicking a thumbnail closed the viewer
 
-The strip is the one piece of viewer chrome built out of bare TapHandlers, and
-a TapHandler never suppresses a handler on an ancestor — so the scrim's close
-fired on the same press: the picture was selected and the viewer shut
-underneath it. `gesturePolicy: TapHandler.WithinBounds` does NOT fix it, which
-is worth recording because it is the obvious first move; the policy decides
-when a handler gives up its OWN grab. A Control does: the toolbar's
-IconButtons sit under the same scrim handler and have never closed the viewer.
+The strip is the one piece of viewer chrome built out of bare TapHandlers. On
+the default `DragThreshold` policy a TapHandler takes only a PASSIVE grab, so
+the scrim's close handler fired on the same press: the picture was selected
+and the viewer shut underneath it.
+
+**AND THE COMMIT THAT FIXED IT SAID THE WRONG THING ABOUT WHY.** It recorded
+that `gesturePolicy: TapHandler.WithinBounds` does NOT help and reached for an
+`AbstractButton` instead. That "measurement" was taken through a broken
+fixture: the strip carries `visible: opacity > 0` behind a 180ms fade, so the
+synthesized click was landing on the scrim and closing the viewer for a reason
+that had nothing to do with the policy — the same failure, a different cause.
+With the case waiting for the fade, `WithinBounds` is provably the whole fix,
+and removing it from either strip handler fails both cases. The code is back
+to two TapHandlers with the policy set.
+
+That also resolves a contradiction an audit found the next morning: the
+commit's "a TapHandler never suppresses a handler on an ancestor" would have
+made `imageTap` — the click-to-zoom on the picture itself — impossible, and
+it has always worked. It works BECAUSE it asks for that policy.
 
 The two surfaces a reviewer would try both worked — the toolbar (a Control)
-and the picture itself (`imageTap` already asks for an exclusive grab) —
-which is how a strip full of bare handlers survived.
+and the picture — which is how a strip full of policy-less handlers survived.
 
 ### And a one-way-audio defect, in an unencrypted room
 
@@ -117,10 +128,33 @@ DIFFERENT values set; and a real incoming call whose D-Bus `Notify` carries
 `accept`/`Join` beside `decline`.
 
 Panning stops dead on release — three captures over 1.5 s, byte-identical.
-Horizontal wheel does not pan: `WheelHandler.orientation` defaults to
-`Qt::Vertical`, so a horizontal-only event never reaches the handler's `x`
-branch. Recorded, not fixed — a second handler risks double-applying on a
-trackpad and the rig cannot produce one.
+
+**AND THE ONE THING THAT PASS RECORDED AS BROKEN WAS NOT.** It said horizontal
+wheel does not pan a zoomed image, on the strength of buttons 6/7 moving
+nothing on a real build plus the Qt fact that `WheelHandler.orientation`
+defaults to `Qt::Vertical`. The fact is true and the conclusion was wrong: a
+zoomed picture makes the Flickable `interactive`, and QQuickFlickable handles
+the wheel itself, so that axis was covered all along. The live observation was
+`contentX` already sitting at the end of a 96px range at 1.44x — **"no change"
+read as "no effect", for the third time in one session.**
+
+Re-measured on the same rig with the picture zoomed 4.3x and dragged to the
+middle of its range first: six notches of button 7 moved the image's right
+edge from x=1877 to x=1493, and six of button 6 moved it back. **~64px a
+notch, both directions, on real hardware.**
+
+A second handler was written, tested and REVERTED.
+`oneWheelEventMovesEachAxisExactlyOnce` is what survives, and it asserts the
+property that second handler would have broken rather than the one that was
+never broken: a DIAGONAL event is ONE event carrying both deltas, and the
+handler pair moved contentX 80 where the contract is 40.
+
+The horizontal-only assertion is deliberately absent, and why is worth
+keeping: a synthesized click on `imageTap` — which holds an exclusive grab,
+that being exactly why the picture zooms without the scrim closing the viewer
+— leaves that grab behind when the popup closes, and the Flickable never sees
+another wheel event for the life of the process. Bisected to that one case; a
+flush click and a pointer move both failed to clear it.
 
 ## 2026-09-17 (second review round) — the sweep that read one file, and three verdicts that could not fail
 

@@ -66,6 +66,49 @@ ApplicationWindow {
     function showAt(index) { viewer.showAt(index) }
 
     function isOpen() { return viewer.opened }
+    // The Flickable the wheel handlers pan. Reached by objectName so the
+    // case reads the REAL viewport rather than a number the scene keeps.
+    function flickOf() {
+        return viewer.contentItem
+            ? findFlick(viewer.contentItem) : null
+    }
+    function findFlick(item) {
+        if (!item)
+            return null
+        if (item.objectName === "imageViewerFlick")
+            return item
+        for (var i = 0; i < item.children.length; ++i) {
+            var hit = findFlick(item.children[i])
+            if (hit)
+                return hit
+        }
+        return null
+    }
+    function contentX() { var f = flickOf(); return f ? f.contentX : -1 }
+    function contentY() { var f = flickOf(); return f ? f.contentY : -1 }
+    function pannable() { var f = flickOf(); return f ? f.interactive : false }
+    // A Flickable's own wheel handling is ANIMATED, so a sample taken right
+    // after a notch reads a position that is still travelling.
+    function settled() {
+        var f = flickOf()
+        return f ? (!f.moving && !f.flicking && !f.dragging) : false
+    }
+    function zoomNow() { return viewer.zoom }
+    function setZoom(z) { viewer.zoom = z }
+    // The production entry point the Image's onStatusChanged uses.
+    function fitTo(w, h) { viewer.fitImage(w, h); viewer.zoom = 4.0 }
+    // Park the viewport in the MIDDLE of its range, so a move in either
+    // direction is observable and the case does not depend on wherever the
+    // previous one happened to leave it.
+    function contentW() { var f = flickOf(); return f ? f.contentWidth : -1 }
+    function contentH() { var f = flickOf(); return f ? f.contentHeight : -1 }
+    function centreContent() {
+        var f = flickOf()
+        if (!f) return false
+        f.contentX = Math.max(0, (f.contentWidth - f.width) / 2)
+        f.contentY = Math.max(0, (f.contentHeight - f.height) / 2)
+        return f.contentX > 1 && f.contentY > 1
+    }
     function entryCount() { return viewer.entries.length }
     function currentKey() {
         return viewer.current ? (viewer.current.mediaKey || "") : ""
@@ -391,6 +434,55 @@ private Q_SLOTS:
         QCOMPARE(key, QStringLiteral("$c"));
     }
 
+    // ── The PICTURE's own tap: it zooms, and it does NOT close ──────────
+    //
+    // The headline of the click-to-zoom round, and it had no behavioural
+    // coverage at all — the only other gate reads this file as TEXT and
+    // asserts the band check exists, which cannot see a second handler
+    // firing on the same press. An audit raised it because the thumbnail
+    // fix's own commit message claims "a TapHandler never suppresses a
+    // handler on an ancestor", which would make this impossible. That claim
+    // was wrong: `imageTap` asks for `gesturePolicy: WithinBounds`, takes
+    // the exclusive grab, and the scrim's close handler never sees the tap.
+    // This case is what keeps the two facts from drifting apart again.
+    void clickingThePictureZoomsItRatherThanClosingTheViewer()
+    {
+        const QVariantList history = { historyEntry(QStringLiteral("$a")),
+                                       historyEntry(QStringLiteral("$b")) };
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(history)),
+            Q_ARG(QVariant, QVariant(0))));
+        QVERIFY(call("isOpen").toBool());
+        // A picture with a real drawn size, so the tap lands INSIDE the band
+        // `imageTap` checks rather than on the holder's margin — where
+        // closing is the correct answer and this case would prove nothing.
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "fitTo", Q_ARG(QVariant, QVariant(4000)),
+            Q_ARG(QVariant, QVariant(4000))));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(call("pannable").toBool());
+        QVERIFY(QMetaObject::invokeMethod(m_root, "setZoom",
+                                          Q_ARG(QVariant, QVariant(1.0))));
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(call("zoomNow").toReal(), 1.0);
+
+        const QPoint centre(m_window->width() / 2, m_window->height() / 2);
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, centre);
+        QCoreApplication::processEvents();
+
+        QVERIFY2(call("isOpen").toBool(),
+                 "clicking the picture closed the viewer: the scrim's close "
+                 "handler fired on the same press as imageTap, so the "
+                 "click-to-zoom gesture cannot work at all");
+        QTRY_VERIFY2(call("zoomNow").toReal() > 1.0,
+                     "clicking the picture did not zoom it");
+        // ...and clicking again returns to fit rather than closing.
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, centre);
+        QCoreApplication::processEvents();
+        QVERIFY(call("isOpen").toBool());
+        QTRY_COMPARE(call("zoomNow").toReal(), 1.0);
+    }
+
     // The strip's own swallow surface, which exists because the targets are
     // 48px and a MISS between two of them is the likeliest click in the whole
     // viewer. It had the same defect as the thumbnails themselves — a bare
@@ -440,6 +532,64 @@ private Q_SLOTS:
                  "viewer");
         // ...and it selected nothing either.
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$a"));
+    }
+
+
+    // ── ONE WHEEL EVENT MOVES EACH AXIS ONCE ────────────────────────────
+    //
+    // I nearly shipped a second WheelHandler here. `WheelHandler.orientation`
+    // is a single `Qt::Orientation` and DEFAULTS TO VERTICAL, so the one
+    // handler's `angleDelta.x` branch never sees a horizontal-ONLY event —
+    // which reads like a missing feature. Measured with this case run alone,
+    // it is not: a zoomed picture makes the Flickable `interactive` and
+    // QQuickFlickable handles that axis itself, moving contentX 710 -> 781.8
+    // on one notch.
+    //
+    // That measurement is deliberately NOT asserted, and the reason belongs
+    // here: a synthesized click on `imageTap` — which holds an EXCLUSIVE
+    // grab, that being exactly why the picture zooms without the scrim
+    // closing the viewer — leaves the grab behind when the popup closes, and
+    // the Flickable never sees another wheel event for the life of the
+    // process. Bisected to that one case; a flush click and a pointer move
+    // both failed to clear it. An assertion that passes alone and fails in
+    // the suite is worse than no assertion.
+    //
+    // What IS asserted is the property the second handler would have broken:
+    // a DIAGONAL event is ONE event carrying both deltas, and a handler pair
+    // that each applied the pair moves each axis TWICE. Proven — with that
+    // second handler added, contentX moves 80 where the contract is 40.
+    void oneWheelEventMovesEachAxisExactlyOnce()
+    {
+        const QVariantList history = { historyEntry(QStringLiteral("$a")),
+                                       historyEntry(QStringLiteral("$b")) };
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QVariant(history)),
+            Q_ARG(QVariant, QVariant(0))));
+        QVERIFY(call("isOpen").toBool());
+
+        // A picture bigger than the viewport in BOTH directions, parked in
+        // the middle of its range so a move either way is observable.
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "fitTo", Q_ARG(QVariant, QVariant(4000)),
+            Q_ARG(QVariant, QVariant(4000))));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY2(call("pannable").toBool(),
+                     "the fixture image never became pannable, so this case "
+                     "cannot tell a refused pan from nothing to pan to");
+        QTRY_VERIFY(call("settled").toBool());
+        QVERIFY2(call("centreContent").toBool(),
+                 "the viewport has no room to move in both directions");
+        QCoreApplication::processEvents();
+
+        const QPointF centre(m_window->width() / 2.0,
+                             m_window->height() / 2.0);
+        const qreal x0 = call("contentX").toReal();
+        const qreal y0 = call("contentY").toReal();
+        // pixelDelta on both axes: what a trackpad sends, as ONE event.
+        QTest::wheelEvent(m_window, centre, QPoint(0, 0), QPoint(-40, -40));
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(call("contentX").toReal(), x0 + 40.0);
+        QCOMPARE(call("contentY").toReal(), y0 + 40.0);
     }
 
 private:
