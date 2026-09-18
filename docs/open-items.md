@@ -10,12 +10,17 @@ rows, and paints over three of the tree's guide lines in the same band. The
 hovered tile is two rows BELOW the tooltip, and roughly 37px of empty rail sits
 unused to its right.
 
-**NOT FIXED, and it predates the tree.** It is Qt's default `ToolTip`
-placement on an attached property; moving it clear of the rail means
-positioning `ToolTip.toolTip` per call site rather than setting `ToolTip.text`,
-which is a change to every tooltip in the file and not one to make from a
-single measurement. Recorded here so the next reader has the number rather than
-an impression.
+**FIXED the same day, and NOT the way the first reading suggested.** The
+attached form is deliberate and load-bearing: `Main.qml` hardens the ONE shared
+`ToolTip` instance to plain text, and a Space name is remote text, so declaring
+a per-row ToolTip to reposition it would step around that hardening. What moves
+instead is the ANCHOR. Qt centres an attached tooltip on the item it is
+attached to and puts it above, so the rail's three tooltips now attach to an
+invisible 1px item that starts at the rail's right edge and hangs BELOW the
+row: centred there the tooltip clears the rail entirely, and "above the anchor"
+puts it beside the row it describes rather than over the one before it.
+Verified live at the 192px stop — the tooltip renders over the conversation
+list with every rail tile still visible.
 
 Two taste findings from the same audit, deliberately left alone:
 

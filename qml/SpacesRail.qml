@@ -1481,13 +1481,35 @@ Rectangle {
                     }
                 }
 
+                // ── The tooltip hangs off the rail, not over it ─────────
+                //
                 // Attached, not a declared child: a declared ToolTip is a full
                 // Popup (background + Label) instantiated PER ROW, and the
                 // attached form reuses the one shared instance Main.qml
-                // hardens to plain text.
-                ToolTip.visible: spaceHover.hovered && !root.dragging
-                ToolTip.text: spaceItem.Accessible.name
-                ToolTip.delay: 500
+                // hardens to plain text. A Space name is remote text, so that
+                // hardening is not optional and a per-row ToolTip must not be
+                // introduced to move this.
+                //
+                // Qt centres an attached tooltip on the item it is attached to
+                // and puts it ABOVE. Attached to the row, that is the middle
+                // of the rail one row up — measured covering 15 of the 28
+                // pixels of the tile above, in a column whose only identity
+                // cue is a two-letter avatar, while ~37px of rail sat unused
+                // beside it. So it is attached to an invisible anchor that
+                // starts at the rail's right edge and hangs BELOW the row:
+                // centred there the tooltip clears the rail entirely, and
+                // "above the anchor" puts it beside the row it describes
+                // rather than over the one before it.
+                Item {
+                    objectName: "railSpaceTipAnchor"
+                    x: spaceItem.width
+                    y: spaceItem.tileBandHeight
+                    width: AppTheme.scaled(150)
+                    height: 1
+                    ToolTip.visible: spaceHover.hovered && !root.dragging
+                    ToolTip.text: spaceItem.Accessible.name
+                    ToolTip.delay: 500
+                }
 
                 // Inline expansion: up to `revealed` of the space's top rooms
                 // as 28px tiles, then a "+N" pill revealing 5 more. Tiles
@@ -1578,10 +1600,22 @@ Rectangle {
                                         expansionRoomRow.modelData.roomId)
                                 }
                             }
-                            ToolTip.visible: roomHover.hovered
-                            ToolTip.text: expansionRoomRow.modelData.name
-                                          || expansionRoomRow.modelData.roomId
-                            ToolTip.delay: 300
+                            // Off the rail, for the reason the Space tile's
+                            // own anchor carries: centred on a 28px tile a
+                            // tooltip covers its neighbours, and the rail has
+                            // nothing else to identify them by.
+                            Item {
+                                x: expansionRoomRow.width
+                                   - expansionRoomRow.x
+                                y: expansionRoomRow.height
+                                width: AppTheme.scaled(150)
+                                height: 1
+                                ToolTip.visible: roomHover.hovered
+                                ToolTip.text: expansionRoomRow.modelData.name
+                                              || expansionRoomRow.modelData
+                                                     .roomId
+                                ToolTip.delay: 300
+                            }
                             Accessible.role: Accessible.Button
                             Accessible.name: expansionRoomRow.modelData.name
                                              || expansionRoomRow.modelData
@@ -1623,9 +1657,15 @@ Rectangle {
                         TapHandler {
                             onTapped: root.showMoreRooms(spaceItem.spaceId)
                         }
-                        ToolTip.visible: moreHover.hovered
-                        ToolTip.text: qsTr("Show more rooms")
-                        ToolTip.delay: 300
+                        Item {
+                            x: morePill.width
+                            y: morePill.height
+                            width: AppTheme.scaled(150)
+                            height: 1
+                            ToolTip.visible: moreHover.hovered
+                            ToolTip.text: qsTr("Show more rooms")
+                            ToolTip.delay: 300
+                        }
                         Accessible.role: Accessible.Button
                         Accessible.name: qsTr("Show more rooms")
                     }
