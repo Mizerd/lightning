@@ -1,5 +1,32 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-18 — the flattened rail: drag, group, ungroup and resize
+
+**PASS**, laptop rig, after every horizontal coordinate in `SpacesRail.qml`
+changed. The tree's geometry was re-verified separately; this entry is about
+the BEHAVIOUR surviving it.
+
+* **Drop on a tile still groups.** Dragging a root Space onto another produced
+  a folder, drawn with the composite mini-grid tile and the container band —
+  and the band renders correctly against the new left-aligned column, which was
+  the thing most likely to have broken.
+* **Dragging a member out of a folder returns it to the top level**, and the
+  folder disappears once it is empty. Its whole expanded subtree — two levels
+  of subspaces and their revealed rooms — came with it, and the tree redrew in
+  the new position with every elbow and corner intact.
+* **Resize still snaps to a stop.** Dragging the divider from 116px to roughly
+  82 stored **76**, which is a stop in the new set (68 / 76 / 86 / 96 / 106 /
+  116). Past 116 the rail cannot be dragged at all, which is deliberate: the
+  gutter stops growing there, so a wider rail would buy nothing.
+* **And 76px draws the whole six-level fixture.** Five lanes at a 4px pitch,
+  every tile at one x with its initials legible. The same hierarchy needed
+  264px under the indented layout.
+
+**What this does NOT cover.** No drag was performed while the rail was dived,
+and subspaces remain undraggable by design, so only root Spaces were moved.
+Nothing here is a judgement of how the result LOOKS — that is a separate
+question and it is open.
+
 ## 2026-09-18 — the Spaces rail draws its hierarchy as a tree
 
 **PASS**, on the laptop rig (Xvfb :99, fixture account in its own XDG
