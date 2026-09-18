@@ -120,26 +120,29 @@ private Q_SLOTS:
         QVERIFY2(!rail.contains(
                      QStringLiteral("anchors.horizontalCenterOffset:")),
                  "a tile is offset per level again — that is the wave");
-        // A Space inside a FOLDER keeps its own small inset — the folder's
-        // container band needs an edge to show — and it is the one thing
-        // `tileIndent` still carries.
-        QVERIFY(rail.contains(QStringLiteral("tileIndent")));
-        // Keyed on the MECHANISM, not on the number. This asserted the
-        // literal `inFolder ? 7 : 0`, which broke on 2026-09-17 when the
-        // folder inset was scaled — a change that strengthened the very
-        // contract this case exists for, because the rail's per-level step
-        // and tile are scaled and an unscaled inset made a filed Space nest
-        // differently at any interface size but 100%. A value literal in a
-        // mechanism contract fails on the fixes as readily as on the
-        // regressions.
-        QVERIFY2(rail.contains(QStringLiteral("inFolder ?")),
-                 "a Space inside a folder no longer contributes to the same "
-                 "tileIndent, so folder nesting and hierarchy nesting can "
-                 "render as two different kinds of indent");
-        QVERIFY2(rail.contains(QStringLiteral("inFolder ? AppTheme.scaled(")),
-                 "the folder inset is unscaled while the per-level step and "
-                 "the tile are scaled, so a filed Space's offset shrinks "
-                 "relative to everything around it as the interface grows");
+        // AND THE FOLDER PATH DOES NOT GET AN EXEMPTION. It had one:
+        // `tileIndent` moved a filed Space 7px right "so the folder's
+        // container band has an edge to show", in the same file whose comment
+        // said hierarchy depth is not an offset. Measured on a capture at
+        // 7.5px off the shared axis. The property is gone, so the scan is for
+        // its absence.
+        QVERIFY2(!rail.contains(QStringLiteral("tileIndent")),
+                 "a tile is offset again, in the folder path this time");
+        // THE FOLDER'S CONTAINER IS ON THE SAME LADDER AS THE HIERARCHY
+        // REGIONS, which is what replaced the inset a filed Space used to
+        // carry. Two earlier versions of this assertion chased that inset —
+        // first its literal `7`, then its scaling — and both were pinning a
+        // mechanism that should not have existed: a folder and a hierarchy
+        // region say the same thing, so they are one device, and a container
+        // drawn in raw units against a scaled ladder came out NARROWER than
+        // the regions it contains.
+        QVERIFY2(rail.contains(QStringLiteral("root.bandInset(0)")),
+                 "the folder container has its own geometry again, so it can "
+                 "drift out of step with the regions nested inside it");
+        QVERIFY2(!rail.contains(QStringLiteral("anchors.leftMargin: 6")),
+                 "the folder container is inset in RAW units against a "
+                 "scaled ladder, so it renders narrower than the regions it "
+                 "is supposed to contain at every interface size");
     }
 
     void roomAvatarsFallBackToInitialsNeverHash()

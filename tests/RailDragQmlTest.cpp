@@ -1021,6 +1021,297 @@ private slots:
     }
 
 
+    // ── 2026-09-18: a folder painted its own contents flat ───────────────
+    //
+    // The folder container was drawn at `z: -2` while the hierarchy regions
+    // live at -21..-17, in a colour those regions already used — so a Space
+    // tree filed into a folder had its whole nesting painted OVER. Measured
+    // on a capture: inside a folder, exactly one region tint appeared in the
+    // entire rail, on a three-deep tree with four open chevrons proving the
+    // app knew it was a tree. Nothing was wrong with the model.
+    //
+    // Two things had to be true and neither was: the container has to be
+    // BEHIND the regions it contains, and it has to be WIDER than them. It
+    // was inset by a raw literal against a scaled ladder, which put it
+    // between depth 1 and depth 2 — a container narrower than its contents.
+    //
+    // A COLOUR CENSUS IS THE ONLY THING THAT SEES THE FIRST HALF from a
+    // screenshot, and no source scan sees either: both bindings read
+    // perfectly well, and the defect is entirely in how two numbers written
+    // in different places compare.
+    void aFolderDrawsBehindTheHierarchyItHolds()
+    {
+        RailFakeClient tree;
+        RoomInfo top = joinedSpace(QStringLiteral("!filed:example.org"),
+                                   QStringLiteral("Filed"));
+        top.childRoomIds = { QStringLiteral("!sub:example.org") };
+        RoomInfo sub = joinedSpace(QStringLiteral("!sub:example.org"),
+                                   QStringLiteral("Sub"));
+        sub.childRoomIds = { QStringLiteral("!leaf:example.org") };
+        tree.roomList = { top, sub,
+                          joinedSpace(QStringLiteral("!leaf:example.org"),
+                                      QStringLiteral("Leaf")) };
+        SpaceManager treeSpaces;
+        treeSpaces.setClient(&tree);
+        store()->setSpaceExpanded(QStringLiteral("!filed:example.org"), true);
+        store()->setSpaceExpanded(QStringLiteral("!sub:example.org"), true);
+        entries()->setSources(&treeSpaces, store());
+        QCoreApplication::processEvents();
+        QTest::qWait(80);
+
+        const QString folderId = store()->createFolderWithSpaces(
+            { QStringLiteral("!filed:example.org") }, -1, QString());
+        QVERIFY2(!folderId.isEmpty(), "the fixture could not create a folder");
+        QCoreApplication::processEvents();
+        QTest::qWait(120);
+
+        QQuickItem *subRow = delegateFor(QStringLiteral("!sub:example.org"));
+        QVERIFY2(subRow, "the filed Space's subspace has no row, so the "
+                         "fixture is not a tree inside a folder");
+        QVERIFY2(subRow->property("inFolder").toBool(),
+                 "the subspace row does not consider itself filed, so this "
+                 "case is not measuring the folder path at all");
+
+        QList<QQuickItem *> layers;
+        collectDescendantsNamed(subRow, QStringLiteral("railGroupField"),
+                                layers);
+        QVERIFY2(!layers.isEmpty(),
+                 "a filed Space's subspace draws no hierarchy region at all");
+
+        auto *container = subRow->findChild<QQuickItem *>(
+            QStringLiteral("railFolderContainer"));
+        QVERIFY2(container && container->isVisible(),
+                 "the filed row draws no folder container");
+
+        // BEHIND. Equal z would not do either: same-z siblings paint in
+        // document order, and the container is declared first.
+        QVERIFY2(container->z() < layers.at(0)->z(),
+                 qPrintable(QStringLiteral(
+                     "the folder container is at z=%1 and the region it "
+                     "contains at z=%2 — the container paints over the "
+                     "nesting inside it")
+                     .arg(container->z()).arg(layers.at(0)->z())));
+
+        // AND WIDER. A container narrower than its contents is backwards,
+        // and it is what turned the boundary between two groups into four
+        // corner arcs and a hairline.
+        QVERIFY2(container->width() > layers.at(0)->width(),
+                 qPrintable(QStringLiteral(
+                     "the folder container is %1px wide and the depth-1 "
+                     "region inside it is %2px — the container is narrower "
+                     "than the thing it holds")
+                     .arg(container->width()).arg(layers.at(0)->width())));
+
+        // AND THE TILE DOES NOT MOVE. The folder path had the one horizontal
+        // offset left in this file, 7.5px measured, in a rail whose whole
+        // rule is that tiles share an axis.
+        QQuickItem *unfiled = delegateFor(QStringLiteral("!leaf:example.org"));
+        auto *filedTile = subRow->findChild<QQuickItem *>(
+            QStringLiteral("railSpaceTile"));
+        QQuickItem *unfiledTile =
+            unfiled ? unfiled->findChild<QQuickItem *>(
+                          QStringLiteral("railSpaceTile"))
+                    : nullptr;
+        if (filedTile && unfiledTile) {
+            const qreal filedCentre =
+                filedTile->mapToItem(m_rail, QPointF(0, 0)).x()
+                + filedTile->width() / 2;
+            const qreal freeCentre =
+                unfiledTile->mapToItem(m_rail, QPointF(0, 0)).x()
+                + unfiledTile->width() / 2;
+            QVERIFY2(qAbs(filedCentre - freeCentre) < 1.0,
+                     qPrintable(QStringLiteral(
+                         "a filed tile is centred on x=%1 and an unfiled one "
+                         "on x=%2 — the folder path has its own indent again")
+                         .arg(filedCentre).arg(freeCentre)));
+        }
+
+        store()->deleteFolder(folderId);
+        store()->setSpaceExpanded(QStringLiteral("!filed:example.org"), false);
+        store()->setSpaceExpanded(QStringLiteral("!sub:example.org"), false);
+        entries()->setSources(m_spaces, store());
+        QCoreApplication::processEvents();
+        QTest::qWait(60);
+    }
+
+
+    // ── 2026-09-18: sibling runs touched, and the chevron sat outside ─────
+    //
+    // Reported against a capture, in two parts. "The lowest level runs out of
+    // color, there are small gaps between them where the color should end, we
+    // want to separate it cleanly": two sibling runs of the same tint,
+    // separated by nothing but `ListView.spacing`, read as ONE shape with a
+    // hairline notch through it — because the trailing gap was keyed on the
+    // TOP-LEVEL group ending and an inner run ending spent nothing. And
+    // "chevrons should be repositioned so they are in the color shape, not in
+    // between them": a deep row's innermost region begins further right than
+    // a glyph right-anchored to the tile does, so the chevron sat in the
+    // PARENT's band beside its own box.
+    //
+    // BOTH ARE GEOMETRY AND NOTHING ELSE CAN SEE EITHER. A source scan reads
+    // the same correct-looking bindings before and after, and the second one
+    // is a two-pixel disagreement between two numbers written in different
+    // files.
+    //
+    // The fixture is two sibling runs under one Root — the smallest
+    // arrangement in which an inner run ends with something after it — and
+    // the left one is THREE deep on purpose. At two levels the innermost
+    // region's edge is still left of a tile-anchored glyph, so the chevron
+    // half of this case passes on the old gutter; only the deepest inset the
+    // rail can draw puts the two numbers in conflict.
+    void siblingRunsSeparateWhileTheirParentStaysWhole()
+    {
+        RailFakeClient tree;
+        RoomInfo root = joinedSpace(QStringLiteral("!root:example.org"),
+                                    QStringLiteral("Root"));
+        root.childRoomIds = { QStringLiteral("!a:example.org"),
+                              QStringLiteral("!b:example.org") };
+        RoomInfo a = joinedSpace(QStringLiteral("!a:example.org"),
+                                 QStringLiteral("A"));
+        a.childRoomIds = { QStringLiteral("!a1:example.org") };
+        RoomInfo aChild = joinedSpace(QStringLiteral("!a1:example.org"),
+                                      QStringLiteral("A1"));
+        aChild.childRoomIds = { QStringLiteral("!a1a:example.org") };
+        RoomInfo b = joinedSpace(QStringLiteral("!b:example.org"),
+                                 QStringLiteral("B"));
+        b.childRoomIds = { QStringLiteral("!b1:example.org") };
+        tree.roomList = { root, a, aChild,
+                          joinedSpace(QStringLiteral("!a1a:example.org"),
+                                      QStringLiteral("A1a")),
+                          b,
+                          joinedSpace(QStringLiteral("!b1:example.org"),
+                                      QStringLiteral("B1")) };
+        SpaceManager treeSpaces;
+        treeSpaces.setClient(&tree);
+        for (const QString &id : { QStringLiteral("!root:example.org"),
+                                   QStringLiteral("!a:example.org"),
+                                   QStringLiteral("!a1:example.org"),
+                                   QStringLiteral("!b:example.org") }) {
+            store()->setSpaceExpanded(id, true);
+        }
+        entries()->setSources(&treeSpaces, store());
+        QCoreApplication::processEvents();
+        QTest::qWait(120);
+
+        auto *content = m_list->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        const auto layersOf = [&content](QQuickItem *row) {
+            QList<QQuickItem *> out;
+            collectDescendantsNamed(row, QStringLiteral("railGroupField"),
+                                    out);
+            Q_UNUSED(content);
+            return out;
+        };
+
+        // The LAST row of A's run, which is the one that ends it.
+        QQuickItem *a1 = delegateFor(QStringLiteral("!a1a:example.org"));
+        QQuickItem *bRow = delegateFor(QStringLiteral("!b:example.org"));
+        QVERIFY2(a1 && bRow, "the two-sibling fixture did not build");
+
+        const QList<QQuickItem *> a1Layers = layersOf(a1);
+        const QList<QQuickItem *> bLayers = layersOf(bRow);
+        QVERIFY2(a1Layers.size() >= 3 && bLayers.size() >= 2,
+                 qPrintable(QStringLiteral(
+                     "A1a draws %1 layers and B draws %2 — the fixture did "
+                     "not reach the rail's deepest inset, where the chevron "
+                     "has least room")
+                     .arg(a1Layers.size()).arg(bLayers.size())));
+
+        const auto bottomIn = [&content](QQuickItem *layer) {
+            return layer->mapToItem(content, QPointF(0, layer->height())).y();
+        };
+        const auto topIn = [&content](QQuickItem *layer) {
+            return layer->mapToItem(content, QPointF(0, 0)).y();
+        };
+
+        // ── THE INNER RUNS SEPARATE ──────────────────────────────────
+        const qreal gap = m_rail->property("groupGap").toReal();
+        QVERIFY2(gap > 0, "the rail reports no group gap at all");
+        const qreal innerGap = topIn(bLayers.at(1)) - bottomIn(a1Layers.at(1));
+        QVERIFY2(innerGap >= gap,
+                 qPrintable(QStringLiteral(
+                     "A's run ends %1px above where B's begins, and the gap "
+                     "that separates one run from the next is %2 — the two "
+                     "read as one shape with a notch in it")
+                     .arg(innerGap).arg(gap)));
+
+        // ── AND THE PARENT DOES NOT ──────────────────────────────────
+        //
+        // The depth-1 region owns both runs, so it has to cover the gap
+        // between them: a layer that stops at its own delegate would put a
+        // hole in the parent exactly where its child happened to end, which
+        // is the other way to get this wrong.
+        QVERIFY2(qAbs(topIn(bLayers.at(0)) - bottomIn(a1Layers.at(0))) < 1.0,
+                 qPrintable(QStringLiteral(
+                     "the depth-1 region ends at y=%1 on A1 and restarts at "
+                     "y=%2 on B — the parent has a hole where its child's run "
+                     "stopped").arg(bottomIn(a1Layers.at(0)))
+                     .arg(topIn(bLayers.at(0)))));
+
+        // ── AND THE CHEVRON IS INSIDE THE INNERMOST REGION ───────────
+        //
+        // AT THE MINIMUM RAIL WIDTH, which is the only width where the two
+        // numbers can disagree. `tileColumnX` is `railSideMargin` exactly at
+        // the floor and grows past it once the tile has stopped, so a wider
+        // rail hands the glyph tens of pixels of slack — at this suite's
+        // 160px the gutter is 52 against a deepest inset of 10, and the
+        // assertion below passes on a gutter that cannot actually hold it.
+        // A first version of this case measured there and proved nothing.
+        const qreal restoreWidth = m_rail->width();
+        m_rail->setWidth(m_rail->property("minRailWidth").toReal());
+        QCoreApplication::processEvents();
+        QTest::qWait(80);
+
+        // Asserted on the row with the MOST layers, because that is where the
+        // innermost edge is furthest right and the glyph has least room.
+        int chevronsChecked = 0;
+        for (QQuickItem *row : { a1, bRow,
+                                 delegateFor(QStringLiteral("!a:example.org")),
+                                 delegateFor(QStringLiteral("!a1:example.org")),
+                                 delegateFor(QStringLiteral("!root:example.org")) }) {
+            if (!row || !row->isVisible())
+                continue;
+            auto *glyph = row->findChild<QQuickItem *>(
+                QStringLiteral("railSpaceExpandGlyph"));
+            const QList<QQuickItem *> layers = layersOf(row);
+            if (!glyph || !glyph->isVisible() || layers.isEmpty())
+                continue;
+            QQuickItem *innermost = layers.last();
+            ++chevronsChecked;
+            const qreal glyphLeft = glyph->mapToItem(row, QPointF(0, 0)).x();
+            const qreal glyphRight = glyphLeft + glyph->width();
+            const qreal fieldLeft =
+                innermost->mapToItem(row, QPointF(0, 0)).x();
+            const qreal fieldRight = fieldLeft + innermost->width();
+            QVERIFY2(glyphLeft >= fieldLeft && glyphRight <= fieldRight,
+                     qPrintable(QStringLiteral(
+                         "the expander spans %1..%2 and the innermost region "
+                         "it belongs to spans %3..%4 — the chevron is drawn "
+                         "outside its own box")
+                         .arg(glyphLeft).arg(glyphRight)
+                         .arg(fieldLeft).arg(fieldRight)));
+        }
+        QVERIFY2(chevronsChecked >= 3,
+                 qPrintable(QStringLiteral(
+                     "only %1 expanders were measurable, so this says nothing "
+                     "about the deepest row").arg(chevronsChecked)));
+
+        m_rail->setWidth(restoreWidth);
+        QCoreApplication::processEvents();
+        QTest::qWait(60);
+
+        for (const QString &id : { QStringLiteral("!root:example.org"),
+                                   QStringLiteral("!a:example.org"),
+                                   QStringLiteral("!a1:example.org"),
+                                   QStringLiteral("!b:example.org") }) {
+            store()->setSpaceExpanded(id, false);
+        }
+        entries()->setSources(m_spaces, store());
+        QCoreApplication::processEvents();
+        QTest::qWait(60);
+    }
+
+
     // ── 2026-09-18: the expander hung off the rail's edge when narrow ─────
     //
     // FOUND IN A CAPTURE AT THE MINIMUM WIDTH, and it could not have been

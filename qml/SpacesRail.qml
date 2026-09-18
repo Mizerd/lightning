@@ -146,9 +146,27 @@ Rectangle {
     /// wide as the size it is given; an `Icon` sizes by FONT PIXEL SIZE and a
     /// chevron's advance is 7.2px of the 12 it was asked for, so the arithmetic
     /// that predicted x = -2 was out by the difference. Measure the item.
+    ///
+    /// AND IT HOLDS THE EXPANDER *INSIDE THE INNERMOST REGION*, which is a
+    /// stricter requirement and the one that sets this number. Reported as
+    /// "chevrons should be repositioned so they are in the color shape, not
+    /// in between them": a deep row's innermost region starts at
+    /// `bandInset(maxBandLayers)`, and a glyph right-anchored to the tile
+    /// begins at `railSideMargin - chevronInset - its own advance`. With a
+    /// 20px gutter that put the glyph at 8.8 and the depth-3 region's edge
+    /// at 10, so the chevron sat in the PARENT's band beside its own box.
+    ///
+    /// The two are one constraint, so the margin is derived from it rather
+    /// than nudged until it looked right:
+    ///   bandInset(maxBandLayers) + clearance <= margin - chevronInset - advance
+    /// A chevron's advance is 7.2px of the 12 it is given (an `Icon` sizes by
+    /// FONT PIXEL SIZE), so three inset steps of 4 leave 2.8px of clearance
+    /// here. Moving the chevron per level instead was considered and
+    /// refused: it is what "the chevrons are unevenly distanced" already
+    /// asked to have removed once.
     readonly property int chevronGlyphSize: AppTheme.scaled(12)
     readonly property int chevronInset: AppTheme.scaled(4)
-    readonly property int railSideMargin: chevronGlyphSize + 2 * chevronInset
+    readonly property int railSideMargin: chevronGlyphSize + 3 * chevronInset
     /// THE WIDTH NOW BUYS SOMETHING. It used to buy indent, then lanes; both
     /// were spent on structure rather than on content, so dragging the rail
     /// wider changed the tiles by nothing at all. Past the default the tile
@@ -168,7 +186,15 @@ Rectangle {
     /// Air above and below a tile inside a run, and the extra a run adds
     /// after its last row so the next group reads as a separate thing.
     readonly property int rowPad: AppTheme.scaled(4)
+    /// TWO SIZES, BECAUSE THERE ARE TWO MEANINGS. One gap ran every break in
+    /// the rail, and measured against the rows' own heights that made
+    /// "leaving a nested region" and "an entirely different top-level Space"
+    /// land 2.3px apart — the largest semantic break in the column did not
+    /// read as one. A nested close needs only enough air to show the
+    /// parent's tint through it; a top-level break has nothing behind it and
+    /// has to carry on its own.
     readonly property int groupGap: AppTheme.scaled(8)
+    readonly property int groupBreakGap: AppTheme.scaled(18)
     /// ── THE REGIONS STACK, one per ANCESTOR ───────────────────────────
     ///
     /// The first version drew ONE region per row, tinted by that row's own
@@ -181,16 +207,35 @@ Rectangle {
     /// containing it. A parent's region therefore runs unbroken behind every
     /// descendant it owns, and the nesting is visible as LAYERS.
     ///
-    /// Capped at four. Each layer costs `2 * bandInsetStep` of width and the
-    /// tint ladder has four entries; past that the region stops narrowing
-    /// and stops deepening, and a deeper row joins the innermost layer
+    /// CAPPED AT THREE, and the cap is what the gutter is sized against.
+    /// Each layer costs `2 * bandInsetStep` of width and pushes the
+    /// innermost edge right, and the expander has to stay inside that edge
+    /// (see `railSideMargin`) — so a fourth layer is not a matter of taste,
+    /// it is 4px the chevron does not have. Past three the region stops
+    /// narrowing and stops deepening, and a deeper row joins the innermost
     /// rather than getting one nobody can see.
-    readonly property int maxBandLayers: 4
+    readonly property int maxBandLayers: 3
     readonly property int bandInsetBase: AppTheme.scaled(4)
     readonly property int bandInsetStep: AppTheme.scaled(3)
+    /// Rung 0 is a FOLDER's container, which sits one step OUTSIDE hierarchy
+    /// depth 1 because it contains it.
     function bandInset(depth) {
         return bandInsetBase
                + (Math.min(depth, maxBandLayers) - 1) * bandInsetStep
+    }
+    /// CONCENTRIC, and it was not. The radius stepped by one while the inset
+    /// stepped by three, so the corners of two nested regions were not
+    /// parallel: the visible band between them pinched from 3px to about 2.4
+    /// at every corner. A rounded rectangle inset by N inside another is
+    /// concentric only when its radius is smaller by exactly N.
+    ///
+    /// AND IT WAS A RAW LITERAL. `AppTheme.radiusMd` does not scale, so at
+    /// 140% every other thing in this rail grew and the corners did not —
+    /// the bands read measurably boxier against the tiles they hold.
+    function bandRadius(depth) {
+        return Math.max(AppTheme.scaled(2),
+                        AppTheme.scaled(9)
+                        - Math.min(depth, maxBandLayers) * bandInsetStep)
     }
 
     /// Both stops are the tile's own range plus the gutter, so the gutter is
@@ -312,10 +357,20 @@ Rectangle {
             return dividerRowBand
         var tile = e.hierarchyChild === true ? railNestedTileSize
                                              : railTileSize
-        // The gap belongs to the row that ends a TOP-LEVEL group, matching
-        // the delegate's own `trailingGap` — the two are one number and a
+        // The gap belongs to the row whose innermost run ends, matching the
+        // delegate's own `trailingGap` — the two are one number and a
         // literal in either place is a mis-drop.
-        var gap = e.level > 0 && e.bandNextLevel < 1 ? groupGap : 0
+        //
+        // `ownsRegion` reduces to "has child ROWS" here, and so does the
+        // delegate's: its other arm is `expansionCol.visible`, which is false
+        // for the whole of a drag. This function is only ever asked during
+        // one, so the two agree exactly when it matters.
+        var owns = e.bandNextLevel > e.level
+        var layers = Math.min(maxBandLayers,
+                              Math.max(0, e.level) + (owns ? 1 : 0))
+        var gap = layers > 0 && e.bandNextLevel >= 0
+                  && e.bandNextLevel < layers
+                  ? (e.bandNextLevel < 1 ? groupBreakGap : groupGap) : 0
         return tile + 2 * rowPad + gap
     }
     // DERIVED from the row heights, not read off `itemAtIndex(i).y`.
@@ -589,17 +644,28 @@ Rectangle {
                 readonly property bool ownsRegion:
                     spaceItem.bandNextLevel > spaceItem.level
                     || expansionCol.visible
-                /// The air that separates one TOP-LEVEL group from the next,
-                /// added by the row that ends one.
+                /// The air after the last row of a run, added by that row.
                 ///
-                /// KEYED ON DEPTH 1, not on this row's own depth. A gap where
-                /// a merely-deeper run ends would fall INSIDE the parent's
-                /// region, which now runs behind its descendants rather than
-                /// being replaced by them — so it would put a notch in the
-                /// middle of a layer instead of a space between groups.
+                /// KEYED ON THE ROW'S INNERMOST REGION, and it used to be
+                /// keyed on depth 1 — the top-level group. That left every
+                /// INNER run butting straight into the next one with only
+                /// `ListView.spacing` between them: reported as "the lowest
+                /// level runs out of color, there are small gaps between them
+                /// where the color should end, we want to separate it
+                /// cleanly", with two runs of the same tint reading as one
+                /// shape with a hairline notch through it.
+                ///
+                /// The gap is not a hole in the parent, because a layer whose
+                /// own run continues BRIDGES it (see the Repeater's height).
+                /// So what a reader sees between two sibling runs is the
+                /// parent's tint, at full height, which is the separation.
                 readonly property int trailingGap:
-                    spaceItem.level > 0 && spaceItem.bandNextLevel < 1
-                    ? root.groupGap : 0
+                    spaceItem.bandLayers > 0
+                    && spaceItem.bandNextLevel >= 0
+                    && spaceItem.bandNextLevel < spaceItem.bandLayers
+                    ? (spaceItem.bandNextLevel < 1 ? root.groupBreakGap
+                                                   : root.groupGap)
+                    : 0
                 height: tileBandHeight
                         + (expansionCol.visible ? expansionCol.height + 2 : 0)
                         + spaceItem.trailingGap
@@ -626,15 +692,6 @@ Rectangle {
                 // width. Now it is `root.indentBudget`, so widening the rail
                 // reveals more depth and narrowing it back hides it again,
                 // with no mode to switch and no level to count.
-                /// THE ONLY horizontal offset a tile has left, and it is
-                /// not about the hierarchy: a Space filed in a rail FOLDER is
-                /// nudged in so the folder's own container band has an edge to
-                /// show. Hierarchy depth moved to the lanes.
-                /// The ONLY horizontal offset a tile has: a Space filed in a
-                /// rail FOLDER is nudged in so the folder's own container band
-                /// has an edge to show. Hierarchy depth is not an offset.
-                readonly property int tileIndent:
-                    inFolder ? AppTheme.scaled(7) : 0
                 // GATED ON THE `expanded` ROLE, NOT ON A FUNCTION CALL.
                 //
                 // `revealCount()` asks `app.railLayout.spaceExpanded(id)`,
@@ -674,18 +731,41 @@ Rectangle {
                 Rectangle {
                     visible: (spaceItem.isFolder && !spaceItem.collapsed)
                              || spaceItem.inFolder
+                    // ── ON THE SAME LADDER AS THE HIERARCHY REGIONS ──
+                    //
+                    // It was not, and the two defects that came out of that
+                    // were both invisible to every check here.
+                    //
+                    // FIRST, `z: -2` put this container ON TOP of the region
+                    // stack (z -21..-17), in a colour those regions already
+                    // used — so a Space tree filed into a folder was painted
+                    // flat and lost its nesting entirely. Measured on a
+                    // capture: inside a folder, exactly ONE region tint
+                    // appeared in the whole rail. Nothing was wrong with the
+                    // model; the picture was drawn over.
+                    //
+                    // SECOND, the margins were a RAW 6 against a ladder in
+                    // SCALED units — 6 lands between depth 1 and depth 2, so
+                    // a container was drawn NARROWER than the regions it
+                    // contains, and the boundary between two groups became
+                    // four corner arcs and a hairline inside 20px.
+                    //
+                    // A folder and a hierarchy region say the same thing, so
+                    // they are one device: this is rung 0, outside depth 1,
+                    // behind everything.
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.leftMargin: 6
-                    anchors.rightMargin: 6
+                    objectName: "railFolderContainer"
+                    anchors.leftMargin: root.bandInset(0)
+                    anchors.rightMargin: root.bandInset(0)
                     y: 0
                     height: spaceItem.isFolder
                             ? spaceItem.tileBandHeight + list.spacing
                             : spaceItem.height
                               + (spaceItem.folderLast ? 0 : list.spacing)
-                    z: -2
-                    color: AppTheme.railFolderSurface
-                    radius: AppTheme.radiusMd
+                    z: -22
+                    color: AppTheme.railNestSurfaces[0]
+                    radius: root.bandRadius(0)
                     // Square off the joins so the container is one shape.
                     Rectangle {
                         visible: spaceItem.isFolder
@@ -818,16 +898,29 @@ Rectangle {
                         // that seam showing through the middle of the group.
                         // Measured on a capture — two bands with a 4px dark
                         // line between them — not reasoned about.
+                        // …AND THE TRAILING GAP TOO, for a layer whose own
+                        // run carries on past it: the gap belongs to the run
+                        // that ENDED, so a region still open across it has to
+                        // cover it or the parent gets a notch where its child
+                        // happened to stop.
                         height: spaceItem.height - spaceItem.trailingGap
-                                + (closesHere ? 0 : list.spacing)
+                                + (closesHere
+                                   ? 0
+                                   : list.spacing + spaceItem.trailingGap)
                         // Outermost furthest back, so each layer is drawn ON
                         // the one containing it.
                         z: -20 + depth
-                        radius: Math.max(AppTheme.scaled(4),
-                                         AppTheme.radiusMd - (depth - 1))
+                        radius: root.bandRadius(depth)
+                        // INDEX `depth`, NOT `depth - 1`. Rung 0 of the
+                        // ladder is a FOLDER's container, which sits outside
+                        // hierarchy depth 1 — so reading it here shifted the
+                        // whole ramp one rung down and made the first
+                        // boundary the quietest instead of the evenest.
+                        // Caught by measuring a capture, not by reading this
+                        // line, which is correct-looking either way.
                         color: AppTheme.railNestSurfaces[
                             Math.min(AppTheme.railNestSurfaces.length - 1,
-                                     depth - 1)]
+                                     depth)]
                         Rectangle {
                             // Square off the top when this layer's run
                             // continues above, so a run of any length reads
@@ -918,8 +1011,23 @@ Rectangle {
                         name: spaceItem.expanded ? "expand_more"
                                                  : "chevron_right"
                         size: root.chevronGlyphSize
-                        color: chevronHover.hovered ? AppTheme.text
-                                                    : AppTheme.textMuted
+                        // STEPPED WITH THE REGION UNDER IT. The glyph's
+                        // colour was constant while the region it sits on
+                        // gets a tint step lighter each level, so the same
+                        // control measured 4.37:1 at depth 1 and 3.01:1 at
+                        // depth 3 — a third of its contrast lost, at the
+                        // depth where the rail is busiest. It moves with its
+                        // background now, in whichever direction the theme
+                        // takes: `text` is dark on a light preset, so the
+                        // same tint darkens there.
+                        color: chevronHover.hovered
+                               ? AppTheme.text
+                               : Qt.tint(AppTheme.textMuted,
+                                         Qt.rgba(AppTheme.text.r,
+                                                 AppTheme.text.g,
+                                                 AppTheme.text.b,
+                                                 0.16 * Math.max(
+                                                     0, spaceItem.bandLayers - 1)))
                     }
                     HoverHandler { id: chevronHover }
                     TapHandler {
@@ -941,7 +1049,7 @@ Rectangle {
                     // CENTRED on the column, not left-aligned to it: a smaller
                     // tile inset on one side only reads as misaligned, where
                     // the same tile inset equally on both reads as smaller.
-                    x: root.tileColumnX + spaceItem.tileIndent
+                    x: root.tileColumnX
                        + Math.round((root.railTileSize
                                      - spaceItem.rowTileSize) / 2)
                     y: AppTheme.scaled(4) + spaceItem.dragLift
@@ -1251,7 +1359,7 @@ Rectangle {
                                 // says it is a room, exactly as Element's own
                                 // one-step avatar shrink does, and the column
                                 // stays a column.
-                                x: root.tileColumnX + spaceItem.tileIndent
+                                x: root.tileColumnX
                                    + Math.round((root.railTileSize
                                                  - root.railRoomTileSize) / 2)
                                 anchors.verticalCenter: parent.verticalCenter
@@ -1339,7 +1447,7 @@ Rectangle {
                                                      : AppTheme.cardElevated
                             border.color: AppTheme.border
                             border.width: 1
-                            x: root.tileColumnX + spaceItem.tileIndent
+                            x: root.tileColumnX
                                + Math.round((root.railTileSize - morePill.width) / 2)
                             anchors.verticalCenter: parent.verticalCenter
                             Label {

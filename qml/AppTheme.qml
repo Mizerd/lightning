@@ -1097,22 +1097,40 @@ QtObject {
     // further from the rail than the last.
     //
     // DERIVED, not twelve palette entries: every preset gets the ladder for
-    // free, and it stays correct when one of them changes its surface. Index
-    // 0 is depth 1; the rail clamps deeper rows to the last entry, because
-    // past four steps an 80px strip has nothing left to say with tone.
+    // free. Index 0 is a FOLDER's container, 1 is hierarchy depth 1, and the
+    // rail clamps deeper rows to the last entry. FOUR, because a folder and
+    // a hierarchy region are the same device and were two before — the
+    // container was painted over the regions inside it in the one colour
+    // they already used, so a tree filed into a folder lost its nesting
+    // entirely and nothing in the code said why.
+    //
+    // ── THE RAMP IS EVEN, AND IT WAS NOT ─────────────────────────────
+    //
+    // Measured on a real capture: background -> first region was 1.74:1
+    // while every step after it was 1.21:1, so the outermost edge shouted
+    // and the nesting inside it whispered — 2px of 1.21:1 being asked to
+    // carry the whole hierarchy. The cause was building the ladder ON
+    // `railFolderSurface`: that colour is already a long way off the rail,
+    // so it could only ever be the first rung, and the rest had nowhere to
+    // go without marching towards white.
+    //
+    // Built from the RAIL's own background now, with the step chosen so each
+    // boundary is about 1.45:1 — even, and no louder at the top than at the
+    // bottom. Works in both directions: `text` is dark on a light preset, so
+    // the same tint darkens rather than lightens there.
     //
     // A LIST RATHER THAN A FUNCTION, deliberately. A binding that called
     // `railNestTint(n)` would register no dependency on the colours it reads
     // and would not re-evaluate when the theme changed — the failure this
     // project has now hit in four separate places.
     readonly property var railNestSurfaces: [
-        railFolderSurface,
-        Qt.tint(railFolderSurface, Qt.rgba(text.r, text.g, text.b, 0.07)),
-        Qt.tint(railFolderSurface, Qt.rgba(text.r, text.g, text.b, 0.14)),
-        Qt.tint(railFolderSurface, Qt.rgba(text.r, text.g, text.b, 0.21))
+        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, 0.06)),
+        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, 0.16)),
+        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, 0.26)),
+        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, 0.37))
     ]
-    // Kept as its own name because the folder container reads it directly.
-    readonly property color railNestSurface: railNestSurfaces[1]
+    // Kept as its own name for anything outside the rail that reads it.
+    readonly property color railNestSurface: railNestSurfaces[2]
 
     readonly property color surface:             _p.surface
     readonly property color card:                surface
