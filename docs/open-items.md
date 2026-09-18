@@ -1591,6 +1591,45 @@ counted with the others.
   then open three rooms, one media-heavy, and read the stall lines (each
   names a category: `image-decode`, `timeline-diff`, `row-reveal`,
   `timeline-reset`, `rust-poll-drain`) and the `media … cache=` lines.
+  **2026-09-18, MEASURED ON THE CURRENT BUILD (`6077d13`) — it does not
+  reproduce on the fixture account, and the one slow open in the same log is
+  fully diagnosed.** Five rooms opened on the laptop rig, timed from the
+  `timeline open` line to the last `pagination completed` before the next
+  open (`scripts/room-open-latency.py`, added in the same round so the
+  measurement can be repeated rather than re-invented): **262 ms / 550 ms / 571 ms / 942 ms / 1255 ms**,
+  1-4 pages each, including both call rooms and the `Call Churn 0915` churn
+  fixture. Every walk ended `reached_start= true`, which is why they are
+  cheap: a small room runs out of history before the budget runs out.
+
+  The same log holds **one 13.7 s open over 17 pages that added 25 rows**,
+  earlier the same day on the build the laptop was carrying before this
+  round, and its page-by-page shape is the mechanism, not a guess:
+
+  | page | `nextBatch` | events the filter saw | dropped as RTC | rows added | cost |
+  |---|---|---|---|---|---|
+  | 1 | 20 | 27 | 21 | 3 | 0.3 s |
+  | 2 | 20 | 20 | 20 | 0 | 0.2 s |
+  | 3 | 60 | 20 | 20 | 0 | 0.3 s |
+  | 4 | 180 | 60 | 60 | 0 | 0.7 s |
+  | 5 | 180 | 181 | 181 | 0 | 1.0 s |
+  | 6 | 180 | 179 | 179 | 0 | 0.9 s |
+  | 7 | 180 | 180 | 180 | 0 | 1.0 s |
+
+  (`filterOffered` in the log is CUMULATIVE for the open — 27, 47, 67, 127,
+  308, 487, 667 — so the per-page column above is its delta. Do not read the
+  raw number as a page size.)
+
+  So the cost is not the filter and not the ingest: **the SDK escalates
+  `nextBatch` 20 → 60 → 180, and in a room whose history is dense MatrixRTC
+  churn each 180-event page costs about a second while adding no rows.** The
+  2026-09-16 fix that gave filtered pages their own 60-page budget is what
+  keeps it walking — correctly, since the alternative it replaced was a room
+  asserting its own emptiness — so the remaining question is not "why does it
+  walk" but **whether a viewport fill should be bounded in TIME as well as in
+  pages**, and show what it has while the rest arrives.
+
+  NOT REPRODUCED on a real account with real history; this fixture account's
+  rooms are small, and every measurement above reached the start of the room.
 - **A received share blurs for a moment, then fast-forwards to the present,
   at irregular one-to-five-minute intervals (0.9.0 AppImage, 2026-09-05).**
   A full call log showed the engine's frame counters FLAT — `dropped= 0`,
