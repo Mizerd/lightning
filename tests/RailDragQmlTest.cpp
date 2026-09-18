@@ -67,6 +67,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSettings>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStyleHints>
 #include <QTemporaryDir>
@@ -180,6 +181,23 @@ private:
     // The live delegate for `entryId`, found by walking the ListView's
     // contentItem and matching the delegate's own `entryId` property. The
     // footer and any non-delegate children simply do not carry it.
+    // `findChild` DOES NOT REACH A REPEATER'S DELEGATES — their QObject
+    // parent is the Repeater's context, not the item they are laid out in —
+    // so the revealed-rooms column is invisible to it. Walk the VISUAL tree.
+    static QQuickItem *descendantNamed(QQuickItem *root, const QString &name)
+    {
+        if (!root)
+            return nullptr;
+        const auto children = root->childItems();
+        for (QQuickItem *child : children) {
+            if (child->objectName() == name)
+                return child;
+            if (QQuickItem *found = descendantNamed(child, name))
+                return found;
+        }
+        return nullptr;
+    }
+
     QQuickItem *delegateFor(const QString &entryId) const
     {
         auto *content = m_list->property("contentItem").value<QQuickItem *>();
@@ -726,6 +744,7 @@ private slots:
         QCoreApplication::processEvents();
     }
 
+
     // ── 2026-09-17: expanding a LEAF Space revealed nothing until the rail
     //    was rebuilt by something else ─────────────────────────────────────
     //
@@ -838,6 +857,152 @@ private slots:
         entries()->setSources(m_spaces, store());
         QCoreApplication::processEvents();
     }
+
+    // ── 2026-09-18: the rail scaled its Space tiles and NOTHING ELSE ──────
+    //
+    // The Space tile started following the interface size earlier the same
+    // day — it had been a flat 40 while `normalRowBand`, `indentStep` and
+    // `minRailWidth` around it were already scaled, which is exactly why a
+    // 140% rail grew wider while the tiles inside it did not. Fixing that
+    // exposed the other half: every REMAINING piece of rail geometry was
+    // still a literal, so at 140% a 56px Space tile sat above 28px room
+    // tiles, a 40px settings cog and a 40px account avatar, and the column
+    // read as three unrelated controls stacked on one another.
+    //
+    // WHAT IS ASSERTED IS A RATIO, NEVER A PIXEL COUNT. "56 at 140%" is a
+    // number someone edits to match whatever the build produces; that a
+    // revealed room's tile stays 0.7 of the Space tile above it, and that
+    // the bottom cluster's chips stay exactly one Space tile, is the rule
+    // the rail is supposed to obey and no frozen literal can satisfy it.
+    //
+    // Production wiring, for the reason the leaf case above documents: the
+    // revealed-rooms column reads `app.spaces`, the CONTROLLER's manager, so
+    // a locally-fed hierarchy would leave it empty for a reason that has
+    // nothing to do with scaling.
+    void everyRailChipFollowsTheInterfaceSize()
+    {
+        auto *theme = m_engine->singletonInstance<QObject *>(
+            QStringLiteral("MatrixClient"), QStringLiteral("AppTheme"));
+        QVERIFY2(theme, "no AppTheme singleton — this case cannot change the "
+                        "interface size and so proves nothing");
+        const qreal originalScale = theme->property("textScale").toReal();
+
+        if (!m_controller->property("loggedIn").toBool()) {
+            QSignalSpy loginSpy(m_controller->auth(),
+                                &AuthManager::loginSucceeded);
+            m_controller->auth()->login(QStringLiteral("https://mock.local"),
+                                        QStringLiteral("alice"),
+                                        QStringLiteral("unused"));
+            QVERIFY(loginSpy.wait(kSignalTimeoutMs));
+            QTest::qWait(200);
+        }
+        entries()->setSources(m_controller->spaces(), store());
+        QCoreApplication::processEvents();
+        QTest::qWait(50);
+
+        // Whatever happens below, the shared engine goes back to 100% and the
+        // suite's own hierarchy goes back on the rail — every other case here
+        // reads geometry from both.
+        const auto restore = qScopeGuard([&] {
+            theme->setProperty("textScale", originalScale);
+            entries()->setSources(m_spaces, store());
+            QCoreApplication::processEvents();
+            QTest::qWait(60);
+        });
+
+        // Discovered from the live model, never pinned to a mock id.
+        SpaceManager *spaces = m_controller->spaces();
+        QString hostId;
+        const QVariantList all = spaces->allSpaces();
+        for (const QVariant &entry : all) {
+            const QString id =
+                entry.toMap().value(QStringLiteral("spaceId")).toString();
+            if (!id.isEmpty()
+                && !spaces->directChildRoomsDetailed(id).isEmpty()) {
+                hostId = id;
+                break;
+            }
+        }
+        QVERIFY2(!hostId.isEmpty(),
+                 "the fixture has no Space with direct rooms, so the "
+                 "expansion column cannot be measured at all");
+        store()->setSpaceExpanded(hostId, true);
+        QCoreApplication::processEvents();
+        QTest::qWait(60);
+
+        // Four chips, read from the live item tree at each size.
+        const auto measure = [&](const char *when) -> QList<qreal> {
+            QQuickItem *row = delegateFor(hostId);
+            if (!row) {
+                qWarning("no rail row for the scaling fixture (%s)", when);
+                return {};
+            }
+            auto *tile = descendantNamed(
+                row, QStringLiteral("railSpaceTile"));
+            auto *roomTile = descendantNamed(
+                row, QStringLiteral("railRevealedRoomTile"));
+            auto *cog = descendantNamed(
+                m_rail, QStringLiteral("railSettingsButton"));
+            auto *account = descendantNamed(
+                m_rail, QStringLiteral("railAccountTile"));
+            if (!tile || !roomTile || !cog || !account) {
+                qWarning("rail chips missing at %s: tile=%d room=%d cog=%d "
+                         "account=%d", when, tile != nullptr,
+                         roomTile != nullptr, cog != nullptr,
+                         account != nullptr);
+                return {};
+            }
+            return { tile->width(), roomTile->width(), cog->width(),
+                     account->width() };
+        };
+
+        const QList<qreal> at100 = measure("100%");
+        QCOMPARE(at100.size(), 4);
+        for (const qreal w : at100)
+            QVERIFY2(w > 0, "a rail chip has no width at 100%");
+
+        theme->setProperty("textScale", 1.4);
+        QCoreApplication::processEvents();
+        QTest::qWait(100);
+
+        const QList<qreal> at140 = measure("140%");
+        QCOMPARE(at140.size(), 4);
+
+        static const char *const kNames[] = { "the Space tile",
+                                              "a revealed room's tile",
+                                              "the settings cog",
+                                              "the account avatar" };
+        for (int i = 0; i < 4; ++i) {
+            QVERIFY2(at140.at(i) > at100.at(i),
+                     qPrintable(QStringLiteral(
+                         "%1 is %2px at 100%% and %3px at 140%% — it does not "
+                         "follow the interface size, so it sits beside chips "
+                         "that do")
+                         .arg(QString::fromLatin1(kNames[i]))
+                         .arg(at100.at(i)).arg(at140.at(i))));
+        }
+
+        // The ratios that make the rail read as one column. One pixel of
+        // slack for Math.round, and no more.
+        for (const QList<qreal> &m : { at100, at140 }) {
+            const qreal tile = m.at(0);
+            QVERIFY2(qAbs(m.at(1) - qRound(tile * 0.7)) <= 1.0,
+                     qPrintable(QStringLiteral(
+                         "a revealed room's tile is %1px under a %2px Space "
+                         "tile — expected %3, so the expansion column no "
+                         "longer reads as that Space's contents")
+                         .arg(m.at(1)).arg(tile).arg(qRound(tile * 0.7))));
+            QVERIFY2(qAbs(m.at(2) - tile) <= 1.0,
+                     qPrintable(QStringLiteral(
+                         "the settings cog is %1px against a %2px Space tile")
+                         .arg(m.at(2)).arg(tile)));
+            QVERIFY2(qAbs(m.at(3) - tile) <= 1.0,
+                     qPrintable(QStringLiteral(
+                         "the account avatar is %1px against a %2px Space "
+                         "tile").arg(m.at(3)).arg(tile)));
+        }
+    }
+
 };
 
 int main(int argc, char *argv[])

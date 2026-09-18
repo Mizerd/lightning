@@ -129,6 +129,17 @@ Rectangle {
     /// any interface size but the one it was written at.
     readonly property int normalRowBand: railTileSize + AppTheme.scaled(8)
     readonly property int dividerRowBand: normalRowBand + AppTheme.scaled(10)
+    /// A REVEALED ROOM'S tile, and the band its row occupies — 0.7 of the
+    /// Space tile and four more pixels of air, which is what the literals
+    /// 28 and 32 were at the size they were written at.
+    ///
+    /// DERIVED, not written again: the Space tile began scaling with the
+    /// interface on 2026-09-18 and the expansion column did not, so at 140%
+    /// a 28px room tile sat under a 56px Space tile and read as a different
+    /// control rather than its contents.
+    readonly property int railRoomTileSize: Math.round(railTileSize * 0.7)
+    readonly property int railRoomRowBand:
+        railRoomTileSize + AppTheme.scaled(4)
     readonly property int indentBudget:
         Math.max(0, Math.floor((width - railTileSize) / 2))
     // 6px per level: at the narrowest stop that is two clear steps before the
@@ -635,10 +646,13 @@ Rectangle {
                     visible: spaceItem.isActive
                 }
 
-                // Handoff divider between Home and the Space tiles (32×2).
+                // Handoff divider between Home and the Space tiles: a rule
+                // four fifths of a tile wide, so it stays narrower than the
+                // tiles it separates at every interface size.
                 Rectangle {
                     visible: spaceItem.carriesDivider
-                    width: 32; height: 2; radius: 2
+                    width: Math.round(root.railTileSize * 0.8)
+                    height: 2; radius: 2
                     color: AppTheme.border
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.bottom: parent.bottom
@@ -650,7 +664,7 @@ Rectangle {
                 Rectangle {
                     visible: spaceItem.hierarchyChild
                              && !expandChevronArea.visible
-                    width: 6; height: 2; radius: 1
+                    width: root.indentStep; height: 2; radius: 1
                     color: AppTheme.border
                     anchors.verticalCenter: spaceTile.verticalCenter
                     anchors.right: spaceTile.left
@@ -801,10 +815,14 @@ Rectangle {
                     Avatar {
                         anchors.fill: parent
                         visible: !spaceItem.pseudo && !spaceItem.isFolder
-                        size: 40
+                        // MUST equal the rendered edge: Avatar bakes the
+                        // rounded-square mask as `radius * 1000 / size`
+                        // permille of the bitmap, so a stale 40 here gave a
+                        // scaled tile a corner 40% too round.
+                        size: root.railTileSize
                         circle: false
                         squareRadius: AppTheme.radiusLg
-                        labelSize: 15
+                        labelSize: AppTheme.scaled(15)
                         name: spaceItem.name
                         colorKey: spaceItem.spaceId
                         mxc: spaceItem.avatarUrl
@@ -814,17 +832,19 @@ Rectangle {
                     Rectangle {
                         visible: spaceItem.unreadTotal > 0
                                  && !spaceItem.isActive
-                        width: Math.max(18, badgeLabel.implicitWidth + 6)
-                        height: 18
-                        radius: 9
+                        width: Math.max(AppTheme.scaled(18),
+                                        badgeLabel.implicitWidth
+                                        + AppTheme.scaled(6))
+                        height: AppTheme.scaled(18)
+                        radius: height / 2
                         color: spaceItem.highlightTotal > 0
                                ? AppTheme.mentionBadge : AppTheme.unreadBadge
                         border.color: AppTheme.rail
                         border.width: 2
                         anchors.top: parent.top
                         anchors.right: parent.right
-                        anchors.topMargin: -5
-                        anchors.rightMargin: -5
+                        anchors.topMargin: -AppTheme.scaled(5)
+                        anchors.rightMargin: -AppTheme.scaled(5)
 
                         Label {
                             id: badgeLabel
@@ -972,7 +992,7 @@ Rectangle {
                             id: expansionRoomRow
                             required property var modelData
                             width: expansionCol.width
-                            height: 32
+                            height: root.railRoomRowBand
                             Rectangle {
                                 anchors.fill: roomTile
                                 anchors.margins: -2
@@ -982,8 +1002,10 @@ Rectangle {
                             }
                             Rectangle {
                                 id: roomTile
-                                width: 28; height: 28
-                                radius: 8
+                                objectName: "railRevealedRoomTile"
+                                width: root.railRoomTileSize
+                                height: root.railRoomTileSize
+                                radius: AppTheme.radiusMd
                                 color: "transparent"
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 // One level deeper than the OWNING tile — a
@@ -994,11 +1016,11 @@ Rectangle {
                                 anchors.verticalCenter: parent.verticalCenter
                                 Avatar {
                                     anchors.fill: parent
-                                    size: 28
+                                    size: root.railRoomTileSize
                                     circle: expansionRoomRow.modelData
                                                 .isDirect === true
-                                    squareRadius: 8
-                                    labelSize: 11
+                                    squareRadius: AppTheme.radiusMd
+                                    labelSize: AppTheme.scaled(11)
                                     name: expansionRoomRow.modelData.name || ""
                                     colorKey: expansionRoomRow.modelData
                                                   .identityColorKey
@@ -1010,7 +1032,9 @@ Rectangle {
                                 Rectangle {
                                     visible: expansionRoomRow.modelData
                                                  .hasUnread === true
-                                    width: 10; height: 10; radius: 5
+                                    width: AppTheme.scaled(10)
+                                    height: AppTheme.scaled(10)
+                                    radius: height / 2
                                     color: (expansionRoomRow.modelData
                                                 .highlightCount || 0) > 0
                                            ? AppTheme.mentionBadge
@@ -1051,11 +1075,13 @@ Rectangle {
                         visible: spaceItem.revealedRooms.length
                                  > spaceItem.revealed
                         width: expansionCol.width
-                        height: 22
+                        height: AppTheme.scaled(22)
                         Rectangle {
                             id: morePill
                             objectName: "railSpaceMoreButton"
-                            width: 32; height: 18; radius: 9
+                            width: AppTheme.scaled(32)
+                            height: AppTheme.scaled(18)
+                            radius: height / 2
                             color: moreHover.hovered ? AppTheme.hover
                                                      : AppTheme.cardElevated
                             border.color: AppTheme.border
@@ -1097,12 +1123,13 @@ Rectangle {
                 IconButton {
                     id: railAddSpaceButton
                     objectName: "railAddSpaceButton"
-                    y: 4
+                    y: AppTheme.scaled(4)
                     anchors.horizontalCenter: parent.horizontalCenter
-                    implicitWidth: 40; implicitHeight: 40
+                    implicitWidth: root.railTileSize
+                    implicitHeight: root.railTileSize
                     radius: AppTheme.radiusLg
                     iconName: "add"
-                    iconSize: 22
+                    iconSize: AppTheme.scaled(22)
                     visible: app.loggedIn && app.conversations
                              && app.conversations.supported
                     Accessible.name: qsTr("Create a Space")
@@ -1140,10 +1167,11 @@ Rectangle {
             id: railSettingsButton
             objectName: "railSettingsButton"
             Layout.alignment: Qt.AlignHCenter
-            implicitWidth: 40; implicitHeight: 40
+            implicitWidth: root.railTileSize
+            implicitHeight: root.railTileSize
             radius: AppTheme.radiusLg
             iconName: "settings"
-            iconSize: 22
+            iconSize: AppTheme.scaled(22)
             // Accent chip while the in-shell Settings view is open;
             // clicking again returns to chat.
             active: app.currentScreen === 2
@@ -1183,10 +1211,10 @@ Rectangle {
                 visible: app.sessionVerificationWarning || parent._updateBadge
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.margins: 6
-                width: 10
-                height: 10
-                radius: 5
+                anchors.margins: AppTheme.scaled(6)
+                width: AppTheme.scaled(10)
+                height: AppTheme.scaled(10)
+                radius: height / 2
                 // `danger`/`warning` became INK-ONLY roles on 2026-08-21
                 // (they route light on dark themes so they stay AA as text);
                 // a badge is a FILL and must ask for the saturated fill by
@@ -1204,8 +1232,16 @@ Rectangle {
         // account switcher popover.
         Item {
             id: railAccount
+            objectName: "railAccountTile"
             Layout.alignment: Qt.AlignHCenter
-            width: 40; height: 40
+            // implicitWidth, NOT width: this is a ColumnLayout child, and a
+            // layout takes an aligned item's PREFERRED size — which falls
+            // back to whatever `width` happened to be at the first pass and
+            // then never looks again. Written as `width` it stayed 40px at
+            // every interface size while the cog above it (already an
+            // implicit size) scaled correctly.
+            implicitWidth: root.railTileSize
+            implicitHeight: root.railTileSize
             visible: app.loggedIn
 
             // Invokable results do not re-evaluate on signals; refresh the
@@ -1235,7 +1271,9 @@ Rectangle {
             Avatar {
                 id: railAvatar
                 anchors.fill: parent
-                size: 40
+                // Same rule as the Space tiles: Avatar's mask is a permille
+                // of `size`, so it must be the rendered edge.
+                size: root.railTileSize
                 circle: true
                 name: railAccount.activeAccount.displayName
                       || railAccount.localpart
@@ -1258,7 +1296,9 @@ Rectangle {
                 objectName: "railConnectionDot"
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                width: 11; height: 11; radius: 5.5
+                width: AppTheme.scaled(11)
+                height: AppTheme.scaled(11)
+                radius: height / 2
                 border.color: AppTheme.rail
                 border.width: 2
                 color: app.connectionStatus === qsTr("Connected")
