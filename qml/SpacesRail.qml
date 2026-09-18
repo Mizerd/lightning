@@ -765,7 +765,8 @@ Rectangle {
                         // reach the FAR edge of the horizontal it turns into,
                         // or a 2px line leaves a 2px notch at the bend.
                         height: spaceItem.treeLastChild
-                                ? treeGuides.tileMid + root.treeLineWidth
+                                ? treeGuides.tileMid
+                                  + root.treeLineWidth / 2
                                 : treeGuides.runHeight
                         color: treeGuides.ink
                     }
@@ -773,7 +774,12 @@ Rectangle {
                         visible: spaceItem.level > 0
                         x: root.treeColumnX(spaceItem.level - 1,
                                             spaceItem.width)
-                        y: treeGuides.tileMid
+                        // CENTRED on the tile's middle, not starting there.
+                        // A 2px line hung one pixel below the chevron it runs
+                        // out of, which is the sort of thing that reads as
+                        // "not quite aligned" without being nameable —
+                        // measured at 700% on a live capture.
+                        y: treeGuides.tileMid - root.treeLineWidth / 2
                         width: Math.max(0, spaceTile.x - x)
                         height: root.treeLineWidth
                         color: treeGuides.ink
