@@ -7821,7 +7821,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RailEntryModel</name>
     <message>
-        <location filename="../src/spaces/RailEntryModel.cpp" line="+196"/>
+        <location filename="../src/spaces/RailEntryModel.cpp" line="+202"/>
         <source>Direct Messages</source>
         <translation>Tiesioginiai pokalbiai</translation>
     </message>
@@ -14615,7 +14615,27 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+585"/>
+        <location filename="../qml/SpacesRail.qml" line="+684"/>
+        <source>All Spaces</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+26"/>
+        <source>Leave %1 and go back up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Back to all Spaces</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Up one level, out of %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+188"/>
         <source>Folder: %1</source>
         <translation>Aplankas: %1</translation>
     </message>
@@ -14635,7 +14655,17 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Kiti kambariai</translation>
     </message>
     <message>
-        <location line="+149"/>
+        <location line="+298"/>
+        <source>Open this Space&apos;s own tree — the rail is too narrow to draw it here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Open this space&apos;s own tree</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Collapse space</source>
         <translation>Sutraukti erdvę</translation>
     </message>
@@ -15552,12 +15582,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Įkelti daugiau gijų</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+124"/>
         <source>Open in room</source>
         <translation>Atidaryti kambaryje</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+13"/>
         <source>Message deleted</source>
         <translation>Pranešimas ištrintas</translation>
     </message>

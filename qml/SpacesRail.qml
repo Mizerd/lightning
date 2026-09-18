@@ -222,6 +222,176 @@ Rectangle {
         }
         return best
     }
+    // ── Diving into a branch the rail cannot draw ───────────────────────
+    //
+    // The tree costs one indent step a level, so a rail at its default width
+    // draws two of them. Everything deeper used to pile up at the SAME indent
+    // once `indentBudget` ran out — which is worse than not drawing it, since
+    // two rows at one indent claim to be siblings when they are not.
+    //
+    // So the reader DIVES instead. The chosen Space becomes the trunk, its
+    // subtree is drawn from there with the whole budget available again, and
+    // a chip above the list names what was folded away and takes them back
+    // out. Session state, like `railReveal`: "show me inside this" is a
+    // momentary request, not how someone wants their rail arranged.
+    property string treeFocusId: ""
+    /// How many levels of indent the rail can currently draw. At least one,
+    /// so the narrowest rail still distinguishes a child from its parent.
+    readonly property int drawableLevels:
+        Math.max(1, Math.floor(indentBudget / indentStep))
+
+    // Resolved ONCE per model or focus change rather than per delegate: the
+    // focused row, the last row of its subtree, and the level its contents
+    // are rebased from. A delegate asking these questions itself would scan
+    // the model on every row on every change.
+    property int focusRow: -1
+    property int focusEnd: -1
+    property int focusBaseLevel: 0
+    property string focusName: ""
+    property string focusUpId: ""
+    property string focusUpName: ""
+    function refreshTreeFocus() {
+        focusRow = -1
+        focusEnd = -1
+        focusBaseLevel = 0
+        focusName = ""
+        focusUpId = ""
+        focusUpName = ""
+        if (treeFocusId === "" || !app.railEntries)
+            return
+        var row = app.railEntries.rowForEntry(treeFocusId)
+        if (row < 0) {
+            // The Space went away — a leave, a collapse above it, a refresh
+            // that dropped the row. Surfacing an empty rail would be the
+            // worst of the options, so the dive simply ends.
+            treeFocusId = ""
+            return
+        }
+        var entry = app.railEntries.entryAt(row)
+        focusRow = row
+        focusBaseLevel = entry.level || 0
+        focusName = entry.name || ""
+        // "Up" is the nearest row above at a shallower level. At the top of
+        // the hierarchy that is a root Space, and leaving the id empty makes
+        // the chip pop all the way out rather than into another dive.
+        for (var i = row - 1; i >= 0; --i) {
+            var up = app.railEntries.entryAt(i)
+            if ((up.level || 0) < focusBaseLevel) {
+                focusUpId = (up.level || 0) > 0 ? (up.spaceId || "") : ""
+                focusUpName = up.name || ""
+                break
+            }
+        }
+        var end = row
+        var total = app.railEntries.count
+        for (var j = row + 1; j < total; ++j) {
+            if ((app.railEntries.entryAt(j).level || 0) <= focusBaseLevel)
+                break
+            end = j
+        }
+        focusEnd = end
+    }
+    /// A tree deeper than the rail can draw DIVES BY ITSELF, to the shallowest
+    /// ancestor that brings the deepest row back inside the budget.
+    ///
+    /// Offering the dive and leaving the rest piled at one indent was the
+    /// first version and it was the wrong half: the pile is the confusing
+    /// state, and the reader has no way to know that the two rows at the same
+    /// indent are a parent and a child. Diving is the whole point — "collapse
+    /// the top ones and show the deeper ones".
+    ///
+    /// It terminates: every dive strictly increases `focusBaseLevel`, and the
+    /// hierarchy is bounded by the model's own recursion limit.
+    function autoDiveIfNeeded() {
+        if (!app.railEntries || root.dragging)
+            return
+        var total = app.railEntries.count
+        var deepestRow = -1
+        var deepest = 0
+        for (var i = 0; i < total; ++i) {
+            if (root.treeFocusId !== ""
+                && (i < root.focusRow || i > root.focusEnd))
+                continue
+            var lvl = (app.railEntries.entryAt(i).level || 0)
+                      - root.focusBaseLevel
+            if (lvl > deepest) {
+                deepest = lvl
+                deepestRow = i
+            }
+        }
+        if (deepest <= root.drawableLevels || deepestRow < 0)
+            return
+        var wanted = root.focusBaseLevel + (deepest - root.drawableLevels)
+        for (var j = deepestRow; j >= 0; --j) {
+            var entry = app.railEntries.entryAt(j)
+            if ((entry.level || 0) === wanted) {
+                root.treeFocusId = entry.spaceId || ""
+                return
+            }
+        }
+    }
+    /// Collapse the deepest branches until the tree fits, which is what
+    /// stepping OUT of a dive has to do.
+    ///
+    /// Collapsing only the Space being left is not enough and the live build
+    /// showed it: the depth that forced the dive can come from a SIBLING
+    /// branch, so the tree was still too deep, the automatic dive fired again
+    /// and the chip visibly did nothing. This collapses the deepest row's
+    /// parent, and repeats — bounded by the model's own recursion limit.
+    function collapseUntilTreeFits() {
+        if (!app.railEntries || !app.railLayout)
+            return
+        for (var guard = 0; guard < 16; ++guard) {
+            var total = app.railEntries.count
+            var deepest = 0
+            var deepestRow = -1
+            for (var i = 0; i < total; ++i) {
+                if (root.treeFocusId !== ""
+                    && (i < root.focusRow || i > root.focusEnd))
+                    continue
+                var lvl = (app.railEntries.entryAt(i).level || 0)
+                          - root.focusBaseLevel
+                if (lvl > deepest) {
+                    deepest = lvl
+                    deepestRow = i
+                }
+            }
+            if (deepest <= root.drawableLevels || deepestRow < 0)
+                return
+            var want = (app.railEntries.entryAt(deepestRow).level || 0) - 1
+            var collapsed = false
+            for (var j = deepestRow - 1; j >= 0; --j) {
+                var entry = app.railEntries.entryAt(j)
+                if ((entry.level || 0) === want) {
+                    app.railLayout.setSpaceExpanded(entry.spaceId || "", false)
+                    collapsed = true
+                    break
+                }
+            }
+            if (!collapsed)
+                return
+            root.refreshTreeFocus()
+        }
+    }
+    // Deferred, because `autoDiveIfNeeded` can set the very property whose
+    // change ran it: a direct call would recurse inside one binding
+    // evaluation, which Qt reports as a loop rather than running.
+    function scheduleAutoDive() { Qt.callLater(root.autoDiveIfNeeded) }
+    onTreeFocusIdChanged: { refreshTreeFocus(); scheduleAutoDive() }
+    onDrawableLevelsChanged: scheduleAutoDive()
+    Component.onCompleted: scheduleAutoDive()
+    Connections {
+        target: app.railEntries
+        function onCountChanged() {
+            root.refreshTreeFocus()
+            root.scheduleAutoDive()
+        }
+        function onModelReset() {
+            root.refreshTreeFocus()
+            root.scheduleAutoDive()
+        }
+    }
+
     function revealCount(spaceId) {
         if (!app.railLayout || !app.railLayout.spaceExpanded(spaceId))
             return 0
@@ -471,6 +641,81 @@ Rectangle {
         anchors.bottomMargin: AppTheme.spacing12
         spacing: 0
 
+        // ── The way back out of a dive ──────────────────────────────────
+        //
+        // ALWAYS PRESENT WHILE DIVED, at the top, above everything. A view
+        // that folds the rest of the rail away has to say so and has to be
+        // one click to leave, or it is a mode the reader can get lost in —
+        // which is the specific risk in "the ui must be super clear".
+        Rectangle {
+            id: diveChip
+            objectName: "railDiveChip"
+            visible: root.treeFocusId !== ""
+            Layout.fillWidth: true
+            Layout.leftMargin: AppTheme.spacing4
+            Layout.rightMargin: AppTheme.spacing4
+            Layout.bottomMargin: AppTheme.spacing4
+            implicitHeight: visible ? root.railTileSize * 0.7 : 0
+            radius: AppTheme.radiusMd
+            color: diveHover.hovered ? AppTheme.hover : AppTheme.cardElevated
+            border.color: AppTheme.border
+            border.width: 1
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: AppTheme.scaled(4)
+                anchors.rightMargin: AppTheme.scaled(4)
+                spacing: AppTheme.scaled(2)
+                Icon {
+                    name: "expand_less"
+                    size: AppTheme.scaled(12)
+                    color: AppTheme.textSecondary
+                }
+                Label {
+                    // The Space's own name, which is remote text.
+                    textFormat: Text.PlainText
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    elide: Text.ElideRight
+                    // WHERE THE CHIP GOES, not where the reader already is:
+                    // the focused Space is drawn as the trunk directly below,
+                    // so naming it again said the same thing twice and left
+                    // the one useful fact — what you come back to — unsaid.
+                    text: root.focusUpName !== "" ? root.focusUpName
+                                                  : qsTr("All Spaces")
+                    color: AppTheme.textSecondary
+                    font.pixelSize: AppTheme.textMicro
+                    font.weight: AppTheme.weightBold
+                }
+            }
+            HoverHandler { id: diveHover }
+            TapHandler {
+                gesturePolicy: TapHandler.WithinBounds
+                // Up ONE level, not straight out: a reader who dived three
+                // times to get here expects to come back the same way.
+                //
+                // AND THE SPACE BEING LEFT IS COLLAPSED. Without that its
+                // subtree is still open and still too deep to draw, so the
+                // automatic dive fires again and the chip does nothing — a
+                // control that visibly refuses to work. Collapsing is also
+                // the honest reading of stepping out of a branch.
+                onTapped: {
+                    var leaving = root.treeFocusId
+                    root.treeFocusId = root.focusUpId
+                    if (leaving !== "" && app.railLayout)
+                        app.railLayout.setSpaceExpanded(leaving, false)
+                    root.collapseUntilTreeFits()
+                }
+            }
+            ToolTip.visible: diveHover.hovered
+            ToolTip.text: qsTr("Leave %1 and go back up").arg(root.focusName)
+            ToolTip.delay: 300
+            Accessible.role: Accessible.Button
+            Accessible.name: root.focusUpId === ""
+                             ? qsTr("Back to all Spaces")
+                             : qsTr("Up one level, out of %1")
+                               .arg(root.focusName)
+        }
+
         ListView {
             id: list
             objectName: "spacesRailList"
@@ -563,8 +808,45 @@ Rectangle {
                 // the indent was fixed at the time.
                 readonly property int tileBandHeight:
                     carriesDivider ? root.dividerRowBand : root.normalRowBand
-                height: tileBandHeight
-                        + (expansionCol.visible ? expansionCol.height + 2 : 0)
+                // ── While a dive is on, only the focused subtree exists ──
+                //
+                // Rows outside it keep their delegate but take no height and
+                // draw nothing, which is what lets the dive be a plain view
+                // change: no second model, no reset, and stepping back out is
+                // one property away.
+                readonly property bool inFocusView:
+                    root.treeFocusId === ""
+                    || (spaceItem.index >= root.focusRow
+                        && spaceItem.index <= root.focusEnd)
+                /// Its children would sit deeper than the rail can draw, so
+                /// its expander DIVES instead of opening in place — the Space
+                /// becomes the trunk and gets the whole budget back. Without
+                /// this the rows piled up at one indent and claimed to be
+                /// siblings.
+                readonly property bool divesInstead:
+                    spaceItem.isRealSpace && spaceItem.expandable
+                    && spaceItem.drawnLevel + 1 >= root.drawableLevels
+                /// This row's depth AS DRAWN. Inside a dive the focused Space
+                /// is the trunk, so everything under it is measured from
+                /// there and gets the rail's whole indent budget again.
+                readonly property int drawnLevel:
+                    Math.max(0, spaceItem.level - root.focusBaseLevel)
+                /// The depth the tree is actually DRAWN at, which is the one
+                /// above clamped to what the rail can show.
+                ///
+                /// THE TILE HAS ALWAYS BEEN CLAMPED (`tileIndent` takes
+                /// `indentBudget`), and the tree has to be clamped with it or
+                /// the two disagree: a column computed from the unclamped
+                /// level lands to the RIGHT of a tile that stopped moving,
+                /// and the elbow into it comes out with negative width and
+                /// vanishes. Seen at the 112px stop on a six-level fixture.
+                readonly property int drawnTreeLevel:
+                    Math.min(spaceItem.drawnLevel, root.drawableLevels)
+                visible: inFocusView
+                height: inFocusView
+                        ? tileBandHeight
+                          + (expansionCol.visible ? expansionCol.height + 2 : 0)
+                        : 0
 
                 property bool isActive: app.spaces && !isFolder
                                         && app.spaces.activeSpaceId === spaceItem.spaceId
@@ -591,7 +873,8 @@ Rectangle {
                 readonly property int tileIndent:
                     Math.min(root.indentBudget,
                              (inFolder ? AppTheme.scaled(7) : 0)
-                             + (hierarchyChild ? level * root.indentStep : 0))
+                             + (hierarchyChild
+                                ? spaceItem.drawnLevel * root.indentStep : 0))
                 // GATED ON THE `expanded` ROLE, NOT ON A FUNCTION CALL.
                 //
                 // `revealCount()` asks `app.railLayout.spaceExpanded(id)`,
@@ -739,7 +1022,14 @@ Rectangle {
                     // branch of a subtree the column is deliberately empty —
                     // a line there would run past the end of the tree.
                     Repeater {
+                        // REBASED: inside a dive the outermost columns belong
+                        // to ancestors that are not on screen, so they are
+                        // dropped rather than drawn against nothing.
                         model: spaceItem.treeGuides
+                               .slice(root.focusBaseLevel,
+                                      root.focusBaseLevel
+                                      + Math.max(0,
+                                          spaceItem.drawnTreeLevel - 1))
                         delegate: Rectangle {
                             required property int index
                             required property var modelData
@@ -756,8 +1046,8 @@ Rectangle {
                     // follows (a tee), stopping at the tile's middle when
                     // this is the last branch (a corner).
                     Rectangle {
-                        visible: spaceItem.level > 0
-                        x: root.treeColumnX(spaceItem.level - 1,
+                        visible: spaceItem.drawnTreeLevel > 0
+                        x: root.treeColumnX(spaceItem.drawnTreeLevel - 1,
                                             spaceItem.width)
                         y: 0
                         width: root.treeLineWidth
@@ -771,8 +1061,8 @@ Rectangle {
                         color: treeGuides.ink
                     }
                     Rectangle {
-                        visible: spaceItem.level > 0
-                        x: root.treeColumnX(spaceItem.level - 1,
+                        visible: spaceItem.drawnTreeLevel > 0
+                        x: root.treeColumnX(spaceItem.drawnTreeLevel - 1,
                                             spaceItem.width)
                         // CENTRED on the tile's middle, not starting there.
                         // A 2px line hung one pixel below the chevron it runs
@@ -790,7 +1080,8 @@ Rectangle {
                     // has to leave its tile for them to arrive at anything.
                     Rectangle {
                         visible: spaceItem.expandable && spaceItem.expanded
-                        x: root.treeColumnX(spaceItem.level, spaceItem.width)
+                        x: root.treeColumnX(spaceItem.drawnTreeLevel,
+                                            spaceItem.width)
                         // STARTS INSIDE THE TILE, by its corner radius. The
                         // tile is a rounded rectangle, so at the inset where
                         // this line runs its painted bottom is HIGHER than
@@ -875,11 +1166,18 @@ Rectangle {
                         // file tree does, and it keeps the constant gap the
                         // earlier fix was about — the glyph still travels
                         // with its tile, it is just now also on the tree.
-                        x: root.treeColumnX(spaceItem.level - 1,
+                        x: root.treeColumnX(spaceItem.drawnTreeLevel - 1,
                                             spaceItem.width)
                            - expandChevronArea.x - size / 2
                         anchors.verticalCenter: parent.verticalCenter
-                        name: spaceItem.expanded ? "expand_more" : "chevron_right"
+                        // THREE STATES, NOT TWO. A Space whose children
+                        // would land deeper than the rail can draw does not
+                        // open in place — it opens as a DIVE, and the glyph
+                        // has to say so before the click rather than after.
+                        name: spaceItem.divesInstead
+                              ? "chevron_right"
+                              : (spaceItem.expanded ? "expand_more"
+                                                    : "chevron_right")
                         // SCALED, like the tile and the per-level step. A
                         // bare 10 shrank against everything around it as the
                         // interface grew — the same defect the rail's indent
@@ -890,13 +1188,29 @@ Rectangle {
                     }
                     HoverHandler { id: chevronHover }
                     TapHandler {
-                        onTapped: app.railLayout.toggleSpaceExpanded(
-                                      spaceItem.spaceId)
+                        onTapped: {
+                            if (spaceItem.divesInstead) {
+                                root.treeFocusId = spaceItem.spaceId
+                                if (app.railLayout)
+                                    app.railLayout.setSpaceExpanded(
+                                        spaceItem.spaceId, true)
+                                return
+                            }
+                            app.railLayout.toggleSpaceExpanded(
+                                spaceItem.spaceId)
+                        }
                     }
+                    ToolTip.visible: chevronHover.hovered
+                                     && spaceItem.divesInstead
+                    ToolTip.text: qsTr("Open this Space's own tree — the "
+                                       + "rail is too narrow to draw it here")
+                    ToolTip.delay: 300
                     Accessible.role: Accessible.Button
-                    Accessible.name: spaceItem.expanded
-                                     ? qsTr("Collapse space")
-                                     : qsTr("Expand space")
+                    Accessible.name: spaceItem.divesInstead
+                                     ? qsTr("Open this space's own tree")
+                                     : (spaceItem.expanded
+                                        ? qsTr("Collapse space")
+                                        : qsTr("Expand space"))
                 }
 
                 Rectangle {

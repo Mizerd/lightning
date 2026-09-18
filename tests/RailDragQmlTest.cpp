@@ -58,6 +58,7 @@
 
 #include <QtTest/QtTest>
 
+#include <algorithm>
 #include <functional>
 
 #include <QGuiApplication>
@@ -884,6 +885,95 @@ private slots:
     // revealed-rooms column reads `app.spaces`, the CONTROLLER's manager, so
     // a locally-fed hierarchy would leave it empty for a reason that has
     // nothing to do with scaling.
+    // ── 2026-09-18: a tree deeper than the rail can draw ─────────────────
+    //
+    // The tree costs one indent step a level, so a narrow rail runs out of
+    // depth long before the hierarchy does. What used to happen then was the
+    // worst available option: `tileIndent` clamps at `indentBudget`, so every
+    // row past the budget was drawn at the SAME indent as its own parent —
+    // two rows side by side claiming to be siblings when one contains the
+    // other.
+    //
+    // The rail dives instead: the ancestor that brings the deepest row back
+    // inside the budget becomes the trunk, its subtree is drawn from there,
+    // and a chip at the top says what to click to come back.
+    //
+    // THE INVARIANT IS WHAT IS ASSERTED, not the choice of trunk: whatever
+    // the rail is showing, no visible row may be drawn deeper than the rail
+    // can draw. A screenshot can suggest that; only this can hold it.
+    void aTreeTooDeepToDrawDivesInsteadOfPilingUp()
+    {
+        RailFakeClient deep;
+        QList<RoomInfo> rooms;
+        QStringList chain;
+        // Six levels, each the only child of the one above — the shape the
+        // maintainer's own fixture has and the one that overflows soonest.
+        for (int i = 0; i < 6; ++i)
+            chain << QStringLiteral("!lvl%1:example.org").arg(i);
+        for (int i = 0; i < chain.size(); ++i) {
+            RoomInfo info = joinedSpace(chain.at(i),
+                                        QStringLiteral("Level %1").arg(i));
+            if (i + 1 < chain.size())
+                info.childRoomIds = { chain.at(i + 1) };
+            rooms << info;
+        }
+        deep.roomList = rooms;
+        SpaceManager deepSpaces;
+        deepSpaces.setClient(&deep);
+        for (const QString &id : chain)
+            store()->setSpaceExpanded(id, true);
+        entries()->setSources(&deepSpaces, store());
+        QCoreApplication::processEvents();
+        QTest::qWait(120);
+
+        const int drawable = m_rail->property("drawableLevels").toInt();
+        QVERIFY2(drawable >= 1 && drawable < 5,
+                 qPrintable(QStringLiteral(
+                     "the rail claims it can draw %1 levels at this width; "
+                     "the fixture needs it to run out before six or this "
+                     "case is not exercising the dive at all").arg(drawable)));
+
+        // The rail must have dived, and the fixture must be deep enough to
+        // have forced it.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !m_rail->property("treeFocusId").toString().isEmpty(),
+            kSignalTimeoutMs);
+
+        // Every row still on screen is inside the budget. `drawnTreeLevel`
+        // is the clamp itself, so this reads `drawnLevel` — what the row
+        // WANTS to be drawn at — and requires the clamp never to be needed.
+        auto *content =
+            m_list->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        int visibleRows = 0;
+        int deepest = 0;
+        const auto children = content->childItems();
+        for (QQuickItem *child : children) {
+            if (!child->isVisible() || child->height() <= 0)
+                continue;
+            const QVariant level = child->property("drawnLevel");
+            if (!level.isValid())
+                continue;
+            ++visibleRows;
+            deepest = std::max(deepest, level.toInt());
+        }
+        QVERIFY2(visibleRows > 1,
+                 "the dive left one row or none on screen, which is not a "
+                 "view of a subtree — it is an empty rail");
+        QVERIFY2(deepest <= drawable,
+                 qPrintable(QStringLiteral(
+                     "a row is drawn %1 levels deep in a rail that can draw "
+                     "%2, so it shares an indent with its own parent and the "
+                     "two read as siblings").arg(deepest).arg(drawable)));
+
+        m_rail->setProperty("treeFocusId", QString());
+        for (const QString &id : chain)
+            store()->setSpaceExpanded(id, false);
+        entries()->setSources(m_spaces, store());
+        QCoreApplication::processEvents();
+        QTest::qWait(60);
+    }
+
     void everyRailChipFollowsTheInterfaceSize()
     {
         auto *theme = m_engine->singletonInstance<QObject *>(
