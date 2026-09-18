@@ -1,5 +1,40 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-18 — the Spaces rail follows the interface size, live and both ways
+
+**PASS**, measured by pixel scan on the running client (laptop rig, Xvfb :99,
+fixture account in its own XDG profile), with **no restart anywhere in the
+sequence** — which matters, because a restart is what hid the defect from
+every earlier check.
+
+Interface size changed with the Settings → Appearance → **Text size** slider,
+dragged by the harness:
+
+| step | rail width | stored `spacesRailWidth` | Space tile |
+|---|---|---|---|
+| 100 %, after a real divider drag | 112 | 112 | 40 |
+| live → 140 % | **104** (a 140 % stop) | 112 | **56** |
+| live → back to 100 % | **112** (exactly where it started) | 112 | 40 |
+
+104 is a stop at 140 % (95/104/120/136/152); the 100px the rail used to hold
+after a drag is not, and lands half an indent step short of a nesting level.
+The stored value never drifts, so the user's dragged choice survives any
+number of size changes.
+
+Same session, same method, the tiles inside it: Space tile 40 → 56, revealed
+room tile 28 → 39 (0.7 × 56), account avatar 40 → 56, and **nothing moves at
+100 %**.
+
+Also confirmed on screen at both sizes: the corrected Text size caption
+renders and wraps on two lines with no clipping, and the rail's expanders sit
+a constant ~8px from their own tiles at every depth (they were 20/23/26/29/32
+and drifting, measured off a screenshot before the fix).
+
+**What this does NOT cover.** Only the Text size slider was exercised;
+**Interface zoom** (`QT_SCALE_FACTOR`, applied at startup) was not touched in
+this run. Nothing here says anything about how the rest of the app's chrome
+behaves at 140 % — only the rail was measured.
+
 ## 2026-09-18 — the unencrypted-room call carries audio BOTH ways, from the ring card
 
 **PASS**, and it is the retest the fix commit (`9a11d97`) reported as

@@ -1,5 +1,48 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-18 — two fixes shipped WITHOUT a live repro, deliberately recorded as such
+
+Both are real by construction and both were shipped in `9fcabb4e`. Neither is
+live-validated, and neither may be promoted on the strength of the reasoning
+below.
+
+**The image viewer's thumbnail strip.** `mediaSource()` answers a cache miss
+with an empty string and dispatches a fetch whose bytes arrive as
+`mediaCached`; the strip's `source` touched nothing bumped from that signal,
+so a picture the strip had not already cached could never appear. The strip
+now carries the same `resolveTick` pairing as EmojiPicker. **It did not
+reproduce**: the fixture room renders identically on the fixed and the unfixed
+build, because it is small enough that every row's bytes are cached by the
+media band before the viewer is opened. A repro needs a room whose images are
+outside the band — deep history, or a room opened and scrolled past quickly.
+
+**The bubble tap's exclusion for the action bar** (eighth instance of that
+shape in `MessageDelegate.qml`). The bar is a plain `Rectangle` anchored over
+the bubble's top-right corner, so its 2px padding and the 2px gaps between its
+buttons are not covered by anything that accepts a press and reach the
+bubble's own TapHandler, which toggles the pin. The strips exist
+geometrically; **no stable synthesized click demonstrated it.** Every probe
+point either landed inside an `IconButton`'s hit area or activated a button
+and moved the app to a different state, and the one reading that appeared to
+show the fall-through came from a probe crop that also contained the
+composer's top edge — a layout shift read as the bar unpinning. See
+`docs/round-history.md`, 2026-09-18, for the corrected instrument.
+
+**Two latent items found in the same sweep and deliberately NOT changed**, for
+want of any reachable symptom:
+
+* `SettingsScreen.qml` binds `visible: app.canEditOwnAvatar()`, a Q_INVOKABLE
+  reading `m_client->supportsOwnProfileEditing()`. Settings is built once and
+  warm-latched for the session, so the answer is frozen at the first account's.
+  Every real account uses the same backend, so no difference is reachable
+  today.
+* `AppSwitch.qml`'s TapHandler takes the default `DragThreshold` policy, so an
+  ancestor handler fires on the same press. `SettingsScreen.qml` already
+  documents this and works around it by NOT nesting an AppSwitch inside a
+  clickable row, so nothing in the tree reaches it. `gesturePolicy:
+  WithinBounds` would fix it app-wide and change press-and-drag-off behaviour
+  on ~30 switches, which is not a change to make without a report.
+
 ## 2026-09-18 — a peer ENCRYPTING into a call we believe is clear is not reported
 
 Found while fixing the opposite direction (the joiner requiring encryption in

@@ -1,6 +1,6 @@
 # Round history
 
-## 2026-09-18 — the GUI pass that turned four "needs looking at" items into four defects
+## 2026-09-18 — the GUI pass that turned four "needs looking at" items into four defects, and then found eleven more
 
 The 2026-09-17 round landed five fixes and recorded that none of them had been
 looked at by a person. The pass ran, on a real build, on a fixture account in
@@ -155,6 +155,134 @@ that being exactly why the picture zooms without the scrim closing the viewer
 — leaves that grab behind when the popup closes, and the Flickable never sees
 another wheel event for the life of the process. Bisected to that one case; a
 flush click and a pointer move both failed to clear it.
+
+### And then the rail, which scaled half of itself
+
+The chevron fix left an obvious complaint: the expanders sat 20, 23, 26, 29
+and 32 pixels from the tiles they expand — measured off a screenshot, ink at
+`y=151 x 14..17` against a tile left edge of 36, and drifting further at every
+level, because the glyph was anchored to the RAIL and the tile to its indent.
+Anchoring the glyph to its own tile made the gap ~8px and CONSTANT at every
+depth, which is what `theExpanderSitsTheSameDistanceFromItsTileAtEveryLevel`
+now asserts: equal gaps, the fixture required to actually nest, and the
+expander close to its tile rather than parked against the rail edge.
+
+Fixing that exposed the real defect. `143abb07` had scaled the rail's WIDTH
+stops, its indent step and its minimum — and not the tile inside them. So at
+140% the rail was 152px wide around a 40px tile: measured on the DC row as
+`56 #C8DBCD / 38 #1E68B8 / 56 #C8DBCD`, identical ink to the 100% reading in a
+rail 40px wider. Scaling the tile then exposed the rest, because nothing else
+in the file scaled either: a 56px Space tile above 28px room tiles, a 40px
+settings cog and a 40px account avatar, reading as three unrelated controls
+stacked on one another.
+
+**Two defects fell out of doing it rather than being the point of it, and
+both are general.**
+
+`Avatar.size` is not decoration. The provider bakes the rounded-square mask
+into the bitmap as `radius * 1000 / size` PERMILLE of its edge, so a `size`
+that no longer matches the rendered item rounds a real picture's corners by
+the ratio of the two: `size: 40` under a 56px tile gave every Space with an
+avatar a corner 40% too round. **An Avatar's `size` must be the edge it is
+actually drawn at, even when `anchors.fill` decides the geometry.**
+
+**An explicit `width` on a ColumnLayout child is a one-shot value, not a
+binding the layout follows.** The account tile was written `width:
+root.railTileSize` and stayed 40px at every interface size while the settings
+cog directly above it — already an `implicitWidth` — scaled correctly. A
+layout takes an aligned item's PREFERRED size, which falls back to whatever
+`width` happened to be at the first pass and then never looks again. Caught by
+the test, not by reading.
+
+Measured on the running client at both sizes, by pixel scan: Space tile 40 ->
+56, revealed room tile 28 -> 39 (0.7 x 56), account avatar 40 -> 56, and
+nothing moves at 100%. `everyRailChipFollowsTheInterfaceSize` asserts RATIOS
+— a pinned "56 at 140%" is a number someone edits to match the build — and it
+reads the VISUAL tree, because `findChild` cannot reach a Repeater's delegates
+and the whole expansion column is invisible to it.
+
+### Six more bindings that asked once, and one file that already knew better
+
+Same class as the chevron, found by listing every value-returning
+`Q_INVOKABLE` in `src/` and grepping QML for bindings on the mutable-sounding
+ones. Most hits were inside imperative refresh functions and fine. Six were
+not.
+
+`CallPipWindow.qml` resolved every row through `indexOfShare` /
+`indexOfIdentity` and read no count — while `CallStage.qml`, which carries the
+same two lookups, reads `shareCount`/`peopleCount` and explains why in a
+comment. **The same two lines, copied, one of them right.** The expensive one
+was `fillShareShown`: "fill the window with this share" is dropped by
+`onFillShareShownChanged` when the share ends, and the signal could never
+fire.
+
+The "Follow this list" checkbox carried two defects in four lines: `checked`
+bound to `isSubscribed()` where the controller exposes a NOTIFYING
+`subscriptions` list returning exactly the same answer, and a user toggle
+ASSIGNS `checked`, which destroys the binding — so after one click the box
+showed the click and not the store, including when the asynchronous write
+failed.
+
+Also: the viewer's thumbnail strip asked `mediaSource()` once per picture with
+no tick to re-ask on; the Home pane greeted the user by the name
+`accounts.account()` returned when the pane was built; Send Later promised
+durable storage for a room encrypted after the dialog instance was created,
+which is a promise the feature cannot keep (an encrypted room's scheduled
+message is held in memory and discarded on close).
+
+**Two of the six could not be reproduced live, and are recorded as fixes
+without a repro rather than as live-validated.** The thumbnail strip renders
+identically on the fixed and the UNFIXED build, because the fixture room is
+small enough that every row's bytes are already cached before the viewer
+opens. And the bubble tap's missing exclusion for the action bar — eighth
+instance of that shape in `MessageDelegate.qml` — is real by construction (the
+bar is a plain Rectangle; its 2px padding and the 2px gaps between its buttons
+reach the bubble beneath) but no stable click could demonstrate it.
+
+**That second one cost an hour to an unvalidated probe.** The discriminator
+counted bar-surface pixels in a 300x60 crop that also contained the composer's
+top edge, so "7462 -> 0" was read as the bar unpinning when it was the whole
+layout shifting. Re-cropped to the bar alone it reads 3081 pinned, 0
+unpinned, and round-trips — **and the first thing the corrected probe showed
+was that the point which "proved" the defect proves nothing.** Validate the
+instrument against both states before believing either.
+
+### The text-size slider moved the rail and said it did not
+
+Its caption read "Interface chrome and icons keep their size", which stopped
+being true when the rail gained scaled stops and finished being true when the
+tiles followed. Reverting was not on the table — stops-per-scale is what was
+asked for and was verified at 90/100/140% in this same pass — so the words
+changed, and they now name Interface zoom (`QT_SCALE_FACTOR`, read once at
+startup) as the genuinely different thing that scales everything.
+`AppTheme.textScale`'s own comment carried the same claim: `scaled()` has ~250
+call sites and a couple of dozen are geometry.
+
+### And the stops only followed the scale until somebody dragged the rail
+
+Found by measuring after the caption change: live at 140%, the rail was 100px,
+and 100 is not a stop there (95/104/120/136/152). It lands half an indent step
+short and draws one nesting level fewer than the grid exists to guarantee.
+
+`SplitView.preferredWidth` IS bound to `snapWidth(settings.spacesRailWidth)`,
+and `snapWidth` reads the scaled stops, so it should follow on its own.
+SplitView writes that property itself while dragging and the saver wrote it
+back on release as a NUMBER, which leaves it unbound for the session. **Every
+earlier check passed because every earlier check restarted the app**, which
+re-created the binding.
+
+Putting the binding back created the other half: a live binding re-evaluates
+on every size change, and each re-evaluation reached the saver and REWROTE the
+stored width, so 112 at 100% came back as 100 after a round trip through 140%
+— the user's choice creeping a stop narrower each time. The saver persists
+only after a real divider drag now. Measured end to end with no restart
+anywhere in it: `112/112/40` at 100%, `104/112/56` live at 140%, `112/112/40`
+live back at 100%.
+
+**GENERALISE, and it is the day's most repeated lesson: an imperative write to
+a bound property is a one-way door unless it is put back.** Three instances in
+one day — the follow checkbox, the rail's width, and (in the other direction)
+the account tile that was never a binding at all.
 
 ## 2026-09-17 (second review round) — the sweep that read one file, and three verdicts that could not fail
 
