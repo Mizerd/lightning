@@ -234,13 +234,20 @@ private Q_SLOTS:
         QObject *root = createdSpy.at(0).at(0).value<QObject *>();
         QVERIFY(root != nullptr);
 
+        // THE READS COME FIRST, and the scan after them. The defect under
+        // test IS lazy first-read evaluation: scanning before anything forces
+        // a read would miss a loop that fires on the read itself, which is
+        // precisely the failure mode if this pane ever stopped binding
+        // `displayName` to a Label that is built at load.
+        QCOMPARE(root->property("activeUserId").toString(), uid);
+        QCOMPARE(root->property("displayName").toString(),
+                 QStringLiteral("alice"));
+        QCoreApplication::processEvents();
+
         for (const QString &warning : warnings) {
             QVERIFY2(!warning.contains(QStringLiteral("Binding loop")),
                      qPrintable(warning));
         }
-        QCOMPARE(root->property("activeUserId").toString(), uid);
-        QCOMPARE(root->property("displayName").toString(),
-                 QStringLiteral("alice"));
     }
 
     // A DELEGATE THAT DISABLES ITSELF DISABLES ITS OWN BUTTONS.
