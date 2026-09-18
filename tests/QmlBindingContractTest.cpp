@@ -2265,6 +2265,66 @@ private Q_SLOTS:
                  "SendLaterDialog does not re-read whether the room is "
                  "encrypted when it opens");
     }
+    // ── 2026-09-18: the rail's width stops stopped following the interface
+    //    size the first time anyone dragged it ────────────────────────────
+    //
+    // `SplitView.preferredWidth` is BOUND to `snapWidth(settings.
+    // spacesRailWidth)`, and `snapWidth` reads the rail's stops, which are
+    // made of `AppTheme.scaled` pixels. SplitView writes `preferredWidth`
+    // itself while dragging, so the saver has to write it back on release —
+    // and it wrote a NUMBER, which leaves the property unbound for the rest
+    // of the session.
+    //
+    // Measured on the running client: a rail dragged at 100% and then moved
+    // to 140% stayed 100px wide. 100 is not a stop at that scale
+    // (95/104/120/136/152), so the indent budget lands half a step short and
+    // the rail draws one nesting level fewer than the grid intends — the
+    // exact failure the stops exist to prevent — until the next launch
+    // re-created the binding.
+    //
+    // Same shape as the follow checkbox in PolicyListDialog: an imperative
+    // write to a bound property is a one-way door unless it is put back.
+    void theRailWidthSaverPutsItsBindingBack()
+    {
+        const QString src = read(QStringLiteral("MainScreen.qml"));
+        QVERIFY(!src.isEmpty());
+        const int at = src.indexOf(QStringLiteral("id: railWidthSaver"));
+        QVERIFY2(at >= 0, "the rail's width saver is gone — re-anchor this "
+                          "case");
+        const QString block = blockAround(src, at);
+        QVERIFY2(!block.isEmpty(), "could not slice the width saver");
+        QVERIFY2(block.contains(QStringLiteral("preferredWidth")),
+                 "the width saver no longer writes preferredWidth — "
+                 "re-anchor this case");
+        const int write = block.indexOf(QStringLiteral(
+            "SplitView.preferredWidth ="));
+        QVERIFY2(write >= 0, "the width saver no longer assigns "
+                             "preferredWidth — re-anchor this case");
+        QVERIFY2(block.mid(write, 120).contains(QStringLiteral("Qt.binding(")),
+                 "the width saver assigns a NUMBER to preferredWidth, which "
+                 "leaves it unbound: after one drag the rail's width stops "
+                 "stop following the interface size for the rest of the "
+                 "session");
+
+        // ...AND THE OTHER HALF, which the first fix created. Once
+        // `preferredWidth` is a live binding it re-evaluates on every
+        // interface-size change, and each re-evaluation reached this saver
+        // and rewrote the STORED width — so a rail dragged to 112 at 100%
+        // came back 100 after a round trip through 140%. The setting records
+        // what the user dragged to; only a real divider drag may write it.
+        QVERIFY2(block.contains(QStringLiteral("property bool dragged")),
+                 "the width saver has no drag flag, so a width change the "
+                 "interface size produced is indistinguishable from one the "
+                 "user dragged — and gets persisted as if it were");
+        const int wc = src.indexOf(QStringLiteral("onWidthChanged:"), at - 4000);
+        QVERIFY2(wc >= 0 && wc < at,
+                 "the rail's onWidthChanged handler is gone — re-anchor this "
+                 "case");
+        QVERIFY2(src.mid(wc, 160).contains(QStringLiteral("railWidthSaver.dragged")),
+                 "the rail persists on ANY width change, including the ones "
+                 "its own scaled-stop binding produces, so the stored width "
+                 "creeps a stop narrower on every interface-size round trip");
+    }
 };
 
 QTEST_MAIN(QmlBindingContractTest)

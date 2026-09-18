@@ -567,18 +567,36 @@ Item {
             // way: a release produces no widthChanged, so without the
             // Connections below the final width is never offered and nothing
             // is ever persisted.
-            onWidthChanged: if (!SplitView.view.resizing) railWidthSaver.restart()
+            //
+            // AND ONLY AFTER A DRAG. `preferredWidth` is a binding on the
+            // rail's SCALED stops, so it re-evaluates on its own when the
+            // interface size changes — and every one of those re-evaluations
+            // used to reach this saver and REWRITE the stored width. A rail
+            // dragged to 112 at 100% came back 100 after a trip through 140%
+            // (112 snaps to 104 there, and 104 snaps to 100 back at 100%):
+            // the user's choice crept a stop narrower per round trip, which
+            // is the mirror image of the "narrowest choice quietly widened
+            // every restart" the stop range was written to stop. The setting
+            // records what the USER dragged to; the binding decides what is
+            // drawable at the current size.
+            onWidthChanged: if (!SplitView.view.resizing && railWidthSaver.dragged)
+                                railWidthSaver.restart()
             Connections {
                 target: spacesRail.SplitView.view
                 function onResizingChanged() {
-                    if (!spacesRail.SplitView.view.resizing)
+                    if (spacesRail.SplitView.view.resizing)
+                        railWidthSaver.dragged = true
+                    else if (railWidthSaver.dragged)
                         railWidthSaver.restart()
                 }
             }
             Timer {
                 id: railWidthSaver
                 interval: 250
+                /// A real divider drag happened and has not been saved yet.
+                property bool dragged: false
                 onTriggered: {
+                    dragged = false
                     if (!spacesRail.visible || spacesRail.width <= 0)
                         return
                     // Snap on release: the drag is continuous, the result is
@@ -590,7 +608,25 @@ Item {
                     // the snapped one.
                     var snapped = spacesRail.snapWidth(spacesRail.width)
                     app.settings.spacesRailWidth = snapped
-                    spacesRail.SplitView.preferredWidth = snapped
+                    // AS A BINDING, not as a number. A plain assignment here
+                    // fixed the visual width and left `preferredWidth`
+                    // unbound for the rest of the session — so the stops
+                    // stopped following the interface scale the first time
+                    // anyone dragged the rail. Measured 2026-09-18: a rail
+                    // dragged at 100% and then moved to 140% stayed 100px
+                    // wide, which is not a stop at that scale (95/104/120/…)
+                    // and draws one nesting level fewer than the grid
+                    // intends, until the next launch re-created the binding.
+                    //
+                    // `spacesRailWidth` was just set to `snapped`, so this
+                    // evaluates to the same number immediately — no jump —
+                    // and `snapWidth` reads the rail's scaled stops, which
+                    // is the dependency that was missing.
+                    spacesRail.SplitView.preferredWidth = Qt.binding(
+                        function() {
+                            return spacesRail.snapWidth(
+                                app.settings.spacesRailWidth)
+                        })
                 }
             }
         }
