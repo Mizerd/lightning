@@ -19,24 +19,48 @@ Item {
     signal createRoomRequested()
     signal createSpaceRequested()
 
-    readonly property string activeUserId: app.accounts ? app.accounts.activeUserId : ""
     // `account()` is a Q_INVOKABLE, so a binding on it depends on the id it
     // is given and on NOTHING ELSE: renaming the account, or setting an
     // avatar, left this pane greeting the user by their old name — or by
     // their localpart — until the active account changed. Same record-and-
     // refresh shape the rail's own account tile uses.
+    //
+    // AND `activeUserId` IS RECORDED THE SAME WAY, which it was not, and the
+    // difference was a binding loop on every launch. It used to be a BINDING
+    // on `app.accounts.activeUserId` with an `onActiveUserIdChanged` handler
+    // writing `activeAccount`. A QML binding is evaluated LAZILY, on its
+    // first READ — and the first read of this one happened INSIDE
+    // `displayName`'s own evaluation, which reads it for the localpart
+    // fallback. So the id moved from "" to the real one mid-binding, the
+    // change handler ran synchronously, and it wrote `activeAccount` — a
+    // dependency `displayName` had already captured. Qt abandoned the
+    // evaluation and printed
+    // `QML HomePane: Binding loop detected for property "displayName"`.
+    //
+    // One function writes both fields now, driven by the manager's own
+    // signals exactly as the rail's account tile and the Settings identity
+    // card already were, so nothing a binding depends on moves while that
+    // binding is being read. GENERALISE: a change handler on a LOCAL binding
+    // runs during that binding's first read, which is whenever some other
+    // binding happened to reach it first — so what it writes is written
+    // inside a stranger's evaluation.
+    property string activeUserId: ""
     property var activeAccount: null
     function refreshActiveAccount() {
-        activeAccount = (app.accounts && root.activeUserId.length > 0)
-            ? app.accounts.account(root.activeUserId) : null
+        var uid = app.accounts ? app.accounts.activeUserId : ""
+        // The account first: the greeting prefers its display name, so the
+        // one intermediate state a reader can observe between these two
+        // writes already carries the right answer.
+        root.activeAccount = (app.accounts && uid.length > 0)
+            ? app.accounts.account(uid) : null
+        root.activeUserId = uid
     }
-    onActiveUserIdChanged: refreshActiveAccount()
-    // `onActiveUserIdChanged` above already covers a switch — `activeUserId`
-    // is bound to the manager's own property — so this listens for the other
-    // half: the ACTIVE account's own record changing under a fixed id.
     Connections {
         target: app.accounts
+        // Both halves: the SELECTION moving to another account, and the
+        // active account's own record changing under a fixed id.
         function onAccountsChanged() { root.refreshActiveAccount() }
+        function onActiveUserIdChanged() { root.refreshActiveAccount() }
     }
     readonly property string displayName: {
         var n = activeAccount && activeAccount.displayName
