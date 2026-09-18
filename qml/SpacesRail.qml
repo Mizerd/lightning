@@ -233,7 +233,12 @@ Rectangle {
     /// PROPORTIONAL, and it was a raw `radiusLg` of 12 against a scaled tile
     /// — so the corner ratio moved with the UI font. At 59 it was 0.203,
     /// which is boxy; 0.27 is the squircle band (iOS 0.225, Discord 0.33).
-    readonly property int railTileRadius: Math.round(railTileSize * 0.27)
+    /// 0.30 of the tile, and PROPORTIONAL AT EVERY TIER through
+    /// `tileRadiusFor()` below. A flat radius made a 34px room tile 40%
+    /// squarer than the 41px subspace above it, which cancels part of the
+    /// size ladder those two tiers exist to express.
+    readonly property int railTileRadius: tileRadiusFor(railTileSize)
+    function tileRadiusFor(size) { return Math.round(size * 0.30) }
     /// One rule for the glyph inside a pseudo tile — Home, People, the
     /// settings cog, the "+". They were a RAW 22 (unscaled, a real defect at
     /// 140%), a scaled 22 and a scaled 20, all in one 59px box: a ratio of
@@ -253,7 +258,11 @@ Rectangle {
     /// ONE step down for anything nested, however deep — the same decision
     /// Element makes with its 32 -> 24 avatar, and for the same reason: a
     /// per-level shrink runs out after three steps.
-    readonly property int railNestedTileSize: Math.round(railTileSize * 0.85)
+    /// 0.833, and it was 0.85 — which at a 48px tile gives 41, an ODD width
+    /// on an even rail, so the nested rung centred on x=38.5 where every
+    /// other tile in the column centres on 38.0. Half a pixel, on the one
+    /// rule this rail has: every tile shares one axis. 0.833 gives 40.
+    readonly property int railNestedTileSize: Math.round(railTileSize * 0.833)
     /// A REVEALED ROOM'S tile. 0.7 of the Space tile, which is what the
     /// literal 28 was at the size it was written at.
     readonly property int railRoomTileSize: Math.round(railTileSize * 0.7)
@@ -337,8 +346,19 @@ Rectangle {
     /// 140% every other thing in this rail grew and the corners did not —
     /// the bands read measurably boxier against the tiles they hold.
     function bandRadius(depth) {
-        return Math.max(AppTheme.scaled(2),
-                        AppTheme.scaled(9)
+        // MUCH ROUNDER, asked for by name: "round the shapes more around the
+        // subspaces". The ladder was 7/5/3, which at a 74px-wide band reads
+        // as a rectangle with its corners filed off rather than as a soft
+        // container.
+        //
+        // STILL EXACTLY CONCENTRIC. A rounded rectangle inset by N inside
+        // another is concentric only when its radius is smaller by exactly N,
+        // and Material names non-concentric nesting as the thing that makes
+        // corners look unbalanced — so the ladder steps down by
+        // `bandInsetStep`, the same number the inset steps in by, and no
+        // other. 16 - 2/4/6 gives 14/12/10.
+        return Math.max(AppTheme.scaled(4),
+                        AppTheme.scaled(16)
                         - Math.min(depth, maxBandLayers) * bandInsetStep)
     }
 
@@ -525,7 +545,7 @@ Rectangle {
         // one and not the other is a drop that lands somewhere the reader was
         // not pointing — which is exactly the defect the `ownsRegion` comment
         // above records having shipped once already.
-        var seam = bandRadius(maxBandLayers)
+        var seam = groupGap
         var capOpens = owns && depth > maxBandLayers
                        && e.bandPrevLevel >= maxBandLayers
         var capCloses = depth > maxBandLayers
@@ -962,8 +982,24 @@ Rectangle {
                 /// resulting vocabulary has two boundaries that can never be
                 /// confused: a run ENDS and shows 8px of the grandparent;
                 /// a child BEGINS and shows 3px of the parent.
-                readonly property int capSeamSize:
-                    root.bandRadius(root.maxBandLayers)
+                /// The seam is the AIR the corner turns in, not the radius
+                /// itself. It was written as `bandRadius(maxBandLayers)` when
+                /// that was 3; the radii are 14/12/10 now and a ten-pixel
+                /// notch between every over-cap parent and child would be a
+                /// gap, not a seam — and it would compete with the 8px a run
+                /// that genuinely ENDS already spends.
+                /// 8, and it was 4. THE ROUNDING ONLY READS WHERE THERE IS
+                /// BACKGROUND BEHIND THE CORNER, and at 4 there was not:
+                /// consecutive regions stacked all but flush, so of 24
+                /// corners in a deep run only 4 met open rail and the other
+                /// 20 were a corner curving in meeting one curving out. The
+                /// radii went to 14/12/10 and bought twenty pinches.
+                ///
+                /// Eight is the same air a run that ENDS already spends, so
+                /// every boundary between two regions is now one number and
+                /// the three different junction treatments a critique
+                /// measured collapse to one.
+                readonly property int capSeamSize: root.groupGap
                 /// Guarded on the parent's band already being present at this
                 /// inset, so a cap seam can never stack with the gap a run
                 /// that truly ends already spends.
@@ -976,6 +1012,14 @@ Rectangle {
                     && spaceItem.bandNextLevel < spaceItem.trueBandDepth
                     && spaceItem.bandNextLevel >= root.maxBandLayers
                 readonly property int capSeamTop: capOpens ? capSeamSize : 0
+                /// WHERE THIS ROW'S CONTENT STARTS. The cap seam moves the
+                /// BAND down, and everything drawn on the band has to move
+                /// with it: the tile, its chevron, its revealed rooms. It did
+                /// not, so on a row that opens a seam the tile stayed at the
+                /// row's top and stuck out through the top edge of its own
+                /// region — reported as "blue DL looks very bad, the whole
+                /// region". A shape outside the shape that contains it.
+                readonly property int contentTop: capSeamTop
                 readonly property int capSeamBottom:
                     capCloses ? capSeamSize : 0
                 readonly property int trailingGap:
@@ -1222,7 +1266,13 @@ Rectangle {
                             + (spaceItem.bandNextLevel >= root.maxBandLayers
                                ? list.spacing + spaceItem.trailingGap : 0)
                     z: -20 + root.maxBandLayers - 0.5
-                    radius: root.bandRadius(root.maxBandLayers)
+                    // SQUARE. It stands in for a parent whose run CONTINUES
+                    // through this row — that is the only condition under
+                    // which it exists — so it has no end to round. Given a
+                    // radius it drew its own rounded top directly above the
+                    // child's, and two stacked rounded tops 8px apart is what
+                    // "the whole region looks very bad" was pointing at.
+                    radius: 0
                     // THE OTHER PARITY — the rung the child is not wearing.
                     color: AppTheme.railNestSurfaces[
                         Math.min(AppTheme.railNestSurfaces.length - 1,
@@ -1423,7 +1473,7 @@ Rectangle {
                     width: root.tileColumnX
                     height: spaceItem.tileBandHeight
                     x: 0
-                    y: 0
+                    y: spaceItem.contentTop
                     Icon {
                         id: expandGlyph
                         objectName: "railSpaceExpandGlyph"
@@ -1502,8 +1552,13 @@ Rectangle {
                     x: root.tileColumnX
                        + Math.round((root.railTileSize
                                      - spaceItem.rowTileSize) / 2)
-                    y: AppTheme.scaled(4) + spaceItem.dragLift
-                    radius: root.railTileRadius
+                    y: spaceItem.contentTop + AppTheme.scaled(4)
+                       + spaceItem.dragLift
+                    // THIS ROW'S OWN SIZE, not the top-level one. A nested
+                    // tile drawn at the full tile's radius is proportionally
+                    // rounder than its parent, which reads as a different
+                    // shape rather than as a smaller one.
+                    radius: root.tileRadiusFor(spaceItem.rowTileSize)
                     // ACTIVE is ONE language for every tile in the rail: the
                     // accent ring above, plus a soft accent WASH here (a tint,
                     // not a block). A solid bolt fill four pixels inside a bolt
@@ -1587,9 +1642,17 @@ Rectangle {
                         // rounded-square mask as `radius * 1000 / size`
                         // permille of the bitmap, so a stale 40 here gave a
                         // scaled tile a corner 40% too round.
-                        size: root.railTileSize
+                        // THIS ROW'S SIZE, not the base one. `Avatar.size` is
+                        // the mask's permille denominator, so a nested tile
+                        // rendered at 41 with a mask baked from 48 came out
+                        // at r/size 0.356 against the 0.30 every other tier
+                        // uses — MORE round than the band containing it,
+                        // which is the classic wrong-nesting read. The
+                        // Rectangle beneath it was already correct, which is
+                        // what made the two disagree.
+                        size: spaceItem.rowTileSize
                         circle: false
-                        squareRadius: root.railTileRadius
+                        squareRadius: root.tileRadiusFor(spaceItem.rowTileSize)
                         labelSize: AppTheme.scaled(15)
                         name: spaceItem.name
                         colorKey: spaceItem.spaceId
@@ -1652,7 +1715,7 @@ Rectangle {
                     id: tileDragArea
                     width: parent.width
                     height: spaceItem.tileBandHeight
-                    y: 0
+                    y: spaceItem.contentTop
                 DragHandler {
                     id: tileDrag
                     enabled: spaceItem.draggable
@@ -1779,7 +1842,7 @@ Rectangle {
                 Item {
                     objectName: "railSpaceTipAnchor"
                     x: spaceItem.width
-                    y: spaceItem.tileBandHeight
+                    y: spaceItem.contentTop + spaceItem.tileBandHeight
                     width: AppTheme.scaled(150)
                     height: 1
                     ToolTip.visible: spaceHover.hovered && !root.dragging
@@ -1869,7 +1932,7 @@ Rectangle {
                     visible: spaceItem.revealed > 0
                              && spaceItem.revealedRooms.length > 0
                              && !root.dragging
-                    y: spaceItem.tileBandHeight
+                    y: spaceItem.contentTop + spaceItem.tileBandHeight
                     width: parent.width
                     spacing: 2
 
@@ -1899,7 +1962,8 @@ Rectangle {
                                 objectName: "railRevealedRoomTile"
                                 width: root.railRoomTileSize
                                 height: root.railRoomTileSize
-                                radius: AppTheme.radiusMd
+                                radius: root.tileRadiusFor(
+                                            root.railRoomTileSize)
                                 color: "transparent"
                                 // THE SAME x AS EVERY OTHER TILE. A room used
                                 // to sit half a step further in, giving the
@@ -1917,7 +1981,8 @@ Rectangle {
                                     size: root.railRoomTileSize
                                     circle: expansionRoomRow.modelData
                                                 .isDirect === true
-                                    squareRadius: AppTheme.radiusMd
+                                    squareRadius: root.tileRadiusFor(
+                                                      root.railRoomTileSize)
                                     labelSize: AppTheme.scaled(11)
                                     name: expansionRoomRow.modelData.name || ""
                                     colorKey: expansionRoomRow.modelData

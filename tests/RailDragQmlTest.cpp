@@ -1689,6 +1689,64 @@ private slots:
                      "only %1 nested pairs were comparable, so nothing here "
                      "reaches past the cap").arg(alternationsChecked)));
 
+        // ── NOTHING IS DRAWN OUTSIDE THE REGION THAT CONTAINS IT ────
+        //
+        // Reported as "blue DL looks very bad, the whole region", and the
+        // cause was a shape escaping its container: the cap seam moves a
+        // child's BAND down, and the tile drawn on that band was still
+        // positioned from the row's top — so on every row that opens a seam
+        // the tile stuck out through the top edge of its own region.
+        //
+        // GEOMETRIC, ON REAL DELEGATES, and nothing else can see it. The
+        // bindings read correctly either way; the defect is entirely in two
+        // numbers that are supposed to move together and did not. The same
+        // shape of mistake has now produced three separate defects in this
+        // file, so it is worth pinning rather than fixing again.
+        int containmentChecks = 0;
+        for (const QString &id : chain) {
+            QQuickItem *row = delegateFor(id);
+            if (!row || !row->isVisible())
+                continue;
+            QList<QQuickItem *> rowLayers;
+            collectDescendantsNamed(row, QStringLiteral("railGroupField"),
+                                    rowLayers);
+            if (rowLayers.isEmpty())
+                continue;
+            auto *tile = row->findChild<QQuickItem *>(
+                QStringLiteral("railSpaceTile"));
+            if (!tile || tile->width() <= 0)
+                continue;
+            QQuickItem *innermost = rowLayers.last();
+            const QPointF tileTL = tile->mapToItem(row, QPointF(0, 0));
+            const QPointF bandTL = innermost->mapToItem(row, QPointF(0, 0));
+            ++containmentChecks;
+            QVERIFY2(tileTL.y() >= bandTL.y() - 0.5,
+                     qPrintable(QStringLiteral(
+                         "%1's tile starts at y=%2 and the region that holds "
+                         "it starts at y=%3 — the tile is drawn outside its "
+                         "own region")
+                         .arg(id).arg(tileTL.y()).arg(bandTL.y())));
+            QVERIFY2(tileTL.y() + tile->height()
+                         <= bandTL.y() + innermost->height() + 0.5,
+                     qPrintable(QStringLiteral(
+                         "%1's tile ends at y=%2 and its region ends at y=%3")
+                         .arg(id).arg(tileTL.y() + tile->height())
+                         .arg(bandTL.y() + innermost->height())));
+            QVERIFY2(tileTL.x() >= bandTL.x() - 0.5
+                         && tileTL.x() + tile->width()
+                                <= bandTL.x() + innermost->width() + 0.5,
+                     qPrintable(QStringLiteral(
+                         "%1's tile spans x %2..%3 and its region spans "
+                         "%4..%5").arg(id).arg(tileTL.x())
+                         .arg(tileTL.x() + tile->width())
+                         .arg(bandTL.x())
+                         .arg(bandTL.x() + innermost->width())));
+        }
+        QVERIFY2(containmentChecks >= 5,
+                 qPrintable(QStringLiteral(
+                     "only %1 rows were checked for containment")
+                     .arg(containmentChecks)));
+
         for (const QString &id : chain)
             store()->setSpaceExpanded(id, false);
         entries()->setSources(m_spaces, store());
