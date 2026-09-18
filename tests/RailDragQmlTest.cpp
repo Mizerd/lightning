@@ -65,6 +65,8 @@
 #include <QPoint>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QColor>
+#include <cmath>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSettings>
@@ -1250,13 +1252,16 @@ private slots:
 
         // ── AND THE CHEVRON IS INSIDE THE INNERMOST REGION ───────────
         //
-        // AT THE MINIMUM RAIL WIDTH, which is the only width where the two
-        // numbers can disagree. `tileColumnX` is `railSideMargin` exactly at
-        // the floor and grows past it once the tile has stopped, so a wider
-        // rail hands the glyph tens of pixels of slack — at this suite's
-        // 160px the gutter is 52 against a deepest inset of 10, and the
-        // assertion below passes on a gutter that cannot actually hold it.
-        // A first version of this case measured there and proved nothing.
+        // AT THE MINIMUM RAIL WIDTH, and it still narrows the rail even
+        // though it no longer has to. `tileColumnX` WAS a centring
+        // calculation, so a wide rail handed the glyph tens of pixels of
+        // slack and this assertion passed on a gutter that could not
+        // actually hold it — a first version measured at this suite's 160px
+        // and proved nothing. The gutter is a constant now (the rail's two
+        // margins differ, so the tile is placed rather than centred), which
+        // makes every width the worst case. Narrowing is kept because it
+        // costs nothing and it is the case that would come back if the
+        // placement ever went back to centring.
         const qreal restoreWidth = m_rail->width();
         m_rail->setWidth(m_rail->property("minRailWidth").toReal());
         QCoreApplication::processEvents();
@@ -1554,11 +1559,149 @@ private slots:
                      "says anything about deep nesting")
                      .arg(deepRowsChecked)));
 
+        // ── NO TWO REGIONS THAT TOUCH WEAR ONE TINT ─────────────────
+        //
+        // The stack is capped, so every row past the cap draws its own region
+        // as "the innermost layer" — which meant a depth-5 region was drawn
+        // directly inside a depth-4 one at the same inset AND the same
+        // colour, and the two were one picture. Asked in those words: "are
+        // these supposed to be the same color?"
+        //
+        // A CAP CANNOT BE ALLOWED TO STOP DISTINGUISHING. Past it the
+        // innermost layer alternates between the last two rungs, so a parent
+        // and the child drawn on top of it always differ. Eight levels is
+        // several rows past the cap, which is what makes this measurable.
+        QColor previousInnermost;
+        int alternationsChecked = 0;
+        for (const QString &id : chain) {
+            QQuickItem *row = delegateFor(id);
+            if (!row || !row->isVisible())
+                continue;
+            // ONLY ROWS THAT OWN A REGION. A leaf draws its ancestors'
+            // layers and none of its own, so its "innermost" IS its
+            // parent's — identical by construction, and comparing them
+            // asserts that a row differs from itself. The first version of
+            // this did exactly that and failed on correct code.
+            if (!row->property("ownsRegion").toBool())
+                continue;
+            QList<QQuickItem *> rowLayers;
+            collectDescendantsNamed(row, QStringLiteral("railGroupField"),
+                                    rowLayers);
+            if (rowLayers.isEmpty())
+                continue;
+            const QColor innermost =
+                rowLayers.last()->property("color").value<QColor>();
+            if (previousInnermost.isValid()) {
+                ++alternationsChecked;
+                QVERIFY2(innermost != previousInnermost,
+                         qPrintable(QStringLiteral(
+                             "%1's own region is %2 and the region it is "
+                             "drawn directly inside is the same colour — two "
+                             "different regions, one picture")
+                             .arg(id).arg(innermost.name())));
+            }
+            previousInnermost = innermost;
+        }
+        QVERIFY2(alternationsChecked >= 4,
+                 qPrintable(QStringLiteral(
+                     "only %1 nested pairs were comparable, so nothing here "
+                     "reaches past the cap").arg(alternationsChecked)));
+
         for (const QString &id : chain)
             store()->setSpaceExpanded(id, false);
         entries()->setSources(m_spaces, store());
         QCoreApplication::processEvents();
         QTest::qWait(60);
+    }
+
+
+    // ── 2026-09-18: the region ladder, on every preset ───────────────────
+    //
+    // The rail's whole hierarchy cue is a ladder of tinted regions, and its
+    // rungs are DERIVED from each theme's own rail and text colours — so
+    // there are eleven of them and nobody looks at more than one.
+    //
+    // MEASURED ACROSS ALL ELEVEN and they were not equal: the dark presets
+    // landed at 1.40-1.53 per boundary and the LIGHT ones at 1.22-1.36 on the
+    // same mix steps. That is the sRGB transfer curve rather than a palette
+    // problem — equal 8-bit steps are far smaller luminance steps near white
+    // than near black — so one alpha ladder cannot serve both directions and
+    // a ladder tuned on a dark preset arrives washed out on a light one.
+    //
+    // THIS READS THE LIVE SINGLETON, not the file. `railNestSurfaces` is a
+    // list of `Qt.tint()` results; a text scan of AppTheme.qml sees the
+    // alphas and cannot evaluate them, which is exactly how eleven presets
+    // came to share one ramp.
+    void theRegionLadderIsEvenOnEveryTheme()
+    {
+        auto *theme = m_engine->singletonInstance<QObject *>(
+            QStringLiteral("MatrixClient"), QStringLiteral("AppTheme"));
+        QVERIFY2(theme, "no AppTheme singleton — this case cannot read the "
+                        "region ladder and so proves nothing");
+        auto *settings = m_controller->settings();
+        QVERIFY2(settings, "no SettingsManager, so no theme can be selected");
+        const int original = settings->property("theme").toInt();
+
+        // Relative luminance, WCAG. Written out because the ladder's whole
+        // point is a PERCEPTUAL step and an 8-bit difference is not one.
+        const auto luminance = [](const QColor &c) {
+            const auto ch = [](double v) {
+                return v <= 0.04045 ? v / 12.92
+                                    : std::pow((v + 0.055) / 1.055, 2.4);
+            };
+            return 0.2126 * ch(c.redF()) + 0.7152 * ch(c.greenF())
+                   + 0.0722 * ch(c.blueF());
+        };
+        const auto contrast = [&luminance](const QColor &a, const QColor &b) {
+            const double la = luminance(a) + 0.05;
+            const double lb = luminance(b) + 0.05;
+            return la > lb ? la / lb : lb / la;
+        };
+
+        int themesChecked = 0;
+        // 1..11: every preset. 0 is "follow the system" and 12 is a
+        // user-authored palette, and neither is a palette of its own.
+        for (int t = 1; t <= 11; ++t) {
+            settings->setProperty("theme", t);
+            QCoreApplication::processEvents();
+            QTest::qWait(30);
+            if (settings->property("theme").toInt() != t)
+                continue;   // a preset this build does not carry
+
+            const QColor rail = theme->property("rail").value<QColor>();
+            const QVariantList rungs =
+                theme->property("railNestSurfaces").toList();
+            QVERIFY2(rungs.size() >= 4,
+                     qPrintable(QStringLiteral(
+                         "theme %1 exposes %2 region rungs")
+                         .arg(t).arg(rungs.size())));
+            ++themesChecked;
+
+            QColor previous = rail;
+            // Rung 0 is a FOLDER's container and is deliberately the quietest
+            // step of the ladder, so the assertion starts at hierarchy depth
+            // 1 — the rung a reader actually has to see against bare rail.
+            for (int i = 1; i < rungs.size(); ++i) {
+                const QColor rung = rungs.at(i).value<QColor>();
+                const double ratio = contrast(previous, rung);
+                QVERIFY2(ratio >= 1.30,
+                         qPrintable(QStringLiteral(
+                             "theme %1: region rung %2 (%3) is %4:1 against "
+                             "the one outside it (%5) — below the step a 2px "
+                             "band can carry, so the nesting stops reading")
+                             .arg(t).arg(i).arg(rung.name())
+                             .arg(ratio, 0, 'f', 2).arg(previous.name())));
+                previous = rung;
+            }
+        }
+        QVERIFY2(themesChecked >= 8,
+                 qPrintable(QStringLiteral(
+                     "only %1 presets were selectable, so this says little "
+                     "about the fleet").arg(themesChecked)));
+
+        settings->setProperty("theme", original);
+        QCoreApplication::processEvents();
+        QTest::qWait(30);
     }
 
 

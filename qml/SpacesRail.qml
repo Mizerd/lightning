@@ -152,7 +152,7 @@ Rectangle {
     /// "chevrons should be repositioned so they are in the color shape, not
     /// in between them": a deep row's innermost region starts at
     /// `bandInset(maxBandLayers)`, and a glyph right-anchored to the tile
-    /// begins at `railSideMargin - chevronInset - its own advance`. With a
+    /// begins at `railLeftGutter - chevronInset - its own advance`. With a
     /// 20px gutter that put the glyph at 8.8 and the depth-3 region's edge
     /// at 10, so the chevron sat in the PARENT's band beside its own box.
     ///
@@ -166,16 +166,32 @@ Rectangle {
     /// asked to have removed once.
     readonly property int chevronGlyphSize: AppTheme.scaled(12)
     readonly property int chevronInset: AppTheme.scaled(4)
-    readonly property int railSideMargin: chevronGlyphSize + 3 * chevronInset
+    /// ── THE TWO MARGINS ARE NOT THE SAME, AND THEY WERE ───────────────
+    ///
+    /// One `railSideMargin` was mirrored on both edges, so the RIGHT side of
+    /// the rail was as wide as the chevron column on the left while holding
+    /// nothing at all — reported as "the space bar is a bit too wide for
+    /// comfort, especially on the right side, it's just empty space there",
+    /// and it was: 24px of it at every width.
+    ///
+    /// The left gutter is a COLUMN with a control in it and is sized by that
+    /// control. The right margin is air, so it is sized like air. The rail
+    /// loses 16px at every stop and the tiles keep every pixel of theirs.
+    readonly property int railLeftGutter: chevronGlyphSize + 3 * chevronInset
+    readonly property int railRightMargin: AppTheme.scaled(8)
     /// THE WIDTH NOW BUYS SOMETHING. It used to buy indent, then lanes; both
     /// were spent on structure rather than on content, so dragging the rail
     /// wider changed the tiles by nothing at all. Past the default the tile
     /// itself grows, up to a ceiling, and then the margins take the rest.
     readonly property int railTileSize:
         Math.min(AppTheme.scaled(56),
-                 Math.max(AppTheme.scaled(40), width - 2 * railSideMargin))
-    /// One x for every tile, centred. The audit's one unambiguous keep.
-    readonly property int tileColumnX: Math.round((width - railTileSize) / 2)
+                 Math.max(AppTheme.scaled(40),
+                          width - railLeftGutter - railRightMargin))
+    /// ONE x for every tile — the audit's one unambiguous keep. It is the
+    /// gutter's own width now rather than a centring calculation, because
+    /// the two margins differ: a tile centred in an asymmetric rail would sit
+    /// half-way into the column that holds its chevron.
+    readonly property int tileColumnX: railLeftGutter
     /// ONE step down for anything nested, however deep — the same decision
     /// Element makes with its 32 -> 24 avatar, and for the same reason: a
     /// per-level shrink runs out after three steps.
@@ -207,16 +223,25 @@ Rectangle {
     /// containing it. A parent's region therefore runs unbroken behind every
     /// descendant it owns, and the nesting is visible as LAYERS.
     ///
-    /// CAPPED AT THREE, and the cap is what the gutter is sized against.
-    /// Each layer costs `2 * bandInsetStep` of width and pushes the
-    /// innermost edge right, and the expander has to stay inside that edge
-    /// (see `railSideMargin`) — so a fourth layer is not a matter of taste,
-    /// it is 4px the chevron does not have. Past three the region stops
-    /// narrowing and stops deepening, and a deeper row joins the innermost
-    /// rather than getting one nobody can see.
-    readonly property int maxBandLayers: 3
-    readonly property int bandInsetBase: AppTheme.scaled(4)
-    readonly property int bandInsetStep: AppTheme.scaled(3)
+    /// CAPPED AT FOUR, and it was three. Asked directly — "are these
+    /// supposed to be the same color?" — of two regions that are nested one
+    /// inside the other and wear the same tint, because both sit at or past
+    /// the cap. They are, and that is the cap admitting it cannot say
+    /// "deeper" any more; the honest fix is to make the cap deeper rather
+    /// than to explain it.
+    ///
+    /// THE WIDTH FOR IT CAME FROM THE INSET, not from the rail. Each layer
+    /// costs `2 * bandInsetStep` and pushes the innermost edge right, and the
+    /// expander has to stay inside that edge (see `railLeftGutter`) — so the
+    /// step is 2 where it was 3, which buys a fourth rung AND leaves more
+    /// clearance than three rungs had. That is the review's point, taken: the
+    /// inset was never the legible part. Measured across the whole stack it
+    /// changed the region's width by 9px on a 94px rail, while one tint step
+    /// is visible everywhere at once. Depth is carried by TONE, and the inset
+    /// is only there so an edge exists to see the tone against.
+    readonly property int maxBandLayers: 4
+    readonly property int bandInsetBase: AppTheme.scaled(3)
+    readonly property int bandInsetStep: AppTheme.scaled(2)
     /// Rung 0 is a FOLDER's container, which sits one step OUTSIDE hierarchy
     /// depth 1 because it contains it.
     function bandInset(depth) {
@@ -243,9 +268,9 @@ Rectangle {
     /// the tile grows in the middle of it and the margins take the rest only
     /// once the tile has stopped.
     readonly property int minRailWidth:
-        AppTheme.scaled(40) + 2 * railSideMargin
+        AppTheme.scaled(40) + railLeftGutter + railRightMargin
     readonly property int maxRailWidth:
-        AppTheme.scaled(56) + 2 * railSideMargin
+        AppTheme.scaled(56) + railLeftGutter + railRightMargin
 
     function revealCount(spaceId) {
         if (!app.railLayout || !app.railLayout.spaceExpanded(spaceId))
@@ -644,6 +669,33 @@ Rectangle {
                 readonly property bool ownsRegion:
                     spaceItem.bandNextLevel > spaceItem.level
                     || expansionCol.visible
+                /// How deep this row's own region really is, uncapped.
+                readonly property int trueBandDepth:
+                    Math.max(0, spaceItem.level)
+                    + (spaceItem.ownsRegion ? 1 : 0)
+                /// ── NO TWO REGIONS THAT TOUCH WEAR ONE TINT ───────────
+                ///
+                /// The stack is capped, so every row past the cap draws its
+                /// own region as "the innermost layer" — which meant a
+                /// depth-5 region was drawn directly inside a depth-4 one at
+                /// the same inset AND the same tint, and the two were the
+                /// same picture. Asked in those words: "are these supposed to
+                /// be the same color?" They were, and the honest answer is
+                /// that the cap had stopped distinguishing.
+                ///
+                /// Past the cap the innermost layer ALTERNATES between the
+                /// last two rungs, so a parent and the child drawn on top of
+                /// it always differ. The ancestor layers are untouched, which
+                /// is what keeps the alternation from colliding with the
+                /// depth-(cap-1) region on the same row.
+                function bandTint(depth) {
+                    if (depth < spaceItem.bandLayers)
+                        return depth
+                    var overflow = spaceItem.trueBandDepth - root.maxBandLayers
+                    if (overflow <= 0)
+                        return depth
+                    return root.maxBandLayers + (overflow % 2)
+                }
                 /// The air after the last row of a run, added by that row.
                 ///
                 /// KEYED ON THE ROW'S INNERMOST REGION, and it used to be
@@ -920,7 +972,7 @@ Rectangle {
                         // line, which is correct-looking either way.
                         color: AppTheme.railNestSurfaces[
                             Math.min(AppTheme.railNestSurfaces.length - 1,
-                                     depth)]
+                                     spaceItem.bandTint(depth))]
                         Rectangle {
                             // Square off the top when this layer's run
                             // continues above, so a run of any length reads

@@ -1102,7 +1102,14 @@ QtObject {
     // a hierarchy region are the same device and were two before — the
     // container was painted over the regions inside it in the one colour
     // they already used, so a tree filed into a folder lost its nesting
-    // entirely and nothing in the code said why.
+    // entirely and nothing in the code said why. SIX rungs: 0 is the folder,
+    // 1..4 are hierarchy depth, and 5 exists ONLY so that regions past the
+    // cap can alternate with 4 — because the rail's guarantee is that no two
+    // regions which touch are ever the same tint. Asked directly — "are
+    // these supposed to be the same color?", of two regions nested one
+    // inside the other that both sat at the cap. They were, and a cap that
+    // stops distinguishing is a cap that draws two different things
+    // identically.
     //
     // ── THE RAMP IS EVEN, AND IT WAS NOT ─────────────────────────────
     //
@@ -1123,11 +1130,26 @@ QtObject {
     // `railNestTint(n)` would register no dependency on the colours it reads
     // and would not re-evaluate when the theme changed — the failure this
     // project has now hit in four separate places.
+    //
+    // TWO LADDERS, BECAUSE ONE ALPHA RAMP CANNOT SERVE BOTH DIRECTIONS.
+    // Measured across all eleven presets: the dark ones landed at 1.40-1.53
+    // per boundary and the LIGHT ones at 1.22-1.36 — the same mix steps,
+    // markedly less separation. That is the sRGB transfer curve, not a
+    // palette problem: equal steps in 8-bit are far smaller steps in
+    // luminance near white than near black, so a ladder tuned on a dark
+    // preset arrives washed out on a light one. The light alphas are solved
+    // for the same ~1.45:1 target rather than copied.
+    readonly property bool _railIsDark: rail.hslLightness < 0.5
+    readonly property var _railNestAlphas:
+        _railIsDark ? [0.06, 0.16, 0.26, 0.37, 0.49, 0.60]
+                    : [0.10, 0.19, 0.35, 0.51, 0.66, 0.79]
     readonly property var railNestSurfaces: [
-        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, 0.06)),
-        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, 0.16)),
-        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, 0.26)),
-        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, 0.37))
+        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[0])),
+        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[1])),
+        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[2])),
+        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[3])),
+        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[4])),
+        Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[5]))
     ]
     // Kept as its own name for anything outside the rail that reads it.
     readonly property color railNestSurface: railNestSurfaces[2]
