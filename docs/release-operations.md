@@ -60,6 +60,15 @@ published it**, pending code signing. OAuth/OIDC sign-in is the one
 feature block that IS fully live-validated (0.7.0; see §7) — nothing
 else in the 0.7.x rounds is.
 
+0.9.7's anonymous verification bar was run on 2026-09-16 and PASSED IN
+FULL: all eleven package links 200 with the count asserted, the manifest
+reading 0.9.7 / `v0.9.7` with six artifacts all carrying `mirror_url` and
+macOS correctly ABSENT, the Ed25519 signature VERIFIED against the key
+extracted from the shipped `.deb` with a one-field-changed copy REJECTED,
+the GitHub tag peeling to `bc5dcd5`, 11 mirror assets, and the `.deb`
+fetched FROM GITHUB matching the GitLab-signed SHA-256. 0.9.8's own run,
+which is the current one, is recorded in CLAUDE.md §2.
+
 Releases are package-first: the tag and GitLab Release are created by
 the lightning-deploy pipeline only after packages publish and verify
 (§14). Never create a tag or release by hand, and never move one.

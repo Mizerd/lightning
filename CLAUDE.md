@@ -139,14 +139,6 @@ negotiated **5 fps** at 1080p where the compressed chain negotiated 30. **Do not
 as stale since `RtpVp8Payloader.cpp`, and tonight's runs carry encrypted screen
 share to Sable, to Element and to Lightning on another platform.
 
-The anonymous verification bar (§14) was run for **0.9.7** on 2026-09-16 and
-PASSED IN FULL: all eleven package links 200 with the count asserted, the
-manifest reading 0.9.7 / `v0.9.7` with six artifacts all carrying `mirror_url`
-and macOS correctly ABSENT, the Ed25519 signature VERIFIED against the key
-extracted from the shipped `.deb` with a one-field-changed copy REJECTED, the
-GitHub tag peeling to `bc5dcd5`, 11 mirror assets, and the `.deb` fetched FROM
-GITHUB matching the GitLab-signed SHA-256.
-
 **TWO PIPELINES DIED BEFORE 225 AND BOTH WERE THE RELEASE COMMIT'S OWN
 MISTAKES, caught by gates with nothing published and no tag created**: 223 on
 the metainfo (§14's sixth location) and 224 on `build-windows`, where a
@@ -155,7 +147,8 @@ plugin was added to the REQUIRED list before the hand-built image carried it
 
 Previous release: **Lightning 0.9.7** (`v0.9.7` -> `bc5dcd5`), tagged
 2026-09-16 by pipeline **225, 25/25**; notes in `docs/releases/v0.9.7.md`. Its
-own bar passed in full on 2026-09-16. It is the release whose three headline
+own bar passed in full on 2026-09-16 and its result is in
+`docs/release-operations.md`. It is the release whose three headline
 promises could not fire in any shipped package, which is what 0.9.8 is for.
 
 **0.9.6's RECORD HAS MOVED to `docs/release-operations.md`,** under "0.9.6,
@@ -1685,17 +1678,21 @@ fade, so the click never reached the handler under test: the same failure,
 a different cause. Make the fixture prove it can HIT the thing before
 concluding anything about what the thing does.
 
-**A BINDING THAT REACHES STATE THROUGH A FUNCTION CALL IS NOT BOUND TO IT,
-and a PUSHED record is only as complete as the callers that remembered to
-push.** Both bit on 2026-09-18. A rail leaf's chevron opened and revealed
-none of its rooms, because `revealed` asked a Q_INVOKABLE for the expansion
-state and so never re-evaluated — reported as a room that "did not appear
-until a restart", and the sync hypothesis written for it was tested and
-REFUTED. And a call in an unencrypted room carried audio ONE WAY, because
+**THREE WAYS A VALUE CAN BE SILENTLY ABSENT, all on 2026-09-18.** A BINDING
+THAT REACHES STATE THROUGH A FUNCTION CALL IS NOT BOUND TO IT: a rail leaf's
+chevron opened and revealed no rooms because `revealed` asked a Q_INVOKABLE
+for the expansion state — reported as a room that "did not appear until a
+restart", and the sync hypothesis written for it was tested and REFUTED. A
+PUSHED RECORD IS ONLY AS COMPLETE AS THE CALLERS THAT REMEMBERED TO PUSH: a
+call in an unencrypted room carried audio ONE WAY because
 `RtcController::roomEncrypted()` read a map whose two writers both required
-the room to be OPEN, and the incoming-call card is an overlay that opens
-none. Both are now PULLED. Full account in `docs/round-history.md`,
-2026-09-18.
+the room to be OPEN, and the incoming-call card opens none. Both are PULLED
+now. And **AN UNDECLARED PROPERTY ON A DELEGATE IS `undefined`, AND QML SAYS
+NOTHING**: the rail's group field read two model roles it had never declared
+as `required property`, so `!undefined` drew every run square at both ends
+and the gap between groups was never added — invisible in a capture, caught
+only by a geometric case comparing derived row tops against the delegates.
+Full account in `docs/round-history.md`, 2026-09-18.
 
 **Timeline test conventions — do not "re-fix" these.** The rotated
 Flickable + Column has no `positionViewAtIndex`,

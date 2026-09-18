@@ -1,5 +1,41 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-18 (evening) — the rail with no lines in it
+
+**PASS**, on an isolated Xvfb display (`:99`) against the `lightningtest`
+fixture account, on the real `build-rust/lightning-matrix`. Not the
+maintainer's desktop and not his account: the profile is a copy in a session
+scratchpad, and the display exists only for this check, so nothing in it
+touched a live session.
+
+Captured and read back by SAMPLING PIXELS, not by eye — this round had already
+been caught once eyeballing a 2x upscale and reporting a clipped glyph that
+was not clipped:
+
+* **Nested Spaces sit on a continuous field.** Two subspaces under one Space,
+  one tint, no seam: a vertical scan through the gutter reads the field's
+  colour unbroken across both rows and the 4px of `ListView.spacing` between
+  them. Before the fix the same scan read four pixels of rail background in
+  the middle of the group.
+* **Revealed rooms sit on the same field**, which they did not before — a
+  nested-Space run was tinted and a room run was not, though they say the same
+  thing about the same tile.
+* **The tiles keep one axis.** Root, subspace and room tiles all centre on the
+  same x; only their SIZE changes. Measured off a horizontal scan: field from
+  x=4, tile from x=26 to x=53, field to x=75, rail edge at 79.
+* **A drag-reorder across a group works and stays legible.** A Space dragged
+  from above a group to below it: the field is drawn throughout the gesture
+  from the preview's own rows, the drop placeholder is visible, and after
+  release the moved Space came back with its own revealed rooms and their
+  field intact.
+* **140% text size scales all of it together** — tiles, gutter, chevrons and
+  fields — with nothing clipped and no wave.
+
+**What this does NOT cover:** the maintainer has not seen it. It is a
+capture-and-measure pass on a fixture account, not his judgement of how it
+looks, which is the thing that sent the previous two layouts back.
+
+
 ## 2026-09-18 — the flattened rail: drag, group, ungroup and resize
 
 **PASS**, laptop rig, after every horizontal coordinate in `SpacesRail.qml`

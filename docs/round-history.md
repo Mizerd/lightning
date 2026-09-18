@@ -506,6 +506,112 @@ revealed under a Space are not model rows**, so counting depth off a screenshot
 by eye counts the wrong things; the model's own numbers are the only ones worth
 reading.
 
+### And then the lines came out again, three hours after they went in
+
+The tree above shipped, was shown, and was answered with **"it looks way to
+wavy, and the entire left side is wasted"**, then **"like flatten the
+subspaces, they keep sticking out more and more and create like a wave
+pattern"**, and finally **"it looks bad"**. A research agent and a design
+agent were sent out on the maintainer's instruction; a third audited the
+result.
+
+**FOUR SHIPPING CLIENTS WERE READ AND NONE OF THEM DRAWS A LINE IN A RAIL.**
+Element hides nesting entirely while the panel is narrow — its own e2e test
+asserts that — and widens the whole panel when a chevron is pressed. Nheko
+multiplies its indent by ZERO when collapsed. Discord gives a foldered server
+no horizontal offset at all and tints a pill behind the run; nesting is not
+even expressible in its wire format. VS Code's 48px activity bar has
+`minimumWidth === maximumWidth` and expresses no hierarchy whatsoever. Two of
+those are products that shipped a tree in a rail, looked at it, and took the
+indent out.
+
+The audit then measured what the lines cost here: **59% of a 116px rail spent
+on line-work and void**, with depth encoded as the LENGTH of a horizontal
+rule — 10px per level at the widest stop and FOUR at the default — and lanes
+that began in empty background, never attaching to the parent they stood for.
+
+So there are no lines. Containment is a tinted REGION behind the run, which
+costs no horizontal space, is what Discord does, and is what this rail's own
+folders had been doing since they shipped. Depth past the first step is
+carried by SIZE — Space, subspace, room — which is Element's answer and is
+also free, and the tint saturates after two steps so a deep tree does not
+walk towards black. Everything that existed to pay for the indent went with
+it: lanes, elbows, the width STOPS (each bought one more level of it) and the
+auto-dive, which existed only because a rail could run out of depth.
+
+#### Five defects, four found by measuring and one of them mine
+
+**`bandTop` and `bandBottom` were never DECLARED on the delegate.** QML hands
+back `undefined` for an unknown property on a delegate and says nothing, so
+for several hours the field's corner-squaring children were `!undefined` —
+every run square at both ends — and the gap separating one group from the
+next was never added. Nothing in a capture said so, because a square-ended
+tint still reads as a tint. It was caught by a geometric case comparing
+`rowTop()` against the delegates. **Same family as the unregistered test file
+and `refreshIndexStats()` with no caller: code that exists, looks right, and
+is never reached.**
+
+**`rowBand()` returned one constant for every row but the first**, which was
+exactly true while every tile was `railTileSize` and stopped being true the
+moment a nested tile became a step smaller and a group's last row started
+carrying the gap below it. `rowTop()` is what EVERY drop decision is made
+against — it is derived rather than read off the delegates precisely because
+the move and displaced transitions interpolate `y` for 140ms — so the error
+was 6px per nested row and 8px per group ABOVE the pointer: nothing on a
+shallow rail, a slot off on a deep one. Every band derives from its own row
+now, the divider included, so `firstRowBand` has nothing left to sample.
+**A derived quantity has to be re-derived when the thing it describes
+changes, and nothing will tell you it has not been.**
+
+**`ListView.spacing` left a seam down the middle of every group.** A per-row
+rectangle that stops at its own delegate cannot cover the 4px of rail
+background between consecutive ones. Found by sampling a vertical line of
+pixels out of a capture — 61, 61, 61, then 14, 14, 14, 14, then 61 again —
+not by looking at it.
+
+**A revealed-room run floated on bare rail while a nested-Space run sat on a
+tint**, though both are the same statement about the same tile. The rooms are
+drawn inside their owner's delegate rather than as model rows, so they carry
+no `bandStep` and have to take their owner's, one step deeper.
+
+**And one that was not a defect at all, which is the mistake.** The gutter's
+width was a literal with nothing tying it to the expander it holds, and the
+first version of this entry said the chevron was laid out at x = -2 and
+clipped by the rail's edge. It was not. That came from eyeballing a 2x upscale
+and assuming an `Icon` is as wide as the `size` it is given; an Icon sizes by
+FONT PIXEL SIZE and a chevron's advance is 7.2px of the 12 it asked for, so
+the arithmetic was out by the difference. The real finding is smaller and
+still worth fixing: the glyph sat 2.8px from the rail's outer edge and 4px
+from its own tile, closer to the window frame than to the thing it belongs
+to. **ASK THE INSTRUMENT, not the arithmetic** — the second time that lesson
+has been paid for here, after `level`'s -350 dBFS floor.
+
+#### Two regression cases that passed on broken code first
+
+`theGroupFieldFollowsTheRowsRatherThanTheGraph` was written against a fixture
+of one child per level, and `<` versus `<=` gives the same answer everywhere
+except at a SIBLING boundary — which that fixture never contains. It passes on
+the wrong rule. The fixture now has three adjacent leaf siblings.
+
+`everyRowTopMatchesTheRowThatIsActuallyThere` was written against two roots
+each with one nested child, and passed on a constant band by arithmetic
+accident: a nested tile is 8px shorter and a group's last row is 8px taller,
+so a nested LAST row is exactly the constant at every width. A three-level
+chain has a nested row that is not last, and that one cannot cancel.
+**A fixture that cannot contain the distinction is not a test of it**, and
+both of these were only found by running them against the unfixed tree.
+
+#### What was verified live
+
+On an isolated Xvfb display against the `lightningtest` fixture account, on
+the real Rust build: nested Spaces and revealed rooms both sitting on one
+continuous field, a drag-reorder of a Space across a group with the field
+drawn from the preview's own rows, and the whole rail at 140% text size. The
+field is deliberately NOT hidden during a drag — the lanes it replaces were —
+because `stampGroupField` runs inside `applyRows`, so what a reader sees
+mid-gesture is what the release will produce.
+
+
 ## 2026-09-17 (second review round) — the sweep that read one file, and three verdicts that could not fail
 
 The same reviewer, a second time, on the work the first round produced. It
