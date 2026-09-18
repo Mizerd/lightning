@@ -404,6 +404,84 @@ row's corner is. Whether a Space is open was never the chevron's job: its
 children are either drawn beneath it or they are not, and that is a far larger
 signal than a six-pixel tick.
 
+#### The indent was the mistake, and four shipping clients say so
+
+"They keep sticking out more and more and create like a wave pattern.
+Flatten the subspaces." A per-level step walks a 40px tile off its own axis
+inside a rail that starts at 68px and then walks it back — the column ends up
+with no baseline anywhere, and the tiles come in two sizes as well, so there is
+no edge left for the eye to use. **And it is a WIDE-rail phenomenon**, which is
+the perverse part: widening the rail is what buys the wave.
+
+Two agents went out, one to find what shipped elsewhere and one to design.
+They arrived at the same place from opposite directions, and the research half
+is worth keeping because it settles the question rather than arguing it:
+
+* **Element** renders no nesting AT ALL while its panel is narrow. `isCollapsed`
+  returns true for every item and no child `SpaceTreeLevel` is constructed; its
+  own end-to-end test is titled "should render subspaces in the space panel
+  only when expanded" and asserts the child is not visible. Pressing the
+  chevron in the 68px rail calls `onExpand` and **widens the entire panel
+  first**. Expanded, it indents 16px per level with NO connector lines — there
+  is not one `border-left` or `::before` rule in `_SpacePanel.pcss`.
+* **Nheko**, the only other Qt client keeping a deep tree in a narrow rail,
+  multiplies its indent by ZERO when collapsed:
+  `anchors.leftMargin: paddingMedium + (collapsed ? 0 : lineSpacing * depth)`.
+  No lines either.
+* **Discord** gives a foldered server no horizontal offset whatsoever — every
+  item is the full rail width and centre-justified, and `.folderGuildsList` has
+  `overflow: hidden` and nothing else. The grouping is a tinted pill behind the
+  run. Nesting past one level is unrepresentable in its wire format: a
+  `GuildFolder` holds guild ids and folders are a flat list.
+* **VS Code** draws the line between the two cases in one codebase: its 48px
+  activity bar expresses no hierarchy and is not resizable (`minimumWidth` and
+  `maximumWidth` are the same expression), while the tree lives in a side bar
+  with `minimumWidth = 170`. Apple's HIG says outright: no more than two levels
+  in a sidebar, and it never describes an icon-only one.
+
+**No product draws connector or guide lines in a rail.** Element draws them
+only in its full-width hierarchy explorer, at `left: 6px` inside a 12px step.
+
+So the tiles stop moving. Every one sits at `tileColumnX`, at every depth,
+forever, and the depth is carried by LANES in a fixed gutter to their left —
+a ruler against a stationary origin instead of a ramp with none. `laneRegion`
+is what is left once the tile, its elbow run and the edge margin are paid for;
+`lanePitch` divides it. **The elbow's run is reserved BEFORE the lanes**, so
+the connector into each icon is a constant width at every depth and can never
+be squeezed back to the three pixels that produced "make it bend to the right
+too on the bottom and connect to the icons".
+
+It also makes the rail better where it is actually used, because depth had been
+paid for twice — once by the tile and once by the line. At the 68px default the
+gutter affords THREE levels where the indent afforded one; at 112px it affords
+six where the indent afforded three. The stops become 68/76/86/96/106/116 and
+stop there: past six lanes the gutter does not grow, so a wider rail would buy
+nothing and is not offered.
+
+#### The chevron, on its third home
+
+In the gutter it was either indistinguishable from "collapsed" (as
+`chevron_right` for the dive) or a stray mark (as an arrow), and on the elbow
+it had to break the line it sat on to be legible. Hover-only fixed the line and
+produced "I don't see how to collapse it" within the hour.
+
+It is a notch straddling each tile's bottom-left corner now: permanent, at the
+same place on every tile at every depth, and it never touches a line — so
+`jointHalf` and the split vertical it needed are gone and the elbow is one
+clean corner again. **The first attempt put it fully inside the tile and it
+covered the initials**, which in an icon rail are the only thing identifying a
+Space; centred on the corner it reads as a notch taken out of the tile.
+
+Two tests were INVERTED rather than deleted, and that is the honest move when a
+requirement turns out to be the defect.
+`theExpanderSitsTheSameDistanceFromItsTileAtEveryLevel` required each level's
+tile to sit further right than the one above; it is
+`nestingMovesTheTreeAndNotTheTiles` now and requires them EQUAL, plus the
+expander keeping one place on the tile it belongs to — the other half of the
+same report, which was that the chevrons were unevenly distanced.
+`railIndentsNestedSpaces` in the tester-report contract required a per-level
+centre offset and now forbids one.
+
 #### The tooltip fix that the obvious reading would have broken
 
 The audit also measured the rail's tooltip covering 15 of the 28 pixels of the
