@@ -1058,7 +1058,118 @@ private Q_SLOTS:
         QCOMPARE(store.folders().size(), 2);
     }
 
-    void aPseudoRowAndASubspaceCannotBeDragged()
+    // ── 2026-09-18: a subspace drag is REMEMBERED ────────────────────────
+    //
+    // The refusal was only half of what "I can't rearrange subspaces as I can
+    // with normal spaces" meant. The other half is that the arrangement has
+    // to survive — the top level's does, in this same store, and an order
+    // that evaporates on the next sync is not an arrangement.
+    //
+    // ONE PARENT'S KEY, and this is the bit that is easy to get wrong: a
+    // subspace drag must not go through `applyArrangement`, which is about
+    // the TOP level and its folders. Handing it a top-level list this drag
+    // never rearranged would rewrite the user's Space order as a side effect
+    // of moving a child. The assertion at the end is what catches that.
+    void reorderingASubspaceIsRememberedAndTouchesNothingElse()
+    {
+        FakeClient client;
+        client.roomList = {
+            spaceRoom(QStringLiteral("!other:x"), QStringLiteral("Other"), {}),
+            spaceRoom(QStringLiteral("!parent:x"), QStringLiteral("Parent"),
+                      { QStringLiteral("!a:x"), QStringLiteral("!b:x"),
+                        QStringLiteral("!c:x") }),
+            spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A"), {},
+                      { QStringLiteral("!parent:x") }),
+            spaceRoom(QStringLiteral("!b:x"), QStringLiteral("B"), {},
+                      { QStringLiteral("!parent:x") }),
+            spaceRoom(QStringLiteral("!c:x"), QStringLiteral("C"), {},
+                      { QStringLiteral("!parent:x") }),
+        };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        store.setSpaceExpanded(QStringLiteral("!parent:x"), true);
+        RailEntryModel model;
+        model.setSources(&spaces, &store);
+
+        const auto childRows = [&model] {
+            QStringList out;
+            for (int i = 0; i < model.rowCount(); ++i) {
+                const QModelIndex idx = model.index(i, 0);
+                if (!model.data(idx, RailEntryModel::HierarchyChildRole)
+                         .toBool()) {
+                    continue;
+                }
+                out << model.data(idx, RailEntryModel::SpaceIdRole).toString();
+            }
+            return out;
+        };
+        const QStringList before = childRows();
+        QCOMPARE(before, (QStringList{ QStringLiteral("!a:x"),
+                                       QStringLiteral("!b:x"),
+                                       QStringLiteral("!c:x") }));
+        const QStringList topBefore = store.order();
+
+        // Drag C to the front of its own run.
+        const int aRow = model.rowForEntry(QStringLiteral("!a:x"));
+        QVERIFY(model.beginDrag(QStringLiteral("!c:x")));
+        model.hoverGap(aRow);
+        model.endDrag(true);
+
+        QCOMPARE(childRows(), (QStringList{ QStringLiteral("!c:x"),
+                                            QStringLiteral("!a:x"),
+                                            QStringLiteral("!b:x") }));
+        QCOMPARE(store.orderedChildren(QStringLiteral("!parent:x"),
+                                       (QStringList{ QStringLiteral("!a:x"),
+                                                     QStringLiteral("!b:x"),
+                                                     QStringLiteral("!c:x") })),
+                 (QStringList{ QStringLiteral("!c:x"), QStringLiteral("!a:x"),
+                               QStringLiteral("!b:x") }));
+
+        // AND IT SURVIVES A FRESH STORE over the same settings, which is the
+        // only thing that distinguishes an arrangement from a repaint.
+        RailLayoutStore reloaded(&settings);
+        QCOMPARE(reloaded.orderedChildren(
+                     QStringLiteral("!parent:x"),
+                     (QStringList{ QStringLiteral("!a:x"),
+                                   QStringLiteral("!b:x"),
+                                   QStringLiteral("!c:x") })),
+                 (QStringList{ QStringLiteral("!c:x"), QStringLiteral("!a:x"),
+                               QStringLiteral("!b:x") }));
+
+        // A CHILD THAT APPEARS LATER JOINS THE END, never the middle of a
+        // hand-made run — the same policy the top level has always had.
+        QCOMPARE(reloaded.orderedChildren(
+                     QStringLiteral("!parent:x"),
+                     (QStringList{ QStringLiteral("!a:x"),
+                                   QStringLiteral("!b:x"),
+                                   QStringLiteral("!c:x"),
+                                   QStringLiteral("!new:x") })),
+                 (QStringList{ QStringLiteral("!c:x"), QStringLiteral("!a:x"),
+                               QStringLiteral("!b:x"),
+                               QStringLiteral("!new:x") }));
+
+        // AND THE TOP LEVEL IS UNTOUCHED.
+        QCOMPARE(store.order(), topBefore);
+    }
+
+    // ── 2026-09-18: a subspace IS draggable, and only among its siblings ──
+    //
+    // This case used to require the opposite, on the reasoning that "a
+    // subspace's position belongs to Matrix". That was true of the SERVER's
+    // order and never true of the rail's: the top level has always been
+    // arranged locally, in this same store, and a rail that arranges one
+    // level and refuses the next is the inconsistency that was reported —
+    // "I can't rearrange subspaces and rooms in them as I can with normal
+    // spaces, should behave the same".
+    //
+    // What Matrix does still own is the SHAPE. A drag may reorder children
+    // within one parent and may not reparent, and may not file a subspace
+    // into a rail folder: reparenting needs power to send state in a Space
+    // this user may not own, and a folder is a top-level grouping that would
+    // either detach the child or claim a nesting the store cannot write.
+    void aPseudoRowCannotBeDraggedAndASubspaceOnlyAmongItsSiblings()
     {
         FakeClient client;
         client.roomList = {
@@ -1087,12 +1198,37 @@ private Q_SLOTS:
                  "the All rooms pseudo row is draggable");
         QVERIFY2(!model.beginDrag(QStringLiteral("@orphans")),
                  "the Other rooms pseudo row is draggable");
-        // The subspace is SHOWN (its parent is expanded) but its position
-        // belongs to Matrix, not to the user.
-        QVERIFY(model.rowForEntry(QStringLiteral("!child:x")) >= 0);
-        QVERIFY2(!model.beginDrag(QStringLiteral("!child:x")),
-                 "a subspace can be dragged, which would let a local folder "
-                 "look like it changes the Matrix hierarchy");
+
+        // The subspace is SHOWN (its parent is expanded) and the user may
+        // now arrange it.
+        const int childRow = model.rowForEntry(QStringLiteral("!child:x"));
+        QVERIFY(childRow >= 0);
+        QVERIFY2(model.beginDrag(QStringLiteral("!child:x")),
+                 "a subspace refuses to be dragged, so the rail still "
+                 "arranges its top level and nothing under it");
+
+        // AND IT CANNOT LEAVE ITS PARENT. Every gap the gesture can ask for —
+        // above the whole rail, and past the end of it — resolves to a slot
+        // inside this parent's own run. That is the one invariant separating
+        // "reorder", which is the rail's, from "reparent", which is Matrix's.
+        for (int gap = 0; gap <= model.rowCount() + 2; ++gap) {
+            const int legal = model.legalGapForTest(gap);
+            QVERIFY2(legal >= childRow && legal <= childRow + 1,
+                     qPrintable(QStringLiteral(
+                         "a gap at %1 resolves to %2, outside this "
+                         "subspace's only sibling slot (%3..%4) — the drag "
+                         "can reparent")
+                         .arg(gap).arg(legal).arg(childRow)
+                         .arg(childRow + 1)));
+        }
+
+        // AND IT CANNOT BE FILED. A rail folder is a top-level grouping.
+        model.hoverGroup(model.rowForEntry(QStringLiteral("!parent:x")));
+        QVERIFY2(model.dropTargetId().isEmpty(),
+                 "a subspace offers to group into a folder, which would "
+                 "either detach it from its parent or claim a nesting the "
+                 "store has no way to write");
+        model.endDrag(false);
     }
 
     // ── Matrix subspaces in the rail ─────────────────────────────────────

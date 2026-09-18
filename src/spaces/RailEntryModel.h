@@ -159,6 +159,11 @@ public:
     bool dragging() const { return m_dragging; }
     QString draggingEntryId() const { return m_dragEntryId; }
     QString dropTargetId() const { return m_dropTargetId; }
+    /// Test-only reader for the gap snapping above. The rule it implements —
+    /// a subspace may reorder and may not reparent — cannot be asserted from
+    /// outside without it, and asserting it by driving a whole QML drag would
+    /// be testing the gesture rather than the rule.
+    int legalGapForTest(int gap) const { return legalGap(gap); }
     bool grouping() const { return m_grouping; }
     bool peopleEntryVisible() const { return m_peopleEntryVisible; }
     bool orphansEntryVisible() const { return m_orphansEntryVisible; }
@@ -249,11 +254,16 @@ private:
     /// container band drawn behind an open folder follows the drag.
     void refreshFolderRuns();
     /// Snaps a pointer GAP to a legal one for the entry being dragged: never
-    /// above a pseudo row, never strictly inside a subspace run, and — for a
-    /// folder — only at a top-level boundary. Gaps run 0..m_rows.size().
+    /// above a pseudo row; for a TOP-LEVEL entry never strictly inside a
+    /// subspace run; for a FOLDER only at a top-level boundary; and for a
+    /// SUBSPACE only at a boundary between its own parent's children, which
+    /// is what keeps a reorder from becoming a reparent. Gaps run
+    /// 0..m_rows.size().
     int legalGap(int gap) const;
     void commitGrouping(const QString &dragged, const QString &target);
     void commitReorder(const QString &dragged);
+    /// Writes ONE parent's subspace order, read back off the drag preview.
+    void commitChildOrder(const QString &dragged);
     bool rowIsFolder(int row) const;
 
     SpaceManager *m_spaces = nullptr;

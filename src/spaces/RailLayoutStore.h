@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -109,6 +110,21 @@ public:
     // dropped; ids belonging to a folder are ignored.
     Q_INVOKABLE void setTopLevelOrder(const QStringList &entryIds);
 
+    /// `known` in the user's order: the stored arrangement first, then
+    /// anything it does not mention, in the order Matrix gave it. Identical
+    /// policy to `arrange()` at the top level — a Space that appears after
+    /// the user last dragged goes to the END of its run rather than jumping
+    /// into the middle of a hand-made arrangement.
+    Q_INVOKABLE QStringList orderedChildren(const QString &parentId,
+                                            const QStringList &known) const;
+    /// Records the order `parentId`'s subspaces are shown in. Ids not in
+    /// `known` at read time are simply never returned, so a child that leaves
+    /// the Space is ignored rather than cleaned up eagerly — the same rule
+    /// folder members follow, and for the same reason: a hierarchy that has
+    /// not finished loading is not a hierarchy that has changed.
+    Q_INVOKABLE void setChildOrder(const QString &parentId,
+                                   const QStringList &childIds);
+
     // ONE atomic write of the whole arrangement, which is what a finished
     // drag actually produces: the rail knows every top-level entry it is
     // showing and every member of every OPEN folder, so committing that
@@ -180,6 +196,16 @@ private:
         QList<Folder> folders;
         QStringList order;   // top-level entry ids: space ids and folder ids
         QStringList expanded;   // space ids whose subspaces are revealed
+        /// Parent space id -> the order its SUBSPACES are shown in.
+        ///
+        /// Reported as "i can't rearrange subspaces and rooms in them as I can
+        /// with normal spaces, should behave the same", and the answer is that
+        /// they now do — by exactly the mechanism the top level already uses.
+        /// This is a LOCAL preference like `order` is: Matrix has a per-child
+        /// `order` field in `m.space.child`, but writing it needs power to
+        /// send state in someone else's Space and would reorder the Space for
+        /// every member. The rail has never claimed to be anyone else's view.
+        QHash<QString, QStringList> childOrder;
     };
 
     const Layout &load() const;

@@ -120,6 +120,23 @@ const RailLayoutStore::Layout &RailLayoutStore::load() const
             m_cache.expanded.append(id);
         }
     }
+    // Added 2026-09-18, additive for the same reason: a layout with no
+    // "childOrder" loads with every Space's children in Matrix's own order,
+    // which is exactly what it meant before anyone could drag them.
+    const QJsonObject childOrder =
+        object.value(QStringLiteral("childOrder")).toObject();
+    for (auto it = childOrder.constBegin(); it != childOrder.constEnd(); ++it) {
+        if (it.key().isEmpty() || isPseudoSpace(it.key()))
+            continue;
+        QStringList ids;
+        for (const QJsonValue &value : it.value().toArray()) {
+            const QString id = value.toString();
+            if (!id.isEmpty() && !isPseudoSpace(id) && !ids.contains(id))
+                ids.append(id);
+        }
+        if (!ids.isEmpty())
+            m_cache.childOrder.insert(it.key(), ids);
+    }
     return m_cache;
 }
 
@@ -144,6 +161,14 @@ void RailLayoutStore::save(const Layout &layout)
                   QJsonArray::fromStringList(next.order));
     object.insert(QStringLiteral("expanded"),
                   QJsonArray::fromStringList(next.expanded));
+    QJsonObject childOrder;
+    for (auto it = next.childOrder.constBegin();
+         it != next.childOrder.constEnd(); ++it) {
+        if (it.value().isEmpty())
+            continue;
+        childOrder.insert(it.key(), QJsonArray::fromStringList(it.value()));
+    }
+    object.insert(QStringLiteral("childOrder"), childOrder);
     m_settings->setAccountScopedValue(
         kLayoutKey, QString::fromUtf8(
                         QJsonDocument(object).toJson(QJsonDocument::Compact)));
@@ -376,6 +401,57 @@ void RailLayoutStore::moveEntry(const QString &entryId, int toIndex)
     const int clamped = qBound(0, toIndex, layout.order.size());
     layout.order.insert(clamped, entryId);
     save(layout);
+}
+
+QStringList RailLayoutStore::orderedChildren(const QString &parentId,
+                                             const QStringList &known) const
+{
+    if (parentId.isEmpty() || known.size() < 2)
+        return known;
+    const QStringList stored = load().childOrder.value(parentId);
+    if (stored.isEmpty())
+        return known;
+    QStringList out;
+    out.reserve(known.size());
+    // The stored arrangement first, and ONLY for children that are still
+    // here. A child the user dragged and then left is not a reason to show
+    // a row for it.
+    for (const QString &id : stored) {
+        if (known.contains(id) && !out.contains(id))
+            out.append(id);
+    }
+    // Then anything the arrangement does not mention, in the order Matrix
+    // gave it — a new subspace joins the END of its run rather than landing
+    // in the middle of a hand-made one. Same policy as `arrange()`.
+    for (const QString &id : known) {
+        if (!out.contains(id))
+            out.append(id);
+    }
+    return out;
+}
+
+void RailLayoutStore::setChildOrder(const QString &parentId,
+                                    const QStringList &childIds)
+{
+    if (parentId.isEmpty() || isPseudoSpace(parentId))
+        return;
+    QStringList ids;
+    ids.reserve(childIds.size());
+    for (const QString &id : childIds) {
+        if (!id.isEmpty() && !isPseudoSpace(id) && !ids.contains(id))
+            ids.append(id);
+    }
+    Layout next = load();
+    if (ids.isEmpty()) {
+        if (!next.childOrder.contains(parentId))
+            return;
+        next.childOrder.remove(parentId);
+    } else {
+        if (next.childOrder.value(parentId) == ids)
+            return;
+        next.childOrder.insert(parentId, ids);
+    }
+    save(next);
 }
 
 void RailLayoutStore::setTopLevelOrder(const QStringList &entryIds)

@@ -293,7 +293,13 @@ void RailEntryModel::appendSubspaces(const QString &parentId,
         return;
     if (!m_layout->spaceExpanded(parentId))
         return;
-    for (const QString &childId : m_spaces->childSpaceIds(parentId)) {
+    // THE USER'S ORDER, not Matrix's, and this is the whole of what makes a
+    // subspace draggable: the rail has always arranged its TOP level locally
+    // and refused to arrange anything below it, which is what "I can't
+    // rearrange subspaces as I can with normal spaces" was pointing at.
+    for (const QString &childId :
+         m_layout->orderedChildren(parentId,
+                                   m_spaces->childSpaceIds(parentId))) {
         const auto it = byId.constFind(childId);
         if (it == byId.constEnd())
             continue;
@@ -307,9 +313,15 @@ void RailEntryModel::appendSubspaces(const QString &parentId,
         entry.insert(QStringLiteral("folderLast"), false);
         entry.insert(QStringLiteral("pseudo"), false);
         entry.insert(QStringLiteral("hierarchyChild"), true);
-        // Matrix owns this row's position. Offering to drag it would offer to
-        // change a hierarchy this layer cannot change.
-        entry.insert(QStringLiteral("draggable"), false);
+        // DRAGGABLE, AMONG ITS OWN SIBLINGS. This used to read "Matrix owns
+        // this row's position", and that was true of the SERVER's order and
+        // never true of the rail's: the top level has always been arranged
+        // locally, by exactly the same mechanism, and a rail that arranges
+        // one level and refuses the next is the inconsistency that was
+        // reported. `legalGap()` is what keeps a subspace inside its own
+        // parent — a drag cannot reparent anything, because reparenting IS
+        // Matrix's to own and needs power this client may not have.
+        entry.insert(QStringLiteral("draggable"), true);
         // Same rule as the top-level rows above, and for the same reason: a
         // nested Space that holds only rooms is exactly the case the reporter
         // hit, and it is reached through THIS branch, not that one.
@@ -561,11 +573,45 @@ int RailEntryModel::legalGap(int gap) const
            && m_rows.at(firstMovable).value(QStringLiteral("pseudo")).toBool()) {
         ++firstMovable;
     }
+    // ── A SUBSPACE MOVES AMONG ITS OWN SIBLINGS, AND NOWHERE ELSE ──────
+    //
+    // Its legal slots are the boundaries between the children of ITS parent,
+    // plus the end of that parent's run. Anything else would be a reparent,
+    // and reparenting is Matrix's — it needs power to send state in a Space
+    // this user may not own, and it would move the Space for every member.
+    if (m_rows.at(dragRow).value(QStringLiteral("hierarchyChild")).toBool()) {
+        const int level = m_rows.at(dragRow).value(QStringLiteral("level"))
+                              .toInt();
+        // The parent is the first row ABOVE that is shallower than this one.
+        int parentRow = dragRow - 1;
+        while (parentRow >= 0
+               && m_rows.at(parentRow).value(QStringLiteral("level")).toInt()
+                      >= level) {
+            --parentRow;
+        }
+        const int runStart = parentRow + 1;
+        int runEnd = runStart;
+        while (runEnd < m_rows.size()
+               && m_rows.at(runEnd).value(QStringLiteral("hierarchyChild"))
+                          .toBool()
+               && m_rows.at(runEnd).value(QStringLiteral("level")).toInt()
+                      >= level) {
+            ++runEnd;
+        }
+        g = qBound(runStart, g, runEnd);
+        // Snap DOWN to a sibling's own row: a gap inside a sibling's subtree
+        // would drop this Space between that sibling and its children.
+        while (g > runStart && g < runEnd
+               && m_rows.at(g).value(QStringLiteral("level")).toInt() != level) {
+            --g;
+        }
+        return g;
+    }
     if (g < firstMovable)
         return firstMovable;
-    // A hierarchy child's slot belongs to Matrix; landing inside a subspace
-    // run would put a user-arranged entry between a parent and its children.
-    // Snap back to the gap in front of the run's owner.
+    // A TOP-LEVEL entry may not land inside a subspace run: that would put a
+    // user-arranged entry between a parent and its children. Snap back to the
+    // gap in front of the run's owner.
     while (g > firstMovable && g < m_rows.size()
            && m_rows.at(g).value(QStringLiteral("hierarchyChild")).toBool()) {
         --g;
@@ -630,7 +676,13 @@ void RailEntryModel::hoverGroup(int row)
         // A folder cannot go inside a folder: folders do not nest, and
         // pretending otherwise would create an arrangement the store cannot
         // represent.
-        && !rowIsFolder(dragRow);
+        && !rowIsFolder(dragRow)
+        // NOR CAN A SUBSPACE BE FILED. It became draggable on 2026-09-18 so
+        // a user can order the children of one Space; a rail folder is a
+        // TOP-LEVEL grouping, and filing a subspace into one would either
+        // detach it from the parent that owns it or claim a nesting the store
+        // has no way to write. Its drag rearranges and nothing else.
+        && !m_rows.at(dragRow).value(QStringLiteral("hierarchyChild")).toBool();
     if (!eligible) {
         // AND RETURN. The previous single-verb version fell through to the
         // reorder below when the target was ineligible, so aiming at something
@@ -740,7 +792,60 @@ void RailEntryModel::endDrag(bool commit)
         refresh();
         return;
     }
+    // A SUBSPACE WRITES ITS PARENT'S ORDER, NOT THE TOP LEVEL'S. Falling
+    // through to commitReorder would hand `applyArrangement` a top-level list
+    // that this drag never rearranged, and skip the one thing it did.
+    if (finalRow >= 0 && finalRow < m_rows.size()
+        && m_rows.at(finalRow).value(QStringLiteral("hierarchyChild"))
+               .toBool()) {
+        commitChildOrder(dragged);
+        refresh();
+        return;
+    }
     commitReorder(dragged);
+}
+
+void RailEntryModel::commitChildOrder(const QString &dragged)
+{
+    // A subspace drag rearranges ONE parent's children and touches nothing
+    // else, so it writes one key rather than going through
+    // `applyArrangement`, which is about the top level and its folders.
+    //
+    // The rows are read back from the PREVIEW, exactly as commitReorder does
+    // — what the user saw is what is written, and the preview is the model.
+    const int row = rowForEntry(dragged);
+    if (row < 0 || !m_layout)
+        return;
+    const int level = m_rows.at(row).value(QStringLiteral("level")).toInt();
+    if (level < 1)
+        return;
+    int parentRow = row - 1;
+    while (parentRow >= 0
+           && m_rows.at(parentRow).value(QStringLiteral("level")).toInt()
+                  >= level) {
+        --parentRow;
+    }
+    if (parentRow < 0)
+        return;
+    const QString parentId =
+        m_rows.at(parentRow).value(QStringLiteral("spaceId")).toString();
+    if (parentId.isEmpty())
+        return;
+    QStringList children;
+    for (int i = parentRow + 1; i < m_rows.size(); ++i) {
+        const QVariantMap &r = m_rows.at(i);
+        if (!r.value(QStringLiteral("hierarchyChild")).toBool())
+            break;
+        const int l = r.value(QStringLiteral("level")).toInt();
+        if (l < level)
+            break;
+        if (l != level)
+            continue;   // a sibling's own descendants
+        const QString id = r.value(QStringLiteral("spaceId")).toString();
+        if (!id.isEmpty() && !children.contains(id))
+            children.append(id);
+    }
+    m_layout->setChildOrder(parentId, children);
 }
 
 void RailEntryModel::commitGrouping(const QString &dragged,
