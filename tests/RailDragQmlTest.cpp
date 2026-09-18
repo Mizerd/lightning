@@ -71,6 +71,7 @@
 #include <QQuickWindow>
 #include <QSettings>
 #include <QScopeGuard>
+#include <QSet>
 #include <QSignalSpy>
 #include <QStyleHints>
 #include <QTemporaryDir>
@@ -1458,20 +1459,87 @@ private slots:
             const qreal left = inkCentre - inkWidth / 2;
             const qreal right = inkCentre + inkWidth / 2;
             ++checked;
+            // THE REFERENCE IS THE TILE'S VISIBLE EDGE, WHICH IS THE RING.
+            //
+            // This compared against `tileColumnX` until 2026-09-18 and that
+            // is the very mistake the collision below was: the accent ring is
+            // painted outside the tile, so on a selected Space the row's
+            // visible edge is `tileRingOutset` further out. Measuring to the
+            // tile made a glyph sitting ON the ring look correctly placed.
+            // Not a loosening — the same "closer to what it acts on than to
+            // the rail's edge" property, read against the edge the eye
+            // actually sees.
+            const qreal ringOutset =
+                m_rail->property("tileRingOutset").toReal();
+            QVERIFY2(ringOutset > 0, "the rail reports no ring outset");
             const qreal toTile =
-                m_rail->property("tileColumnX").toReal() - right;
+                m_rail->property("tileColumnX").toReal() - ringOutset - right;
             QVERIFY2(left >= toTile,
                      qPrintable(QStringLiteral(
                          "at the minimum width of %1 the expander is %2px "
-                         "from the rail's outer edge and %3px from its tile — "
-                         "it reads as hanging off the edge rather than as "
-                         "belonging to the row")
+                         "from the rail's outer edge and %3px from the "
+                         "visible edge of the tile it acts on — it reads as "
+                         "hanging off the edge rather than as belonging to "
+                         "the row")
                          .arg(minWidth).arg(left).arg(toTile)));
             QVERIFY2(right <= minWidth,
                      qPrintable(QStringLiteral(
                          "at the minimum width of %1 the expander ends at "
                          "x=%2, past the rail's own right edge")
                          .arg(minWidth).arg(right)));
+            // AND IT CLEARS THE RING, NOT JUST THE TILE.
+            //
+            // Reported as "clipping" on 2026-09-18 with an arrow at a
+            // selected Space whose expander had lost its right arm. Nothing
+            // clipped it: the active ring is drawn OUTSIDE the tile, so the
+            // tile's visible edge is not `tileColumnX`, and a gap measured to
+            // the tile put the ink exactly where the ring paints. The ring is
+            // declared later, so it won, and only on the tile the user had
+            // just clicked — which is why every capture taken while auditing
+            // this column looked fine.
+            //
+            // The ring is measured, not assumed: its geometry is anchored to
+            // the tile and is valid whether or not it is currently visible,
+            // so this reads the real item rather than re-deriving the
+            // constant the production code already used.
+            auto *ring = row->findChild<QQuickItem *>(
+                QStringLiteral("railSpaceActiveRing"));
+            QVERIFY2(ring, "the active ring is gone, so nothing here can say "
+                           "whether the expander would collide with it");
+            const qreal ringLeft = ring->mapToItem(m_rail, QPointF(0, 0)).x();
+            // THE PLATE IS THE CONTROL'S EDGE, so the plate is what has to
+            // clear the ring. Asserting the INK alone passed a plate that
+            // collided: the ink sits `chevronPlatePad` inside its own plate,
+            // which is free clearance the control does not have.
+            auto *plate = row->findChild<QQuickItem *>(
+                QStringLiteral("railSpaceExpandPlate"));
+            QVERIFY2(plate, "the expander has no plate, so this measures a "
+                            "control that is not the one on screen");
+            const qreal plateLeft =
+                plate->mapToItem(m_rail, QPointF(0, 0)).x();
+            const qreal plateRight = plateLeft + plate->width();
+            QVERIFY2(ringLeft - plateRight >= 1.0,
+                     qPrintable(QStringLiteral(
+                         "the expander's plate ends at x=%1 and the active "
+                         "ring starts at x=%2 — on a SELECTED Space they "
+                         "overlap")
+                         .arg(plateRight).arg(ringLeft)));
+            // AND THE PLATE STAYS INSIDE THE REGION IT BELONGS TO, which is
+            // what `chevronSlotLeft` exists for. It binds in real scale
+            // combinations rather than being dead code, so it is pinned.
+            QVERIFY2(plateLeft >= m_rail->property("chevronSlotLeft").toReal()
+                                  - 0.01,
+                     qPrintable(QStringLiteral(
+                         "the expander's plate starts at x=%1, left of the "
+                         "deepest region inset %2 — at depth it is drawn "
+                         "outside the region it acts on")
+                         .arg(plateLeft)
+                         .arg(m_rail->property("chevronSlotLeft").toReal())));
+            QVERIFY2(right <= plateRight && left >= plateLeft,
+                     qPrintable(QStringLiteral(
+                         "the glyph's ink spans %1..%2 and its plate spans "
+                         "%3..%4 — the mark is not inside its own box")
+                         .arg(left).arg(right).arg(plateLeft).arg(plateRight)));
         }
         QVERIFY2(checked > 0,
                  "no row showed an expander at the minimum width, so this "
@@ -1799,18 +1867,35 @@ private slots:
         };
 
         int themesChecked = 0;
-        // 1..11: every preset. 0 is "follow the system" and 12 is a
-        // user-authored palette, and neither is a palette of its own.
+        // THE PALETTE IS SWITCHED ON THE SINGLETON, NOT ONLY IN SETTINGS.
+        //
+        // This wrote `settings.theme` alone until 2026-09-19, and
+        // `AppTheme.mode` is driven by a `Binding` that lives in Main.qml —
+        // which this suite never loads, because it loads SpacesRail
+        // directly. So `mode` stayed 0, `effectiveTheme` stayed on the system
+        // default, and eleven iterations measured ONE palette while
+        // `themesChecked` counted to eleven and the case passed. Exactly the
+        // shape §16 records: a check that can come back silently short is the
+        // defect, not its symptom.
+        QSet<QString> palettesSeen;
         for (int t = 1; t <= 11; ++t) {
             settings->setProperty("theme", t);
+            theme->setProperty("mode", t);
             QCoreApplication::processEvents();
             QTest::qWait(30);
-            if (settings->property("theme").toInt() != t)
+            if (settings->property("theme").toInt() != t
+                || theme->property("mode").toInt() != t)
                 continue;   // a preset this build does not carry
 
             const QColor rail = theme->property("rail").value<QColor>();
             const QVariantList rungs =
                 theme->property("railNestSurfaces").toList();
+            // The fingerprint that makes "eleven palettes" checkable. A rail
+            // colour alone would not do it (presets can share one), so the
+            // deepest rung goes in with it.
+            palettesSeen.insert(
+                rail.name()
+                + rungs.at(rungs.size() - 1).value<QColor>().name());
             QVERIFY2(rungs.size() >= 4,
                      qPrintable(QStringLiteral(
                          "theme %1 exposes %2 region rungs")
@@ -1877,8 +1962,18 @@ private slots:
                  qPrintable(QStringLiteral(
                      "only %1 presets were selectable, so this says little "
                      "about the fleet").arg(themesChecked)));
+        // AND THEY WERE DIFFERENT PALETTES. Counting iterations cannot tell
+        // "eleven themes measured" from "one theme measured eleven times",
+        // and for months this case was doing the second while reporting the
+        // first.
+        QVERIFY2(palettesSeen.size() >= 8,
+                 qPrintable(QStringLiteral(
+                     "%1 presets were selected but only %2 distinct palettes "
+                     "came back, so this case is measuring one theme over and "
+                     "over").arg(themesChecked).arg(palettesSeen.size())));
 
         settings->setProperty("theme", original);
+        theme->setProperty("mode", original);
         QCoreApplication::processEvents();
         QTest::qWait(30);
     }

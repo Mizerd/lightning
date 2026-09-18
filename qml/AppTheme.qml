@@ -1178,10 +1178,53 @@ QtObject {
     //
     // The step is ΔL* 3 now, which is exactly Discord's adjacent-panel step,
     // and the top rung sits ~3 ΔL* above the room list instead of 25.
+    //
+    // ── AND THE LADDER WAS EVEN IN ALPHA, WHICH IS NOT EVEN ON SCREEN ──
+    //
+    // Reported 2026-09-18: "hard to spot where the different levels begin".
+    // MEASURED off a real capture rather than computed from these numbers —
+    // the rail ground at L* 4.95, then the regions at 8.09, 9.56, 11.10, with
+    // the room list beside them at 13.83. So the FIRST boundary was a clear
+    // 3.14 and every one after it was 1.47 and 1.54: less than half, at the
+    // depths where the rail is busiest and the boundary matters most.
+    //
+    // The cause is the sRGB transfer curve, and it is why an alpha ladder
+    // cannot be read as a tone ladder. These alphas rose evenly (0.014,
+    // 0.027, 0.028) and the LIGHTNESS did not, because each step composites
+    // against a brighter backdrop than the one before it, and equal 8-bit
+    // steps are smaller lightness steps the further from black you get. The
+    // ladder was even in the units nobody looks at.
+    //
+    // SOLVED, not chosen — and solved over the chain that is actually
+    // PAINTED, which is the mistake the first attempt at this made.
+    //
+    // RUNG 0 IS NOT THE FIRST STEP OF THE HIERARCHY. It is the FOLDER
+    // container (`SpacesRail.qml`, `visible: (isFolder && !collapsed) ||
+    // inFolder`), and the hierarchy regions index this list by their own
+    // depth starting at 1. So the sequence a reader sees down a nested tree
+    // is `rail -> rungs[1] -> rungs[2] -> rungs[3]`, and a bisection run over
+    // rungs[0..4] as one even chain solves a ladder whose first link is
+    // invisible: it made `rail -> depth 1` 53% LOUDER and every inner
+    // boundary ~20% FAINTER, which is the exact opposite of the report
+    // ("hard to spot where the different levels begin") it was written for.
+    // Caught in review, by computing the drawn boundaries rather than by
+    // reading these numbers.
+    //
+    // So rungs 1-4 are solved for an even 3.4 ΔL* along the DRAWN chain —
+    // about 13% more separation than before at every boundary, not just the
+    // first — and rung 0 is solved SEPARATELY as the folder step, because it
+    // is a different device that never appears in that sequence.
+    //
+    // AND THE TWO LADDERS ARE NOT THE SAME SHAPE, which is the sRGB half of
+    // the lesson: equal alpha steps are not equal lightness steps, because
+    // each rung composites over the same base through a curve. Against the
+    // light rail the solved alphas come out nearly even (0.054 apart) because
+    // at L* 85 that curve is locally straight; against the dark one they have
+    // to widen. One hand-picked list cannot be right for both ends.
     readonly property bool _railIsDark: rail.hslLightness < 0.5
     readonly property var _railNestAlphas:
-        _railIsDark ? [0.018, 0.032, 0.059, 0.087, 0.114]
-                    : [0.030, 0.060, 0.110, 0.160, 0.210]
+        _railIsDark ? [0.025, 0.034, 0.065, 0.096, 0.129]
+                    : [0.039, 0.055, 0.109, 0.163, 0.216]
     readonly property var railNestSurfaces: [
         Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[0])),
         Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[1])),

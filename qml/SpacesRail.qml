@@ -175,6 +175,80 @@ Rectangle {
     readonly property int chevronInkWidth: Math.round(chevronGlyphSize * 0.36)
     /// Ink to tile. Two pixels: a control belongs to the thing it acts on.
     readonly property int chevronTileGap: AppTheme.scaled(2)
+    /// HOW FAR THE ACTIVE RING REACHES OUTSIDE ITS TILE, and the chevron's
+    /// gap is measured from THAT, not from the tile.
+    ///
+    /// Reported as "clipping" on 2026-09-18, with an arrow at a selected
+    /// Space whose expander had lost its right arm. Nothing was clipped: the
+    /// 2px accent ring is drawn OUTSIDE the tile's bounds, so a selected
+    /// tile's visible edge is not `tileColumnX`, and a gap measured to the
+    /// tile put the glyph's ink exactly where the ring paints. The two
+    /// overlapped, and only ever on the one tile the user had just clicked,
+    /// which is why every capture taken while auditing this column looked
+    /// fine. (WHICH ONE PAINTED OVER WHICH is not what made it unreadable
+    /// and an earlier version of this comment asserted it backwards: the
+    /// chevron is declared AFTER the ring and neither carries a `z`, so the
+    /// glyph drew on top of a saturated accent stroke. A thin
+    /// `textSecondary` arm on the accent reads as missing either way. §16
+    /// already carries this lesson for this exact glyph — measure it, do not
+    /// narrate it.)
+    ///
+    /// The ring came in from 4 to 2 as part of that, which is also the
+    /// tighter reading: at 4 it floated, unattached to the tile it marks.
+    /// THE GUTTER'S BUDGET IS WRITTEN IN ONE PLACE ONLY, at
+    /// `railSideMargin` — it was briefly written in three, two of them
+    /// already stale by the time they were read.
+    readonly property int tileRingOutset: AppTheme.scaled(2)
+    /// THE LEFT WALL OF THE CHEVRON'S SLOT: the deepest region inset any row
+    /// can carry. Pulling the glyph in to clear the ring pushed it OUT of the
+    /// innermost region at the minimum width — the same "a shape left its
+    /// region" defect this column was audited for a day earlier, reintroduced
+    /// by the fix for the ring. Derived from the cap rather than from the
+    /// row's own depth on purpose: a chevron that moves per level is what
+    /// "the chevrons are unevenly distanced" already asked to have removed.
+    ///
+    /// The gutter is exactly full at the minimum width; its arithmetic is
+    /// at `railSideMargin`, which is the one place that states it.
+    readonly property int chevronSlotLeft: bandInset(maxBandLayers)
+    /// THE PLATE THE MARK SITS IN. A chevron alone in a column reads as
+    /// debris — it was described exactly that way twice, once as "stray
+    /// marks in the gutter" and once as "out of place alone" — so it gets a
+    /// surface, resting as well as hovered, and the hover state is now a
+    /// brightening of something already there rather than a shape appearing
+    /// out of nothing.
+    /// SQUARE, AND SIZED FOR THE WIDER OF THE TWO GLYPHS.
+    ///
+    /// The first plate was 10 wide by 22 tall and the maintainer reported it
+    /// as changing size between states. It never changed size — the INK did.
+    /// Measured off a capture at dpr 1.5, `expand_more`'s ink is 12x6 device
+    /// px and `chevron_right`'s is 7x12: the two are transposes of each
+    /// other, so a tall narrow pill holds a wide flat mark in one state and a
+    /// tall thin one in the other, and the pair reads as two different boxes.
+    /// A SQUARE plate is the only shape that looks the same around both.
+    /// Sized from the wider ink (8 logical) plus a real 2px of air.
+    readonly property int chevronPlatePad: AppTheme.scaled(2)
+    readonly property int chevronInkLongest: AppTheme.scaled(8)
+    readonly property int chevronPlateWidth:
+        chevronInkLongest + 2 * chevronPlatePad
+    readonly property int chevronPlateHeight: chevronPlateWidth
+    /// AND THE MARK IS NOT CENTRED IN ITS OWN BOX. Same capture: with the
+    /// plate centred on the glyph's box, `expand_more`'s ink sat 3 device px
+    /// nearer the top than the bottom (12 above, 15 below) — 1 logical px
+    /// high — while `chevron_right`'s was within half a pixel. So the glyph
+    /// is nudged DOWN by that much when it is the one that needs it, which
+    /// is the vertical half of the same rule the x already follows: place the
+    /// INK, never the box.
+    readonly property int chevronInkRise: AppTheme.scaled(1)
+    /// ONE place decides where the control goes, and the glyph and its plate
+    /// both read it. The PLATE is what has to clear the ring now — it is the
+    /// control's real edge — so the gap is measured from the plate and the
+    /// ink follows it inwards.
+    readonly property real chevronPlateLeft:
+        Math.max(chevronSlotLeft,
+                 tileColumnX - tileRingOutset - chevronTileGap
+                 - chevronPlateWidth)
+    readonly property real chevronInkLeft:
+        chevronPlateLeft + (chevronPlateWidth - chevronInkWidth) / 2
     /// NOTE: the box's width is the glyph's ADVANCE, not `chevronGlyphSize`,
     /// and the ink centres in the ADVANCE (measured: box centre and ink
     /// centre agree to a quarter-pixel). So the placement below is written at
@@ -207,7 +281,12 @@ Rectangle {
     /// 14 beside a 44px tile in a 72px rail is Discord's proportion. The
     /// earlier complaint that the margins were "just empty space there" was
     /// about 24px of void beside a 40px tile in an 88px one.
-    readonly property int railSideMargin: AppTheme.scaled(14)
+    /// 14 until 2026-09-18, when the expander was given a PLATE to sit in
+    /// ("they seem out of place alone") and the gutter had to hold one more
+    /// tenant. It is a column with a control in it and it is now sized by the
+    /// whole control rather than by the mark inside it:
+    /// inset 3 + plate 12 + gap 2 + ring 2 = 19.
+    readonly property int railSideMargin: AppTheme.scaled(19)
     /// THE WIDTH NOW BUYS SOMETHING. It used to buy indent, then lanes; both
     /// were spent on structure rather than on content, so dragging the rail
     /// wider changed the tiles by nothing at all. Past the default the tile
@@ -329,7 +408,12 @@ Rectangle {
     /// the innermost band's edge, which the geometric case caught. The step
     /// is what carries the shape, so the step is what is kept.
     readonly property int bandInsetBase: AppTheme.scaled(1)
-    readonly property int bandInsetStep: AppTheme.scaled(2)
+    /// 1, and it was 2. The widening to 2 was made so "the shape carries
+    /// what the tone gave up" when the ladder was flattened to ΔL* 3. The
+    /// ladder now steps an even 2.4 in LIGHTNESS rather than evenly in alpha
+    /// (AppTheme), so tone carries the nesting again and the inset can hand
+    /// back the 2px — which is most of what the expander's plate needed.
+    readonly property int bandInsetStep: AppTheme.scaled(1)
     /// Rung 0 is a FOLDER's container, which sits one step OUTSIDE hierarchy
     /// depth 1 because it contains it.
     function bandInset(depth) {
@@ -891,6 +975,20 @@ Rectangle {
                     Math.min(root.maxBandLayers,
                              Math.max(0, spaceItem.level)
                              + (spaceItem.ownsRegion ? 1 : 0))
+                /// Which rung of the ladder the INNERMOST region on this row
+                /// is painted with — the surface the expander's plate sits
+                /// on, and therefore the one it has to step up from. A row
+                /// with no region at all sits on the rail itself, and it
+                /// counts as rung 0 here for one reason: +2 from rung 0 is
+                /// L* 11.78 against the rail's 4.95, the SAME 6.8 ΔL* step
+                /// the plate gets over every region. Counting it as -1 made
+                /// a collapsed Space's plate 3.4 above the rail and an
+                /// expanded one's 6.8 above its region — a control that
+                /// changes weight with the state of the thing it toggles,
+                /// which is the same complaint as the box that changed size.
+                readonly property int innermostTint:
+                    spaceItem.bandLayers > 0
+                    ? spaceItem.bandTint(spaceItem.bandLayers - 1) : 0
                 /// Does a run hang off this tile — subspaces as model rows,
                 /// or rooms revealed inside this delegate?
                 readonly property bool ownsRegion:
@@ -1200,10 +1298,17 @@ Rectangle {
                 }
 
                 // Active outline: 2 px accent ring offset from the tile.
+                // The offset is `tileRingOutset` and NOT a literal, because
+                // the chevron's placement is measured from this ring's outer
+                // edge — see that property. Two numbers, one fact.
                 Rectangle {
+                    objectName: "railSpaceActiveRing"
                     anchors.fill: spaceTile
-                    anchors.margins: -4
-                    radius: root.railTileRadius + 3
+                    anchors.margins: -root.tileRingOutset
+                    // CONCENTRIC: a rounded rect outset by N is concentric
+                    // with its tile only when its radius is larger by exactly
+                    // N. It was +3 against an outset of 4.
+                    radius: root.railTileRadius + root.tileRingOutset
                     color: "transparent"
                     border.color: AppTheme.accent
                     border.width: 2
@@ -1504,9 +1609,29 @@ Rectangle {
                         // ink is centred in it. Not a binding loop: an
                         // Icon's width comes from its font metrics and does
                         // not depend on where it is put.
-                        x: root.tileColumnX - root.chevronTileGap
-                           - Math.round((width + root.chevronInkWidth) / 2)
+                        // Tracks its tile while the rail is wide enough to
+                        // let it, and clamps into the innermost region when
+                        // it is not. `width` is the glyph's ADVANCE and the
+                        // ink is centred in it, so the box is offset by half
+                        // the side bearing to put the INK where this says.
+                        // NOT ROUNDED. The advance carries a fractional side
+                        // bearing, so rounding the BOX moves the INK by that
+                        // much — and the gutter is exactly full, so rounding
+                        // moved it straight back out of its own region.
+                        // Placing the ink is the whole point of this
+                        // expression; round it and it is placing the box.
+                        x: root.chevronInkLeft
+                           - (width - root.chevronInkWidth) / 2
                         anchors.verticalCenter: parent.verticalCenter
+                        // BOTH glyphs sit high in their own box and they do
+                        // not sit high by the same amount — measured in the
+                        // square plate: `expand_more` needed 1.33 and
+                        // `chevron_right` 0.67 of the rise to centre. NOT
+                        // rounded, for the reason x is not: a rounded offset
+                        // is a whole pixel of error on a 12px control.
+                        anchors.verticalCenterOffset:
+                            (spaceItem.expanded ? 1.33 : 0.67)
+                            * root.chevronInkRise
                         // ONE MEANING: open or closed. A separate glyph for
                         // "this one dives" was tried twice and rejected both
                         // times — as `chevron_right` it was indistinguishable
@@ -1534,16 +1659,45 @@ Rectangle {
                         color: chevronHover.hovered ? AppTheme.text
                                                     : AppTheme.textSecondary
                     }
-                    // A HOVER PLATE, because there was no affordance at
-                    // all: a 4px speck with nothing under it does not say
-                    // "press me". Centred on the ink, not on the gutter.
+                    // THE PLATE. It was hover-only and 20px square centred
+                    // on the glyph's BOX — so at rest there was nothing under
+                    // the mark at all, and on hover a plate appeared that was
+                    // wider than the gutter and offset from the ink by the
+                    // font's side bearing. It is always drawn now, positioned
+                    // from the same one place the ink is, and hover is a
+                    // brightening rather than an appearance.
                     Rectangle {
-                        anchors.centerIn: expandGlyph
-                        width: AppTheme.scaled(20)
-                        height: width
+                        objectName: "railSpaceExpandPlate"
+                        x: root.chevronPlateLeft
+                        width: root.chevronPlateWidth
+                        height: root.chevronPlateHeight
+                        // Centred on the ROW, not on the glyph's box — the
+                        // glyph is the thing that moves to meet it.
+                        anchors.verticalCenter: parent.verticalCenter
                         radius: AppTheme.radiusSm
-                        color: AppTheme.hover
-                        visible: chevronHover.hovered
+                        // ONE RUNG UP THE RAIL'S OWN LADDER, not `hover`.
+                        // A resting plate filled with `hover` measures L*
+                        // 19.75 on the depth-1 region — above the ladder's
+                        // deliberate ceiling (16.99) AND above the room list
+                        // beside it (13.83) — so one slab per expandable
+                        // Space would have rebuilt exactly what the ceiling
+                        // round measured and removed: the rail as the
+                        // brightest vertical band in the window. Stepping the
+                        // ladder keeps the plate inside the system it sits
+                        // in, and it follows every theme by construction.
+                        // TWO rungs, not one: one rung is the same 3.4 ΔL*
+                        // that separates two REGIONS, and a control has to
+                        // read as a control rather than as another band. Two
+                        // puts it 6.75 ΔL* over the region it sits on and
+                        // still four below `hover`, which is what the hover
+                        // state now has left to say.
+                        color: chevronHover.hovered
+                               ? AppTheme.hover
+                               : AppTheme.railNestSurfaces[
+                                   Math.min(
+                                       AppTheme.railNestSurfaces.length - 1,
+                                       spaceItem.innermostTint + 2)]
+                        Behavior on color { ColorAnimation { duration: 90 } }
                         z: -1
                     }
                     HoverHandler { id: chevronHover }
@@ -1782,10 +1936,16 @@ Rectangle {
                 }
 
                 HoverHandler { id: spaceHover }
+                // SAME OUTSET AS THE RING, and it was a raw -3 against the
+                // ring's 2. The chevron's gap is budgeted against the tile's
+                // visible edge, so an outset that reaches further out than
+                // the ring quietly spent that gap while a row was hovered —
+                // the same "the visible edge is not `tileColumnX`" defect
+                // this file fixed one property up, left behind as a literal.
                 Rectangle {
                     anchors.fill: spaceTile
-                    anchors.margins: -3
-                    radius: spaceTile.radius + 3
+                    anchors.margins: -root.tileRingOutset
+                    radius: spaceTile.radius + root.tileRingOutset
                     color: AppTheme.hover
                     visible: spaceHover.hovered && !spaceItem.isActive
                              && !root.dragging
@@ -1969,8 +2129,13 @@ Rectangle {
                             height: root.railRoomRowBand
                             Rectangle {
                                 anchors.fill: roomTile
-                                anchors.margins: -2
-                                radius: 10
+                                anchors.margins: -root.tileRingOutset
+                                // CONCENTRIC, and derived: `radius: 10` was
+                                // right only at 100% scale and only at the
+                                // minimum rail width. A rounded rect outset
+                                // by N is concentric only at its tile's
+                                // radius PLUS N, at every size.
+                                radius: roomTile.radius + root.tileRingOutset
                                 color: AppTheme.hover
                                 visible: roomHover.hovered
                             }
