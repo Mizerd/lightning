@@ -69,8 +69,8 @@ QHash<int, QByteArray> RailEntryModel::roleNames() const
         { DropTargetRole, "dropTarget" },
         { FolderLastRole, "folderLast" },
         { DraggableRole, "draggable" },
-        { BandTopRole, "bandTop" },
-        { BandBottomRole, "bandBottom" },
+        { BandPrevLevelRole, "bandPrevLevel" },
+        { BandNextLevelRole, "bandNextLevel" },
     };
 }
 
@@ -117,10 +117,10 @@ QVariant RailEntryModel::data(const QModelIndex &index, int role) const
         return row.value(QStringLiteral("folderLast"), false);
     case DraggableRole:
         return row.value(QStringLiteral("draggable"), false);
-    case BandTopRole:
-        return row.value(QStringLiteral("bandTop"), false);
-    case BandBottomRole:
-        return row.value(QStringLiteral("bandBottom"), false);
+    case BandPrevLevelRole:
+        return row.value(QStringLiteral("bandPrevLevel"), -1);
+    case BandNextLevelRole:
+        return row.value(QStringLiteral("bandNextLevel"), -1);
     case DraggedRole:
         return m_dragging && !entryId.isEmpty() && entryId == m_dragEntryId;
     case DropTargetRole:
@@ -330,24 +330,31 @@ void RailEntryModel::stampGroupField(QVector<QVariantMap> &rows)
 {
     for (int i = 0; i < rows.size(); ++i) {
         const int level = rows.at(i).value(QStringLiteral("level")).toInt();
-        // Where the tinted region behind a run starts and ends. Compared
-        // against the NEIGHBOURS' levels, so a run that is interrupted by a
-        // shallower row closes and the next one opens — which is the whole
-        // of what the field has to say.
+        // THE NEIGHBOURS' DEPTHS, and the view derives the rest.
+        //
+        // The rail draws one tinted region PER ANCESTOR, nested inside each
+        // other, so a row at depth 3 sits on three layers and not on one. A
+        // pair of booleans could only describe the innermost: the region at
+        // depth d opens here when the row above is shallower than d and
+        // closes here when the row below is, and that is a question per
+        // depth, not per row. The two numbers answer all of them.
         //
         // A LEVEL, NOT A PARENT POINTER, and that is not laziness: the rows
-        // are already in draw order, and the region is a statement about the
-        // picture rather than about the graph. Whatever run of rows a reader
-        // sees between one shallow row and the next IS the group, including
-        // during a drag preview, where the graph has not changed yet and the
-        // picture has.
+        // are already in draw order, and the regions are a statement about
+        // the picture rather than about the graph. Whatever run of rows a
+        // reader sees between one shallow row and the next IS the group,
+        // including during a drag preview, where the graph has not changed
+        // yet and the picture has.
+        //
+        // -1 past either end, so the outermost region closes at the list's
+        // own edges without the view needing a bounds case.
         const int prevLevel =
             i > 0 ? rows.at(i - 1).value(QStringLiteral("level")).toInt() : -1;
         const int nextLevel =
             i + 1 < rows.size()
             ? rows.at(i + 1).value(QStringLiteral("level")).toInt() : -1;
-        rows[i].insert(QStringLiteral("bandTop"), prevLevel < level);
-        rows[i].insert(QStringLiteral("bandBottom"), nextLevel < level);
+        rows[i].insert(QStringLiteral("bandPrevLevel"), prevLevel);
+        rows[i].insert(QStringLiteral("bandNextLevel"), nextLevel);
     }
 }
 

@@ -1152,10 +1152,13 @@ private Q_SLOTS:
     // The rail draws the hierarchy as a tinted REGION behind a run of rows,
     // and everything it needs comes from the LEVEL SEQUENCE of the rows
     // rather than from the Space graph — so the region follows a drag preview
-    // instead of showing the arrangement the user is leaving. Two values per
-    // row: `bandTop` when the row above is shallower, `bandBottom` when the
-    // row below is shallower or there is none. Between them the region is
-    // squared off, so a run of any length reads as one shape.
+    // instead of showing the arrangement the user is leaving. The model
+    // reports the NEIGHBOURS' depths and the view derives the rest: the
+    // region at depth d opens on a row when the row above is shallower than
+    // d and closes when the row below is. Between them it is squared off, so
+    // a run of any length reads as one shape — and a row draws one region
+    // per ancestor, so those answers are needed at every depth it sits
+    // inside, not just at its own.
     //
     // THE RULE THAT IS EASY TO GET SUBTLY WRONG is the comparison: `<`, not
     // `<=`. A SIBLING must not close the region — three subspaces of one
@@ -1191,10 +1194,11 @@ private Q_SLOTS:
             spaceRoom(QStringLiteral("!c1:x"), QStringLiteral("C1"),
                       { QStringLiteral("!c1a:x") },
                       { QStringLiteral("!c:x") }),
-            // THE THIRD LEVEL IS NOT DECORATION: C1a is the only row whose
-            // `bandBottom` closes a run DEEPER than the one above it, which
-            // is what proves the bottom is read from the next row and not
-            // from "this is the last row of the model".
+            // THE THIRD LEVEL IS NOT DECORATION: C1a is the only row that
+            // closes a run DEEPER than the one above it, which is what
+            // proves the bottom is read from the next row and not from
+            // "this is the last row of the model" — and it is the only row
+            // that puts three layers on top of each other.
             spaceRoom(QStringLiteral("!c1a:x"), QStringLiteral("C1a"), {},
                       { QStringLiteral("!c1:x") }),
         };
@@ -1210,13 +1214,25 @@ private Q_SLOTS:
             store.setSpaceExpanded(id, true);
         }
 
-        const auto bandOf = [&model](const QString &id) {
+        // Exactly what the view asks, per layer: the region at depth `d`
+        // opens on this row when the row above is shallower than d, and
+        // closes when the row below is. The model reports the NEIGHBOURS'
+        // depths and nothing else, because "does a region start here" has a
+        // different answer at every depth a row sits inside.
+        const auto bandAt = [&model](const QString &id, int depth) {
             const int row = model.rowForEntry(id);
-            return QPair<bool, bool>(
-                model.data(model.index(row, 0),
-                           RailEntryModel::BandTopRole).toBool(),
-                model.data(model.index(row, 0),
-                           RailEntryModel::BandBottomRole).toBool());
+            const int prev = model.data(model.index(row, 0),
+                                        RailEntryModel::BandPrevLevelRole)
+                                 .toInt();
+            const int next = model.data(model.index(row, 0),
+                                        RailEntryModel::BandNextLevelRole)
+                                 .toInt();
+            return QPair<bool, bool>(prev < depth, next < depth);
+        };
+        const auto bandOf = [&bandAt, &model](const QString &id) {
+            const int row = model.rowForEntry(id);
+            return bandAt(id, model.data(model.index(row, 0),
+                                         RailEntryModel::LevelRole).toInt());
         };
 
         // The fixture has to actually have the shape described above, or
@@ -1255,6 +1271,34 @@ private Q_SLOTS:
         QVERIFY2(bandOf(QStringLiteral("!c1a:x")).second,
                  "the deepest row does not close its region, so the field "
                  "runs off the end of the tree");
+
+        // ── AND THE LAYERS NEST ──────────────────────────────────────
+        //
+        // The first version of this drew ONE region per row at that row's own
+        // depth, so C's depth-2 run REPLACED the depth-1 region for the rows
+        // it covered and three runs under one Space read as three unrelated
+        // bands. Every row now draws one region per ANCESTOR, so what has to
+        // hold is that the OUTER region stays open across rows that are
+        // deeper than it — which is a different question from the one above,
+        // and the one a per-row boolean could not have been asked.
+        QVERIFY2(!bandAt(QStringLiteral("!c:x"), 1).second,
+                 "the depth-1 region closes at C although C1 is inside it — "
+                 "a parent's region must run behind its descendants");
+        QVERIFY2(!bandAt(QStringLiteral("!c1:x"), 1).first
+                     && !bandAt(QStringLiteral("!c1:x"), 1).second,
+                 "C1 opens or closes the depth-1 region, so the outer layer "
+                 "is broken by a row that is merely deeper than it");
+        QVERIFY2(bandAt(QStringLiteral("!c1a:x"), 1).second,
+                 "the depth-1 region does not close at the last row inside "
+                 "it");
+        // And the inner one is bounded by ITS own depth, on the same rows.
+        QVERIFY2(bandAt(QStringLiteral("!c1:x"), 2).first,
+                 "the depth-2 region does not open at C1");
+        QVERIFY2(!bandAt(QStringLiteral("!c1:x"), 2).second,
+                 "the depth-2 region closes at C1 although C1a is deeper");
+        QVERIFY2(bandAt(QStringLiteral("!c1a:x"), 3).first
+                     && bandAt(QStringLiteral("!c1a:x"), 3).second,
+                 "C1a's own depth-3 region is not a single row");
     }
 
     void aCyclicHierarchyKeepsEverySpaceReachableAndTerminates()

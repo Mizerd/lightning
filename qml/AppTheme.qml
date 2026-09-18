@@ -1087,15 +1087,32 @@ QtObject {
     readonly property color railFolderSurface:
         _p.railFolderSurface !== undefined ? _p.railFolderSurface
                                            : cardElevated
-    // The SECOND step of the same idea, for a run nested inside a run. The
-    // rail's hierarchy is drawn as tinted regions rather than connector lines
-    // (2026-09-18), and a nested region has to be distinguishable from the one
-    // it sits in — so this is the folder surface taken one further step away
-    // from the rail, and it is DERIVED rather than a new palette entry
-    // because it has to hold on all twelve presets without twelve edits.
-    readonly property color railNestSurface:
-        Qt.tint(railFolderSurface,
-                Qt.rgba(text.r, text.g, text.b, 0.06))
+    // ONE STEP PER ANCESTOR, and the rail draws them STACKED.
+    //
+    // The hierarchy is tinted regions rather than connector lines
+    // (2026-09-18), and each region is drawn inset inside the one that
+    // contains it — so a subspace's run sits visibly ON its parent's run
+    // rather than replacing the parent's tint for those rows. That only
+    // reads if consecutive steps differ, so these are four, each one step
+    // further from the rail than the last.
+    //
+    // DERIVED, not twelve palette entries: every preset gets the ladder for
+    // free, and it stays correct when one of them changes its surface. Index
+    // 0 is depth 1; the rail clamps deeper rows to the last entry, because
+    // past four steps an 80px strip has nothing left to say with tone.
+    //
+    // A LIST RATHER THAN A FUNCTION, deliberately. A binding that called
+    // `railNestTint(n)` would register no dependency on the colours it reads
+    // and would not re-evaluate when the theme changed — the failure this
+    // project has now hit in four separate places.
+    readonly property var railNestSurfaces: [
+        railFolderSurface,
+        Qt.tint(railFolderSurface, Qt.rgba(text.r, text.g, text.b, 0.07)),
+        Qt.tint(railFolderSurface, Qt.rgba(text.r, text.g, text.b, 0.14)),
+        Qt.tint(railFolderSurface, Qt.rgba(text.r, text.g, text.b, 0.21))
+    ]
+    // Kept as its own name because the folder container reads it directly.
+    readonly property color railNestSurface: railNestSurfaces[1]
 
     readonly property color surface:             _p.surface
     readonly property color card:                surface

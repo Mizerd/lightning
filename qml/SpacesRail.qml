@@ -169,11 +169,29 @@ Rectangle {
     /// after its last row so the next group reads as a separate thing.
     readonly property int rowPad: AppTheme.scaled(4)
     readonly property int groupGap: AppTheme.scaled(8)
-    /// How many tint steps the field uses before it stops deepening. Two:
-    /// past that a 68px strip cannot say "deeper" with tone, and the honest
-    /// answer is that "this run belongs to that tile" is the question a rail
-    /// is being asked.
-    readonly property int maxBandSteps: 2
+    /// ── THE REGIONS STACK, one per ANCESTOR ───────────────────────────
+    ///
+    /// The first version drew ONE region per row, tinted by that row's own
+    /// depth, and a depth-2 run therefore REPLACED its parent's tint for the
+    /// rows it covered: three runs under one Space read as three unrelated
+    /// bands stacked vertically rather than as two things inside a third.
+    ///
+    /// Every row now draws a region for each of its ancestors, outermost
+    /// first, each one inset and a step further from the rail than the one
+    /// containing it. A parent's region therefore runs unbroken behind every
+    /// descendant it owns, and the nesting is visible as LAYERS.
+    ///
+    /// Capped at four. Each layer costs `2 * bandInsetStep` of width and the
+    /// tint ladder has four entries; past that the region stops narrowing
+    /// and stops deepening, and a deeper row joins the innermost layer
+    /// rather than getting one nobody can see.
+    readonly property int maxBandLayers: 4
+    readonly property int bandInsetBase: AppTheme.scaled(4)
+    readonly property int bandInsetStep: AppTheme.scaled(3)
+    function bandInset(depth) {
+        return bandInsetBase
+               + (Math.min(depth, maxBandLayers) - 1) * bandInsetStep
+    }
 
     /// Both stops are the tile's own range plus the gutter, so the gutter is
     /// a CONSTANT across the whole range a reader can drag to — which is why
@@ -294,7 +312,11 @@ Rectangle {
             return dividerRowBand
         var tile = e.hierarchyChild === true ? railNestedTileSize
                                              : railTileSize
-        return tile + 2 * rowPad + (e.bandBottom === true ? groupGap : 0)
+        // The gap belongs to the row that ends a TOP-LEVEL group, matching
+        // the delegate's own `trailingGap` — the two are one number and a
+        // literal in either place is a mis-drop.
+        var gap = e.level > 0 && e.bandNextLevel < 1 ? groupGap : 0
+        return tile + 2 * rowPad + gap
     }
     // DERIVED from the row heights, not read off `itemAtIndex(i).y`.
     //
@@ -514,8 +536,8 @@ Rectangle {
                 // `!undefined` (so a run was always square at both ends) and
                 // the group gap was never added. Caught by a geometric case
                 // comparing `rowTop()` against the delegates, not by looking.
-                required property bool bandTop
-                required property bool bandBottom
+                required property int bandPrevLevel
+                required property int bandNextLevel
 
                 readonly property bool isFolder: kind === "folder"
                 readonly property bool isHome: pseudo && spaceId === ""
@@ -556,14 +578,31 @@ Rectangle {
                 readonly property int rowTileSize:
                     spaceItem.hierarchyChild ? root.railNestedTileSize
                                              : root.railTileSize
-                /// Which tint step the field behind this row uses. Capped, so
-                /// past two levels in the region stops deepening rather than
-                /// marching towards black.
-                readonly property int bandStep:
-                    Math.min(root.maxBandSteps, Math.max(0, spaceItem.level))
+                /// How many nested regions this row draws, capped: one per
+                /// ancestor, plus its own when it owns the run below it.
+                readonly property int bandLayers:
+                    Math.min(root.maxBandLayers,
+                             Math.max(0, spaceItem.level)
+                             + (spaceItem.ownsRegion ? 1 : 0))
+                /// Does a run hang off this tile — subspaces as model rows,
+                /// or rooms revealed inside this delegate?
+                readonly property bool ownsRegion:
+                    spaceItem.bandNextLevel > spaceItem.level
+                    || expansionCol.visible
+                /// The air that separates one TOP-LEVEL group from the next,
+                /// added by the row that ends one.
+                ///
+                /// KEYED ON DEPTH 1, not on this row's own depth. A gap where
+                /// a merely-deeper run ends would fall INSIDE the parent's
+                /// region, which now runs behind its descendants rather than
+                /// being replaced by them — so it would put a notch in the
+                /// middle of a layer instead of a space between groups.
+                readonly property int trailingGap:
+                    spaceItem.level > 0 && spaceItem.bandNextLevel < 1
+                    ? root.groupGap : 0
                 height: tileBandHeight
                         + (expansionCol.visible ? expansionCol.height + 2 : 0)
-                        + (spaceItem.bandBottom ? root.groupGap : 0)
+                        + spaceItem.trailingGap
 
                 property bool isActive: app.spaces && !isFolder
                                         && app.spaces.activeSpaceId === spaceItem.spaceId
@@ -706,62 +745,108 @@ Rectangle {
                 // the one every narrow rail converges on — Discord tints a
                 // pill behind a folder's servers, and this rail's own folder
                 // container has done exactly this since it shipped.
-                //
-                // The tint deepens ONCE for the first nested level and once
-                // more for the second, and then stops. Past that a 68px strip
-                // cannot say "deeper" with tone, and the question a rail is
-                // actually asked is "does this run belong to that tile".
-                //
-                // Rounded where the run starts and ends (`bandTop`,
-                // `bandBottom` from the model, compared against the
-                // NEIGHBOURS' levels) and squared off in between, so a run
-                // reads as one shape however many rows it has.
-                Rectangle {
-                    id: groupField
-                    objectName: "railGroupField"
-                    // NOT hidden during a drag, and the lanes it replaces
-                    // were. `stampGroupField` runs inside `applyRows`, which
-                    // is the one chokepoint every row set passes through —
-                    // the drag PREVIEW included — so the field a reader sees
-                    // mid-gesture is the field the release will produce. That
-                    // is the whole answer to "can these be rearranged
+                Repeater {
+                    // ── ONE REGION PER ANCESTOR, OUTERMOST FIRST ────────
+                    //
+                    // `model` is the row's own depth, so a depth-3 row draws
+                    // three rectangles: its top-level Space's region, its
+                    // parent's inside that, and its own inside that. The
+                    // parent's region therefore runs unbroken behind every
+                    // descendant instead of being replaced by the deeper
+                    // one's tint, which is what made three runs under one
+                    // Space read as three unrelated bands.
+                    //
+                    // NOT hidden during a drag, and the lanes this replaced
+                    // were. `stampGroupField` runs inside `applyRows`, the
+                    // one chokepoint every row set passes through — the drag
+                    // PREVIEW included — so the layers a reader sees
+                    // mid-gesture are the layers the release will produce.
+                    // That is the whole answer to "can these be rearranged
                     // cleanly": the drop target is drawn, not imagined.
-                    visible: spaceItem.bandStep > 0
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.leftMargin: AppTheme.scaled(4)
-                    anchors.rightMargin: AppTheme.scaled(4)
-                    y: 0
-                    // PLUS THE LIST'S OWN SPACING while the run continues, or
-                    // the field is not one shape at all: `ListView.spacing`
-                    // puts 4px of rail background between consecutive
-                    // delegates, and a per-row rectangle that stops at its own
-                    // delegate leaves that seam showing through the middle of
-                    // the group. Measured on a capture — two bands with a 4px
-                    // dark line between them — not reasoned about.
-                    height: spaceItem.height
-                            - (spaceItem.bandBottom ? root.groupGap
-                                                    : -list.spacing)
-                    z: -3
-                    radius: AppTheme.radiusMd
-                    color: spaceItem.bandStep === 1 ? AppTheme.railFolderSurface
-                                                    : AppTheme.railNestSurface
-                    Rectangle {
-                        // Square off the top when the run continues above.
-                        visible: !spaceItem.bandTop
+                    // …AND THE OWNER IS INSIDE ITS OWN REGION. A row at
+                    // depth L draws L layers as a member, plus ONE MORE when
+                    // it is the tile that owns the run below it — so the
+                    // region reads as "this Space and everything in it"
+                    // rather than as a band that begins under it. A
+                    // top-level Space is at depth 0 and draws exactly that
+                    // one, which is why an expanded Space is boxed and a
+                    // collapsed one sits on bare rail.
+                    model: Math.min(root.maxBandLayers,
+                                    Math.max(0, spaceItem.level)
+                                    + (spaceItem.ownsRegion ? 1 : 0))
+                    delegate: Rectangle {
+                        id: bandLayer
+                        objectName: "railGroupField"
+                        required property int index
+                        readonly property int depth: index + 1
+                        // THE INNERMOST DRAWN LAYER SPEAKS FOR EVERYTHING
+                        // BELOW IT. Past the cap a region would be narrower
+                        // than the tile it contains, so a depth-6 row joins
+                        // the depth-4 layer rather than getting two nobody
+                        // can see — and its bounds are then "depth >= 4",
+                        // which is what `bandDepth` says.
+                        readonly property int bandDepth:
+                            depth === root.maxBandLayers
+                            ? root.maxBandLayers : depth
+                        // Compared against the NEIGHBOURS' depths, per layer.
+                        // A pair of booleans on the row could only ever have
+                        // described the innermost one.
+                        //
+                        // The owner's layer opens ON THE OWNER, by
+                        // definition. For every other layer the row above is
+                        // either another member (deeper or equal) or this
+                        // region's own owner (exactly one shallower), and
+                        // neither of those is an opening — so a layer opens
+                        // only where the row above is outside it altogether.
+                        readonly property bool isOwnerLayer:
+                            depth === spaceItem.level + 1
+                        readonly property bool opensHere:
+                            isOwnerLayer
+                            || spaceItem.bandPrevLevel < bandDepth - 1
+                        readonly property bool closesHere:
+                            spaceItem.bandNextLevel < bandDepth
                         anchors.left: parent.left
                         anchors.right: parent.right
-                        anchors.top: parent.top
-                        height: parent.radius
-                        color: parent.color
-                    }
-                    Rectangle {
-                        visible: !spaceItem.bandBottom
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: parent.radius
-                        color: parent.color
+                        anchors.leftMargin: root.bandInset(depth)
+                        anchors.rightMargin: root.bandInset(depth)
+                        y: 0
+                        // PLUS THE LIST'S OWN SPACING while this layer's run
+                        // continues, or the layer is not one shape at all:
+                        // `ListView.spacing` puts 4px of rail background
+                        // between consecutive delegates, and a per-row
+                        // rectangle that stops at its own delegate leaves
+                        // that seam showing through the middle of the group.
+                        // Measured on a capture — two bands with a 4px dark
+                        // line between them — not reasoned about.
+                        height: spaceItem.height - spaceItem.trailingGap
+                                + (closesHere ? 0 : list.spacing)
+                        // Outermost furthest back, so each layer is drawn ON
+                        // the one containing it.
+                        z: -20 + depth
+                        radius: Math.max(AppTheme.scaled(4),
+                                         AppTheme.radiusMd - (depth - 1))
+                        color: AppTheme.railNestSurfaces[
+                            Math.min(AppTheme.railNestSurfaces.length - 1,
+                                     depth - 1)]
+                        Rectangle {
+                            // Square off the top when this layer's run
+                            // continues above, so a run of any length reads
+                            // as one shape.
+                            visible: !bandLayer.opensHere
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            height: parent.radius
+                            color: parent.color
+                        }
+                        Rectangle {
+                            visible: !bandLayer.closesHere
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: parent.radius
+                            color: parent.color
+                        }
                     }
                 }
 
@@ -1112,31 +1197,16 @@ Rectangle {
                     ToolTip.delay: 500
                 }
 
-                // The same field, behind a run of REVEALED ROOMS.
+                // THE REVEALED ROOMS NEED NO FIELD OF THEIR OWN.
                 //
-                // Without it the rail answered "what does this Space contain"
-                // two different ways: a nested Space run sat on a tint and a
-                // revealed-room run floated on the rail background, though
-                // both are the same statement about the same tile. The rooms
-                // are drawn inside their owner's delegate rather than as model
-                // rows of their own, so they carry no `bandStep` and have to
-                // take the owner's, one step deeper and clamped the same way.
-                Rectangle {
-                    objectName: "railRevealField"
-                    visible: expansionCol.visible
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.leftMargin: AppTheme.scaled(4)
-                    anchors.rightMargin: AppTheme.scaled(4)
-                    y: expansionCol.y
-                    height: expansionCol.height + 2
-                    z: -3
-                    radius: AppTheme.radiusMd
-                    color: Math.min(root.maxBandSteps,
-                                    spaceItem.bandStep + 1) === 1
-                           ? AppTheme.railFolderSurface
-                           : AppTheme.railNestSurface
-                }
+                // They used to get a separate rectangle, because a nested
+                // Space run sat on a tint while a room run floated on bare
+                // rail though both are the same statement about the same
+                // tile. Once a tile draws the region it OWNS, that rectangle
+                // is the owner's own layer: it already spans this delegate,
+                // tile band and revealed rooms together, at the inset and
+                // tint one step in from this row's own. Two things drawing
+                // one region is how they drift apart.
 
                 // Inline expansion: up to `revealed` of the space's top rooms
                 // as 28px tiles, then a "+N" pill revealing 5 more. Tiles

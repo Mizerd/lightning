@@ -109,12 +109,13 @@ private Q_SLOTS:
         // AND THE INDENT IS GONE, deliberately. This used to require a centre
         // OFFSET per level; on 2026-09-18 that offset was reported as "they
         // keep sticking out more and more and create like a wave pattern".
-        // Depth is carried by a TINT now — a saturating one, so a deep tree
-        // does not walk towards black either — and every tile sits on one x.
+        // Depth is carried by nested tinted REGIONS now — one per ancestor,
+        // each inset inside the one containing it, saturating so a deep tree
+        // does not walk towards black — and every tile sits on one x.
         // What survives is the part that was always the point: the nesting
         // LEVEL is what the rail renders the hierarchy from.
         QVERIFY(rail.contains(QStringLiteral("required property int level")));
-        QVERIFY2(rail.contains(QStringLiteral("bandStep")),
+        QVERIFY2(rail.contains(QStringLiteral("bandLayers")),
                  "the rail no longer derives anything from a row's depth");
         QVERIFY2(!rail.contains(
                      QStringLiteral("anchors.horizontalCenterOffset:")),

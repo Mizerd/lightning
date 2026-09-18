@@ -199,6 +199,22 @@ private:
         return nullptr;
     }
 
+    // The layered group field draws one rectangle PER ANCESTOR under the
+    // same objectName, so `descendantNamed` — which stops at the first — can
+    // only ever see the outermost. Collect them all.
+    static void collectDescendantsNamed(QQuickItem *root, const QString &name,
+                                        QList<QQuickItem *> &out)
+    {
+        if (!root)
+            return;
+        const auto children = root->childItems();
+        for (QQuickItem *child : children) {
+            if (child->objectName() == name)
+                out << child;
+            collectDescendantsNamed(child, name, out);
+        }
+    }
+
     QQuickItem *delegateFor(const QString &entryId) const
     {
         auto *content = m_list->property("contentItem").value<QQuickItem *>();
@@ -1167,24 +1183,85 @@ private slots:
                      "the deepest measured row is level %1 — the fixture did "
                      "not nest").arg(deepest)));
 
-        // And the tint that DOES carry depth saturates rather than walking
-        // towards black a level at a time. Two steps is the whole vocabulary:
-        // a level-7 row wears the same field as a level-2 one.
-        const int maxSteps = m_rail->property("maxBandSteps").toInt();
-        QVERIFY2(maxSteps >= 1 && maxSteps <= 3,
+        // ── THE LAYERS NEST, AND THEY SATURATE ──────────────────────
+        //
+        // A row draws one region per ANCESTOR, so the count is its depth,
+        // capped. The cap is what keeps a deep tree drawable at all: each
+        // layer is inset inside the one containing it, so without one the
+        // innermost region would end up narrower than the tile it holds.
+        const int maxLayers = m_rail->property("maxBandLayers").toInt();
+        QVERIFY2(maxLayers >= 2 && maxLayers <= 6,
                  qPrintable(QStringLiteral(
-                     "the rail claims %1 tint steps — that is a gradient, not "
-                     "a vocabulary").arg(maxSteps)));
+                     "the rail claims %1 layers — a rail this narrow cannot "
+                     "inset that many and still hold a tile").arg(maxLayers)));
+
+        qreal outerX = -1;
+        qreal outerWidth = -1;
+        int deepRowsChecked = 0;
         for (const QString &id : chain) {
             QQuickItem *row = delegateFor(id);
             if (!row || !row->isVisible())
                 continue;
-            const int step = row->property("bandStep").toInt();
-            QVERIFY2(step >= 0 && step <= maxSteps,
+            const int level = row->property("level").toInt();
+            if (level < 1)
+                continue;
+            QList<QQuickItem *> layers;
+            collectDescendantsNamed(row, QStringLiteral("railGroupField"),
+                                    layers);
+            // One per ancestor, PLUS the row's own when it owns the run
+            // below it — a tile is inside the region it owns, or the region
+            // reads as a band that begins underneath it. Every row of this
+            // chain but the last owns one.
+            const bool owns = row->property("ownsRegion").toBool();
+            QCOMPARE(layers.size(),
+                     std::min(maxLayers, level + (owns ? 1 : 0)));
+
+            // Strictly nested: each layer starts further in and is narrower
+            // than the one containing it. This is the property the previous
+            // design could not have — there was one region per row, tinted by
+            // that row's own depth, so a deeper run REPLACED its parent's
+            // tint instead of sitting on it.
+            for (int i = 1; i < layers.size(); ++i) {
+                const qreal outer =
+                    layers.at(i - 1)->mapToItem(row, QPointF(0, 0)).x();
+                const qreal inner =
+                    layers.at(i)->mapToItem(row, QPointF(0, 0)).x();
+                QVERIFY2(inner > outer,
+                         qPrintable(QStringLiteral(
+                             "%1's layer %2 starts at x=%3 and the one "
+                             "containing it at x=%4 — they are not nested")
+                             .arg(id).arg(i).arg(inner).arg(outer)));
+                QVERIFY2(layers.at(i)->width() < layers.at(i - 1)->width(),
+                         qPrintable(QStringLiteral(
+                             "%1's layer %2 is not narrower than the one "
+                             "containing it").arg(id).arg(i)));
+            }
+
+            // AND THE OUTERMOST DOES NOT MOVE. The top-level Space's region
+            // has to be the same shape behind a depth-1 row and behind a
+            // depth-6 one, or it is not one region running behind its
+            // descendants — it is a per-row band wearing a parent's colour.
+            ++deepRowsChecked;
+            const qreal x = layers.at(0)->mapToItem(row, QPointF(0, 0)).x();
+            if (outerX < 0) {
+                outerX = x;
+                outerWidth = layers.at(0)->width();
+                continue;
+            }
+            QVERIFY2(qAbs(x - outerX) < 1.0
+                         && qAbs(layers.at(0)->width() - outerWidth) < 1.0,
                      qPrintable(QStringLiteral(
-                         "%1 asks for tint step %2 of %3")
-                         .arg(id).arg(step).arg(maxSteps)));
+                         "%1's outermost region is %2px wide at x=%3 where a "
+                         "shallower row's is %4px at x=%5 — the top-level "
+                         "region narrows as its contents get deeper")
+                         .arg(id).arg(layers.at(0)->width()).arg(x)
+                         .arg(outerWidth).arg(outerX)));
         }
+        QVERIFY2(deepRowsChecked >= 5,
+                 qPrintable(QStringLiteral(
+                     "only %1 nested rows were measurable, so nothing here "
+                     "says anything about deep nesting")
+                     .arg(deepRowsChecked)));
 
         for (const QString &id : chain)
             store()->setSpaceExpanded(id, false);

@@ -136,12 +136,16 @@ public:
         /// a tinted region behind the run instead, which is what Discord
         /// does and what this rail's own folders already did.
         ///
-        /// True when the row ABOVE is shallower than this one, so the
-        /// region starts here and takes a rounded top.
-        BandTopRole,
-        /// True when the row BELOW is shallower, or there is none, so the
-        /// region ends here and takes a rounded bottom.
-        BandBottomRole,
+        /// The depth of the row ABOVE this one, or -1 at the top of the
+        /// list. The region at depth d starts here when this is below d.
+        BandPrevLevelRole,
+        /// The depth of the row BELOW, or -1 at the end. The region at
+        /// depth d ends here when this is below d.
+        ///
+        /// NEIGHBOUR DEPTHS RATHER THAN TWO BOOLEANS, because the rail draws
+        /// one region per ANCESTOR — a row at depth 3 sits on three nested
+        /// layers — and "does the region start here" is a question per depth.
+        BandNextLevelRole,
     };
 
     explicit RailEntryModel(QObject *parent = nullptr);
