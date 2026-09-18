@@ -165,7 +165,11 @@ Rectangle {
     /// Moving the chevron per level was considered and refused: it is what
     /// "the chevrons are unevenly distanced" already asked to have removed.
     readonly property int chevronGlyphSize: AppTheme.scaled(16)
-    readonly property int chevronInset: AppTheme.scaled(4)
+    // `chevronInset` lived here and had no reader anywhere in the tree once
+    // the plate took over the gutter's budget — while a comment still cited
+    // it as one of the gutter's four tenants. A token nothing reads is a
+    // number that cannot be wrong, which is exactly how it outlived the
+    // thing it described.
     /// The ink inside that box — about 0.26 of the font size for this glyph.
     /// Used to place it, because placing the BOX leaves a quarter of the
     /// gutter as side bearing and pushes the mark away from its tile.
