@@ -526,12 +526,29 @@ Rectangle {
             color: AppTheme.surface
             ColumnLayout {
                 id: rootColumn
+                objectName: "threadRootColumn"
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.margins: AppTheme.spacing12
                 spacing: 4
                 RowLayout {
+                    objectName: "threadRootHeaderRow"
+                    // CAPPED AT THE COLUMN, and the cap is what makes the
+                    // card readable. `rootColumn` is anchored to the card, so
+                    // its width is 292 at a 316px card — but a `fillWidth`
+                    // child of a ColumnLayout was being given the layout's
+                    // IMPLICIT width instead, which this header's own
+                    // contents set. Measured at 140%: the body Label came out
+                    // 377px wide inside a 292px column, so it wrapped for 377
+                    // and the card's `clip: true` ate the overhang — the
+                    // message lost the characters "ree" out of "space-tree"
+                    // with nothing on screen to say so.
+                    //
+                    // No width loop: the card's width comes from the panel,
+                    // and only its HEIGHT is derived from this column.
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: rootColumn.width
                     spacing: AppTheme.spacingS
                     visible: panel.rootData.loaded === true
                     Avatar {
@@ -543,6 +560,25 @@ Rectangle {
                     Label {
                         // Remote or externally chosen text: never markup.
                         textFormat: Text.PlainText
+                        // THE NAME IS WHAT GIVES WAY, and only when it has
+                        // to. It is the one thing in this row that can be
+                        // shortened and still be useful, so it may SHRINK
+                        // (minimum 0, elided) but never GROW past its natural
+                        // width — the spacer below still pushes "Open in
+                        // room" to the card's right edge whenever there is
+                        // room, which is every ordinary case.
+                        //
+                        // The minimum is the load-bearing half: a layout can
+                        // never be narrower than the sum of its children's
+                        // minimums, and a Text offers its own implicit width
+                        // as that minimum. Without the 0 the row's floor was
+                        // the WHOLE name plus the action, the cap on the row
+                        // could not bite, and it overflowed the card at 140%
+                        // — taking "Open in room" off the edge with it.
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        Layout.maximumWidth: implicitWidth
+                        elide: Text.ElideRight
                         text: panel.rootData.senderDisplayName || ""
                         // Same per-user identity ink as the timeline rows.
                         color: AppTheme.userColor(panel.rootData.sender || "")
@@ -581,9 +617,11 @@ Rectangle {
                     }
                 }
                 Label {
+                    objectName: "threadRootBody"
                     // Remote or externally chosen text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
+                    Layout.maximumWidth: rootColumn.width
                     visible: panel.rootData.loaded === true
                     text: panel.rootData.redacted === true
                           ? qsTr("Message deleted")
