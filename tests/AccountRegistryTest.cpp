@@ -8,6 +8,7 @@
 #include "storage/AppDataPaths.h"
 #include "storage/SecretStore.h"
 
+#include <QFile>
 #include <QHash>
 #include <QSettings>
 #include <QSignalSpy>
@@ -87,6 +88,32 @@ void saveCarol(SettingsManager &s)
 {
     s.saveSession(kHsTwo, kCarolId, QStringLiteral("CAROLDEV"),
                   QStringLiteral("carol-token-fixture"));
+}
+
+// The ACTIVE ACCOUNT AS THE FILE HOLDS IT.
+//
+// The PATH IS PASSED IN, and that is the whole point of this helper's shape.
+// Every QSettings over one file shares a single QConfFile, and CONSTRUCTING a
+// QSettings calls sync() on it — so a helper that said `QSettings().fileName()`
+// here would flush the very unsynced write it was built to catch, and pass on
+// the broken tree. It did, on the first version of this test. Resolve the
+// path once, before the write, and then touch nothing but the bytes.
+QString activeAccountOnDisk(const QString &settingsPath)
+{
+    QFile f(settingsPath);
+    if (!f.open(QIODevice::ReadOnly))
+        return QStringLiteral("<no settings file>");
+    const QString text = QString::fromUtf8(f.readAll());
+    for (const QString &line : text.split(QLatin1Char('\n'))) {
+        if (!line.startsWith(QLatin1String("active=")))
+            continue;
+        QString value = line.mid(7).trimmed();
+        // QSettings' INI escape for a value that begins with '@'.
+        if (value.startsWith(QLatin1String("@@")))
+            value = value.mid(1);
+        return value;
+    }
+    return QString{};
 }
 
 } // namespace
@@ -230,6 +257,54 @@ private Q_SLOTS:
         QCOMPARE(reopened.activeAccountUserId(), kAliceId);
         QCOMPARE(reopened.deviceId(), QStringLiteral("ALICEDEV"));
         QCOMPARE(reopened.homeserverUrl(), kHsOne);
+    }
+
+    // THE 2026-09-18 REPORT (an AppImage): "if i switch account, close the
+    // app, open it again it opens in the wrong account (i think its the one i
+    // signed into as the very first)".
+    //
+    // accounts/active is the ONLY record of which account the next launch
+    // restores, and it was the one load-bearing key written without a flush.
+    // QSettings writes lazily, so until something syncs, the FILE still names
+    // the previous account — while saveSession() (a sign-in) has always
+    // synced. So a SIGN-IN was durable the instant it happened and a SWITCH
+    // was not, which is exactly the reported shape.
+    //
+    // Asserted with NO event-loop iteration in between, deliberately: an
+    // iteration is what used to hide this, and the window between the switch
+    // and the next one is where switchToAccount() does its cache clearing and
+    // the backend's whole synchronous restore.
+    void theActiveAccountIsOnDiskTheMomentItChanges()
+    {
+        // Resolved BEFORE anything is written unsynced: see the helper.
+        const QString settingsPath = QSettings().fileName();
+
+        FakeSecretStore secrets;
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+
+        // alice is signed into first, then bob — so the last SYNCED write of
+        // accounts/active names bob, exactly as the report's registry would.
+        saveAlice(settings);
+        saveBob(settings);
+        QCOMPARE(settings.activeAccountUserId(), kBobId);
+        QCOMPARE(activeAccountOnDisk(settingsPath), kBobId);
+
+        // The switch. Nothing spins the event loop before the assertion.
+        settings.setActiveAccountUserId(kAliceId);
+        QCOMPARE(settings.activeAccountUserId(), kAliceId);
+        QCOMPARE(activeAccountOnDisk(settingsPath), kAliceId);
+
+        // And back, so the durability is not a one-direction accident.
+        settings.setActiveAccountUserId(kBobId);
+        QCOMPARE(activeAccountOnDisk(settingsPath), kBobId);
+
+        // Clearing it is the same promise: signing out of every account must
+        // not leave the file naming one of them.
+        settings.setActiveAccountUserId(QString{});
+        QVERIFY(settings.activeAccountUserId().isEmpty());
+        QVERIFY2(activeAccountOnDisk(settingsPath).isEmpty(),
+                 "a cleared active account was left on disk");
     }
 
     void perAccountSyncTokens()

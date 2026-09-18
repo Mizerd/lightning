@@ -496,12 +496,52 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
 {
     const QString uid = userId.trimmed();
     const QString next = (!uid.isEmpty() && hasSavedAccount(uid)) ? uid : QString{};
+    // "That account is not in the registry" and "there is no account" are
+    // different facts, and this setter collapses them into one write. Say so:
+    // silently clearing the pointer is how a switch could end with no active
+    // account at all, and nothing in the log would name the id that did it.
+    if (!uid.isEmpty() && next.isEmpty()) {
+        qCWarning(lcSettings)
+            << "asked to activate an account with no saved record; the active "
+               "account is being CLEARED instead"
+            << "slug=" << matrix::app_data::safeUserSlug(uid);
+    }
     if (activeAccountUserId() == next)
         return;
+    // The one transition that decides which account the NEXT launch opens.
+    // Slug only (CLAUDE.md section 6: local logs may carry safeUserSlug), and
+    // at INFO because a report of "it opened the wrong account" has, until
+    // now, had nothing in any log to check against.
+    qCInfo(lcSettings) << "active account moves"
+                       << "from="
+                       << matrix::app_data::safeUserSlug(activeAccountUserId())
+                       << "to=" << matrix::app_data::safeUserSlug(next);
     if (next.isEmpty())
         m_store->remove(kActiveAccount);
     else
         m_store->setValue(kActiveAccount, next);
+    // FLUSHED, and this is the only pointer in the file that decides which
+    // account the next launch restores.
+    //
+    // QSettings writes lazily: a setValue() lives in memory until something
+    // syncs, and until then the FILE still names the previous account. Every
+    // other writer of this key already flushes — saveSession() (a sign-in)
+    // syncs a few lines further down, setStoreSlugFor() syncs, and both
+    // call-volume setters sync with the same rationale written at them — so
+    // a SIGN-IN was durable the instant it happened and a SWITCH was not.
+    // That asymmetry has exactly the shape of the 2026-09-18 report: switch
+    // account, close the app, and it reopens on the account that was last
+    // SIGNED INTO.
+    //
+    // Nothing between this call and the next event-loop iteration may be
+    // assumed to be short: switchToAccount() goes straight on to
+    // clearCrossAccountCaches(), ShortcutRegistry::reload(),
+    // MediaVisibilityStore::reloadForAccount() and then the backend's
+    // restoreSession(), which resolves the identity, probes the store
+    // directory, may scan for a divergent one, creates a Rust client and
+    // opens a fresh SQLite store — all synchronously, on the GUI thread.
+    // A process that ends anywhere in there loses the switch.
+    m_store->sync();
     m_activeSlugCacheUserId.clear();
     m_activeSlugCache.clear();
     Q_EMIT sessionChanged();
@@ -3098,6 +3138,14 @@ bool SettingsManager::clearSessionForAccount(const QString &uid,
                 << m_secretStore->lastError();
         }
     }
+
+    // FLUSHED, the same rule setActiveAccountUserId() carries and for a
+    // sharper reason: the SecretStore write above has ALREADY happened, and
+    // QSettings' has not. A process that ends in between leaves the account
+    // record — and, when this was the active account, the pointer naming it —
+    // on disk with its credentials gone, which is an account that restores to
+    // nothing and a store whose owner the cleanup can no longer resolve.
+    m_store->sync();
 
     if (activeAccount)
         Q_EMIT sessionChanged();

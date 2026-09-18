@@ -345,6 +345,45 @@ private Q_SLOTS:
                  QStringLiteral("bob-token-fixture"));
     }
 
+    // THE REPORT (2026-09-18, an AppImage): "if i switch account, close the
+    // app, open it again it opens in the wrong account (i think its the one i
+    // signed into as the very first)". The whole cycle on one registry: the
+    // account the user switched TO must be the account the NEXT launch opens.
+    //
+    // This is the PROMISE, not the mechanism, and it passes on the unfixed
+    // tree — QTRY_* spins the event loop, and one iteration is all QSettings
+    // needs to flush a switch that was never explicitly synced. The durability
+    // half is pinned where no event loop can hide it, by
+    // AccountRegistryTest::theActiveAccountIsOnDiskTheMomentItChanges.
+    void theSwitchedToAccountIsTheOneTheNextLaunchOpens()
+    {
+        {
+            AppController app(AppController::MockBackend);
+            FakeSecretStore secrets;
+            app.settings()->setSecretStore(&secrets);
+            // alice is "the one signed into as the very first".
+            app.settings()->saveSession(kHsOne, kAlice,
+                                        QStringLiteral("ALICEDEV"),
+                                        QStringLiteral("alice-token-fixture"));
+            app.settings()->saveSession(kHsTwo, kBob,
+                                        QStringLiteral("BOBDEV"),
+                                        QStringLiteral("bob-token-fixture"));
+            app.switchToAccount(kAlice);
+            QTRY_VERIFY(!app.accountSwitching());
+            QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+
+            app.switchToAccount(kBob);
+            QTRY_VERIFY(!app.accountSwitching());
+            QTRY_COMPARE(app.auth()->currentUserId(), kBob);
+            QCOMPARE(app.settings()->activeAccountUserId(), kBob);
+        }
+
+        // "open it again": a fresh process reading the same registry.
+        AppController relaunched(AppController::MockBackend);
+        QCOMPARE(relaunched.settings()->activeAccountUserId(), kBob);
+        QTRY_COMPARE(relaunched.auth()->currentUserId(), kBob);
+    }
+
     void switchToUnknownAccountFailsCleanly()
     {
         AppController app(AppController::MockBackend);
