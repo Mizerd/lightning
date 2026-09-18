@@ -1160,10 +1160,28 @@ QtObject {
     // `cardElevated`, the steps are ~1.13-1.39 rather than 1.45, and the
     // INSET was widened from 1px to 2px in the same change so the shape
     // carries what the tone gave up.
+    //
+    // ── AND THE CEILING WAS LOWERED AND THE ANCHOR WAS NOT ────────────
+    //
+    // The first ceiling capped the ladder's INTERNAL ratio and left where it
+    // starts alone, so the rail was still the brightest column in the window:
+    // measured again, rail -> deepest rung was 34.0 ΔL* and that rung sat
+    // **+25.1 ΔL\* above the room-list panel it is supposed to recede
+    // behind**. An 18px-blur squint test put the rail at L*31.5 against the
+    // list at 19.2 and the chat at 8.9 — the eye lands on the chrome first.
+    //
+    // FOR SCALE: Discord's ENTIRE three-plane chrome spans 9.46 ΔL*. Each
+    // nesting step here was 7.3-7.6 — one depth level costing more visual
+    // weight than Discord's whole rail-to-list change. And the third rung
+    // landed at L*31.3 against the chat pane's SELECTED ROW at 31.1, so one
+    // value was doing duty as both "selected" and "depth 3" in one window.
+    //
+    // The step is ΔL* 3 now, which is exactly Discord's adjacent-panel step,
+    // and the top rung sits ~3 ΔL* above the room list instead of 25.
     readonly property bool _railIsDark: rail.hslLightness < 0.5
     readonly property var _railNestAlphas:
-        _railIsDark ? [0.05, 0.11, 0.18, 0.26, 0.34]
-                    : [0.07, 0.16, 0.28, 0.42, 0.55]
+        _railIsDark ? [0.018, 0.032, 0.059, 0.087, 0.114]
+                    : [0.030, 0.060, 0.110, 0.160, 0.210]
     readonly property var railNestSurfaces: [
         Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[0])),
         Qt.tint(rail, Qt.rgba(text.r, text.g, text.b, _railNestAlphas[1])),

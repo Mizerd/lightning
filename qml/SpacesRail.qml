@@ -735,7 +735,11 @@ Rectangle {
             // its last tile flat, mid-monogram, with the bottom cluster's
             // divider jammed against the cut edge — measured at 0px, against
             // 10px of clearance on the divider at the top of the rail.
-            Layout.bottomMargin: root.railTileGap
+            // AND ENOUGH OF IT THAT THE FADE ONLY EVER COVERS EMPTY
+            // SUBSTRATE. At `railTileGap` the fade's 16px overlapped the last
+            // tile by 5, dimming its bottom edge ~25% — a tile that looks
+            // faulty rather than a column that looks scrollable.
+            Layout.bottomMargin: AppTheme.scaled(16)
             // A real model, so a preview reorder is a MOVE and not a reset.
             model: app.railEntries
             clip: true
@@ -1453,14 +1457,15 @@ Rectangle {
                         // background now, in whichever direction the theme
                         // takes: `text` is dark on a light preset, so the
                         // same tint darkens there.
-                        color: chevronHover.hovered
-                               ? AppTheme.text
-                               : Qt.tint(AppTheme.textMuted,
-                                         Qt.rgba(AppTheme.text.r,
-                                                 AppTheme.text.g,
-                                                 AppTheme.text.b,
-                                                 0.16 * Math.max(
-                                                     0, spaceItem.bandLayers - 1)))
+                        // ONE INK, and it used to step with the band under
+                        // it. That was the right answer to a ladder that
+                        // climbed 34 ΔL*; the ladder spans 12 now, so a
+                        // single colour clears its contrast floor at every
+                        // depth (measured 7.2:1 on bare rail against 3.4:1 on
+                        // the old brightest rung) and the control stops
+                        // changing colour as a reader scrolls past it.
+                        color: chevronHover.hovered ? AppTheme.text
+                                                    : AppTheme.textSecondary
                     }
                     // A HOVER PLATE, because there was no affordance at
                     // all: a 4px speck with nothing under it does not say
@@ -2256,11 +2261,15 @@ Rectangle {
                 // status AT their edge. 0.065 lands it on the 45-degree point.
                 anchors.rightMargin: Math.round(root.railTileSize * 0.065)
                 anchors.bottomMargin: Math.round(root.railTileSize * 0.065)
-                width: AppTheme.scaled(11)
-                height: AppTheme.scaled(11)
+                // BIGGER, WITH A REAL CUTOUT. 7px of ink behind a hairline
+                // ring disappears on a green avatar, which is the one case a
+                // green "online" dot has to survive. Discord uses ~12 with a
+                // 3px background-coloured cutout.
+                width: AppTheme.scaled(13)
+                height: AppTheme.scaled(13)
                 radius: height / 2
                 border.color: AppTheme.rail
-                border.width: 2
+                border.width: 3
                 color: app.connectionStatus === qsTr("Connected")
                        ? AppTheme.presenceOnline : AppTheme.presenceAway
                 Accessible.role: Accessible.Indicator

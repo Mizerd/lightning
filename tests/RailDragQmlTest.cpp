@@ -1760,6 +1760,7 @@ private slots:
             ++themesChecked;
 
             QColor previous = rail;
+            QList<double> steps;
             // Rung 0 is a FOLDER's container and is deliberately the quietest
             // step of the ladder, so the assertion starts at hierarchy depth
             // 1 — the rung a reader actually has to see against bare rail.
@@ -1775,15 +1776,44 @@ private slots:
                 // written against the unbounded ladder can survive that.
                 // What this still pins is the thing that matters: the rungs
                 // are EVEN, and none of them collapses into its neighbour.
-                QVERIFY2(ratio >= 1.20,
+                // 1.05, AND THE REAL ASSERTION IS THE EVENNESS BELOW.
+                // This threshold has now been re-keyed twice, both times
+                // because the ladder was made QUIETER on purpose, and a
+                // moving absolute floor pins nothing. A rail is chrome: it
+                // has to recede, so its whole range is small and its steps
+                // are small with it — Discord's entire three-plane chrome
+                // spans 9.5 ΔL*. What must never happen is a rung COLLAPSING
+                // into its neighbour, which is what this floor catches, and
+                // the spread check afterwards is what catches a ladder that
+                // has stopped being a ladder.
+                QVERIFY2(ratio >= 1.05,
                          qPrintable(QStringLiteral(
                              "theme %1: region rung %2 (%3) is %4:1 against "
                              "the one outside it (%5) — below the step a 2px "
                              "band can carry, so the nesting stops reading")
                              .arg(t).arg(i).arg(rung.name())
                              .arg(ratio, 0, 'f', 2).arg(previous.name())));
+                steps << ratio;
                 previous = rung;
             }
+            // EVEN, which is the property that actually matters and the one
+            // no absolute number can express. A ladder whose steps differ by
+            // more than half again is not a ladder — it is one loud boundary
+            // and some whispers, which is exactly what the first version of
+            // this ramp was before it was rebuilt off the rail's own
+            // background.
+            double lo = steps.first();
+            double hi = steps.first();
+            for (double v : std::as_const(steps)) {
+                lo = std::min(lo, v);
+                hi = std::max(hi, v);
+            }
+            QVERIFY2(hi <= lo * 1.5,
+                     qPrintable(QStringLiteral(
+                         "theme %1: the region steps run %2:1 to %3:1 — the "
+                         "ladder is uneven, so one boundary shouts and the "
+                         "rest whisper")
+                         .arg(t).arg(lo, 0, 'f', 3).arg(hi, 0, 'f', 3)));
         }
         QVERIFY2(themesChecked >= 8,
                  qPrintable(QStringLiteral(
