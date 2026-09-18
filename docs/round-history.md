@@ -1,5 +1,186 @@
 # Round history
 
+## 2026-09-18 (evening) — the rail redesign, and the six defects that read correctly as source
+
+Eleven commits, driven almost entirely by the maintainer looking at the thing
+and one design agent after another measuring it. The record below is organised
+by LESSON rather than by commit, because the same shape of mistake produced
+most of the defects.
+
+### The one mistake that looked like three bugs
+
+A slice-and-splice edit removed a block from the rail's delegate and took four
+lines above it with it: `expansionCol` lost its `visible`, `y`, `width` and
+`spacing`. What followed:
+
+* **no Space revealed any room ANYWHERE**, because a Column with no width lays
+  out nothing;
+* `visible` defaulted to TRUE, so the delegate added `expansionCol.height + 2`
+  to every row while `rowBand()` — which the drag's pointer arithmetic
+  accumulates — did not;
+* so **a drop landed a row and a half from the pointer** and silently made a
+  folder out of a Space the user was never pointing at. Measured by a GUI
+  agent: the drop-target ring lit 56-103px below the cursor.
+
+A full CTest run passed throughout, because the mock fixture reveals no rooms,
+so that Column is empty there and the divergence is exactly zero.
+**GENERALISE: when a slice-and-splice edit removes a block, diff what it
+ACTUALLY removed — the boundary you searched for is not the boundary you
+meant.**
+
+### Two numbers that must move together, three times
+
+Every remaining defect in this round was the same shape, and the bindings read
+correctly in all of them:
+
+* The cap seam moves a child's BAND down; the tile drawn on that band was
+  still positioned from the ROW's top, so on every row that opens a seam the
+  tile was drawn through the top edge of its own region. Its chevron, its
+  revealed rooms and its tooltip anchor had it too. Reported as "blue DL looks
+  very bad, the whole region".
+* `Avatar.size` is the mask's permille denominator. A nested tile rendered at
+  41px with a mask baked from 48 came out at r/size 0.356 against the 0.30
+  every other tier uses — MORE round than the band containing it, the classic
+  wrong-nesting read. The `Rectangle` underneath it was already correct, which
+  is what made the two disagree.
+* A delegate height that `rowBand()` does not mirror is a mis-drop, and this
+  file now records it twice.
+
+There is a geometric case for the whole class now: every tile must be inside
+the region that holds it, on every row, in x and in y. It fails on the unfixed
+tree naming the row and both edges.
+
+### Rounding only reads where there is background behind the corner
+
+Asked for by name — "round the shapes more around the subspaces" — the band
+radii went to 14/12/10, still exactly concentric (a rounded rectangle inset by
+N inside another is concentric only when its radius is smaller by exactly N).
+A critique then measured what that bought: of 24 corners in a deep run, FOUR
+met open rail and the other twenty met a sibling, where a corner curving in
+immediately meets one curving out. **Rounder shapes, twenty pinches.** Every
+region boundary spends 8px now, and the three different junction treatments it
+measured collapse to one.
+
+And a rounded corner shows what is drawn BEHIND it, which is how the last
+defect of the round worked: behind an over-cap child sits the GRANDPARENT's
+band, two tone steps away. The backdrop that exists to fill that notch was
+gated on the SEAM, and the seam is gated on the row above already being at the
+cap — so in the common case it was never drawn. **The seam and the backdrop
+are different questions**: one asks "is there air here", the other asks "what
+colour is behind this child's corners".
+
+Swept all 1272 rows of the rail for others. Three came back and all three were
+false positives, confirmed pixel by pixel: the chevron glyph's antialiased edge
+landing on a rung's exact value, and a correctly rounded bottom corner whose
+arc reads 38 -> 36 -> 34 -> 32.
+
+### A rail is chrome, and this one was the brightest thing in the window
+
+The tone ladder was derived from `text` at escalating alpha with no ceiling and
+reached L*62 in a theme whose base is L*6 — **5.25:1 brighter than the
+room-list column beside it**, where in Discord, Slack, Element and Linear the
+leftmost rail is the DARKEST surface. A light slab behind a run of tiles is
+also the universal language of SELECTION, so the feature was speaking the wrong
+verb; and nine of sixteen tiles measured under 2:1 against the band behind
+them, which is structural rather than fixture luck, because a ramp sweeping
+L*21..62 must cross most of the generated avatar palette.
+
+**The first fix capped the ladder's internal ratio and left its anchor alone**,
+so a second critique found the rail still brightest and caught a number this
+file had reported wrong: rail-to-deepest was quoted as 2.13:1, which was
+rail-to-rung-THREE. There are four rungs. It was 2.82:1, and rung three sat at
+L*31.3 against the chat pane's SELECTED ROW at L*31.1 — one value doing duty
+as both "selected" and "depth 3" in one window.
+
+The step is ΔL* 3 now, which is Discord's adjacent-panel step. Measured:
+rail-to-deepest 9.08 ΔL* where it was 34.0, and +0.21 from the room list where
+it was +25.1.
+
+**AND ONE ALPHA LADDER CANNOT SERVE BOTH DIRECTIONS.** Measured across all
+eleven presets: the dark ones landed at 1.40-1.53 per boundary and the LIGHT
+ones at 1.22-1.36 on the same mix steps. That is the sRGB transfer curve, not a
+palette problem — equal 8-bit steps are far smaller luminance steps near white
+than near black.
+
+### The rail's own centre, and what "too wide" actually was
+
+"Icons are way too big, and top and bottom ui is not centered and stuck to the
+right side." An audit measured three disagreeing centre lines at once, all
+visible in the rail's bottom 200px — the tile column, the Home divider and the
+bottom separator — and the separator was the one that was CORRECT, which is
+exactly why the cog and avatar beside it looked wrong.
+
+"Too big" settles from the product's own ladder in one screenshot: a room-list
+avatar is 21, a "Jump back in" avatar 33, the WELCOME HERO PORTRAIT 57 — and
+the rail tile was 59. A persistent navigation chip was larger than the hero.
+
+The same audit found six things nobody had reported: a footer height that was a
+literal 48 against a tile that had become 59, so the "+" clipped; a presence dot
+anchored to the square BOUNDING BOX of a circular avatar, putting two thirds of
+it off the disc; an alert badge anchored to the 59px button rather than the
+23px glyph; RAW unscaled glyph literals at 0.37 of their tile where Material and
+Discord use 0.50; a Home divider flush with its tile's left edge and 20% short
+on the right; and a rail whose top inset was 18 against a bottom of 12.
+
+**AND `AppTheme.scaled()` IS A FONT METRIC SIZING GEOMETRY.** `scaled(px) =
+round(px * textScale * uiFontOptical)`, so changing the UI font from Manrope
+(1.00) to Source Sans 3 (1.13) moves the rail tile 56 -> 63 and the rail 88 ->
+99 with no user intent involved. That is why the maintainer's capture read
+59/92 where the source said 56/88. NOT addressed — it would move geometry
+across the whole app and belongs in its own round.
+
+### Arranging what the rail shows, at every level
+
+Subspaces and revealed rooms are draggable now, by the same mechanism the top
+level has always used: a LOCAL order in `RailLayoutStore`, additive in the
+stored JSON so an older layout loads as Matrix's own order. The refusal used to
+read "Matrix owns this row's position" — true of the SERVER's order and never
+of the rail's.
+
+What Matrix still owns is the SHAPE: `legalGap()` clamps a subspace to
+boundaries between its own parent's children, and `hoverGroup()` refuses to
+file one into a rail folder.
+
+Three things this cost, all of them worth keeping:
+
+* **A drag that cannot GROUP has no "do nothing" reading.** `readingAt()`
+  answers "on a tile" or "in a gap", and a tile means group — so a subspace
+  drag was inert over most of the column's height. For those drags a tile is a
+  POSITION now.
+* **A handler that lives on an item its own side effect rebuilds cannot finish
+  what it starts.** The room reorder's first handler sat on each row;
+  instrumented, it activated with the right index and never deactivated,
+  because setting the preview changes the Repeater's model and destroys it. It
+  is on the column now.
+* **An activity re-sort looks exactly like a successful reorder.** A capture
+  was read as the room drag working when the tap underneath had opened the room
+  and bumped its `lastActivity`. It was reported here as working, and it was
+  not; it is live-verified now, including across a restart.
+
+### Clicking a Space in the Home pane now shows it
+
+It set the active Space and changed nothing a reader could see, because the
+rail draws a row for a subspace only while its whole ancestor chain is
+expanded. `RailEntryModel::revealSpace()` opens the chain OUTERMOST-FIRST —
+each write rebuilds the rail, so the order matters — opens the Space itself and
+asks the rail to scroll to the row.
+
+### And a folder painted over its own tree
+
+The folder container was drawn at `z: -2` while the hierarchy regions live at
+-22..-17, in a colour those regions already used, so a Space tree filed into a
+folder was painted flat: measured, exactly ONE region tint in the whole rail on
+a three-deep tree with four open chevrons proving the app knew it was a tree.
+Its margins were a RAW 6 against a scaled ladder too, so the container came out
+NARROWER than what it contains. A folder and a hierarchy region say the same
+thing; they are one device now.
+
+The folder path also still had the per-level indent everything else had lost —
+`tileIndent` moved a filed Space 7.5px off the shared axis, in a file whose
+comment says hierarchy depth is not an offset, twice, in two copies of the same
+paragraph.
+
+
 ## 2026-09-18 — the GUI pass that turned four "needs looking at" items into four defects, and then found eleven more
 
 The 2026-09-17 round landed five fixes and recorded that none of them had been
