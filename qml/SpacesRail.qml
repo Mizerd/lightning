@@ -520,7 +520,19 @@ Rectangle {
         var gap = depth > 0 && e.bandNextLevel >= 0
                   && e.bandNextLevel < depth
                   ? (e.bandNextLevel < 1 ? groupBreakGap : groupGap) : 0
+        // AND THE CAP SEAM, which the delegate adds to its own height. This
+        // function is what the drag maps the pointer through, so a term in
+        // one and not the other is a drop that lands somewhere the reader was
+        // not pointing — which is exactly the defect the `ownsRegion` comment
+        // above records having shipped once already.
+        var seam = bandRadius(maxBandLayers)
+        var capOpens = owns && depth > maxBandLayers
+                       && e.bandPrevLevel >= maxBandLayers
+        var capCloses = depth > maxBandLayers
+                        && e.bandNextLevel < depth
+                        && e.bandNextLevel >= maxBandLayers
         return tile + 2 * rowPad + gap
+               + (capOpens ? seam : 0) + (capCloses ? seam : 0)
     }
     // DERIVED from the row heights, not read off `itemAtIndex(i).y`.
     //
@@ -916,6 +928,52 @@ Rectangle {
                 /// The uncapped depth restores the guarantee the cap broke:
                 /// two regions can still share a tint, and they can no longer
                 /// TOUCH while doing it.
+                /// ── THE SEAM PAST THE DEPTH CAP ────────────────────────
+                ///
+                /// Reported as "these should be rounded", of a hard square
+                /// edge between two bands. A design study measured it and
+                /// found a case none of the existing rules covers: a child
+                /// region OPENING PAST THE CAP. Past `maxBandLayers` the
+                /// child cannot be inset any further, so parent and child sit
+                /// at the SAME inset with no gap, and the only thing telling
+                /// them apart is 1.33:1 of tone — at a full-bleed straight
+                /// edge, which reads as a fold in one surface rather than as
+                /// one thing inside another. Worse, the tone alternation is
+                /// non-monotonic: sometimes the deeper band is lighter,
+                /// sometimes darker, so tone cannot even say which side is
+                /// inside.
+                ///
+                /// A RADIUS ALONE WOULD NOT HAVE FIXED IT, which is why this
+                /// is not what was asked for. Two 3px corner notches are
+                /// 3.9px² out of a 66x41 band — invisible — and the radius
+                /// cannot grow, because the enclosing band is 2px outside it
+                /// and concentricity is what keeps nested corners from
+                /// looking unbalanced. Worse still, rounding alone fills the
+                /// notch with whatever is BEHIND, which is the GRANDPARENT's
+                /// band at 1.73:1 — the largest step in the ladder, at the
+                /// boundary that should show the smallest.
+                ///
+                /// So the seam is AIR IN THE PARENT'S OWN TONE, and the
+                /// radius is what keeps that air from reading as a slot. The
+                /// resulting vocabulary has two boundaries that can never be
+                /// confused: a run ENDS and shows 8px of the grandparent;
+                /// a child BEGINS and shows 3px of the parent.
+                readonly property int capSeamSize:
+                    root.bandRadius(root.maxBandLayers)
+                /// Guarded on the parent's band already being present at this
+                /// inset, so a cap seam can never stack with the gap a run
+                /// that truly ends already spends.
+                readonly property bool capOpens:
+                    spaceItem.ownsRegion
+                    && spaceItem.trueBandDepth > root.maxBandLayers
+                    && spaceItem.bandPrevLevel >= root.maxBandLayers
+                readonly property bool capCloses:
+                    spaceItem.trueBandDepth > root.maxBandLayers
+                    && spaceItem.bandNextLevel < spaceItem.trueBandDepth
+                    && spaceItem.bandNextLevel >= root.maxBandLayers
+                readonly property int capSeamTop: capOpens ? capSeamSize : 0
+                readonly property int capSeamBottom:
+                    capCloses ? capSeamSize : 0
                 readonly property int trailingGap:
                     spaceItem.trueBandDepth > 0
                     && spaceItem.bandNextLevel >= 0
@@ -923,9 +981,14 @@ Rectangle {
                     ? (spaceItem.bandNextLevel < 1 ? root.groupBreakGap
                                                    : root.groupGap)
                     : 0
+                // The seam comes out of the ROW, not out of the band: there
+                // are only `rowPad` (4) pixels of band above a tile, and
+                // taking 3 of them would leave the band clipping the tile it
+                // is drawn for.
                 height: tileBandHeight
                         + (expansionCol.visible ? expansionCol.height + 2 : 0)
                         + spaceItem.trailingGap
+                        + spaceItem.capSeamTop + spaceItem.capSeamBottom
 
                 property bool isActive: app.spaces && !isFolder
                                         && app.spaces.activeSpaceId === spaceItem.spaceId
@@ -1125,6 +1188,45 @@ Rectangle {
                 // the one every narrow rail converges on — Discord tints a
                 // pill behind a folder's servers, and this rail's own folder
                 // container has done exactly this since it shipped.
+                // ── WHAT THE CAP SEAM SHOWS ─────────────────────────────
+                //
+                // The parent's own tone, and this rectangle is the only thing
+                // that can supply it. The layer stack draws ONE region per
+                // depth, so behind the cap layer sits the depth-(cap-1) band
+                // — the GRANDPARENT. Open a seam without this and the air
+                // fills with rung 2 against rung 4: 1.73:1, the largest step
+                // in the ladder, appearing at the one boundary that should
+                // show the smallest. It would say "grandparent" exactly where
+                // the picture is trying to say "one deeper".
+                //
+                // Its own objectName, deliberately: `railGroupField` is
+                // counted by a geometric case that requires each layer to be
+                // narrower than the one containing it, and this one is at the
+                // SAME inset by construction. A fractional z rather than an
+                // equal one, because same-z siblings paint in document order
+                // and that is not a thing to rely on twice.
+                Rectangle {
+                    objectName: "railCapBackdrop"
+                    visible: spaceItem.capSeamTop > 0
+                             || spaceItem.capSeamBottom > 0
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: root.bandInset(root.maxBandLayers)
+                    anchors.rightMargin: root.bandInset(root.maxBandLayers)
+                    y: 0
+                    height: spaceItem.height - spaceItem.trailingGap
+                            + (spaceItem.bandNextLevel >= root.maxBandLayers
+                               ? list.spacing + spaceItem.trailingGap : 0)
+                    z: -20 + root.maxBandLayers - 0.5
+                    radius: root.bandRadius(root.maxBandLayers)
+                    // THE OTHER PARITY — the rung the child is not wearing.
+                    color: AppTheme.railNestSurfaces[
+                        Math.min(AppTheme.railNestSurfaces.length - 1,
+                                 root.maxBandLayers
+                                 + ((spaceItem.trueBandDepth
+                                     - root.maxBandLayers + 1) % 2))]
+                }
+
                 Repeater {
                     // ── ONE REGION PER ANCESTOR, OUTERMOST FIRST ────────
                     //
@@ -1178,18 +1280,36 @@ Rectangle {
                         // region's own owner (exactly one shallower), and
                         // neither of those is an opening — so a layer opens
                         // only where the row above is outside it altogether.
+                        // IT MUST SURVIVE THE CAP. `depth === level + 1` is
+                        // a depth the cap has already clipped away for an
+                        // over-cap owner, so its layer never opened and was
+                        // squared off instead — which is the seam.
                         readonly property bool isOwnerLayer:
-                            depth === spaceItem.level + 1
+                            spaceItem.ownsRegion
+                            && depth === Math.min(spaceItem.trueBandDepth,
+                                                  root.maxBandLayers)
                         readonly property bool opensHere:
                             isOwnerLayer
                             || spaceItem.bandPrevLevel < bandDepth - 1
+                        // TRUE DEPTH ON THE CAP LAYER. Comparing the capped
+                        // one is the same mistake `trailingGap` records
+                        // having shipped once: a row deeper than the cap
+                        // compares its neighbour against a number the cap has
+                        // flattened, and never closes.
                         readonly property bool closesHere:
-                            spaceItem.bandNextLevel < bandDepth
+                            spaceItem.bandNextLevel
+                            < (depth === root.maxBandLayers
+                               ? spaceItem.trueBandDepth : bandDepth)
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.leftMargin: root.bandInset(depth)
                         anchors.rightMargin: root.bandInset(depth)
-                        y: 0
+                        // THE CAP LAYER STARTS BELOW THE SEAM. Every other
+                        // layer still starts at the row's top — the seam
+                        // belongs to the child that opens, not to the parent
+                        // it opens inside.
+                        y: depth === root.maxBandLayers
+                           ? spaceItem.capSeamTop : 0
                         // PLUS THE LIST'S OWN SPACING while this layer's run
                         // continues, or the layer is not one shape at all:
                         // `ListView.spacing` puts 4px of rail background
@@ -1204,6 +1324,9 @@ Rectangle {
                         // cover it or the parent gets a notch where its child
                         // happened to stop.
                         height: spaceItem.height - spaceItem.trailingGap
+                                - (depth === root.maxBandLayers
+                                   ? spaceItem.capSeamTop
+                                     + spaceItem.capSeamBottom : 0)
                                 + (closesHere
                                    ? 0
                                    : list.spacing + spaceItem.trailingGap)
