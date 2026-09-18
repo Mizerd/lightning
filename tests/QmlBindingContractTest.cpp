@@ -2060,6 +2060,211 @@ private Q_SLOTS:
                      .arg(checked)));
     }
 
+    // ── 2026-09-18: five more bindings that never re-evaluated ───────────
+    //
+    // All from the same audit and all the same shape: a Q_INVOKABLE reached
+    // through a binding, which registers NO dependency, so the answer was
+    // whatever was true when the component was built.
+
+    /// The innermost `{ … }` block containing `pos`. A binding written as a
+    /// braced expression body is the unit these cases care about: a `.count`
+    /// read in a SIBLING binding proves nothing about this one.
+    static QString blockAround(const QString &src, int pos)
+    {
+        int depth = 0;
+        int open = -1;
+        for (int i = pos; i >= 0; --i) {
+            const QChar c = src.at(i);
+            if (c == QLatin1Char('}'))
+                ++depth;
+            else if (c == QLatin1Char('{')) {
+                if (depth == 0) { open = i; break; }
+                --depth;
+            }
+        }
+        if (open < 0)
+            return {};
+        depth = 0;
+        for (int i = open; i < src.size(); ++i) {
+            if (src.at(i) == QLatin1Char('{'))
+                ++depth;
+            else if (src.at(i) == QLatin1Char('}') && --depth == 0)
+                return src.mid(open, i - open + 1);
+        }
+        return {};
+    }
+
+    // The popped-out call window resolved every row through an index
+    // lookup. `CallShareModel::indexOfShare` and
+    // `CallParticipantModel::indexOfIdentity` are Q_INVOKABLEs, and both
+    // models expose a NOTIFYING `count` — so a binding that calls the
+    // lookup without reading the count is frozen at its first answer.
+    //
+    // The expensive one was `fillShareShown`: "fill the window with this
+    // share" is dropped by `onFillShareShownChanged` when the share ends,
+    // and that signal could never fire, so the window stayed filled with a
+    // share that had stopped.
+    //
+    // DERIVED, not a list of three names: every lookup in the file is
+    // found and checked, so a fourth added later is covered without editing
+    // this case.
+    void thePipWindowsRowLookupsReadTheModelsCount()
+    {
+        const QString src = read(QStringLiteral("CallPipWindow.qml"));
+        QVERIFY(!src.isEmpty());
+        static const QRegularExpression lookup(
+            QStringLiteral("\\.(indexOfShare|indexOfIdentity)\\s*\\("));
+        int checked = 0;
+        QRegularExpressionMatchIterator it = lookup.globalMatch(src);
+        while (it.hasNext()) {
+            const QRegularExpressionMatch m = it.next();
+            const QString block = blockAround(src, m.capturedStart());
+            QVERIFY2(!block.isEmpty(),
+                     qPrintable(QStringLiteral(
+                         "could not slice the block around %1 — re-anchor "
+                         "this case").arg(m.captured(1))));
+            // A `Qt.binding` re-assert or an imperative refresh function is
+            // not a binding and needs no count read; a braced PROPERTY body
+            // is. Both forms here are property bodies, so the rule is flat.
+            ++checked;
+            QVERIFY2(block.contains(QStringLiteral(".count")),
+                     qPrintable(QStringLiteral(
+                         "a binding calling %1 never reads the model's "
+                         "`count`, so it registers no dependency and is "
+                         "frozen at the answer it gave when the window was "
+                         "built — shares and participants come and go "
+                         "underneath it").arg(m.captured(1))));
+        }
+        QVERIFY2(checked >= 3,
+                 qPrintable(QStringLiteral(
+                     "only %1 row lookup(s) found in CallPipWindow.qml; the "
+                     "scan has stopped matching the file it audits")
+                     .arg(checked)));
+    }
+
+    // A CheckBox that both BINDS `checked` and writes in `onToggled` stops
+    // following its source the moment it is used: a user toggle ASSIGNS
+    // `checked`, which destroys the binding. `setSubscribed` is
+    // asynchronous and can fail, so the box would keep claiming a
+    // subscription the server refused. And the binding read
+    // `isSubscribed()` — a Q_INVOKABLE — where the controller exposes a
+    // notifying `subscriptions` list saying exactly the same thing.
+    void theFollowCheckboxKeepsFollowingTheStoreAfterAClick()
+    {
+        const QString src = read(QStringLiteral("PolicyListDialog.qml"));
+        QVERIFY(!src.isEmpty());
+        const int at = src.indexOf(QStringLiteral("policyFollowCheck"));
+        QVERIFY2(at >= 0, "the follow checkbox is gone — re-anchor this case");
+        const QString block = blockAround(src, at);
+        QVERIFY2(!block.isEmpty(), "could not slice the checkbox");
+        // `.isSubscribed(` — a CALL, with the receiver's dot. The bare name
+        // appears in the comment that explains why it is not used, and a
+        // scan that cannot tell those apart fails on its own documentation.
+        QVERIFY2(!block.contains(QStringLiteral(".isSubscribed(")),
+                 "the follow checkbox reads `isSubscribed()`, a Q_INVOKABLE "
+                 "that registers no binding dependency, instead of the "
+                 "controller's notifying `subscriptions` list");
+        QVERIFY2(block.contains(QStringLiteral("subscriptions")),
+                 "the follow checkbox no longer reads the subscriptions list "
+                 "at all");
+        const int toggled = block.indexOf(QStringLiteral("onToggled"));
+        QVERIFY2(toggled >= 0, "the follow checkbox no longer writes on a "
+                               "toggle — re-anchor this case");
+        QVERIFY2(block.mid(toggled).contains(QStringLiteral("Qt.binding(")),
+                 "the follow checkbox writes on a toggle and never restores "
+                 "its binding: a user click assigns `checked`, which DESTROYS "
+                 "the binding above, so from the first click on the box stops "
+                 "following the store — including when the write fails");
+    }
+
+    // The viewer's thumbnail strip asked the bridge for each picture once.
+    // `mediaSource()` answers a miss with an empty string and dispatches a
+    // fetch; the bytes arrive as `mediaCached`. Without a counter bumped
+    // from that signal, every picture the strip had not already cached
+    // stayed an empty 48px tile — on the one surface whose whole job is
+    // showing what else is there.
+    void theViewerThumbnailStripResolvesMediaThatArrivesLate()
+    {
+        const QString src = read(QStringLiteral("ImageViewerOverlay.qml"));
+        QVERIFY(!src.isEmpty());
+        const int at = src.indexOf(QStringLiteral("id: thumbImage"));
+        QVERIFY2(at >= 0, "the strip's thumbnail image is gone — re-anchor "
+                          "this case");
+        const QString block = blockAround(src, at);
+        QVERIFY2(!block.isEmpty(), "could not slice the thumbnail image");
+        // THE `source:` EXPRESSION ITSELF, not the delegate around it. A
+        // first version checked the whole block, and the mutation that
+        // deleted the tick READ passed it: the `Connections` handler that
+        // bumps the counter still names it, so "the file mentions
+        // resolveTick" was true on code where the binding ignored it.
+        const int src0 = block.indexOf(QStringLiteral("source:"));
+        QVERIFY2(src0 >= 0, "the thumbnail has no source binding");
+        const QString expr = blockAround(block, block.indexOf(
+                                 QLatin1Char('{'), src0) + 1);
+        QVERIFY2(!expr.isEmpty() && expr.contains(QStringLiteral("mediaSource(")),
+                 "could not slice the thumbnail's source expression");
+        QVERIFY2(expr.contains(QStringLiteral("resolveTick")),
+                 "the strip's thumbnail source calls mediaSource() without "
+                 "reading a tick, so it registers no dependency: a picture "
+                 "whose bytes arrive after the strip is built never appears");
+        QVERIFY2(block.contains(QStringLiteral("onMediaCached")),
+                 "the strip's thumbnail has a tick that nothing bumps — "
+                 "`mediaCached` is the signal that says the bytes arrived");
+    }
+
+    // The action bar is a plain Rectangle anchored over the bubble's
+    // top-right corner. Its BUTTONS accept the press; its padding and the
+    // gaps between them do not — so a click that missed a button by a pixel
+    // reached the bubble's own tap handler and toggled the pin, closing the
+    // bar out from under the pointer. Eighth instance of this shape.
+    void theBubbleTapExcludesTheActionBarItOpens()
+    {
+        const QString src = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(!src.isEmpty());
+        const int at = src.indexOf(QStringLiteral("root.toggleActionsPin()"));
+        QVERIFY2(at >= 0, "the bubble tap no longer pins the action bar — "
+                          "re-anchor this case");
+        const QString block = blockAround(src, at);
+        QVERIFY2(!block.isEmpty(), "could not slice the bubble tap handler");
+        QVERIFY2(block.contains(QStringLiteral("messageActionBarLoader")),
+                 "a click on the action bar's padding, or in a gap between "
+                 "its buttons, still falls through to the bubble and toggles "
+                 "the pin — closing the bar the user was aiming at");
+    }
+
+    // Two records that must be RE-READ rather than bound, because the
+    // invokable behind each depends on state its argument cannot see: the
+    // Home pane's greeting (a rename left the old name on screen) and the
+    // Send Later notice (a room encrypted mid-session was still promised
+    // durable storage, when an encrypted room's scheduled message is held
+    // in memory and discarded on close).
+    void recordsBehindInvokablesAreRefreshedRatherThanBound()
+    {
+        const QString home = read(QStringLiteral("HomePane.qml"));
+        QVERIFY(!home.isEmpty());
+        QVERIFY2(!home.contains(QStringLiteral("readonly property var "
+                                               "activeAccount")),
+                 "HomePane binds `activeAccount` to accounts.account(), a "
+                 "Q_INVOKABLE that depends on the id alone — a rename or a "
+                 "new avatar never reaches the greeting");
+        QVERIFY2(home.contains(QStringLiteral("refreshActiveAccount")),
+                 "HomePane has no refresh for its account record");
+        QVERIFY2(home.contains(QStringLiteral("onAccountsChanged")),
+                 "HomePane's account record is refreshed by nothing — "
+                 "`accountsChanged` is the signal that says it moved");
+
+        const QString later = read(QStringLiteral("SendLaterDialog.qml"));
+        QVERIFY(!later.isEmpty());
+        QVERIFY2(!later.contains(QStringLiteral("readonly property bool "
+                                                "encryptedRoom")),
+                 "SendLaterDialog binds `encryptedRoom` to a Q_INVOKABLE "
+                 "keyed on the room id, and the dialog is ONE instance "
+                 "reused for the life of the room — encryption turned on "
+                 "mid-session leaves the durable-storage promise on screen");
+        QVERIFY2(later.contains(QStringLiteral("onOpened: refreshEncryptedRoom")),
+                 "SendLaterDialog does not re-read whether the room is "
+                 "encrypted when it opens");
+    }
 };
 
 QTEST_MAIN(QmlBindingContractTest)

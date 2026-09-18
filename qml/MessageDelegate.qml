@@ -1562,6 +1562,24 @@ Item {
                                 && ip.y >= 0 && ip.y <= identityLoader.height)
                                 return
                         }
+                        // Eighth occurrence, and the one that fires on the
+                        // control the user is aiming at. The action bar is a
+                        // plain Rectangle anchored over this bubble's
+                        // top-right corner: its five BUTTONS accept the
+                        // press, but its 2px padding and the gaps between
+                        // them do not — so a click that misses a button by a
+                        // pixel fell through to here and TOGGLED the pin,
+                        // closing the bar out from under the pointer.
+                        if (messageActionBarLoader.visible) {
+                            var ap = bubble.mapToItem(
+                                        messageActionBarLoader,
+                                        eventPoint.position.x,
+                                        eventPoint.position.y)
+                            if (ap.x >= 0 && ap.x <= messageActionBarLoader.width
+                                && ap.y >= 0
+                                && ap.y <= messageActionBarLoader.height)
+                                return
+                        }
                         root.toggleActionsPin()
                     }
                 }

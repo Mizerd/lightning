@@ -80,8 +80,21 @@ Dialog {
                                         message.threadRootId || "",
                                         message.replyToEventId || "")
     }
-    readonly property bool encryptedRoom: scheduler && root.roomId !== ""
-                                          && scheduler.roomIsEncrypted(root.roomId)
+    // RE-READ ON EVERY OPEN, not bound. `roomIsEncrypted` is a Q_INVOKABLE,
+    // so a binding on it depends on `roomId` alone — and this dialog is ONE
+    // instance per composer, reused for the life of the room. Turn on
+    // encryption and schedule a message in the same session and the id never
+    // changed, so a stale `false` told the user Lightning would keep their
+    // message when an encrypted room's scheduled message is held in memory
+    // only and is discarded when the app closes. That is a durability
+    // promise, not a cosmetic label.
+    property bool encryptedRoom: false
+    function refreshEncryptedRoom() {
+        encryptedRoom = !!scheduler && root.roomId !== ""
+                        && scheduler.roomIsEncrypted(root.roomId)
+    }
+    onOpened: refreshEncryptedRoom()
+    onRoomIdChanged: refreshEncryptedRoom()
     // The room's pending entries, from the NOTIFYING `pending` property so
     // the list refreshes on every change (an invokable in a binding does
     // not re-run).

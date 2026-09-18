@@ -911,12 +911,39 @@ Popup {
                 readonly property bool isCurrent: index === viewer.currentIndex
 
                 Image {
+                    id: thumbImage
                     anchors.fill: parent
-                    source: (modelData.mediaKey || "").length > 0
-                            && app.mediaBridge.supported
+                    // `mediaSource()` answers a MISS with an empty string and
+                    // dispatches a fetch; the bytes arrive later as
+                    // `mediaCached`. A binding that touches nothing bumped
+                    // from that signal never asks again, so every picture the
+                    // strip had not already cached stayed an empty 48px tile
+                    // for as long as the viewer was open — and the strip is
+                    // the one surface whose whole job is showing what else is
+                    // there. Same `resolveTick` pairing as EmojiPicker and
+                    // EmojiCompletionPopup.
+                    property int resolveTick: 0
+                    source: {
+                        var _tick = resolveTick
+                        return (modelData.mediaKey || "").length > 0
+                               && app.mediaBridge.supported
                             ? app.mediaBridge.mediaSource(modelData.mediaKey,
                                                           "list_thumb")
                             : (modelData.httpUrl || "")
+                    }
+                    Connections {
+                        target: app.mediaBridge
+                        function onMediaCached(cacheKey) {
+                            // ANY class, not just `listthumb:`: mediaSource
+                            // reads through to a larger cached class rather
+                            // than creating a second fetch, so a `full:`
+                            // arrival is a perfectly good answer here.
+                            if ((thumbItem.modelData.mediaKey || "").length > 0
+                                && cacheKey.endsWith(
+                                       ":" + thumbItem.modelData.mediaKey))
+                                thumbImage.resolveTick++
+                        }
+                    }
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     smooth: true

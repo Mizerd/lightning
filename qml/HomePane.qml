@@ -20,8 +20,24 @@ Item {
     signal createSpaceRequested()
 
     readonly property string activeUserId: app.accounts ? app.accounts.activeUserId : ""
-    readonly property var activeAccount: app.accounts && activeUserId.length > 0
-                                         ? app.accounts.account(activeUserId) : null
+    // `account()` is a Q_INVOKABLE, so a binding on it depends on the id it
+    // is given and on NOTHING ELSE: renaming the account, or setting an
+    // avatar, left this pane greeting the user by their old name — or by
+    // their localpart — until the active account changed. Same record-and-
+    // refresh shape the rail's own account tile uses.
+    property var activeAccount: null
+    function refreshActiveAccount() {
+        activeAccount = (app.accounts && root.activeUserId.length > 0)
+            ? app.accounts.account(root.activeUserId) : null
+    }
+    onActiveUserIdChanged: refreshActiveAccount()
+    // `onActiveUserIdChanged` above already covers a switch — `activeUserId`
+    // is bound to the manager's own property — so this listens for the other
+    // half: the ACTIVE account's own record changing under a fixed id.
+    Connections {
+        target: app.accounts
+        function onAccountsChanged() { root.refreshActiveAccount() }
+    }
     readonly property string displayName: {
         var n = activeAccount && activeAccount.displayName
                 ? activeAccount.displayName : ""
@@ -46,7 +62,13 @@ Item {
         recentModel = app.roomList ? app.roomList.recentRooms(6) : []
         spacesModel = app.roomList ? app.roomList.spacesSummary(8) : []
     }
-    Component.onCompleted: refreshRecent()
+    // ONE `Component.onCompleted` per object — a second declaration is a
+    // "Property value set multiple times" LOAD error that takes the whole
+    // pane down, not an addition.
+    Component.onCompleted: {
+        root.refreshActiveAccount()
+        refreshRecent()
+    }
     onVisibleChanged: if (visible) refreshRecent()
     // Coalesce bursty room-list updates: rebuilding the section arrays per
     // dataChanged would churn up to ~14 delegates (and their avatars) on

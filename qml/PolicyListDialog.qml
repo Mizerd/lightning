@@ -79,9 +79,27 @@ Dialog {
                 CheckBox {
                     objectName: "policyFollowCheck"
                     text: qsTr("Follow this list")
+                    // THE NOTIFYING LIST, NOT `isSubscribed()`. The invokable
+                    // returns exactly `m_subscriptions.contains(roomId)` and
+                    // registers no binding dependency, so the box showed
+                    // whatever was true when the dialog opened.
                     checked: root.policy
-                             && root.policy.isSubscribed(root.roomId)
-                    onToggled: root.policy.setSubscribed(root.roomId, checked)
+                             && root.policy.subscriptions.indexOf(root.roomId)
+                                >= 0
+                    // AND THE BINDING HAS TO BE PUT BACK. A user toggle
+                    // ASSIGNS `checked`, which destroys the binding above —
+                    // so from the first click on, the box stops following the
+                    // store entirely. `setSubscribed` is asynchronous and can
+                    // fail (`writeFinished`), and without this the box would
+                    // keep claiming a subscription the server refused.
+                    onToggled: {
+                        root.policy.setSubscribed(root.roomId, checked)
+                        checked = Qt.binding(function() {
+                            return root.policy
+                                && root.policy.subscriptions
+                                       .indexOf(root.roomId) >= 0
+                        })
+                    }
                 }
             }
             Label {

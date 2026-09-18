@@ -62,16 +62,27 @@ Window {
     readonly property int shareRow: {
         if (!root.shareModel || !root.stageState)
             return -1
+        // Read the count FIRST, on every path. `indexOfShare` is a
+        // Q_INVOKABLE, so the spotlight branch below registered no
+        // dependency at all: a spotlighted share's row moves when another
+        // share above it ends, and this kept the old number.
+        var live = root.shareModel.count
         if (root.stageState.spotlightShareId.length > 0)
             return root.shareModel.indexOfShare(root.stageState.spotlightShareId)
-        return root.shareModel.count > 0 ? 0 : -1
+        return live > 0 ? 0 : -1
     }
     readonly property int pinnedRow: {
         if (!root.participantModel || !root.stageState
             || root.stageState.pinnedIdentity.length === 0)
             return -1
-        return root.participantModel.indexOfIdentity(
-            root.stageState.pinnedIdentity)
+        // Same rule as `shareRow`: `indexOfIdentity` is a Q_INVOKABLE, so
+        // without this read the pinned participant's row was resolved once
+        // and kept while people joined and left around them.
+        var live = root.participantModel.count
+        return live > 0
+            ? root.participantModel.indexOfIdentity(
+                  root.stageState.pinnedIdentity)
+            : -1
     }
     readonly property bool hasSurface: root.shareRow >= 0 || root.pinnedRow >= 0
     /// Tiles the grid will draw: every share and every participant.
@@ -104,10 +115,19 @@ Window {
     // The share the reader clicked to fill the window with; falls back to
     // the spotlighted/first share when it is gone.
     property string fillShareId: ""
-    readonly property string fillShareShown:
-        root.fillShareId.length > 0 && root.shareModel
-            && root.shareModel.indexOfShare(root.fillShareId) >= 0
-        ? root.fillShareId : root.shareIdShown
+    readonly property string fillShareShown: {
+        // THE `count` READ IS LOAD-BEARING. `indexOfShare` is a Q_INVOKABLE
+        // and registers no binding dependency, so without touching the
+        // model's own notifying count this expression never re-evaluated
+        // when a share ended — and `onFillShareShownChanged` below, the
+        // entire mechanism that drops fill mode on its own, could not fire.
+        // The window stayed filled with a share that had stopped.
+        var live = root.shareModel ? root.shareModel.count : 0
+        if (live > 0 && root.fillShareId.length > 0
+            && root.shareModel.indexOfShare(root.fillShareId) >= 0)
+            return root.fillShareId
+        return root.shareIdShown
+    }
     readonly property bool shareFillActive:
         root.shareFills && root.groupLive && root.fillShareShown.length > 0
     onFillShareShownChanged: if (root.fillShareShown.length === 0) root.shareFills = false
