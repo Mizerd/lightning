@@ -371,6 +371,52 @@ And one more from a 700% capture: the horizontal was positioned AT the tile's
 middle rather than centred on it, so a 2px line hung one pixel below the
 chevron it runs out of.
 
+#### The audit, and what it cost the chevron
+
+Nine captures — 100% and 140%, widest and narrowest stop, dived and not, plus
+300% magnifications — were handed to a read-only reviewer that measured them
+pixel by pixel. Six findings were real and are fixed in `b3f5a3b2`: an expanded
+Space at the depth limit drew the COLLAPSED twisty (the dive test was off by
+one, and the dive reused the glyph for "closed"); a Space whose children are
+all ROOMS drew a descender that ran 8px past the last room and stopped five
+pixels above the next SIBLING's tile IN THAT TILE'S OWN COLUMN, so the eye read
+one line connecting a Space to its sibling; a root's chevron stood in a column
+that does not exist, floating in a whole indent step of blank rail, and at 140%
+on a narrow dived rail that column falls OUTSIDE the rail so the glyph was
+clipped by the window edge with one pixel showing; the elbow read as three
+fragments because a 12px mask was punched for six pixels of ink; the deepest
+tile shared an edge with the pane divider on three different widths; and the
+hover halo painted over the last three pixels of the elbow.
+
+**And then the chevron lost its argument twice over.** A separate glyph for
+"this one dives" was tried as `chevron_right` (indistinguishable from
+"collapsed") and as an arrow ("the arrows are not it"). It turns out to need no
+glyph: expanding a Space too deep to draw already re-bases the rail by itself,
+and the chip says where you are. So a chevron means one thing again, open or
+closed.
+
+**The chevron is also hover-only now, and that is what made the tree look
+right.** It has to interrupt the line it sits on to be legible, so every
+EXPANDED row was carrying a permanent break in its own corner. At rest the tree
+is unbroken — the line descends, turns, and touches its tile on every row, with
+nothing in the way — and pointing at a row puts the control exactly where that
+row's corner is. Whether a Space is open was never the chevron's job: its
+children are either drawn beneath it or they are not, and that is a far larger
+signal than a six-pixel tick.
+
+#### The tooltip fix that the obvious reading would have broken
+
+The audit also measured the rail's tooltip covering 15 of the 28 pixels of the
+tile ABOVE the one being pointed at. The obvious fix — declare a ToolTip per
+row so it can be positioned — would have stepped around a security control:
+`Main.qml` hardens the ONE shared `ToolTip` instance to plain text, and a Space
+name is remote text. What moves instead is the ANCHOR. Qt centres an attached
+tooltip on the item it is attached to and places it above, so the rail's
+tooltips attach to an invisible 1px item at the rail's right edge hanging BELOW
+the row: centred there they clear the rail entirely, and "above the anchor"
+puts them beside the row they describe. **Before reaching for a different
+mechanism, check what the current one is carrying.**
+
 #### A misreading the instrument corrected
 
 A later audit capture at 140% appeared to show the deepest tile clamped onto
