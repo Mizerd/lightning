@@ -37,6 +37,14 @@ AbstractButton {
     property bool active: false
     // Style C: primary accent fill.
     property bool fill: false
+    /// The RESTING background, for an icon button that has to read as a tile
+    /// rather than as a bare glyph. Transparent by default, so every existing
+    /// caller is unchanged; hover, press, active and disabled all still win
+    /// over it. Added 2026-09-18 for the Spaces rail's settings cog, which
+    /// sat as a 17x19 glyph in a 59px invisible box directly above a 59px
+    /// solid avatar — an optical weight ratio near 5:1, so the two could not
+    /// read as siblings in the same column.
+    property color restingColor: "transparent"
     // Storm surfaces (menus, pickers, dialogs, Settings): storm inks and
     // fills; the themed hover tint would render a near-white block on the
     // navy panels. Themed hosts (timeline, room list, media) keep default.
@@ -137,7 +145,7 @@ AbstractButton {
                 return root.enabled ? AppTheme.accentSoft
                                     : AppTheme.buttonDisabledFill
             return (root.enabled && (root.down || root.hovered))
-                   ? AppTheme.hover : "transparent"
+                   ? AppTheme.hover : root.restingColor
         }
     }
 

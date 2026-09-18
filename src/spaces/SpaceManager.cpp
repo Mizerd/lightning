@@ -740,6 +740,30 @@ void SpaceManager::resolveHierarchy(const QHash<QString, RoomInfo> &byId)
     }
 }
 
+QString SpaceManager::parentSpaceIdOf(const QString &spaceId) const
+{
+    for (const SpaceEntry &entry : m_spaces) {
+        if (entry.info.id == spaceId)
+            return entry.parentSpaceId;
+    }
+    return {};
+}
+
+QStringList SpaceManager::ancestorSpaceIds(const QString &spaceId) const
+{
+    QStringList out;
+    QString cursor = parentSpaceIdOf(spaceId);
+    // BOUNDED. `recomputeHierarchy()` assigns each Space one primary parent
+    // and never revisits an assigned id, so a cycle cannot survive that walk
+    // — but this reads the RESULT of it, and a bound here costs nothing next
+    // to a hang if that invariant ever weakens.
+    while (!cursor.isEmpty() && out.size() < 64 && !out.contains(cursor)) {
+        out.append(cursor);
+        cursor = parentSpaceIdOf(cursor);
+    }
+    return out;
+}
+
 QStringList SpaceManager::childSpaceIds(const QString &spaceId) const
 {
     for (const SpaceEntry &entry : m_spaces) {

@@ -147,25 +147,36 @@ Rectangle {
     /// chevron's advance is 7.2px of the 12 it was asked for, so the arithmetic
     /// that predicted x = -2 was out by the difference. Measure the item.
     ///
-    /// AND IT HOLDS THE EXPANDER *INSIDE THE INNERMOST REGION*, which is a
-    /// stricter requirement and the one that sets this number. Reported as
-    /// "chevrons should be repositioned so they are in the color shape, not
-    /// in between them": a deep row's innermost region starts at
-    /// `bandInset(maxBandLayers)`, and a glyph right-anchored to the tile
-    /// begins at `railLeftGutter - chevronInset - its own advance`. With a
-    /// 20px gutter that put the glyph at 8.8 and the depth-3 region's edge
-    /// at 10, so the chevron sat in the PARENT's band beside its own box.
+    /// ── AND THE GUTTER WAS BUDGETED AGAINST A PHANTOM ────────────────
     ///
-    /// The two are one constraint, so the margin is derived from it rather
-    /// than nudged until it looked right:
-    ///   bandInset(maxBandLayers) + clearance <= margin - chevronInset - advance
-    /// A chevron's advance is 7.2px of the 12 it is given (an `Icon` sizes by
-    /// FONT PIXEL SIZE), so three inset steps of 4 leave 2.8px of clearance
-    /// here. Moving the chevron per level instead was considered and
-    /// refused: it is what "the chevrons are unevenly distanced" already
-    /// asked to have removed once.
-    readonly property int chevronGlyphSize: AppTheme.scaled(12)
+    /// It was sized from the chevron's ADVANCE (7.2px of the 12 it is given).
+    /// Its INK is 3.3. The glyph was right-anchored, so a quarter of the
+    /// gutter was the font's own empty side bearing — and the visible mark
+    /// ended up with 13px of bare rail on one side and 9px on the other,
+    /// beside a 59px tile. Measured: the proximity gap was 2.7x the mark's
+    /// own width, so it read as debris in the frame rather than as a control
+    /// ON the tile. (For scale: the search magnifier one column right has
+    /// 12x12 of ink. This had 3.3x6.0 — a seventh of the area.)
+    ///
+    /// So it is positioned by its INK, not by its box, and the box's centre
+    /// and the ink's centre coincide to a quarter-pixel (measured, not
+    /// assumed). Bigger too: 16 where it was 12.
+    ///
+    /// Moving the chevron per level was considered and refused: it is what
+    /// "the chevrons are unevenly distanced" already asked to have removed.
+    readonly property int chevronGlyphSize: AppTheme.scaled(16)
     readonly property int chevronInset: AppTheme.scaled(4)
+    /// The ink inside that box — about 0.26 of the font size for this glyph.
+    /// Used to place it, because placing the BOX leaves a quarter of the
+    /// gutter as side bearing and pushes the mark away from its tile.
+    readonly property int chevronInkWidth: Math.round(chevronGlyphSize * 0.26)
+    /// Ink to tile. Two pixels: a control belongs to the thing it acts on.
+    readonly property int chevronTileGap: AppTheme.scaled(2)
+    /// NOTE: the box's width is the glyph's ADVANCE, not `chevronGlyphSize`,
+    /// and the ink centres in the ADVANCE (measured: box centre and ink
+    /// centre agree to a quarter-pixel). So the placement below is written at
+    /// the Icon itself, where its own `width` is in scope — computing it here
+    /// from the font SIZE put the mark 5px from its tile instead of 2.
     /// ── THE TWO MARGINS ARE NOT THE SAME, AND THEY WERE ───────────────
     ///
     /// One `railSideMargin` was mirrored on both edges, so the RIGHT side of
@@ -177,21 +188,65 @@ Rectangle {
     /// The left gutter is a COLUMN with a control in it and is sized by that
     /// control. The right margin is air, so it is sized like air. The rail
     /// loses 16px at every stop and the tiles keep every pixel of theirs.
-    readonly property int railLeftGutter: chevronGlyphSize + 3 * chevronInset
-    readonly property int railRightMargin: AppTheme.scaled(8)
+    /// ONE MARGIN, BOTH SIDES. The asymmetric pair that replaced it was the
+    /// right fix for the wrong problem: it did remove dead space on the right
+    /// and it moved the tile column 8.8px off the rail's own centre, which a
+    /// design audit measured as a 3.3:1 split and the maintainer reported as
+    /// "top and bottom ui is not centered and stuck to the right side".
+    ///
+    /// THE RAIL HELD THREE DISAGREEING CENTRE LINES AT ONCE, all visible in
+    /// its bottom 200px: the tile column, the Home divider, and the bottom
+    /// separator — and the separator was the one that was CORRECTLY centred
+    /// on the rail, which is exactly why the cog and avatar beside it looked
+    /// wrong. The separator published the true centre and the tiles refused
+    /// it.
+    ///
+    /// 14 beside a 44px tile in a 72px rail is Discord's proportion. The
+    /// earlier complaint that the margins were "just empty space there" was
+    /// about 24px of void beside a 40px tile in an 88px one.
+    readonly property int railSideMargin: AppTheme.scaled(14)
     /// THE WIDTH NOW BUYS SOMETHING. It used to buy indent, then lanes; both
     /// were spent on structure rather than on content, so dragging the rail
     /// wider changed the tiles by nothing at all. Past the default the tile
     /// itself grows, up to a ceiling, and then the margins take the rest.
+    /// ── 40..48, AND IT WAS 40..56 ─────────────────────────────────────
+    ///
+    /// "Icons are way too big", and the measurement that settles it is the
+    /// product's own ladder in one screenshot: a room-list avatar is 21, a
+    /// "Jump back in" avatar 33, the WELCOME HERO PORTRAIT 57 — and the rail
+    /// tile was 59. A persistent navigation chip was larger than the hero.
+    ///
+    /// 44 rather than Discord's 48, because Discord's rail carries top-level
+    /// servers only and this one also carries four tint layers, a nested tile
+    /// step and revealed room tiles. A denser column needs a smaller unit.
+    /// The derived steps stay legible: x0.85 -> 37, x0.7 -> 31, and at the
+    /// 40 floor a room tile is 28, which is the bottom for two initials. At
+    /// 59 the REVEALED ROOM tile was 41 — larger than a Discord server icon,
+    /// for a room.
     readonly property int railTileSize:
-        Math.min(AppTheme.scaled(56),
+        Math.min(AppTheme.scaled(48),
                  Math.max(AppTheme.scaled(40),
-                          width - railLeftGutter - railRightMargin))
-    /// ONE x for every tile — the audit's one unambiguous keep. It is the
-    /// gutter's own width now rather than a centring calculation, because
-    /// the two margins differ: a tile centred in an asymmetric rail would sit
-    /// half-way into the column that holds its chevron.
-    readonly property int tileColumnX: railLeftGutter
+                          width - 2 * railSideMargin))
+    /// PROPORTIONAL, and it was a raw `radiusLg` of 12 against a scaled tile
+    /// — so the corner ratio moved with the UI font. At 59 it was 0.203,
+    /// which is boxy; 0.27 is the squircle band (iOS 0.225, Discord 0.33).
+    readonly property int railTileRadius: Math.round(railTileSize * 0.27)
+    /// One rule for the glyph inside a pseudo tile — Home, People, the
+    /// settings cog, the "+". They were a RAW 22 (unscaled, a real defect at
+    /// 140%), a scaled 22 and a scaled 20, all in one 59px box: a ratio of
+    /// 0.37 against Material's and Discord's 0.50.
+    readonly property int railChipIconSize: Math.round(railTileSize * 0.5)
+    /// Both dividers, one rule. The Home handoff divider was `x:
+    /// tileColumnX` with 80% of the tile's width — flush with the tile's LEFT
+    /// edge and 20% short on the right, centred under nothing.
+    readonly property int railDividerWidth: Math.round(railTileSize * 0.8)
+    readonly property int railDividerX:
+        tileColumnX + Math.round((railTileSize - railDividerWidth) / 2)
+    /// ONE x for every tile, CENTRED — the audit's one unambiguous keep, and
+    /// centring is what R1 above restores. Past the tile's clamp the extra
+    /// width splits evenly, so dragging the rail wider buys symmetric air
+    /// rather than one fat side.
+    readonly property int tileColumnX: Math.round((width - railTileSize) / 2)
     /// ONE step down for anything nested, however deep — the same decision
     /// Element makes with its 32 -> 24 avatar, and for the same reason: a
     /// per-level shrink runs out after three steps.
@@ -202,6 +257,9 @@ Rectangle {
     /// Air above and below a tile inside a run, and the extra a run adds
     /// after its last row so the next group reads as a separate thing.
     readonly property int rowPad: AppTheme.scaled(4)
+    /// The gap between two tiles in the column. ONE number, so the bottom
+    /// cluster breathes like the list above it rather than at `spacing8`.
+    readonly property int railTileGap: 2 * rowPad + AppTheme.spacing4
     /// TWO SIZES, BECAUSE THERE ARE TWO MEANINGS. One gap ran every break in
     /// the rail, and measured against the rows' own heights that made
     /// "leaving a nested region" and "an entirely different top-level Space"
@@ -230,18 +288,20 @@ Rectangle {
     /// "deeper" any more; the honest fix is to make the cap deeper rather
     /// than to explain it.
     ///
-    /// THE WIDTH FOR IT CAME FROM THE INSET, not from the rail. Each layer
+    /// THE WIDTH FOR IT COMES FROM THE INSET, not from the rail. Each layer
     /// costs `2 * bandInsetStep` and pushes the innermost edge right, and the
-    /// expander has to stay inside that edge (see `railLeftGutter`) — so the
-    /// step is 2 where it was 3, which buys a fourth rung AND leaves more
-    /// clearance than three rungs had. That is the review's point, taken: the
-    /// inset was never the legible part. Measured across the whole stack it
-    /// changed the region's width by 9px on a 94px rail, while one tint step
-    /// is visible everywhere at once. Depth is carried by TONE, and the inset
-    /// is only there so an edge exists to see the tone against.
+    /// expander has to stay inside that edge (see `railSideMargin`).
+    ///
+    /// TAKEN ONE RUNG FURTHER on a design audit's measurement: across the
+    /// whole stack the inset moved a region's width by 9px on a 94px rail,
+    /// while ONE TINT STEP is visible everywhere at once. Depth is carried by
+    /// TONE; the inset only exists so an edge exists to see the tone against,
+    /// and 2/3/4/5 gives that edge in a rail 20px narrower than the one
+    /// 3/5/7/9 was drawn for. A 1px step is 1.5 device px on a HiDPI screen
+    /// and is visible.
     readonly property int maxBandLayers: 4
-    readonly property int bandInsetBase: AppTheme.scaled(3)
-    readonly property int bandInsetStep: AppTheme.scaled(2)
+    readonly property int bandInsetBase: AppTheme.scaled(2)
+    readonly property int bandInsetStep: AppTheme.scaled(1)
     /// Rung 0 is a FOLDER's container, which sits one step OUTSIDE hierarchy
     /// depth 1 because it contains it.
     function bandInset(depth) {
@@ -268,9 +328,9 @@ Rectangle {
     /// the tile grows in the middle of it and the margins take the rest only
     /// once the tile has stopped.
     readonly property int minRailWidth:
-        AppTheme.scaled(40) + railLeftGutter + railRightMargin
+        AppTheme.scaled(40) + 2 * railSideMargin
     readonly property int maxRailWidth:
-        AppTheme.scaled(56) + railLeftGutter + railRightMargin
+        AppTheme.scaled(48) + 2 * railSideMargin
 
     function revealCount(spaceId) {
         if (!app.railLayout || !app.railLayout.spaceExpanded(spaceId))
@@ -318,11 +378,54 @@ Rectangle {
         rooms.sort(function(a, b) {
             return (b.lastActivity || 0) - (a.lastActivity || 0)
         })
-        return rooms
+        // THEN THE USER'S ARRANGEMENT, if there is one. Reported right after
+        // the subspaces were made draggable — "I can't rearrange rooms inside
+        // subspaces, subspaces and spaces work okay" — and it is the same
+        // request one level down. Activity order stays the DEFAULT, so a
+        // Space nobody has arranged behaves exactly as it always did; the
+        // store only reorders what it was told about, and anything it has
+        // not heard of keeps its place at the end.
+        if (!app.railLayout)
+            return rooms
+        var ids = []
+        for (var i = 0; i < rooms.length; ++i)
+            ids.push(rooms[i].roomId)
+        var wanted = app.railLayout.orderedRooms(spaceId, ids)
+        if (wanted.length !== ids.length)
+            return rooms
+        var byId = {}
+        for (var j = 0; j < rooms.length; ++j)
+            byId[rooms[j].roomId] = rooms[j]
+        var out = []
+        for (var k = 0; k < wanted.length; ++k) {
+            if (byId[wanted[k]] !== undefined)
+                out.push(byId[wanted[k]])
+        }
+        return out.length === rooms.length ? out : rooms
     }
     Connections {
         target: app.spaces
         function onSpacesChanged() { root.spacesRevision++ }
+    }
+    // ── "Show me this Space" ──────────────────────────────────────────
+    //
+    // The model has already expanded the chain and rebuilt the rows by the
+    // time this arrives; all that is left is to put the row on screen. Qt.
+    // callLater because the ListView has not laid the new rows out yet —
+    // positioning against a count it has not seen scrolls to the wrong place
+    // or to nothing at all.
+    Connections {
+        target: app.railEntries
+        function onRevealRequested(spaceId) {
+            Qt.callLater(function() {
+                if (!app.railEntries)
+                    return
+                var row = app.railEntries.rowForEntry(spaceId)
+                if (row < 0 || row >= list.count)
+                    return
+                list.positionViewAtIndex(row, ListView.Contain)
+            })
+        }
     }
     // The expansion lives in the store, so a toggle has to re-evaluate the
     // reveal bindings too.
@@ -548,7 +651,9 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.topMargin: AppTheme.spacing12 + 2
+        // SYMMETRIC. The `+ 2` here made the rail's top inset 18 against a
+        // bottom of 12 — "top and bottom ui is not centered", vertically.
+        anchors.topMargin: AppTheme.spacing12
         anchors.bottomMargin: AppTheme.spacing12
         spacing: 0
 
@@ -766,6 +871,44 @@ Rectangle {
                         ? root.revealCount(spaceItem.spaceId) : 0
                 readonly property var revealedRooms:
                     revealed > 0 ? root.topRoomsInSpace(spaceItem.spaceId) : []
+                /// The revealed rooms as the CURRENT GESTURE has arranged
+                /// them, or null when no gesture is live. See the Repeater
+                /// below: while a drag is running this is the model, so the
+                /// arrangement a reader sees is the one the release writes.
+                property var roomPreview: null
+                property int roomDragIndex: -1
+                /// Moves the dragged room to `to` in the preview. Clamped,
+                /// so a pointer dragged past either end parks at that end
+                /// rather than falling out of the list.
+                function moveRoomPreview(to) {
+                    if (!spaceItem.roomPreview || spaceItem.roomDragIndex < 0)
+                        return
+                    var list = spaceItem.roomPreview
+                    var target = Math.max(0, Math.min(list.length - 1, to))
+                    if (target === spaceItem.roomDragIndex)
+                        return
+                    var next = list.slice()
+                    next.splice(target, 0, next.splice(
+                        spaceItem.roomDragIndex, 1)[0])
+                    spaceItem.roomDragIndex = target
+                    // A NEW ARRAY, not a mutation. QML compares `var`
+                    // properties by reference, so splicing the bound list in
+                    // place changes what the Repeater reads and tells it
+                    // nothing — the rail would only redraw on the next
+                    // unrelated update.
+                    spaceItem.roomPreview = next
+                }
+                function commitRoomOrder() {
+                    var list = spaceItem.roomPreview
+                    spaceItem.roomPreview = null
+                    spaceItem.roomDragIndex = -1
+                    if (!list || !app.railLayout || !spaceItem.spaceId)
+                        return
+                    var ids = []
+                    for (var i = 0; i < list.length; ++i)
+                        ids.push(list[i].roomId)
+                    app.railLayout.setRoomOrder(spaceItem.spaceId, ids)
+                }
 
                 Accessible.role: Accessible.Button
                 Accessible.name: isFolder
@@ -849,7 +992,7 @@ Rectangle {
                 Rectangle {
                     anchors.fill: spaceTile
                     anchors.margins: -4
-                    radius: AppTheme.radiusLg + 3
+                    radius: root.railTileRadius + 3
                     color: "transparent"
                     border.color: AppTheme.accent
                     border.width: 2
@@ -861,10 +1004,15 @@ Rectangle {
                 // tiles it separates at every interface size.
                 Rectangle {
                     visible: spaceItem.carriesDivider
-                    width: Math.round(root.railTileSize * 0.8)
-                    height: 2; radius: 2
+                    // CENTRED UNDER THE TILE, and it was `x: tileColumnX` at
+                    // 80% of the tile's width — flush with the tile's LEFT
+                    // edge and 20% short on the right, centred under nothing.
+                    // Shares its rule with the bottom cluster's separator so
+                    // the two read as one device used twice.
+                    width: root.railDividerWidth
+                    height: 2; radius: 1
                     color: AppTheme.border
-                    x: root.tileColumnX
+                    x: root.railDividerX
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: 2
                 }
@@ -1052,8 +1200,18 @@ Rectangle {
                     Icon {
                         id: expandGlyph
                         objectName: "railSpaceExpandGlyph"
-                        anchors.right: parent.right
-                        anchors.rightMargin: root.chevronInset
+                        // PLACED BY ITS INK. Right-anchoring the BOX spent a
+                        // quarter of the gutter on the font's own empty side
+                        // bearing and left the visible mark 9px from the tile
+                        // it acts on — a gap 2.7x the mark's own width, which
+                        // is why it read as debris rather than as a control.
+                        //
+                        // `width` here is the glyph's own ADVANCE, and the
+                        // ink is centred in it. Not a binding loop: an
+                        // Icon's width comes from its font metrics and does
+                        // not depend on where it is put.
+                        x: root.tileColumnX - root.chevronTileGap
+                           - Math.round((width + root.chevronInkWidth) / 2)
                         anchors.verticalCenter: parent.verticalCenter
                         // ONE MEANING: open or closed. A separate glyph for
                         // "this one dives" was tried twice and rejected both
@@ -1105,7 +1263,7 @@ Rectangle {
                        + Math.round((root.railTileSize
                                      - spaceItem.rowTileSize) / 2)
                     y: AppTheme.scaled(4) + spaceItem.dragLift
-                    radius: AppTheme.radiusLg
+                    radius: root.railTileRadius
                     // ACTIVE is ONE language for every tile in the rail: the
                     // accent ring above, plus a soft accent WASH here (a tint,
                     // not a block). A solid bolt fill four pixels inside a bolt
@@ -1145,7 +1303,12 @@ Rectangle {
                         visible: spaceItem.pseudo
                         name: spaceItem.isHome ? "home"
                               : spaceItem.isPeople ? "person" : "workspaces"
-                        size: spaceItem.isHome || spaceItem.isPeople ? 22 : 20
+                        // ONE RULE, HALF THE TILE. These were RAW literals
+                        // — 22 and 20, unscaled, so they stayed put at 140%
+                        // interface while the tile around them grew — and at
+                        // a 59px tile they gave a glyph ratio of 0.37 against
+                        // Material's and Discord's 0.50.
+                        size: root.railChipIconSize
                         // Follows the tile: accent ink on the active wash, the
                         // plain icon ink otherwise. accentText was the ink for
                         // a solid fill that no longer exists, and on a soft
@@ -1180,7 +1343,7 @@ Rectangle {
                         // scaled tile a corner 40% too round.
                         size: root.railTileSize
                         circle: false
-                        squareRadius: AppTheme.radiusLg
+                        squareRadius: root.railTileRadius
                         labelSize: AppTheme.scaled(15)
                         name: spaceItem.name
                         colorKey: spaceItem.spaceId
@@ -1219,11 +1382,31 @@ Rectangle {
                 }
 
                 // Drag to rearrange. Vertical only — the rail is a column, and
-                // a sideways twitch is not a reorder. Pseudo rows and subspace
-                // rows are excluded: "All rooms" is a view of everything, and a
-                // subspace's position belongs to Matrix.
+                // a sideways twitch is not a reorder. Pseudo rows are excluded:
+                // "All rooms" is a view of everything.
                 //
                 // The gesture's state lives in the MODEL, not here.
+                //
+                // ── BOUND TO THE TILE BAND, AND IT WAS NOT ─────────────────
+                //
+                // A handler acts within its PARENT, and this one's parent was
+                // the whole delegate — which includes `expansionCol`, the
+                // revealed rooms drawn underneath the tile. So a press on a
+                // ROOM armed the SPACE's drag, and the room's own handler
+                // never activated at all: instrumented, `onActiveChanged`
+                // never fired once. What looked like a working room reorder
+                // in a capture was the activity sort re-running because the
+                // tap underneath had opened the room.
+                //
+                // Reparented to an item that covers the tile band only. Same
+                // device `expandChevronArea` already uses two hundred lines
+                // up, and the reason is the same: a handler's reach is its
+                // parent's geometry, so the geometry is the API.
+                Item {
+                    id: tileDragArea
+                    width: parent.width
+                    height: spaceItem.tileBandHeight
+                    y: 0
                 DragHandler {
                     id: tileDrag
                     enabled: spaceItem.draggable
@@ -1242,6 +1425,7 @@ Rectangle {
                         if (active)
                             root.updateTileDrag(centroid.scenePosition.y)
                     }
+                }
                 }
 
                 // Right-click: folders are renamed and unmade here, and a
@@ -1371,23 +1555,81 @@ Rectangle {
                 // Inline expansion: up to `revealed` of the space's top rooms
                 // as 28px tiles, then a "+N" pill revealing 5 more. Tiles
                 // indent one step past the owning tile so the hierarchy reads.
+                // The reorder gesture, on an item of its OWN. See the long
+                // note below for why it is neither on each row nor on the
+                // Column itself.
+                Item {
+                    id: roomDragArea
+                    x: 0
+                    y: expansionCol.y
+                    width: parent.width
+                    height: expansionCol.height
+                    visible: expansionCol.visible
+                    z: 1
+                    function roomIndexAt(py) {
+                        var pitch = root.railRoomRowBand + expansionCol.spacing
+                        return Math.floor(Math.max(0, py) / pitch)
+                    }
+                    DragHandler {
+                        target: null
+                        xAxis.enabled: false
+                        onActiveChanged: {
+                            if (active) {
+                                spaceItem.roomDragIndex =
+                                    roomDragArea.roomIndexAt(
+                                        centroid.pressPosition.y)
+                                spaceItem.roomPreview =
+                                    spaceItem.revealedRooms.slice(
+                                        0, spaceItem.revealed)
+                            } else {
+                                spaceItem.commitRoomOrder()
+                            }
+                        }
+                        onCentroidChanged: {
+                            if (active) {
+                                spaceItem.moveRoomPreview(
+                                    roomDragArea.roomIndexAt(
+                                        centroid.position.y))
+                            }
+                        }
+                    }
+                }
+
                 Column {
                     id: expansionCol
-                    visible: spaceItem.revealed > 0
-                             && spaceItem.revealedRooms.length > 0
-                             && !root.dragging
-                    y: spaceItem.tileBandHeight
-                    width: parent.width
-                    spacing: 2
-
+                    // ── Drag to rearrange, within this Space ──────────────
+                    //
+                    // ON THE COLUMN, NOT ON EACH ROW, and that is the whole
+                    // of why the first attempt did nothing. A per-row handler
+                    // activated correctly — instrumented, `active=true` with
+                    // the right index — and never deactivated, because
+                    // setting the preview changes the Repeater's model, which
+                    // REBUILDS the delegates and destroys the handler holding
+                    // the gesture. No deactivation, no commit, and a capture
+                    // that looked like it had worked because the tap
+                    // underneath had opened the room and the activity sort
+                    // re-ran.
+                    //
+                    // The column outlives its rows, so the gesture does too.
+                    // GENERALISE: a handler that lives on an item its own
+                    // side effect rebuilds cannot finish what it starts.
+                    //
+                    // VERTICAL ONLY, and it cannot leave this Space: a room's
+                    // membership is Matrix's, and this decides only the order
+                    // the rail shows them in. Same division the subspace drag
+                    // makes — reorder is the rail's, reparent is not.
                     Repeater {
-                        model: expansionCol.visible
-                               ? spaceItem.revealedRooms.slice(
-                                     0, spaceItem.revealed)
-                               : []
+                        id: roomRepeater
+                        model: !expansionCol.visible
+                               ? []
+                               : (spaceItem.roomPreview
+                                  ? spaceItem.roomPreview
+                                  : spaceItem.revealedRooms.slice(
+                                        0, spaceItem.revealed))
                         delegate: Item {
                             id: expansionRoomRow
                             required property var modelData
+                            required property int index
                             width: expansionCol.width
                             height: root.railRoomRowBand
                             Rectangle {
@@ -1537,7 +1779,13 @@ Rectangle {
             // the pinned Settings/account cluster.
             footer: Item {
                 width: list.width
-                height: railAddSpaceButton.visible ? 48 : 0
+                // THE TILE'S OWN HEIGHT, and it was a literal 48 that
+                // predates a resizable tile. With the tile at 59 the content
+                // reached 63 inside a 48px footer, so `contentHeight` was 15
+                // short: the "+" clipped at the bottom of a scrolled rail and
+                // the scrollbar's range was wrong.
+                height: railAddSpaceButton.visible
+                        ? root.railTileSize + 2 * root.rowPad : 0
                 IconButton {
                     id: railAddSpaceButton
                     objectName: "railAddSpaceButton"
@@ -1545,9 +1793,9 @@ Rectangle {
                     x: root.tileColumnX
                     implicitWidth: root.railTileSize
                     implicitHeight: root.railTileSize
-                    radius: AppTheme.radiusLg
+                    radius: root.railTileRadius
                     iconName: "add"
-                    iconSize: AppTheme.scaled(22)
+                    iconSize: root.railChipIconSize
                     visible: app.loggedIn && app.conversations
                              && app.conversations.supported
                     Accessible.name: qsTr("Create a Space")
@@ -1555,13 +1803,18 @@ Rectangle {
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
                     onClicked: root.createSpaceRequested()
-                    // Soft dashed-affordance treatment: a quiet outline
-                    // distinguishes "add" from real Space tiles.
+                    // A QUIET SIBLING, not a hole. An outlined transparent
+                    // square in a column of filled tiles reads as a GAP —
+                    // and it sits at the column's end, where the rail was
+                    // already dissolving. Filled at 40% so it is clearly the
+                    // lightest tile without being an absence.
                     Rectangle {
                         anchors.fill: parent
                         z: -1
-                        radius: AppTheme.radiusLg
-                        color: "transparent"
+                        radius: root.railTileRadius
+                        color: Qt.rgba(AppTheme.cardElevated.r,
+                                       AppTheme.cardElevated.g,
+                                       AppTheme.cardElevated.b, 0.4)
                         border.width: 1
                         border.color: AppTheme.borderStrong
                     }
@@ -1570,30 +1823,45 @@ Rectangle {
         }
 
         // ── Bottom cluster: settings + account ─────────────────────────────
+        // THE SAME DIVIDER THE HANDOFF ROW USES, centred on the TILE COLUMN.
+        // This one was `spacing12` against the RAIL while every tile aligns
+        // to the column — so it published one centre line and the tiles
+        // another, 8.8px apart, and it was the separator that was right. It
+        // is also why the cog and avatar beside it read as a separate widget
+        // bolted under the rail rather than as the bottom of the same column.
         Rectangle {
-            Layout.fillWidth: true
-            Layout.leftMargin: AppTheme.spacing12
-            Layout.rightMargin: AppTheme.spacing12
-            implicitHeight: 1
+            Layout.alignment: Qt.AlignLeft
+            Layout.leftMargin: root.railDividerX
+            implicitWidth: root.railDividerWidth
+            implicitHeight: 2
+            radius: 1
             color: AppTheme.separator
             visible: app.loggedIn
         }
 
-        Item { implicitHeight: AppTheme.spacing12; visible: app.loggedIn }
+        // ONE GAP, the column's own. This was `spacing8` where every tile
+        // above it is separated by 12.
+        Item { implicitHeight: root.railTileGap; visible: app.loggedIn }
 
         IconButton {
             id: railSettingsButton
             objectName: "railSettingsButton"
-            // LEFT, with the trunk. The tiles above are no longer centred,
-            // so a centred cog and avatar would be the only two things in the
-            // rail that move when it is widened.
+            // ON THE COLUMN, which is now the rail's own centre. The note
+            // that used to sit here said the tiles above were not centred, so
+            // a centred cog would be the only thing that moved — true while
+            // the margins were asymmetric, and false since.
             Layout.alignment: Qt.AlignLeft
             Layout.leftMargin: root.tileColumnX
             implicitWidth: root.railTileSize
             implicitHeight: root.railTileSize
-            radius: AppTheme.radiusLg
+            radius: root.railTileRadius
+            // A FILL, like the Home and People chips. A 17x19 glyph in a
+            // 59px invisible box sat directly above a 59px solid disc — an
+            // optical weight ratio near 5:1, which is why the two could not
+            // read as siblings.
+            restingColor: AppTheme.cardElevated
             iconName: "settings"
-            iconSize: AppTheme.scaled(22)
+            iconSize: root.railChipIconSize
             // Accent chip while the in-shell Settings view is open;
             // clicking again returns to chat.
             active: app.currentScreen === 2
@@ -1633,7 +1901,14 @@ Rectangle {
                 visible: app.sessionVerificationWarning || parent._updateBadge
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.margins: AppTheme.scaled(6)
+                // ON THE GEAR'S SHOULDER, not floating in the button's
+                // padding. It was anchored to the 59px BUTTON while the glyph
+                // inside it is 23 — measured at 24.9px from the glyph's
+                // centre, further than the glyph is wide, so it read as an
+                // unattached red dot up and to the right of the cog.
+                anchors.margins:
+                    Math.round((root.railTileSize - root.railChipIconSize) / 2)
+                    - AppTheme.scaled(3)
                 width: AppTheme.scaled(10)
                 height: AppTheme.scaled(10)
                 radius: height / 2
@@ -1648,16 +1923,15 @@ Rectangle {
             }
         }
 
-        Item { implicitHeight: AppTheme.spacing8; visible: app.loggedIn }
+        Item { implicitHeight: root.railTileGap; visible: app.loggedIn }
 
         // Account avatar (40 px circle) with presence dot; opens the
         // account switcher popover.
         Item {
             id: railAccount
             objectName: "railAccountTile"
-            // LEFT, with the trunk. The tiles above are no longer centred,
-            // so a centred cog and avatar would be the only two things in the
-            // rail that move when it is widened.
+            // ON THE COLUMN — see the cog above for why the note that used
+            // to be here is no longer true.
             Layout.alignment: Qt.AlignLeft
             Layout.leftMargin: root.tileColumnX
             // implicitWidth, NOT width: this is a ColumnLayout child, and a
@@ -1722,6 +1996,12 @@ Rectangle {
                 objectName: "railConnectionDot"
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
+                // ON THE CIRCLE'S 45-DEGREE POINT. It was anchored to the
+                // square BOUNDING BOX of a circular avatar with no inset, so
+                // its centre sat 33px from a disc of radius 29.5 — about two
+                // thirds of the dot hanging off the corner, over bare rail.
+                anchors.rightMargin: Math.round(root.railTileSize * 0.15)
+                anchors.bottomMargin: Math.round(root.railTileSize * 0.15)
                 width: AppTheme.scaled(11)
                 height: AppTheme.scaled(11)
                 radius: height / 2

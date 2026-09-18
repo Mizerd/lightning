@@ -207,6 +207,15 @@ public:
     /// — the conversion the row-index version never had, and the reason a
     /// one-row hover used to park the block under the pointer and oscillate.
     Q_INVOKABLE void hoverGap(int gap);
+    /// Expands every ancestor of `spaceId` so its row exists, then asks the
+    /// rail to scroll it into view.
+    ///
+    /// A DEEP SPACE HAS NO ROW UNTIL ITS WHOLE CHAIN IS OPEN, which is why
+    /// this is not just a scroll: selecting "deep level 6" from the Home
+    /// pane's Your-spaces chips used to set the active Space and change
+    /// nothing a reader could see, because the rail had no row for it and no
+    /// reason to make one.
+    Q_INVOKABLE void revealSpace(const QString &spaceId);
     /// Clear any armed group target and leave the preview order exactly as it
     /// is. The view calls this for the one reading neither verb covers: the
     /// pointer sitting over the dragged block's OWN slot, where there is
@@ -226,6 +235,10 @@ public:
 Q_SIGNALS:
     void countChanged();
     void dragChanged();
+    /// A Space the rail should bring into view. Emitted by `revealSpace()`
+    /// AFTER the ancestors have been expanded and the rows rebuilt, so the
+    /// listener can look the row up and find it there.
+    void revealRequested(const QString &spaceId);
     void peopleEntryVisibleChanged();
     void orphansEntryVisibleChanged();
 

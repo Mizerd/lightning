@@ -1283,8 +1283,21 @@ private slots:
                 continue;
             QQuickItem *innermost = layers.last();
             ++chevronsChecked;
-            const qreal glyphLeft = glyph->mapToItem(row, QPointF(0, 0)).x();
-            const qreal glyphRight = glyphLeft + glyph->width();
+            // THE INK, NOT THE EM BOX. An `Icon`'s item is the glyph's
+            // ADVANCE — for this chevron about 0.45 of the font size — and
+            // roughly a quarter of that is the font's own empty side
+            // bearing. The rail places the mark by its ink for exactly that
+            // reason (see `chevronGlyphX`), so measuring the box here would
+            // fail a chevron that is drawn perfectly inside its region. The
+            // ink is centred in the box to within a quarter-pixel; that is
+            // measured, not assumed.
+            const qreal inkWidth =
+                m_rail->property("chevronInkWidth").toReal();
+            QVERIFY2(inkWidth > 0, "the rail reports no chevron ink width");
+            const qreal inkCentre =
+                glyph->mapToItem(row, QPointF(0, 0)).x() + glyph->width() / 2;
+            const qreal glyphLeft = inkCentre - inkWidth / 2;
+            const qreal glyphRight = inkCentre + inkWidth / 2;
             const qreal fieldLeft =
                 innermost->mapToItem(row, QPointF(0, 0)).x();
             const qreal fieldRight = fieldLeft + innermost->width();
@@ -1373,8 +1386,18 @@ private slots:
                 QStringLiteral("railSpaceExpandGlyph"));
             if (!glyph || !glyph->isVisible() || glyph->width() <= 0)
                 continue;
-            const qreal left = glyph->mapToItem(m_rail, QPointF(0, 0)).x();
-            const qreal right = left + glyph->width();
+            // THE INK, for the reason the sibling case spells out: an
+            // `Icon`'s item is the glyph's advance and a quarter of that is
+            // empty side bearing, so the box says nothing about where the
+            // mark is drawn.
+            const qreal inkWidth =
+                m_rail->property("chevronInkWidth").toReal();
+            QVERIFY2(inkWidth > 0, "the rail reports no chevron ink width");
+            const qreal inkCentre =
+                glyph->mapToItem(m_rail, QPointF(0, 0)).x()
+                + glyph->width() / 2;
+            const qreal left = inkCentre - inkWidth / 2;
+            const qreal right = inkCentre + inkWidth / 2;
             ++checked;
             const qreal toTile =
                 m_rail->property("tileColumnX").toReal() - right;

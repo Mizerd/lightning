@@ -156,6 +156,16 @@ public:
     // tree a tree: a subspace with two joined parents is nested under
     // exactly one of them, deterministically, instead of appearing twice.
     Q_INVOKABLE QStringList childSpaceIds(const QString &spaceId) const;
+    /// The Space that owns `spaceId` in the rail's arrangement, or "" for a
+    /// root. This is the PRIMARY parent — the one the breadth-first walk in
+    /// `recomputeHierarchy()` assigned — so it is the parent the rail draws
+    /// this Space under, which is the only one a "show me this Space" request
+    /// can act on.
+    Q_INVOKABLE QString parentSpaceIdOf(const QString &spaceId) const;
+    /// Every ancestor of `spaceId`, nearest first. Empty for a root or an
+    /// unknown id. Bounded by the hierarchy walk's own depth limit, so a
+    /// parent cycle cannot spin here.
+    Q_INVOKABLE QStringList ancestorSpaceIds(const QString &spaceId) const;
     // Whether `roomId` is a DIRECT child of any joined Space. The Channels
     // layout's "Rooms" group is the complement of this: every joined room
     // that no Space folder will list. Direct rather than transitive because

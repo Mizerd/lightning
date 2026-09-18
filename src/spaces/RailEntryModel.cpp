@@ -706,6 +706,30 @@ void RailEntryModel::hoverGroup(int row)
     Q_EMIT dragChanged();
 }
 
+void RailEntryModel::revealSpace(const QString &spaceId)
+{
+    if (spaceId.isEmpty() || !m_spaces || !m_layout)
+        return;
+    // OUTERMOST FIRST. `setSpaceExpanded` publishes a layout change each
+    // time and the rail rebuilds from it, so expanding a child before its
+    // parent would repeatedly build rows that do not exist yet. The list
+    // comes back nearest-first, so it is walked backwards.
+    const QStringList ancestors = m_spaces->ancestorSpaceIds(spaceId);
+    for (int i = ancestors.size() - 1; i >= 0; --i) {
+        if (!m_layout->spaceExpanded(ancestors.at(i)))
+            m_layout->setSpaceExpanded(ancestors.at(i), true);
+    }
+    // AND THE SPACE ITSELF, so arriving at it shows what is inside it. That
+    // is the difference between "find this" and "open this", and the request
+    // was for the second: "it gets expanded and focused".
+    if (!m_layout->spaceExpanded(spaceId))
+        m_layout->setSpaceExpanded(spaceId, true);
+    // AFTER the rebuild those writes triggered, or the listener looks for a
+    // row that the next refresh is about to create.
+    refresh();
+    Q_EMIT revealRequested(spaceId);
+}
+
 void RailEntryModel::hoverGap(int gap)
 {
     if (!m_dragging)

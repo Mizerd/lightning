@@ -125,6 +125,15 @@ public:
     Q_INVOKABLE void setChildOrder(const QString &parentId,
                                    const QStringList &childIds);
 
+    /// The same policy for a Space's revealed ROOMS. Anything the stored
+    /// arrangement does not mention keeps the order it arrived in — which for
+    /// rooms is most-recently-active first, so a Space nobody has arranged
+    /// behaves exactly as it always did.
+    Q_INVOKABLE QStringList orderedRooms(const QString &spaceId,
+                                         const QStringList &known) const;
+    Q_INVOKABLE void setRoomOrder(const QString &spaceId,
+                                  const QStringList &roomIds);
+
     // ONE atomic write of the whole arrangement, which is what a finished
     // drag actually produces: the rail knows every top-level entry it is
     // showing and every member of every OPEN folder, so committing that
@@ -206,6 +215,14 @@ private:
         /// send state in someone else's Space and would reorder the Space for
         /// every member. The rail has never claimed to be anyone else's view.
         QHash<QString, QStringList> childOrder;
+        /// Space id -> the order its REVEALED ROOMS are shown in.
+        ///
+        /// Separate from `childOrder` because they are two lists under one
+        /// parent: a Space's subspaces are rail ROWS and its rooms are drawn
+        /// inside the owning row. Reported straight after the subspace work —
+        /// "I can't rearrange rooms inside subspaces, subspaces and spaces
+        /// work okay" — which is the same request one level down.
+        QHash<QString, QStringList> roomOrder;
     };
 
     const Layout &load() const;

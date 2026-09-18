@@ -510,9 +510,23 @@ Item {
                             Accessible.role: Accessible.Button
                             Accessible.name: qsTr("Open Space %1")
                                 .arg(modelData.name || "")
-                            onClicked: if (modelData.roomId && app.spaces)
-                                           app.spaces.activeSpaceId =
-                                               modelData.roomId
+                            // SELECT IT *AND SHOW IT*. Setting the active
+                            // Space alone changed nothing a reader could see
+                            // when the Space was nested: the rail draws a row
+                            // for a subspace only while its whole ancestor
+                            // chain is expanded, so picking "deep level 6"
+                            // from here selected a Space that had no tile.
+                            // `revealSpace` opens the chain, opens the Space
+                            // itself, and asks the rail to scroll to it.
+                            onClicked: {
+                                if (!modelData.roomId)
+                                    return
+                                if (app.spaces)
+                                    app.spaces.activeSpaceId = modelData.roomId
+                                if (app.railEntries)
+                                    app.railEntries.revealSpace(
+                                        modelData.roomId)
+                            }
 
                             background: Rectangle {
                                 radius: AppTheme.radiusPill
