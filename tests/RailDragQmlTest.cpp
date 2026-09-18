@@ -724,19 +724,31 @@ private slots:
                  "the three rows are at the same indent, so this case cannot "
                  "see a gap that grows with depth");
 
+        // NO DRIFT WITH DEPTH — that is the report this case exists for, and
+        // it is a statement about the rows that HAVE a parent. Level 0 is
+        // measured too, but separately: a root has no elbow to sit on, so
+        // since 2026-09-18 its expander hugs its own tile instead of standing
+        // in the column where a parent's line would have turned. Requiring
+        // one gap across all three would force the root back out into blank
+        // rail, which is the thing that was reported in the first place.
         for (int i = 0; i < gaps.size(); ++i) {
             QVERIFY2(gaps.at(i) >= 0,
                      qPrintable(QStringLiteral("the expander overlaps its own "
                                                "tile at level %1 (gap %2)")
                                     .arg(i).arg(gaps.at(i))));
-            QVERIFY2(qAbs(gaps.at(i) - gaps.at(0)) < 1.0,
-                     qPrintable(QStringLiteral(
-                         "the expander is %1px from its tile at level %2 and "
-                         "%3px at level 0 — it drifts at a different rate "
-                         "from the tile it expands, so no two levels are "
-                         "spaced alike")
-                         .arg(gaps.at(i)).arg(i).arg(gaps.at(0))));
         }
+        QVERIFY2(qAbs(gaps.at(2) - gaps.at(1)) < 1.0,
+                 qPrintable(QStringLiteral(
+                     "the expander is %1px from its tile at level 2 and %2px "
+                     "at level 1 — it drifts at a different rate from the "
+                     "tile it expands, so no two nested levels are spaced "
+                     "alike").arg(gaps.at(2)).arg(gaps.at(1))));
+        QVERIFY2(gaps.at(0) <= gaps.at(1) + 1.0,
+                 qPrintable(QStringLiteral(
+                     "a ROOT's expander is %1px from its tile while a nested "
+                     "one is %2px — the root has no line to stand on, so it "
+                     "must not sit further out than the rows that do")
+                     .arg(gaps.at(0)).arg(gaps.at(1))));
         // ...and it is CLOSE to it, not parked against the rail's edge. Half
         // a tile is generous and still catches the old arrangement, whose
         // gap was 20px against a 40px tile at the very first level.

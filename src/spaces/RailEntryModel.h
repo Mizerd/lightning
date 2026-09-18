@@ -136,6 +136,12 @@ public:
         /// sibling, which is what stops a line being drawn under the last
         /// branch of a subtree.
         TreeGuidesRole,
+        /// The very next row is DEEPER than this one, so this row's own
+        /// descender has a child elbow below to reach. False for a Space
+        /// whose children are all ROOMS — those are drawn inside this
+        /// delegate and have no elbows, so a line descending towards them
+        /// connects to nothing and runs past the last one into bare rail.
+        TreeHasChildRowRole,
     };
 
     explicit RailEntryModel(QObject *parent = nullptr);

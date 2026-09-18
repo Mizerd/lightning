@@ -140,8 +140,14 @@ Rectangle {
     readonly property int railRoomTileSize: Math.round(railTileSize * 0.7)
     readonly property int railRoomRowBand:
         railRoomTileSize + AppTheme.scaled(4)
+    /// Air the deepest tile keeps against the pane divider. Without it the
+    /// budget spends its last pixel: the tile's right edge lands EXACTLY on
+    /// the rail's, so the deepest Space visually merges with the divider and
+    /// reads as clipped while every shallower tile has a whole step of
+    /// clearance. Measured at 0px on three different widths.
+    readonly property int railEdgeMargin: AppTheme.scaled(4)
     readonly property int indentBudget:
-        Math.max(0, Math.floor((width - railTileSize) / 2))
+        Math.max(0, Math.floor((width - railTileSize) / 2) - railEdgeMargin)
     // ONE STEP IS ONE TREE COLUMN, and the elbow that crosses it has to be
     // SEEN. It was 6px, chosen when depth was a slight offset and nothing was
     // drawn in the gutter: at that size the horizontal into each tile was
@@ -201,8 +207,11 @@ Rectangle {
     readonly property int minRailWidth: AppTheme.scaled(68)
     readonly property int maxIndentLevels: 6
     function widthForLevels(levels) {
+        // The margin is in the STOP as well as in the budget, or the widest
+        // stop stops affording the level it is named for.
         return Math.max(root.minRailWidth,
-                        root.railTileSize + 2 * levels * root.indentStep)
+                        root.railTileSize + 2 * levels * root.indentStep
+                        + 2 * root.railEdgeMargin)
     }
     /// The nearest stop to `px`. Used both when persisting a drag and when
     /// reading a stored width back, so a value saved by an older build — or
@@ -658,7 +667,12 @@ Rectangle {
             implicitHeight: visible ? root.railTileSize * 0.7 : 0
             radius: AppTheme.radiusMd
             color: diveHover.hovered ? AppTheme.hover : AppTheme.cardElevated
-            border.color: AppTheme.border
+            // THE STRONGER BORDER, because the fill cannot carry the shape:
+            // `cardElevated` on the rail measures 1.32:1, so the pill itself
+            // is nearly invisible and the caret was doing all the work of
+            // saying this is a control. The outline is what makes it read as
+            // pressable at a glance.
+            border.color: AppTheme.borderStrong
             border.width: 1
             RowLayout {
                 anchors.fill: parent
@@ -774,6 +788,7 @@ Rectangle {
                 required property bool draggable
                 required property bool treeLastChild
                 required property var treeGuides
+                required property bool treeHasChildRow
 
                 readonly property bool isFolder: kind === "folder"
                 readonly property bool isHome: pseudo && spaceId === ""
@@ -823,9 +838,18 @@ Rectangle {
                 /// becomes the trunk and gets the whole budget back. Without
                 /// this the rows piled up at one indent and claimed to be
                 /// siblings.
+                //
+                // `>=`, ON THE ROW'S OWN LEVEL. It was `drawnLevel + 1 >=`,
+                // which fires one level EARLY: a row at level L is drawn at
+                // L·step and needs L <= drawableLevels, so its children fit
+                // exactly when L + 1 <= drawableLevels — that is, it must
+                // dive when L >= drawableLevels. The off-by-one put the dive
+                // affordance on rows whose children fit perfectly well, and
+                // inside a dive it put it on EXPANDED rows, whose twisty then
+                // said the opposite of the truth.
                 readonly property bool divesInstead:
                     spaceItem.isRealSpace && spaceItem.expandable
-                    && spaceItem.drawnLevel + 1 >= root.drawableLevels
+                    && spaceItem.drawnLevel >= root.drawableLevels
                 /// This row's depth AS DRAWN. Inside a dive the focused Space
                 /// is the trunk, so everything under it is measured from
                 /// there and gets the rail's whole indent budget again.
@@ -1079,7 +1103,16 @@ Rectangle {
                     // column those children's elbows arrive on, and the line
                     // has to leave its tile for them to arrive at anything.
                     Rectangle {
+                        // ONLY WHEN THERE IS A ROW BELOW TO REACH. A Space
+                        // whose children are all ROOMS draws them inside this
+                        // same delegate, and they have no elbows — so the
+                        // descender ran the full height of the row, past the
+                        // last room, and stopped 8px into bare rail. Worse, it
+                        // stopped just above the next SIBLING's tile and in
+                        // that tile's own column, so the eye read one line
+                        // connecting a Space to its sibling.
                         visible: spaceItem.expandable && spaceItem.expanded
+                                 && spaceItem.treeHasChildRow
                         x: root.treeColumnX(spaceItem.drawnTreeLevel,
                                             spaceItem.width)
                         // STARTS INSIDE THE TILE, by its corner radius. The
@@ -1131,7 +1164,11 @@ Rectangle {
                     // when the guide is a sibling item rather than a gap.
                     Rectangle {
                         anchors.centerIn: expandGlyph
-                        width: expandGlyph.size + AppTheme.scaled(3)
+                        // NO PADDING ON TOP OF THE GLYPH BOX. The box is
+                        // already wider than the ink inside it, so adding to
+                        // it punched a hole in the guide twice the width of
+                        // the thing it was masking.
+                        width: expandGlyph.size
                         height: width
                         radius: width / 2
                         color: AppTheme.rail
@@ -1166,23 +1203,51 @@ Rectangle {
                         // file tree does, and it keeps the constant gap the
                         // earlier fix was about — the glyph still travels
                         // with its tile, it is just now also on the tree.
-                        x: root.treeColumnX(spaceItem.drawnTreeLevel - 1,
-                                            spaceItem.width)
-                           - expandChevronArea.x - size / 2
+                        // TWO PLACEMENTS, because there are two situations.
+                        //
+                        // A row WITH a parent sits on its elbow, centred on
+                        // the column its line turns in — rounded, or a 2px
+                        // guide and an odd glyph land half a pixel apart and
+                        // the tick reads as off-axis.
+                        //
+                        // A ROOT has no elbow. Putting it on the column where
+                        // one WOULD be left a tick floating in a whole
+                        // indent step of blank rail with no line at either
+                        // end — and at 140% in a narrow dived rail that
+                        // column is outside the rail, so the glyph was
+                        // clipped by the window edge with one pixel showing.
+                        // It goes back to hugging its own tile, which is
+                        // where it sat before the tree existed.
+                        x: spaceItem.drawnTreeLevel > 0
+                           ? Math.round(
+                                 root.treeColumnX(spaceItem.drawnTreeLevel - 1,
+                                                  spaceItem.width)
+                                 - expandChevronArea.x - size / 2)
+                           : Math.max(0, expandChevronArea.width - size)
                         anchors.verticalCenter: parent.verticalCenter
                         // THREE STATES, NOT TWO. A Space whose children
                         // would land deeper than the rail can draw does not
                         // open in place — it opens as a DIVE, and the glyph
                         // has to say so before the click rather than after.
+                        // A DIVE IS NOT A COLLAPSED TWISTY. Reusing
+                        // `chevron_right` for it meant an expanded Space at
+                        // the depth limit showed the glyph for "closed" — the
+                        // one per-row indicator the rail has, stating the
+                        // opposite of what the row was doing. An arrow says
+                        // "go in there", which is what the click does.
                         name: spaceItem.divesInstead
-                              ? "chevron_right"
+                              ? "arrow_forward"
                               : (spaceItem.expanded ? "expand_more"
                                                     : "chevron_right")
                         // SCALED, like the tile and the per-level step. A
                         // bare 10 shrank against everything around it as the
                         // interface grew — the same defect the rail's indent
                         // and its folder inset both carried.
-                        size: AppTheme.scaled(10)
+                        // 12, not 10. At 10 the drawn ink is SIX device
+                        // pixels wide at 100% — a speck sitting in a hole
+                        // twice its size, which is why the elbow read as
+                        // three disconnected fragments rather than a corner.
+                        size: AppTheme.scaled(12)
                         color: chevronHover.hovered ? AppTheme.text
                                                     : AppTheme.textMuted
                     }
@@ -1394,7 +1459,12 @@ Rectangle {
                     color: AppTheme.hover
                     visible: spaceHover.hovered && !spaceItem.isActive
                              && !root.dragging
-                    z: -1
+                    // BELOW the tree, not level with it. At equal z the later
+                    // sibling wins, so the halo painted over the last three
+                    // pixels of the elbow and the line stopped on the halo
+                    // instead of on the tile — only while hovered, which is
+                    // exactly when the reader is looking at that row.
+                    z: -2
                 }
 
                 TapHandler {

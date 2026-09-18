@@ -1,5 +1,34 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-18 — the rail tooltip covers the tile above the one you are pointing at
+
+Found by a screenshot audit of the Spaces rail, measured off
+`06-rail-hover-chevron.png` at 100%: hovering a Space tile puts its tooltip at
+**x 86-169, y 456-485**, and the room tile above it (CB) occupies x 155-182,
+y 454-481. The tooltip covers **15 of that tile's 28 pixels** and all of its
+rows, and paints over three of the tree's guide lines in the same band. The
+hovered tile is two rows BELOW the tooltip, and roughly 37px of empty rail sits
+unused to its right.
+
+**NOT FIXED, and it predates the tree.** It is Qt's default `ToolTip`
+placement on an attached property; moving it clear of the rail means
+positioning `ToolTip.toolTip` per call site rather than setting `ToolTip.text`,
+which is a change to every tooltip in the file and not one to make from a
+single measurement. Recorded here so the next reader has the number rather than
+an impression.
+
+Two taste findings from the same audit, deliberately left alone:
+
+* **Nothing connects the dive chip to the trunk below it.** There is no line,
+  elbow or stub between them, in a feature whose whole job is drawing exactly
+  that relationship. Drawing one would claim the chip IS the parent node; it is
+  a "go up" control that happens to name the parent. A deliberate omission, not
+  an oversight.
+* **The revealed room tiles sit only 5px (centres) right of their parent
+  Space**, distinguished mainly by being 28px instead of 40. The parent's
+  descender runs 7px to their left and never touches them, so it is not
+  obvious whether they hang off that line or are merely passed by it.
+
 ## 2026-09-18 — two fixes shipped WITHOUT a live repro, deliberately recorded as such
 
 Both are real by construction and both were shipped in `9fcabb4e`. Neither is

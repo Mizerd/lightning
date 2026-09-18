@@ -71,6 +71,7 @@ QHash<int, QByteArray> RailEntryModel::roleNames() const
         { DraggableRole, "draggable" },
         { TreeLastChildRole, "treeLastChild" },
         { TreeGuidesRole, "treeGuides" },
+        { TreeHasChildRowRole, "treeHasChildRow" },
     };
 }
 
@@ -121,6 +122,8 @@ QVariant RailEntryModel::data(const QModelIndex &index, int role) const
         return row.value(QStringLiteral("treeLastChild"), false);
     case TreeGuidesRole:
         return row.value(QStringLiteral("treeGuides"), QVariantList{});
+    case TreeHasChildRowRole:
+        return row.value(QStringLiteral("treeHasChildRow"), false);
     case DraggedRole:
         return m_dragging && !entryId.isEmpty() && entryId == m_dragEntryId;
     case DropTargetRole:
@@ -342,6 +345,13 @@ void RailEntryModel::stampTreeGuides(QVector<QVariantMap> &rows)
 {
     for (int i = 0; i < rows.size(); ++i) {
         const int level = rows.at(i).value(QStringLiteral("level")).toInt();
+        // Does anything BELOW this row hang off it as a row of its own? A
+        // Space's rooms are drawn inside its own delegate and have no elbows,
+        // so only a deeper ROW gives its descender something to reach.
+        const bool hasChildRow =
+            i + 1 < rows.size()
+            && rows.at(i + 1).value(QStringLiteral("level")).toInt() > level;
+        rows[i].insert(QStringLiteral("treeHasChildRow"), hasChildRow);
         if (level <= 0) {
             // A root Space, a folder or a pseudo row. Each is its own trunk:
             // drawing a line between them would claim a relationship the
