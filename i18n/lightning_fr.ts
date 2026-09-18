@@ -4829,7 +4829,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+724"/>
+        <location filename="../qml/MainScreen.qml" line="+723"/>
         <source>Switching account…</source>
         <translation>Changement de compte…</translation>
     </message>
@@ -7802,7 +7802,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RailEntryModel</name>
     <message>
-        <location filename="../src/spaces/RailEntryModel.cpp" line="+205"/>
+        <location filename="../src/spaces/RailEntryModel.cpp" line="+211"/>
         <source>Direct Messages</source>
         <translation>Messages directs</translation>
     </message>
@@ -14589,27 +14589,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+698"/>
-        <source>All Spaces</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+26"/>
-        <source>Leave %1 and go back up</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Back to all Spaces</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Up one level, out of %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+181"/>
+        <location filename="../qml/SpacesRail.qml" line="+600"/>
         <source>Folder: %1</source>
         <translation>Dossier : %1</translation>
     </message>
@@ -14629,7 +14609,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Autres salons</translation>
     </message>
     <message>
-        <location line="+337"/>
+        <location line="+219"/>
         <source>Collapse space</source>
         <translation>Espace réduit</translation>
     </message>
@@ -14639,8 +14619,8 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Agrandir l&apos;espace</translation>
     </message>
     <message>
-        <location line="+375"/>
-        <location line="+3"/>
+        <location line="+448"/>
+        <location line="+4"/>
         <source>Show more rooms</source>
         <translation>Afficher plus de salons</translation>
     </message>
@@ -14651,7 +14631,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Créer un espace</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+61"/>
         <source>Settings — this session is not verified</source>
         <translation>Paramètres — cette session n&apos;est pas vérifiée</translation>
     </message>
@@ -14666,7 +14646,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Paramètres</translation>
     </message>
     <message>
-        <location line="+72"/>
+        <location line="+76"/>
         <source>Account menu for %1</source>
         <translation>Menu du compte de %1</translation>
     </message>

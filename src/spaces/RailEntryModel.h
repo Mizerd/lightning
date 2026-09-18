@@ -118,30 +118,30 @@ public:
         FolderLastRole,
         /// Whether the user may drag this row at all.
         DraggableRole,
-        /// ── Tree guides ──────────────────────────────────────────────
+        /// ── The group field ──────────────────────────────────────────
         ///
-        /// Everything the rail needs to draw the hierarchy as a tree, and
-        /// all of it derived from the LEVEL SEQUENCE of the rows themselves
-        /// rather than from the Space graph. That matters for one reason:
-        /// the rows are reordered live during a drag, and a guide computed
-        /// from the graph would draw the arrangement the user is leaving
-        /// rather than the one under their pointer.
+        /// Everything the rail needs to draw the hierarchy, and all of it
+        /// derived from the LEVEL SEQUENCE of the rows themselves rather
+        /// than from the Space graph. That matters for one reason: the rows
+        /// are reordered live during a drag, and a region computed from the
+        /// graph would draw the arrangement the user is leaving rather than
+        /// the one under their pointer.
         ///
-        /// True when no later row is a sibling of this one — the row that
-        /// gets the corner of the elbow rather than the tee.
-        TreeLastChildRole,
-        /// One bool per ANCESTOR column, outermost first, `level - 1` of
-        /// them: does a vertical pass through this row at that column?
-        /// It does exactly when the ancestor one level deeper has a later
-        /// sibling, which is what stops a line being drawn under the last
-        /// branch of a subtree.
-        TreeGuidesRole,
-        /// The very next row is DEEPER than this one, so this row's own
-        /// descender has a child elbow below to reach. False for a Space
-        /// whose children are all ROOMS — those are drawn inside this
-        /// delegate and have no elbows, so a line descending towards them
-        /// connects to nothing and runs past the last one into bare rail.
-        TreeHasChildRowRole,
+        ///
+        /// Connector lines were removed on 2026-09-18: a visual audit
+        /// measured them spending 59% of the rail's width to encode depth
+        /// as the LENGTH of a horizontal rule — 10px per level at the
+        /// widest stop and 4px at the default — with lanes that never
+        /// attached to the parent they stood for. Containment is drawn as
+        /// a tinted region behind the run instead, which is what Discord
+        /// does and what this rail's own folders already did.
+        ///
+        /// True when the row ABOVE is shallower than this one, so the
+        /// region starts here and takes a rounded top.
+        BandTopRole,
+        /// True when the row BELOW is shallower, or there is none, so the
+        /// region ends here and takes a rounded bottom.
+        BandBottomRole,
     };
 
     explicit RailEntryModel(QObject *parent = nullptr);
@@ -222,16 +222,11 @@ Q_SIGNALS:
 
 private:
     void applyRows(QVector<QVariantMap> rows);
-    /// Stamps `treeLastChild` and `treeGuides` onto every row. Called from
+    /// Stamps `bandTop` and `bandBottom` onto every row. Called from
     /// applyRows(), which is the one chokepoint every row set passes
-    /// through — including the drag preview, so the tree the user sees
-    /// while dragging is the tree they will get.
-    static void stampTreeGuides(QVector<QVariantMap> &rows);
-    /// Does the depth-`level` ancestor of row `row` have a later sibling?
-    /// Scans forward for the first row at that level or shallower: a row at
-    /// exactly that level is the sibling, anything shallower ends the run.
-    static bool hasLaterSiblingAt(const QVector<QVariantMap> &rows, int row,
-                                  int level);
+    /// through — including the drag preview, so the grouping the user sees
+    /// while dragging is the grouping they will get.
+    static void stampGroupField(QVector<QVariantMap> &rows);
     void appendSubspaces(const QString &parentId,
                          const QString &owningFolderId,
                          const QHash<QString, QVariantMap> &byId,

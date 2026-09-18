@@ -4839,7 +4839,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+724"/>
+        <location filename="../qml/MainScreen.qml" line="+723"/>
         <source>Switching account…</source>
         <translation>Perjungiama paskyra…</translation>
     </message>
@@ -7821,7 +7821,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RailEntryModel</name>
     <message>
-        <location filename="../src/spaces/RailEntryModel.cpp" line="+205"/>
+        <location filename="../src/spaces/RailEntryModel.cpp" line="+211"/>
         <source>Direct Messages</source>
         <translation>Tiesioginiai pokalbiai</translation>
     </message>
@@ -14615,27 +14615,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+698"/>
-        <source>All Spaces</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+26"/>
-        <source>Leave %1 and go back up</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Back to all Spaces</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Up one level, out of %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+181"/>
+        <location filename="../qml/SpacesRail.qml" line="+600"/>
         <source>Folder: %1</source>
         <translation>Aplankas: %1</translation>
     </message>
@@ -14655,7 +14635,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Kiti kambariai</translation>
     </message>
     <message>
-        <location line="+337"/>
+        <location line="+219"/>
         <source>Collapse space</source>
         <translation>Sutraukti erdvę</translation>
     </message>
@@ -14665,8 +14645,8 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Išplėsti erdvę</translation>
     </message>
     <message>
-        <location line="+375"/>
-        <location line="+3"/>
+        <location line="+448"/>
+        <location line="+4"/>
         <source>Show more rooms</source>
         <translation>Rodyti daugiau kambarių</translation>
     </message>
@@ -14677,7 +14657,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Sukurkite erdvę</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+61"/>
         <source>Settings — this session is not verified</source>
         <translation>Nustatymai – ši sesija nepatvirtinta</translation>
     </message>
@@ -14692,7 +14672,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Nustatymai</translation>
     </message>
     <message>
-        <location line="+72"/>
+        <location line="+76"/>
         <source>Account menu for %1</source>
         <translation>%1 paskyros meniu</translation>
     </message>

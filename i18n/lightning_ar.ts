@@ -4869,7 +4869,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+724"/>
+        <location filename="../qml/MainScreen.qml" line="+723"/>
         <source>Switching account…</source>
         <translation>جارٍ تبديل الحساب…</translation>
     </message>
@@ -7878,7 +7878,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RailEntryModel</name>
     <message>
-        <location filename="../src/spaces/RailEntryModel.cpp" line="+205"/>
+        <location filename="../src/spaces/RailEntryModel.cpp" line="+211"/>
         <source>Direct Messages</source>
         <translation>الرسائل المباشرة</translation>
     </message>
@@ -14693,27 +14693,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+698"/>
-        <source>All Spaces</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+26"/>
-        <source>Leave %1 and go back up</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Back to all Spaces</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Up one level, out of %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+181"/>
+        <location filename="../qml/SpacesRail.qml" line="+600"/>
         <source>Folder: %1</source>
         <translation>مجلد: %1</translation>
     </message>
@@ -14733,7 +14713,7 @@ Note: importing keys does not verify this session.</source>
         <translation>غرف أخرى</translation>
     </message>
     <message>
-        <location line="+337"/>
+        <location line="+219"/>
         <source>Collapse space</source>
         <translation>طي الفضاء</translation>
     </message>
@@ -14743,8 +14723,8 @@ Note: importing keys does not verify this session.</source>
         <translation>قم بتوسيع المساحة</translation>
     </message>
     <message>
-        <location line="+375"/>
-        <location line="+3"/>
+        <location line="+448"/>
+        <location line="+4"/>
         <source>Show more rooms</source>
         <translation>إظهار مزيد من الغرف</translation>
     </message>
@@ -14755,7 +14735,7 @@ Note: importing keys does not verify this session.</source>
         <translation>إنشاء فضاء</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+61"/>
         <source>Settings — this session is not verified</source>
         <translation>الإعدادات — هذه الجلسة غير موثّقة</translation>
     </message>
@@ -14770,7 +14750,7 @@ Note: importing keys does not verify this session.</source>
         <translation>الإعدادات</translation>
     </message>
     <message>
-        <location line="+72"/>
+        <location line="+76"/>
         <source>Account menu for %1</source>
         <translation>قائمة حساب %1</translation>
     </message>

@@ -536,31 +536,31 @@ Item {
             id: spacesRail
             objectName: "spacesRail"
             visible: app.settings.spacesRailVisible
-            // The stored width is snapped on the way in as well as on the
-            // way out, so a value written by an older build — or edited by
-            // hand — is corrected rather than honoured. The stops are
-            // computed by the rail because they are made of scaled pixels
-            // and `AppTheme.scaled` folds in both the text scale and the
-            // font's optical factor; C++ knows neither, so a second copy
-            // there would drift at every zoom level except 100%.
+            // ── NO MORE STOPS ──────────────────────────────────────────
             //
-            // BOTH authorities, not either: the stop range says what is
-            // drawable at the current scale, the setter's clamp says what is
-            // storable at ANY scale, and the drag must satisfy both. They do
-            // not agree at the floor — `scaled()` spans ×0.891…×1.582, so at
-            // the smallest interface the narrowest stop is 61 while the
-            // setter clamps at 68. Binding to the stop alone let a user drag
-            // to 61, stored 68, and snapped that to the NEXT stop up on the
-            // following launch: their narrowest choice quietly widened every
-            // restart.
-            SplitView.preferredWidth:
-                spacesRail.snapWidth(app.settings.spacesRailWidth)
+            // The width used to snap to discrete stops because each one
+            // afforded one more level of INDENT, and a width between two of
+            // them drew the deepest tier at the same indent as the tier above
+            // it. There is no indent any more — the hierarchy is drawn as
+            // tinted regions behind the rows — so there is nothing left for a
+            // stop to be about, and the width is a plain range again.
+            //
+            // What it buys instead is the TILE: past the minimum the tile
+            // grows with the rail up to a ceiling, and then the margins take
+            // the rest. That is what makes the drag worth having, and it is
+            // why the maximum is the rail's own (a tile at its ceiling plus
+            // generous margins) rather than the setter's much larger clamp.
+            //
+            // BOTH authorities, not either: the rail says what it can draw at
+            // the current interface scale, the setter's clamp says what is
+            // storable at ANY scale, and the drag must satisfy both.
+            SplitView.preferredWidth: app.settings.spacesRailWidth
             SplitView.minimumWidth:
                 Math.max(app.settings.spacesRailMinWidth,
-                         spacesRail.widthForLevels(0))
+                         spacesRail.minRailWidth)
             SplitView.maximumWidth:
                 Math.min(app.settings.spacesRailMaxWidth,
-                         spacesRail.widthForLevels(spacesRail.maxIndentLevels))
+                         spacesRail.maxRailWidth)
             onCreateSpaceRequested: roomsPanel.startConversation("space")
             // Saved on the falling edge of `resizing`, not per pixel — see
             // the long note on the rooms column, which learned this the hard
@@ -606,8 +606,8 @@ Item {
                     // binding, so without this the divider would keep the
                     // loose width it was dropped at while the SETTING held
                     // the snapped one.
-                    var snapped = spacesRail.snapWidth(spacesRail.width)
-                    app.settings.spacesRailWidth = snapped
+                    var chosen = Math.round(spacesRail.width)
+                    app.settings.spacesRailWidth = chosen
                     // AS A BINDING, not as a number. A plain assignment here
                     // fixed the visual width and left `preferredWidth`
                     // unbound for the rest of the session — so the stops
@@ -624,8 +624,7 @@ Item {
                     // is the dependency that was missing.
                     spacesRail.SplitView.preferredWidth = Qt.binding(
                         function() {
-                            return spacesRail.snapWidth(
-                                app.settings.spacesRailWidth)
+                            return app.settings.spacesRailWidth
                         })
                 }
             }

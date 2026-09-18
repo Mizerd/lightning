@@ -1147,55 +1147,56 @@ private Q_SLOTS:
                             RailEntryModel::ExpandableRole).toBool());
     }
 
-    // ── 2026-09-18: the tree guides ──────────────────────────────────────
+    // ── 2026-09-18: the group field's bounds ─────────────────────────────
     //
-    // The rail draws the hierarchy as a tree, and everything it needs to do
-    // that comes from the LEVEL SEQUENCE of the rows rather than from the
-    // Space graph — so the tree follows a drag preview instead of showing the
-    // arrangement the user is leaving. Two values per row:
+    // The rail draws the hierarchy as a tinted REGION behind a run of rows,
+    // and everything it needs comes from the LEVEL SEQUENCE of the rows
+    // rather than from the Space graph — so the region follows a drag preview
+    // instead of showing the arrangement the user is leaving. Two values per
+    // row: `bandTop` when the row above is shallower, `bandBottom` when the
+    // row below is shallower or there is none. Between them the region is
+    // squared off, so a run of any length reads as one shape.
     //
-    //   treeLastChild  no later row is a sibling, so this branch takes the
-    //                  corner of the elbow instead of the tee.
-    //   treeGuides     one bool per ANCESTOR column, outermost first: does a
-    //                  vertical pass through this row there? It does exactly
-    //                  when the ancestor one level deeper has a later sibling.
-    //
-    // The second rule is the one that is easy to get subtly wrong, and the
-    // wrong version looks right on a shallow tree. Under a LAST child, no
-    // line may be drawn in the ancestor's column — otherwise a line runs down
-    // past the end of a branch to nothing. This fixture is built to have
-    // exactly that shape:
+    // THE RULE THAT IS EASY TO GET SUBTLY WRONG is the comparison: `<`, not
+    // `<=`. A SIBLING must not close the region — three subspaces of one
+    // Space are ONE group, not three pills — and a shallow fixture cannot
+    // tell the two apart, because with one child per level a sibling never
+    // occurs. This fixture is built to have exactly that shape:
     //
     //   Root
-    //   ├── A            (has a later sibling: B)
-    //   │   └── A1       so A's column carries a line on A1's row
-    //   └── B            (last)
-    //       └── B1       and B's column must be CLEAR on B1's row
-    void theTreeGuidesFollowTheRowsRatherThanTheGraph()
+    //   ├── A            A, B and C are ADJACENT siblings: the region that
+    //   ├── B            opens under Root has to run through all five of
+    //   └── C            them and close only at C1a. A sibling boundary is
+    //       └── C1       the only place the two rules disagree, so A and B
+    //           └── C1a  are leaves on purpose — nothing between them.
+    void theGroupFieldFollowsTheRowsRatherThanTheGraph()
     {
         FakeClient client;
         client.roomList = {
             spaceRoom(QStringLiteral("!root:x"), QStringLiteral("Root"),
-                      { QStringLiteral("!a:x"), QStringLiteral("!b:x") }),
-            spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A"),
-                      { QStringLiteral("!a1:x") },
+                      { QStringLiteral("!a:x"), QStringLiteral("!b:x"),
+                        QStringLiteral("!c:x") }),
+            // LEAVES, and that is the discriminator. Two siblings with
+            // nothing between them is the only arrangement in which `<` and
+            // `<=` give different answers; with one child per level, as an
+            // earlier version of this fixture had, a sibling boundary never
+            // occurs and the wrong rule passes.
+            spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A"), {},
                       { QStringLiteral("!root:x") }),
-            spaceRoom(QStringLiteral("!a1:x"), QStringLiteral("A1"), {},
-                      { QStringLiteral("!a:x") }),
-            spaceRoom(QStringLiteral("!b:x"), QStringLiteral("B"),
-                      { QStringLiteral("!b1:x") },
+            spaceRoom(QStringLiteral("!b:x"), QStringLiteral("B"), {},
                       { QStringLiteral("!root:x") }),
-            spaceRoom(QStringLiteral("!b1:x"), QStringLiteral("B1"),
-                      { QStringLiteral("!b1a:x") },
-                      { QStringLiteral("!b:x") }),
-            // THE THIRD LEVEL IS NOT DECORATION. Without it the fixture
-            // cannot tell the rule apart from "draw a line whenever the next
-            // row is deeper", which is the plausible wrong version: B1 was
-            // the last row, so both rules answered "no line" for the same
-            // reason. With B1a below it, the wrong rule draws a line in B's
-            // column on B1's row — under a branch that has already ended.
-            spaceRoom(QStringLiteral("!b1a:x"), QStringLiteral("B1a"), {},
-                      { QStringLiteral("!b1:x") }),
+            spaceRoom(QStringLiteral("!c:x"), QStringLiteral("C"),
+                      { QStringLiteral("!c1:x") },
+                      { QStringLiteral("!root:x") }),
+            spaceRoom(QStringLiteral("!c1:x"), QStringLiteral("C1"),
+                      { QStringLiteral("!c1a:x") },
+                      { QStringLiteral("!c:x") }),
+            // THE THIRD LEVEL IS NOT DECORATION: C1a is the only row whose
+            // `bandBottom` closes a run DEEPER than the one above it, which
+            // is what proves the bottom is read from the next row and not
+            // from "this is the last row of the model".
+            spaceRoom(QStringLiteral("!c1a:x"), QStringLiteral("C1a"), {},
+                      { QStringLiteral("!c1:x") }),
         };
         SpaceManager spaces;
         spaces.setClient(&client);
@@ -1204,78 +1205,56 @@ private Q_SLOTS:
         RailEntryModel model;
         model.setSources(&spaces, &store);
         for (const QString &id : { QStringLiteral("!root:x"),
-                                   QStringLiteral("!a:x"),
-                                   QStringLiteral("!b:x"),
-                                   QStringLiteral("!b1:x") }) {
+                                   QStringLiteral("!c:x"),
+                                   QStringLiteral("!c1:x") }) {
             store.setSpaceExpanded(id, true);
         }
 
-        const auto guidesOf = [&model](const QString &id) {
+        const auto bandOf = [&model](const QString &id) {
             const int row = model.rowForEntry(id);
-            return model.data(model.index(row, 0),
-                              RailEntryModel::TreeGuidesRole).toList();
-        };
-        const auto lastOf = [&model](const QString &id) {
-            const int row = model.rowForEntry(id);
-            return model.data(model.index(row, 0),
-                              RailEntryModel::TreeLastChildRole).toBool();
+            return QPair<bool, bool>(
+                model.data(model.index(row, 0),
+                           RailEntryModel::BandTopRole).toBool(),
+                model.data(model.index(row, 0),
+                           RailEntryModel::BandBottomRole).toBool());
         };
 
         // The fixture has to actually have the shape described above, or
         // every assertion below is about a tree that is not there.
-        QCOMPARE(model.rowForEntry(QStringLiteral("!a1:x")),
-                 model.rowForEntry(QStringLiteral("!a:x")) + 1);
-        QCOMPARE(model.rowForEntry(QStringLiteral("!b:x")),
-                 model.rowForEntry(QStringLiteral("!a1:x")) + 1);
+        const int rootRow = model.rowForEntry(QStringLiteral("!root:x"));
+        QCOMPARE(model.rowForEntry(QStringLiteral("!a:x")), rootRow + 1);
+        QCOMPARE(model.rowForEntry(QStringLiteral("!b:x")), rootRow + 2);
+        QCOMPARE(model.rowForEntry(QStringLiteral("!c:x")), rootRow + 3);
+        QCOMPARE(model.rowForEntry(QStringLiteral("!c1:x")), rootRow + 4);
+        QCOMPARE(model.rowForEntry(QStringLiteral("!c1a:x")), rootRow + 5);
 
-        // A root is its own trunk: no columns, and never "the last child" of
-        // anything, because the rows around it are other trunks.
-        QVERIFY(guidesOf(QStringLiteral("!root:x")).isEmpty());
-        QVERIFY(!lastOf(QStringLiteral("!root:x")));
+        // A opens the run under Root.
+        QVERIFY2(bandOf(QStringLiteral("!a:x")).first,
+                 "the region does not open at A, so Root's children sit on "
+                 "bare rail");
 
-        // Depth 1: no ancestor columns, and A is followed by B.
-        QVERIFY(guidesOf(QStringLiteral("!a:x")).isEmpty());
-        QVERIFY2(!lastOf(QStringLiteral("!a:x")),
-                 "A is drawn as the last branch although B follows it");
-        QVERIFY2(lastOf(QStringLiteral("!b:x")),
-                 "B is drawn with a tee although nothing follows it");
+        // AND THIS IS THE CASE'S WHOLE POINT, both halves of it. A is
+        // followed by its own SIBLING and must not close; B is preceded by
+        // one and must not open. A `<=` comparison gets both wrong and turns
+        // one Space's children into a pill each.
+        QVERIFY2(!bandOf(QStringLiteral("!a:x")).second,
+                 "A closes the region although B is its sibling — a Space's "
+                 "children are one group, not one pill each");
+        QVERIFY2(!bandOf(QStringLiteral("!b:x")).first,
+                 "B opens a NEW region although it is A's sibling");
+        QVERIFY2(!bandOf(QStringLiteral("!b:x")).second,
+                 "B closes the region although C follows it at the same "
+                 "depth");
+        QVERIFY2(!bandOf(QStringLiteral("!c:x")).second,
+                 "C closes the region although C1 is nested inside it");
 
-        // Depth 2, and the whole point of the case.
-        const QVariantList a1 = guidesOf(QStringLiteral("!a1:x"));
-        QCOMPARE(a1.size(), 1);
-        QVERIFY2(a1.at(0).toBool(),
-                 "no line is drawn in A's column on A1's row, so the branch "
-                 "down to B is broken in the middle");
-        const QVariantList b1 = guidesOf(QStringLiteral("!b1:x"));
-        QCOMPARE(b1.size(), 1);
-        QVERIFY2(!b1.at(0).toBool(),
-                 "a line is drawn in B's column on B1's row although B is the "
-                 "last branch — it runs past the end of the tree to nothing");
-        QVERIFY(lastOf(QStringLiteral("!a1:x")));
-        QVERIFY(lastOf(QStringLiteral("!b1:x")));
-
-        // Depth 3, and this is the row the wrong rule gets wrong. B1a sits
-        // under B1 under B, and B is the root's LAST child — so BOTH ancestor
-        // columns must be clear. A rule that draws a line whenever the next
-        // row is deeper puts one in B's column on B1's row, and the picture
-        // grows a line running past the end of the tree.
-        const QVariantList b1row = guidesOf(QStringLiteral("!b1:x"));
-        QCOMPARE(b1row.size(), 1);
-        QVERIFY2(!b1row.at(0).toBool(),
-                 "a line is drawn in B's column on B1's row although B is the "
-                 "root's last child and B1a is merely deeper");
-        const QVariantList b1a = guidesOf(QStringLiteral("!b1a:x"));
-        QCOMPARE(b1a.size(), 2);
-        QVERIFY2(!b1a.at(0).toBool() && !b1a.at(1).toBool(),
-                 "B1a's ancestor columns are not both clear, so the deepest "
-                 "branch of the tree has lines beside it that lead nowhere");
-
-        // Collapsing a branch removes its rows, and the guides follow the
-        // rows: with A shut, B is still the last child and A1 is gone.
-        store.setSpaceExpanded(QStringLiteral("!a:x"), false);
-        QCOMPARE(model.rowForEntry(QStringLiteral("!a1:x")), -1);
-        QVERIFY(!lastOf(QStringLiteral("!a:x")));
-        QVERIFY(lastOf(QStringLiteral("!b:x")));
+        // The bottom is read from the row BELOW, not from the end of the
+        // model: C1 has C1a under it and must stay open.
+        QVERIFY2(!bandOf(QStringLiteral("!c1:x")).second,
+                 "C1 closes its region although C1a is deeper");
+        QVERIFY2(bandOf(QStringLiteral("!c1a:x")).second,
+                 "the deepest row does not close its region, so the field "
+                 "runs off the end of the tree");
     }
 
     void aCyclicHierarchyKeepsEverySpaceReachableAndTerminates()

@@ -378,11 +378,12 @@ private slots:
         // the rail's own flick-scrolling. A steal under a REAL pointer would
         // be a production finding, not a harness one, and must not be papered
         // over here.
-        // 160, NOT the production MINIMUM of 68. The rail's indent budget is
-        // half the leftover after the tile, so at 68 a step of 12 affords ONE
-        // level — and the nesting cases below need three distinct indents to
-        // be measuring anything. A user who wants that depth drags the rail
-        // out to the stop that affords it; this window is that stop.
+        // 160, which is WIDER than the rail's own maximum. That is deliberate
+        // and it is also a blind spot: geometry that only goes wrong when the
+        // gutter is at its narrowest cannot be seen at 160, which is how a
+        // clipped chevron shipped. `theGutterIsWideEnoughForTheGlyphItHolds`
+        // below narrows the rail to its real minimum for exactly that reason,
+        // and every other case here is about proportion rather than fit.
         m_window->resize(160, 700);
         m_rail->setParentItem(m_window->contentItem());
         m_rail->setSize(QSizeF(m_window->width(), m_window->height()));
@@ -713,11 +714,17 @@ private slots:
                      "nothing");
             const QPointF glyphLeft = glyph->mapToItem(row, QPointF(0, 0));
             const QPointF tileLeft = tile->mapToItem(row, QPointF(0, 0));
-            // Signed, and measured FROM the tile: the expander is a badge on
-            // it now, so what must hold is that it keeps one place on the
-            // tile — not that it stands some distance outside it.
-            gaps << glyphLeft.x() - tileLeft.x();
-            tileLefts << tileLeft.x();
+            // Both absolute in the row, because both belong to a COLUMN now:
+            // the expander to the gutter, the tile to the one axis every
+            // tile shares. Measuring the expander from the tile would have
+            // been the right question while it was a badge on the tile, and
+            // it is the wrong one once the two are separate columns.
+            gaps << glyphLeft.x();
+            // The tile's CENTRE. A nested tile is drawn one step smaller and
+            // inset equally on both sides, so its LEFT edge legitimately moves
+            // by half the size difference — the centre is what "one column"
+            // means when the things in it are not all the same size.
+            tileLefts << tileLeft.x() + tile->width() / 2;
         }
 
         // ── THE TILES DO NOT MOVE ────────────────────────────────────
@@ -734,30 +741,31 @@ private slots:
         for (int i = 1; i < tileLefts.size(); ++i) {
             QVERIFY2(qAbs(tileLefts.at(i) - tileLefts.at(0)) < 1.0,
                      qPrintable(QStringLiteral(
-                         "a depth-%1 tile sits at x=%2 while a root sits at "
+                         "a depth-%1 tile is centred on x=%2 and a root on "
                          "x=%3 — the column steps with depth again, which is "
                          "the wave this case exists to prevent")
                          .arg(i).arg(tileLefts.at(i)).arg(tileLefts.at(0))));
         }
 
-        // And the expander keeps ONE place on the tile it belongs to, at every
-        // depth — the other half of the original report, which was that the
-        // chevrons were "unevenly distanced". It is a badge on the tile now,
-        // so this is a statement about where on the tile it sits.
+        // And the expander keeps ONE x at every depth — the other half of the
+        // original report, which was that the chevrons were "unevenly
+        // distanced". It has the gutter to itself, so there is nothing left
+        // for it to move for.
         for (int i = 0; i < gaps.size(); ++i) {
             QVERIFY2(qAbs(gaps.at(i) - gaps.at(0)) < 1.0,
                      qPrintable(QStringLiteral(
-                         "the expander is %1px from its tile's left edge at "
-                         "depth %2 and %3px at the root — it does not keep one "
-                         "place on the tile it belongs to")
+                         "the expander sits at x=%1 at depth %2 and x=%3 at "
+                         "the root — it moves with the row rather than "
+                         "keeping the gutter's one position")
                          .arg(gaps.at(i)).arg(i).arg(gaps.at(0))));
-            const qreal tileEdge =
-                m_rail->property("railTileSize").toReal();
-            QVERIFY2(gaps.at(i) >= 0 && gaps.at(i) < tileEdge,
+            // In the gutter, which is to say LEFT of the tile column. This is
+            // the assertion that would fail if the expander were ever moved
+            // back on top of the tile, where it clipped the avatar.
+            QVERIFY2(gaps.at(i) < tileLefts.at(i),
                      qPrintable(QStringLiteral(
-                         "the expander is %1px from its tile's left edge, "
-                         "which is not on the tile at all")
-                         .arg(gaps.at(i))));
+                         "the expander is at x=%1 and the tile's centre is at "
+                         "x=%2 — it is not in the gutter it was given")
+                         .arg(gaps.at(i)).arg(tileLefts.at(i))));
         }
 
         entries()->setSources(m_spaces, store());
@@ -899,36 +907,214 @@ private slots:
     // revealed-rooms column reads `app.spaces`, the CONTROLLER's manager, so
     // a locally-fed hierarchy would leave it empty for a reason that has
     // nothing to do with scaling.
+    // ── 2026-09-18: a drop lands where `rowTop` says it does ─────────────
+    //
+    // `rowTop(i)` is what every drop decision is made against, and it is
+    // DERIVED by accumulating `rowBand()` rather than read off the delegates,
+    // because the move and displaced transitions interpolate a delegate's `y`
+    // for 140ms — a pointer held still over an animating list would map to one
+    // row, then its neighbour, then back.
+    //
+    // THE PRICE OF DERIVING IT is that the derivation has to keep up with the
+    // rows. It returned one constant for every row but the first, which was
+    // exactly true while every tile was `railTileSize`, and stopped being true
+    // the moment a nested Space's tile became a step smaller and the last row
+    // of a group started carrying the gap below it. Nothing would have said
+    // so: the error is 6px per nested row and 8px per group ABOVE the pointer,
+    // so shallow trees are unaffected and a deep one drops a slot off.
+    //
+    // THE FIXTURE NEEDS A ROW THAT IS NESTED AND NOT LAST, and a first
+    // version of it did not have one. Two roots each with a single nested
+    // child passed on a constant band by arithmetic accident: a nested tile
+    // is 8px shorter and the last row of a group is 8px taller, so at every
+    // width those two cancel and a nested LAST row is exactly the constant.
+    // The middle row of a three-level chain is the one that cannot cancel.
+    void everyRowTopMatchesTheRowThatIsActuallyThere()
+    {
+        RailFakeClient mixed;
+        RoomInfo r1 = joinedSpace(QStringLiteral("!r1:example.org"),
+                                  QStringLiteral("Root One"));
+        r1.childRoomIds = { QStringLiteral("!c1:example.org") };
+        RoomInfo c1 = joinedSpace(QStringLiteral("!c1:example.org"),
+                                  QStringLiteral("Child One"));
+        c1.childRoomIds = { QStringLiteral("!c1a:example.org") };
+        RoomInfo r2 = joinedSpace(QStringLiteral("!r2:example.org"),
+                                  QStringLiteral("Root Two"));
+        r2.childRoomIds = { QStringLiteral("!c2:example.org") };
+        mixed.roomList = { r1, c1,
+                           joinedSpace(QStringLiteral("!c1a:example.org"),
+                                       QStringLiteral("Grandchild")),
+                           r2,
+                           joinedSpace(QStringLiteral("!c2:example.org"),
+                                       QStringLiteral("Child Two")) };
+        SpaceManager mixedSpaces;
+        mixedSpaces.setClient(&mixed);
+        store()->setSpaceExpanded(QStringLiteral("!r1:example.org"), true);
+        store()->setSpaceExpanded(QStringLiteral("!c1:example.org"), true);
+        store()->setSpaceExpanded(QStringLiteral("!r2:example.org"), true);
+        entries()->setSources(&mixedSpaces, store());
+        QCoreApplication::processEvents();
+        QTest::qWait(80);
+
+        auto *content = m_list->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        const int count = m_list->property("count").toInt();
+        QVERIFY2(count >= 5,
+                 qPrintable(QStringLiteral(
+                     "the rail built %1 rows, so the mixed fixture is not "
+                     "there").arg(count)));
+
+        // The fixture must actually contain a nested row, or a constant band
+        // would be correct and this case would prove nothing.
+        int nestedRows = 0;
+        for (QQuickItem *row : content->childItems()) {
+            if (row && row->isVisible()
+                && row->property("hierarchyChild").toBool())
+                ++nestedRows;
+        }
+        QVERIFY2(nestedRows >= 3,
+                 qPrintable(QStringLiteral(
+                     "only %1 nested rows are on screen — a constant row band "
+                     "would pass this case").arg(nestedRows)));
+
+        for (QQuickItem *row : content->childItems()) {
+            if (!row || !row->isVisible() || row->height() <= 0)
+                continue;
+            bool ok = false;
+            const int index = row->property("index").toInt(&ok);
+            if (!ok || index < 0)
+                continue;
+            QVariant predicted;
+            QMetaObject::invokeMethod(m_rail, "rowTop",
+                                      Q_RETURN_ARG(QVariant, predicted),
+                                      Q_ARG(QVariant, index));
+            QVERIFY2(qAbs(predicted.toReal() - row->y()) < 1.0,
+                     qPrintable(QStringLiteral(
+                         "row %1 is at y=%2 and `rowTop` predicts %3 — every "
+                         "drop decision on this row is made against the wrong "
+                         "slot").arg(index).arg(row->y())
+                         .arg(predicted.toReal())));
+        }
+
+        store()->setSpaceExpanded(QStringLiteral("!r1:example.org"), false);
+        store()->setSpaceExpanded(QStringLiteral("!c1:example.org"), false);
+        store()->setSpaceExpanded(QStringLiteral("!r2:example.org"), false);
+        entries()->setSources(m_spaces, store());
+        QCoreApplication::processEvents();
+        QTest::qWait(60);
+    }
+
+
+    // ── 2026-09-18: the expander hung off the rail's edge when narrow ─────
+    //
+    // FOUND IN A CAPTURE AT THE MINIMUM WIDTH, and it could not have been
+    // found anywhere else: every case in this file runs at 160px, where the
+    // gutter is 52 and nothing is near an edge. The gutter's width was a
+    // literal 14 with nothing tying it to the glyph it carries, which left
+    // the chevron 2.8px from the rail's outer edge and 4px from its tile —
+    // closer to the window frame than to the thing it belongs to.
+    //
+    // WHAT IS ASSERTED IS THE RELATION, not a pixel count: the expander is
+    // never nearer the rail's edge than it is to its own tile. That is the
+    // property that makes it read as part of the row, it holds at every
+    // width and every text scale, and no literal can express it.
+    //
+    // THE FIRST VERSION OF THIS CASE ASSERTED `left >= 0` — clipping — and
+    // PASSED ON THE OLD CODE, because the glyph is 7.2px wide and not the 12
+    // it is given (an `Icon` sizes by font pixel size; a chevron's advance is
+    // narrower than its em). The defect was real and the description of it
+    // was arithmetic, not measurement.
+    void theGutterIsWideEnoughForTheGlyphItHolds()
+    {
+        RailFakeClient nested;
+        RoomInfo lv0 = joinedSpace(QStringLiteral("!lv0:example.org"),
+                                   QStringLiteral("Level 0"));
+        lv0.childRoomIds = { QStringLiteral("!lv1:example.org") };
+        RoomInfo lv1 = joinedSpace(QStringLiteral("!lv1:example.org"),
+                                   QStringLiteral("Level 1"));
+        lv1.childRoomIds = { QStringLiteral("!chan:example.org") };
+        nested.roomList = { lv0, lv1,
+                            joinedRoom(QStringLiteral("!chan:example.org"),
+                                       QStringLiteral("Channel")) };
+        SpaceManager nestedSpaces;
+        nestedSpaces.setClient(&nested);
+        store()->setSpaceExpanded(QStringLiteral("!lv0:example.org"), true);
+        entries()->setSources(&nestedSpaces, store());
+        QCoreApplication::processEvents();
+        QTest::qWait(60);
+
+        const qreal restore = m_rail->width();
+        const qreal minWidth = m_rail->property("minRailWidth").toReal();
+        QVERIFY2(minWidth > 0, "the rail reports no minimum width");
+        m_rail->setWidth(minWidth);
+        QCoreApplication::processEvents();
+        QTest::qWait(60);
+
+        auto *content = m_list->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        int checked = 0;
+        const auto rows = content->childItems();
+        for (QQuickItem *row : rows) {
+            if (!row || !row->isVisible() || row->height() <= 0)
+                continue;
+            auto *glyph = row->findChild<QQuickItem *>(
+                QStringLiteral("railSpaceExpandGlyph"));
+            if (!glyph || !glyph->isVisible() || glyph->width() <= 0)
+                continue;
+            const qreal left = glyph->mapToItem(m_rail, QPointF(0, 0)).x();
+            const qreal right = left + glyph->width();
+            ++checked;
+            const qreal toTile =
+                m_rail->property("tileColumnX").toReal() - right;
+            QVERIFY2(left >= toTile,
+                     qPrintable(QStringLiteral(
+                         "at the minimum width of %1 the expander is %2px "
+                         "from the rail's outer edge and %3px from its tile — "
+                         "it reads as hanging off the edge rather than as "
+                         "belonging to the row")
+                         .arg(minWidth).arg(left).arg(toTile)));
+            QVERIFY2(right <= minWidth,
+                     qPrintable(QStringLiteral(
+                         "at the minimum width of %1 the expander ends at "
+                         "x=%2, past the rail's own right edge")
+                         .arg(minWidth).arg(right)));
+        }
+        QVERIFY2(checked > 0,
+                 "no row showed an expander at the minimum width, so this "
+                 "case measured nothing — the fixture must contain a Space "
+                 "with children");
+
+        m_rail->setWidth(restore);
+        store()->setSpaceExpanded(QStringLiteral("!lv0:example.org"), false);
+        entries()->setSources(m_spaces, store());
+        QCoreApplication::processEvents();
+        QTest::qWait(60);
+    }
+
+
     // ── 2026-09-18: a tree deeper than the rail can draw ─────────────────
     //
-    // The tree costs one indent step a level, so a narrow rail runs out of
-    // depth long before the hierarchy does. What used to happen then was the
-    // worst available option: `tileIndent` clamps at `indentBudget`, so every
-    // row past the budget was drawn at the SAME indent as its own parent —
-    // two rows side by side claiming to be siblings when one contains the
-    // other.
+    // THE CONDITION THIS CASE WAS WRITTEN FOR NO LONGER EXISTS, and how it
+    // stopped existing is the point. Depth used to cost an indent step, so a
+    // narrow rail ran out of room long before a hierarchy did, and the rail
+    // answered that by DIVING — picking an ancestor as a trunk and hiding
+    // everything above it behind a chip. That was a second thing for a reader
+    // to learn, invented to pay for the first.
     //
-    // The rail dives instead: the ancestor that brings the deepest row back
-    // inside the budget becomes the trunk, its subtree is drawn from there,
-    // and a chip at the top says what to click to come back.
+    // Depth costs no horizontal room now, so there is nothing to run out of
+    // and nothing to dive for. What replaces this case is the invariant that
+    // makes the dive unnecessary, asserted at a depth no rail could ever have
+    // drawn: EIGHT levels, every one expanded, every tile on the root's axis.
     //
-    // THE INVARIANT IS WHAT IS ASSERTED, not the choice of trunk: whatever
-    // the rail is showing, no visible row may be drawn deeper than the rail
-    // can draw. A screenshot can suggest that; only this can hold it.
-    void aTreeTooDeepToDrawDivesInsteadOfPilingUp()
+    // A shallow fixture cannot discriminate here — two levels of a per-level
+    // step are a few pixels and a rounding argument away from passing. Eight
+    // are not.
+    void depthCostsTheTilesNoHorizontalRoomAtAll()
     {
-        // DERIVED FROM THE RAIL, not a literal. It was six levels, and the
-        // left-aligned layout then afforded five at this window — the case
-        // stopped exercising the dive at all and said so rather than passing.
-        // Three levels past whatever the rail can draw always overflows.
-        const int drawableForFixture =
-            m_rail->property("drawableLevels").toInt();
-        QVERIFY2(drawableForFixture >= 1,
-                 "the rail reports it can draw no levels at all");
         RailFakeClient deep;
         QList<RoomInfo> rooms;
         QStringList chain;
-        for (int i = 0; i < drawableForFixture + 3; ++i)
+        for (int i = 0; i < 8; ++i)
             chain << QStringLiteral("!lvl%1:example.org").arg(i);
         for (int i = 0; i < chain.size(); ++i) {
             RoomInfo info = joinedSpace(chain.at(i),
@@ -946,51 +1132,67 @@ private slots:
         QCoreApplication::processEvents();
         QTest::qWait(120);
 
-        const int drawable = m_rail->property("drawableLevels").toInt();
-        QVERIFY2(drawable == drawableForFixture,
-                 "the rail's drawable depth changed while the fixture was "
-                 "being built, so the chain may not overflow it");
-
-        // The rail must have dived, and the fixture must be deep enough to
-        // have forced it.
-        QTRY_VERIFY_WITH_TIMEOUT(
-            !m_rail->property("treeFocusId").toString().isEmpty(),
-            kSignalTimeoutMs);
-
-        // Every row still on screen is inside the budget. `drawnTreeLevel`
-        // is the clamp itself, so this reads `drawnLevel` — what the row
-        // WANTS to be drawn at — and requires the clamp never to be needed.
-        auto *content =
-            m_list->property("contentItem").value<QQuickItem *>();
-        QVERIFY(content);
-        int visibleRows = 0;
+        qreal rootCentre = -1;
+        int measured = 0;
         int deepest = 0;
-        const auto children = content->childItems();
-        for (QQuickItem *child : children) {
-            if (!child->isVisible() || child->height() <= 0)
+        for (int i = 0; i < chain.size(); ++i) {
+            QQuickItem *row = delegateFor(chain.at(i));
+            if (!row || !row->isVisible())
                 continue;
-            const QVariant level = child->property("drawnLevel");
-            if (!level.isValid())
+            auto *tile = row->findChild<QQuickItem *>(
+                QStringLiteral("railSpaceTile"));
+            if (!tile || tile->width() <= 0)
                 continue;
-            ++visibleRows;
-            deepest = std::max(deepest, level.toInt());
+            const qreal centre =
+                tile->mapToItem(m_rail, QPointF(0, 0)).x() + tile->width() / 2;
+            ++measured;
+            deepest = std::max(deepest, row->property("level").toInt());
+            if (rootCentre < 0) {
+                rootCentre = centre;
+                continue;
+            }
+            QVERIFY2(qAbs(centre - rootCentre) < 1.0,
+                     qPrintable(QStringLiteral(
+                         "%1 is centred on x=%2 and the root on x=%3 — depth "
+                         "is buying horizontal room again, which is the wave "
+                         "the whole redesign removed")
+                         .arg(chain.at(i)).arg(centre).arg(rootCentre)));
         }
-        QVERIFY2(visibleRows > 1,
-                 "the dive left one row or none on screen, which is not a "
-                 "view of a subtree — it is an empty rail");
-        QVERIFY2(deepest <= drawable,
+        QVERIFY2(measured >= 6,
                  qPrintable(QStringLiteral(
-                     "a row is drawn %1 levels deep in a rail that can draw "
-                     "%2, so it shares an indent with its own parent and the "
-                     "two read as siblings").arg(deepest).arg(drawable)));
+                     "only %1 rows of the eight-deep chain were measurable, "
+                     "so this proves nothing about depth").arg(measured)));
+        QVERIFY2(deepest >= 5,
+                 qPrintable(QStringLiteral(
+                     "the deepest measured row is level %1 — the fixture did "
+                     "not nest").arg(deepest)));
 
-        m_rail->setProperty("treeFocusId", QString());
+        // And the tint that DOES carry depth saturates rather than walking
+        // towards black a level at a time. Two steps is the whole vocabulary:
+        // a level-7 row wears the same field as a level-2 one.
+        const int maxSteps = m_rail->property("maxBandSteps").toInt();
+        QVERIFY2(maxSteps >= 1 && maxSteps <= 3,
+                 qPrintable(QStringLiteral(
+                     "the rail claims %1 tint steps — that is a gradient, not "
+                     "a vocabulary").arg(maxSteps)));
+        for (const QString &id : chain) {
+            QQuickItem *row = delegateFor(id);
+            if (!row || !row->isVisible())
+                continue;
+            const int step = row->property("bandStep").toInt();
+            QVERIFY2(step >= 0 && step <= maxSteps,
+                     qPrintable(QStringLiteral(
+                         "%1 asks for tint step %2 of %3")
+                         .arg(id).arg(step).arg(maxSteps)));
+        }
+
         for (const QString &id : chain)
             store()->setSpaceExpanded(id, false);
         entries()->setSources(m_spaces, store());
         QCoreApplication::processEvents();
         QTest::qWait(60);
     }
+
 
     void everyRailChipFollowsTheInterfaceSize()
     {

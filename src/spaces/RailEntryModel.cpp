@@ -69,9 +69,8 @@ QHash<int, QByteArray> RailEntryModel::roleNames() const
         { DropTargetRole, "dropTarget" },
         { FolderLastRole, "folderLast" },
         { DraggableRole, "draggable" },
-        { TreeLastChildRole, "treeLastChild" },
-        { TreeGuidesRole, "treeGuides" },
-        { TreeHasChildRowRole, "treeHasChildRow" },
+        { BandTopRole, "bandTop" },
+        { BandBottomRole, "bandBottom" },
     };
 }
 
@@ -118,12 +117,10 @@ QVariant RailEntryModel::data(const QModelIndex &index, int role) const
         return row.value(QStringLiteral("folderLast"), false);
     case DraggableRole:
         return row.value(QStringLiteral("draggable"), false);
-    case TreeLastChildRole:
-        return row.value(QStringLiteral("treeLastChild"), false);
-    case TreeGuidesRole:
-        return row.value(QStringLiteral("treeGuides"), QVariantList{});
-    case TreeHasChildRowRole:
-        return row.value(QStringLiteral("treeHasChildRow"), false);
+    case BandTopRole:
+        return row.value(QStringLiteral("bandTop"), false);
+    case BandBottomRole:
+        return row.value(QStringLiteral("bandBottom"), false);
     case DraggedRole:
         return m_dragging && !entryId.isEmpty() && entryId == m_dragEntryId;
     case DropTargetRole:
@@ -329,58 +326,38 @@ void RailEntryModel::appendSubspaces(const QString &parentId,
     }
 }
 
-bool RailEntryModel::hasLaterSiblingAt(const QVector<QVariantMap> &rows,
-                                       int row, int level)
-{
-    for (int i = row + 1; i < rows.size(); ++i) {
-        const int other = rows.at(i).value(QStringLiteral("level")).toInt();
-        if (other > level)
-            continue;               // still inside this row's own subtree
-        return other == level;      // a sibling, or the run ended
-    }
-    return false;
-}
-
-void RailEntryModel::stampTreeGuides(QVector<QVariantMap> &rows)
+void RailEntryModel::stampGroupField(QVector<QVariantMap> &rows)
 {
     for (int i = 0; i < rows.size(); ++i) {
         const int level = rows.at(i).value(QStringLiteral("level")).toInt();
-        // Does anything BELOW this row hang off it as a row of its own? A
-        // Space's rooms are drawn inside its own delegate and have no elbows,
-        // so only a deeper ROW gives its descender something to reach.
-        const bool hasChildRow =
+        // Where the tinted region behind a run starts and ends. Compared
+        // against the NEIGHBOURS' levels, so a run that is interrupted by a
+        // shallower row closes and the next one opens — which is the whole
+        // of what the field has to say.
+        //
+        // A LEVEL, NOT A PARENT POINTER, and that is not laziness: the rows
+        // are already in draw order, and the region is a statement about the
+        // picture rather than about the graph. Whatever run of rows a reader
+        // sees between one shallow row and the next IS the group, including
+        // during a drag preview, where the graph has not changed yet and the
+        // picture has.
+        const int prevLevel =
+            i > 0 ? rows.at(i - 1).value(QStringLiteral("level")).toInt() : -1;
+        const int nextLevel =
             i + 1 < rows.size()
-            && rows.at(i + 1).value(QStringLiteral("level")).toInt() > level;
-        rows[i].insert(QStringLiteral("treeHasChildRow"), hasChildRow);
-        if (level <= 0) {
-            // A root Space, a folder or a pseudo row. Each is its own trunk:
-            // drawing a line between them would claim a relationship the
-            // Matrix hierarchy does not have.
-            rows[i].insert(QStringLiteral("treeLastChild"), false);
-            rows[i].insert(QStringLiteral("treeGuides"), QVariantList{});
-            continue;
-        }
-        rows[i].insert(QStringLiteral("treeLastChild"),
-                       !hasLaterSiblingAt(rows, i, level));
-        QVariantList guides;
-        guides.reserve(level - 1);
-        // Column d carries the ancestor at depth d+1. The line is drawn when
-        // that ancestor has a later sibling — which is why the last branch of
-        // a subtree has clear space to its left instead of a line running
-        // past it to nothing.
-        for (int d = 0; d <= level - 2; ++d)
-            guides.append(hasLaterSiblingAt(rows, i, d + 1));
-        rows[i].insert(QStringLiteral("treeGuides"), guides);
+            ? rows.at(i + 1).value(QStringLiteral("level")).toInt() : -1;
+        rows[i].insert(QStringLiteral("bandTop"), prevLevel < level);
+        rows[i].insert(QStringLiteral("bandBottom"), nextLevel < level);
     }
 }
 
 void RailEntryModel::applyRows(QVector<QVariantMap> rows)
 {
-    // BEFORE the equality check below, not after: the guides are part of what
-    // makes two row sets the same picture. Stamping after it would let a
-    // reorder that changes only the tree's shape — the last child becoming a
-    // middle one — compare equal and never reach the view.
-    stampTreeGuides(rows);
+    // BEFORE the equality check below, not after: the field's bounds are part
+    // of what makes two row sets the same picture. Stamping after it would
+    // let a reorder that changes only the grouping — a run gaining a row at
+    // its end — compare equal and never reach the view.
+    stampGroupField(rows);
     if (rows.size() == m_rows.size()) {
         bool sameIds = true;
         for (int i = 0; i < rows.size(); ++i) {

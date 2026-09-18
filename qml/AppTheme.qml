@@ -1087,6 +1087,15 @@ QtObject {
     readonly property color railFolderSurface:
         _p.railFolderSurface !== undefined ? _p.railFolderSurface
                                            : cardElevated
+    // The SECOND step of the same idea, for a run nested inside a run. The
+    // rail's hierarchy is drawn as tinted regions rather than connector lines
+    // (2026-09-18), and a nested region has to be distinguishable from the one
+    // it sits in — so this is the folder surface taken one further step away
+    // from the rail, and it is DERIVED rather than a new palette entry
+    // because it has to hold on all twelve presets without twelve edits.
+    readonly property color railNestSurface:
+        Qt.tint(railFolderSurface,
+                Qt.rgba(text.r, text.g, text.b, 0.06))
 
     readonly property color surface:             _p.surface
     readonly property color card:                surface
