@@ -116,6 +116,13 @@ Item {
           keywords: qsTr("profile change display name avatar activity hide"),
           section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
           control: "showProfileChangeEvents" },
+        { title: qsTr("Collapse media and link embeds"),
+          keywords: qsTr("embed embeds collapse collapsed compact single line "
+                         + "clutter declutter media image picture gif sticker "
+                         + "video audio voice file attachment link preview "
+                         + "expand arrow"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
+          control: "collapseEmbeds" },
         { title: qsTr("Reduce motion"),
           keywords: qsTr("reduced motion animation accessibility vestibular"),
           section: "appearance",
@@ -1246,6 +1253,14 @@ Item {
                                         Accessible.name: qsTr("Display name and avatar changes")
                                         onToggled: app.settings.showProfileChangeEvents =
                                             !app.settings.showProfileChangeEvents
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineCollapseEmbeds_" + resultRow.index
+                                        visible: resultRow.modelData.control === "collapseEmbeds"
+                                        checked: app.settings.collapseEmbeds
+                                        Accessible.name: qsTr("Collapse media and link embeds")
+                                        onToggled: app.settings.collapseEmbeds =
+                                            !app.settings.collapseEmbeds
                                     }
                                     AppSwitch {
                                         objectName: "settingsSearchInlineReducedMotion_" + resultRow.index
@@ -2904,6 +2919,47 @@ Item {
                                     onToggled: app.settings.showProfileChangeEvents = checked
                                     Accessible.description: qsTr(
                                         "Show profile changes in timelines")
+                                }
+                                // 2026-09-19, maintainer request. It sits in
+                                // the Timeline card and not under Privacy's
+                                // "Link previews & media" because it changes
+                                // nothing about what is FETCHED or SENT —
+                                // it is a density choice about the timeline,
+                                // next to the other three.
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "collapseEmbedsCheck"
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Collapse media and link embeds")
+                                    checked: app.settings.collapseEmbeds
+                                    onToggled: app.settings.collapseEmbeds = checked
+                                    Accessible.description: qsTr(
+                                        "Show attachments and link previews as one line "
+                                        + "with an arrow that expands them")
+                                }
+                                Label {
+                                    objectName: "collapseEmbedsHint"
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    // Names what it covers AND what it does
+                                    // not, because "all embeds" is what was
+                                    // asked for and a reader who finds their
+                                    // reply quotes untouched should not have
+                                    // to guess whether that is a bug.
+                                    text: qsTr("Pictures, GIFs, stickers, video, audio, "
+                                               + "voice messages, files and loaded link "
+                                               + "previews each become one line naming what "
+                                               + "they are. Click the arrow, or focus the "
+                                               + "line and press Enter, to show one. Reply "
+                                               + "quotes, thread cards, polls and shared "
+                                               + "places are not affected. A collapsed "
+                                               + "attachment is not downloaded until you "
+                                               + "expand it.")
                                 }
                                 Label {
                                     Layout.topMargin: AppTheme.spacing8

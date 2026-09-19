@@ -1873,6 +1873,29 @@
     </message>
 </context>
 <context>
+    <name>CollapsedEmbedRow</name>
+    <message>
+        <location filename="../qml/CollapsedEmbedRow.qml" line="+169"/>
+        <source>Hide %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This attachment is expanded. Activate to collapse it back to one line.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>This attachment is collapsed to one line. Activate to show it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>ColorPickerPanel</name>
     <message>
         <location filename="../qml/ColorPickerPanel.qml" line="+139"/>
@@ -3709,7 +3732,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>HomePane</name>
     <message>
-        <location filename="../qml/HomePane.qml" line="+49"/>
+        <location filename="../qml/HomePane.qml" line="+73"/>
         <source>there</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3809,7 +3832,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+57"/>
         <source>Space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5846,7 +5869,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+929"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1075"/>
         <source>Today</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5856,7 +5879,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+77"/>
+        <location line="+83"/>
         <source>Beginning of conversation</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5893,18 +5916,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+118"/>
-        <location line="+1162"/>
+        <location line="+1219"/>
         <location line="+1019"/>
         <source>Reply</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2161"/>
+        <location line="-2218"/>
         <source>(original message not loaded)</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="+127"/>
+        <location line="+160"/>
         <source>%n message(s) deleted</source>
         <comment>collapsed run of redactions</comment>
         <translation>
@@ -5958,7 +5981,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+31"/>
+        <source>Link</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+62"/>
         <source>Show the link preview again</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6178,12 +6206,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2285"/>
+        <location line="+2291"/>
         <source>Save as…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2255"/>
+        <location line="-2261"/>
         <source>Show image</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6225,7 +6253,52 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="-4214"/>
+        <source>%1 B</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>%1 KB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>%1 MB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>Sticker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Voice message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Audio</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>GIF</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Image</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Attachment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4198"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation type="unfinished"></translation>
@@ -6407,7 +6480,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+637"/>
+        <location line="+643"/>
         <source>Remove from saved</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6432,7 +6505,8 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+233"/>
+        <location line="-5831"/>
+        <location line="+6064"/>
         <location line="+66"/>
         <source>Video</source>
         <translation type="unfinished"></translation>
@@ -6449,7 +6523,8 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+125"/>
+        <location line="-6142"/>
+        <location line="+6267"/>
         <location line="+31"/>
         <source>File</source>
         <translation type="unfinished"></translation>
@@ -7800,7 +7875,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RailEntryModel</name>
     <message>
-        <location filename="../src/spaces/RailEntryModel.cpp" line="+211"/>
+        <location filename="../src/spaces/RailEntryModel.cpp" line="+202"/>
         <source>Direct Messages</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7808,8 +7883,8 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RailLayoutStore</name>
     <message>
-        <location filename="../src/spaces/RailLayoutStore.cpp" line="+250"/>
-        <location line="+208"/>
+        <location filename="../src/spaces/RailLayoutStore.cpp" line="+285"/>
+        <location line="+304"/>
         <source>Folder</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10208,36 +10283,36 @@ Signing out and signing in again is the only fix.</source>
         <location filename="../qml/SettingsScreen.qml" line="+72"/>
         <location line="+1"/>
         <location line="+2"/>
-        <location line="+598"/>
-        <location line="+676"/>
-        <location line="+3387"/>
+        <location line="+605"/>
+        <location line="+684"/>
+        <location line="+3428"/>
         <source>Account</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4664"/>
+        <location line="-4720"/>
         <source>account profile</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5672"/>
+        <location line="+5728"/>
         <source>Homeserver</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5672"/>
+        <location line="-5728"/>
         <source>homeserver server url</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5706"/>
+        <location line="+5762"/>
         <source>Start minimized</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5706"/>
+        <location line="-5762"/>
         <source>startup minimized</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10248,12 +10323,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1424"/>
+        <location line="+1439"/>
         <source>Theme</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1423"/>
+        <location line="-1438"/>
         <source>theme moss indigo teal light dark graphite midnight nordic purple warm</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10264,22 +10339,22 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+2"/>
         <location line="+8"/>
-        <location line="+571"/>
-        <location line="+680"/>
+        <location line="+578"/>
+        <location line="+688"/>
         <location line="+133"/>
         <source>Appearance</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1405"/>
-        <location line="+1111"/>
-        <location line="+830"/>
+        <location line="-1420"/>
+        <location line="+1118"/>
+        <location line="+838"/>
         <location line="+83"/>
         <source>Match system light/dark</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2023"/>
+        <location line="-2038"/>
         <source>match system auto theme</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10290,57 +10365,57 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+2095"/>
+        <location line="+2110"/>
         <source>Message layout</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2094"/>
+        <location line="-2109"/>
         <source>message layout modern bubbles compact</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2116"/>
+        <location line="+2131"/>
         <source>Text size</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2116"/>
+        <location line="-2131"/>
         <source>text size font scale</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2220"/>
+        <location line="+2235"/>
         <location line="+16"/>
         <source>Interface zoom</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2235"/>
+        <location line="-2250"/>
         <source>interface zoom scale bigger ui size</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2304"/>
+        <location line="+2319"/>
         <source>Font</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2304"/>
+        <location line="-2319"/>
         <source>font family typeface</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2479"/>
+        <location line="+2494"/>
         <source>Code font</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2478"/>
+        <location line="-2493"/>
         <source>code font monospace mono fixed width typeface</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10352,35 +10427,35 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+2545"/>
+        <location line="+2560"/>
         <source>Your own fonts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2544"/>
+        <location line="-2559"/>
         <source>import font file ttf otf install custom typeface</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2957"/>
+        <location line="+3013"/>
         <source>Language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2957"/>
+        <location line="-3013"/>
         <source>language locale</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1098"/>
-        <location line="+1661"/>
+        <location line="+1105"/>
+        <location line="+1669"/>
         <source>Show room activity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2758"/>
+        <location line="-2773"/>
         <source>room activity membership joins leaves profile</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10389,53 +10464,54 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+3"/>
         <location line="+4"/>
+        <location line="+7"/>
         <source>Appearance · Timeline</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-9"/>
-        <location line="+2802"/>
+        <location line="-16"/>
+        <location line="+2858"/>
         <source>Mouse-wheel speed</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2801"/>
+        <location line="-2857"/>
         <source>wheel speed scroll timeline</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1126"/>
-        <location line="+1654"/>
+        <location line="+1133"/>
+        <location line="+1662"/>
         <source>Joins, leaves and invites</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2779"/>
+        <location line="-2794"/>
         <source>membership join leave invite kick ban activity hide</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1131"/>
-        <location line="+1656"/>
+        <location line="+1138"/>
+        <location line="+1664"/>
         <source>Display name and avatar changes</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2786"/>
+        <location line="-2801"/>
         <source>profile change display name avatar activity hide</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+3"/>
-        <location line="+1135"/>
-        <location line="+1886"/>
+        <location line="+10"/>
+        <location line="+1143"/>
+        <location line="+1927"/>
         <source>Reduce motion</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3020"/>
+        <location line="-3069"/>
         <source>reduced motion animation accessibility vestibular</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10448,36 +10524,36 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-8"/>
-        <location line="+1138"/>
-        <location line="+1893"/>
+        <location line="+1146"/>
+        <location line="+1934"/>
         <source>Smooth scrolling</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3030"/>
+        <location line="-3079"/>
         <source>smooth scrolling scroll wheel glide animation instant jumpy mouse</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3051"/>
+        <location line="+3100"/>
         <source>Clock</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3050"/>
+        <location line="-3099"/>
         <source>clock 24 hour time format am pm timestamp</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1137"/>
-        <location line="+1969"/>
+        <location line="+1145"/>
+        <location line="+2010"/>
         <source>Show Space banners</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3105"/>
+        <location line="-3154"/>
         <source>space banner header image hide show</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10490,35 +10566,35 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+3138"/>
+        <location line="+3187"/>
         <source>Conversation list width</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3137"/>
+        <location line="-3186"/>
         <source>room list width panel size sidebar</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3152"/>
+        <location line="+3201"/>
         <source>Side panel width</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3151"/>
+        <location line="-3200"/>
         <source>side panel width members threads size</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1135"/>
-        <location line="+2032"/>
+        <location line="+1143"/>
+        <location line="+2073"/>
         <source>Enter starts a new line</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3166"/>
+        <location line="-3215"/>
         <source>enter newline send composer message box return</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10533,47 +10609,47 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-14"/>
-        <location line="+1139"/>
-        <location line="+2139"/>
+        <location line="+1147"/>
+        <location line="+2180"/>
         <source>Send text with an attachment as its caption</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3277"/>
+        <location line="-3326"/>
         <source>caption attachment upload text description</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3311"/>
+        <location line="+3360"/>
         <source>Message box buttons</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3310"/>
+        <location line="-3359"/>
         <source>composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3182"/>
+        <location line="+3231"/>
         <source>Check spelling as you type</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3181"/>
+        <location line="-3230"/>
         <source>spell spelling checker dictionary typo underline language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3189"/>
+        <location line="+3238"/>
         <location line="+13"/>
         <source>Spelling language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3201"/>
+        <location line="-3250"/>
         <source>spell spelling language dictionary automatic system</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10582,24 +10658,24 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <location line="+3"/>
         <location line="+507"/>
-        <location line="+684"/>
-        <location line="+2184"/>
+        <location line="+692"/>
+        <location line="+2225"/>
         <source>Keyboard shortcuts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3379"/>
+        <location line="-3428"/>
         <source>keyboard shortcut shortcuts key keys binding rebind hotkey</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3510"/>
+        <location line="+3559"/>
         <source>Reset all shortcuts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3509"/>
+        <location line="-3558"/>
         <source>reset shortcuts default keys</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10641,12 +10717,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+11"/>
         <location line="+1015"/>
-        <location line="+3228"/>
+        <location line="+3277"/>
         <source>Desktop notifications</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4242"/>
+        <location line="-4291"/>
         <source>notifications desktop enable</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10657,19 +10733,19 @@ Signing out and signing in again is the only fix.</source>
         <location line="+5"/>
         <location line="+3"/>
         <location line="+458"/>
-        <location line="+688"/>
-        <location line="+3072"/>
+        <location line="+696"/>
+        <location line="+3113"/>
         <source>Notifications</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4228"/>
-        <location line="+4245"/>
+        <location line="-4277"/>
+        <location line="+4294"/>
         <source>Notification preview</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4244"/>
+        <location line="-4293"/>
         <source>notification preview privacy sender message</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10685,23 +10761,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4306"/>
+        <location line="+4355"/>
         <source>Notification sound</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4305"/>
+        <location line="-4354"/>
         <source>notification sound mute</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3507"/>
+        <location line="+3556"/>
         <source>Only exchange messages with verified devices</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3506"/>
+        <location line="-3555"/>
         <source>invisible crypto msc4153 cross-signed verified device trust insecure exclude encryption</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10712,12 +10788,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3559"/>
+        <location line="+3608"/>
         <source>Read receipts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3558"/>
+        <location line="-3607"/>
         <source>read receipt receipts private seen ticks blue m.read.private privacy</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10729,23 +10805,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-4"/>
-        <location line="+3598"/>
+        <location line="+3647"/>
         <source>Let others see when I am typing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3597"/>
+        <location line="-3646"/>
         <source>typing notice notification composing indicator privacy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+3639"/>
+        <location line="+3688"/>
         <source>Share my online status</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3638"/>
+        <location line="-3687"/>
         <source>presence online idle offline status share</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10756,12 +10832,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3661"/>
+        <location line="+3710"/>
         <source>Ignored users</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3660"/>
+        <location line="-3709"/>
         <source>ignore ignored block user mute person hide</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10788,21 +10864,21 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+4"/>
         <location line="+384"/>
-        <location line="+700"/>
-        <location line="+4844"/>
+        <location line="+708"/>
+        <location line="+4885"/>
         <location line="+529"/>
         <source>Sessions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6501"/>
+        <location line="-6550"/>
         <location line="+959"/>
-        <location line="+2892"/>
+        <location line="+2941"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3850"/>
+        <location line="-3899"/>
         <source>link preview privacy</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10814,24 +10890,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+3853"/>
+        <location line="+3902"/>
         <source>Load previews in encrypted rooms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3852"/>
+        <location line="-3901"/>
         <source>link preview encrypted</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+3924"/>
+        <location line="+3973"/>
         <location line="+7"/>
         <source>Autoplay and prefetch media</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3930"/>
+        <location line="-3979"/>
         <source>gif autoplay prefetch video audio media</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10842,12 +10918,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3967"/>
+        <location line="+4016"/>
         <source>GIF safe search</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3966"/>
+        <location line="-4015"/>
         <source>gif safe search rating</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10860,56 +10936,56 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+3992"/>
+        <location line="+4041"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3998"/>
+        <location line="-4047"/>
         <source>gif provider giphy klipy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4031"/>
+        <location line="+4080"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4033"/>
+        <location line="-4082"/>
         <source>gif recents store</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5588"/>
+        <location line="+5637"/>
         <source>Security status</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5587"/>
+        <location line="-5636"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+406"/>
-        <location line="+696"/>
-        <location line="+2317"/>
+        <location line="+704"/>
+        <location line="+2358"/>
         <source>Privacy &amp; security</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3418"/>
-        <location line="+7013"/>
+        <location line="-3467"/>
+        <location line="+7062"/>
         <location line="+19"/>
         <source>Recovery key or passphrase</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-7031"/>
+        <location line="-7080"/>
         <source>recovery key passphrase backup restore</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10922,23 +10998,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-5"/>
-        <location line="+7097"/>
+        <location line="+7146"/>
         <source>Import room keys</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-7096"/>
+        <location line="-7145"/>
         <source>import room keys export</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+7320"/>
+        <location line="+7369"/>
         <source>Danger Zone</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-7319"/>
+        <location line="-7368"/>
         <source>reset danger local session</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10949,34 +11025,34 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6782"/>
+        <location line="+6831"/>
         <source>Current session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6781"/>
+        <location line="-6830"/>
         <source>device id session status</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5962"/>
+        <location line="+6011"/>
         <source>Sign in another device</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5961"/>
+        <location line="-6010"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+6835"/>
+        <location line="+6884"/>
         <source>Verify this session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6834"/>
+        <location line="-6883"/>
         <source>verify verification sas cross-signing</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10996,13 +11072,13 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2"/>
         <location line="+3"/>
         <location line="+375"/>
-        <location line="+707"/>
-        <location line="+6308"/>
+        <location line="+715"/>
+        <location line="+6349"/>
         <source>Labs</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-7396"/>
+        <location line="-7445"/>
         <source>Sync mode</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11023,12 +11099,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+7438"/>
+        <location line="+7487"/>
         <source>Refresh current room</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-7437"/>
+        <location line="-7486"/>
         <source>refresh reload timeline</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11036,13 +11112,13 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+1"/>
         <location line="+374"/>
-        <location line="+754"/>
-        <location line="+6343"/>
+        <location line="+762"/>
+        <location line="+6384"/>
         <source>About</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-7472"/>
+        <location line="-7521"/>
         <source>about version license</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11050,12 +11126,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+2"/>
         <location line="+369"/>
-        <location line="+711"/>
+        <location line="+719"/>
         <source>Updates</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1081"/>
+        <location line="-1089"/>
         <source>update version upgrade check download install</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11081,14 +11157,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+41"/>
-        <location line="+4588"/>
+        <location line="+4637"/>
         <location line="+198"/>
         <location line="+1320"/>
         <source>Cancel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5936"/>
+        <location line="-5985"/>
         <source>Needs attention</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11099,12 +11175,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3225"/>
+        <location line="+3274"/>
         <source>Clear index</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3212"/>
+        <location line="-3261"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11120,14 +11196,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4191"/>
+        <location line="+4240"/>
         <location line="+416"/>
         <location line="+1962"/>
         <source>Clear</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6559"/>
+        <location line="-6608"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11199,19 +11275,19 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+68"/>
-        <location line="+1010"/>
+        <location line="+1018"/>
         <source>Modern</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1009"/>
-        <location line="+1010"/>
+        <location line="-1017"/>
+        <location line="+1018"/>
         <source>Bubbles</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1009"/>
-        <location line="+1010"/>
+        <location line="-1017"/>
+        <location line="+1018"/>
         <source>Compact</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11261,7 +11337,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1176"/>
+        <location line="+1217"/>
         <source>Turn off what you do not use. Attach stays: in a narrow window it is where the other actions move to.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11444,12 +11520,24 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6078"/>
+        <location line="-6119"/>
         <source>Moss Light</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1369"/>
+        <location line="-1440"/>
+        <location line="+1142"/>
+        <location line="+1672"/>
+        <source>Collapse media and link embeds</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-2813"/>
+        <source>embed embeds collapse collapsed compact single line clutter declutter media image picture gif sticker video audio voice file attachment link preview expand arrow</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+62"/>
         <source>microphone mic input device voice call audio sound</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11481,13 +11569,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4494"/>
+        <location line="+4543"/>
         <location line="+26"/>
         <source>Media playback volume</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4519"/>
+        <location line="-4568"/>
         <source>volume sound audio video voice message playback level media loud</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11523,13 +11611,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+475"/>
-        <location line="+692"/>
-        <location line="+3259"/>
+        <location line="+700"/>
+        <location line="+3300"/>
         <source>Sound &amp; video</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3085"/>
+        <location line="-3126"/>
         <source>Indigo Night</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11743,12 +11831,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+453"/>
+        <location line="+494"/>
         <source>Panels</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-445"/>
+        <location line="-486"/>
         <source>Show the Spaces rail (Ctrl+Shift+B)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11818,7 +11906,17 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location line="+16"/>
+        <source>Show attachments and link previews as one line with an arrow that expands them</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+18"/>
+        <source>Pictures, GIFs, stickers, video, audio, voice messages, files and loaded link previews each become one line naming what they are. Click the arrow, or focus the line and press Enter, to show one. Reply quotes, thread cards, polls and shared places are not affected. A collapsed attachment is not downloaded until you expand it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+25"/>
         <source>Standard</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12273,8 +12371,8 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4347"/>
-        <location line="+4361"/>
+        <location line="-4396"/>
+        <location line="+4410"/>
         <source>Ring for incoming voice calls</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12331,13 +12429,13 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2993"/>
-        <location line="+3002"/>
+        <location line="-3034"/>
+        <location line="+3043"/>
         <source>Edit</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2848"/>
+        <location line="-2889"/>
         <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12372,7 +12470,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1977"/>
+        <location line="+2018"/>
         <source>Your homeserver loads the preview, so the linked site sees your server rather than you. If your server cannot — many have previews turned off — Lightning loads it directly instead, which may reveal your IP address and request timing to a site the sender chose. Asking your homeserver also tells it which link was previewed, which in an encrypted room it would not otherwise know. No JavaScript is executed. Both switches are off by default; leave them off and use the “Show” button on each message&apos;s link card to decide one at a time.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12480,8 +12578,8 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-2937"/>
-        <location line="+2647"/>
+        <location line="-2978"/>
+        <location line="+2688"/>
         <location line="+309"/>
         <source>Remove</source>
         <translation type="unfinished"></translation>
@@ -14580,7 +14678,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+600"/>
+        <location filename="../qml/SpacesRail.qml" line="+1266"/>
         <source>Folder: %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14600,7 +14698,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+219"/>
+        <location line="+510"/>
         <source>Collapse space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14610,19 +14708,19 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+448"/>
+        <location line="+558"/>
         <location line="+4"/>
         <source>Show more rooms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+29"/>
         <location line="+1"/>
         <source>Create a Space</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+61"/>
+        <location line="+81"/>
         <source>Settings — this session is not verified</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14637,12 +14735,12 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+76"/>
+        <location line="+82"/>
         <source>Account menu for %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+68"/>
         <location line="+3"/>
         <source>Connected</source>
         <translation type="unfinished"></translation>

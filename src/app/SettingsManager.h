@@ -314,6 +314,28 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool showProfileChangeEvents READ showProfileChangeEvents
                    WRITE setShowProfileChangeEvents
                    NOTIFY showProfileChangeEventsChanged)
+    // Collapse media and link embeds to one line (2026-09-19, maintainer
+    // request: "modern media, too much clutter, please add an option to
+    // reduce all embeds in to single lines, with an expanding arrow or
+    // mouse over or keyboard shortcut something something").
+    //
+    // PRESENTATION ONLY, and OFF BY DEFAULT — the timeline model, the event
+    // cache and the media bridge are untouched, so switching it is a
+    // re-render and never a resync. What it governs is enumerated in
+    // qml/MessageDelegate.qml beside `collapseEmbedsSetting`, exclusions
+    // included; the short version is the six surfaces that paint a block
+    // (pictures, GIFs, stickers, video, audio/voice, files) plus a LOADED
+    // link preview, and not the reply quote, the thread card, a poll, a
+    // shared place or a preview that is still asking for consent.
+    //
+    // Per account with a global fallback, like reducedMotion and
+    // smoothScrolling beside it: how dense a timeline someone wants is a
+    // property of the person, and the global value is what a fresh account
+    // inherits. That scoping obliges an entry in setActiveAccountUserId —
+    // see the comment there, and SettingsSessionTest derives the
+    // requirement from this file rather than trusting a hand-written list.
+    Q_PROPERTY(bool collapseEmbeds READ collapseEmbeds WRITE setCollapseEmbeds
+                   NOTIFY collapseEmbedsChanged)
     // Reduced motion. AppTheme has declared `reducedMotion` since the design
     // round and roughly twenty animation sites across ten QML files already
     // read it — and NOTHING ever assigned it, so every one of those branches
@@ -727,6 +749,10 @@ public:
     void setShowMembershipEvents(bool v);
     bool showProfileChangeEvents() const;
     void setShowProfileChangeEvents(bool v);
+    /// Whether timeline attachments and loaded link previews render as one
+    /// summary line with a disclosure control. See the Q_PROPERTY block.
+    bool collapseEmbeds() const;
+    void setCollapseEmbeds(bool v);
     bool reducedMotion() const;
     bool smoothScrolling() const;
     void setSmoothScrolling(bool v);
@@ -1097,6 +1123,7 @@ Q_SIGNALS:
     void showRoomActivityChanged();
     void showMembershipEventsChanged();
     void showProfileChangeEventsChanged();
+    void collapseEmbedsChanged();
     void reducedMotionChanged();
     void smoothScrollingChanged();
     void hiddenComposerButtonsChanged();

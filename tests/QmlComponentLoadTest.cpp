@@ -80,6 +80,9 @@ constexpr const char *kComponents[] = {
     // the reason for. It had been in neither list — an omission, which is
     // the thing this file's header asks not to happen.
     "HomePane",
+    // 2026-09-19: the collapsed-embed summary row. Loads standalone — no
+    // required properties, and it reads only AppTheme and Icon.
+    "CollapsedEmbedRow",
 };
 
 // Deliberately NOT loaded standalone, each with the reason. Kept here rather

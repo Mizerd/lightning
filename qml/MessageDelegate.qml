@@ -336,6 +336,152 @@ Item {
                 root.mediaHidden = hidden
         }
     }
+    // ── Collapse embeds to one line ──────────────────────────────────────
+    //
+    // "modern media, too much clutter, please add an option to reduce all
+    // embeds in to single lines, with an expanding arrow or mouse over or
+    // keyboard shortcut something something" — the maintainer, 2026-09-19.
+    //
+    // OFF BY DEFAULT. With the setting off every binding below is false and
+    // every Loader it gates keeps exactly the `active`/`sourceComponent` it
+    // had before, so a reader who never opens Settings sees no change.
+    //
+    // WHAT IT COVERS, and the exclusions are decisions rather than
+    // omissions:
+    //   * covered — images, GIFs, stickers, video cards, audio and voice
+    //     cards, file cards, and a LOADED link preview. Those are the six
+    //     surfaces that paint a block instead of a line.
+    //   * NOT the reply quote. It is conversational context, not media; a
+    //     reply whose quote is one word of chrome is unreadable, which is
+    //     the opposite of decluttering.
+    //   * NOT the thread summary card. It is navigation, and it is already
+    //     one compact row.
+    //   * NOT polls or shared places. Each IS the message — a poll's
+    //     question and its vote buttons, a place's name and its map action
+    //     — so collapsing one hides content rather than a rendering of it.
+    //   * NOT a link preview that is still asking, loading or failed. Those
+    //     states are already one band and each carries the only control the
+    //     reader has (the consent button, the retry). Putting a second
+    //     click in front of the privacy gate would be a worse trade than
+    //     the space it saves.
+    //   * NOT code blocks. They are message text, not an attachment.
+    //
+    // THE COLLAPSED ROW FETCHES NOTHING. While a row is collapsed the media
+    // component is not INSTANTIATED, so every MediaBridge call site in it —
+    // `mediaSource`, `videoPosterSource`, `animatedSource`, the audio card's
+    // prefetch — is unreachable. Collapsing strictly removes downloads; it
+    // never moves one into a smaller surface.
+    readonly property bool collapseEmbedsSetting:
+        typeof app !== "undefined" && app && app.settings
+        && app.settings.collapseEmbeds === true
+    // TRANSIENT, and deliberately not persisted anywhere. An expansion is
+    // "show me this one", not a preference: persisting it per event would
+    // grow an unbounded store of reader state and would make the setting
+    // stop applying to rows the reader had opened weeks ago. Reset when the
+    // row's identity changes (see onActionKeyChanged), which is the same
+    // point every other per-row cache in this delegate resets at.
+    property bool embedExpanded: false
+    function toggleEmbedExpanded() { root.embedExpanded = !root.embedExpanded }
+
+    readonly property bool mediaEmbedCollapsible:
+        root.collapseEmbedsSetting && root.mediaRowBody
+        && model.redacted !== true
+    readonly property bool mediaEmbedCollapsed:
+        root.mediaEmbedCollapsible && !root.embedExpanded
+    // `loaded` ONLY — see the exclusion list above.
+    readonly property bool previewEmbedCollapsible:
+        root.collapseEmbedsSetting
+        && root.preview !== undefined && root.preview !== null
+        && root.preview.state === "loaded"
+        && !model.redacted
+    readonly property bool previewEmbedCollapsed:
+        root.previewEmbedCollapsible && !root.embedExpanded
+
+    function embedDurationText(ms) {
+        if (!ms || ms <= 0) return ""
+        var total = Math.round(ms / 1000)
+        var m = Math.floor(total / 60)
+        var s = total % 60
+        return m + ":" + (s < 10 ? "0" : "") + s
+    }
+    function embedSizeText(bytes) {
+        if (!bytes || bytes <= 0) return ""
+        if (bytes < 1024) return qsTr("%1 B").arg(bytes)
+        if (bytes < 1024 * 1024)
+            return qsTr("%1 KB").arg(Math.round(bytes / 1024))
+        return qsTr("%1 MB").arg((bytes / (1024 * 1024)).toFixed(1))
+    }
+    // A FUNCTION, not a `readonly property`, and so are the three below it.
+    // Every row in this timeline is instantiated, so a property here would
+    // be a string lowercase-and-compare per row whether or not the setting
+    // is on; a function is evaluated only from inside the summary
+    // component, which only exists while a row is collapsed. (It is still a
+    // reactive binding where it is used: a QML function's property reads are
+    // captured by the binding that calls it. That is not the refuted case in
+    // §16 — that one reached a C++ Q_INVOKABLE, which captures nothing.)
+    function mediaIsGif() {
+        return (model.mediaMimetype || "").toLowerCase() === "image/gif"
+    }
+    function mediaEmbedIcon() {
+        if (model.isSticker === true) return "mood"
+        if (model.isVideo === true) return "videocam"
+        if (model.isAudio === true)
+            return model.mediaIsVoice === true ? "mic" : "graphic_eq"
+        if (model.isImage === true)
+            return root.mediaIsGif() ? "gif_box" : "image"
+        if (model.isFile === true) return "attach_file"
+        return "attach_file"
+    }
+    function mediaEmbedKind() {
+        if (model.isSticker === true) return qsTr("Sticker")
+        if (model.isVideo === true) return qsTr("Video")
+        if (model.isAudio === true)
+            return model.mediaIsVoice === true ? qsTr("Voice message")
+                                               : qsTr("Audio")
+        if (model.isImage === true)
+            return root.mediaIsGif() ? qsTr("GIF") : qsTr("Image")
+        if (model.isFile === true) return qsTr("File")
+        return qsTr("Attachment")
+    }
+    // Whatever this surface ALREADY knows about itself, in the order a
+    // reader scans: what it is called, then how big it is. Every part is
+    // optional — a sticker often has no filename and an encrypted image may
+    // arrive with no dimensions — and an empty detail is why the row says
+    // "Image" rather than "Image · ".
+    function mediaEmbedDetail() {
+        var parts = []
+        var name = (model.mediaFilename || "").trim()
+        // A voice message's "filename" is a generated one nobody chose; its
+        // length is the only thing worth a line.
+        if (name.length > 0 && model.mediaIsVoice !== true)
+            parts.push(name)
+        if (model.isVideo === true || model.isAudio === true) {
+            var d = root.embedDurationText(model.mediaDurationMs || 0)
+            if (d.length > 0) parts.push(d)
+        } else if ((model.isImage === true || model.isSticker === true)
+                   && model.mediaWidth > 0 && model.mediaHeight > 0) {
+            parts.push(model.mediaWidth + "×" + model.mediaHeight)
+        }
+        if (model.isFile === true) {
+            var s = root.embedSizeText(model.mediaSize || 0)
+            if (s.length > 0) parts.push(s)
+        }
+        return parts.join(" · ")
+    }
+    // The link preview's one line. `host` is derived from the URL by
+    // LinkPreviewController::sanitizedHost and needs no fetch; `title` and
+    // `siteName` are already resolved, because this row only exists in the
+    // `loaded` state.
+    function previewEmbedDetail() {
+        var p = root.preview || {}
+        var parts = []
+        var host = (p.host || "").trim()
+        if (host.length > 0) parts.push(host)
+        var title = (p.title || "").trim()
+        if (title.length === 0) title = (p.siteName || "").trim()
+        if (title.length > 0) parts.push(title)
+        return parts.join(" · ")
+    }
     // ── Find-in-timeline highlighting ────────────────────────────────────
     // The active query, or "" when the reader is not searching. Reads the
     // delegate's OWN model, so a thread panel search never lights up the room
@@ -967,6 +1113,12 @@ Item {
     onActionKeyChanged: {
         refreshHeightSeed()
         refreshPreview()
+        // A different event in this row: its expansion is not this one's.
+        // The room timeline no longer recycles delegates, but the thread
+        // panel's ListView still does, and a fixture can rebind a row in
+        // place — all three would otherwise show the previous message's
+        // picture under the new message's summary line.
+        embedExpanded = false
     }
     onPreviewRoomIdChanged: {
         preview = ({ state: "none" })
@@ -1940,15 +2092,40 @@ Item {
                         }
                     }
 
+                    // The one-line summary that REPLACES the attachment while
+                    // embeds are collapsed, and stays above it as the way
+                    // back once the reader has expanded one. It is its own
+                    // Layout child rather than a sibling inside mediaBox
+                    // because in the expanded state both are on screen and
+                    // the summary belongs above the picture, not on it.
+                    Loader {
+                        id: mediaEmbedSummaryLoader
+                        objectName: "mediaEmbedSummaryLoader"
+                        active: root.mediaEmbedCollapsible
+                        visible: active
+                        Layout.alignment: Qt.AlignLeft
+                        Layout.preferredWidth: item ? item.implicitWidth : 0
+                        Layout.maximumWidth: bubble.width
+                        sourceComponent: CollapsedEmbedRow {
+                            maximumWidth: bubble.width
+                            interactive: root.rowActionsEnabled
+                            expanded: root.embedExpanded
+                            iconName: root.mediaEmbedIcon()
+                            kindLabel: root.mediaEmbedKind()
+                            detailText: root.mediaEmbedDetail()
+                            onToggleRequested: root.toggleEmbedExpanded()
+                        }
+                    }
                     // Media block (image, sticker, video, audio, or file).
                     // Every class reserves its own type-correct geometry
                     // before bytes arrive, so hydration never reflows rows.
                     Item {
                         id: mediaBox
-                        visible: model.isImage || model.isFile
-                                 || model.isVideo === true
-                                 || model.isAudio === true
-                                 || model.isSticker === true
+                        visible: (model.isImage || model.isFile
+                                  || model.isVideo === true
+                                  || model.isAudio === true
+                                  || model.isSticker === true)
+                                 && !root.mediaEmbedCollapsed
                         Layout.alignment: Qt.AlignLeft
                         Layout.preferredWidth: Math.min(bubble.width,
                                                         implicitWidth)
@@ -1963,6 +2140,14 @@ Item {
                                         ? mediaLoader.item.implicitHeight : 0
                         Loader {
                             id: mediaLoader
+                            // `active`, NOT a `visible: false` on the item it
+                            // builds. A collapsed row must cost nothing and
+                            // fetch nothing, and every MediaBridge call site
+                            // for this attachment lives inside the component
+                            // below — an instantiated-but-hidden picture
+                            // would still download, decode and, for a GIF,
+                            // animate.
+                            active: !root.mediaEmbedCollapsed
                             anchors.left: parent.left
                             width: Math.min(bubble.width,
                                             item ? item.implicitWidth : 0)
@@ -2525,6 +2710,29 @@ Item {
                         }
                     }
 
+                    // The link preview's own one-line summary. Same control
+                    // and the same expansion flag as the media one above;
+                    // only a LOADED card is ever collapsed (the consent
+                    // gate, the loading band and the retry each carry the
+                    // reader's only action and are already one band).
+                    Loader {
+                        id: previewEmbedSummaryLoader
+                        objectName: "previewEmbedSummaryLoader"
+                        active: root.previewEmbedCollapsible
+                        visible: active
+                        Layout.alignment: Qt.AlignLeft
+                        Layout.preferredWidth: item ? item.implicitWidth : 0
+                        Layout.maximumWidth: bubble.width
+                        sourceComponent: CollapsedEmbedRow {
+                            maximumWidth: bubble.width
+                            interactive: root.rowActionsEnabled
+                            expanded: root.embedExpanded
+                            iconName: "link"
+                            kindLabel: qsTr("Link")
+                            detailText: root.previewEmbedDetail()
+                            onToggleRequested: root.toggleEmbedExpanded()
+                        }
+                    }
                     // v0.5.11: rich link-preview card. Backed by
                     // LinkPreviewController — Rust performs the protected
                     // outbound fetch; QML only renders whitelisted fields.
@@ -2540,6 +2748,7 @@ Item {
                                 && root.preview.state !== "none"
                                 && !model.redacted
                                 && !model.isImage && !model.isFile
+                                && !root.previewEmbedCollapsed
                         visible: active
                         sourceComponent: root.preview.state === "loaded"
                                          && root.preview.isDirectMedia === true
@@ -5247,6 +5456,12 @@ Item {
         id: imageComponent
         Item {
             id: imageBox
+            // Named like its four siblings (stickerMedia, videoMedia,
+            // audioMedia, fileCard) so a suite can ask whether the picture
+            // was BUILT, not merely whether it is visible. That distinction
+            // is the whole assertion behind the collapse setting: a hidden
+            // Image still downloads and decodes; an unbuilt one cannot.
+            objectName: "imageMedia"
 
             // v0.5.11: responsive timeline-image sizing. The display box is
             // derived from the intrinsic media dimensions and a responsive

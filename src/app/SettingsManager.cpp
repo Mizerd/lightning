@@ -75,6 +75,10 @@ constexpr auto kGifProvider         = "gif/provider";       // "giphy"/"klipy"
 constexpr auto kShowRoomActivity    = "timeline/showRoomActivity";
 constexpr auto kShowMembership      = "timeline/showMembershipEvents";
 constexpr auto kShowProfileChanges  = "timeline/showProfileChangeEvents";
+// Presentation-only, exactly like the three keys above: the timeline model
+// keeps every attachment and every resolved preview, so this only decides
+// whether the delegate builds the media component or a one-line summary.
+constexpr auto kCollapseEmbeds      = "timeline/collapseEmbeds";
 constexpr auto kReducedMotion       = "ui/reducedMotion";
 constexpr auto kSmoothScrolling     = "ui/smoothScrolling";
 constexpr auto kHiddenComposerButtons = "ui/hiddenComposerButtons";
@@ -584,6 +588,12 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     // one is exactly what was wrong for these five.
     Q_EMIT reducedMotionChanged();
     Q_EMIT smoothScrollingChanged();
+    // Same obligation as the five above, and the one the test derives from
+    // this file would name first: every MessageDelegate in the timeline
+    // reads collapseEmbeds through a binding, so a switch to an account
+    // that answers differently must re-render rather than keep the previous
+    // account's density until something else happens to change.
+    Q_EMIT collapseEmbedsChanged();
     Q_EMIT hiddenComposerButtonsChanged();
     Q_EMIT clockFormatChanged();
     Q_EMIT microphoneGainChanged();
@@ -2502,6 +2512,24 @@ void SettingsManager::setShowProfileChangeEvents(bool v)
         return;
     m_store->setValue(kShowProfileChanges, v);
     Q_EMIT showProfileChangeEventsChanged();
+}
+
+bool SettingsManager::collapseEmbeds() const
+{
+    // OFF, and this default is the whole compatibility argument: with it
+    // false every binding the setting gates in MessageDelegate reads false
+    // and each Loader keeps the `active` it has always had, so a reader who
+    // never opens Settings sees a timeline that is byte-for-byte the one
+    // 0.9.8 shipped.
+    return appearanceValue(kCollapseEmbeds, false).toBool();
+}
+
+void SettingsManager::setCollapseEmbeds(bool v)
+{
+    if (collapseEmbeds() == v)
+        return;
+    setAppearanceValue(kCollapseEmbeds, v);
+    Q_EMIT collapseEmbedsChanged();
 }
 
 bool SettingsManager::reducedMotion() const

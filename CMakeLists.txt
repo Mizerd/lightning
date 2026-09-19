@@ -865,6 +865,8 @@ set(APP_QML_FILES
     qml/MessageDelegate.qml
     # Element-style local image hiding: keeps the media box's exact geometry.
     qml/MediaHiddenPlaceholder.qml
+    # 2026-09-19: one-line summary for a collapsed media or link embed.
+    qml/CollapsedEmbedRow.qml
     qml/RoomActivityDelegate.qml
     qml/ShortcutRow.qml
     qml/MessageComposerBar.qml
@@ -2228,6 +2230,21 @@ if(BUILD_TESTING)
     # the state the consent click leads to, with the privacy fact still
     # stated before consent and the button still the only thing that
     # consents.
+    # 2026-09-19: "collapse media and link embeds". Pins the six surfaces the
+    # setting covers, the exclusions that are DECISIONS (the reply quote, the
+    # consent gate), the reversible disclosure and its keyboard path, and the
+    # property that matters most — a collapsed attachment is NOT INSTANTIATED,
+    # so it cannot fetch or decode. `visible: false` would pass a weaker test.
+    qt_add_executable(collapsed-embeds-qml-test
+        tests/CollapsedEmbedsQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(collapsed-embeds-qml-test)
+    target_link_libraries(collapsed-embeds-qml-test PRIVATE Qt6::Test)
+    add_test(NAME collapsed-embeds-qml COMMAND collapsed-embeds-qml-test)
+    set_tests_properties(collapsed-embeds-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     qt_add_executable(link-preview-qml-test
         tests/LinkPreviewQmlTest.cpp
         ${APP_LIB_SOURCES}
