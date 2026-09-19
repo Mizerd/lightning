@@ -170,9 +170,33 @@ public:
     // palette ever stops resolving. Do not "fix" it to return nothing.
     Q_INVOKABLE QVariantList auditForRole(const QVariantMap &palette,
                                           const QString &role) const;
+    // THE CHECKS THAT WERE NOT MADE, WHICH IS A THIRD ANSWER AND NOT A PASS.
+    //
+    // `gradePalette` skips a check whose endpoint is translucent or absent,
+    // and refusing to guess is right — see `asColor`. But a skip that nothing
+    // reports is indistinguishable from a pass at every surface above this
+    // one: measured on the running editor, a brand-new theme on the Storm
+    // base has EIGHT checks whose foreground is `textPrimary`, and the live
+    // readout listed SEVEN — "Main text on a hovered row" simply gone, Storm
+    // writing that entry as `Qt.alpha(_stoHover, 0.22)` — while the header
+    // badge said "Readable". That badge was an unqualified clean bill over a
+    // palette one of whose pairs had never been graded.
+    //
+    // Same narrowing convention as `auditForRole`, for the same reason: an
+    // EMPTY `role` narrows nothing and returns every skipped check.
+    //
+    // Returns { role, fg, bg, label, fgLabel, bgLabel, kind, minimum,
+    // reason }, where `reason` is "translucent" (the colour is see-through,
+    // so what it looks like depends on whatever is behind it) or "missing"
+    // (this build's palette has no such key — a rename in AppTheme, not
+    // anything the user did).
+    Q_INVOKABLE QVariantList auditSkipped(const QVariantMap &palette,
+                                          const QString &role) const;
     // WCAG 2.x contrast ratio, 1.0 .. 21.0. Accepts "#RRGGBB" or "#AARRGGBB"
     // (QML hands a `color` over as the latter). Returns 0 for anything it
-    // cannot parse, which no caller treats as a pass.
+    // cannot parse OR cannot grade — a translucent "#80RRGGBB" parses
+    // perfectly and is still 0, because its contrast depends on what is
+    // behind it. No caller treats 0 as a pass.
     Q_INVOKABLE double contrastRatio(const QString &a, const QString &b) const;
     // CIE L*, 0 .. 100. The editor sorts the picker's suggestion swatches on
     // it so the strip reads as a ladder instead of nine indistinguishable
@@ -196,6 +220,32 @@ public:
     // cannot be dropped silently — the failure this project keeps meeting is
     // a sweep that comes back quietly short, never one that comes back loud.
     static int readabilityCheckCount();
+    // The table itself, one entry per check, with no palette involved:
+    // { fg, fgRole, bg, bgRole, label, minimum, kind }. `fgRole` is empty for
+    // an ink AppTheme pins by literal. This exists so the suite can assert
+    // that a check's palette key and its editable role name THE SAME COLOUR —
+    // a row reading `fg: "textPrimary"` with `fgRole: "textSecondary"` grades
+    // one colour and sends the click-through to the other's picker, and every
+    // case that only ever looked at graded VALUES would stay green.
+    static QVariantList readabilityChecks();
+    // store role -> palette key, for the three roles whose two spellings
+    // differ (`inputBg`/`inputBackground`, `reaction`/`reactionBackground`,
+    // `mention`/`mentionBadge`).
+    //
+    // THIS USED TO LIVE ONLY IN QML, as an object literal beside
+    // `effectiveColor`, and implicitly a second time in the readability
+    // table's two columns. Two hand-kept copies of one mapping, neither
+    // asserted against the other. It is C++'s to own under §5 — it is a fact
+    // about the palette's names, not a presentation choice.
+    static QVariantMap paletteKeyAliases();
+    // The same map, reachable from QML. The role list reads it once per
+    // change and then looks roles up in JavaScript: `effectiveColor` runs for
+    // all 26 rows on every repaint, and that path is why this dialog's hot
+    // inputs are hoisted onto the root in the first place.
+    Q_INVOKABLE QVariantMap roleAliases() const;
+    // The palette key one editable role resolves to: the alias when there is
+    // one, otherwise the role's own name.
+    Q_INVOKABLE QString paletteKeyForRole(const QString &role) const;
     // Every distinct palette key the table reads, so the suite can assert
     // them against the object AppTheme.paletteForTheme() actually returns.
     // `gradePalette` SKIPS a check whose key is absent, so a rename in

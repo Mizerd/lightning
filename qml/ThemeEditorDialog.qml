@@ -181,6 +181,38 @@ Popup {
     readonly property var readabilityReport: root.store.audit(root.auditPalette)
     readonly property int readabilityProblems: root.readabilityReport.length
 
+    // WHAT COULD NOT BE CHECKED, WHICH IS NOT THE SAME AS WHAT PASSED.
+    //
+    // The store refuses to grade a pair whose colour is see-through, and it
+    // is right to (a translucent fill composites over whatever is behind it,
+    // so its contrast is unknowable). Nothing said so: measured on the Storm
+    // base, the live readout under `textPrimary` listed SEVEN rows where the
+    // table holds EIGHT checks naming it, and the header badge said
+    // "Readable" over the pair that had never been graded. An unqualified
+    // clean bill over a question nobody answered is the badge lying, however
+    // honest the C++ under it.
+    readonly property var readabilitySkipped:
+        root.store.auditSkipped(root.auditPalette, "")
+    readonly property int readabilityUnchecked: root.readabilitySkipped.length
+    // The two reasons read completely differently to a user: "your colour is
+    // see-through" is something they chose and can change, "this build has no
+    // such colour" is a bug in us. A palette can hold BOTH, and that is the
+    // realistic shape of the second one arriving: Storm always contributes a
+    // translucent `hover`, so a renamed key would land beside it and a single
+    // count under a single sentence would blame us for the user's colour or
+    // the user for ours. Counted apart, and said apart.
+    readonly property int readabilityMissing: {
+        var rows = root.readabilitySkipped
+        var n = 0
+        for (var i = 0; i < rows.length; ++i) {
+            if (rows[i].reason === "missing")
+                ++n
+        }
+        return n
+    }
+    readonly property int readabilityTranslucent:
+        root.readabilityUnchecked - root.readabilityMissing
+
     // The role currently open in the picker. Held on the dialog, not on the
     // row: a Repeater delegate can be destroyed while the picker is open (the
     // list scrolls, the group filter changes) and the pending role would go
@@ -306,15 +338,26 @@ Popup {
         return AppTheme.editorTextMuted
     }
 
-    readonly property var storeKeyAliases: ({
-        "inputBg": "inputBackground",
-        "mention": "mentionBadge",
-        "reaction": "reactionBackground"
-    })
+    // ONE MAP, AND IT IS THE STORE'S. This was an object literal here, and
+    // the readability table in CustomThemeStore.cpp carried the same three
+    // pairs a second time in its two key columns — two hand-kept copies of
+    // one fact, neither asserted against the other. Read once into a property
+    // because `effectiveColor` runs for all 26 rows on every repaint and this
+    // dialog's hot inputs are hoisted for exactly that reason;
+    // `everyCheckGradesTheColourItsRoleWouldEdit` is what keeps the two
+    // spellings of every check in agreement now.
+    readonly property var storeKeyAliases: root.store.roleAliases()
 
     function isOverridden(rolekey) {
         var overrides = root.overrideColors
         return overrides !== undefined && overrides[rolekey] !== undefined
+    }
+
+    // One verb, because the badge now has two ways in (pointer and keyboard)
+    // and they must not drift apart.
+    function openReport() {
+        root.editingRole = ""
+        root.reportOpen = true
     }
 
     function beginEdit(key, label) {
@@ -519,8 +562,18 @@ Popup {
                             // only once the user has edited something: the
                             // report and the badge must never disagree about
                             // whether this theme has a problem.
+                            //
+                            // INCLUDING "we could not check one of them",
+                            // which is a third thing to say and was the one
+                            // case this condition dropped. It matters most
+                            // exactly when it is hardest to see: while a
+                            // picker is open the report is not on screen at
+                            // all, so the badge is the only surface carrying
+                            // the qualification, and hiding it there is how
+                            // an unanswered question turns back into a pass.
                             visible: root.store.overrideCount > 0
                                      || root.readabilityProblems > 0
+                                     || root.readabilityUnchecked > 0
                             color: verdictHover.containsMouse
                                    ? AppTheme.editorSelection
                                    : AppTheme.editorInset
@@ -528,14 +581,46 @@ Popup {
                             border.color: root.readabilityProblems > 0
                                           ? AppTheme.editorDanger
                                           : AppTheme.editorBorderStrong
+                            // Keyboard, for the same reason as the role rows
+                            // and the base chips: this was a MouseArea with
+                            // an Accessible.role and no way to reach it, and
+                            // it is the control that opens this round's
+                            // headline surface.
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.Button
+                            Accessible.name: verdictLabel.text
+                            Keys.onPressed: (e) => {
+                                if (e.key === Qt.Key_Return
+                                    || e.key === Qt.Key_Enter
+                                    || e.key === Qt.Key_Space) {
+                                    root.openReport()
+                                    e.accepted = true
+                                }
+                            }
+                            Rectangle {
+                                anchors.fill: parent
+                                visible: parent.activeFocus
+                                radius: AppTheme.radiusPill
+                                color: "transparent"
+                                border.width: 2
+                                border.color: AppTheme.editorAccent
+                            }
                             Label {
                                 id: verdictLabel
                                 anchors.centerIn: parent
+                                // A PASS THAT LEAVES SOMETHING UNANSWERED
+                                // SAYS SO. "Readable" over a palette holding
+                                // an ungradable pair is a claim this editor
+                                // has not earned — see `readabilitySkipped`.
                                 text: root.readabilityProblems > 0
                                       ? qsTr("%n thing(s) hard to read",
                                              "custom theme readability",
                                              root.readabilityProblems)
-                                      : qsTr("Readable")
+                                      : root.readabilityUnchecked > 0
+                                        ? qsTr("Readable, %n not checked",
+                                               "custom theme readability",
+                                               root.readabilityUnchecked)
+                                        : qsTr("Readable")
                                 color: root.readabilityProblems > 0
                                        ? AppTheme.editorDanger
                                        : AppTheme.editorTextSecondary
@@ -548,12 +633,7 @@ Popup {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                Accessible.role: Accessible.Button
-                                Accessible.name: verdictLabel.text
-                                onClicked: {
-                                    root.editingRole = ""
-                                    root.reportOpen = true
-                                }
+                                onClicked: root.openReport()
                             }
                         }
                     }
@@ -1244,10 +1324,26 @@ Popup {
                                                 root.editingRole === modelData.key
                                             readonly property bool overridden:
                                                 root.isOverridden(modelData.key)
-                                            readonly property string hex:
-                                                root.toHex(Qt.color(String(
+                                            readonly property color resolved:
+                                                Qt.color(String(
                                                     root.effectiveColor(
-                                                        modelData.key))))
+                                                        modelData.key)))
+                                            readonly property string hex:
+                                                root.toHex(resolved)
+                                            // THREE ANSWERS FOR ONE COLOUR,
+                                            // RECONCILED. The swatch beside
+                                            // this row paints a translucent
+                                            // inherited value WITH its alpha,
+                                            // the hex prints the opaque
+                                            // triple, and the audit refuses
+                                            // to grade it at all. Only the
+                                            // third of those was ever
+                                            // explained. Storm's `hover` is
+                                            // Qt.alpha(_stoHover, 0.22), so
+                                            // this is the stock state of a
+                                            // fresh theme, not an edge case.
+                                            readonly property bool seeThrough:
+                                                resolved.a < 0.999
                                             Layout.fillWidth: true
                                             implicitHeight: 38
                                             radius: AppTheme.radiusSm
@@ -1433,7 +1529,10 @@ Popup {
                                                             + roleRow.modelData.key
                                                         textFormat: Text.PlainText
                                                         Layout.fillWidth: true
-                                                        text: roleRow.hex
+                                                        text: roleRow.seeThrough
+                                                              ? qsTr("%1 · see-through")
+                                                                .arg(roleRow.hex)
+                                                              : roleRow.hex
                                                         color: AppTheme.editorTextMuted
                                                         font.family: AppTheme.monoFont
                                                         font.pixelSize: AppTheme.menuSectionSize
@@ -1677,20 +1776,36 @@ Popup {
                     // `auditPalette`: this Repeater rebuilds a delegate per
                     // check, and bound to the live palette it did so once per
                     // mouse sample.
+                    //
+                    // THE UNGRADABLE PAIRS ARE IN THE SAME LIST, because
+                    // leaving them out is what made this readout claim nine
+                    // checks and show eight. A row that says "not checked" is
+                    // an answer; a row that is absent is indistinguishable
+                    // from a check that does not exist.
                     model: root.editingRole.length > 0
                            ? root.store.auditForRole(root.auditPalette,
                                                      root.editingRole)
+                             .concat(root.store.auditSkipped(root.auditPalette,
+                                                             root.editingRole))
                            : []
                     delegate: RowLayout {
+                        id: checkRow
                         required property var modelData
+                        // `passes` is ABSENT on a skipped row, never false —
+                        // the store refuses to hand out a verdict it did not
+                        // reach.
+                        readonly property bool graded:
+                            modelData.passes !== undefined
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing6
                         Rectangle {
                             implicitWidth: 6
                             implicitHeight: 6
                             radius: 3
-                            color: modelData.passes ? AppTheme.editorAccent
-                                                    : AppTheme.editorDanger
+                            color: !checkRow.graded ? AppTheme.editorTextMuted
+                                 : checkRow.modelData.passes
+                                   ? AppTheme.editorAccent
+                                   : AppTheme.editorDanger
                         }
                         Label {
                             Layout.fillWidth: true
@@ -1699,26 +1814,50 @@ Popup {
                             // from the two role names gave "Text on accent on
                             // Accent" — see the phrase field in
                             // CustomThemeStore.cpp.
-                            text: modelData.label
+                            text: checkRow.modelData.label
                             color: AppTheme.editorTextSecondary
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
                             elide: Label.ElideRight
                         }
                         Label {
+                            objectName: "themeRoleCheckValue"
                             textFormat: Text.PlainText
                             // A WCAG ratio reads as "4.6:1"; a lightness
                             // separation is not a ratio and must not be
                             // dressed as one.
-                            text: modelData.kind === "ink"
-                                  ? qsTr("%1:1").arg(modelData.value.toFixed(1))
-                                  : qsTr("ΔL* %1").arg(modelData.value.toFixed(1))
-                            color: modelData.passes
-                                   ? AppTheme.editorTextSecondary
-                                   : AppTheme.editorDanger
+                            text: !checkRow.graded
+                                  ? qsTr("see-through")
+                                  : checkRow.modelData.kind === "ink"
+                                    ? qsTr("%1:1").arg(
+                                          checkRow.modelData.value.toFixed(1))
+                                    : qsTr("ΔL* %1").arg(
+                                          checkRow.modelData.value.toFixed(1))
+                            color: !checkRow.graded
+                                   ? AppTheme.editorTextMuted
+                                   : checkRow.modelData.passes
+                                     ? AppTheme.editorTextSecondary
+                                     : AppTheme.editorDanger
                             font.family: AppTheme.monoFont
                             font.pixelSize: AppTheme.textMeta
                             font.weight: AppTheme.weightStrong
+                        }
+                        // THE BAR THE NUMBER IS CLIMBING TOWARDS. Without it
+                        // this row told the user they had failed and not by
+                        // how much — and the whole argument for showing
+                        // passes here is that a number moving against a
+                        // TARGET is what teaches. The report's rows have said
+                        // "4.3:1 — needs 4.5:1" all along; this is the same
+                        // fact in the width a picker column has.
+                        Label {
+                            objectName: "themeRoleCheckTarget"
+                            visible: checkRow.graded
+                            textFormat: Text.PlainText
+                            text: qsTr("/ %1").arg(
+                                      checkRow.modelData.minimum.toFixed(1))
+                            color: AppTheme.editorTextMuted
+                            font.family: AppTheme.monoFont
+                            font.pixelSize: AppTheme.textMeta
                         }
                     }
                 }
@@ -1760,6 +1899,25 @@ Popup {
                         radius: AppTheme.radiusSm
                         color: reportCloseHover.containsMouse
                                ? AppTheme.editorSelection : "transparent"
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.Button
+                        Accessible.name: qsTr("Close the readability report")
+                        Keys.onPressed: (e) => {
+                            if (e.key === Qt.Key_Return
+                                || e.key === Qt.Key_Enter
+                                || e.key === Qt.Key_Space) {
+                                root.reportOpen = false
+                                e.accepted = true
+                            }
+                        }
+                        Rectangle {
+                            anchors.fill: parent
+                            visible: parent.activeFocus
+                            radius: AppTheme.radiusSm
+                            color: "transparent"
+                            border.width: 2
+                            border.color: AppTheme.editorAccent
+                        }
                         Icon {
                             anchors.centerIn: parent
                             name: "close"
@@ -1771,8 +1929,6 @@ Popup {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            Accessible.role: Accessible.Button
-                            Accessible.name: qsTr("Close the readability report")
                             onClicked: root.reportOpen = false
                         }
                     }
@@ -1786,6 +1942,44 @@ Popup {
                             ? qsTr("Every text and edge this theme paints clears the bar the built-in themes clear.")
                             : qsTr("Click a part of the sample window in the middle, or a role in the list on the left, and its colour opens here.")
                     color: AppTheme.editorTextMuted
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.textMeta
+                }
+
+                // WHAT WAS NOT CHECKED, SAID OUT LOUD. The verdict above is
+                // about the pairs that could be graded, and until this line
+                // existed nothing distinguished "every pair passed" from
+                // "every pair we were able to look at passed".
+                Label {
+                    objectName: "themeReadabilityUnchecked"
+                    visible: root.readabilityTranslucent > 0
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    textFormat: Text.PlainText
+                    text: qsTr("%n colour(s) could not be checked — they are see-through, so how they read depends on whatever is behind them.",
+                               "custom theme readability",
+                               root.readabilityTranslucent)
+                    color: AppTheme.editorTextMuted
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.textMeta
+                }
+
+                // A SEPARATE SENTENCE BECAUSE IT IS A SEPARATE ACCUSATION.
+                // Nothing the user did can produce this one — it means the
+                // readability table names a palette key this build no longer
+                // returns — and `everyReadabilityKeyIsAKeyPaletteForThemeReturns`
+                // is what should make it unreachable. If a reader ever sees
+                // it, the bug is ours and the wording says so.
+                Label {
+                    objectName: "themeReadabilityMissing"
+                    visible: root.readabilityMissing > 0
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    textFormat: Text.PlainText
+                    text: qsTr("%n check(s) could not be made: this build has no colour by that name.",
+                               "custom theme readability",
+                               root.readabilityMissing)
+                    color: AppTheme.editorDanger
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textMeta
                 }
@@ -1831,6 +2025,36 @@ Popup {
                                 radius: AppTheme.radiusSm
                                 color: problemHover.containsMouse
                                        ? AppTheme.editorInset : "transparent"
+
+                                // Keyboard, exactly as the 26 role rows have
+                                // it. These rows ARE the report — the surface
+                                // this round exists for — and they were
+                                // pointer-only, which makes a readability
+                                // feature unreachable to the readers most
+                                // likely to need it.
+                                activeFocusOnTab: true
+                                Accessible.role: Accessible.Button
+                                Accessible.name: problemText.text
+                                Keys.onPressed: (e) => {
+                                    if (e.key === Qt.Key_Return
+                                        || e.key === Qt.Key_Enter
+                                        || e.key === Qt.Key_Space) {
+                                        root.beginEdit(
+                                            problemRow.modelData.role,
+                                            root.labelForRole(
+                                                problemRow.modelData.role))
+                                        e.accepted = true
+                                    }
+                                }
+                                Rectangle {
+                                    anchors.fill: parent
+                                    visible: problemRow.activeFocus
+                                    radius: AppTheme.radiusSm
+                                    color: "transparent"
+                                    border.width: 2
+                                    border.color: AppTheme.editorAccent
+                                    z: 1
+                                }
 
                                 RowLayout {
                                     anchors.fill: parent
@@ -1910,8 +2134,6 @@ Popup {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    Accessible.role: Accessible.Button
-                                    Accessible.name: problemText.text
                                     onClicked: root.beginEdit(
                                         problemRow.modelData.role,
                                         root.labelForRole(

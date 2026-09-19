@@ -123,12 +123,27 @@ QHash<QString, QHash<QString, QString>> presetPalettes(const QString &qml)
     return out;
 }
 
+// One `readonly property color _name: "#RRGGBB"` out of AppTheme, by name.
+// Two of paletteForTheme's fallbacks are literals rather than palette
+// entries, and hand-copying either into this file is the drift §16 keeps
+// recording: the fixture would keep agreeing with itself after AppTheme
+// moved.
+QString colorLiteral(const QString &qml, const QString &name)
+{
+    const QRegularExpression re(
+        QStringLiteral("readonly\\s+property\\s+color\\s+%1:\\s*"
+                       "\"(#[0-9A-Fa-f]{6})\"").arg(name));
+    const auto m = re.match(qml);
+    return m.hasMatch() ? m.captured(1).toUpper() : QString();
+}
+
 // One preset as the object AppTheme.paletteForTheme() hands QML: the block's
 // own entries under their SEMANTIC names, plus the same fallbacks that
 // function applies. The store's audit reads that object, not the raw block,
 // so the test has to speak the same dialect.
 QVariantMap resolvedPalette(const QHash<QString, QString> &raw,
-                            const QString &onAccent)
+                            const QString &onAccent,
+                            const QString &dangerFill = QString())
 {
     QVariantMap p;
     for (auto it = raw.constBegin(); it != raw.constEnd(); ++it)
@@ -144,6 +159,14 @@ QVariantMap resolvedPalette(const QHash<QString, QString> &raw,
     p.insert(QStringLiteral("reactionBackground"),
              raw.value(QStringLiteral("reaction"),
                        raw.value(QStringLiteral("cardElevated"))));
+    // Only four presets name a `mention`; the other seven take AppTheme's
+    // `_accentDanger`, exactly as paletteForTheme does. Left ABSENT rather
+    // than empty when a caller supplied no fallback, so the check is skipped
+    // and `evaluated` says so out loud instead of the pair quietly being
+    // graded against "".
+    const QString mention = raw.value(QStringLiteral("mention"), dangerFill);
+    if (!mention.isEmpty())
+        p.insert(QStringLiteral("mentionBadge"), mention);
     // ownBubbleText is a LITERAL in AppTheme (#FFFFFF), not a palette entry:
     // the only way to fix a failure against it is to move the bubble.
     p.insert(QStringLiteral("ownBubbleText"), QStringLiteral("#FFFFFF"));
@@ -583,6 +606,11 @@ private Q_SLOTS:
         QVERIFY2(!qml.isEmpty(), "AppTheme.qml not readable");
         const auto presets = presetPalettes(qml);
         QCOMPARE(presets.size(), 11);
+        const QString dangerFill =
+            colorLiteral(qml, QStringLiteral("_accentDanger"));
+        QVERIFY2(!dangerFill.isEmpty(),
+                 "_accentDanger is gone from AppTheme.qml, so the seven "
+                 "presets without their own `mention` cannot be resolved");
 
         SettingsManager settings;
         CustomThemeStore store(&settings);
@@ -591,7 +619,8 @@ private Q_SLOTS:
         QStringList failures;
         for (auto it = presets.constBegin(); it != presets.constEnd(); ++it) {
             const QVariantMap palette =
-                resolvedPalette(it.value(), QStringLiteral("#FFFFFF"));
+                resolvedPalette(it.value(), QStringLiteral("#FFFFFF"),
+                                dangerFill);
             // auditForRole with an empty role would narrow to nothing, so the
             // full sweep goes through audit() and the pass count is derived
             // from what did NOT come back.
@@ -649,18 +678,60 @@ private Q_SLOTS:
                                 "theme, which would make it noise:\n  %1")
                                 .arg(failures.join(QStringLiteral("\n  ")))));
 
-        // 11 presets x 24 checks = 264, minus EXACTLY ONE: Storm writes its
+        // 11 presets x 27 checks = 297, minus EXACTLY ONE: Storm writes its
         // `hover` as Qt.alpha(_stoHover, 0.22) rather than as a named colour,
         // so the parser above cannot resolve it and textPrimary/hover is
         // skipped for Storm alone. Every other endpoint of every check
         // resolves on every preset.
         //
+        // 24 until 2026-09-19, when the review's S3 found four editable roles
+        // nothing graded at all. Three are graded now — `accentHover` and
+        // `accentPressed` against the label painted on them, and `mention`
+        // against the room list its badge sits in. The fourth,
+        // `selectedHover`, is in the .cpp's DELIBERATELY NOT CHECKED list
+        // with the preset that ruled it out (Nordic, 4.31 against an honest
+        // 4.5). The bar was not lowered to admit it.
+        //
         // The bound is EXACT on purpose. A looser one is the same defect it
         // is meant to catch: if the parser stops resolving a palette, or a
         // key is renamed in AppTheme, the checks quietly stop being made and
         // a slack bound lets the case keep passing while guaranteeing less.
-        QCOMPARE(CustomThemeStore::readabilityCheckCount(), 24);
-        QCOMPARE(evaluated, 11 * 24 - 1);
+        QCOMPARE(CustomThemeStore::readabilityCheckCount(), 27);
+        QCOMPARE(evaluated, 11 * 27 - 1);
+
+        // AND THE ONE THAT WAS NOT EVALUATED IS NAMED, not merely counted.
+        // `evaluated` alone cannot tell "Storm's hover is translucent" from
+        // "a key was renamed and four checks silently stopped being made" —
+        // both come back short by some number. auditSkipped says WHICH pair
+        // and WHY, so this case can assert the identity of the gap rather
+        // than its size.
+        int skipped = 0;
+        for (auto it = presets.constBegin(); it != presets.constEnd(); ++it) {
+            const QVariantMap palette =
+                resolvedPalette(it.value(), QStringLiteral("#FFFFFF"),
+                                dangerFill);
+            const QVariantList gaps = store.auditSkipped(palette, QString());
+            skipped += gaps.size();
+            for (const QVariant &row : gaps) {
+                const QVariantMap m = row.toMap();
+                QCOMPARE(it.key(), QStringLiteral("Storm"));
+                QCOMPARE(m.value(QStringLiteral("fg")).toString(),
+                         QStringLiteral("textPrimary"));
+                QCOMPARE(m.value(QStringLiteral("bg")).toString(),
+                         QStringLiteral("hover"));
+                // "missing", because the FIXTURE's parser cannot resolve
+                // Qt.alpha(); the running application receives the same entry
+                // as a translucent QColor and gets "translucent". Both are
+                // skips and neither is a pass — which is the property under
+                // test.
+                QCOMPARE(m.value(QStringLiteral("reason")).toString(),
+                         QStringLiteral("missing"));
+                QVERIFY2(!m.contains(QStringLiteral("passes")),
+                         "a check that was never made must not carry a "
+                         "verdict");
+            }
+        }
+        QCOMPARE(skipped, 1);
     }
 
     // A TRANSLUCENT PALETTE ENTRY IS NOT GRADED, BECAUSE IT CANNOT BE.
@@ -815,9 +886,12 @@ private Q_SLOTS:
             {QStringLiteral("rail"), QStringLiteral("#0C0E11")},
             {QStringLiteral("inputBackground"), QStringLiteral("#191C22")}};
 
+        const QString dangerFill =
+            colorLiteral(qml, QStringLiteral("_accentDanger"));
         const auto merged = [&](const QString &base, const QVariantMap &over) {
             QVariantMap p = resolvedPalette(presets.value(base),
-                                            QStringLiteral("#FFFFFF"));
+                                            QStringLiteral("#FFFFFF"),
+                                            dangerFill);
             for (auto it = over.constBegin(); it != over.constEnd(); ++it)
                 p.insert(it.key(), it.value());
             return p;
@@ -848,9 +922,20 @@ private Q_SLOTS:
 
         const QVariantList inkReport =
             store.audit(merged(QStringLiteral("Lightning Dark"), ink));
-        QCOMPARE(inkReport.size(), 19);
+        // 19 until the three checks the review's S3 added. Ink gains exactly
+        // one: it darkens `accentText` and leaves Lightning Dark's
+        // `accentPressed` alone, so the button's label goes unreadable the
+        // moment it is HELD DOWN while the released button still passes —
+        // the kind of state-only failure nothing in this editor could see
+        // before, and one no screenshot of a theme would show either.
+        QCOMPARE(inkReport.size(), 20);
         QVERIFY(qAbs(findPair(inkReport, "accentText", "accent") - 2.68)
                 < 0.01);
+        QVERIFY(qAbs(findPair(inkReport, "accentText", "accentPressed") - 2.77)
+                < 0.01);
+        // And the hovered state of the same button still clears the bar, so
+        // the new pair is not simply following the one beside it.
+        QCOMPARE(findPair(inkReport, "accentText", "accentHover"), -1.0);
         // The one a person cannot see coming: `hover` was never overridden,
         // so it still comes from Lightning Dark and now clashes with the new
         // ink. An audit over the RESOLVED palette catches an interaction
@@ -906,6 +991,211 @@ private Q_SLOTS:
 
         // An unknown role narrows to nothing rather than to everything.
         QCOMPARE(store.auditForRole(storm, QStringLiteral("nope")).size(), 0);
+    }
+
+    // A SKIPPED CHECK IS A THIRD ANSWER, AND UNTIL 2026-09-19 IT WAS NO
+    // ANSWER AT ALL.
+    //
+    // Refusing to grade a translucent endpoint is right and the header argues
+    // why. Nothing surfaced the refusal, though, so every consumer above the
+    // store read a skip as a pass: measured in the running editor on the
+    // Storm base, the live readout under `textPrimary` listed EIGHT of the
+    // nine checks that name it — "Main text on a hovered row" simply absent —
+    // while the header badge said "Readable". The store could not have been
+    // asked; there was no question to ask it.
+    //
+    // THE INVARIANT THAT MAKES A SKIP IMPOSSIBLE TO HIDE is the count:
+    // graded + skipped == every check in the table, for any palette at all.
+    // That is the "assert the COUNT, not just the items" shape §16 keeps
+    // recording — a check that quietly stops being made now has nowhere to go.
+    void aSkippedCheckIsNamedRatherThanSilentlyDropped()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+
+        const QVariantMap opaque{
+            {QStringLiteral("textPrimary"), QStringLiteral("#6E7484")},
+            {QStringLiteral("hover"), QStringLiteral("#3A3F4B")}};
+
+        // Storm's own shape: a 22%-alpha hover inherited from the base.
+        QVariantMap translucent = opaque;
+        translucent.insert(QStringLiteral("hover"),
+                           QVariant::fromValue(QColor(0x3A, 0x3F, 0x4B, 56)));
+
+        const QVariantList gaps =
+            store.auditSkipped(translucent, QStringLiteral("hover"));
+        QCOMPARE(gaps.size(), 1);
+        const QVariantMap gap = gaps.first().toMap();
+        QCOMPARE(gap.value(QStringLiteral("reason")).toString(),
+                 QStringLiteral("translucent"));
+        QCOMPARE(gap.value(QStringLiteral("bg")).toString(),
+                 QStringLiteral("hover"));
+        // The row has to be presentable: the editor prints this sentence and
+        // sends a click to that role.
+        QVERIFY(!gap.value(QStringLiteral("label")).toString().isEmpty());
+        QVERIFY(CustomThemeStore::roleIsEditable(
+            gap.value(QStringLiteral("role")).toString()));
+        // AND IT CARRIES NO VERDICT. A `passes: false` here would read as a
+        // failure everywhere, which is the same lie as a pass with the sign
+        // flipped.
+        QVERIFY2(!gap.contains(QStringLiteral("passes")),
+                 "a check that was never made must not report a verdict");
+        QVERIFY2(!gap.contains(QStringLiteral("value")),
+                 "a check that was never made must not report a number");
+
+        // The other reason: this build has no such key. Not the user's doing,
+        // and it must not be spelled as though it were.
+        QVariantMap missing{
+            {QStringLiteral("textPrimary"), QStringLiteral("#6E7484")}};
+        const QVariantList absent =
+            store.auditSkipped(missing, QStringLiteral("hover"));
+        QCOMPARE(absent.size(), 1);
+        QCOMPARE(absent.first().toMap().value(QStringLiteral("reason")).toString(),
+                 QStringLiteral("missing"));
+
+        // Narrowing follows auditForRole exactly: an unknown role narrows to
+        // nothing, an empty one narrows nothing.
+        QCOMPARE(store.auditSkipped(translucent, QStringLiteral("nope")).size(),
+                 0);
+
+        // THE ACCOUNTING. Every check is graded or skipped, never neither —
+        // on a sparse fixture, on a translucent one, and on a real preset.
+        const QString qml = appTheme();
+        const auto presets = presetPalettes(qml);
+        const QVariantMap storm =
+            resolvedPalette(presets.value(QStringLiteral("Storm")),
+                            QStringLiteral("#FFFFFF"),
+                            colorLiteral(qml, QStringLiteral("_accentDanger")));
+        for (const QVariantMap &palette : {opaque, translucent, missing, storm}) {
+            const int graded =
+                store.auditForRole(palette, QString()).size();
+            const int skipped = store.auditSkipped(palette, QString()).size();
+            QCOMPARE(graded + skipped,
+                     CustomThemeStore::readabilityCheckCount());
+        }
+    }
+
+    // A CHECK'S PALETTE KEY AND ITS EDITABLE ROLE MUST NAME ONE COLOUR.
+    //
+    // The table carries both spellings of every endpoint — the key it GRADES
+    // and the role the report's click-through OPENS — and nothing compared
+    // them. A row reading `fg: "textPrimary"` with `fgRole: "textSecondary"`
+    // would grade one colour and send the user to the other's picker, and
+    // every existing case would stay green: they all read graded values or
+    // role editability, and both halves of that row are individually valid.
+    // This is the class a blocking finding in this round's own review already
+    // hit once from the other side (a "None" literal where a nullptr
+    // belonged).
+    //
+    // The three real aliases lived in a QML object literal and, implicitly, a
+    // second time in this table. They are C++'s now, and this is what holds
+    // the two together.
+    void everyCheckGradesTheColourItsRoleWouldEdit()
+    {
+        const QVariantList checks = CustomThemeStore::readabilityChecks();
+        QCOMPARE(checks.size(), CustomThemeStore::readabilityCheckCount());
+
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        const QStringList roles = CustomThemeStore::editableRoles();
+
+        for (const QVariant &row : checks) {
+            const QVariantMap m = row.toMap();
+            const QString fg = m.value(QStringLiteral("fg")).toString();
+            const QString bg = m.value(QStringLiteral("bg")).toString();
+            const QString fgRole = m.value(QStringLiteral("fgRole")).toString();
+            const QString bgRole = m.value(QStringLiteral("bgRole")).toString();
+            const QString label = m.value(QStringLiteral("label")).toString();
+
+            QVERIFY2(CustomThemeStore::roleIsEditable(bgRole),
+                     qPrintable(QStringLiteral("'%1': the background role "
+                                               "'%2' is not editable")
+                                    .arg(label, bgRole)));
+            QVERIFY2(store.paletteKeyForRole(bgRole) == bg,
+                     qPrintable(QStringLiteral(
+                                    "'%1' grades the palette key '%2' but "
+                                    "sends a click to the role '%3', which "
+                                    "is the colour '%4'")
+                                    .arg(label, bg, bgRole,
+                                         store.paletteKeyForRole(bgRole))));
+
+            if (fgRole.isEmpty()) {
+                // An ink AppTheme pins by literal. The nullptr has to be
+                // HONEST: no editable role may resolve to that key, or the
+                // report is sending the user to the background when the
+                // foreground was theirs to fix all along.
+                for (const QString &role : roles) {
+                    QVERIFY2(store.paletteKeyForRole(role) != fg,
+                             qPrintable(QStringLiteral(
+                                            "'%1' claims '%2' has no editable "
+                                            "role, but '%3' resolves to it")
+                                            .arg(label, fg, role)));
+                }
+                continue;
+            }
+            QVERIFY2(CustomThemeStore::roleIsEditable(fgRole),
+                     qPrintable(QStringLiteral("'%1': the foreground role "
+                                               "'%2' is not editable")
+                                    .arg(label, fgRole)));
+            QVERIFY2(store.paletteKeyForRole(fgRole) == fg,
+                     qPrintable(QStringLiteral(
+                                    "'%1' grades the palette key '%2' but "
+                                    "sends a click to the role '%3', which "
+                                    "is the colour '%4'")
+                                    .arg(label, fg, fgRole,
+                                         store.paletteKeyForRole(fgRole))));
+        }
+
+        // THE ALIAS MAP ITSELF. Three roles whose palette spelling differs,
+        // and the editor's role list resolves every swatch through it — a
+        // fourth alias added to AppTheme and forgotten here paints a role's
+        // swatch with the muted fallback and nobody notices.
+        const QVariantMap aliases = CustomThemeStore::paletteKeyAliases();
+        QCOMPARE(aliases.size(), 3);
+        QSet<QString> targets;
+        for (auto it = aliases.constBegin(); it != aliases.constEnd(); ++it) {
+            QVERIFY2(CustomThemeStore::roleIsEditable(it.key()),
+                     qPrintable(QStringLiteral("'%1' is aliased but is not an "
+                                               "editable role").arg(it.key())));
+            const QString target = it.value().toString();
+            QVERIFY2(target != it.key(),
+                     "an alias that maps a role to its own name is noise");
+            QVERIFY2(!targets.contains(target),
+                     qPrintable(QStringLiteral("two roles both resolve to the "
+                                               "palette key '%1'").arg(target)));
+            targets.insert(target);
+            QVERIFY2(CustomThemeStore::readabilityPaletteKeys().contains(target),
+                     qPrintable(QStringLiteral(
+                                    "'%1' is not a key the readability table "
+                                    "reads, so nothing asserts it against "
+                                    "paletteForTheme()").arg(target)));
+            QCOMPARE(store.paletteKeyForRole(it.key()), target);
+        }
+        // Everything else is its own palette key, including a role that does
+        // not exist — the lookup must not invent one.
+        for (const QString &role : roles) {
+            if (aliases.contains(role))
+                continue;
+            QCOMPARE(store.paletteKeyForRole(role), role);
+        }
+        QCOMPARE(store.paletteKeyForRole(QStringLiteral("nope")),
+                 QStringLiteral("nope"));
+
+        // And the QML copy is gone: the dialog must read the map from here.
+        // Derived from APPTHEME_QML_PATH rather than added as a second
+        // compile definition — both files are in the same directory, and this
+        // round does not own CMakeLists.txt.
+        const QString appThemePath = QStringLiteral(APPTHEME_QML_PATH);
+        QFile dialog(appThemePath.left(appThemePath.lastIndexOf(QLatin1Char('/')) + 1)
+                     + QStringLiteral("ThemeEditorDialog.qml"));
+        QVERIFY2(dialog.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "ThemeEditorDialog.qml not readable");
+        const QString source = QString::fromUtf8(dialog.readAll());
+        QVERIFY2(source.contains(QStringLiteral("store.roleAliases()")),
+                 "the editor no longer reads the alias map from the store");
+        QVERIFY2(!source.contains(QStringLiteral("\"mentionBadge\"")),
+                 "ThemeEditorDialog.qml is keeping its own copy of the alias "
+                 "map again");
     }
 
     // ---- the couplings that would fail silently --------------------------

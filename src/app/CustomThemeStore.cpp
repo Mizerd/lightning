@@ -150,6 +150,23 @@ constexpr Role kRoles[] = {
 //     where every preset clears 5.0.
 //   * `textDisabled` anywhere. It is SUPPOSED to be low contrast; flagging it
 //     would be the audit arguing with the design it is auditing.
+//   * `selectedText` against `selectedHover` at 4.5. This one is an HONEST
+//     pair — the open room's name while the pointer is on it is body text on
+//     a surface, so the bar is 4.5 and nothing else — and it fires on Nordic
+//     at 4.31. `selectedText`/`selected` IS checked and Nordic clears that at
+//     5.40, so the role is not ungraded; the hovered variant is simply
+//     darker than the bar in a theme this application ships. The bar was NOT
+//     lowered to 4.0 to admit it: a threshold moved to make a preset pass is
+//     a threshold that no longer means anything.
+//   * white on `mentionBadge`. The badge's ink is AppTheme's `dangerText`,
+//     which is the literal "#FFFFFF" and is NOT a key `paletteForTheme()`
+//     returns, so the endpoint does not exist in the object the editor hands
+//     us — `everyReadabilityKeyIsAKeyPaletteForThemeReturns` is what would
+//     catch the attempt. It would not survive calibration either: three
+//     presets (Deep Teal, Indigo Night and Storm) sit at 3.20 against the
+//     honest 4.5 for a 10px bold count. `mentionBadge` against `sidebar` IS
+//     checked instead, which is the failure a user can actually author here
+//     — a mention badge painted into the room list it sits on.
 struct ReadabilityCheck {
     const char *fg;      // palette key of the ink, or of the upper surface
     const char *fgRole;  // editable role behind it, or nullptr
@@ -283,6 +300,25 @@ constexpr ReadabilityCheck kReadability[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "A button's label on the accent"),
       3.0, false }, //  3.62 Purple Dusk
+    // THE SAME BUTTON IN ITS OTHER TWO STATES, at the same bar and for the
+    // same reason. Added 2026-09-19: `accentHover` and `accentPressed` are
+    // editable roles a user can paint anything, and nothing graded either —
+    // so a theme could pass the check above and turn its own buttons
+    // unreadable the moment the pointer landed on one, with the editor still
+    // saying "Readable".
+    //
+    // 3.0, not 4.5, is forced by the same calibration that set the row above:
+    // at 4.5 the hover pair fires on Purple Dusk (3.18), Nordic (3.35) and
+    // Graphite (3.77), which are shipped themes. A user who drags either of
+    // these under the accent's own floor still gets told.
+    { "accentText", "accentText", "accentHover", "accentHover",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "A button's label while the pointer is on it"),
+      3.0, false }, //  3.18 Purple Dusk
+    { "accentText", "accentText", "accentPressed", "accentPressed",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "A button's label while it is held down"),
+      3.0, false }, //  4.73 Purple Dusk
     // ---- surface against surface: CIE L* separation -------------------------
     { "border", "border", "surface", "surface",
       QT_TRANSLATE_NOOP("CustomThemeStore",
@@ -300,6 +336,32 @@ constexpr ReadabilityCheck kReadability[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "The Spaces rail against the room list"),
       2.0, true  }, //  4.23 Nordic
+    // A BADGE IS ONLY A BADGE IF YOU CAN SEE IT AGAINST WHAT IT SITS ON.
+    // `mention` is an editable role and was ungraded until 2026-09-19: a user
+    // could paint it their own room-list colour and the count that says
+    // somebody named them would vanish into the row, with the editor
+    // reporting a clean theme. An EDGE check, because the badge is a filled
+    // pill rather than ink — the same distinction the header records for
+    // hairlines. Every preset clears 30, so 6.0 is a floor far under
+    // anything shipped and still catches a badge disappearing.
+    { "mentionBadge", "mention", "sidebar", "sidebar",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "A mention badge against the room list"),
+      6.0, true  }, // 30.02 Nordic
+};
+
+// Store role -> palette key, for the three roles whose two spellings differ.
+// See the header: this was QML's private object literal until 2026-09-19, and
+// the table above is its second, implicit copy.
+struct RoleAlias {
+    const char *role;
+    const char *paletteKey;
+};
+
+constexpr RoleAlias kRoleAliases[] = {
+    { "inputBg",  "inputBackground" },
+    { "reaction", "reactionBackground" },
+    { "mention",  "mentionBadge" },
 };
 
 // The collection, and which of its entries theme id 12 renders.
@@ -352,7 +414,11 @@ const QRegularExpression &hexRe()
 //
 // Returning an INVALID colour makes `gradePalette` skip the check, which is
 // the honest answer: we do not know, so we do not say.
-QColor asColor(const QVariant &value)
+// The parse WITHOUT the opaque guard, so a caller can tell the two reasons a
+// grade was refused apart. "We do not know because it is see-through" is a
+// sentence a user can act on; "this build has no such colour" is a bug report
+// about us. `auditSkipped` says which, and the editor prints the difference.
+QColor rawColor(const QVariant &value)
 {
     QColor c;
     if (value.canConvert<QColor>())
@@ -361,6 +427,12 @@ QColor asColor(const QVariant &value)
         const QString text = value.toString().trimmed();
         c = text.isEmpty() ? QColor() : QColor::fromString(text);
     }
+    return c;
+}
+
+QColor asColor(const QVariant &value)
+{
+    const QColor c = rawColor(value);
     if (c.isValid() && c.alpha() != 255)
         return QColor();
     return c;
@@ -515,6 +587,49 @@ int CustomThemeStore::readabilityCheckCount()
     return int(std::size(kReadability));
 }
 
+QVariantList CustomThemeStore::readabilityChecks()
+{
+    QVariantList out;
+    for (const ReadabilityCheck &check : kReadability) {
+        QVariantMap entry;
+        entry.insert(QStringLiteral("fg"), QLatin1String(check.fg));
+        entry.insert(QStringLiteral("fgRole"),
+                     check.fgRole ? QString::fromLatin1(check.fgRole)
+                                  : QString());
+        entry.insert(QStringLiteral("bg"), QLatin1String(check.bg));
+        entry.insert(QStringLiteral("bgRole"), QLatin1String(check.bgRole));
+        entry.insert(QStringLiteral("label"), tr(check.phrase));
+        entry.insert(QStringLiteral("minimum"), check.minimum);
+        entry.insert(QStringLiteral("kind"),
+                     check.edge ? QStringLiteral("edge")
+                                : QStringLiteral("ink"));
+        out.append(entry);
+    }
+    return out;
+}
+
+QVariantMap CustomThemeStore::paletteKeyAliases()
+{
+    QVariantMap out;
+    for (const RoleAlias &alias : kRoleAliases)
+        out.insert(QLatin1String(alias.role), QLatin1String(alias.paletteKey));
+    return out;
+}
+
+QVariantMap CustomThemeStore::roleAliases() const
+{
+    return paletteKeyAliases();
+}
+
+QString CustomThemeStore::paletteKeyForRole(const QString &role) const
+{
+    for (const RoleAlias &alias : kRoleAliases) {
+        if (role == QLatin1String(alias.role))
+            return QString::fromLatin1(alias.paletteKey);
+    }
+    return role;
+}
+
 QStringList CustomThemeStore::readabilityPaletteKeys()
 {
     QStringList out;
@@ -539,11 +654,20 @@ double CustomThemeStore::lightness(const QString &hex) const
 
 namespace {
 
-// One row of the report. `failuresOnly` is what the summary wants; the live
+// What one pass over the table is being asked for.
+enum class GradeMode {
+    FailuresOnly,  // the report: what is wrong
+    All,           // the live readout: every number, passes included
+    SkippedOnly,   // what could not be graded at all
+};
+
+// One row of the report. `FailuresOnly` is what the summary wants; the live
 // readout under an open picker wants the passes too, so it can show a number
-// climbing rather than a warning blinking out of existence.
+// climbing rather than a warning blinking out of existence; and
+// `SkippedOnly` is the third answer, which used to be no answer — see
+// `auditSkipped` in the header for the measurement that made it necessary.
 QVariantList gradePalette(const QVariantMap &palette, const QString &onlyRole,
-                          bool failuresOnly)
+                          GradeMode mode)
 {
     QVariantList out;
     for (const ReadabilityCheck &check : kReadability) {
@@ -553,21 +677,43 @@ QVariantList gradePalette(const QVariantMap &palette, const QString &onlyRole,
         if (!onlyRole.isEmpty() && onlyRole != fgRole && onlyRole != bgRole)
             continue;
 
-        const QColor fg = asColor(palette.value(QLatin1String(check.fg)));
-        const QColor bg = asColor(palette.value(QLatin1String(check.bg)));
+        const QVariant fgValue = palette.value(QLatin1String(check.fg));
+        const QVariant bgValue = palette.value(QLatin1String(check.bg));
+        const QColor fg = asColor(fgValue);
+        const QColor bg = asColor(bgValue);
         // A palette missing one side of a pair is a palette this build does
-        // not understand, not a failure to report at the user.
-        if (!fg.isValid() || !bg.isValid())
+        // not understand, and a translucent one is a colour whose contrast
+        // depends on what is behind it. Neither is a failure to report at the
+        // user — but neither is a PASS either, and reporting nothing at all
+        // is what made the badge lie.
+        const bool graded = fg.isValid() && bg.isValid();
+        if (graded != (mode != GradeMode::SkippedOnly))
             continue;
 
-        const double value = check.edge
-                                 ? std::abs(lstarOf(fg) - lstarOf(bg))
-                                 : contrastOf(fg, bg);
-        const bool passes = value >= check.minimum;
-        if (failuresOnly && passes)
-            continue;
+        double value = 0.0;
+        bool passes = false;
+        if (graded) {
+            value = check.edge ? std::abs(lstarOf(fg) - lstarOf(bg))
+                               : contrastOf(fg, bg);
+            passes = value >= check.minimum;
+            if (mode == GradeMode::FailuresOnly && passes)
+                continue;
+        }
 
         QVariantMap entry;
+        if (!graded) {
+            // The see-through one when BOTH are unusable: it is the one a
+            // person can do something about, and the one their eyes can see
+            // on the row's swatch.
+            const bool fgTranslucent = !fg.isValid()
+                                       && rawColor(fgValue).isValid();
+            const bool bgTranslucent = !bg.isValid()
+                                       && rawColor(bgValue).isValid();
+            entry.insert(QStringLiteral("reason"),
+                         fgTranslucent || bgTranslucent
+                             ? QStringLiteral("translucent")
+                             : QStringLiteral("missing"));
+        }
         // What the editor opens when this row is clicked. The foreground when
         // the user can edit it; otherwise the background, because a white ink
         // pinned by literal can only be fixed by moving what is under it.
@@ -585,9 +731,16 @@ QVariantList gradePalette(const QVariantMap &palette, const QString &onlyRole,
                      CustomThemeStore::roleLabel(bgRole));
         entry.insert(QStringLiteral("kind"),
                      check.edge ? QStringLiteral("edge") : QStringLiteral("ink"));
-        entry.insert(QStringLiteral("value"), value);
         entry.insert(QStringLiteral("minimum"), check.minimum);
-        entry.insert(QStringLiteral("passes"), passes);
+        // A SKIPPED ROW CARRIES NO VALUE AND NO VERDICT. Writing 0/false
+        // there would hand every consumer a row that reads as a catastrophic
+        // failure — which is the same lie as reading it as a pass, in the
+        // other direction. `undefined` in QML and an absent key in C++ are
+        // both unmistakable.
+        if (graded) {
+            entry.insert(QStringLiteral("value"), value);
+            entry.insert(QStringLiteral("passes"), passes);
+        }
         out.append(entry);
     }
     return out;
@@ -597,13 +750,19 @@ QVariantList gradePalette(const QVariantMap &palette, const QString &onlyRole,
 
 QVariantList CustomThemeStore::audit(const QVariantMap &palette) const
 {
-    return gradePalette(palette, QString(), true);
+    return gradePalette(palette, QString(), GradeMode::FailuresOnly);
 }
 
 QVariantList CustomThemeStore::auditForRole(const QVariantMap &palette,
                                             const QString &role) const
 {
-    return gradePalette(palette, role, false);
+    return gradePalette(palette, role, GradeMode::All);
+}
+
+QVariantList CustomThemeStore::auditSkipped(const QVariantMap &palette,
+                                            const QString &role) const
+{
+    return gradePalette(palette, role, GradeMode::SkippedOnly);
 }
 
 QString CustomThemeStore::roleLabel(const QString &role)
