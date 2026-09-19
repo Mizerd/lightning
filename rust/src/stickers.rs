@@ -878,6 +878,40 @@ async fn read_one_room_pack(
 
 /// Send one `m.sticker` to a room or a thread.
 ///
+/// The `info` block of a sticker event, with UNKNOWN fields left out.
+///
+/// ZERO IS A CLAIM; ABSENT IS THE TRUTH. `UInt::new(0)` is `Some(0)`, so
+/// assigning a width through unconditionally puts `"w": 0` on the wire — an
+/// assertion that this picture is zero pixels across — where the honest
+/// encoding of "we did not measure it" is to omit the field entirely.
+///
+/// It arrives here as 0 all the time and BY DESIGN: a pack entry's `info` is
+/// advisory and `add_to_user_pack_inner` deliberately will not decode an image
+/// to fill it (see its own note), so every sticker sent from a pack Lightning
+/// wrote has no dimensions to pass on.
+///
+/// The difference is invisible to us — Lightning's own renderer tests `> 0`
+/// and falls back to the file size either way — and it is exactly what every
+/// OTHER client reads to reserve space before the bitmap loads. Same
+/// distinction as an absent `info` versus an empty one, and the same lesson as
+/// a boolean that cannot say "unknown".
+fn sticker_image_info(mimetype: String, width: u64, height: u64, size: u64) -> ImageInfo {
+    let mut info = ImageInfo::new();
+    if !mimetype.is_empty() {
+        info.mimetype = Some(mimetype);
+    }
+    if width > 0 {
+        info.width = UInt::new(width);
+    }
+    if height > 0 {
+        info.height = UInt::new(height);
+    }
+    if size > 0 {
+        info.size = UInt::new(size);
+    }
+    info
+}
+
 /// The media is the pack's OWN `mxc://`. That is what MSC2545 packs are and
 /// what every other client sends — the pack image is already Matrix media, so
 /// there is nothing to upload and nothing to re-encode. **Consequence, stated
@@ -923,15 +957,11 @@ pub(crate) fn send_sticker(
         return Err("Rust SDK session is not logged in.".to_owned());
     };
 
-    let mut info = ImageInfo::new();
-    if !mimetype.is_empty() {
-        info.mimetype = Some(mimetype);
-    }
-    info.width = UInt::new(width);
-    info.height = UInt::new(height);
-    info.size = UInt::new(size);
-
-    let content = StickerEventContent::new(body, info, OwnedMxcUri::from(url));
+    let content = StickerEventContent::new(
+        body,
+        sticker_image_info(mimetype, width, height, size),
+        OwnedMxcUri::from(url),
+    );
 
     bridge.timelines.send_content(
         &bridge.runtime,
@@ -2062,6 +2092,54 @@ mod tests {
             after["rooms"]["!r0:example.org"].as_object().unwrap().len(),
             2
         );
+    }
+
+    // A STICKER FROM A LIGHTNING-WRITTEN PACK HAS NO DIMENSIONS, and what
+    // goes on the wire for that must be silence, not a zero. Serialized
+    // rather than asserted on the struct, because the whole point is the
+    // shape of the JSON another client parses.
+    #[test]
+    fn an_unmeasured_sticker_omits_its_dimensions_rather_than_claiming_zero() {
+        let info = sticker_image_info("image/webp".to_owned(), 0, 0, 43008);
+        let wire = serde_json::to_value(&info).expect("info serializes");
+        assert!(
+            wire.get("w").is_none(),
+            "an unmeasured sticker asserts a width: {wire}"
+        );
+        assert!(
+            wire.get("h").is_none(),
+            "an unmeasured sticker asserts a height: {wire}"
+        );
+        // The two facts it DOES have still travel.
+        assert_eq!(wire.get("size").and_then(Value::as_u64), Some(43008));
+        assert_eq!(
+            wire.get("mimetype").and_then(Value::as_str),
+            Some("image/webp")
+        );
+    }
+
+    // And a pack that DOES carry dimensions is passed through untouched, so
+    // the omission above is about the absence and not about the field.
+    #[test]
+    fn a_measured_sticker_still_carries_what_it_measured() {
+        let info = sticker_image_info("image/png".to_owned(), 512, 384, 900);
+        let wire = serde_json::to_value(&info).expect("info serializes");
+        assert_eq!(wire.get("w").and_then(Value::as_u64), Some(512));
+        assert_eq!(wire.get("h").and_then(Value::as_u64), Some(384));
+    }
+
+    // An empty mimetype is already omitted and must stay that way: the
+    // parser accepts an absent one on purpose (MSC2545 lets an entry omit
+    // it), so writing "" back would be inventing a type nothing declared.
+    #[test]
+    fn an_empty_mimetype_is_omitted_not_written_as_an_empty_string() {
+        let info = sticker_image_info(String::new(), 0, 0, 0);
+        let wire = serde_json::to_value(&info).expect("info serializes");
+        assert!(
+            wire.get("mimetype").is_none(),
+            "an empty mimetype reached the wire: {wire}"
+        );
+        assert!(wire.get("size").is_none(), "a zero size reached the wire: {wire}");
     }
 
     #[test]
