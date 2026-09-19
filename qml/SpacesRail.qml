@@ -214,6 +214,27 @@ Rectangle {
     /// The gutter is exactly full at the minimum width; its arithmetic is
     /// at `railSideMargin`, which is the one place that states it.
     readonly property int chevronSlotLeft: bandInset(maxBandLayers)
+    /// THE SELF BADGE SITS ON THE AVATAR'S EDGE AND COVERS NONE OF THE FACE.
+    ///
+    /// It was anchored to the tile's square bounding box at a 6.5% margin,
+    /// which put its centre 15.4px from the centre of a disc of radius 20 —
+    /// INSIDE the avatar, so it sat on the picture. Reported as covering the
+    /// profile.
+    ///
+    /// Placed by the geometry instead: the centre goes
+    /// `avatarR + dotR - ring` from the avatar's centre along the 45-degree
+    /// diagonal, so the state ink lands exactly at the disc's edge and only
+    /// the ring — which is rail-coloured, and whose whole job is to separate
+    /// the badge from what is under it — overlaps the picture at all.
+    readonly property int selfDotSize: AppTheme.scaled(13)
+    /// PresenceDot insets its state disc by 2px; the fallback below matches
+    /// it so both land in the same place.
+    readonly property int selfDotRing: 2
+    readonly property real selfDotMargin:
+        railTileSize
+        - (railTileSize / 2
+           + (railTileSize / 2 + selfDotSize / 2 - selfDotRing) / Math.SQRT2
+           + selfDotSize / 2)
     /// THE PLATE THE MARK SITS IN. A chevron alone in a column reads as
     /// debris — it was described exactly that way twice, once as "stray
     /// marks in the gutter" and once as "out of place alone" — so it gets a
@@ -869,7 +890,12 @@ Rectangle {
             // tile.
             reuseItems: false
 
-            ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
+            // NO SCROLLBAR. A 78px column of round tiles does not have room
+            // for a rail-length vertical bar beside them, and what it drew
+            // was a hard grey line down the one edge every region boundary
+            // meets — "ugly as hell", and the fade below already says the
+            // column continues. The wheel, a drag and the keyboard all still
+            // scroll it; Discord's rail makes the same call.
 
             // ── The bottom fade ──────────────────────────────────────────
             //
@@ -2501,38 +2527,56 @@ Rectangle {
                 // recoloured on rename.
                 colorKey: app.accounts ? app.accounts.activeUserId : ""
             }
-            // LOCAL CONNECTIVITY, not Matrix presence. Matrix presence
-            // landed in v0.7.x (PresenceDot.qml) and is shown for OTHER
-            // users — on DM rows, the People list and the profile popover.
-            // This dot deliberately stays a sync-connection indicator: it
-            // answers "is this client talking to the homeserver", which is
-            // a different question from "what state has this account
-            // published", and conflating the two would let a network blip
-            // read as the user going away. It uses the presence palette
-            // only because those are the app's online/away inks.
-            Rectangle {
-                objectName: "railConnectionDot"
+            // THIS BADGE SHOWS THE ACCOUNT'S REAL PRESENCE.
+            //
+            // It was a CONNECTION indicator — green when the sync socket was
+            // up — and it was the only self-status in the app, so the answer
+            // to "what am I showing as?" was a question it could not answer.
+            // Reported 2026-09-19 as not showing the correct status.
+            //
+            // The lifecycle (watch/unwatch, unknown renders NOTHING rather
+            // than a fabricated Offline, offline drawn as a hollow ring so
+            // the three states differ in FORM and not only in hue) all lives
+            // in PresenceDot, which every other surface already uses. The
+            // rail was the one place hand-rolling a rival indicator.
+            //
+            // CONNECTION IS NOT LOST, it moves to the tooltip. That is the
+            // same argument PresenceDot itself makes about `unavailable`: a
+            // dot has no room for prose, so the only thing it could do with a
+            // second fact is paint another colour, which is a fabricated
+            // indicator by another name. The sentence goes where there is
+            // room for a sentence.
+            PresenceDot {
+                id: railSelfPresence
+                objectName: "railSelfPresenceDot"
+                userId: app.accounts ? (app.accounts.activeUserId || "") : ""
+                ring: AppTheme.rail
+                dotSize: root.selfDotSize
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                // ON THE CIRCLE'S 45-DEGREE POINT. It was anchored to the
-                // square BOUNDING BOX of a circular avatar with no inset, so
-                // its centre sat 33px from a disc of radius 29.5 — about two
-                // thirds of the dot hanging off the corner, over bare rail.
-                // ON THE EDGE, not inside the face. 0.15 put the dot's
-                // centre 11.5px from a circle of radius 24 — fully inside the
-                // avatar, reading as a sticker ON the person rather than as a
-                // status AT their edge. 0.065 lands it on the 45-degree point.
-                anchors.rightMargin: Math.round(root.railTileSize * 0.065)
-                anchors.bottomMargin: Math.round(root.railTileSize * 0.065)
-                // BIGGER, WITH A REAL CUTOUT. 7px of ink behind a hairline
-                // ring disappears on a green avatar, which is the one case a
-                // green "online" dot has to survive. Discord uses ~12 with a
-                // 3px background-coloured cutout.
-                width: AppTheme.scaled(13)
-                height: AppTheme.scaled(13)
+                anchors.rightMargin: root.selfDotMargin
+                anchors.bottomMargin: root.selfDotMargin
+                Accessible.role: Accessible.Indicator
+                Accessible.name: statusText
+            }
+            // AND WHEN THE SERVER HAS NO PRESENCE TO GIVE, the badge still
+            // has to say something: PresenceDot renders nothing for an
+            // unknown state, which is right for a PEER and would leave the
+            // user's own tile with no indicator at all on a server with
+            // presence disabled. This is the old connection dot, kept for
+            // exactly that case and visible only then.
+            Rectangle {
+                objectName: "railConnectionDot"
+                visible: !railSelfPresence.visible
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.rightMargin: root.selfDotMargin
+                anchors.bottomMargin: root.selfDotMargin
+                width: root.selfDotSize
+                height: root.selfDotSize
                 radius: height / 2
                 border.color: AppTheme.rail
-                border.width: 3
+                border.width: root.selfDotRing
                 color: app.connectionStatus === qsTr("Connected")
                        ? AppTheme.presenceOnline : AppTheme.presenceAway
                 Accessible.role: Accessible.Indicator
