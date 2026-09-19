@@ -2,12 +2,15 @@
 
 #include "app/SettingsManager.h"
 
+#include <QColor>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QUuid>
 
+#include <algorithm>
+#include <cmath>
 #include <iterator>
 
 namespace {
@@ -120,6 +123,185 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Field outlines and the scrollbar handle") },
 };
 
+// ---- the readability table -------------------------------------------------
+//
+// See the header for why this lives here and what it is calibrated against.
+// Keys are the SEMANTIC names AppTheme.paletteForTheme() returns, not the
+// store's own spelling, because the editor hands us that resolved object
+// directly — `inputBackground` here is `inputBg` in kRoles above, and the
+// `role` column below is what carries the editable name back to the UI.
+//
+// `worst` is the tightest margin across the eleven shipped presets, measured
+// 2026-09-19 and re-asserted by the suite. Bars were chosen UNDER these, not
+// from a standards document alone: a check that fires on a stock theme the
+// moment somebody forks it teaches people to ignore every check.
+//
+// WHAT IS DELIBERATELY NOT CHECKED, and the preset that rules each one out:
+//   * `selected` against `sidebar`. Moss Light paints them the SAME colour
+//     (ΔL* 0.12) and tells the open room apart by its label instead — which
+//     is why `selectedText`/`selected` IS checked. Any bar that would catch a
+//     bad custom theme here fires on Moss Light.
+//   * `hover` against `sidebar` (Warm, ΔL* 2.61) and `cardElevated` against
+//     `surface` (Moss Light, ΔL* 1.85). Both floors are so low that a bar
+//     beneath them could not catch anything a user would notice.
+//   * `accent` against `background` at 3:1 (Indigo Night, 2.86) and
+//     `link` against `background` at 4.5 (Moss Light, 4.47). Both are real
+//     near-misses in shipped themes; `link`/`surface` is checked instead,
+//     where every preset clears 5.0.
+//   * `textDisabled` anywhere. It is SUPPOSED to be low contrast; flagging it
+//     would be the audit arguing with the design it is auditing.
+struct ReadabilityCheck {
+    const char *fg;      // palette key of the ink, or of the upper surface
+    const char *fgRole;  // editable role behind it, or nullptr
+    const char *bg;      // palette key it sits on
+    const char *bgRole;  // editable role behind it, or nullptr
+    // WHAT THE ROW SAYS, WRITTEN OUT. Composing it from the two role labels
+    // instead — "%1 on %2" — produced "Text on accent on Accent", "Text on
+    // your messages on Your messages" and "Text on a selection on Selected
+    // room", because three of the foregrounds are roles whose own names
+    // already contain the preposition. It also forced "on" onto the four
+    // EDGE checks, where the relation is "against": two surfaces meeting at
+    // a line are not one stacked on the other. A composed string cannot know
+    // either of those things, so each check carries its own sentence.
+    const char *phrase;
+    double minimum;      // WCAG ratio for Ink, ΔL* for Edge
+    bool edge;           // false = WCAG contrast, true = CIE L* separation
+};
+
+// A foreground with no editable role of its own needs its own name.
+// `ownBubbleText` is the one: AppTheme pins it to white by literal, so the
+// only way to fix a failure there is to move the bubble underneath it.
+constexpr auto kOwnBubbleInk =
+    QT_TRANSLATE_NOOP("CustomThemeStore", "Text on your messages");
+
+constexpr ReadabilityCheck kReadability[] = {
+    // ---- ink on a surface: WCAG 4.5:1 -------------------- worst preset ----
+    { "textPrimary", "textPrimary", "background", "background",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Main text on the conversation background"),
+      4.5, false }, //  9.13 Warm
+    { "textPrimary", "textPrimary", "sidebar", "sidebar",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Main text in the room list"),
+      4.5, false }, // 10.04 Warm
+    { "textPrimary", "textPrimary", "surface", "surface",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Main text on panels and cards"),
+      4.5, false }, //  8.73 Nordic
+    { "textPrimary", "textPrimary", "otherBubble", "otherBubble",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Main text on their messages"),
+      4.5, false }, //  8.10 Nordic
+    { "textPrimary", "textPrimary", "inputBackground", "inputBg",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Main text inside a text field"),
+      4.5, false }, // 10.24 Lightning Dark
+    { "textPrimary", "textPrimary", "codeBlock", "codeBlock",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Main text inside a code block"),
+      4.5, false }, //  8.92 Warm
+    { "textPrimary", "textPrimary", "hover", "hover",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Main text on a hovered row"),
+      4.5, false }, //  6.40 Nordic
+    { "textPrimary", "textPrimary", "cardElevated", "cardElevated",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Main text on a raised chip"),
+      4.5, false }, //  7.35 Nordic
+    // THE INK THE APP ACTUALLY PAINTS. This graded `textPrimary`, and a
+    // reaction pill is painted with `reactionInk`, which AppTheme defines as
+    // `textSecondary` (AppTheme.qml) and MessageDelegate uses. Grading the
+    // brighter ink made the check strictly LOOSER than reality: it could
+    // report a pill readable whose real label was not, and with only
+    // `textPrimary` overridden it printed advice about a pixel that does not
+    // exist. The editor's own preview already used `reactionInk`.
+    { "textSecondary", "textSecondary", "reactionBackground", "reaction",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Reaction text on a reaction pill"),
+      // The recorded margin was 6.61 Nordic for the WRONG ink and is not
+      // carried over. What guards it now is
+      // `everyReadabilityCheckPassesOnEveryShippedPreset`, which was re-run
+      // against the corrected ink and passes on all eleven.
+      4.5, false },
+    { "textSecondary", "textSecondary", "background", "background",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Secondary text on the conversation background"),
+      4.5, false }, //  5.05 Warm
+    { "textSecondary", "textSecondary", "sidebar", "sidebar",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Message previews in the room list"),
+      4.5, false }, //  5.55 Warm
+    { "textSecondary", "textSecondary", "surface", "surface",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Secondary text on panels and cards"),
+      4.5, false }, //  5.37 Indigo Night
+    { "textSecondary", "textSecondary", "inputBackground", "inputBg",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Secondary text inside a text field"),
+      4.5, false }, //  5.81 Warm
+    { "textMuted", "textMuted", "background", "background",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Timestamps on the conversation background"),
+      4.5, false }, //  4.59 Warm
+    { "textMuted", "textMuted", "sidebar", "sidebar",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Timestamps in the room list"),
+      4.5, false }, //  5.05 Warm
+    { "textMuted", "textMuted", "surface", "surface",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Timestamps on panels and cards"),
+      4.5, false }, //  4.59 Deep Teal
+    { "selectedText", "selectedText", "selected", "selected",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "The open room's name in the room list"),
+      4.5, false }, //  5.40 Nordic
+    { "link", "link", "surface", "surface",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Links on panels and cards"),
+      4.5, false }, //  5.02 Storm
+    // nullptr, NOT a name: AppTheme pins this ink to white by literal, so
+    // there is no editable role behind it and the report must send a click
+    // to the BUBBLE instead. (It briefly read "None" here — a Python literal
+    // that leaked in when this table was regenerated by script. Every case
+    // stayed green, because the only guard on the role name ran over the
+    // FAILING rows of two fixtures and neither of them overrides ownBubble.
+    // The guard now runs over every row of every preset.)
+    { "ownBubbleText", nullptr, "ownBubble", "ownBubble",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Text on your own messages"),
+      4.5, false }, //  6.22 Moss Light
+    // 3:1 HERE IS A CALIBRATION DECISION, NOT A STANDARD. An earlier note
+    // called a filled button's label "LARGE TEXT, so 3:1" — that is wrong:
+    // WCAG large text is >=18.66px bold or >=24px and these labels are body
+    // sized. (1.4.11 does give 3:1, but for a component's BOUNDARY, not its
+    // label.) The number stands on its own evidence instead: AppTheme's
+    // `_light` comment records that white-on-accent is pinned at 3:1, which
+    // CAPS the accent's luminance, and two shipped presets sit under 4.5 by
+    // that design — Nordic 4.03 and Purple Dusk 3.62. Holding them to 4.5
+    // would mean the editor failing themes this application ships.
+    { "accentText", "accentText", "accent", "accent",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "A button's label on the accent"),
+      3.0, false }, //  3.62 Purple Dusk
+    // ---- surface against surface: CIE L* separation -------------------------
+    { "border", "border", "surface", "surface",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Hairlines against panels and cards"),
+      3.0, true  }, //  5.57 Nordic
+    { "borderStrong", "borderStrong", "inputBackground", "inputBg",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "A field's outline against its inside"),
+      6.0, true  }, // 20.30 Warm
+    { "surface", "surface", "background", "background",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Panels against the conversation background"),
+      2.5, true  }, //  6.34 Nordic
+    { "rail", "rail", "sidebar", "sidebar",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "The Spaces rail against the room list"),
+      2.0, true  }, //  4.23 Nordic
+};
+
 // The collection, and which of its entries theme id 12 renders.
 constexpr auto kListKey   = "appearance/customThemeList";
 constexpr auto kActiveKey = "appearance/customThemeActive";
@@ -142,6 +324,90 @@ const QRegularExpression &hexRe()
 {
     static const QRegularExpression re(QStringLiteral("^#[0-9A-Fa-f]{6}$"));
     return re;
+}
+
+// A palette entry as a colour. AppTheme's resolved palette is a MIXTURE: the
+// preset values arrive as QML `color` (a QColor), while the user's own
+// overrides are merged in as "#RRGGBB" STRINGS — the same split that made
+// AppTheme's own `relativeLuminance` return NaN for every custom theme until
+// `_asColor` was added there. Anything doing arithmetic on one has to come
+// through here first, and an unparseable entry stays INVALID rather than
+// becoming black, so a check over it is skipped instead of inventing a
+// failure.
+// A TRANSLUCENT ENTRY IS NOT GRADABLE, AND RETURNING IT WOULD BE A LIE.
+//
+// This class already refuses 8-digit hex from the user, and the comment at
+// `hexRe()` says why: a translucent surface composites over whatever is
+// behind it, which makes the resulting contrast UNKNOWABLE. The same is true
+// of a translucent colour a theme INHERITED, and the base palettes contain
+// them — Storm writes `hover: Qt.alpha(_stoHover, 0.22)`.
+//
+// Grading such an entry by its raw RGB is not an approximation, it is a
+// different colour. Measured on the running editor: a brand-new theme on the
+// Storm base, with ZERO user overrides, was told "Main text on a hovered row
+// 4.4:1 — needs 4.5:1" — the cry-wolf-on-a-stock-theme failure the whole
+// table is calibrated to avoid, produced by the one entry the suite's own
+// AppTheme parser cannot resolve and therefore could not warn about. Only
+// running the editor could show it.
+//
+// Returning an INVALID colour makes `gradePalette` skip the check, which is
+// the honest answer: we do not know, so we do not say.
+QColor asColor(const QVariant &value)
+{
+    QColor c;
+    if (value.canConvert<QColor>())
+        c = value.value<QColor>();
+    if (!c.isValid()) {
+        const QString text = value.toString().trimmed();
+        c = text.isEmpty() ? QColor() : QColor::fromString(text);
+    }
+    if (c.isValid() && c.alpha() != 255)
+        return QColor();
+    return c;
+}
+
+double lstarOf(const QColor &c);
+double contrastOf(const QColor &a, const QColor &b);
+
+// WCAG 2.x, verbatim. sRGB -> linear with the 0.03928 knee (WCAG's own
+// constant; 0.04045 is the sRGB spec's and this comment named it for a
+// while), then the
+// 0.2126/0.7152/0.0722 luminance weights.
+//
+// This is a third copy in the tree (AppTheme.qml:111 and
+// src/theme/IdentityColors.cpp both carry it) and that is a deliberate,
+// bounded choice, not an oversight: IdentityColors' copy is in an anonymous
+// namespace and its translation unit is not compiled into `custom-theme-test`,
+// so reaching it costs a header change and a CMake change in files this round
+// does not own. The hazard §16 warns about is a hand-kept copy of a TUNED
+// value drifting — this is a published W3C constant, and
+// `contrastMatchesPublishedReferenceValues` pins it against the four
+// reference pairs. Consolidating all three behind one exported helper is a
+// good follow-up; it is not a correctness risk today.
+double channelLinear(double c)
+{
+    return c <= 0.03928 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+}
+
+double luminance(const QColor &c)
+{
+    return 0.2126 * channelLinear(c.redF())
+         + 0.7152 * channelLinear(c.greenF())
+         + 0.0722 * channelLinear(c.blueF());
+}
+
+double contrastOf(const QColor &a, const QColor &b)
+{
+    const double la = luminance(a);
+    const double lb = luminance(b);
+    return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+
+double lstarOf(const QColor &c)
+{
+    const double y = luminance(c);
+    // The CIE break is at (6/29)^3; below it L* is linear in Y.
+    return y > 0.008856 ? 116.0 * std::cbrt(y) - 16.0 : 903.3 * y;
 }
 
 } // namespace
@@ -225,6 +491,128 @@ QVariantMap CustomThemeStore::sanitize(const QVariantMap &raw)
         out.insert(it.key(), value.toUpper());
     }
     return out;
+}
+
+// ---- readability -----------------------------------------------------------
+
+double CustomThemeStore::contrast(const QString &a, const QString &b)
+{
+    const QColor ca = asColor(a);
+    const QColor cb = asColor(b);
+    if (!ca.isValid() || !cb.isValid())
+        return 0.0;
+    return contrastOf(ca, cb);
+}
+
+double CustomThemeStore::lstar(const QString &hex)
+{
+    const QColor c = asColor(hex);
+    return c.isValid() ? lstarOf(c) : 0.0;
+}
+
+int CustomThemeStore::readabilityCheckCount()
+{
+    return int(std::size(kReadability));
+}
+
+QStringList CustomThemeStore::readabilityPaletteKeys()
+{
+    QStringList out;
+    for (const ReadabilityCheck &check : kReadability) {
+        if (!out.contains(QLatin1String(check.fg)))
+            out << QLatin1String(check.fg);
+        if (!out.contains(QLatin1String(check.bg)))
+            out << QLatin1String(check.bg);
+    }
+    return out;
+}
+
+double CustomThemeStore::contrastRatio(const QString &a, const QString &b) const
+{
+    return contrast(a, b);
+}
+
+double CustomThemeStore::lightness(const QString &hex) const
+{
+    return lstar(hex);
+}
+
+namespace {
+
+// One row of the report. `failuresOnly` is what the summary wants; the live
+// readout under an open picker wants the passes too, so it can show a number
+// climbing rather than a warning blinking out of existence.
+QVariantList gradePalette(const QVariantMap &palette, const QString &onlyRole,
+                          bool failuresOnly)
+{
+    QVariantList out;
+    for (const ReadabilityCheck &check : kReadability) {
+        const QString fgRole = check.fgRole ? QString::fromLatin1(check.fgRole)
+                                            : QString();
+        const QString bgRole = QString::fromLatin1(check.bgRole);
+        if (!onlyRole.isEmpty() && onlyRole != fgRole && onlyRole != bgRole)
+            continue;
+
+        const QColor fg = asColor(palette.value(QLatin1String(check.fg)));
+        const QColor bg = asColor(palette.value(QLatin1String(check.bg)));
+        // A palette missing one side of a pair is a palette this build does
+        // not understand, not a failure to report at the user.
+        if (!fg.isValid() || !bg.isValid())
+            continue;
+
+        const double value = check.edge
+                                 ? std::abs(lstarOf(fg) - lstarOf(bg))
+                                 : contrastOf(fg, bg);
+        const bool passes = value >= check.minimum;
+        if (failuresOnly && passes)
+            continue;
+
+        QVariantMap entry;
+        // What the editor opens when this row is clicked. The foreground when
+        // the user can edit it; otherwise the background, because a white ink
+        // pinned by literal can only be fixed by moving what is under it.
+        entry.insert(QStringLiteral("role"),
+                     fgRole.isEmpty() ? bgRole : fgRole);
+        entry.insert(QStringLiteral("fg"), QLatin1String(check.fg));
+        entry.insert(QStringLiteral("bg"), QLatin1String(check.bg));
+        entry.insert(QStringLiteral("label"),
+                     CustomThemeStore::tr(check.phrase));
+        entry.insert(QStringLiteral("fgLabel"),
+                     fgRole.isEmpty()
+                         ? CustomThemeStore::tr(kOwnBubbleInk)
+                         : CustomThemeStore::roleLabel(fgRole));
+        entry.insert(QStringLiteral("bgLabel"),
+                     CustomThemeStore::roleLabel(bgRole));
+        entry.insert(QStringLiteral("kind"),
+                     check.edge ? QStringLiteral("edge") : QStringLiteral("ink"));
+        entry.insert(QStringLiteral("value"), value);
+        entry.insert(QStringLiteral("minimum"), check.minimum);
+        entry.insert(QStringLiteral("passes"), passes);
+        out.append(entry);
+    }
+    return out;
+}
+
+} // namespace
+
+QVariantList CustomThemeStore::audit(const QVariantMap &palette) const
+{
+    return gradePalette(palette, QString(), true);
+}
+
+QVariantList CustomThemeStore::auditForRole(const QVariantMap &palette,
+                                            const QString &role) const
+{
+    return gradePalette(palette, role, false);
+}
+
+QString CustomThemeStore::roleLabel(const QString &role)
+{
+    for (const Role &r : kRoles) {
+        if (role == QLatin1String(r.key))
+            return tr(r.label);
+    }
+    return role;
 }
 
 QVariantList CustomThemeStore::roles() const

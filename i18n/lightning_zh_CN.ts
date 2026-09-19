@@ -2363,7 +2363,7 @@
 <context>
     <name>CustomThemeStore</name>
     <message>
-        <location filename="../src/app/CustomThemeStore.cpp" line="+33"/>
+        <location filename="../src/app/CustomThemeStore.cpp" line="+36"/>
         <location line="+3"/>
         <location line="+3"/>
         <location line="+3"/>
@@ -2669,7 +2669,132 @@
         <translation>字段轮廓和滚动条手柄</translation>
     </message>
     <message>
-        <location line="+311"/>
+        <location line="+52"/>
+        <source>Text on your messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Main text on the conversation background</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Main text in the room list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Main text on panels and cards</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Main text on their messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Main text inside a text field</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Main text inside a code block</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Main text on a hovered row</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Main text on a raised chip</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Reaction text on a reaction pill</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Secondary text on the conversation background</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Message previews in the room list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Secondary text on panels and cards</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Secondary text inside a text field</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Timestamps on the conversation background</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Timestamps in the room list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Timestamps on panels and cards</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>The open room&apos;s name in the room list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Links on panels and cards</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Text on your own messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>A button&apos;s label on the accent</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Hairlines against panels and cards</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>A field&apos;s outline against its inside</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Panels against the conversation background</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>The Spaces rail against the room list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+519"/>
         <location line="+108"/>
         <location line="+29"/>
         <source>My theme</source>
@@ -5857,7 +5982,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1075"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1083"/>
         <source>Today</source>
         <translation>今天</translation>
     </message>
@@ -6193,12 +6318,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2291"/>
+        <location line="+2297"/>
         <source>Save as…</source>
         <translation>另存为…</translation>
     </message>
     <message>
-        <location line="-2261"/>
+        <location line="-2267"/>
         <source>Show image</source>
         <translation>显示图片</translation>
     </message>
@@ -6240,7 +6365,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location line="-4214"/>
+        <location line="-4222"/>
         <source>%1 B</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6285,7 +6410,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4198"/>
+        <location line="+4206"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>删除编辑记录</translation>
@@ -6492,32 +6617,32 @@ Signing out and signing in again is the only fix.</source>
         <translation>贴纸加载失败 — 点击重试</translation>
     </message>
     <message>
-        <location line="-5831"/>
-        <location line="+6064"/>
+        <location line="-5839"/>
+        <location line="+6072"/>
         <location line="+66"/>
         <source>Video</source>
         <translation>视频</translation>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+213"/>
+        <location line="+219"/>
         <source>Save %1 as…</source>
         <translation>将%1另存为…</translation>
     </message>
     <message>
-        <location line="-212"/>
+        <location line="-218"/>
         <source>video</source>
         <translation>视频</translation>
     </message>
     <message>
-        <location line="-6142"/>
-        <location line="+6267"/>
+        <location line="-6150"/>
+        <location line="+6275"/>
         <location line="+31"/>
         <source>File</source>
         <translation>文件</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+19"/>
         <source>Saving…</source>
         <translation>正在保存…</translation>
     </message>
@@ -6532,7 +6657,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>保存失败</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+41"/>
         <source>file</source>
         <translation>文件</translation>
     </message>
@@ -14661,7 +14786,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+1266"/>
+        <location filename="../qml/SpacesRail.qml" line="+1287"/>
         <source>Folder: %1</source>
         <translation>文件夹：%1</translation>
     </message>
@@ -14681,7 +14806,7 @@ Note: importing keys does not verify this session.</source>
         <translation>其他房间</translation>
     </message>
     <message>
-        <location line="+510"/>
+        <location line="+497"/>
         <source>Collapse space</source>
         <translation>折叠空间</translation>
     </message>
@@ -15182,30 +15307,51 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThemeEditorDialog</name>
     <message>
-        <location filename="../qml/ThemeEditorDialog.qml" line="+87"/>
+        <location filename="../qml/ThemeEditorDialog.qml" line="+251"/>
         <source>Theme imported.</source>
         <translation>主题已导入。</translation>
     </message>
     <message>
-        <location line="+167"/>
+        <location line="+227"/>
         <source>Custom theme</source>
         <translation>自定义主题</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+15"/>
         <source>Click any part of the sample window, or a role on the left.</source>
         <translation>点击示例窗口的任意部分，或左侧的某个角色。</translation>
     </message>
     <message numerus="yes">
-        <location line="+1"/>
-        <source>%n colour(s) changed. Everything else follows the theme you started from.</source>
+        <location line="-244"/>
+        <source>Theme imported. %n thing(s) in it will be hard to read.</source>
+        <comment>custom theme readability</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+245"/>
+        <source>%n colour(s) changed.</source>
         <comment>custom theme, count of edited roles</comment>
-        <translation>
-            <numerusform>已更改 %n 种颜色。其余部分沿用你所选的起始主题。</numerusform>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+41"/>
+        <source>%n thing(s) hard to read</source>
+        <comment>custom theme readability</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
         </translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+3"/>
+        <source>Readable</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+48"/>
         <source>Reset every colour?</source>
         <translation>重置所有颜色？</translation>
     </message>
@@ -15227,11 +15373,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+6"/>
+        <location line="+334"/>
         <source>Done</source>
         <translation>完成</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="-276"/>
         <source>Your themes</source>
         <translation>你的主题</translation>
     </message>
@@ -15291,12 +15438,28 @@ Note: importing keys does not verify this session.</source>
         <translation>粘贴分享的主题，然后按回车</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+49"/>
         <source>Start from</source>
         <translation>起始主题</translation>
     </message>
     <message>
-        <location line="+212"/>
+        <location line="+11"/>
+        <source>Change</source>
+        <translation type="unfinished">改变</translation>
+    </message>
+    <message>
+        <location line="+186"/>
+        <location line="+22"/>
+        <source>Find a colour</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Nothing matches that.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+282"/>
         <source>Reset %1 to the base theme</source>
         <translation>将 %1 重置为基础主题</translation>
     </message>
@@ -15306,14 +15469,70 @@ Note: importing keys does not verify this session.</source>
         <translation>这是示例窗口，不是你的房间。点击其中一部分即可为它重新上色。</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+128"/>
+        <source>Readability</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+46"/>
+        <source>%1:1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>ΔL* %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+25"/>
+        <source>Hard to read</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Nothing hard to read</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Nothing selected</source>
         <translation>未选择任何内容</translation>
     </message>
     <message>
+        <location line="+32"/>
+        <source>Close the readability report</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+9"/>
+        <source>These are measured against the same rules the built-in themes meet. Click one to fix it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Every text and edge this theme paints clears the bar the built-in themes clear.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Click a part of the sample window in the middle, or a role in the list on the left, and its colour opens here.</source>
         <translation>点击中间示例窗口的某一部分，或左侧列表中的某个角色，它的颜色就会在这里打开。</translation>
+    </message>
+    <message>
+        <location line="+82"/>
+        <source>Aa</source>
+        <extracomment>A two-letter type specimen shown on a colour pair to demonstrate its readability. Translate to whichever letters best show this locale&apos;s script — a Latin &quot;Aa&quot; says nothing about legibility in Cyrillic, Greek or CJK.</extracomment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+26"/>
+        <source>%1:1 — needs %2:1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>ΔL* %1 — needs %2</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
