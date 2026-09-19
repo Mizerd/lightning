@@ -649,8 +649,28 @@ Item {
         }
 
         // The TRANSIENT reaction, top-left — the badges own the top-right and
-        // the nameplate the bottom, so this is the one corner where a pill
-        // can appear and disappear without moving anything.
+        // the nameplate the bottom, so this is the corner where a pill can
+        // appear and disappear without moving anything.
+        //
+        // IT IS NOT THE ONLY THING IN THIS CORNER, though the comment here
+        // said so for a while and the volume affordance below says the same
+        // about itself. Both anchored to `parent.top` + `parent.left`; the
+        // volume button is declared later, so it painted straight over the
+        // emoji. Measured on a 4-up grid with a reaction on the hovered
+        // tile: pill (562,100)-(597.2,126) against button (560,98)-(588,126)
+        // — 26x26 px of overlap, 74% of the pill, the glyph itself entirely
+        // hidden and only a crescent of the pill's right edge visible. Not a
+        // small-tile collision either: the two are anchored to the same
+        // point, so they overlap at every size, and they do it exactly when
+        // someone hovers a person who has just reacted.
+        //
+        // So the corner is SHARED, in reading order, and the reservation is
+        // read off the affordance rather than restating its diameter — the
+        // recurring failure here is a width cap that reserves a rail the
+        // placement then ignores (§16), and two copies of one constant is
+        // how that starts. The BUTTON keeps the corner and the pill yields,
+        // because a control that moves out from under a cursor that is
+        // reaching for it is worse than a badge that slides.
         //
         // IN A LOADER, and that is not a style choice: "" is this property's
         // ordinary state, and a Text created empty keeps ItemObservesViewport
@@ -662,7 +682,10 @@ Item {
             visible: active
             anchors.top: parent.top
             anchors.left: parent.left
-            anchors.margins: root.compact ? 6 : 8
+            anchors.topMargin: root.compact ? 6 : 8
+            anchors.leftMargin: (root.compact ? 6 : 8)
+                                + (volumeAffordance.visible
+                                   ? volumeAffordance.width + 4 : 0)
             sourceComponent: Rectangle {
                 id: reactionPill
                 objectName: "callTileReaction"
@@ -774,10 +797,16 @@ Item {
         // ── The visible way in ───────────────────────────────────────────
         //
         // A right-click-only control is a control most people never find, so
-        // the same action gets a button. HOVER-REVEALED and in the TOP-LEFT,
-        // which is the one corner of this tile that is free: the state badges
-        // own the top-right and the nameplate owns the bottom-left, and a
-        // control that covers either would hide a fact to offer a preference.
+        // the same action gets a button. HOVER-REVEALED and in the TOP-LEFT:
+        // the state badges own the top-right and the nameplate owns the
+        // bottom-left, and a control that covers either would hide a fact to
+        // offer a preference.
+        //
+        // THE TOP-LEFT IS NOT FREE — the transient reaction pill is anchored
+        // to the same point, and this used to be drawn straight over it (see
+        // the measurement at that Loader). This keeps the corner because a
+        // button that moves under the cursor reaching for it is the worse of
+        // the two; the pill reserves this affordance's own width and slides.
         //
         // Behind a Loader, and the Loader is inactive when the button is not
         // wanted, so a grid of tiles nobody is pointing at builds no buttons.

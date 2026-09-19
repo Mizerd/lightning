@@ -775,7 +775,40 @@ Rectangle {
                 // (smaller controls, and the share, raise-hand and device
                 // chevrons stood down), and what `root.collapsed` was until
                 // now the only thing allowed to ask for.
+                //
+                // AND `Layout.minimumWidth: 0` ALONE DOES NOT SQUEEZE
+                // ANYTHING. That is the half this was missing, and without it
+                // every line above describes a mechanism that never ran. In
+                // QtQuick.Layouts an item WITHOUT `Layout.fillWidth` has a
+                // FIXED horizontal policy: minimum = preferred = maximum, so
+                // the declared minimum is ignored and the layout overflows
+                // its own geometry instead of shrinking the cell. Measured on
+                // a four-variant isolation scene (row 536 wide, item implicit
+                // 651): `minimumWidth: 0` alone -> 651; `minimumWidth: 0` +
+                // `Layout.alignment` -> 651; adding `fillWidth` -> 501.
+                // `Layout.alignment` is NOT the cause — with and without it
+                // are identical.
+                //
+                // So the cell never shrank, `width` stayed equal to
+                // `implicitWidth` at every stage width, and the
+                // `width + 0.5 < implicitWidth` test in reassessControlRoom()
+                // below COULD NEVER BE TRUE. Measured on the real stage
+                // before this line existed: from 1100 px down to 480 px the
+                // header row stayed pinned at 723 px with its right edge at
+                // scene x=735, `cramped` false and `compact` false the whole
+                // way — so any stage narrower than 735 px drew the end of the
+                // control row, hang-up included, OUTSIDE the panel, and the
+                // tile grid with it. Exactly the 2026-09-12 report again.
+                //
+                // The maximum is the other half and is not optional: with
+                // `fillWidth` and no cap the bar GROWS into the spare width
+                // (measured 1040 px in a 1076 px row) and the dock stops
+                // being a pill at its natural size. Capping at
+                // `implicitWidth` keeps every wide window pixel-identical to
+                // before while letting a narrow one squeeze.
                 Layout.minimumWidth: 0
+                Layout.fillWidth: true
+                Layout.maximumWidth: implicitWidth
                 Layout.alignment: Qt.AlignVCenter
 
                 // WHY THIS IS A LATCH AND NOT A BINDING.

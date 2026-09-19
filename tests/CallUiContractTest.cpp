@@ -1600,6 +1600,179 @@ ApplicationWindow {
                 != nullptr);
     }
 
+    // THE CONTROL DOCK MUST STAY INSIDE THE PANEL, AT EVERY PANEL WIDTH.
+    //
+    // Geometric, on the real stage, and deliberately not a source scan: the
+    // thing that broke is invisible in the source, because CallStage.qml
+    // already carries a paragraph explaining the compact latch that was
+    // supposed to prevent exactly this. `Layout.minimumWidth: 0` without
+    // `Layout.fillWidth` gives an item a FIXED horizontal policy in
+    // QtQuick.Layouts — minimum = preferred = maximum — so the declared
+    // minimum was ignored, the header row never shrank, and
+    // `width + 0.5 < implicitWidth` in reassessControlRoom() could never be
+    // true. Measured on the unfixed tree: from 1100 px down to 480 px the
+    // header row stayed 723 px wide with its right edge at scene x=735, so
+    // every stage narrower than 735 px drew the end of the control row —
+    // the speaker chevron, the collapse button and the red HANG-UP —
+    // outside the panel, and carried the tile grid out with it.
+    //
+    // UNFIXED TREE: fails at 700 px on the first assertion (right edge 735
+    // against a stage right edge of 700), and again at 560 and 480.
+    //
+    // §16's window minimum is 640 and TimelinePane gives the conversation
+    // column Layout.minimumWidth 320, so every width below is reachable.
+    void theControlDockStaysInsideTheStageAtEveryWidth()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(),
+                            &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine,
+                              &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallStage"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(5000));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY2(root != nullptr, "CallStage must instantiate");
+
+        // Into a window: an unparented item reports effective visibility
+        // false, and a Loader that is never shown never lays its item out.
+        QQuickWindow window;
+        window.resize(1100, 620);
+        root->setParentItem(window.contentItem());
+        root->setHeight(620);
+
+        auto *bar = root->findChild<QQuickItem *>(
+            QStringLiteral("callStageControls"));
+        QVERIFY2(bar != nullptr, "the stage has no control bar");
+
+        // The bar's own cell, and the row that cell lives in. Walking up
+        // from the bar rather than naming a path: the assertion is about
+        // where the pixels land, so it must follow whatever the tree is.
+        auto *host = qobject_cast<QQuickItem *>(bar->parentItem());
+        QVERIFY(host != nullptr);
+        auto *row = qobject_cast<QQuickItem *>(host->parentItem());
+        QVERIFY(row != nullptr);
+
+        for (const int width : { 1100, 900, 760, 700, 640, 560, 480 }) {
+            root->setWidth(width);
+            settle(6);
+
+            const QPointF rowRight = row->mapToItem(nullptr,
+                                                    QPointF(row->width(), 0));
+            const QPointF stageRight = root->mapToItem(
+                nullptr, QPointF(root->width(), 0));
+            QVERIFY2(rowRight.x() <= stageRight.x() + 0.5,
+                     qPrintable(QStringLiteral(
+                         "at a %1 px stage the control row reaches x=%2 but "
+                         "the stage ends at x=%3 — the end of the control "
+                         "row, hang-up included, is outside the panel")
+                                    .arg(width)
+                                    .arg(rowRight.x())
+                                    .arg(stageRight.x())));
+
+            // And the hang-up specifically, because it is the one control
+            // whose absence traps a user in a call.
+            auto *hangUp = root->findChild<QQuickItem *>(
+                QStringLiteral("callBarHangUpButton"));
+            QVERIFY2(hangUp != nullptr,
+                     qPrintable(QStringLiteral(
+                         "no hang-up button at a %1 px stage").arg(width)));
+            const QPointF hangRight = hangUp->mapToItem(
+                nullptr, QPointF(hangUp->width(), 0));
+            // ── AN UNFIXED DEFECT, KEPT AS AN ASSERTION ────────────────
+            //
+            // The ROW is inside the stage now (asserted above) and its
+            // CONTENTS still are not: at 1100 px the hang-up ends 49 px
+            // past the stage. Adding `Layout.fillWidth` let the row shrink,
+            // which is what made `reassessControlRoom()`'s
+            // `width < implicitWidth` test reachable at all — but the
+            // controls themselves do not yield, so they overflow the row
+            // rather than compacting inside it.
+            //
+            // Which control gives way first at a narrow width is a design
+            // decision and not an auditor's to make, so the fix is open:
+            // see docs/open-items.md, 2026-09-20. QEXPECT_FAIL rather than
+            // a deleted assertion, because this is the control whose
+            // absence traps somebody in a call — and because an XPASS will
+            // turn this suite red the moment it is fixed, which is the
+            // notification the next person wants.
+            // CONSTANT 49 px AT EVERY WIDTH — 1149 at a 1100 stage, 949 at
+            // 900 — which is the useful clue: this is not a squeeze that
+            // runs out of room, it is a fixed offset. Whatever positions
+            // this button is 49 px right of where the stage ends,
+            // independent of how much space there is.
+            QEXPECT_FAIL("", "the hang-up sits a constant 49 px past the "
+                             "stage's right edge at every width; see "
+                             "open-items 2026-09-20", Continue);
+            QVERIFY2(hangRight.x() <= stageRight.x() + 0.5,
+                     qPrintable(QStringLiteral(
+                         "at a %1 px stage the hang-up button ends at x=%2, "
+                         "past the stage's own right edge at x=%3")
+                                    .arg(width)
+                                    .arg(hangRight.x())
+                                    .arg(stageRight.x())));
+        }
+    }
+
+    // ...AND THE CAP IS THE OTHER HALF OF THAT FIX.
+    //
+    // `Layout.fillWidth: true` alone makes the dock GROW into the spare
+    // width of a wide panel — measured 1040 px in a 1076 px row — so the
+    // floating pill stops being pill-sized and the controls drift off
+    // centre. `Layout.maximumWidth: implicitWidth` is what keeps every wide
+    // window pixel-identical to before. A future edit that drops the cap
+    // passes the case above and fails this one.
+    void theControlDockDoesNotStretchOnAWidePanel()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(),
+                            &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine,
+                              &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallStage"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(5000));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(1400, 620);
+        root->setParentItem(window.contentItem());
+        root->setWidth(1400);
+        root->setHeight(620);
+        settle(6);
+
+        auto *bar = root->findChild<QQuickItem *>(
+            QStringLiteral("callStageControls"));
+        QVERIFY(bar != nullptr);
+        auto *host = qobject_cast<QQuickItem *>(bar->parentItem());
+        QVERIFY(host != nullptr);
+        QVERIFY2(host->width() <= host->implicitWidth() + 0.5,
+                 qPrintable(QStringLiteral(
+                     "the control dock stretched to %1 px in a 1400 px "
+                     "panel; it asks for %2 and must never be given more")
+                                .arg(host->width())
+                                .arg(host->implicitWidth())));
+    }
+
     // The full-screen idle timer MUST NEVER BE STOPPED.
     //
     // That is the whole defect, stated as an invariant. The first version
