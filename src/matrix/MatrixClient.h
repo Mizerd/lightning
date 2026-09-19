@@ -1892,7 +1892,12 @@ Q_SIGNALS:
                              bool enabled);
     // Publishing the local user's own presence failed (coarse category).
     // Informational: PresenceManager uses it only for bounded diagnostics.
-    void presencePublishFailed(const QString &category);
+    /// `retryAfterMs` is what the SERVER said, or 0 when it said nothing.
+    /// Only M_LIMIT_EXCEEDED carries one. It is a hint and not an
+    /// instruction: the receiver bounds it before acting, because a
+    /// homeserver is free to answer with a number that would park the
+    /// keep-alive for an hour.
+    void presencePublishFailed(const QString &category, qint64 retryAfterMs);
     void roomEditFinished(quint64 opId, const QString &roomId,
                           const QString &field, bool ok,
                           const QString &category);

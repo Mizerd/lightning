@@ -709,8 +709,11 @@ char *mx_rust_get_presence(void *client,
                            unsigned long long op_id);
 /*
  * v0.7.x Matrix presence: publish the local user's own state
- * (0 online, 1 unavailable, 2 offline). Fire-and-forget: success emits
- * nothing, failure emits {"type":"presence_publish_failed","category"}.
+ * (0 online, 1 unavailable, 2 offline). Success emits nothing; failure
+ * emits {"type":"presence_publish_failed","category","retry_after_ms"},
+ * where retry_after_ms is the server's own hint for M_LIMIT_EXCEEDED and
+ * absent otherwise. NOT fire-and-forget any more: C++ retries a
+ * rate-limited publish on that hint.
  */
 /* v0.9: `status_msg` (nullable) is the spec presence status text; NULL or
  * empty clears it. Bounded and control-stripped in Rust. */

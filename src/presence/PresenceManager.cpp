@@ -69,6 +69,9 @@ PresenceManager::PresenceManager(QObject *parent)
     connect(&m_publishTimer, &QTimer::timeout,
             this, [this]() { publishTick(true); });
     m_publishTimer.start();
+    m_publishRetryTimer.setSingleShot(true);
+    connect(&m_publishRetryTimer, &QTimer::timeout,
+            this, [this]() { publishTick(true, true); });
 
     // Headless tests run without a QGuiApplication; the seam
     // setApplicationActive covers them.
@@ -99,12 +102,7 @@ void PresenceManager::setClient(MatrixClient *client)
     connect(m_client, &MatrixClient::presenceReceived,
             this, &PresenceManager::applyBatch);
     connect(m_client, &MatrixClient::presencePublishFailed, this,
-            [](const QString &category) {
-                // Bounded, category-only: publication is fire-and-forget
-                // and the next keep-alive tick retries anyway.
-                qCDebug(lcPresence) << "own-presence publish failed:"
-                                    << category;
-            });
+            &PresenceManager::onPublishRejected);
     connect(m_client, &MatrixClient::loggedOut,
             this, &PresenceManager::clearSession);
     connect(m_client, &MatrixClient::connectionStateChanged,
@@ -634,7 +632,7 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
     }
 }
 
-void PresenceManager::publishTick(bool force)
+void PresenceManager::publishTick(bool force, bool afterRejection)
 {
     if (!m_client || !m_client->supportsPresence() || !m_syncing
         || !publishEnabled())
@@ -648,11 +646,27 @@ void PresenceManager::publishTick(bool force)
     // fires more than once during a normal start, and the second identical
     // PUT is the one the server rate-limits (see kMinPublishGapMs). A real
     // change is never dropped: only `desired == m_lastPublished` qualifies.
-    if (force && desired == m_lastPublished && m_lastPublishAtMs >= 0
+    //
+    // …EXCEPT AFTER A REJECTION, when nothing was accepted and there is no
+    // duplicate to suppress. Dropping the retry here would reinstate the
+    // very hole the retry exists to close.
+    if (!afterRejection && force && desired == m_lastPublished
+        && m_lastPublishAtMs >= 0
         && m_clock.elapsed() - m_lastPublishAtMs < m_minPublishGapMs)
         return;
     const int previous = m_lastPublished;
     loadOwnStatusIfNeeded();
+    // THE CHAIN RESETS WHERE THE PUBLISH HAPPENS, not where the timer fires.
+    // Resetting it on every tick reset it even on ticks the gap guard then
+    // dropped — a reset with nothing sent — and left a retry armed beside
+    // the tick that replaced it, so at a long backoff the two could land
+    // about a second apart and the second was guaranteed rejected. One send,
+    // one reset, one pending retry at most.
+    if (!afterRejection) {
+        m_publishRetryTimer.stop();
+        m_retryChain = 0;
+    }
+    ++m_publishAttempts;
     m_client->publishPresence(desired, ownStatusText());
     m_lastPublished = desired;
     m_lastPublishAtMs = m_clock.elapsed();
@@ -669,6 +683,60 @@ void PresenceManager::publishTick(bool force)
         ++m_revision;
         Q_EMIT revisionChanged();
     }
+}
+
+// A REJECTED PUBLISH IS NOT A PUBLISH. See the constants in the header for
+// the measurement that made this necessary — 62% of publishes rejected and a
+// run of 29 in a row, eleven minutes of an account reading offline while the
+// process was healthy, because the old handler logged the category and
+// waited for the next tick.
+void PresenceManager::onPublishRejected(const QString &category,
+                                        qint64 retryAfterMs)
+{
+    ++m_publishRejections;
+    // Only rate limiting is retryable on this timescale. A `forbidden` is a
+    // server that does not do presence, and asking a closed door more often
+    // is not a fix. Note what that does NOT mean: the forbidden latch is on
+    // the READ path (`applyBatch`) and needs two all-forbidden batches — it
+    // never sees a publish failure and it does not stop publication, so a
+    // homeserver that 403s every PUT still gets one every 25 s for the life
+    // of the session. Unchanged by this round, and worth a latch of its own
+    // one day. Anything else is transient in a way the ordinary tick
+    // handles.
+    if (category != QLatin1String("rate_limited")) {
+        qCDebug(lcPresence) << "own-presence publish failed:" << category;
+        return;
+    }
+    if (m_retryChain >= kMaxRetryChain) {
+        // Give up on the chain rather than spin. The next ordinary tick
+        // resets it, so a server that recovers is picked up within a period
+        // without this path ever becoming a loop.
+        qCDebug(lcPresence) << "own-presence rate limited; retry chain"
+                            << "exhausted, waiting for the next tick";
+        return;
+    }
+    ++m_retryChain;
+    // The server's own number when it gave one, bounded at both ends: a 0
+    // would be a busy loop and an hour would park the keep-alive well past
+    // the expiry it exists to beat. A blind retry uses a value under that
+    // expiry so it still lands inside the life of the last accepted publish.
+    int wait = retryAfterMs > 0
+                   ? static_cast<int>(
+                         qBound(static_cast<qint64>(kRetryAfterFloorMs),
+                                retryAfterMs,
+                                static_cast<qint64>(kRetryAfterCeilingMs)))
+                   : kRetryAfterUnknownMs;
+    // Backed off per link in the chain, and jittered for the same reason the
+    // cadence is: several devices rejected by ONE per-account limiter would
+    // otherwise all retry at the same instant and collide again.
+    wait = qMin(wait * m_retryChain, kRetryAfterCeilingMs);
+    if (m_publishJitter)
+        wait += QRandomGenerator::global()->bounded(kPublishJitterMs);
+    qCDebug(lcPresence) << "own-presence rate limited; retrying in" << wait
+                        << "ms (attempt" << m_retryChain << "of"
+                        << kMaxRetryChain << ", server hint"
+                        << retryAfterMs << "ms)";
+    m_publishRetryTimer.start(wait);
 }
 
 void PresenceManager::handleConnectionState(MatrixClient::ConnectionState state)
@@ -715,6 +783,15 @@ void PresenceManager::clearSession()
     m_forbiddenBatches = 0;
     m_lastPublished = -1;
     m_lastPublishAtMs = -1;
+    // A RETRY ARMED FOR THE PREVIOUS ACCOUNT MUST NOT FIRE FOR THE NEXT.
+    // Sign-out alone was already safe — the retry lands, finds `!m_syncing`
+    // and returns — but an ACCOUNT SWITCH is not: setClient() clears the
+    // session and the new client then reaches Syncing, so a timer armed up
+    // to 24 s ago for the old account would publish for the new one, and
+    // bypass kMinPublishGapMs doing it. The dispatcher's generation filter
+    // stops a stale EVENT; it cannot stop a timer a live one already armed.
+    m_publishRetryTimer.stop();
+    m_retryChain = 0;
     m_pendingFinalOffline = false;
     m_syncing = false;
     // The watched set is DROPPED with the session: it names the previous

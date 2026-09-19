@@ -149,6 +149,40 @@ public:
         m_publishTimer.setInterval(ms);
     }
     void setMinPublishGapForTest(int ms) { m_minPublishGapMs = ms; }
+    /// How many own-presence PUTs were sent and how many the server
+    /// rejected, SINCE THE PROCESS STARTED — deliberately monotonic and
+    /// deliberately NOT reset by `clearSession()`, a sign-out or an account
+    /// switch. A rate is a difference between two readings, and a counter
+    /// that resets destroys the history the reading is for.
+    ///
+    /// Read them together with the fact that they span sessions; an earlier
+    /// draft of this comment said "since this session started", which
+    /// nothing in the implementation has ever made true.
+    ///
+    /// They exist because "is presence working" was unanswerable of a live
+    /// session: the rejection RATE is the thing that matters and it was
+    /// visible only by counting log lines by hand after the fact. The
+    /// ATTEMPT count matters just as much — see the note at
+    /// `kRetryAfterFloorMs` about the offered rate, which is the number
+    /// that would settle what is actually driving the rejections.
+    Q_INVOKABLE qint64 publishAttempts() const { return m_publishAttempts; }
+    Q_INVOKABLE qint64 publishRejections() const { return m_publishRejections; }
+    /// How many retries deep the current rejection chain is, 0 when none is
+    /// armed. A COUNT, not a duration — the first version of this comment
+    /// said milliseconds, which is a different member's sentence.
+    ///
+    /// It exists because the chain is otherwise observable only through
+    /// TIMING, and timing is what made three assertions in this suite
+    /// vacuous: `m_publishRetryTimer` is one single-shot timer and
+    /// `start()` RESTARTS it, so at most one retry is ever pending and the
+    /// publish count in any window is insensitive to the cap. Assert the
+    /// chain, not the consequence.
+    int retryChainForTest() const { return m_retryChain; }
+    /// The cap the chain plateaus at. Readable so the suite asserts the
+    /// REAL bound instead of mirroring a literal that would quietly go
+    /// stale the day somebody tunes it — the value is the contract, and a
+    /// test carrying its own copy is a test that stops testing.
+    static constexpr int maxRetryChain() { return kMaxRetryChain; }
     // The real typing-evidence window is 35 s; that it EXPIRES is untestable
     // at that scale. Deliberately not reset by clearSession() — it is a
     // harness value, not session state.
@@ -213,10 +247,68 @@ private:
     // whole first keep-alive window. Only an UNCHANGED state is dropped: a
     // real state change still publishes immediately.
     static constexpr int kMinPublishGapMs = 10 * 1000;
-    // How far EARLIER than the interval a tick may land. Subtracted, never
-    // added, so the effective period is 21-25 s and the 33 s floor the
-    // interval was measured against is never approached from below.
+    // How far EARLIER than the interval a KEEP-ALIVE tick may land, so the
+    // effective period is 21-25 s and the 33 s floor the interval was
+    // measured against is never approached from below. The RETRY path adds
+    // it instead of subtracting, because there the point is to spread
+    // several rejected devices apart rather than to stay under a floor;
+    // this sentence used to read "subtracted, never added" and stopped
+    // being true of one of its two users.
     static constexpr int kPublishJitterMs = 4 * 1000;
+    // ── A REJECTED PUBLISH IS NOT A PUBLISH, AND WAITING A FULL PERIOD
+    //    AFTER ONE IS HOW AN ACCOUNT GOES DARK ────────────────────────────
+    //
+    // `rc_presence` is per USER and Synapse's default is one accepted PUT
+    // per ten seconds with a burst of ONE. Jitter spreads a user's devices
+    // apart but does NOT reduce their aggregate rate, and the aggregate is
+    // what the limiter counts — so with several devices signed in, most
+    // ticks are rejected. Measured live against this project's own Synapse:
+    // 62% of publishes rejected over 33 minutes, and a run of TWENTY-NINE
+    // consecutive rejections — about ELEVEN MINUTES in which the account
+    // read offline to everyone while the process was running and healthy,
+    // against a server expiry of 33 to 63 seconds.
+    //
+    // The old handler logged the category and returned, under a comment
+    // saying "the next keep-alive tick retries anyway". That is only true
+    // if the next tick is not ALSO rejected, and for 29 ticks it was.
+    //
+    // So a rejection arms a SHORT one-shot retry instead of ceding the
+    // period. The server usually says when it will accept; the hint is
+    // bounded here because a homeserver is free to answer with a number
+    // that would park the keep-alive for an hour, and because a hint of 0
+    // must not become a busy loop.
+    // **AND THE MEASUREMENT IS NOT FULLY EXPLAINED — do not record this as
+    // the whole cause.** One device at 25 s offers 0.04 PUT/s against a
+    // 0.1/s limit, 2.5x UNDER. Four devices offer 0.16/s, which predicts
+    // ~37% rejection, not 62%. That number needs either six or seven
+    // concurrent publishers or an offered rate well above one per 25 s from
+    // a single client — and there IS such a path: the Syncing-edge publish
+    // is gap-limited to one per 10 s, which is exactly the limiter's own
+    // rate, so a flapping connection alone can sustain ~50% rejection with
+    // one device. If that is what was happening, this retry treats a
+    // symptom and multiplies a flap's traffic by five.
+    //
+    // `publishAttempts()` exists so the next person can settle it with the
+    // OFFERED RATE (attempts per minute) rather than the rejection ratio,
+    // which is the number that was measured and the number that cannot tell
+    // those two causes apart.
+    static constexpr int kRetryAfterFloorMs = 1500;
+    // Plus up to kPublishJitterMs, because the jitter is added AFTER this
+    // clamp — the effective ceiling is 24 s, still well inside the 33 s
+    // expiry floor. And the ceiling's real job is not a hostile server: it
+    // is CLIENT CLOCK SKEW. A `RetryAfter::DateTime` hint is converted
+    // against our own clock, and this project has already lost a round to a
+    // guest whose clock was seven hours ahead — without this bound that
+    // machine would park its keep-alive for seven hours.
+    static constexpr int kRetryAfterCeilingMs = 20 * 1000;
+    // What to wait when the server rejected us without saying when. Under
+    // the floor of the expiry window, so a blind retry still lands inside
+    // the life of the last accepted publish.
+    static constexpr int kRetryAfterUnknownMs = 4 * 1000;
+    // Bounded so a server that rejects everything cannot turn the
+    // keep-alive into a tight loop: after this many retries in a row the
+    // chain gives up and waits for the ordinary tick.
+    static constexpr int kMaxRetryChain = 4;
     // The app being CONTINUOUSLY in the background this long reads as
     // "idle" — measured from the moment focus was lost (review H2: an
     // earlier draft measured from the moment focus was GAINED, so any
@@ -249,7 +341,14 @@ private:
     void scheduledPollRound();
     void burstRound();
     void applyBatch(quint64 opId, const QVariantList &entries);
-    void publishTick(bool force);
+    // `afterRejection` skips the kMinPublishGapMs window, and that is the
+    // whole point of the flag: that window exists to stop a DUPLICATE PUT
+    // of a state the server already accepted, and after a rejection the
+    // server accepted nothing. Without the bypass every retry inside ten
+    // seconds would be dropped by the guard that was written for the
+    // opposite situation.
+    void publishTick(bool force, bool afterRejection = false);
+    void onPublishRejected(const QString &category, qint64 retryAfterMs);
     void handleConnectionState(MatrixClient::ConnectionState state);
     void clearSession();
     int desiredOwnState() const;
@@ -296,6 +395,15 @@ private:
     QTimer m_pollTimer;
     QTimer m_burstTimer;
     QTimer m_publishTimer;
+    // One-shot, armed only by a rejection. Separate from m_publishTimer so
+    // the ordinary cadence is never disturbed by a retry.
+    QTimer m_publishRetryTimer;
+    int m_retryChain = 0;
+    // Diagnostics, because "is presence working" was unanswerable of a live
+    // session: the rejection RATE is the thing that matters and it was
+    // visible only by counting log lines by hand after the fact.
+    qint64 m_publishAttempts = 0;
+    qint64 m_publishRejections = 0;
     QTimer m_typingTimer;
     QElapsedTimer m_clock;
     // m_clock time of the last PUT we actually sent, for kMinPublishGapMs.
@@ -304,10 +412,18 @@ private:
     // TWO CLIENTS OF ONE ACCOUNT MUST NOT KEEP ALIGNING. Every running client
     // publishes on the same 25 s period, so a user with a desktop and a
     // laptop puts ~4.8 PUT/min on one account and Synapse's `rc_presence`
-    // (burst 1) starts answering 429 — MEASURED, 3 of 38 PUTs on an account
-    // that had four sessions open. Spreading each client's next tick over a
-    // window makes a collision transient instead of periodic. It stays well
-    // inside the 33 s floor the interval was chosen against.
+    // (burst 1) starts answering 429 — measured at the time as 3 of 38 PUTs
+    // on an account with four sessions open. Spreading each client's next
+    // tick over a window makes a collision transient instead of periodic.
+    //
+    // **AND THAT 8% WAS NOT THE WHOLE STORY.** A later live audit measured
+    // 62% rejected over 33 minutes on the same homeserver, with a run of 29
+    // consecutive rejections. Jitter fixes collisions when the account's
+    // AGGREGATE rate is under the limit — burst 1 means simultaneous
+    // arrivals collide even at a legal rate — and does nothing at all when
+    // the aggregate is over it, because the limiter counts per USER. See
+    // `kRetryAfterFloorMs` for what was done about that, and for the part
+    // of the measurement that is still unexplained.
     bool m_publishJitter = true;
 
     quint64 m_nextOpId = 1;

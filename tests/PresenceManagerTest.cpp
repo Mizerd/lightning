@@ -121,6 +121,8 @@ private Q_SLOTS:
     void loggedOutDropsWatchedSet();
     void syncingEdgePublishesAndPolls();
     void aRepeatedSyncingEdgeDoesNotRepublishTheSameState();
+    void aRateLimitedPublishRetriesInsideTheExpiryWindow();
+    void anUnretryableRejectionDoesNotArmARetry();
     void backgroundGraceKeepsOnlineUntilIdleDwell();
     void batchRotationCoversWatchedSetBeyondCap();
     void disablingShareSettingPublishesOfflineOnce();
@@ -558,6 +560,129 @@ void PresenceManagerTest::aRepeatedSyncingEdgeDoesNotRepublishTheSameState()
     goSyncing(client);
     QVERIFY2(client.published.contains(1),
              "the guard swallowed a genuine change to Away");
+}
+
+// A REJECTED PUBLISH IS NOT A PUBLISH, and waiting a full period after one
+// is how an account goes dark while its process is healthy.
+//
+// Measured live against this project's own Synapse with several devices on
+// one account: 62% of publishes rejected and a run of TWENTY-NINE
+// consecutive rejections — about eleven minutes reading offline to everyone,
+// against a server expiry of 33 to 63 seconds. `rc_presence` is per USER, so
+// jitter spreads a user's devices apart without reducing the aggregate rate
+// the limiter actually counts.
+//
+// The two halves that must BOTH hold, because either alone leaves the hole:
+// the retry has to happen, and it has to get past `kMinPublishGapMs` — a
+// guard written to suppress a duplicate PUT of an ACCEPTED state, which
+// after a rejection would be suppressing the only thing that can help.
+void PresenceManagerTest::aRateLimitedPublishRetriesInsideTheExpiryWindow()
+{
+    FakePresenceClient client;
+    SettingsManager settings;
+    PresenceManager presence;
+    presence.setSettings(&settings);
+    presence.setClient(&client);
+    presence.setApplicationActive(true);
+    // A gap window longer than the whole case: if the retry is suppressed by
+    // it, this case fails, which is exactly the bypass under test.
+    presence.setMinPublishGapForTest(60 * 1000);
+    // And a keep-alive period longer still, so nothing here can be the
+    // ordinary tick arriving — the retry is the only thing that can publish.
+    presence.setPublishIntervalForTest(120 * 1000);
+
+    goSyncing(client);
+    QCOMPARE(client.published, (QList<int>{ 0 }));
+    QCOMPARE(presence.publishAttempts(), 1);
+    QCOMPARE(presence.publishRejections(), 0);
+
+    // The server rejects it and says when it will accept. 1 ms is below the
+    // floor on purpose: a hint of zero or near-zero must not become a busy
+    // loop, so the floor is what should be used.
+    Q_EMIT client.presencePublishFailed(QStringLiteral("rate_limited"), 1);
+    QCOMPARE(presence.publishRejections(), 1);
+    QCOMPARE(presence.retryChainForTest(), 1);
+    // THE WAIT IS THE ASSERTION. Checking `published` straight after the
+    // emit proves nothing: the connection is direct and same-thread, so
+    // nothing has spun the event loop and the timer cannot have fired for
+    // ANY interval, zero included. 300 ms is comfortably under the 1500 ms
+    // floor and far over the 1 ms the server asked for, so this fails the
+    // moment the floor stops bounding a near-zero hint.
+    QTest::qWait(300);
+    QVERIFY2(client.published == (QList<int>{ 0 }),
+             "the retry fired inside 300 ms — the floor did not bound a "
+             "near-zero server hint");
+
+    // It retries on its own, well inside the 33 s the server would keep the
+    // last accepted publish alive for.
+    QTRY_VERIFY_WITH_TIMEOUT(client.published.size() == 2, 12 * 1000);
+    QCOMPARE(presence.publishAttempts(), 2);
+    QCOMPARE(client.published.last(), 0);
+
+    // AND THE CHAIN IS BOUNDED — ASSERTED ON THE CHAIN ITSELF.
+    //
+    // Counting publishes cannot see this. `m_publishRetryTimer` is ONE
+    // single-shot timer and `start()` RESTARTS it, so at most one retry is
+    // ever pending however many rejections arrive: the publish count in any
+    // window is bounded by one per wait whether the cap exists or not.
+    // Derived and confirmed in review — removing `kMaxRetryChain` entirely,
+    // and removing the backoff with it, both left the old count-based
+    // assertion green. It was decoration over the one property that makes
+    // this safe against a rate limiter.
+    QCOMPARE(presence.retryChainForTest(), 1);
+    for (int i = 0; i < 10; ++i) {
+        Q_EMIT client.presencePublishFailed(QStringLiteral("rate_limited"), 1);
+        QTest::qWait(20);
+        QVERIFY2(presence.retryChainForTest() <= PresenceManager::maxRetryChain(),
+                 qPrintable(QStringLiteral("the retry chain ran past its cap "
+                                           "to %1")
+                                .arg(presence.retryChainForTest())));
+    }
+    QCOMPARE(presence.retryChainForTest(), PresenceManager::maxRetryChain());
+    // At the cap a further rejection must not move anything: same chain, and
+    // no new retry armed. Waiting past the longest interval the chain can
+    // have asked for (4 x 1500 ms, plus margin) leaves exactly the one
+    // publish the last armed retry was already owed.
+    const int owed = client.published.size();
+    Q_EMIT client.presencePublishFailed(QStringLiteral("rate_limited"), 1);
+    QCOMPARE(presence.retryChainForTest(), PresenceManager::maxRetryChain());
+    QTest::qWait(8 * 1000);
+    QVERIFY2(client.published.size() - owed <= 1,
+             qPrintable(QStringLiteral("the chain kept publishing past its "
+                                       "cap: %1 more")
+                            .arg(client.published.size() - owed)));
+    QVERIFY(presence.publishRejections() >= 12);
+}
+
+// Only rate limiting is retryable on this timescale. A `forbidden` is a
+// server that does not do presence, and asking a closed door more often is
+// not a fix — the polling side has its own latch for that.
+void PresenceManagerTest::anUnretryableRejectionDoesNotArmARetry()
+{
+    FakePresenceClient client;
+    SettingsManager settings;
+    PresenceManager presence;
+    presence.setSettings(&settings);
+    presence.setClient(&client);
+    presence.setApplicationActive(true);
+    presence.setMinPublishGapForTest(60 * 1000);
+    presence.setPublishIntervalForTest(120 * 1000);
+
+    goSyncing(client);
+    QCOMPARE(client.published, (QList<int>{ 0 }));
+
+    Q_EMIT client.presencePublishFailed(QStringLiteral("forbidden"), 0);
+    // ON THE CHAIN, NOT ON THE CLOCK. Deleting the category guard sends a
+    // `forbidden` down the retry path with no server hint, which arms
+    // kRetryAfterUnknownMs = 4000 ms — so the 1200 ms wait this case used to
+    // do was green on the broken code. The chain is exact and immediate.
+    QCOMPARE(presence.retryChainForTest(), 0);
+    QTest::qWait(1200);
+    QVERIFY2(client.published == (QList<int>{ 0 }),
+             "a forbidden rejection armed a retry");
+    // Counted even so: the rate is the diagnostic, and a server refusing
+    // every publish is exactly what it should make visible.
+    QCOMPARE(presence.publishRejections(), 1);
 }
 
 void PresenceManagerTest::syncingEdgePublishesAndPolls()

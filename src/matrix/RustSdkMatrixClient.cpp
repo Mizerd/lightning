@@ -9202,7 +9202,13 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
 
     if (type == QLatin1String("presence_publish_failed")) {
         Q_EMIT presencePublishFailed(
-            event.value(QStringLiteral("category")).toString());
+            event.value(QStringLiteral("category")).toString(),
+            // Absent for every category but rate_limited, and absent even
+            // there when the server did not say — `toLongLong()` on a null
+            // QJsonValue is 0, which is the "it said nothing" the receiver
+            // already handles.
+            event.value(QStringLiteral("retry_after_ms")).toVariant()
+                .toLongLong());
         return true;
     }
 

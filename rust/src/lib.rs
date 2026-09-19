@@ -7542,8 +7542,12 @@ pub unsafe extern "C" fn mx_rust_get_presence(
 }
 
 /// v0.7.x Matrix presence: publish the local user's own state
-/// (0 online, 1 unavailable, 2 offline). Fire-and-forget; a failure
-/// surfaces only as a `presence_publish_failed` event.
+/// (0 online, 1 unavailable, 2 offline). A failure surfaces as a
+/// `presence_publish_failed` event carrying the coarse category and, for
+/// `M_LIMIT_EXCEEDED`, the server's `retry_after_ms`. It stopped being
+/// fire-and-forget when a live audit found 62% of publishes rejected and a
+/// run of 29 in a row — eleven minutes of an account reading offline while
+/// its process was healthy.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_presence(
     ptr: *mut c_void,

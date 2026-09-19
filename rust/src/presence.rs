@@ -11,10 +11,16 @@
 //! C++ (`PresenceManager`); this module is deliberately stateless.
 //!
 //! Only presentation-safe fields cross the FFI: user id, coarse state
-//! string, `currently_active`, and `last_active_ago` milliseconds. A status
-//! message is NOT forwarded (it is free-form remote text with no current UI
-//! consumer). Nothing here logs user ids or SDK error text; failures cross
-//! as the shared coarse categories from `classify_room_error`.
+//! string, `currently_active`, `last_active_ago` milliseconds, and — on a
+//! publish failure — the coarse category from `classify_room_error` plus
+//! the server's own `retry_after_ms` when it sent one. A status message is
+//! NOT forwarded (it is free-form remote text with no current UI consumer).
+//! Nothing here logs user ids or SDK error text.
+//!
+//! That list is enumerated ON PURPOSE, so adding a field is a decision
+//! rather than a drift. `retry_after_ms` is a server-supplied integer and
+//! carries nothing about the user; it was added in the round that found
+//! presence publication being rate-limited into silence.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -179,9 +185,11 @@ pub(crate) fn fetch_presence(
 
 /// Publish the local user's own presence. Fire-and-forget by design: the
 /// UI claims nothing about publication, so there is nothing to report on
-/// success, and a failure only surfaces as a `presence_publish_failed`
-/// event (coarse category) for the retry/latch logic in C++. No status
-/// message is ever sent.
+/// success, and a failure surfaces as a `presence_publish_failed` event
+/// carrying the coarse category AND, for `M_LIMIT_EXCEEDED`, the server's
+/// `retry_after_ms` — which is what lets C++ retry on the server's own
+/// schedule instead of ceding a whole keep-alive period. No status message
+/// is ever sent.
 /// Bound and clean a status message before it leaves or enters the
 /// bridge. It is free-form REMOTE text on the way in (this module's stated
 /// invariant is that remote text is sanitized at the boundary): length is
@@ -233,15 +241,118 @@ pub(crate) fn publish_presence(
                 "type": "presence_publish_failed",
                 "lifecycle": lifecycle,
                 "category": classify_room_error(&err.to_string()),
+                // THE SERVER SAYS WHEN IT WILL ACCEPT, AND WE USED TO THROW
+                // THAT AWAY. `classify_room_error` flattens the error to a
+                // word, so a 429 carrying `retry_after_ms` became the bare
+                // string "rate_limited" and the keep-alive waited a full
+                // period before trying again. Measured against this
+                // project's own Synapse with several devices on one account:
+                // 62% of publishes rejected and a run of TWENTY-NINE
+                // consecutive rejections, about eleven minutes in which the
+                // account read offline to everyone while the process was
+                // running and healthy.
+                //
+                // `retry_after` is `Option`, and the DateTime variant is
+                // converted against the clock rather than dropped, because a
+                // server is free to answer either way.
+                "retry_after_ms": retry_after_ms(&err),
             }));
         }
     });
     Ok(())
 }
 
+/// How long the server asked us to wait, in milliseconds, or `None` when it
+/// did not say.
+///
+/// Only `M_LIMIT_EXCEEDED` carries one. `Delay` is the variant Synapse sends
+/// (it populates the legacy `retry_after_ms` body field too); `DateTime` is
+/// allowed by the spec, so it is converted against the clock rather than
+/// ignored — a hint we cannot read is the same as no hint, and silently
+/// having none is what this whole change is about.
+///
+/// Bounded at both ends by the CALLER, not here: this function reports what
+/// the server said, and deciding whether to believe it is policy.
+fn retry_after_ms(error: &matrix_sdk::HttpError) -> Option<u64> {
+    use matrix_sdk::ruma::api::error::{ErrorKind, LimitExceededErrorData};
+    let ErrorKind::LimitExceeded(LimitExceededErrorData { retry_after, .. }) =
+        error.client_api_error_kind()?
+    else {
+        return None;
+    };
+    retry_after_to_ms(retry_after.as_ref()?)
+}
+
+/// The conversion, split out so it can be TESTED. Reaching the arm above
+/// needs a real `HttpError` from a real request; this half is pure, and it
+/// is the half with the two branches and the clock in it.
+///
+/// `Delay` is what Synapse sends (ruma also fills it from the legacy
+/// `retry_after_ms` body field, and a `Retry-After` header overrides it).
+/// `DateTime` is allowed by the spec.
+///
+/// A `DateTime` already in the past yields `None`, which is correct rather
+/// than lossy: it means "retry now", and `None` reaches C++ as 0, which the
+/// caller already maps to its own default — so `None` and `Some(0)` are the
+/// same decision there.
+///
+/// The real hazard on that arm is not a hostile server, it is CLIENT CLOCK
+/// SKEW: the instant is compared against OUR clock, and this project has
+/// already lost a round to a guest whose clock ran seven hours ahead. A
+/// machine like that would ask for a seven-hour wait, which is why the
+/// ceiling on the C++ side is the constant that matters.
+fn retry_after_to_ms(retry_after: &matrix_sdk::ruma::api::error::RetryAfter) -> Option<u64> {
+    use matrix_sdk::ruma::api::error::RetryAfter;
+    match retry_after {
+        RetryAfter::Delay(duration) => u64::try_from(duration.as_millis()).ok(),
+        RetryAfter::DateTime(at) => at
+            .duration_since(std::time::SystemTime::now())
+            .ok()
+            .and_then(|d| u64::try_from(d.as_millis()).ok()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // THE FFI HALF OF THE RETRY, which had no coverage at all. `RetryAfter`
+    // is a public exhaustive enum, so both arms are directly constructible.
+    #[test]
+    fn a_delay_hint_converts_to_its_milliseconds() {
+        use matrix_sdk::ruma::api::error::RetryAfter;
+        assert_eq!(
+            retry_after_to_ms(&RetryAfter::Delay(Duration::from_millis(800))),
+            Some(800)
+        );
+        assert_eq!(
+            retry_after_to_ms(&RetryAfter::Delay(Duration::from_secs(0))),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn a_future_datetime_hint_becomes_the_wait_from_now() {
+        use matrix_sdk::ruma::api::error::RetryAfter;
+        let at = std::time::SystemTime::now() + Duration::from_secs(5);
+        let ms = retry_after_to_ms(&RetryAfter::DateTime(at))
+            .expect("a future instant converts");
+        // Wall clock, so a window rather than an equality.
+        assert!(
+            (4_000..=5_000).contains(&ms),
+            "a five-second hint converted to {ms} ms"
+        );
+    }
+
+    // "Retry at a time that has passed" means retry NOW, and `None` reaches
+    // C++ as 0, which the caller maps to its own default. Dropping it is the
+    // same decision as asking for zero, not a lost hint.
+    #[test]
+    fn a_past_datetime_hint_is_not_a_negative_wait() {
+        use matrix_sdk::ruma::api::error::RetryAfter;
+        let at = std::time::SystemTime::now() - Duration::from_secs(5);
+        assert_eq!(retry_after_to_ms(&RetryAfter::DateTime(at)), None);
+    }
 
     #[test]
     fn presence_state_maps_spec_states() {
