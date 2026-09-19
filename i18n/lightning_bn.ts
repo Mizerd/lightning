@@ -5,20 +5,12 @@
     <name>AccountMenu</name>
     <message>
         <location filename="../qml/AccountMenu.qml" line="+50"/>
+        <location line="+61"/>
         <source>Connected</source>
         <translation>সংযুক্ত</translation>
     </message>
-    <message numerus="yes">
-        <location line="+52"/>
-        <source>%n space(s)</source>
-        <comment>how many Spaces this account is in</comment>
-        <translation>
-            <numerusform>%n স্পেস</numerusform>
-            <numerusform>%n স্পেস</numerusform>
-        </translation>
-    </message>
     <message>
-        <location line="+121"/>
+        <location line="+126"/>
         <source>Accounts</source>
         <translation>অ্যাকাউন্ট</translation>
     </message>
