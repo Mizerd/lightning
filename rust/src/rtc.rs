@@ -170,6 +170,64 @@ const MAX_MEMBERS: usize = 128;
 const MAX_RAW_MEMBER_EVENTS: usize = 512;
 /// The membership fallback must not stall a call's key distribution.
 const MEMBERSHIP_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
+/// How recent the newest thing in a room's STORED membership view must be
+/// before "the store shows nothing live" stops being an answer we can give
+/// on our own.
+///
+/// THE `/state` FALLBACK IN [`read_membership_events`] IS THE MOST EXPENSIVE
+/// THING THIS MODULE DOES AND IT USED TO RUN FOR EVERY IDLE ROOM. Its gate
+/// was "the store holds no LIVE membership", which is the ordinary state of
+/// every room that has ever hosted a call and of every room that never has —
+/// so a startup sync delivering a room's existing (long expired)
+/// `m.call.member` state was enough to spend a full `/state` on a room with
+/// no call in it. Measured by the maintainer on 2026-09-19: ~60 pokes during
+/// initial sync coalesced into 10 session reads and every one of them
+/// reported `participants= 0 source= "server"`. Opening a room cost another,
+/// because `AppController::setCurrentRoomId` refreshes on navigation.
+///
+/// A poke is raised by sync DELIVERING a membership event, and that event
+/// carries its own `origin_server_ts`: a real change is stamped now, an
+/// initial-sync replay of last week's call is stamped last week. So the
+/// store's newest instant is exactly the discriminator, and this is how far
+/// back it may sit before the store's "nothing is live here" is taken at face
+/// value. Generous on purpose — comfortably more than twice
+/// `MEMBERSHIP_EXPIRY_NO_DELAYED_MS`, so a participant whose refresh we
+/// simply have not received yet still buys the room one request.
+///
+/// CLOCK DOMAINS: compared against `origin_server_ts` and `expires_at_ms`,
+/// which are server-stamped, exactly like the liveness filter this sits
+/// beside. A badly skewed device clock therefore makes this too eager or too
+/// lazy in the same direction it already makes the expiry wrong; noted so the
+/// symptom is not misdiagnosed here.
+const SESSION_SIGNAL_HORIZON_MS: u64 = 15 * 60 * 1000;
+/// Minimum gap between two IMPLICIT `/state` escalations for one room, and
+/// the ceiling the doubling stops at.
+///
+/// The doubling is not decoration. A membership left behind by an unclean
+/// exit sits inside [`SESSION_SIGNAL_HORIZON_MS`] for the whole horizon, so
+/// without a growing gap a single ghost would buy one `/state` per poke for
+/// fifteen minutes — the storm this change removes, in a smaller costume.
+/// With it the same ghost costs a handful of requests and then nothing. Same
+/// shape, and the same reasoning, as `RtcController::m_serverReadStreak` on
+/// the C++ side, which paces the FORCED reads this deliberately does not
+/// touch.
+const SERVER_ESCALATION_COOLDOWN_MS: u64 = 15_000;
+const SERVER_ESCALATION_COOLDOWN_MAX_MS: u64 = 300_000;
+/// How long a MatrixRTC ring keeps its room worth one `/state`.
+///
+/// The ring is the strongest evidence a session exists that this process can
+/// have, and it is the one case where the room is deliberately NOT open and
+/// its state may therefore be the least fresh thing we hold: the incoming
+/// call card's Answer button is gated on a session read, so a ring that could
+/// not escalate would be a call with no way to answer it. Comfortably longer
+/// than `MAX_NOTIFICATION_LIFETIME_MS`, which bounds how long the ring is
+/// offered at all.
+const RING_ESCALATION_WINDOW_MS: u64 = 3 * 60 * 1000;
+/// Ceiling on the two per-room mark tables below, mirroring
+/// `MAX_REPORT_MARKS` and the cap the C++ side puts on its own cooldown
+/// table. Neither key is attacker-chosen (both are rooms this account is
+/// joined to), but neither may grow without end either.
+const MAX_ROOM_MARKS: usize = 256;
 const MAX_TRANSPORTS: usize = 8;
 #[allow(dead_code)]
 const MAX_VERSIONS: usize = 8;
@@ -689,7 +747,10 @@ pub(crate) struct RtcSession {
     pub slot_closed: bool,
     /// True when a slot state event was present at all.
     pub slot_present: bool,
-    /// Where the memberships came from -- "store", "server", "server-none"
+    /// Where the memberships came from -- "store", "store-no-session"
+    /// (nothing live and no reason to ask the homeserver),
+    /// "store-cooling-own"/"-ring"/"-recent" (a reason, named, but inside
+    /// this room's escalation backoff), "server", "server-none"
     /// (asked, and the room has no membership state) or "store-fallback"
     /// (asked, and the request did not get through). A
     /// participant list that is missing somebody who is demonstrably in the
@@ -1000,6 +1061,261 @@ pub(crate) fn store_view_is_usable(
         .any(|value| membership_event_is_live(value, now_ms))
 }
 
+/// The newest instant in a stored membership view that could belong to a
+/// session still running.
+///
+/// NOT "the newest live membership" — by the time this is consulted we
+/// already know there is none. It is the newest instant at which ANYTHING
+/// happened to this room's call state, so that "nothing has happened here for
+/// a quarter of an hour" can be told apart from "somebody's membership lapsed
+/// a minute ago". Both halves matter and neither alone is enough:
+///
+///  * a parseable membership contributes its DEADLINE, because a peer whose
+///    refresh we have not received yet expired only just now;
+///  * anything else — a retraction (content `{}`), or an event this build
+///    cannot parse — contributes its `origin_server_ts`, because a retraction
+///    IS the newest thing that happened and dropping it would make a call
+///    that ended thirty seconds ago look like a room with no history.
+///
+/// An event with no `origin_server_ts` at all reads as NOW, which is the
+/// conservative direction (it buys a request rather than suppressing one) and
+/// matches what `membership_event_is_live` already does with the same field.
+fn newest_session_signal_ms(
+    events: &[serde_json::Value],
+    now_ms: u64,
+) -> Option<u64> {
+    let mut newest: Option<u64> = None;
+    for value in events {
+        let Some(object) = value.as_object() else { continue };
+        let event_ts = object
+            .get("origin_server_ts")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(now_ms);
+        let mut signal = event_ts;
+        if let (Some(sender), Some(content)) = (
+            object.get("sender").and_then(|value| value.as_str()),
+            object.get("content"),
+        ) {
+            if let Some(member) =
+                parse_session_membership(content, sender, event_ts)
+            {
+                signal = signal.max(member.expires_at_ms);
+            }
+        }
+        newest = Some(newest.map_or(signal, |best: u64| best.max(signal)));
+    }
+    newest
+}
+
+/// Why a read that found nothing live in the store is nonetheless worth one
+/// `/state`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EscalationReason {
+    /// This process holds a published membership in this room, so we are in
+    /// its call. This is the case the fallback was WRITTEN for, measured
+    /// against a real homeserver: the store held thirteen membership events
+    /// and every one of them was a stale retraction while the server's own
+    /// `/state` had the live memberships, this device's own among them. Media
+    /// keys are addressed to the devices these events name, so an empty read
+    /// there sends the key to nobody and every frame is dropped at both ends
+    /// while the call looks perfectly connected.
+    OwnCall,
+    /// A MatrixRTC ring arrived for this room moments ago. The room is
+    /// deliberately not open in that case, so its state is the least fresh
+    /// thing we hold, and the Answer button is gated on the session read.
+    Ring,
+    /// The store's own newest call-member event is recent enough that a
+    /// session could still be running behind it.
+    RecentActivity,
+}
+
+impl EscalationReason {
+    /// The word a read reports when it WANTED the homeserver and the room's
+    /// backoff held it off.
+    ///
+    /// "We did not ask" and "we wanted to ask and were not allowed to, for
+    /// this reason" are different facts with the same observable — an answer
+    /// that came from the store — and §16 is a long list of what that costs.
+    /// The distinction is free here and it is the one a diagnosis of this
+    /// lane needs first.
+    fn cooling_word(self) -> &'static str {
+        match self {
+            EscalationReason::OwnCall => "store-cooling-own",
+            EscalationReason::Ring => "store-cooling-ring",
+            EscalationReason::RecentActivity => "store-cooling-recent",
+        }
+    }
+}
+
+/// What a NON-FORCED session read should do with the store's own answer.
+///
+/// Pure, and deliberately the WHOLE decision rather than a predicate the
+/// caller then re-interprets: the branch in [`read_membership_events`] is an
+/// exhaustive match on this, so a variant added here cannot be silently left
+/// unhandled there. (§16's recurring lesson is code that exists, looks right
+/// and is never reached; the compiler is the only reviewer that cannot
+/// forget.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StoreVerdict {
+    /// The store holds a live membership. Answer from it; no request.
+    Answer,
+    /// The store holds nothing live AND nothing suggests a session it cannot
+    /// see. "There is no call in this room" is a real answer, not a gap —
+    /// and it is the one the old code spent a full `/state` to reach.
+    AnswerNoSession,
+    /// Nothing live, but something says a session may exist that the store
+    /// has not caught up with. Worth one `/state`, subject to the per-room
+    /// backoff the caller applies.
+    AskServer(EscalationReason),
+}
+
+pub(crate) fn store_read_verdict(
+    events: &[serde_json::Value],
+    now_ms: u64,
+    in_own_call: bool,
+    rang_recently: bool,
+) -> StoreVerdict {
+    if store_view_is_usable(events, now_ms) {
+        return StoreVerdict::Answer;
+    }
+    // Ordered by how much the reason is worth, not by cost: all three are the
+    // same one request, and naming the strongest one makes the log line say
+    // WHY the request was spent.
+    if in_own_call {
+        return StoreVerdict::AskServer(EscalationReason::OwnCall);
+    }
+    if rang_recently {
+        return StoreVerdict::AskServer(EscalationReason::Ring);
+    }
+    match newest_session_signal_ms(events, now_ms) {
+        Some(signal)
+            if now_ms.saturating_sub(signal) <= SESSION_SIGNAL_HORIZON_MS =>
+        {
+            StoreVerdict::AskServer(EscalationReason::RecentActivity)
+        }
+        // Includes the EMPTY store, which is every room that has never hosted
+        // a call — and which the old gate escalated for as eagerly as any
+        // other, so opening any room at all cost one `/state`.
+        _ => StoreVerdict::AnswerNoSession,
+    }
+}
+
+/// The gap owed before this room may be escalated again, after
+/// `consecutive_asks` escalations in a row that have not produced a live
+/// membership. Pure so the backoff is testable without a clock.
+fn escalation_cooldown_ms(consecutive_asks: u32) -> u64 {
+    let mut ms = SERVER_ESCALATION_COOLDOWN_MS;
+    // The FIRST ask owes the base gap, not a doubled one.
+    for _ in 1..consecutive_asks {
+        if ms >= SERVER_ESCALATION_COOLDOWN_MAX_MS {
+            break;
+        }
+        ms = ms.saturating_mul(2);
+    }
+    ms.min(SERVER_ESCALATION_COOLDOWN_MAX_MS)
+}
+
+/// When each room last spent an implicit `/state`, and how many in a row have
+/// not found a live membership.
+fn server_escalation_marks() -> &'static std::sync::Mutex<
+    std::collections::HashMap<String, (std::time::Instant, u32)>,
+> {
+    static MARKS: std::sync::OnceLock<
+        std::sync::Mutex<
+            std::collections::HashMap<String, (std::time::Instant, u32)>,
+        >,
+    > = std::sync::OnceLock::new();
+    MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Rooms a MatrixRTC ring arrived for, and when.
+fn rtc_ring_marks()
+    -> &'static std::sync::Mutex<
+        std::collections::HashMap<String, std::time::Instant>,
+    >
+{
+    static MARKS: std::sync::OnceLock<
+        std::sync::Mutex<
+            std::collections::HashMap<String, std::time::Instant>,
+        >,
+    > = std::sync::OnceLock::new();
+    MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Record that this room just rang. Monotonic (`Instant`), so a clock step
+/// cannot widen or close the window.
+pub(crate) fn note_rtc_ring(room_id: &str) {
+    if let Ok(mut marks) = rtc_ring_marks().lock() {
+        if marks.len() >= MAX_ROOM_MARKS && !marks.contains_key(room_id) {
+            marks.clear();
+        }
+        marks.insert(room_id.to_owned(), std::time::Instant::now());
+    }
+    // A ring is fresh evidence that a session exists, so it also cancels any
+    // backoff this room accumulated while it was idle: the very next read
+    // gets its request.
+    clear_server_escalation_backoff(room_id);
+}
+
+fn rtc_ring_is_recent(room_id: &str) -> bool {
+    rtc_ring_marks()
+        .lock()
+        .ok()
+        .and_then(|marks| marks.get(room_id).copied())
+        .is_some_and(|at| {
+            let since_ms = at.elapsed().as_millis() as u64;
+            since_ms <= RING_ESCALATION_WINDOW_MS
+        })
+}
+
+/// May this room spend an implicit `/state` now? Records the attempt when it
+/// says yes, so the two halves cannot drift apart.
+fn claim_server_escalation(room_id: &str) -> bool {
+    let Ok(mut marks) = server_escalation_marks().lock() else {
+        // A poisoned lock must NOT make the fallback unreachable: a live
+        // call's media keys depend on it, and failing open costs at worst the
+        // request rate this whole change exists to bound.
+        return true;
+    };
+    let now = std::time::Instant::now();
+    let previous = marks.get(room_id).copied();
+    if let Some((last, asks)) = previous {
+        let waited_ms = now.saturating_duration_since(last).as_millis() as u64;
+        if waited_ms < escalation_cooldown_ms(asks) {
+            return false;
+        }
+    }
+    if marks.len() >= MAX_ROOM_MARKS && previous.is_none() {
+        marks.clear();
+    }
+    let asks = previous.map_or(0, |(_, asks)| asks).saturating_add(1);
+    marks.insert(room_id.to_owned(), (now, asks));
+    true
+}
+
+/// An escalation that came back with somebody live in it earns the next one
+/// the BASE gap again.
+///
+/// The gap is kept, the streak is not: the escalation answered the question
+/// it was spent on, so the doubling — which exists for the ask that cannot
+/// help — has nothing to describe. Deliberately not a full reset: a store
+/// that stays behind for the length of a call would otherwise escalate on
+/// every poke.
+fn note_server_escalation_found_live(room_id: &str) {
+    if let Ok(mut marks) = server_escalation_marks().lock() {
+        if let Some(entry) = marks.get_mut(room_id) {
+            entry.1 = 0;
+        }
+    }
+}
+
+/// Forget a room's backoff entirely, so its next read may ask at once.
+fn clear_server_escalation_backoff(room_id: &str) {
+    if let Ok(mut marks) = server_escalation_marks().lock() {
+        marks.remove(room_id);
+    }
+}
+
 /// Bound a membership list to `cap`, keeping LIVE memberships in preference
 /// to dead ones.
 ///
@@ -1111,6 +1427,16 @@ pub(crate) fn merge_membership_events(
 /// no LIVE membership, so a healthy store still costs nothing. Same trade
 /// `banner.rs` makes, and for the same reason.
 ///
+/// AND "NO LIVE MEMBERSHIP" WAS FAR TOO WIDE A TRIGGER ON ITS OWN, because it
+/// is the ordinary state of every idle room: a startup sync replaying a
+/// room's expired `m.call.member` state bought that room a full `/state`, and
+/// so did opening any room at all. The escalation now also needs a REASON to
+/// believe a session exists that the store cannot see — see [`StoreVerdict`]
+/// — and a per-room backoff paces the reasons that are themselves time-bound.
+/// The store read is untouched and still happens on every poke, so a call
+/// starting is noticed exactly as fast as it was: a joining peer's membership
+/// is LIVE, which the store answers for free.
+///
 /// `prefer_server` overrides that and asks the server anyway. It is for the
 /// caller who has independent evidence that the store's answer is wrong --
 /// the SFU naming a participant no membership accounts for -- because "the
@@ -1135,8 +1461,24 @@ async fn read_membership_events(
         MAX_RAW_MEMBER_EVENTS,
     );
 
-    if !prefer_server && store_view_is_usable(&from_store, now_ms) {
-        return (from_store, "store");
+    if !prefer_server {
+        let room_id = room.room_id().as_str();
+        match store_read_verdict(
+            &from_store,
+            now_ms,
+            room_has_published_membership(room_id),
+            rtc_ring_is_recent(room_id),
+        ) {
+            StoreVerdict::Answer => return (from_store, "store"),
+            StoreVerdict::AnswerNoSession => {
+                return (from_store, "store-no-session")
+            }
+            StoreVerdict::AskServer(reason) => {
+                if !claim_server_escalation(room_id) {
+                    return (from_store, reason.cooling_word());
+                }
+            }
+        }
     }
 
     let client = room.client();
@@ -1174,7 +1516,15 @@ async fn read_membership_events(
         // request did not get through", which is why it has its own word.
         return (from_store, "server-none");
     }
-    (merge_membership_events(from_store, from_server, now_ms), "server")
+    let merged = merge_membership_events(from_store, from_server, now_ms);
+    if !prefer_server && store_view_is_usable(&merged, now_ms) {
+        // The request found what it was spent on, so the doubling has nothing
+        // to describe and the next one starts from the base gap. A FORCED
+        // read is paced by its own caller and deliberately does not touch
+        // this lane: mixing them would let one consume the other's budget.
+        note_server_escalation_found_live(room.room_id().as_str());
+    }
+    (merged, "server")
 }
 
 async fn read_session(
@@ -1786,6 +2136,15 @@ fn mark_membership_published(key: &str) {
     if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
         seen.insert(key.to_owned());
     }
+    // Joining a call is the freshest evidence there is that this room has a
+    // session, so it also cancels whatever escalation backoff the room built
+    // up while it was idle. Without this a room that had been quiet for a
+    // quarter of an hour could carry a five-minute gap into the call it is
+    // about to host, and the media key lane would be reading a store that had
+    // not caught up yet.
+    if let Some(room_id) = key.split('\u{1f}').next() {
+        clear_server_escalation_backoff(room_id);
+    }
 }
 
 /// Forget it, so the NEXT publish is a join again.
@@ -1830,12 +2189,41 @@ pub(crate) fn forget_all_memberships_published() {
     if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
         seen.clear();
     }
+    // The two per-room mark tables belong to the session that is ending for
+    // the same reason this set does, and they are cleared HERE rather than
+    // through a second hook because this is already the one function every
+    // teardown path runs (see its caller in lib.rs). Neither holds anything
+    // secret — a room id and an instant — but both are account state, and
+    // §9's isolation rule is that the next account starts clean rather than
+    // inheriting a gap the previous one earned.
+    if let Ok(mut marks) = server_escalation_marks().lock() {
+        marks.clear();
+    }
+    if let Ok(mut marks) = rtc_ring_marks().lock() {
+        marks.clear();
+    }
 }
 
 fn membership_published_in_this_process(key: &str) -> bool {
     OWN_MEMBERSHIP_PUBLISHED
         .lock()
         .map(|seen| seen.contains(key))
+        .unwrap_or(false)
+}
+
+/// Is this process in a call in this room — i.e. does it hold a published
+/// membership for ANY of its own devices there?
+///
+/// The same set, asked room-wide rather than per state key, because the
+/// question the session read needs answered is "is the media key lane
+/// depending on this read?" and that is true for whichever local device
+/// published. Prefix-matched on the same U+241F key, exactly like
+/// `forget_room_memberships_published`.
+fn room_has_published_membership(room_id: &str) -> bool {
+    let prefix = format!("{room_id}\u{1f}");
+    OWN_MEMBERSHIP_PUBLISHED
+        .lock()
+        .map(|seen| seen.iter().any(|key| key.starts_with(&prefix)))
         .unwrap_or(false)
 }
 
@@ -3638,6 +4026,14 @@ pub(crate) fn register_rtc_handlers(
                 let timelines = Arc::clone(&timelines);
                 async move {
                     let own = client.user_id().is_some_and(|user| user == ev.sender);
+                    // A notification is the strongest statement that a
+                    // session exists in a room this client is deliberately
+                    // NOT looking at, so it licenses the one `/state` the
+                    // session read would otherwise refuse to spend on a room
+                    // whose stored membership view is stale. Recorded for
+                    // our OWN notification too: it costs one map insert and
+                    // the alternative is a rule with two cases.
+                    note_rtc_ring(room.room_id().as_str());
                     let notification_type = match ev.content.notification_type.as_str()
                     {
                         "ring" => "ring",
@@ -4373,6 +4769,233 @@ mod tests {
         assert!(!store_view_is_usable(&[junk], 2_000));
     }
 
+    // -----------------------------------------------------------------
+    // The `/state` escalation, and when it is worth spending one.
+    //
+    // FAIL-ON-OLD, for every case below that asserts `AnswerNoSession`: the
+    // code these replace was
+    //
+    //     if !prefer_server && store_view_is_usable(&from_store, now_ms) {
+    //         return (from_store, "store");
+    //     }
+    //     ...ask the homeserver...
+    //
+    // i.e. exactly two outcomes, and everything that is not live went to the
+    // network. Reproduce it by deleting the horizon arm of
+    // `store_read_verdict` — replace the whole tail after the `Answer` return
+    // with `StoreVerdict::AskServer(EscalationReason::RecentActivity)` — and
+    // every `AnswerNoSession` assertion below fails. That mutation IS the old
+    // behaviour, measured by the maintainer on 2026-09-19 as ten full
+    // `/state` requests during initial sync that all reported
+    // `participants= 0`.
+    // -----------------------------------------------------------------
+
+    /// A week of wall clock, so a "long dead" fixture is unambiguous.
+    const A_WEEK_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
+    #[test]
+    fn an_idle_room_full_of_dead_memberships_costs_no_request() {
+        // THE REPORTED DEFECT. Initial sync replays a room's existing
+        // `m.call.member` state, one poke per event; the store then holds
+        // exactly this and nothing live. There is no call in this room and
+        // `/state` cannot say anything else.
+        let now = A_WEEK_MS;
+        let store = vec![
+            membership_event("@a:x", "D1", 1_000, 300_000),
+            membership_event("@b:x", "D2", 2_000, 300_000),
+            retraction_event("@c:x", "D3", 3_000),
+        ];
+        assert_eq!(
+            store_read_verdict(&store, now, false, false),
+            StoreVerdict::AnswerNoSession
+        );
+    }
+
+    #[test]
+    fn a_room_that_has_never_hosted_a_call_costs_no_request() {
+        // The larger half of the same waste, and it is not poke-driven at
+        // all: `AppController::setCurrentRoomId` refreshes the session of
+        // every room the user opens, and an empty store failed the old gate
+        // exactly like a stale one. So opening any room cost one `/state`.
+        assert_eq!(
+            store_read_verdict(&[], A_WEEK_MS, false, false),
+            StoreVerdict::AnswerNoSession
+        );
+        assert_eq!(newest_session_signal_ms(&[], A_WEEK_MS), None);
+    }
+
+    #[test]
+    fn a_live_membership_is_still_answered_by_the_store_alone() {
+        // Unchanged, and it is what keeps a call STARTING prompt: a joining
+        // peer's membership is live the moment sync delivers it, so the poke
+        // it raises is answered from the store for free.
+        let now = 60_000u64;
+        let store = vec![membership_event("@a:x", "D1", 1_000, 300_000)];
+        assert_eq!(
+            store_read_verdict(&store, now, false, false),
+            StoreVerdict::Answer
+        );
+    }
+
+    #[test]
+    fn a_membership_that_lapsed_moments_ago_still_buys_one_request() {
+        // The other direction, and the one that keeps this honest: a peer
+        // whose refresh we simply have not received yet expired seconds ago,
+        // and the call may well still be running. Half a minute past its
+        // deadline is inside the horizon.
+        let now = A_WEEK_MS;
+        let store = vec![membership_event("@a:x", "D1", now - 330_000, 300_000)];
+        assert!(!store_view_is_usable(&store, now));
+        assert_eq!(
+            store_read_verdict(&store, now, false, false),
+            StoreVerdict::AskServer(EscalationReason::RecentActivity)
+        );
+    }
+
+    #[test]
+    fn a_retraction_from_moments_ago_still_buys_one_request() {
+        // A retraction PARSES TO NOTHING, so it contributes no deadline —
+        // and it is nonetheless the newest thing that happened to this
+        // room's call state. Drop the `origin_server_ts` arm of
+        // `newest_session_signal_ms` and a call that ended thirty seconds
+        // ago reads as a room with no history at all.
+        let now = A_WEEK_MS;
+        let fresh = vec![retraction_event("@a:x", "D1", now - 30_000)];
+        assert_eq!(
+            store_read_verdict(&fresh, now, false, false),
+            StoreVerdict::AskServer(EscalationReason::RecentActivity)
+        );
+        // ...and an hour later the same room is quiet again.
+        let stale = vec![retraction_event("@a:x", "D1", now - 60 * 60 * 1000)];
+        assert_eq!(
+            store_read_verdict(&stale, now, false, false),
+            StoreVerdict::AnswerNoSession
+        );
+    }
+
+    #[test]
+    fn the_deadline_counts_even_when_the_event_itself_is_old() {
+        // A long call refreshes rarely relative to its `expires`, so the
+        // newest EVENT can be much older than the newest DEADLINE. Taking
+        // only origin_server_ts would age such a room out early.
+        let now = A_WEEK_MS;
+        let event_ts = now - 4 * 60 * 60 * 1000;
+        let store = vec![membership_event("@a:x", "D1", event_ts, 4 * 60 * 60 * 1000 - 60_000)];
+        assert_eq!(
+            newest_session_signal_ms(&store, now),
+            Some(now - 60_000),
+            "the deadline is the signal, not the event that carried it"
+        );
+    }
+
+    #[test]
+    fn being_in_the_call_always_buys_the_request() {
+        // THE CASE THE FALLBACK WAS WRITTEN FOR, and the one this change must
+        // not take away. Measured against a real homeserver: the store held
+        // thirteen membership events and every one of them was a stale
+        // retraction while the server's own `/state` had the live
+        // memberships. Media keys are addressed to the devices these events
+        // name, so answering "nobody is here" from that store sends the key
+        // to nobody and every frame is dropped at both ends.
+        let now = A_WEEK_MS;
+        let store: Vec<serde_json::Value> = (0..13)
+            .map(|i| retraction_event(&format!("@peer{i}:x"), "D", 1_000))
+            .collect();
+        assert_eq!(
+            store_read_verdict(&store, now, false, false),
+            StoreVerdict::AnswerNoSession,
+            "same bytes, no call of our own: nothing to chase"
+        );
+        assert_eq!(
+            store_read_verdict(&store, now, true, false),
+            StoreVerdict::AskServer(EscalationReason::OwnCall),
+            "a call we are IN must still reach the homeserver, or its media \
+             keys go to nobody"
+        );
+    }
+
+    #[test]
+    fn a_ring_buys_the_request_for_a_room_nothing_has_looked_at() {
+        // The incoming-call card's Answer button is gated on a session read,
+        // and the room is deliberately not open — so its stored state is the
+        // least fresh thing this client holds. An empty store plus a ring is
+        // the exact shape of "app in the background, room not open".
+        assert_eq!(
+            store_read_verdict(&[], A_WEEK_MS, false, true),
+            StoreVerdict::AskServer(EscalationReason::Ring)
+        );
+    }
+
+    #[test]
+    fn the_escalation_backoff_doubles_and_stops_at_the_ceiling() {
+        // Without the doubling a single ghost membership — which sits inside
+        // the horizon for the whole horizon — would buy one `/state` per poke
+        // for fifteen minutes: the same storm in a smaller costume.
+        assert_eq!(escalation_cooldown_ms(0), SERVER_ESCALATION_COOLDOWN_MS);
+        assert_eq!(escalation_cooldown_ms(1), SERVER_ESCALATION_COOLDOWN_MS);
+        assert_eq!(escalation_cooldown_ms(2), 2 * SERVER_ESCALATION_COOLDOWN_MS);
+        assert_eq!(escalation_cooldown_ms(3), 4 * SERVER_ESCALATION_COOLDOWN_MS);
+        assert_eq!(
+            escalation_cooldown_ms(64),
+            SERVER_ESCALATION_COOLDOWN_MAX_MS,
+            "the gap must stop growing, or a room becomes permanently \
+             un-askable"
+        );
+        // Monotonic the whole way, and never past the ceiling.
+        let mut previous = 0u64;
+        for asks in 0..40u32 {
+            let gap = escalation_cooldown_ms(asks);
+            assert!(gap >= previous);
+            assert!(gap <= SERVER_ESCALATION_COOLDOWN_MAX_MS);
+            previous = gap;
+        }
+    }
+
+    #[test]
+    fn the_backoff_is_per_room_and_a_ring_cancels_it() {
+        // Shares the process-global mark tables with the publish-set tests;
+        // see PUBLISH_SET_TEST_LOCK, which now also covers them because
+        // `forget_all_memberships_published` clears all three together.
+        let _serialised = PUBLISH_SET_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let room = "!backoff:matrix.example";
+        let other = "!neighbour:matrix.example";
+        clear_server_escalation_backoff(room);
+        clear_server_escalation_backoff(other);
+
+        assert!(claim_server_escalation(room), "the first ask is free");
+        assert!(
+            !claim_server_escalation(room),
+            "a second ask inside the gap is exactly the storm this bounds"
+        );
+        assert!(
+            claim_server_escalation(other),
+            "one room's backoff must never silence another's — a per-process \
+             gate would make a real call wait on an idle room's ghost"
+        );
+
+        // A ring is fresh evidence a session exists, so it cancels the gap.
+        note_rtc_ring(room);
+        assert!(rtc_ring_is_recent(room));
+        assert!(!rtc_ring_is_recent(other));
+        assert!(
+            claim_server_escalation(room),
+            "a ring must not have to wait out a backoff the room earned \
+             while it was idle: the Answer button is gated on this read"
+        );
+
+        // And a session ending clears every one of them.
+        forget_all_memberships_published();
+        assert!(!rtc_ring_is_recent(room));
+        assert!(
+            claim_server_escalation(room),
+            "an account switch must not inherit the previous account's gap"
+        );
+        clear_server_escalation_backoff(room);
+        clear_server_escalation_backoff(other);
+    }
+
     #[test]
     fn a_bound_cuts_the_dead_memberships_before_the_live_ones() {
         // The room this file's own comments describe: thousands of stale
@@ -5070,7 +5693,10 @@ mod tests {
     /// every leave path being correct.
     ///
     /// FAIL-ON-OLD: drop either clearer and the matching assertion fails.
-    /// SERIALISES THE TWO TESTS THAT TOUCH `OWN_MEMBERSHIP_PUBLISHED`.
+    /// SERIALISES EVERY TEST THAT TOUCHES `OWN_MEMBERSHIP_PUBLISHED` — and,
+    /// since `forget_all_memberships_published()` clears all three of this
+    /// module's process-global tables together, the escalation backoff and
+    /// the ring marks as well.
     ///
     /// It is a process-global set, and cargo runs tests in parallel in one
     /// process — so `forget_all_memberships_published()` in one test wipes the
