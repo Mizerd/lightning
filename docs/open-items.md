@@ -585,6 +585,57 @@ rotted for Windows is not repeated elsewhere. A sweep of `packaging-ci/` for
 nothing else; no other lane pins a distro package by exact version.
 
 
+## 2026-09-19 (night) — CRITICAL: the account switcher opens off the bottom of the window
+
+**OPEN, and very likely caused by `18b56dd8` the same evening.** Found by
+the dialogs GUI audit; full note and captures in the session scratchpad at
+`gui-audit/dialogs.md` and `dlgaudit/`.
+
+**The popover's top lands level with the rail avatar tile's TOP and grows
+downward**, so only the header and a sliver of the first row are on screen —
+about 200 px of 279 is outside the window. Measured at 1000x700 (tile
+y 614..653, popover top 614) and at 1600x1200 (tile top 1110, popover top
+1118), and **identical at one account and at three**, so it is not tracking
+content height. The sibling `x` binding is correct, so only `y` is wrong.
+
+`qml/SpacesRail.qml:2780` reads
+`y: Math.max(_windowTopLocalY + spacing12, parent.height - implicitHeight)`
+and holds its default 0 — `40 - implicitHeight == 0` means the one
+evaluation happened while the Popup's `implicitHeight` was still ~40, and it
+is never re-run when that becomes 279.
+
+**WHY IT WAS MISSED, and this is the part to keep.** Resizing the window
+while the popover is open SNAPS IT TO THE RIGHT PLACE. The sequence on a
+fresh launch is: open, broken at y=614; resize 700 -> 701 -> 700; y=375,
+correct; close and reopen, still correct. **So it is wrong on every open
+until the window height changes once in a session, and right for the rest of
+it** — and any audit that resizes the window before looking, which is most
+of them, sees a working switcher.
+
+**The attribution is a strong hypothesis, NOT proven.** The placement code
+is unchanged since July. What changed in `18b56dd8` is that the list's
+`Layout.preferredHeight` moved from an off-layout IdentityCard PROBE — whose
+`implicitHeight` exists at component-creation time — to `count * rowH`, and
+`count` is 0 on a Popup that has never been opened. The auditor could not run
+the old code to confirm, and **a faithful standalone `qml` probe does NOT
+reproduce it** (there the binding evaluates lazily at `open()` and gets the
+right answer), so do not try to fix this from a probe.
+
+**Not fixed** because `qml/SpacesRail.qml` was owned by another agent
+mid-edit when this was found. The fix wants either an explicit
+`implicitHeight` on the Popup computed the same way the list is, or a `y`
+recomputed in `onAboutToShow`. `tests/RailDragQmlTest.cpp` already loads the
+real rail on a real `AppController` and is the right host for an assertion
+that the popover's scene bottom is inside the window — which must fail on
+the unfixed tree BEFORE any resize.
+
+### And a harness lesson that invalidates part of every GUI run in this tree
+
+Qt log output on this host goes to journald: **an app launched without
+`QT_FORCE_STDERR_LOGGING=1` writes no QML warnings to its log file at all.**
+Every GUI audit run here without that variable has been blind to binding
+loops and QML load errors. Set it in every GUI harness from now on.
+
 ## 2026-09-19 — macOS ships no licence at all; the AppImage's gap is ten packages, not a hundred and fifty
 
 > **CORRECTED 2026-09-19, same evening, by an independent review and then
