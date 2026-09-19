@@ -143,7 +143,11 @@ public:
     // keep-alive interval is 4 minutes — the idle/publish contracts are
     // untestable at those scales (review L7).
     void setIdleThresholdForTest(qint64 ms) { m_idleAfterMs = ms; }
-    void setPublishIntervalForTest(int ms) { m_publishTimer.setInterval(ms); }
+    void setPublishIntervalForTest(int ms)
+    {
+        m_publishJitter = false;   // deterministic cadence for the suite
+        m_publishTimer.setInterval(ms);
+    }
     void setMinPublishGapForTest(int ms) { m_minPublishGapMs = ms; }
     // The real typing-evidence window is 35 s; that it EXPIRES is untestable
     // at that scale. Deliberately not reset by clearSession() — it is a
@@ -209,6 +213,10 @@ private:
     // whole first keep-alive window. Only an UNCHANGED state is dropped: a
     // real state change still publishes immediately.
     static constexpr int kMinPublishGapMs = 10 * 1000;
+    // How far EARLIER than the interval a tick may land. Subtracted, never
+    // added, so the effective period is 21-25 s and the 33 s floor the
+    // interval was measured against is never approached from below.
+    static constexpr int kPublishJitterMs = 4 * 1000;
     // The app being CONTINUOUSLY in the background this long reads as
     // "idle" — measured from the moment focus was lost (review H2: an
     // earlier draft measured from the moment focus was GAINED, so any
@@ -293,6 +301,14 @@ private:
     // m_clock time of the last PUT we actually sent, for kMinPublishGapMs.
     qint64 m_lastPublishAtMs = -1;
     int m_minPublishGapMs = kMinPublishGapMs;
+    // TWO CLIENTS OF ONE ACCOUNT MUST NOT KEEP ALIGNING. Every running client
+    // publishes on the same 25 s period, so a user with a desktop and a
+    // laptop puts ~4.8 PUT/min on one account and Synapse's `rc_presence`
+    // (burst 1) starts answering 429 — MEASURED, 3 of 38 PUTs on an account
+    // that had four sessions open. Spreading each client's next tick over a
+    // window makes a collision transient instead of periodic. It stays well
+    // inside the 33 s floor the interval was chosen against.
+    bool m_publishJitter = true;
 
     quint64 m_nextOpId = 1;
     int m_revision = 0;

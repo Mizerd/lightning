@@ -4,6 +4,7 @@
 
 #include <QGuiApplication>
 #include <QLoggingCategory>
+#include <QRandomGenerator>
 #include <QRegularExpression>
 #include <QVariantList>
 
@@ -655,6 +656,13 @@ void PresenceManager::publishTick(bool force)
     m_client->publishPresence(desired, ownStatusText());
     m_lastPublished = desired;
     m_lastPublishAtMs = m_clock.elapsed();
+    // Re-arm with a fresh jitter so two clients of the same account drift
+    // apart instead of hammering the same instant for ever.
+    if (m_publishJitter) {
+        m_publishTimer.setInterval(kPublishIntervalMs
+                                   - QRandomGenerator::global()->bounded(
+                                       kPublishJitterMs));
+    }
     // stateFor()/infoFor() answer the local user from m_lastPublished, so
     // the dot and the profile line only move when the revision does.
     if (previous != m_lastPublished) {
