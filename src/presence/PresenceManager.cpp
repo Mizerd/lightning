@@ -750,10 +750,28 @@ void PresenceManager::onPublishRejected(const QString &category,
                                 retryAfterMs,
                                 static_cast<qint64>(kRetryAfterCeilingMs)))
                    : kRetryAfterUnknownMs;
-    // Backed off per link in the chain, and jittered for the same reason the
-    // cadence is: several devices rejected by ONE per-account limiter would
-    // otherwise all retry at the same instant and collide again.
-    wait = qMin(wait * m_retryChain, kRetryAfterCeilingMs);
+    // DO NOT BACK OFF ON TOP OF A SERVER THAT IS ALREADY BACKING OFF.
+    //
+    // Measured on this homeserver with three clients on one account: the
+    // hints Synapse sends ESCALATE by themselves — 998, 1995, 8006, 9849 ms
+    // along one client's chain. Multiplying those by the chain depth
+    // double-counted the backoff and produced waits of 17 to 23 s, up to
+    // 3.3x what the server actually asked for. Second-guessing a server
+    // upward when it has already told you when to come back is both ruder
+    // and slower than believing it.
+    //
+    // NOT a starvation fix, and the first version of this comment said it
+    // was. The per-client gap it cited (80 s) is the wrong quantity —
+    // presence is per ACCOUNT, so a starved client does not reach the user
+    // as long as SOME client's publish is accepted inside the window. At
+    // the account level the change moved the worst gap from 18 s to 14 s
+    // against a 33 s floor: real, modest, and not the difference between
+    // online and offline.
+    //
+    // The chain multiplier still applies to the BLIND default, where
+    // nothing is escalating on its own and something has to.
+    if (retryAfterMs <= 0)
+        wait = qMin(wait * m_retryChain, kRetryAfterCeilingMs);
     if (m_publishJitter)
         wait += QRandomGenerator::global()->bounded(kPublishJitterMs);
     qCDebug(lcPresence) << "own-presence rate limited; retrying in" << wait

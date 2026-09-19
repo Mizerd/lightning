@@ -1,5 +1,59 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-19 (late) — presence under real contention: the mechanism works, the report does not reproduce
+
+**PASS on the mechanism, and a REFUTATION of the explanation.** Three
+Lightning clients on one fixture account, live against this project's own
+Synapse, on the real `build-rust/lightning-matrix`. Copied fixture profiles
+on a private Xvfb; no credentials typed and none read.
+
+**The retry works end to end.** A rejection arrives carrying Synapse's own
+`retry_after_ms`, the client waits that long and resends, and the resend is
+accepted — visible in the trace as `afterRejection=1` followed by no
+rejection. Real hints crossed the FFI throughout (998, 1995, 6198, 8006,
+9849 ms), which is the Rust extractor working against a live server rather
+than against a fixture.
+
+**The limiter was bracketed for the first time.** Every number about
+`rc_presence` in this tree had been Synapse's DOCUMENTED DEFAULT applied to
+this homeserver on faith. Measured: ONE client at 0.042 PUT/s takes **zero**
+rejections over 165 s (8 attempts, steady 23/24/24 s intervals); THREE
+clients at ~0.125 PUT/s aggregate are rejected 57% of the time. So the
+threshold here is between those, consistent with the documented 0.1/s.
+
+**THE OUTCOME IS PER ACCOUNT, AND THAT IS THE RESULT.** Over 251 s with
+three clients contending: 12.18 publishes offered per minute, 5.25 accepted,
+and the gap between ANY accepted publish peaked at **14.0 s, mean 11.3 s,
+with ZERO of 21 windows breaching the 33 s expiry floor**. The account stayed
+continuously live under contention that rejected more than half of everything
+it sent.
+
+**A false alarm, recorded because it was mine.** Individual clients in the
+same run went **78 s** between their own accepted publishes, and that was
+read mid-measurement as the fix having failed — a change was made to the
+backoff on the strength of it. It is the wrong quantity: presence is per
+USER, so a starved client is invisible to everyone while a sibling is getting
+through. The backoff change stands on its own merits (do not multiply a hint
+from a server that is already escalating; it was asking for up to 3.3x what
+the server requested) and it improved the ACCOUNT-level worst gap from 18.0 s
+to 14.0 s — real, modest, and not the difference between online and offline.
+
+**AND IT DOES NOT REPRODUCE THE REPORT.** The fault that started this was an
+account reading **"Offline for 29m"** in Element Web while its process ran.
+Contention cannot produce that: under contention heavy enough to reject 57%
+of publishes, the account stays live, which is exactly what was just
+measured. So something on that account was stopping EVERY publisher rather
+than making them compete, and this round did not find it. The retry is a fix
+for a real defect found on the way to the report; it is **NOT** confirmed as
+a fix for the report.
+
+**NOT COVERED:** any observation from a second client (no Element or Sable in
+this run — this is the publishing side seen from the publisher); the three
+clients share one device id, because they are profile copies, so the server
+saw one device making three requests rather than three devices; the
+`unavailable` and `offline` states; and the failing account itself, which
+needs the maintainer's own session.
+
 ## 2026-09-19 (evening) — Windows at `d6d0ee25`: both rail styles, the setting, and two clocks
 
 **PASS on all four items**, on a Windows 11 guest running a portable built by

@@ -314,6 +314,28 @@ private:
     // `publishAttempts()` and the `presence-publish` trace line are what made
     // this answerable; use them rather than the rejection ratio, which cannot
     // tell the two causes apart.
+    //
+    // ── AND THE OUTCOME IS MEASURED PER ACCOUNT, NOT PER CLIENT ──────────
+    //
+    // THREE clients on one fixture account, live against this homeserver:
+    // 12.2 publishes offered per minute, 5.25 accepted, 57% rejected — and
+    // the gap between ANY accepted publish peaked at **14 s against the 33 s
+    // expiry floor, with ZERO of 21 windows breaching it**. The account
+    // stayed continuously live.
+    //
+    // Individual clients in that run went 78 s between their OWN accepted
+    // publishes. That does not reach the user: presence is per USER, so a
+    // starved client is invisible while a sibling is getting through. A
+    // per-client gap is the wrong quantity and reading it as the outcome
+    // raised a false alarm during this very measurement.
+    //
+    // **WHAT THIS DOES NOT EXPLAIN, and it is the reported fault:** the
+    // account that was failing showed OFFLINE for 29 minutes. Contention
+    // alone cannot produce that — under contention the account stays live,
+    // as just measured. So something on that account was stopping EVERY
+    // publisher rather than making them compete, and this round has not
+    // found it. Do not read the retry as a fix for the report; it is a fix
+    // for a real defect that was found on the way to it.
     static constexpr int kRetryAfterFloorMs = 1500;
     // Plus up to kPublishJitterMs, because the jitter is added AFTER this
     // clamp — the effective ceiling is 24 s, still well inside the 33 s
@@ -330,6 +352,10 @@ private:
     // Bounded so a server that rejects everything cannot turn the
     // keep-alive into a tight loop: after this many retries in a row the
     // chain gives up and waits for the ordinary tick.
+    //
+    // The chain ALSO multiplies the wait, but only when the server gave no
+    // hint — see `onPublishRejected`. A hint that is already escalating
+    // must not be multiplied again.
     static constexpr int kMaxRetryChain = 4;
     // The app being CONTINUOUSLY in the background this long reads as
     // "idle" — measured from the moment focus was lost (review H2: an
