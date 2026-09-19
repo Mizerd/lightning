@@ -370,6 +370,52 @@ void RailEntryModel::stampGroupField(QVector<QVariantMap> &rows)
     }
 }
 
+// `folderLast` MARKS THE LAST ROW OF A FOLDER'S RUN, AND THE RUN INCLUDES
+// NESTED ROWS.
+//
+// It used to be stamped by the STORE, over the folder's top-level members
+// only (`RailLayoutStore`), and `appendSubspaces()` then gave every nested row
+// a hard-coded `folderLast: false`. So the moment a folder's last member was
+// an EXPANDED Space, the flag sat on that Space rather than on the last row of
+// the block — and the QML reads it three ways, so one wrong row produced three
+// defects at once: the container squared its bottom at the block's true end
+// (`visible: inFolder && !folderLast`), overshot into the gap below it
+// (`folderLast ? 0 : list.spacing`), and pinched mid-block at the row that
+// wrongly held the flag. Reported as a square corner and reproduced with a
+// folder whose last member is expanded.
+//
+// `refreshFolderRuns()` has always computed this correctly over every row —
+// but its only caller is the drag-preview path, so the ordinary refresh never
+// ran it. Stamped here instead, beside `stampGroupField` and for the same
+// reason: the bounds of a run are part of what makes two row sets the same
+// picture, so this has to happen BEFORE the equality check below or a reorder
+// that only moves a run's end would compare equal and never reach the view.
+void RailEntryModel::stampFolderRuns(QVector<QVariantMap> &rows)
+{
+    for (int i = 0; i < rows.size(); ++i) {
+        if (rows.at(i).value(QStringLiteral("kind")).toString() == kKindFolder)
+            continue;
+        const QString owner =
+            rows.at(i).value(QStringLiteral("folderId")).toString();
+        // A row outside a folder is never "last" of one.
+        bool isLast = false;
+        if (!owner.isEmpty()) {
+            isLast = true;
+            for (int j = i + 1; j < rows.size(); ++j) {
+                if (rows.at(j).value(QStringLiteral("kind")).toString()
+                    == kKindFolder)
+                    break;
+                if (rows.at(j).value(QStringLiteral("folderId")).toString()
+                    == owner) {
+                    isLast = false;
+                }
+                break;
+            }
+        }
+        rows[i].insert(QStringLiteral("folderLast"), isLast);
+    }
+}
+
 void RailEntryModel::applyRows(QVector<QVariantMap> rows)
 {
     // BEFORE the equality check below, not after: the field's bounds are part
@@ -377,6 +423,7 @@ void RailEntryModel::applyRows(QVector<QVariantMap> rows)
     // let a reorder that changes only the grouping — a run gaining a row at
     // its end — compare equal and never reach the view.
     stampGroupField(rows);
+    stampFolderRuns(rows);
     if (rows.size() == m_rows.size()) {
         bool sameIds = true;
         for (int i = 0; i < rows.size(); ++i) {

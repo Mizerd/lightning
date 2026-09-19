@@ -249,6 +249,9 @@ private:
     /// through — including the drag preview, so the grouping the user sees
     /// while dragging is the grouping they will get.
     static void stampGroupField(QVector<QVariantMap> &rows);
+    // `folderLast` over the folder's WHOLE run, nested rows included. See the
+    // definition for why the model could not be trusted to carry it.
+    static void stampFolderRuns(QVector<QVariantMap> &rows);
     void appendSubspaces(const QString &parentId,
                          const QString &owningFolderId,
                          const QHash<QString, QVariantMap> &byId,

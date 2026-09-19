@@ -1308,6 +1308,74 @@ private Q_SLOTS:
     //   └── C            them and close only at C1a. A sibling boundary is
     //       └── C1       the only place the two rules disagree, so A and B
     //           └── C1a  are leaves on purpose — nothing between them.
+    // A FOLDER'S RUN ENDS AT ITS LAST ROW, NOT AT ITS LAST MEMBER.
+    //
+    // `folderLast` was stamped by the STORE, which knows only the folder's
+    // top-level members, and `appendSubspaces()` then gave every nested row a
+    // hard-coded false. So a folder whose last member is an EXPANDED Space
+    // put the flag on that Space rather than on the last row of the block,
+    // and the view reads it three ways: the container squares its bottom at
+    // the block's true end, overshoots by one `spacing` into the gap below,
+    // and pinches mid-block at the row wrongly holding the flag. Reported as
+    // a square corner, reproduced with exactly this shape, and measured on a
+    // capture as a bottom corner inset of 0px where the top inset 19.
+    //
+    // THE EXPANSION IS WHAT MAKES THE FIXTURE DISCRIMINATING: with every
+    // member collapsed the last member IS the last row, and the broken code
+    // and the correct code agree.
+    void folderLastMarksTheLastRowOfTheRunNotTheLastMember()
+    {
+        FakeClient client;
+        client.roomList = {
+            spaceRoom(QStringLiteral("!p:x"), QStringLiteral("P"),
+                      { QStringLiteral("!pc:x") }),
+            spaceRoom(QStringLiteral("!pc:x"), QStringLiteral("PC"), {},
+                      { QStringLiteral("!p:x") }),
+            spaceRoom(QStringLiteral("!q:x"), QStringLiteral("Q")),
+        };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        // P is LAST among the members and is expanded, so its child is the
+        // last ROW of the run while P is the last MEMBER.
+        const QString folder = store.createFolderWithSpaces(
+            { QStringLiteral("!q:x"), QStringLiteral("!p:x") }, -1,
+            QStringLiteral("Work"));
+        QVERIFY(!folder.isEmpty());
+        store.setSpaceExpanded(QStringLiteral("!p:x"), true);
+
+        RailEntryModel model;
+        model.setSources(&spaces, &store);
+
+        int rowP = -1;
+        int rowPC = -1;
+        for (int i = 0; i < model.rowCount(); ++i) {
+            const QString id = model.data(model.index(i, 0),
+                                          RailEntryModel::EntryIdRole)
+                                   .toString();
+            if (id == QStringLiteral("!p:x")) rowP = i;
+            if (id == QStringLiteral("!pc:x")) rowPC = i;
+        }
+        QVERIFY2(rowP >= 0 && rowPC >= 0,
+                 "the fixture produced no folder with an expanded member and "
+                 "a nested row, so this case measures nothing");
+        QVERIFY2(rowPC > rowP, "the child must follow its parent");
+
+        const auto lastAt = [&](int row) {
+            return model.data(model.index(row, 0),
+                              RailEntryModel::FolderLastRole).toBool();
+        };
+        QVERIFY2(!lastAt(rowP),
+                 "the folder's last MEMBER carries folderLast while a nested "
+                 "row still follows it — the container squares its bottom a "
+                 "row early and pinches there");
+        QVERIFY2(lastAt(rowPC),
+                 "the last ROW of the folder's run is not marked last, so the "
+                 "container squares its bottom and overshoots into the gap "
+                 "below it");
+    }
+
     void theGroupFieldFollowsTheRowsRatherThanTheGraph()
     {
         FakeClient client;
