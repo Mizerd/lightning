@@ -1638,6 +1638,116 @@ private Q_SLOTS:
         QCOMPARE(modelIds(model), nested);
     }
 
+    // ── DRAG ON THE FLAT RAIL ────────────────────────────────────────────
+    //
+    // Classic REMOVES rows from the model, and every drag index, gap and
+    // drop target is a position in that list. A row list that shortens under
+    // arithmetic written for the long one is the whole reason Classic is a
+    // model flag rather than a QML `visible` binding — so it has to be
+    // asserted, not assumed. Nothing here existed when `setFlat` shipped.
+    void aDragOnTheFlatRailMovesOneTileAndStoresTheTopLevelOrder()
+    {
+        FakeClient client;
+        client.roomList = {
+            spaceRoom(QStringLiteral("!p:x"), QStringLiteral("Parent"),
+                      { QStringLiteral("!c:x") }),
+            spaceRoom(QStringLiteral("!c:x"), QStringLiteral("Child"), {},
+                      { QStringLiteral("!p:x") }),
+            spaceRoom(QStringLiteral("!z:x"), QStringLiteral("Z")),
+        };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        // Expanded, and it STAYS expanded — Classic declines to read the
+        // state rather than clearing it, so the drag must not disturb it.
+        store.setSpaceExpanded(QStringLiteral("!p:x"), true);
+        RailEntryModel model;
+        model.setSources(&spaces, &store);
+        model.setFlat(true);
+
+        QCOMPARE(modelIds(model).mid(1),
+                 (QStringList{ QStringLiteral("!p:x"),
+                               QStringLiteral("!z:x") }));
+
+        // The subspace is not in the list, so the drag carries ONE tile
+        // where Regions would carry two. `hoverGap(rowCount())` is the end
+        // of a list that is now shorter by a row.
+        QVERIFY(model.beginDrag(QStringLiteral("!p:x")));
+        model.hoverGap(model.rowCount());
+        QCOMPARE(modelIds(model).mid(1),
+                 (QStringList{ QStringLiteral("!z:x"),
+                               QStringLiteral("!p:x") }));
+        model.endDrag(true);
+        QCOMPARE(store.order(), (QStringList{ QStringLiteral("!z:x"),
+                                              QStringLiteral("!p:x") }));
+        QVERIFY2(store.spaceExpanded(QStringLiteral("!p:x")),
+                 "a flat-rail drag cleared the expansion state it is only "
+                 "supposed to be ignoring");
+
+        // AND THE ORDER IT STORED IS THE ORDER REGIONS THEN DRAWS. A drag
+        // performed on the short list must not leave the long one scrambled,
+        // which is the failure mode a shortened index list actually has.
+        model.setFlat(false);
+        QCOMPARE(modelIds(model).mid(1),
+                 (QStringList{ QStringLiteral("!z:x"), QStringLiteral("!p:x"),
+                               QStringLiteral("!c:x") }));
+    }
+
+    // A FOLDER IS THE USER'S OWN GROUPING OF TOP-LEVEL SPACES, not Matrix
+    // hierarchy, so Classic keeps it — dropping folders would rearrange a
+    // rail somebody built by hand. Its members are top-level Spaces, and if
+    // flat mode dropped them they would be GONE from the rail rather than
+    // merely un-nested, which is the one way Classic could actually hide
+    // something.
+    void theFlatRailKeepsFoldersAndEveryOneOfTheirMembers()
+    {
+        FakeClient client;
+        client.roomList = {
+            spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A")),
+            spaceRoom(QStringLiteral("!b:x"), QStringLiteral("B")),
+            spaceRoom(QStringLiteral("!c:x"), QStringLiteral("C")),
+        };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        const QString folder = store.createFolder(QStringLiteral("Work"));
+        store.setSpaceFolder(QStringLiteral("!a:x"), folder);
+        store.setSpaceFolder(QStringLiteral("!b:x"), folder);
+        RailEntryModel model;
+        model.setSources(&spaces, &store);
+        model.setFlat(true);
+
+        const QStringList ids = modelIds(model);
+        for (const char *id : { "!a:x", "!b:x", "!c:x" }) {
+            QVERIFY2(ids.contains(QLatin1String(id)),
+                     qPrintable(QStringLiteral("%1 vanished from the flat "
+                                               "rail: %2")
+                                    .arg(QLatin1String(id),
+                                         ids.join(QLatin1Char(',')))));
+        }
+        // `modelIds` reads EntryIdRole — the folder's OWN id, which is what
+        // `createFolder` handed back. "[Work]" is the spelling the separate
+        // `store.arrange()` helper produces, and using it here asserted a
+        // name this model never emits.
+        QVERIFY2(ids.contains(folder),
+                 qPrintable(QStringLiteral("the folder itself vanished: %1")
+                                .arg(ids.join(QLatin1Char(',')))));
+
+        // A COLLAPSED folder still hides its members, in Classic exactly as
+        // in Regions: that is the folder's own control and Classic does not
+        // touch it. Asserted so nobody "fixes" Classic by making a folder
+        // permanently open.
+        store.setFolderCollapsed(folder, true);
+        model.refresh();
+        const QStringList collapsed = modelIds(model);
+        QVERIFY(collapsed.contains(folder));
+        QVERIFY(collapsed.contains(QStringLiteral("!c:x")));
+        QVERIFY2(!collapsed.contains(QStringLiteral("!a:x")),
+                 "a collapsed folder is showing its members on the flat rail");
+    }
+
     void draggingASpaceCarriesItsExpandedSubspacesWithIt()
     {
         // Those rows are Matrix's arrangement UNDER this Space. Moving the
