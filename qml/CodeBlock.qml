@@ -287,7 +287,18 @@ Rectangle {
                         lines.push(String(i))
                     return lines.join("\n")
                 }
-                color: AppTheme.textDisabled
+                // `textMuted`, NOT `textDisabled`, and the difference is
+                // a light-theme-only defect measured 2026-09-19. The
+                // disabled ink is tuned against the app's SURFACE; the code
+                // block's fill is a tinted panel that in the light themes is
+                // LIGHTER than that surface, so the same token lands on it
+                // at 1.56:1 (Lightning Light), 1.72:1 (Warm) and 2.14:1
+                // (Moss Light) — line numbers that are not there. The dark
+                // themes never showed it: their `codeBlock` is much darker
+                // than the surface and the same token measures 4.0-6.5:1.
+                // `textMuted` is 4.5-9.2:1 over all eleven palettes and is
+                // still plainly subordinate to the code (8.9-18.5:1).
+                color: AppTheme.textMuted
                 font.family: codeArea.font.family
                 font.pixelSize: codeArea.font.pixelSize
                 Accessible.ignored: true

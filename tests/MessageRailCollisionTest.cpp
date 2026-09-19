@@ -19,6 +19,13 @@
 //     the bubble's width cap reserves a 40px rail that its PLACEMENT then
 //     ignored.
 //
+// A 2026-09-19 GUI audit added four more, all of them in Bubbles and all of
+// them found by the same method — a geometric sweep over the real delegate,
+// 23 fixture variants x 3 layouts x own/other x two row widths x two text
+// scales x hover/idle. Modern and Compact produced zero violations; every
+// failure was a child of the Bubbles bubble being sized against the bubble's
+// OUTER width, or the reactions Flow packing from the wrong edge.
+//
 // These are GEOMETRIC assertions on the real delegate, not a source scan.
 // A scan cannot see an overlap: every one of these defects was present in a
 // file that read as though it handled the case, and two of them are sitting
@@ -118,8 +125,30 @@ class MessageRailCollisionTest : public QObject
         return out;
     }
 
+    /// `count` reaction pills, in the shape the Flow's chips expect.
+    static QVariantList reactions(int count)
+    {
+        static const char *keys[] = {"\xf0\x9f\x91\x8d", "\xf0\x9f\x8e\x89",
+                                     "\xf0\x9f\x94\xa5"};
+        QVariantList out;
+        for (int i = 0; i < count; ++i) {
+            QVariantMap r;
+            r.insert(QStringLiteral("key"),
+                     QString::fromUtf8(keys[i % 3]));
+            r.insert(QStringLiteral("count"), i + 1);
+            r.insert(QStringLiteral("byMe"), i == 0);
+            r.insert(QStringLiteral("senders"),
+                     QVariantList{QStringLiteral("@r:mock.local")});
+            r.insert(QStringLiteral("names"),
+                     QVariantList{QStringLiteral("Reader")});
+            out.append(r);
+        }
+        return out;
+    }
+
     bool build(AppController &controller, const QVariantMap &fixture,
-               Delegate &out)
+               Delegate &out, qreal rowWidth = kRowWidth,
+               bool direct = false)
     {
         out.engine = std::make_unique<QQmlApplicationEngine>();
         out.engine->rootContext()->setContextProperty("app", &controller);
@@ -137,9 +166,17 @@ class MessageRailCollisionTest : public QObject
         out.window = std::make_unique<QQuickWindow>();
         out.window->resize(800, 480);
         out.root->setParentItem(out.window->contentItem());
-        out.root->setWidth(kRowWidth);
+        out.root->setWidth(rowWidth);
+        // Bubbles is a DIRECT-room layout and the flag normally comes from
+        // the host view this delegate has none of. Set it BEFORE the first
+        // layout pass: switching a laid-out row from Modern to Bubbles
+        // leaves the content caps a frame behind and the measurement is of
+        // neither layout.
+        if (direct)
+            QQmlProperty::write(out.root, QStringLiteral("isDirectRoom"), true);
         out.window->show();
-        QCoreApplication::processEvents();
+        for (int i = 0; i < 6; ++i)
+            QCoreApplication::processEvents();
         return true;
     }
 
@@ -345,6 +382,227 @@ private Q_SLOTS:
                      "the own bubble (ends at %1) runs under the read-receipt "
                      "facepile (starts at %2), which clips its corner")
                      .arg(bubbleRight).arg(pileLeft)));
+    }
+
+    // ── 2026-09-19 GUI AUDIT ────────────────────────────────────────────
+
+    /// The union of every reaction pill and the add chip, in row coords.
+    static QRectF chipBand(QQuickItem *root)
+    {
+        QRectF acc;
+        const auto chips = root->findChildren<QQuickItem *>(
+            QStringLiteral("reactionChip"));
+        auto add = root->findChildren<QQuickItem *>(
+            QStringLiteral("reactionAddChip"));
+        QList<QQuickItem *> all = chips;
+        all += add;
+        for (auto *c : all) {
+            if (!c->isVisible() || c->width() <= 0)
+                continue;
+            const QPointF tl = c->mapToItem(root, QPointF(0, 0));
+            const QRectF r(tl, QSizeF(c->width(), c->height()));
+            acc = acc.isNull() ? r : acc.united(r);
+        }
+        return acc;
+    }
+
+    /// Everything `bubbleContent` lays out is inset by `bubblePad`, so the
+    /// bubble's INNER right edge is what a child may reach.
+    static qreal innerRight(QQuickItem *root, QQuickItem *bubble)
+    {
+        const qreal pad =
+            QQmlProperty::read(root, QStringLiteral("bubblePad")).toReal();
+        return bubble->mapToItem(root, QPointF(bubble->width(), 0)).x() - pad;
+    }
+
+    // BUBBLES: A REACTION ON YOUR OWN MESSAGE BELONGS UNDER YOUR OWN MESSAGE.
+    //
+    // The reactions Flow fills the row and packs from its own left edge,
+    // and an own bubble is right-aligned — so the chips were laid out at
+    // the row's LEFT edge with the bubble they annotate at the right.
+    // Measured live 2026-09-19 in a DM on a 1920px window: chips at
+    // x 444..520, the bubble at x 1156..1883, which reads as a reaction on
+    // the OTHER person's side of the conversation.
+    //
+    // FAIL-ON-OLD: restore `Layout.leftMargin: root.avatarGutterWidth` on
+    // reactionsFlow and the band lands at the row's left edge again.
+    void ownBubbleReactionsHangUnderTheirBubble()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(1);   // Bubbles
+
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), true);
+        f.insert(QStringLiteral("reactions"), reactions(3));
+
+        Delegate d;
+        QVERIFY(build(app, f, d, kRowWidth, true));
+        QVERIFY(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool());
+
+        auto *bubble = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        QVERIFY(bubble);
+        const QRectF band = chipBand(d.root);
+        QVERIFY2(!band.isNull(), "the fixture produced no reaction chips");
+
+        const qreal bubbleLeft = leftEdgeIn(bubble, d.root);
+        // One chip run (220px, the Flow's own minimum band) is the widest
+        // separation that still reads as "these belong to that message".
+        QVERIFY2(band.right() >= bubbleLeft - 240.0,
+                 qPrintable(QStringLiteral(
+                     "the reaction chips end at %1 but the own bubble starts "
+                     "at %2 — they are stranded at the row's left edge, on "
+                     "the incoming side of the conversation")
+                     .arg(band.right()).arg(bubbleLeft)));
+    }
+
+    // BUBBLES: THE BODY MUST STAY INSIDE THE BUBBLE'S PADDING.
+    //
+    // `bubbleContent` insets every child by `bubblePad` (10 in Bubbles, 0 in
+    // Modern/Compact), but the body's cap was `bubble.width - 8` — the
+    // bubble's OUTER width. Measured 2026-09-19 at a 640px row: bubble
+    // 84..640, messageBody 94..642, i.e. 12px past the bubble's inner edge
+    // and 2px past the ROW. Invisible in Modern/Compact, where the padding
+    // is zero and the same expression is 8px conservative.
+    //
+    // FAIL-ON-OLD: put `Math.min(720, bubble.width - 8)` back on bodyLabel.
+    void aBubbleContainsItsOwnBodyText()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(1);   // Bubbles
+
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), true);
+        // One unbroken run, so the body is laid out AT its cap rather than
+        // at a word boundary below it.
+        f.insert(QStringLiteral("body"), QString(220, QLatin1Char('W')));
+
+        Delegate d;
+        QVERIFY(build(app, f, d, kRowWidth, true));
+        QVERIFY(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool());
+
+        auto *bubble = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        auto *body = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageBody"));
+        QVERIFY(bubble);
+        QVERIFY2(body && body->width() > 0, "no message body in the row");
+
+        const qreal bodyRight = rightEdgeIn(body, d.root);
+        QVERIFY2(bodyRight <= innerRight(d.root, bubble) + 0.6,
+                 qPrintable(QStringLiteral(
+                     "the body ends at %1, past the bubble's inner edge %2 "
+                     "(bubble ends at %3) — the text is drawn on and over "
+                     "the bubble's own border")
+                     .arg(bodyRight).arg(innerRight(d.root, bubble))
+                     .arg(rightEdgeIn(bubble, d.root))));
+        QVERIFY2(bodyRight <= d.root->width() + 0.6,
+                 qPrintable(QStringLiteral(
+                     "the body ends at %1, past the row's own width %2")
+                     .arg(bodyRight).arg(d.root->width())));
+    }
+
+    // BUBBLES: AND SO MUST A MEDIA CARD, WHICH IS THE VISIBLE HALF.
+    //
+    // Every card sized itself `Math.min(N, bubble.width)` — again the OUTER
+    // width — so on a row narrow enough for the bubble's cap to bind, the
+    // card was drawn 10px past the bubble on the right and, for an own
+    // message, 10px past the row. Measured 2026-09-19 at a 360px row:
+    // bubble 84..360, fileCard 94..370.
+    //
+    // FAIL-ON-OLD: put `Math.min(340, bubble.width)` back on fileCard.
+    void aNarrowBubbleContainsItsFileCard()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(1);   // Bubbles
+
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), true);
+        f.insert(QStringLiteral("isFile"), true);
+        f.insert(QStringLiteral("mediaSize"), 4500000);
+        f.insert(QStringLiteral("mediaMimetype"), QStringLiteral("application/pdf"));
+        f.insert(QStringLiteral("mediaKey"), QStringLiteral("k5"));
+        f.insert(QStringLiteral("mediaFilename"),
+                 QStringLiteral("a-really-long-attachment-filename.pdf"));
+        f.insert(QStringLiteral("body"),
+                 QStringLiteral("a-really-long-attachment-filename.pdf"));
+
+        Delegate d;
+        QVERIFY(build(app, f, d, 360, true));
+        QVERIFY(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool());
+
+        auto *bubble = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        auto *card = d.root->findChild<QQuickItem *>(
+            QStringLiteral("fileCard"));
+        QVERIFY(bubble);
+        QVERIFY2(card && card->width() > 0, "no file card in the row");
+
+        const qreal cardRight = rightEdgeIn(card, d.root);
+        QVERIFY2(cardRight <= innerRight(d.root, bubble) + 0.6,
+                 qPrintable(QStringLiteral(
+                     "the file card ends at %1, past the bubble's inner edge "
+                     "%2 (bubble ends at %3) — the card is painted outside "
+                     "the bubble that is supposed to hold it")
+                     .arg(cardRight).arg(innerRight(d.root, bubble))
+                     .arg(rightEdgeIn(bubble, d.root))));
+        QVERIFY2(cardRight <= d.root->width() + 0.6,
+                 qPrintable(QStringLiteral(
+                     "the file card ends at %1, past the row's own width %2")
+                     .arg(cardRight).arg(d.root->width())));
+    }
+
+    // BUBBLES: THE HEADER CAP HAS TO MIRROR THE **WHOLE** BUBBLE CAP.
+    //
+    // `aBubbleContainsItsOwnSenderHeader` above fixed the loop; the cap it
+    // installed mirrors the bubble's width EXCEPT for `bubbleReceiptInset`,
+    // which was added later. So with a facepile on a narrow row the header
+    // may be the pile's width wider than the bubble can ever become.
+    // Measured 2026-09-19 at a 360px row with four receipts: bubble
+    // 44..256, senderIdentityHeader 54..310, and its timestamp at 293..319
+    // — outside the bubble and underneath the avatars.
+    //
+    // FAIL-ON-OLD: drop `- root.bubbleReceiptInset` from contentInnerCap.
+    void aNarrowBubbleWithReceiptsContainsItsSenderHeader()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(1);   // Bubbles
+
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("readReceipts"), receipts(4));
+        f.insert(QStringLiteral("readReceiptsTotal"), 4);
+
+        Delegate d;
+        QVERIFY(build(app, f, d, 360, true));
+        QVERIFY(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool());
+
+        auto *bubble = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        auto *header = d.root->findChild<QQuickItem *>(
+            QStringLiteral("senderIdentityHeader"));
+        auto *pile = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptRow"));
+        QVERIFY(bubble);
+        QVERIFY2(header && header->width() > 0, "no sender header in the row");
+        QVERIFY(pile);
+
+        const qreal headerRight = rightEdgeIn(header, d.root);
+        QVERIFY2(headerRight <= innerRight(d.root, bubble) + 0.6,
+                 qPrintable(QStringLiteral(
+                     "the sender header ends at %1, past the bubble's inner "
+                     "edge %2 (bubble ends at %3) — the name and timestamp "
+                     "render on the timeline background")
+                     .arg(headerRight).arg(innerRight(d.root, bubble))
+                     .arg(rightEdgeIn(bubble, d.root))));
+        QVERIFY2(headerRight <= leftEdgeIn(pile, d.root) + 0.6,
+                 qPrintable(QStringLiteral(
+                     "the sender header ends at %1 and the receipt facepile "
+                     "starts at %2 — the timestamp is under the avatars")
+                     .arg(headerRight).arg(leftEdgeIn(pile, d.root))));
     }
 
 private:

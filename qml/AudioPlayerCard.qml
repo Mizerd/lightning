@@ -308,7 +308,10 @@ Rectangle {
         }
     }
 
-    implicitWidth: Math.min(360, bubble ? bubble.width : 360)
+    implicitWidth: Math.min(
+        360, root.hostContentWidth >= 0
+             ? root.hostContentWidth
+             : (bubble ? bubble.width : 360))
     implicitHeight: cardRow.implicitHeight + 12
                     + (coverArtBox.visible
                        ? coverArtBox.implicitHeight + 6 : 0)
@@ -317,7 +320,17 @@ Rectangle {
     border.color: AppTheme.border
     border.width: 1
     // The delegate provides `bubble`; standalone use (tests) tolerates null.
+    // DEPRECATED as a width source — a Bubbles bubble insets its children by
+    // 10px on each side, so its OUTER width is 20px more than this card may
+    // occupy and the card was drawn 10px past the bubble's right edge
+    // (measured 2026-09-19). The delegate now passes `availableWidth`, which
+    // is the content column's INNER width; `bubble` remains only for the
+    // standalone/legacy path.
     property var bubble: null
+    /// What the host says this card may occupy. Negative means "not set".
+    /// Named `hostContentWidth` rather than `availableWidth` because the
+    /// cover-art box below already owns that name for its own inner width.
+    property real hostContentWidth: -1
 
     // Embedded cover art, rendered as its own box ATTACHED BELOW the player
     // controls rather than as a thumbnail beside them — the shape a chat

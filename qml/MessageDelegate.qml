@@ -1044,6 +1044,37 @@ Item {
         ? receiptRow.width + AppTheme.spacingXS
         : 0
 
+    // ---- What a child INSIDE the content column may actually be ---------
+    //
+    // `bubbleContent` insets every child by `bubblePad` on each side, and
+    // `bubblePad` is 0 in Modern/Compact and 10 in Bubbles. Every width cap
+    // in this file was written against `bubble.width` — the column's OUTER
+    // width — which is exactly right where the padding is zero and 20px too
+    // generous where it is not. Measured 2026-09-19 on the real delegate at
+    // a 640px row: in Bubbles a long body was laid out 12px past the
+    // bubble's inner edge and 2px past the ROW, and an image / video /
+    // audio / file card 10px past both, because `min(360, bubble.width)` is
+    // the bubble's WHOLE width and the card is drawn 10px inside it.
+    //
+    // Derived from `bubbleRow` and NOT from `bubble`, which is the escape
+    // `segmentCap` and the identity header's cap already document: in
+    // Bubbles the bubble is SIZED FROM bubbleContent's implicit width, so a
+    // child clamped against `bubble.width` feeds its own input.  bubbleRow
+    // is fillWidth in `layout` and reports no implicit width, so that end
+    // of the chain is inert, and `bubbleReceiptInset` rides a chip COUNT
+    // and depends on nothing below the bubble either.
+    //
+    // In Modern/Compact this is algebraically `bubble.width`: the same
+    // `Math.min(timelineContentMaxWidth, bubbleRow.width - gutter)` the
+    // bubble itself computes, minus a zero padding.
+    readonly property real contentInnerCap: {
+        var avail = Math.max(1, bubbleRow.width - root.avatarGutterWidth)
+        avail = root.bubbleMode
+                ? Math.max(60, avail - 40 - root.bubbleReceiptInset)
+                : Math.min(AppTheme.timelineContentMaxWidth, avail)
+        return Math.max(1, avail - root.bubblePad * 2)
+    }
+
     // ---- Action bar vs the read-receipt rail ---------------------------
     // REPORTED 2026-09-14, with a screenshot: "this is a bit messy and hard
     // to click on stuff". Four receipt avatars sat ON TOP of the hover action
@@ -1808,11 +1839,17 @@ Item {
                         // so that end of the chain is inert. The expression
                         // mirrors the bubble's own cap so the header can never
                         // ask for more than the bubble may become.
+                        // ... AND IT MUST MIRROR THE WHOLE CAP. The
+                        // bubble's own width also subtracts
+                        // `bubbleReceiptInset`; this did not, so on a narrow
+                        // row with receipts the header was allowed to be the
+                        // facepile's width wider than the bubble could ever
+                        // become. Measured 2026-09-19 at a 360px row with
+                        // four receipts: bubble 44..256, header 54..310 and
+                        // its timestamp at 293..319 — outside the bubble and
+                        // underneath the avatars.
                         Layout.maximumWidth: root.bubbleMode
-                            ? Math.max(1, Math.max(60, bubbleRow.width
-                                                       - root.avatarGutterWidth
-                                                       - 40)
-                                          - root.bubblePad * 2)
+                            ? root.contentInnerCap
                             : Math.max(1, bubble.width - 112)
                         sourceComponent: RowLayout {
                         id: identityHeader
@@ -1940,7 +1977,7 @@ Item {
                         // own width is also what makes the left rule read as
                         // a rule rather than as the edge of a pill.
                         Layout.fillWidth: true
-                        Layout.maximumWidth: bubble.width
+                        Layout.maximumWidth: root.contentInnerCap
                         Layout.bottomMargin: 2
                         implicitWidth: replyRowWrap.implicitWidth
                                        + replyBox.barWidth + 16
@@ -2127,9 +2164,9 @@ Item {
                         visible: active
                         Layout.alignment: Qt.AlignLeft
                         Layout.preferredWidth: item ? item.implicitWidth : 0
-                        Layout.maximumWidth: bubble.width
+                        Layout.maximumWidth: root.contentInnerCap
                         sourceComponent: CollapsedEmbedRow {
-                            maximumWidth: bubble.width
+                            maximumWidth: root.contentInnerCap
                             interactive: root.rowActionsEnabled
                             expanded: root.embedExpanded
                             iconName: root.mediaEmbedIcon()
@@ -2149,9 +2186,9 @@ Item {
                                   || model.isSticker === true)
                                  && !root.mediaEmbedCollapsed
                         Layout.alignment: Qt.AlignLeft
-                        Layout.preferredWidth: Math.min(bubble.width,
+                        Layout.preferredWidth: Math.min(root.contentInnerCap,
                                                         implicitWidth)
-                        Layout.maximumWidth: bubble.width
+                        Layout.maximumWidth: root.contentInnerCap
                         // v0.5.11: contribute a real implicit width so an
                         // image-only row grows to the media size instead of
                         // collapsing to the timestamp width (which made images
@@ -2171,7 +2208,7 @@ Item {
                             // animate.
                             active: !root.mediaEmbedCollapsed
                             anchors.left: parent.left
-                            width: Math.min(bubble.width,
+                            width: Math.min(root.contentInnerCap,
                                             item ? item.implicitWidth : 0)
                             sourceComponent: model.isImage ? imageComponent
                                             : model.isSticker === true
@@ -2194,7 +2231,7 @@ Item {
                         visible: active
                         Layout.alignment: Qt.AlignLeft
                         Layout.preferredWidth: item ? item.implicitWidth : 0
-                        Layout.maximumWidth: bubble.width
+                        Layout.maximumWidth: root.contentInnerCap
                         sourceComponent: pollComponent
                     }
 
@@ -2208,7 +2245,7 @@ Item {
                         visible: active
                         Layout.alignment: Qt.AlignLeft
                         Layout.preferredWidth: item ? item.implicitWidth : 0
-                        Layout.maximumWidth: bubble.width
+                        Layout.maximumWidth: root.contentInnerCap
                         sourceComponent: locationComponent
                     }
 
@@ -2360,8 +2397,9 @@ Item {
                         // causing ListView to discard and recreate it forever.
                         // Use a normal column width during that brief startup
                         // phase, then follow the actual responsive width.
-                        Layout.maximumWidth: bubble.width > 8
-                                             ? Math.min(720, bubble.width - 8)
+                        Layout.maximumWidth: bubbleRow.width > 8
+                                             ? Math.min(720,
+                                                        root.contentInnerCap)
                                              : 560
                         // Keep the last line clear of the receipt rail —
                         // see receiptRailReserve.
@@ -2415,8 +2453,9 @@ Item {
                         active: root.hasMessageSegments
                         visible: active
                         Layout.fillWidth: true
-                        Layout.maximumWidth: bubble.width > 8
-                                             ? Math.min(720, bubble.width - 8)
+                        Layout.maximumWidth: bubbleRow.width > 8
+                                             ? Math.min(720,
+                                                        root.contentInnerCap)
                                              : 560
                         Layout.rightMargin: root.receiptRailReserve
                         // The width a segment may grow to, derived from the
@@ -2431,17 +2470,13 @@ Item {
                         // code block. bubbleRow is fillWidth in `layout`
                         // (whose width is the delegate's) and reports no
                         // implicit width, so this end of the chain is inert.
-                        readonly property real segmentCap: {
-                            var avail = Math.max(
-                                1, bubbleRow.width - root.avatarGutterWidth)
-                            avail = root.bubbleMode
-                                    ? Math.max(60, avail - 40)
-                                    : Math.min(AppTheme.timelineContentMaxWidth,
-                                               avail)
-                            return Math.max(
-                                80, Math.min(720,
-                                             avail - root.bubblePad * 2 - 8))
-                        }
+                        // Now ONE expression with every other cap in
+                        // this file (`root.contentInnerCap`) — this block's
+                        // own escape is what the others were missing, and
+                        // the shared form also subtracts the receipt inset.
+                        readonly property real segmentCap:
+                            Math.max(80, Math.min(720,
+                                                  root.contentInnerCap - 8))
                         sourceComponent: ColumnLayout {
                             spacing: 4
                             // ONE accessible reading for the whole message,
@@ -2642,7 +2677,8 @@ Item {
                                     && root.showsDecryptingSkeleton
                                     && !root.decryptStalled
                             Layout.preferredWidth: Math.min(
-                                420, Math.max(120, bubble.width * 0.55))
+                                420, Math.max(
+                                    120, root.contentInnerCap * 0.55))
                             Layout.preferredHeight: AppTheme.scaled(13)
                         }
                         Skeleton {
@@ -2650,7 +2686,8 @@ Item {
                                     && root.showsDecryptingSkeleton
                                     && !root.decryptStalled
                             Layout.preferredWidth: Math.min(
-                                300, Math.max(80, bubble.width * 0.35))
+                                300, Math.max(
+                                    80, root.contentInnerCap * 0.35))
                             Layout.preferredHeight: AppTheme.scaled(13)
                         }
                     }
@@ -2744,9 +2781,9 @@ Item {
                         visible: active
                         Layout.alignment: Qt.AlignLeft
                         Layout.preferredWidth: item ? item.implicitWidth : 0
-                        Layout.maximumWidth: bubble.width
+                        Layout.maximumWidth: root.contentInnerCap
                         sourceComponent: CollapsedEmbedRow {
-                            maximumWidth: bubble.width
+                            maximumWidth: root.contentInnerCap
                             interactive: root.rowActionsEnabled
                             expanded: root.embedExpanded
                             iconName: "link"
@@ -2763,9 +2800,9 @@ Item {
                         id: previewLoader
                         Layout.alignment: Qt.AlignLeft
                         Layout.preferredWidth: Math.min(
-                            bubble.width - 8,
+                            root.contentInnerCap,
                             item ? item.implicitWidth : 400)
-                        Layout.maximumWidth: bubble.width
+                        Layout.maximumWidth: root.contentInnerCap
                         active: root.preview.state !== undefined
                                 && root.preview.state !== "none"
                                 && !model.redacted
@@ -3422,14 +3459,49 @@ Item {
             // keeps the last chip clear of the read-receipt rail, which is
             // painted upward from the row's bottom edge at the same corner.
             Layout.fillWidth: true
-            Layout.rightMargin: readReceiptStrip.visible
-                                ? receiptRow.width + AppTheme.spacingXS : 0
+            // ── AN OWN BUBBLE IS RIGHT-ALIGNED AND THE CHIPS WERE NOT ────
+            //
+            // A Flow packs from its own left edge, and this one fills the
+            // row, so in Bubbles a reaction on YOUR OWN message was laid out
+            // at the row's left edge while the bubble it annotates sat at
+            // the right. Measured live 2026-09-19 in a DM on a 1920px
+            // window: chips at x 444..520, the bubble at x 1156..1883 —
+            // 636px of empty row between a message and its own reactions,
+            // which reads as a reaction on the OTHER person's side.
+            //
+            // The fix is the Flow's BOX, not its packing: give it the
+            // bubble's own band so the chips hang under the message.
+            // Reading `bubble.x`/`bubble.width` is safe HERE where the
+            // identity header's cap could not (see contentInnerCap): this
+            // Flow is a SIBLING of bubbleRow, outside bubbleContent, so
+            // nothing in it feeds the bubble's measurement.
+            readonly property bool followsOwnBubble:
+                root.bubbleMode && model.isOwn === true
+            // The facepile rides the row's right edge whatever the layout,
+            // so its reservation is a FLOOR on the right margin and not an
+            // alternative to the bubble's.
+            readonly property real pileReserve: readReceiptStrip.visible
+                ? receiptRow.width + AppTheme.spacingXS : 0
+            Layout.rightMargin: reactionsFlow.followsOwnBubble
+                ? Math.max(reactionsFlow.pileReserve,
+                           bubbleRow.width - (bubble.x + bubble.width))
+                : reactionsFlow.pileReserve
             Layout.alignment: Qt.AlignLeft
             // Align with the message body across every layout mode (Modern 40,
             // compact 8, bubble 44) instead of a fixed 36; add a deliberate
             // gap so the chips sit clearly below a media card rather than
-            // crowding it.
-            Layout.leftMargin: root.avatarGutterWidth
+            // crowding it. Under an own bubble the band starts at the
+            // BUBBLE's left edge — except that a two-word message makes a
+            // 60px bubble, and stacking chips one per line under it would
+            // trade one bad reading for another, so the band is never
+            // narrower than a short run of them.
+            readonly property real ownBubbleChipRun: 220
+            Layout.leftMargin: reactionsFlow.followsOwnBubble
+                ? Math.max(root.avatarGutterWidth,
+                           Math.min(bubble.x,
+                                    bubbleRow.width
+                                    - reactionsFlow.ownBubbleChipRun))
+                : root.avatarGutterWidth
             Layout.topMargin: AppTheme.spacingXS
             spacing: AppTheme.spacingXS
             Repeater {
@@ -4916,7 +4988,8 @@ Item {
             readonly property real aspectRatio:
                 naturalWidth > 0 && naturalHeight > 0
                 ? naturalHeight / naturalWidth : 0.75
-            readonly property real maxWidth: Math.min(360, bubble.width - 8)
+            readonly property real maxWidth:
+                Math.min(360, root.contentInnerCap)
             readonly property real maxHeight: 300
             readonly property real displayWidth: {
                 var widthHint = naturalWidth > 0
@@ -5054,7 +5127,8 @@ Item {
                     return app.mediaBridge.mxcImageSource(src, 512)
                 return app.mediaBridge.previewImageSource(src, p.imageMime || "")
             }
-            readonly property real fullW: Math.min(400, bubble.width - 8)
+            readonly property real fullW:
+                Math.min(400, root.contentInnerCap)
             // The consent gate is ONE band, so it sizes to its own content
             // instead of claiming the full preview width for a link nobody
             // has agreed to load yet; every other state still fills the
@@ -5491,7 +5565,8 @@ Item {
             // upscaling a tiny image beyond its natural size). This box's
             // implicitWidth/Height flow up into the row so the row grows
             // to the picture instead of collapsing to the timestamp width.
-            readonly property real maxW: Math.min(360, bubble.width)
+            readonly property real maxW:
+                Math.min(360, root.contentInnerCap)
             readonly property real maxH: 320
             readonly property real natW: model.mediaWidth > 0 ? model.mediaWidth : 0
             readonly property real natH: model.mediaHeight > 0 ? model.mediaHeight : 0
@@ -6313,8 +6388,9 @@ Item {
             // flat 360/320 caps rendered portrait video ~180px wide and
             // clipped seek/speed/expand clean off).
             readonly property real maxW: {
-                var cap = Math.min(560, Math.max(280, bubble.width * 0.72))
-                return Math.max(1, Math.min(cap, bubble.width))
+                var cap = Math.min(
+                    560, Math.max(280, root.contentInnerCap * 0.72))
+                return Math.max(1, Math.min(cap, root.contentInnerCap))
             }
             // Dimensions learned from a previous poster extraction (persisted
             // per account) size the card correctly from the FIRST render —
@@ -6344,7 +6420,8 @@ Item {
                                           : (posterRatio > 0 ? posterRatio
                                                              : 0.5625)
             readonly property real maxH: ratio > 1 ? 440 : 400
-            readonly property real minControlW: Math.min(260, bubble.width)
+            readonly property real minControlW:
+                Math.min(260, root.contentInnerCap)
             readonly property real dispW: {
                 var w = natW > 0 ? Math.min(natW, maxW) : maxW
                 if (w * ratio > maxH) w = maxH / ratio
@@ -6653,7 +6730,7 @@ Item {
         id: audioComponent
         AudioPlayerCard {
             objectName: "audioMedia"
-            bubble: bubble
+            hostContentWidth: root.contentInnerCap
             mediaKey: model.mediaKey || ""
             ownerKey: root.actionKey + "\u001f" + (model.mediaKey || "")
             filename: model.mediaFilename || model.body || ""
@@ -6687,7 +6764,7 @@ Item {
         Rectangle {
             id: fileCard
             objectName: "fileCard"
-            implicitWidth: Math.min(340, bubble.width)
+            implicitWidth: Math.min(340, root.contentInnerCap)
             implicitHeight: fileRow.implicitHeight + 16
             color: AppTheme.embedSurface
             radius: AppTheme.radiusMd
