@@ -288,10 +288,32 @@ private:
     // one device. If that is what was happening, this retry treats a
     // symptom and multiplies a flap's traffic by five.
     //
-    // `publishAttempts()` exists so the next person can settle it with the
-    // OFFERED RATE (attempts per minute) rather than the rejection ratio,
-    // which is the number that was measured and the number that cannot tell
-    // those two causes apart.
+    // **NARROWED 2026-09-19, and it is the many-devices arm.** Two
+    // measurements, taken minutes apart on the same machine:
+    //
+    //   * a single client on a fixture account, with the publish trace on:
+    //     8 attempts over 165 s, steady intervals of 23/24/24 s, 2.91
+    //     attempts/min converging on ~2.6 — and **ZERO rejections**. So the
+    //     period does what it says and one well-behaved client is 2.3x under
+    //     the limit.
+    //   * the client on the account that was FAILING, over the same window:
+    //     rejections at 24, 24, 25, 25 and 23 s — **every tick, 100%** — from
+    //     ONE process offering that same ~0.042 PUT/s.
+    //
+    // A client 2.4x under the limit cannot be rejected by its own traffic, so
+    // the budget was being spent by OTHER publishers on that account. That is
+    // the deduction the ratio could not support and these two readings do.
+    //
+    // It also says what the failure SHAPE is: with several devices the ones
+    // that lose the race are starved indefinitely, because ceding a whole
+    // period after a rejection means never competing for the next token —
+    // which is the 29-consecutive-rejection run, and exactly what the retry
+    // below is for. The flap arm is NOT ruled out as a second cause; it is
+    // no longer needed to explain what was seen.
+    //
+    // `publishAttempts()` and the `presence-publish` trace line are what made
+    // this answerable; use them rather than the rejection ratio, which cannot
+    // tell the two causes apart.
     static constexpr int kRetryAfterFloorMs = 1500;
     // Plus up to kPublishJitterMs, because the jitter is added AFTER this
     // clamp — the effective ceiling is 24 s, still well inside the 33 s

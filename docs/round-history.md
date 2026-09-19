@@ -86,9 +86,35 @@ offers 0.04 PUT/s against a 0.1/s limit, 2.5x under; four devices offer
 publishers — or ONE device with a flapping connection, because the
 Syncing-edge publish is gap-limited to one per 10 s, which is exactly the
 limiter's own rate. Those two causes need opposite fixes and the ratio
-cannot tell them apart. Recorded in the header rather than papered over,
-and `publishAttempts()` plus a publish-side trace line exist so the next
-person settles it with the OFFERED RATE.
+cannot tell them apart.
+
+**AND THEN IT WAS NARROWED, WITH THE INSTRUMENT THAT HAD JUST BEEN ADDED.**
+The publish path had never been traced — only the READ path was — so a live
+session could be asked how many publishes were REJECTED (those log) and never
+how many were SENT. One trace line under the existing opt-in flag closed
+that, and two measurements minutes apart settled it:
+
+* a single client on a fixture account: 8 attempts over 165 s, steady
+  intervals of 23/24/24 s, 2.91 attempts/min converging on ~2.6, and **ZERO
+  rejections**. The period does exactly what it claims and one well-behaved
+  client sits 2.3x under the limit.
+* the client on the account that was failing, over the same minutes:
+  rejections at 24, 24, 25, 25 and 23 s — **every tick, 100%** — from ONE
+  process offering that same ~0.042 PUT/s.
+
+A client 2.4x under the limit cannot be rejected by its own traffic. The
+budget was being spent by OTHER publishers on that account, which is the
+deduction the ratio alone could not support and these two readings do. It
+also names the failure SHAPE: with several devices, the ones that lose the
+race are starved indefinitely, because ceding a whole period after a
+rejection means never competing for the next token — the 29-rejection run,
+and precisely what the retry is for. The flap arm is not refuted; it is no
+longer needed to explain what was seen.
+
+**GENERALISE: the ratio was unfalsifiable and the RATE was not.** Two
+hypotheses that a rejection count cannot separate are separated instantly by
+counting the other side of the same event. When a measurement cannot
+distinguish its own alternatives, instrument the denominator.
 
 ### Three assertions that could not fail, in one review
 
