@@ -84,7 +84,10 @@ ApplicationWindow {
         id: menu
         objectName: "menu"
         x: 40
-        y: 600
+        // The popover is short enough to sit inside this window now, so the
+        // pointer test's events land on real rows instead of being reported
+        // outside the target window.
+        y: 300
     }
     function openMenu() { menu.open() }
 }
@@ -238,28 +241,48 @@ private slots:
         QCOMPARE(bobCard->property("unreadCount").toInt(), 0);
     }
 
-    void activeCardMetaUsesRealStateAndOmitsAbsentSpaceCount()
+    // The meta line used to be stamped on the ACTIVE card and left empty on
+    // every other one. It is now ONE strip below the list, which is the
+    // same guarantee expressed structurally: there is no per-row carrier
+    // for it at all, so an inactive account cannot acquire one.
+    void statusStripUsesRealStateAndOmitsAbsentSpaceCount()
     {
         openMenu();
-        auto *aliceCard = findCard(kAlice);
-        QVERIFY(aliceCard);
-        const QString meta = aliceCard->property("metaText").toString();
-        QVERIFY(meta.contains(m_controller->connectionStatus()));
-        QVERIFY(!meta.contains(QStringLiteral("Online")));
+        auto *strip = find(QStringLiteral("accountStatusStrip"));
+        QVERIFY(strip);
+        QVERIFY(strip->property("visible").toBool());
+        auto *meta = find(QStringLiteral("accountStatusMeta"));
+        QVERIFY(meta);
+        const QString text = meta->property("text").toString();
+        QVERIFY(text.contains(m_controller->connectionStatus()));
+        QVERIFY(!text.contains(QStringLiteral("Online")));
         // The space count mirrors the LIVE model — rendered only when the
         // account really has joined Spaces, never fabricated and never
         // rendered as "0 spaces".
         const int spaces = m_controller->spaces()->spaceCount();
         if (spaces > 0) {
-            QVERIFY(meta.contains(QStringLiteral("%1 space").arg(spaces))
-                    || meta.contains(QStringLiteral("1 space")));
+            QVERIFY(text.contains(QStringLiteral("%1 space").arg(spaces))
+                    || text.contains(QStringLiteral("1 space")));
         } else {
-            QVERIFY(!meta.contains(QStringLiteral("space")));
+            QVERIFY(!text.contains(QStringLiteral("space")));
         }
 
-        auto *bobCard = findCard(kBob);
-        QVERIFY(bobCard);
-        QCOMPARE(bobCard->property("metaText").toString(), QString());
+        // Exactly one strip, however many accounts are listed: this is a
+        // property of the attached session, not a column.
+        QCOMPARE(m_root->findChildren<QObject *>(
+                     QStringLiteral("accountStatusStrip")).size(), 1);
+
+        // No row carries presence/crypto state any more, so none can
+        // fabricate it. (The old defect was the other way round: the ACTIVE
+        // row carried three of them and the probe that sized the list
+        // carried one.)
+        QFile cardFile(QStringLiteral(QML_DIR "/IdentityCard.qml"));
+        QVERIFY(cardFile.open(QIODevice::ReadOnly));
+        const QString card = QString::fromUtf8(cardFile.readAll());
+        QVERIFY(!card.contains(QStringLiteral("property string metaText")));
+        QVERIFY(!card.contains(QStringLiteral("property int trustCompleted")));
+        QVERIFY(!card.contains(QStringLiteral("property bool e2eeReady")));
+        QVERIFY(!card.contains(QStringLiteral("TrustMeter")));
     }
 
     void liveActiveUserIdGuardIgnoresReactivatingTheActiveCard()
@@ -433,6 +456,248 @@ private slots:
         QTRY_VERIFY(!removeDialog->property("opened").toBool());
         QVERIFY(m_controller->settings()->hasSavedAccount(kBob));
         QTest::mouseMove(m_window, QPoint(1, 1));
+    }
+
+    // ── THE REGRESSION ───────────────────────────────────────────────────
+    //
+    // Reported 2026-09-19: "you can even scroll about with one account since
+    // it doesn't fit". The list used to be sized from an off-layout PROBE of
+    // IdentityCard times the model count — sound reasoning (contentHeight is
+    // 0 until delegates exist, and delegates only instantiate inside a
+    // nonzero viewport), broken by resemblance: the probe declared neither
+    // the trust meter nor the E2EE badge that the ACTIVE card renders, so it
+    // under-measured that card by exactly 23 px. Measured at the 296 px
+    // content width on the unfixed tree: short card 113, tall probe 136,
+    // real active card 159.
+    //
+    // Rows are now one height this file can name, so the viewport and the
+    // content are the same arithmetic. Asserted as UNIFORMITY plus FIT,
+    // because either alone would have passed the old tree in some
+    // configuration: the mock backend reports no crypto state, so the old
+    // list fitted here while overflowing by 23 px on every real install.
+    void everyRowIsOneRowHighAndTheViewportFitsItsContent()
+    {
+        m_controller->switchToAccount(kAlice);
+        QTRY_VERIFY(!m_controller->accountSwitching());
+
+        const QStringList extra{QStringLiteral("@carol:three.example"),
+                                QStringLiteral("@dave:four.example"),
+                                QStringLiteral("@erin:five.example"),
+                                QStringLiteral("@frank:six.example"),
+                                QStringLiteral("@grace:seven.example"),
+                                QStringLiteral("@heidi:eight.example")};
+
+        auto checkAt = [&](int expectedCount) {
+            openMenu();
+            auto *menu = find(QStringLiteral("menu"));
+            QVERIFY(menu);
+            auto *list = m_root->findChild<QQuickItem *>(
+                QStringLiteral("identityCardList"));
+            QVERIFY(list);
+            QTRY_COMPARE(list->property("count").toInt(), expectedCount);
+            // The rows are laid out on the next polish, not synchronously
+            // with the model change.
+            QTest::qWait(80);
+
+            // 1. Every row is exactly as tall as the FIRST one — the
+            //    ACTIVE row is first, and it is the one that used to be
+            //    taller. Derived from the list rather than from the menu's
+            //    own number on purpose: this assertion must be able to fail
+            //    on a tree that has no such number, which is the tree that
+            //    had the defect (measured there: active 136, the rest 113
+            //    on the mock; 159 and 113 with a real crypto backend).
+            QQuickItem *firstRow = nullptr;
+            QMetaObject::invokeMethod(list, "itemAtIndex",
+                                      Q_RETURN_ARG(QQuickItem *, firstRow),
+                                      Q_ARG(int, 0));
+            QVERIFY(firstRow);
+            const qreal oneRow = firstRow->height();
+            QVERIFY(oneRow > 0);
+            for (int i = 1; i < expectedCount; ++i) {
+                QQuickItem *item = nullptr;
+                QMetaObject::invokeMethod(list, "itemAtIndex",
+                                          Q_RETURN_ARG(QQuickItem *, item),
+                                          Q_ARG(int, i));
+                if (!item)
+                    continue;   // beyond the viewport: not instantiated
+                QVERIFY2(qFuzzyCompare(item->height(), oneRow),
+                         qPrintable(QStringLiteral(
+                             "row %1 of %2 is %3 px, the first row is %4 px "
+                             "— rows are not uniform")
+                                        .arg(i).arg(expectedCount)
+                                        .arg(item->height()).arg(oneRow)));
+            }
+
+            // 2. The viewport is the content, up to the cap: nothing
+            //    scrolls until there are genuinely more accounts than fit.
+            const qreal viewport = list->height();
+            const qreal content = list->property("contentHeight").toDouble();
+            const int rowH = menu->property("rowH").toInt();
+            const int maxRows = menu->property("maxVisibleRows").toInt();
+            QVERIFY2(rowH > 0 && maxRows > 0,
+                     "the menu must name one row height and one row cap");
+            QCOMPARE(oneRow, qreal(rowH));
+            const qreal expectedViewport =
+                expectedCount <= maxRows
+                    ? qreal(expectedCount * rowH)
+                    : qreal(qRound((maxRows + 0.5) * rowH));
+            QCOMPARE(viewport, expectedViewport);
+            if (expectedCount <= maxRows) {
+                QVERIFY2(content <= viewport,
+                         qPrintable(QStringLiteral(
+                             "%1 account(s): content %2 > viewport %3")
+                                        .arg(expectedCount).arg(content)
+                                        .arg(viewport)));
+            } else {
+                QVERIFY2(content > viewport,
+                         "past the cap the list must scroll");
+            }
+
+            auto *m = find(QStringLiteral("menu"));
+            QMetaObject::invokeMethod(m, "close");
+            QTRY_VERIFY(!m->property("opened").toBool());
+        };
+
+        checkAt(2);
+        for (int i = 0; i < extra.size(); ++i) {
+            m_controller->settings()->saveSession(
+                QStringLiteral("https://x%1.example").arg(i), extra.at(i),
+                QStringLiteral("DEV"), QStringLiteral("tok"));
+            checkAt(3 + i);
+        }
+        // And the reported case: one account, which must not scroll either.
+        for (const QString &u : extra)
+            m_controller->settings()->clearSessionForAccount(u);
+        m_controller->settings()->clearSessionForAccount(kBob);
+        checkAt(1);
+        // Restore the fixture for the source-scan test that follows.
+        m_controller->settings()->saveSession(
+            QStringLiteral("https://two.example"), kBob,
+            QStringLiteral("BOBDEV"), QStringLiteral("bob-token-fixture"));
+    }
+
+    // The other half of the same guarantee: no state a row can carry may
+    // change its height. This is what the probe could not know and what a
+    // future property must not be able to break.
+    void noRowStateCanChangeARowsHeight()
+    {
+        QQmlComponent c(m_engine);
+        c.setData(QByteArray(R"QML(
+import QtQuick
+import MatrixClient
+Item {
+    width: 400; height: 400
+    property alias plain: plain
+    property alias loaded: loaded
+    property alias scaler: scaler
+    Item {
+        id: scaler
+        property real uiScale: AppTheme.textScale
+        onUiScaleChanged: AppTheme.textScale = uiScale
+        readonly property int scaledRow: AppTheme.scaled(44)
+    }
+    IdentityCard {
+        id: plain
+        rowHeight: 44
+        displayName: "Mizerd"
+        userId: "@mizerd:matrix.org"
+    }
+    IdentityCard {
+        id: loaded
+        rowHeight: 44
+        active: true
+        displayName: "A rather long display name that will not fit"
+        userId: "@mizerd:matrix.smetonis.net"
+        unreadCount: 128
+        needsSignIn: true
+        healthWarning: true
+    }
+}
+)QML"), QUrl(QStringLiteral("rowheight.qml")));
+        QScopedPointer<QObject> scene(c.create());
+        QVERIFY2(scene, qPrintable(c.errorString()));
+        // Parented into the real window: a QQuickLayout's implicit size is
+        // refreshed on a POLISH pass, and polish only runs for items in a
+        // window. Measured off-window, the column's height reads back the
+        // value it was first given whatever the font does — which is a
+        // harness that answers the same number for every input.
+        if (auto *sceneItem = qobject_cast<QQuickItem *>(scene.data()))
+            sceneItem->setParentItem(m_window->contentItem());
+        auto *plain = qvariant_cast<QQuickItem *>(scene->property("plain"));
+        auto *loaded = qvariant_cast<QQuickItem *>(scene->property("loaded"));
+        QVERIFY(plain && loaded);
+        plain->setWidth(296);
+        loaded->setWidth(296);
+        QCOMPARE(plain->implicitHeight(), qreal(44));
+        QCOMPARE(loaded->implicitHeight(), plain->implicitHeight());
+
+        // And the ladder actually fits the row it is given, at every
+        // interface scale. A row that clips its own id would trade away the
+        // only thing telling two same-named accounts apart, and
+        // `AppTheme.scaled()` drives BOTH the row height and the two font
+        // sizes — so this asserts the proportion rather than assuming it.
+        auto *scale = qvariant_cast<QQuickItem *>(scene->property("scaler"));
+        QVERIFY(scale);
+        const qreal original = scale->property("uiScale").toReal();
+        for (const qreal factor : {0.85, 1.0, 1.25, 1.5, 1.75, 2.0}) {
+            scale->setProperty("uiScale", factor);
+            const int row = scale->property("scaledRow").toInt();
+            loaded->setProperty("rowHeight", row);
+            plain->setProperty("rowHeight", row);
+            QTest::qWait(60);
+            const qreal text = loaded->property("textColumnHeight").toReal();
+            // Headroom measured 2026-09-19 at 7/9/10/13/16/19 px for
+            // 0.85/1.0/1.25/1.5/1.75/2.0 — tightest at the SMALLEST scale,
+            // because the two font sizes round up against a row that
+            // rounds down.
+            QVERIFY2(text <= row,
+                     qPrintable(QStringLiteral(
+                         "scale %1: the name+id column is %2 px in a %3 px "
+                         "row — the id would be clipped")
+                                    .arg(factor).arg(text).arg(row)));
+            QCOMPARE(loaded->implicitHeight(), qreal(row));
+            QCOMPARE(plain->implicitHeight(), qreal(row));
+        }
+        scale->setProperty("uiScale", original);
+    }
+
+    // Two accounts can share a display name on different homeservers — the
+    // reported screenshot had two "Mizerd"s — so the id beneath the name is
+    // the only disambiguator and must survive the popover's 320 px width.
+    void theIdentityLineSurvivesThePopoverWidth()
+    {
+        QQmlComponent c(m_engine);
+        c.setData(QByteArray(R"QML(
+import QtQuick
+import MatrixClient
+Item {
+    width: 400; height: 200
+    property alias row: row
+    IdentityCard {
+        id: row
+        rowHeight: 44
+        active: true
+        displayName: "Mizerd"
+        userId: "@mizerd:matrix.smetonis.net"
+    }
+}
+)QML"), QUrl(QStringLiteral("idwidth.qml")));
+        QScopedPointer<QObject> scene(c.create());
+        QVERIFY2(scene, qPrintable(c.errorString()));
+        auto *row = qvariant_cast<QQuickItem *>(scene->property("row"));
+        QVERIFY(row);
+        // 320 popover - 2 x 12 padding.
+        row->setWidth(296);
+        QCoreApplication::processEvents();
+        auto *label = qvariant_cast<QQuickItem *>(
+            row->property("identityLabel"));
+        QVERIFY(label);
+        QTRY_VERIFY(label->width() > 0);
+        QVERIFY2(!label->property("truncated").toBool(),
+                 qPrintable(QStringLiteral(
+                     "'@mizerd:matrix.smetonis.net' is elided at %1 px "
+                     "(needs %2)").arg(label->width())
+                        .arg(label->property("contentWidth").toReal())));
     }
 
     void noTokenOrPathEverBoundIntoTheUi()

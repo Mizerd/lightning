@@ -4,13 +4,41 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.6.5 (SPEC 1h, modified — vertical identity cards): the account
-// switcher popover, opened from the rail avatar. A vertical stack of
-// IdentityCard rows (active account first, real presence/space/E2EE data
-// only) replaces the old single-header + list layout; everything else —
+// The account switcher popover, opened from the rail avatar: a header, a
+// dense list of account ROWS, one status strip for the active account, and
+// the three-button footer. Active account first. Everything load-bearing —
 // live-active-account guard, account-switching lockout, both destructive
 // confirmations, and the deep links under "Manage" — is preserved exactly.
 // No access token, device secret, or local path is ever displayed.
+//
+// 2026-09-19, reported: "scrolling in it feels kind of dumb since you can
+// even scroll about with one account since it doesn't fit". Two things were
+// wrong and only one of them was the layout.
+//
+// THE SCROLL WAS A MEASUREMENT DEFECT. The list was sized from an off-layout
+// PROBE of IdentityCard times the model count, because contentHeight stays 0
+// until delegates exist while delegates only instantiate inside a nonzero
+// viewport. The reasoning was sound and the probe was not: the ACTIVE card
+// carries a trust meter and an E2EE badge that NEITHER probe declared, so
+// the viewport came out exactly 23 px short of its content at every account
+// count — measured at the 296 px content width: short card 113, tall probe
+// 136, real active card 159. One account scrolled by 23 px; three clipped
+// the last id by 23 px. A probe is only as good as its resemblance.
+//
+// The fix is not a better probe. Rows are a FIXED height this file owns
+// (`rowH`), handed to every delegate, so `contentHeight == count * rowH`
+// and the viewport is a multiple of the same number — they cannot disagree,
+// and no property added to a row later can make them disagree.
+// This is MentionPopup's arrangement, which has always sized itself this
+// way for the same reason.
+//
+// WHAT MOVED, AND WHY IT IS NOT AN INFORMATION LOSS. The meta line, the
+// E2EE badge and the trust meter were rendered per row but are only ever
+// available for the ACTIVE account (the SDK reports crypto state for the
+// attached session alone), so they were a property of one row pretending to
+// be a column. They are now one status strip below the list, at constant
+// cost instead of per-account cost, and the trust chip is a real affordance
+// into the Security & Recovery section it describes.
 Popup {
     id: root
     objectName: "accountSwitcherPopover"
@@ -21,10 +49,50 @@ Popup {
 
     readonly property bool connected: app.connectionStatus === qsTr("Connected")
 
-    // Real presence + real space count for the ACTIVE card only — never
+    // ONE row height for the whole surface. The delegate takes it, the
+    // viewport is a multiple of it, and `contentHeight` is a multiple of it
+    // — so the list cannot scroll unless there are genuinely more accounts
+    // than fit. Density is the product's person-row ladder (MentionPopup).
+    readonly property int rowH: AppTheme.scaled(44)
+    // Six rows before the list scrolls, matching MentionPopup's cap. At the
+    // common 1-4 accounts nothing scrolls at all.
+    readonly property int maxVisibleRows: 6
+
+    // Live crypto state for the ACTIVE account, read ONCE here instead of
+    // once per delegate: the SDK only reports it for the account the
+    // running client is attached to, so it is not per-row data and must
+    // never be fabricated for an inactive account.
+    readonly property bool cryptoKnown: app.backendName === "rust"
+                                        && !!app.cryptoHealth
+    readonly property bool activeE2eeReady: root.cryptoKnown
+                                            && app.cryptoHealth.cryptoReady === true
+    readonly property bool activeHealthWarning: root.cryptoKnown
+                                                && app.cryptoHealth.cryptoError === true
+    // Storm §3.4: the trust meter rides ONLY on real crypto state. -1 means
+    // "we have no trustworthy answer", and the chip is then absent rather
+    // than showing a zero.
+    readonly property int activeTrustCompleted: {
+        if (!root.cryptoKnown || !app.cryptoHealth.cryptoSupported)
+            return -1
+        var n = 0
+        if (app.cryptoHealth.ownIdentityVerified === CryptoHealthModel.Yes) n++
+        if (app.cryptoHealth.currentDeviceVerified === CryptoHealthModel.Yes) n++
+        if (app.cryptoHealth.crossSigningReady === true) n++
+        return n
+    }
+    readonly property int activeTrustTotal: 3
+
+    // The strip below the list describes the ACTIVE account; with none
+    // attached there is nothing it could honestly say.
+    readonly property bool hasActiveAccount:
+        !!(app.accounts && app.accounts.activeUserId
+           && app.accounts.activeUserId.length > 0)
+
+    // Real presence + real space count for the ACTIVE account only — never
     // fabricated, and the space-count portion is omitted entirely when
     // there are no real Spaces (SpaceManager::spaceCount counts only real
-    // joined Spaces, never the pseudo Home/orphans rows).
+    // joined Spaces, never the pseudo Home/orphans rows). Read by the one
+    // status strip below the list, not by a row.
     function activeMetaText() {
         var parts = [app.connectionStatus]
         // v0.9 (phase 10): the own status text leads the meta line.
@@ -200,51 +268,34 @@ Popup {
 
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.stormBorder }
 
-        // Off-screen probe: real IdentityCard geometry drives the "cap the
-        // stack at ~3 rows" height, instead of a guessed magic number. It
-        // needs a real width (invisible items get none from the layout) so
-        // its implicit height is measured at the width the cards render at.
-        IdentityCard {
-            id: heightProbe
-            objectName: "identityCardHeightProbe"
-            visible: false
-            width: root.availableWidth
-            displayName: "Probe"
-            userId: "@probe:example.org"
-        }
-        // The ACTIVE card is taller by exactly its meta row — measure that
-        // variant too, or the 3-account case clips the last card by that
-        // difference (active-first ordering guarantees rows = 1 tall +
-        // rest short).
-        IdentityCard {
-            id: tallHeightProbe
-            objectName: "identityCardTallHeightProbe"
-            visible: false
-            width: root.availableWidth
-            displayName: "Probe"
-            userId: "@probe:example.org"
-            metaText: "probe"
-            connected: true
-        }
-
         ListView {
             id: cardList
             objectName: "identityCardList"
             Layout.fillWidth: true
             clip: true
-            spacing: AppTheme.spacing10
+            // Rows are a contiguous band, like the room list and the
+            // mention popup; the rounded selection chip inside each row is
+            // what separates them, not a gap.
+            spacing: 0
             model: root.sortedAccounts
-            // Height from the MODEL COUNT and the measured probe — never
-            // from contentHeight, which stays 0 until delegates exist while
-            // delegates only instantiate inside a nonzero viewport (a
-            // permanently-empty-list deadlock).
+            // No probe, and deliberately not `contentHeight` either (which
+            // stays 0 until delegates exist, while delegates only
+            // instantiate inside a nonzero viewport — a permanently-empty
+            // list deadlock). Every row is exactly `rowH`, so the count and
+            // the row height are all this needs, and content and viewport
+            // are the same arithmetic.
             Layout.preferredHeight: {
-                var rows = Math.min(cardList.count, 3)
-                if (rows <= 0)
+                var n = cardList.count
+                if (n <= 0)
                     return 0
-                return tallHeightProbe.implicitHeight
-                       + (rows - 1) * heightProbe.implicitHeight
-                       + (rows - 1) * AppTheme.spacing10
+                if (n <= root.maxVisibleRows)
+                    return n * root.rowH
+                // Past the cap, HALF a row stays visible. AppScrollBar keeps
+                // the Basic style's fade contract, so an AsNeeded bar is
+                // invisible at rest — the cut row is then the only resting
+                // cue that the list continues, and a list that silently
+                // ends on a whole row reads as the whole list.
+                return Math.round((root.maxVisibleRows + 0.5) * root.rowH)
             }
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
@@ -253,6 +304,7 @@ Popup {
                 required property var modelData
                 objectName: "identityCard_" + (modelData.userId || "")
                 width: cardList.width
+                rowHeight: root.rowH
                 enabled: !app.accountSwitching
 
                 active: modelData.isActive === true
@@ -260,37 +312,12 @@ Popup {
                 userId: modelData.userId || ""
                 avatarMxc: modelData.avatarUrl || ""
                 needsSignIn: modelData.needsSignIn === true
-                // healthWarning / e2eeReady: live crypto state is only ever
-                // available for the ACTIVE row — the SDK only reports it
-                // for whichever account the running client is attached to
-                // (unchanged from the previous per-row rule).
+                // Live crypto state is only ever available for the ACTIVE
+                // row — the SDK only reports it for whichever account the
+                // running client is attached to (unchanged rule, read from
+                // one place now).
                 healthWarning: modelData.isActive === true
-                              && app.backendName === "rust"
-                              && app.cryptoHealth
-                              && app.cryptoHealth.cryptoError === true
-                e2eeReady: modelData.isActive === true
-                          && app.backendName === "rust"
-                          && app.cryptoHealth
-                          && app.cryptoHealth.cryptoReady === true
-                connected: root.connected
-                metaText: modelData.isActive === true ? root.activeMetaText() : ""
-                // Storm §3.4: the trust meter rides ONLY on real crypto
-                // state, which the SDK reports for the attached (active)
-                // account alone — inactive cards never fabricate one.
-                trustCompleted: {
-                    if (modelData.isActive !== true
-                            || app.backendName !== "rust"
-                            || !app.cryptoHealth
-                            || !app.cryptoHealth.cryptoSupported)
-                        return -1
-                    var n = 0
-                    if (app.cryptoHealth.ownIdentityVerified
-                            === CryptoHealthModel.Yes) n++
-                    if (app.cryptoHealth.currentDeviceVerified
-                            === CryptoHealthModel.Yes) n++
-                    if (app.cryptoHealth.crossSigningReady === true) n++
-                    return n
-                }
+                               && root.activeHealthWarning
 
                 onActivated: {
                     // Compare against the LIVE active account, never the
@@ -306,6 +333,120 @@ Popup {
                     removeConfirm.targetUserId = modelData.userId
                     root.close()
                     removeConfirm.open()
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 1
+            color: AppTheme.stormBorder
+            visible: root.hasActiveAccount
+        }
+
+        // ── The active account's status strip ────────────────────────────
+        // One line, one cost, whatever the account count. It carries what
+        // used to be stamped on every card and was only ever true of this
+        // one: real presence + real space count on the left, real crypto
+        // state on the right. Nothing here is fabricated — when the backend
+        // cannot answer, the half that cannot be answered is absent.
+        RowLayout {
+            id: statusStrip
+            objectName: "accountStatusStrip"
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing6
+            // Gated on the ACCOUNT, never on a child's effective `visible`
+            // — `Item.visible` folds in the parent's, so a parent reading a
+            // child's would be a binding loop.
+            visible: root.hasActiveAccount
+
+            Rectangle {
+                Layout.alignment: Qt.AlignVCenter
+                visible: metaLabel.text.length > 0
+                width: 6
+                height: 6
+                radius: 3
+                // Storm: the connected dot is bolt (§4 2h presence idiom);
+                // disconnected falls to the muted ink.
+                color: root.connected ? AppTheme.bolt : AppTheme.stormTextMuted
+            }
+            Label {
+                id: metaLabel
+                objectName: "accountStatusMeta"
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                // Remote or externally chosen text: never markup.
+                textFormat: Text.PlainText
+                text: root.activeMetaText()
+                color: AppTheme.stormTextMuted
+                // "Connected · 4 spaces" is prose, not an identifier.
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                font.weight: AppTheme.weightMedium
+                elide: Label.ElideRight
+            }
+
+            // The trust meter used to be a 3 px progress track on every
+            // active card. As a chip it costs no height and, unlike the
+            // track, it does something: it opens the section that fixes it.
+            AbstractButton {
+                id: trustChip
+                objectName: "accountTrustChip"
+                Layout.alignment: Qt.AlignVCenter
+                visible: root.activeE2eeReady || root.activeTrustCompleted >= 0
+                readonly property bool full:
+                    root.activeTrustCompleted >= root.activeTrustTotal
+                readonly property color ink:
+                    full && root.activeE2eeReady ? AppTheme.stormSuccess
+                                                 : AppTheme.stormTextMuted
+                implicitWidth: trustInk.implicitWidth + AppTheme.spacing8
+                implicitHeight: trustInk.implicitHeight + AppTheme.spacing4
+                hoverEnabled: true
+                focusPolicy: Qt.TabFocus
+                Accessible.role: Accessible.Button
+                Accessible.name: root.activeTrustCompleted >= 0
+                    ? qsTr("Encryption trust %1 of %2. Open Security and Recovery.")
+                      .arg(root.activeTrustCompleted).arg(root.activeTrustTotal)
+                    : qsTr("Encryption ready. Open Security and Recovery.")
+                onClicked: { root.close(); app.showSettingsSection("security") }
+
+                background: Rectangle {
+                    radius: AppTheme.radiusSm
+                    color: trustChip.hovered ? AppTheme.stormSelection
+                                             : "transparent"
+                }
+                contentItem: RowLayout {
+                    id: trustInk
+                    spacing: 3
+                    Icon {
+                        name: trustChip.full ? "verified_user" : "shield"
+                        size: AppTheme.scaled(AppTheme.textMeta)
+                        color: trustChip.ink
+                    }
+                    Label {
+                        text: qsTr("E2EE")
+                        color: trustChip.ink
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
+                        font.weight: AppTheme.weightBold
+                    }
+                    Label {
+                        objectName: "accountTrustCount"
+                        visible: root.activeTrustCompleted >= 0
+                        text: "%1/%2".arg(root.activeTrustCompleted)
+                                     .arg(root.activeTrustTotal)
+                        color: trustChip.ink
+                        font.family: AppTheme.monoFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
+                        font.weight: AppTheme.weightBold
+                    }
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -2
+                    radius: AppTheme.radiusSm + 2
+                    color: "transparent"
+                    border.color: AppTheme.bolt
+                    border.width: 2
+                    visible: trustChip.visualFocus
                 }
             }
         }
