@@ -668,6 +668,30 @@ void PresenceManager::publishTick(bool force, bool afterRejection)
     }
     ++m_publishAttempts;
     m_client->publishPresence(desired, ownStatusText());
+    // THE OFFERED RATE, WHICH NOTHING COULD READ. The trace has always
+    // covered the READ path and never this one, so a live session could be
+    // asked how many publishes were REJECTED (they log) and never how many
+    // were SENT — and the ratio alone cannot separate "several devices on
+    // one account" from "one device publishing far too often because the
+    // connection is flapping". Those need opposite fixes, and the 62%
+    // measured in the round that added the retry is consistent with either.
+    //
+    // Attempts per minute is the number that tells them apart: ~2.4 is one
+    // healthy client on the 25 s period, and anything near 6 is the
+    // Syncing-edge path firing at its own 10 s gap, which is exactly the
+    // limiter's rate.
+    if (m_traceEnabled) {
+        const qint64 upMs = m_clock.elapsed();
+        const double perMin = upMs > 0
+                                  ? double(m_publishAttempts) * 60000.0 / double(upMs)
+                                  : 0.0;
+        qInfo("presence-publish state=%d afterRejection=%d chain=%d "
+              "attempts=%lld rejections=%lld upMs=%lld attemptsPerMin=%.2f",
+              desired, afterRejection ? 1 : 0, m_retryChain,
+              static_cast<long long>(m_publishAttempts),
+              static_cast<long long>(m_publishRejections),
+              static_cast<long long>(upMs), perMin);
+    }
     m_lastPublished = desired;
     m_lastPublishAtMs = m_clock.elapsed();
     // Re-arm with a fresh jitter so two clients of the same account drift
