@@ -1430,19 +1430,46 @@ Rectangle {
                             + (spaceItem.bandNextLevel >= root.maxBandLayers
                                ? list.spacing + spaceItem.trailingGap : 0)
                     z: -20 + root.maxBandLayers - 0.5
-                    // SQUARE. It stands in for a parent whose run CONTINUES
-                    // through this row — that is the only condition under
-                    // which it exists — so it has no end to round. Given a
-                    // radius it drew its own rounded top directly above the
-                    // child's, and two stacked rounded tops 8px apart is what
-                    // "the whole region looks very bad" was pointing at.
-                    radius: 0
+                    // ROUNDED WHERE THE PARENT'S RUN ACTUALLY ENDS.
+                    //
+                    // This was a flat `radius: 0`, on the reasoning that the
+                    // backdrop only ever stands in for a parent whose run
+                    // CONTINUES through the row. That reasoning does not match
+                    // its own visibility: it is drawn whenever the row is past
+                    // the cap, which says nothing about whether the parent
+                    // continues — and on the LAST row of an over-cap run the
+                    // parent ends exactly here, so a radius-0 rectangle left a
+                    // hard square corner under the child's rounded one.
+                    // Reported 2026-09-19 with a photograph of that corner.
+                    //
+                    // So it rounds like every other band and squares off the
+                    // end that CONTINUES, which is the same device the layers
+                    // above use — `bandPrevLevel`/`bandNextLevel` still at or
+                    // past the cap means the parent's run carries on through
+                    // that edge and there is nothing to round there.
+                    radius: root.bandRadius(root.maxBandLayers)
                     // THE OTHER PARITY — the rung the child is not wearing.
                     color: AppTheme.railNestSurfaces[
                         Math.min(AppTheme.railNestSurfaces.length - 1,
                                  root.maxBandLayers
                                  + ((spaceItem.trueBandDepth
                                      - root.maxBandLayers + 1) % 2))]
+                    Rectangle {
+                        visible: spaceItem.bandPrevLevel >= root.maxBandLayers
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        height: parent.radius
+                        color: parent.color
+                    }
+                    Rectangle {
+                        visible: spaceItem.bandNextLevel >= root.maxBandLayers
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: parent.radius
+                        color: parent.color
+                    }
                 }
 
                 Repeater {
