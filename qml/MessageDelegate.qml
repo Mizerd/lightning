@@ -466,9 +466,20 @@ Item {
                 var as = root.embedSizeText(model.mediaSize || 0)
                 if (as.length > 0) parts.push(as)
             }
-        } else if ((model.isImage === true || model.isSticker === true)
-                   && model.mediaWidth > 0 && model.mediaHeight > 0) {
-            parts.push(model.mediaWidth + "×" + model.mediaHeight)
+        } else if (model.isImage === true || model.isSticker === true) {
+            if (model.mediaWidth > 0 && model.mediaHeight > 0) {
+                parts.push(model.mediaWidth + "×" + model.mediaHeight)
+            } else {
+                // NO DIMENSIONS IS NOT NO SECOND FACT, and a sticker
+                // reaches this row with none BY DESIGN: rust/src/stickers.rs
+                // sends `w: 0, h: 0` deliberately, because a pack entry's
+                // `info` is advisory and it will not put an image decoder in
+                // the bridge to fill it. So the fallback is not working
+                // around a bug — it is the only second fact this row can
+                // ever have. Same shape as the audio branch above.
+                var is = root.embedSizeText(model.mediaSize || 0)
+                if (is.length > 0) parts.push(is)
+            }
         }
         if (model.isFile === true) {
             var s = root.embedSizeText(model.mediaSize || 0)

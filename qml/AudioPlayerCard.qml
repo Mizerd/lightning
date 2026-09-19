@@ -73,9 +73,14 @@ Rectangle {
                                                                 artwork)
     }
 
+    // ROUND, NOT FLOOR, and the video card next door already rounds. A
+    // 25.7 s voice message printed "0:26" on the collapsed summary line and
+    // "0:25" on the card that line opens — the two visible in one frame the
+    // moment a reader expands it. Truncating also makes every clip read a
+    // second short of what its sender was told when recording it.
     function formatMs(ms) {
         if (!ms || ms < 0) ms = 0
-        var total = Math.floor(ms / 1000)
+        var total = Math.round(ms / 1000)
         var m = Math.floor(total / 60)
         var s = total % 60
         return m + ":" + (s < 10 ? "0" : "") + s

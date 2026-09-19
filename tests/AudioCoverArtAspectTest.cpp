@@ -173,6 +173,35 @@ private Q_SLOTS:
         QVERIFY(!card.box->isVisible());
         QCOMPARE(card.box->height(), 0.0);
     }
+
+    // TWO CLOCKS OVER ONE CLIP, AND A READER SEES BOTH IN ONE FRAME. The
+    // collapsed summary line rounds (`embedDurationText` in
+    // MessageDelegate.qml) and this card floored, so a 25.7 s voice message
+    // read "0:26" on the line and "0:25" on the card that line opens — and
+    // the card's own number was a second short of what its sender was told
+    // while recording it. The video card next door has always rounded.
+    //
+    // 25700 and 25400 straddle the boundary in both directions, so a fixture
+    // that merely floored would not pass by luck.
+    void theClockRoundsToTheNearestSecondLikeTheSummaryLineDoes()
+    {
+        Card card = makeCard(QUrl(), 360);
+        QVERIFY(card.item != nullptr);
+
+        const auto clock = [&card](int ms) {
+            QVariant out;
+            const bool called = QMetaObject::invokeMethod(
+                card.item, "formatMs", Qt::DirectConnection,
+                Q_RETURN_ARG(QVariant, out), Q_ARG(QVariant, ms));
+            return called ? out.toString() : QStringLiteral("<not called>");
+        };
+
+        QCOMPARE(clock(25700), QStringLiteral("0:26"));
+        QCOMPARE(clock(25400), QStringLiteral("0:25"));
+        // The rounding must not leak past 59 into a bare "0:60".
+        QCOMPARE(clock(59600), QStringLiteral("1:00"));
+        QCOMPARE(clock(0), QStringLiteral("0:00"));
+    }
 };
 
 QTEST_MAIN(AudioCoverArtAspectTest)

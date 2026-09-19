@@ -523,6 +523,50 @@ private Q_SLOTS:
                  qPrintable(fileText));
         QVERIFY2(find(f, "fileCard") == nullptr,
                  "the file card is built while collapsed");
+
+        // A STICKER ARRIVES WITH NO DIMENSIONS BY DESIGN, and the summary
+        // still owes the reader a second fact. rust/src/stickers.rs sends
+        // `w: 0, h: 0` deliberately — a pack entry's `info` is advisory and
+        // it will not put an image decoder in the bridge to fill it — so
+        // "1920×1080" is unreachable for the one kind that usually has no
+        // filename either, and the line collapsed to the bare word "Sticker".
+        QVariantMap sticker = baseFixture(controller);
+        sticker.insert(QStringLiteral("isSticker"), true);
+        sticker.insert(QStringLiteral("mediaMimetype"),
+                       QStringLiteral("image/webp"));
+        sticker.insert(QStringLiteral("mediaWidth"), 0);
+        sticker.insert(QStringLiteral("mediaHeight"), 0);
+        sticker.insert(QStringLiteral("mediaSize"), 42 * 1024);
+        sticker.insert(QStringLiteral("mediaKey"),
+                       QStringLiteral("fixture-sticker"));
+        Delegate st;
+        QVERIFY(createDelegate(controller, sticker, st));
+        settle();
+        auto *stickerLabel = find(st, "collapsedEmbedLabel");
+        QVERIFY(stickerLabel != nullptr);
+        const QString stickerText = stickerLabel->property("text").toString();
+        QVERIFY2(stickerText.contains(QStringLiteral("42 KB")),
+                 qPrintable(QStringLiteral("a dimensionless sticker carries "
+                                           "no second fact: \"%1\"")
+                                .arg(stickerText)));
+        // And a sticker that DOES know its size still leads with it, so the
+        // fallback has not displaced the better answer.
+        QVariantMap measured = sticker;
+        measured.insert(QStringLiteral("mediaWidth"), 512);
+        measured.insert(QStringLiteral("mediaHeight"), 512);
+        Delegate ms;
+        QVERIFY(createDelegate(controller, measured, ms));
+        settle();
+        auto *measuredLabel = find(ms, "collapsedEmbedLabel");
+        QVERIFY(measuredLabel != nullptr);
+        const QString measuredText =
+            measuredLabel->property("text").toString();
+        QVERIFY2(measuredText.contains(QStringLiteral("512×512")),
+                 qPrintable(measuredText));
+        QVERIFY2(!measuredText.contains(QStringLiteral("42 KB")),
+                 qPrintable(QStringLiteral("the size fallback fired beside "
+                                           "real dimensions: \"%1\"")
+                                .arg(measuredText)));
     }
 
     // A LOADED preview is a block and collapses. A CONSENT GATE is already
