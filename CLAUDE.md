@@ -1109,90 +1109,17 @@ native toast APIs (WinRT `ToastNotificationHistory.Remove`,
 And on KDE the read-withdrawal never reached the history because an EXPIRED
 popup (reason 1) forgot its payload; it keeps it now. Also not yet seen live.
 
-**THE WINDOWS BUILDER IMAGE IS BUILT BY HAND UNDER A FIXED TAG, AND A
-DOCKERFILE CHANGE ALONE CHANGES NOTHING.** Pipeline 172 compiled and linked
-Windows and then died in `stage-windows-runtime.py` on "required GStreamer
-plugin is missing from the builder image: libgstjpeg.dll" — the plugin was
-added to `packaging/windows/Dockerfile` AND to the required list on
-2026-09-02, but the image on the runner host (`...-v5`, 10.195.35.2) is
-rebuilt only by the four-step operator procedure in lightning-deploy
-`docs/windows-runner-operations.md`, which never ran. Deploy `37a4dd1` makes
-the plugin OPTIONAL (staged when present, a WARNING when not) because the
-app's camera chain cannot negotiate `image/jpeg` yet, so it would be staged
-and never loaded.
-
-**THAT OPERATOR STEP IS DONE, 2026-09-12 — AND ATTEMPTING IT FOUND THAT THE
-DOCKERFILE HAD BEEN UNBUILDABLE FOR TEN DAYS.** Its verify stage asserts the
-staged plugin count with a literal (`= 27`) and the install loop above it
-stages 28: `libgstjpeg.dll` was added to the loop on 2026-09-02 and the number
-was not bumped with it. Nobody could have found out, because the image is
-built by hand and was not rebuilt in that window — so the very step this
-paragraph asked for could not have succeeded if anyone had tried. It fails
-with NO diagnostic, because a bare `test` in an `&&` chain prints nothing.
-GENERALISE: a hand-built artefact's recipe is only as true as its last build;
-"the change is committed" is not "the change works".
-
-**AND IT CAUGHT ME AGAIN ON 2026-09-16, IN THE OPPOSITE DIRECTION.** A review
-asked for `libgstlevel.dll` to be staged on Windows — correctly, since the
-capture level meter is the diagnostic that tells a live microphone from a dead
-one and Windows is where the "nobody can hear me" reports come from. Adding it
-to the REQUIRED list killed `build-windows` in pipeline 224: the hand-built
-image does not carry it, and the required list is only ever as true as the
-image's last build. It is `OPTIONAL_GSTREAMER_PLUGINS` now, exactly as
-libgstjpeg was, with the promotion procedure written at the declaration. **A
-required-plugin entry and an image rebuild are ONE change, and the entry is
-the half that must come second.**
-
-**FEDORA WITHDREW EVERY 6.11.1 QT PACKAGE THIS IMAGE PINS, SO THE RECIPE COULD
-NOT BE REALISED AT ALL (2026-09-16).** Not a version anyone wanted to move: a
-v7 build died on `No match for argument:
-qt6-qtshadertools-devel-6.11.1-1.fc44.x86_64`, and it had got as far as step 7
-of 11 only because layers 1-10 came from that host's cache. The pins are 6.11.2
-now, so **the Qt shipped to Windows users moves with the next package**. A sweep
-of all 31 pinned NVRs found 23 available and 8 gone, the 8 being exactly the Qt
-set — so do not widen it by assumption. **AND VALIDATE THE PROBE BEFORE
-BELIEVING IT**: the first sweep used a dnf5 argument that does not exist, every
-query returned empty, and all 31 looked withdrawn. A probe that answers "absent"
-for everything is a broken probe until it has answered "present" for something.
-Release numbers are not uniform across a Qt set (`qtmultimedia` was `-2`, the
-rest `-1`), and `download.qt.io` without `--location` hands you a 306-byte
-mirror page that hashes cleanly and is not the tarball.
-
-**A DOWNLOAD WITH NO TIMEOUT CAN HANG A BUILD FOREVER — AND A SLOW ONE LOOKS
-IDENTICAL (2026-09-16).** A v7 attempt sat SIXTEEN MINUTES at near-zero CPU with
-nothing in the log on a `curl` to gstreamer.freedesktop.org, and I recorded that
-as a stall. **It may not have been**: that installer is 960 MB, a later run
-pulled it at ~560 kB/s, and 28 minutes of silence at no CPU is what a healthy
-fetch of it looks like. The first attempt was killed without measuring bytes, so
-the diagnosis was a guess dressed as a finding. Every download there now carries
-`--connect-timeout 30 --speed-limit 10000 --speed-time 60 --retry 3`, which is
-right either way; the sha256 checks are untouched. **The measurement that
-actually distinguishes them is the file**: `stat -c %s
-/proc/<curl-pid>/root/<path>` twice, fifteen seconds apart — zero delta is a
-stall, anything else is slow. Load average tells you a step is not COMPUTING; it
-does not tell you the step is not WORKING.
-
-Builder `...-v6` is now built on 10.195.35.2 (image `sha256:5c628d4b`, 28
-plugins, `jpegenc` and `jpegdec` both in `libgstjpeg.dll`), the host's
-`config.toml` points at it with v5 kept in `allowed_images` for rollback, the
-runner verifies, and `windows-package-test` is green on it (pipeline 205).
-`libgstjpeg.dll` is back on the REQUIRED list and `jpegdec` is in the probed
-element set — staging the DLL is not the same claim as the element
-registering, which is the distinction that shipped Windows for months with
-`libgstsctp-1.0-0.dll` present and `sctpenc` missing. Do not remove the v5
-image; removing it is what makes the rollback impossible.
-
-**THE 0.9.0 APPIMAGE SHIPPED WITHOUT QT'S TLS BACKEND AND WITHOUT THE
-WAYLAND SHELL INTEGRATION, and nothing could have caught it.**
-linuxdeploy-plugin-qt deploys neither directory unless `EXTRA_QT_PLUGINS`
-names it, so it ran under XWayland (a screen share captures a black root
-window) and every QNetworkAccessManager https request failed — the update
-manifest and download included, so **a 0.9.0 AppImage will never offer the
-next release by itself**; Matrix traffic was unaffected (rustls). Deploy
-`1b773c2` names the four directories and `validate-appimage.sh` asserts the
-files, because graceful fallback and silent absence are the same observable
-until something asserts the payload — the fourth time this shape has bitten
-(sctp, ximagesrc, opengl, now this). Detail in `docs/round-history.md`.
+**PACKAGING TOOLCHAINS AND BUILDER IMAGES — MOVED: the full text is
+`docs/packaging-traps.md`. READ IT before rebuilding a builder image,
+changing a required-plugin list, pinning a toolchain version, or diagnosing a
+packaging job that hangs.** It holds the hand-built Windows image and why a
+Dockerfile change alone changes nothing; the required-plugin entry that must
+come SECOND; Fedora withdrawing every Qt package the image pinned, and the
+broken probe that said all 31 were gone; a download with no timeout, and why a
+SLOW one looks identical to a stall; and the 0.9.0 AppImage that shipped
+without Qt's TLS backend and without the Wayland shell integration, which
+nothing could have caught because graceful fallback and silent absence are the
+same observable.
 
 **A ROOM OPEN COSTS THE HISTORY FILL'S PAGE COUNT TIMES ~400 MS, AND
 `maxInvisibleFillRetries` IS THAT COUNT'S CEILING (measured 2026-09-05).**
@@ -1654,6 +1581,76 @@ With `theme=2` pinned both sides the rails are pixel-identical — 0 differing
 pixels across the band columns, 2 pixels at 1/255 in one channel at the edge.
 
 Full account in `docs/round-history.md`, 2026-09-19 (evening).
+
+**A TEST THAT ASSERTS A CONSEQUENCE CANNOT SEE PAST ANYTHING ELSE THAT
+PRODUCES IT — three vacuous assertions in one commit, found by review.** The
+retry chain's bound was asserted by COUNTING PUBLISHES, and
+`m_publishRetryTimer` is one single-shot timer whose `start()` RESTARTS it:
+at most one retry is ever pending however many rejections arrive, so the
+publish count in any window is identical with the cap, without the cap, and
+without the backoff. Two other assertions in the same case could not fail
+either — one checked state with NO event-loop iteration between the emit and
+the check, so the timer could not have fired for any interval including
+zero; the other waited 1200 ms where the broken path arms 4000. Ask what
+ELSE produces the consequence you are asserting, and assert the state.
+
+**AND THE SEAM THAT FIXES ALL THREE HAD BEEN WRITTEN AND NEVER CALLED**, in
+the same commit that made them vacuous, with a comment describing a different
+member ("bounded in milliseconds" on something returning a count). Fifth
+occurrence of this shape: `refreshIndexStats()`, `fetch_details_for_event`,
+the unregistered `ShortcutRegistryTest.cpp`, `sfuTrackPublished`, now this.
+
+**A PROBE IS ONLY AS GOOD AS ITS RESEMBLANCE, AND THE MOCK IS WHERE IT WILL
+AGREE.** The account switcher sized its list from an off-layout probe of
+`IdentityCard` times the row count — the workaround for a real deadlock
+(`contentHeight` is 0 until delegates exist; delegates need a nonzero
+viewport) — and the probe omitted the trust meter the ACTIVE card draws: 136
+px against a real 159, **23 px short at every count including one**, which is
+the reported "it scrolls with one account". Invisible in the harness because
+the mock reports no crypto state, so probe and card agree there exactly. The
+cure is not a better probe: the menu owns ONE row height and hands it to
+every delegate, so content and viewport are the same arithmetic and no
+property added later can make them disagree.
+
+**`rc_presence` IS PER USER, SO JITTER CANNOT FIX AN AGGREGATE.** Spreading a
+user's devices apart stops them colliding and does nothing at all once their
+TOTAL offered rate is over the limit. Measured live: 62% of publishes
+rejected, a run of 29 consecutive rejections, **eleven minutes of an account
+reading offline while its process was healthy** — with a keep-alive that was
+working perfectly and publishing into a wall. A rejected publish now retries
+on the server's own `retry_after_ms`, bypassing `kMinPublishGapMs`, which
+exists to suppress a duplicate of an ACCEPTED state and has nothing to
+suppress after a rejection. **NOT fully explained and not live-confirmed
+fixed**: one device offers 0.04 PUT/s against a 0.1/s limit and four offer
+0.16, predicting ~37% and not 62% — that needs six or seven publishers, or
+ONE device whose connection is flapping, because the Syncing-edge publish is
+gap-limited to one per 10 s, exactly the limiter's rate. Those need opposite
+fixes. `publishAttempts()` and the `LIGHTNING_PRESENCE_TRACE`
+`presence-publish` line exist to settle it with the OFFERED RATE; a healthy
+single client measures ~2.6 attempts/min.
+
+**AN INK DESIGNED TO BE UNREADABLE MUST NOT CARRY A DISAMBIGUATOR.** The
+account switcher's inactive MXID used `stormTextFaint`, which falls back to
+`textDisabled` outside Storm — the ONE role the readability table refuses to
+grade, because it is supposed to be low contrast. **1.60:1** on the light
+popover, on the only line separating two accounts that share a display name.
+
+**A STATUS LINE THAT ALWAYS SAYS "FINE" CANNOT SAY "NOT FINE".** The
+switcher's strip read "Connected · 1 space(s)" and was reported as
+unreadable. The space count was trivia — but "Idle" is this app's word for
+DISCONNECTED-WHILE-LOGGED-IN, so the same line was reporting a real fault in
+a word that reads as benign, next to a number that reads as noise. It speaks
+only when the connection is unhealthy now. Same family as the readability
+badge that fires on a stock theme.
+
+**`localization` GATES EVERY `qsTr` AND PROPORTIONAL VALIDATION WILL MISS
+IT.** It stayed red for a whole day across three commits whose entire content
+was new user-visible strings, because each ran "the affected suites" and none
+of those was this one. Run it after any commit that adds or removes a `qsTr`.
+Resync with `cmake --build <tree> --target update-translations` — a
+project-wide generator, so ONLY on a clean tree and in its own commit (§4).
+
+Full account in `docs/round-history.md`, 2026-09-19 (late).
 
 **Timeline test conventions — do not "re-fix" these.** The rotated
 Flickable + Column has no `positionViewAtIndex`,

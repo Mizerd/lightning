@@ -1,5 +1,143 @@
 # Round history
 
+## 2026-09-19 (late) — the account switcher, and a presence fix whose own tests could not fail
+
+Six commits after the rail. Two reported defects, and two rounds of review
+finding my work wrong in ways the tests were built not to notice.
+
+### The account switcher scrolled with one account, and a probe was why
+
+Reported as "you can even scroll about with one account since it doesn't
+fit". The list sized its viewport from an off-layout PROBE of `IdentityCard`
+times the model count — a real workaround for a real deadlock (`contentHeight`
+stays 0 until delegates exist, and delegates only instantiate inside a
+nonzero viewport) — and the probe declared `metaText` and `connected` but NOT
+`trustCompleted` or `e2eeReady`. The active card renders a TrustMeter the
+probe never had: **136 px measured against a real 159, 23 px short at every
+account count, including one.**
+
+**A PROBE IS ONLY AS GOOD AS ITS RESEMBLANCE, AND NOTHING ASSERTED THAT.**
+The defect is invisible in the default harness because the mock backend
+reports no crypto state, so the probe and the card agree there exactly —
+which is why every test passed over it for as long as it existed. It was
+reproduced by forcing the crypto state a real rust install reports onto a
+copy: one account, with the word TRUST sliced in half by the viewport edge,
+the maintainer's screenshot precisely.
+
+The fix removes the CLASS: the menu owns one `rowH` and hands it to every
+delegate, so `contentHeight == count x rowH` and the viewport is a multiple
+of the same number. Both probes deleted. No property added to a row later
+can make them disagree. Cards became rows on the product's existing person
+ladder; the active row is marked three ways at the SAME height instead of
+being three times taller. 488 px to 323 at four accounts.
+
+**And an ink designed to be unreadable was carrying the line that
+disambiguates two accounts.** The inactive MXID used `stormTextFaint`, which
+falls back to `textDisabled` outside Storm — the one role the readability
+table deliberately refuses to grade, because it is SUPPOSED to be low
+contrast. On the light popover that is **1.60:1**, and the MXID is the only
+thing separating two accounts sharing a display name, which is exactly the
+maintainer's own pair. Now 5.12:1 light, 6.75:1 Storm.
+
+**The trust meter and E2EE badge were a property of one row pretending to be
+a column** — the SDK reports crypto state only for the client it is attached
+to, which the old code's own comment said — so they moved to one status
+strip below the list. Per-row meta is structurally impossible now rather
+than forbidden by convention.
+
+### A status line that always said "fine", over a fault that read as benign
+
+"Remove that idle 1 spaces under the accounts... i dont even realize what
+its for." Both halves earned it, for opposite reasons.
+
+The space count is trivia in a switcher. But **"Idle" is AppController's word
+for DISCONNECTED-WHILE-LOGGED-IN** — so that line was reporting a real fault,
+in a word that reads as benign, beside a number that reads as noise. The
+fault was unreadable because of the company it kept. The strip now speaks
+only when the connection is NOT healthy: "Connected" on a working client is
+the same noise as a warning that fires on a stock theme, and a line that
+always says fine teaches people not to read it, and then it cannot say not
+fine.
+
+### Presence was still broken, and the earlier fix could not have reached it
+
+A live audit against this project's own Synapse: Element Web showed the
+account **"Offline for 29m" while the process had been running 51 minutes**.
+From the client's own log over 33 minutes — 53 `rate_limited` rejections,
+~62% of attempts, and a run of **29 consecutive rejections, about eleven
+minutes** with no successful publish against a 33-63 s expiry.
+
+**`rc_presence` IS PER USER, AND JITTER DOES NOT REDUCE AN AGGREGATE.** The
+morning's fix made two devices stop colliding, which is real, and cannot
+help an account whose TOTAL offered rate is over the limit — the limiter
+counts per user, not per device. And the handler treated a rejection as
+fire-and-forget under a comment reading "the next keep-alive tick retries
+anyway", true only if the next tick is not also rejected.
+
+Rust now extracts `retry_after_ms` from `M_LIMIT_EXCEEDED` instead of
+flattening the error to a word, and a rejection arms a bounded, backed-off,
+jittered retry that bypasses `kMinPublishGapMs` — that window suppresses a
+duplicate PUT of an ACCEPTED state, and after a rejection there is nothing
+to suppress.
+
+**AND THE MEASUREMENT IS STILL NOT FULLY EXPLAINED.** One device at 25 s
+offers 0.04 PUT/s against a 0.1/s limit, 2.5x under; four devices offer
+0.16/s, predicting ~37% rejection, not 62%. That needs six or seven
+publishers — or ONE device with a flapping connection, because the
+Syncing-edge publish is gap-limited to one per 10 s, which is exactly the
+limiter's own rate. Those two causes need opposite fixes and the ratio
+cannot tell them apart. Recorded in the header rather than papered over,
+and `publishAttempts()` plus a publish-side trace line exist so the next
+person settles it with the OFFERED RATE.
+
+### Three assertions that could not fail, in one review
+
+The review of that fix returned CHANGES_REQUESTED with six must-fix items,
+and the three worst were tests:
+
+* **The chain bound was asserted by counting publishes.** `m_publishRetryTimer`
+  is ONE single-shot timer and `start()` RESTARTS it, so at most one retry is
+  ever pending however many rejections arrive — the publish count in any
+  window is insensitive to the cap. Removing `kMaxRetryChain` entirely, and
+  the backoff with it, both left the assertion green. It was decoration over
+  the one property that makes a retry safe against a rate limiter.
+* **The floor assertion ran with no event-loop iteration** between the emit
+  and the check, so the timer could not have fired for ANY interval, zero
+  included. A `qWait(300)` was the whole fix.
+* **The unretryable-category case waited 1200 ms** where deleting the guard
+  arms 4000, so it passed on the broken code.
+
+All three now assert `retryChainForTest()` directly — **and that accessor had
+been written and never called**, with a comment describing a different member
+("bounded in milliseconds" for something returning a count). The seam that
+fixes all three vacuous tests was added in the same commit that made them
+vacuous. Same shape as `refreshIndexStats()`, `fetch_details_for_event` and
+the unregistered `ShortcutRegistryTest.cpp`.
+
+**GENERALISE: when a test asserts a CONSEQUENCE rather than the state, ask
+what else produces the same consequence.** A restartable one-shot timer
+produces "at most one publish per window" whether or not the cap exists, so
+the count could never see the thing under test.
+
+Three more from the same review: `clearSession()` stopped neither the retry
+timer nor the chain, so an account switch could fire a retry armed for the
+PREVIOUS account against the new one, un-gapped — the dispatcher's generation
+filter stops a stale EVENT but cannot stop a timer a live one already armed.
+An ordinary tick reset the chain without cancelling the armed retry. And the
+counters' comment said "since this session started" where nothing resets
+them.
+
+### A generator gate that had been red since the morning
+
+`localization` compares the tracked catalogs against every `qsTr` in the
+tree, and it had been RED since the theme-editor and rail-depth commits —
+fourteen missing strings. Proportional validation had been run for each of
+those commits and it did not include this suite, which is exactly the gap it
+exists to catch: new user-visible strings were the one thing those commits
+were full of. Resynced twice, each time in its own commit on a CLEAN tree,
+because `update-translations` rewrites all eleven catalogs and §4 forbids
+running a project-wide generator over someone else's uncommitted work.
+
 ## 2026-09-19 (evening) — the rail people can turn off, and three of my own claims that were not true
 
 Four commits on top of the morning's eleven. Two features and two rounds of
