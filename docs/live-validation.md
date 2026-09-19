@@ -1,5 +1,68 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-19 (late) — Windows: Ctrl+, , a 1.5 scale factor, and the Classic rail's drag
+
+**PASS on all three**, on the guest running the `d6d0ee25` portable —
+confirmed from `--build-info` on the guest, not assumed. No pipeline was run.
+Staleness checked first: `git log d6d0ee25..635a357c -- qml/SpacesRail.qml
+src/spaces/ src/app/ShortcutRegistry.cpp` is EMPTY, so the rail and the
+shortcut registry are current in that binary.
+
+**`Ctrl+,` opens Settings** — window title `Settings — Appearance`, and again
+at dpr 1.50. It had been recorded NOT TESTED because PowerShell `SendKeys`
+would not deliver the chord, and **that diagnosis was wrong**: the real
+obstacle was `SetForegroundWindow` being REFUSED to a background process, so
+every chord went to `Program Manager` and nothing reached the app. A control
+chord (`Ctrl+Shift+B`, toggle the rail) proves the injector works before the
+one under test is believed.
+
+**Non-1.0 scale, both rail styles.** At `QT_SCALE_FACTOR=1.5` (`dpr=1.50` in
+the app's own log, theme pinned `[ui] theme=2`): Regions' rail 78 → **117
+device px (78x1.5)**, Classic's 68 → **102 (68x1.5)**, Classic's tile 48 →
+**72**, region rung hexes IDENTICAL to 1.0 with insets at 1/3/5 device px,
+and the junction notch still the PARENT rung at r1→r2 and r2→r3. Nothing
+clipped, nothing crossing into the room column, the chevron plate scaling
+12 → 18 and staying inside the rail. The only wobble is the active ring at 2
+device px where an exact scale is 3 — hairline rounding, not a clip.
+
+**Classic rail drag and drop**, which was the only untested part of what
+shipped that day. Three top-level Spaces (Regions shows one of them owning a
+four-deep chain, so `setFlat` is genuinely removing rows). Dragging the owner
+below the last Space: it lands where the pointer was, `railLayout.order`
+persists across a graceful quit and relaunch, and switching back to Regions
+shows **the same top-level order with the subspaces back under their parent
+and the expansion state intact**.
+
+**One defect found, and it is NOT scale-related.** The account switcher popup
+clips a card behind the button strip at dpr 1.5 — and identically at dpr 1.0
+on the same binary, so scaling is not the cause. That binary predates
+`18b56dd8`, the rework that replaced the height probe with a fixed row
+height; its card still reads "Connected · 14 spaces", a string removed in
+`9c48cf6a`. **The switcher as it stands on `main` is NOT TESTED on Windows**
+and needs a newer build.
+
+### Two harness lessons, both of which made a working feature look broken
+
+* **`SetForegroundWindow` from a background process is refused by Windows.** A
+  chord harness that does not then assert `GetForegroundWindow() == hwnd` is
+  testing nothing. Clicking the window's own title bar is the one thing
+  Windows does not refuse.
+* **`SetCursorPos` motion is not drag motion to Qt.** It updates HOVER — the
+  mid-gesture frame even showed the destination tooltip — so a Qt
+  `DragHandler` never activates and the failure reads as "the app ignored the
+  drag". `SendInput` with `MOUSEEVENTF_ABSOLUTE|MOVE` worked first time.
+
+Same shape as this project's standing rule: make the fixture prove it can HIT
+the thing before concluding anything about what the thing does. Both of these
+were one assertion away from being obvious.
+
+### Also worth keeping
+
+`set QT_SCALE_FACTOR=1.5` inside a job PERSISTS in the guest runner's
+environment, so a later job runs at 1.5 while claiming 1.0 until it is
+cleared. The guest's ini was restored from its backup afterwards and verified
+byte-for-byte.
+
 ## 2026-09-19 (late) — presence under real contention: the mechanism works, the report does not reproduce
 
 **PASS on the mechanism, and a REFUTATION of the explanation.** Three
