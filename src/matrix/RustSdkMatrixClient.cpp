@@ -535,10 +535,47 @@ void RustSdkMatrixClient::login(const QString &homeserver,
                                 const QString &user,
                                 const QString &password)
 {
+    // SAY WHICH ONE. `resolveAccountIdentity` already works out exactly why
+    // it refused and hands the reason back through its `error` out-param,
+    // and this collapsed all of them into "the fields are required" — so a
+    // person who had filled in all three fields was told they were empty.
+    // Reported live: a homeserver typed without a scheme normalises to
+    // nothing, which produced that message and sent the maintainer looking
+    // for a field he had already filled.
+    //
+    // Three distinct failures, three sentences. The scheme one gets an
+    // example rather than a rule, because "invalid URL" does not tell
+    // anybody that `matrix.org` is the wrong shape and
+    // `https://matrix.org` is the right one.
     matrix::app_data::AccountIdentity identity;
-    if (!matrix::app_data::resolveAccountIdentity(homeserver, user, &identity)
-        || password.isEmpty()) {
-        Q_EMIT loginFailed(tr("Homeserver, user, and password are required."));
+    QString why;
+    const bool resolved =
+        matrix::app_data::resolveAccountIdentity(homeserver, user, &identity,
+                                                 &why);
+    if (!resolved || password.isEmpty()) {
+        // `why` distinguishes the cases the resolver itself separates; the
+        // two empties it folds together ("invalid homeserver or empty user")
+        // are pulled apart here, where both inputs are in hand.
+        QString message;
+        if (!resolved && homeserver.trimmed().isEmpty()) {
+            message = tr("Enter your homeserver, for example "
+                         "https://matrix.org");
+        } else if (!resolved && user.trimmed().isEmpty()) {
+            message = tr("Enter your username.");
+        } else if (!resolved
+                   && why == QLatin1String("invalid homeserver or empty user")) {
+            // Both fields are non-empty and the resolver still refused, so
+            // it is the homeserver that would not normalise — and in
+            // practice that is a missing scheme every time.
+            message = tr("That homeserver address is not a full URL. Include "
+                         "https://, for example https://matrix.org");
+        } else if (!resolved) {
+            message = tr("That username is not a valid Matrix id. Use your "
+                         "username, or the full @you:server form.");
+        } else {
+            message = tr("Enter your password.");
+        }
+        Q_EMIT loginFailed(message);
         return;
     }
 
