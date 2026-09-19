@@ -999,8 +999,8 @@ private Q_SLOTS:
     // Refusing to grade a translucent endpoint is right and the header argues
     // why. Nothing surfaced the refusal, though, so every consumer above the
     // store read a skip as a pass: measured in the running editor on the
-    // Storm base, the live readout under `textPrimary` listed EIGHT of the
-    // nine checks that name it — "Main text on a hovered row" simply absent —
+    // Storm base, the live readout under `textPrimary` listed SEVEN of the
+    // eight checks that name it — "Main text on a hovered row" simply absent —
     // while the header badge said "Readable". The store could not have been
     // asked; there was no question to ask it.
     //
@@ -1097,6 +1097,14 @@ private Q_SLOTS:
 
         SettingsManager settings;
         CustomThemeStore store(&settings);
+        // THE ONE ENTRY POINT QML ACTUALLY CALLS. Everything below asserts
+        // the static table; `roleAliases()` is the Q_INVOKABLE the dialog
+        // reads, and it was a one-line delegation nothing exercised — stub
+        // it to {} and every other assertion here still passes while three
+        // role swatches silently paint the muted colour. Grep for the
+        // caller, then call it.
+        QCOMPARE(store.roleAliases(), CustomThemeStore::paletteKeyAliases());
+        QVERIFY(!store.roleAliases().isEmpty());
         const QStringList roles = CustomThemeStore::editableRoles();
 
         for (const QVariant &row : checks) {

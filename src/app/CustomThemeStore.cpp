@@ -687,7 +687,11 @@ QVariantList gradePalette(const QVariantMap &palette, const QString &onlyRole,
         // user — but neither is a PASS either, and reporting nothing at all
         // is what made the badge lie.
         const bool graded = fg.isValid() && bg.isValid();
-        if (graded != (mode != GradeMode::SkippedOnly))
+        // Named rather than written as the nested comparison it replaces:
+        // that form was correct for all three modes and silently classified
+        // any future FOURTH mode as "wants graded".
+        const bool wantGraded = mode != GradeMode::SkippedOnly;
+        if (graded != wantGraded)
             continue;
 
         double value = 0.0;

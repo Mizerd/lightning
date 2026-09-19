@@ -470,13 +470,16 @@ Item {
             if (model.mediaWidth > 0 && model.mediaHeight > 0) {
                 parts.push(model.mediaWidth + "×" + model.mediaHeight)
             } else {
-                // NO DIMENSIONS IS NOT NO SECOND FACT, and a sticker
-                // reaches this row with none BY DESIGN: rust/src/stickers.rs
-                // sends `w: 0, h: 0` deliberately, because a pack entry's
-                // `info` is advisory and it will not put an image decoder in
-                // the bridge to fill it. So the fallback is not working
-                // around a bug — it is the only second fact this row can
-                // ever have. Same shape as the audio branch above.
+                // NO DIMENSIONS IS NOT NO SECOND FACT. A sticker sent
+                // from a pack LIGHTNING uploaded has none, because
+                // `upload_to_user_pack` deliberately does not decode the
+                // image to fill an advisory `info`, and `sticker_image_info`
+                // then omits `w`/`h` rather than claiming zero. Stickers
+                // from other clients, and from packs Lightning did not
+                // write, usually DO carry dimensions and take the branch
+                // above — this is the fallback for the ones that cannot.
+                // An image can reach it too, before its own info hydrates.
+                // Same shape as the audio branch above.
                 var is = root.embedSizeText(model.mediaSize || 0)
                 if (is.length > 0) parts.push(is)
             }

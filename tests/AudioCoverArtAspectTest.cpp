@@ -174,33 +174,43 @@ private Q_SLOTS:
         QCOMPARE(card.box->height(), 0.0);
     }
 
-    // TWO CLOCKS OVER ONE CLIP, AND A READER SEES BOTH IN ONE FRAME. The
-    // collapsed summary line rounds (`embedDurationText` in
-    // MessageDelegate.qml) and this card floored, so a 25.7 s voice message
-    // read "0:26" on the line and "0:25" on the card that line opens — and
-    // the card's own number was a second short of what its sender was told
-    // while recording it. The video card next door has always rounded.
+    // A POSITION FLOORS, A TOTAL ROUNDS, AND THEY ARE NOT ONE CLOCK.
     //
-    // 25700 and 25400 straddle the boundary in both directions, so a fixture
-    // that merely floored would not pass by luck.
-    void theClockRoundsToTheNearestSecondLikeTheSummaryLineDoes()
+    // The collapsed summary line rounds (`embedDurationText`) and this card
+    // floored BOTH numbers, so a 25.7 s voice message read "0:26" on the
+    // line and "0:25" on the card that line opens. Rounding both — the
+    // first attempt at this, and it shipped — fixed that and broke the
+    // elapsed clock, which then claimed time that had not passed and would
+    // reach the total half a second before the audio ended.
+    //
+    // 25700 and 25400 straddle the boundary in both directions, so neither
+    // half can pass by luck, and each is asserted against BOTH functions so
+    // a fixture cannot go green by calling the one it wants.
+    void aPositionFloorsAndATotalRounds()
     {
         Card card = makeCard(QUrl(), 360);
         QVERIFY(card.item != nullptr);
 
-        const auto clock = [&card](int ms) {
+        const auto call = [&card](const char *fn, int ms) {
             QVariant out;
             const bool called = QMetaObject::invokeMethod(
-                card.item, "formatMs", Qt::DirectConnection,
+                card.item, fn, Qt::DirectConnection,
                 Q_RETURN_ARG(QVariant, out), Q_ARG(QVariant, ms));
             return called ? out.toString() : QStringLiteral("<not called>");
         };
 
-        QCOMPARE(clock(25700), QStringLiteral("0:26"));
-        QCOMPARE(clock(25400), QStringLiteral("0:25"));
-        // The rounding must not leak past 59 into a bare "0:60".
-        QCOMPARE(clock(59600), QStringLiteral("1:00"));
-        QCOMPARE(clock(0), QStringLiteral("0:00"));
+        // The total: 25.7 s of audio IS 26 seconds long, which is what the
+        // summary line that opens this card says.
+        QCOMPARE(call("formatDuration", 25700), QStringLiteral("0:26"));
+        QCOMPARE(call("formatDuration", 25400), QStringLiteral("0:25"));
+        // The position: at 25.7 s you have not reached 0:26.
+        QCOMPARE(call("formatPosition", 25700), QStringLiteral("0:25"));
+        QCOMPARE(call("formatPosition", 25400), QStringLiteral("0:25"));
+        // Neither may leak past 59 into a bare "0:60".
+        QCOMPARE(call("formatDuration", 59600), QStringLiteral("1:00"));
+        QCOMPARE(call("formatPosition", 60000), QStringLiteral("1:00"));
+        QCOMPARE(call("formatDuration", 0), QStringLiteral("0:00"));
+        QCOMPARE(call("formatPosition", 0), QStringLiteral("0:00"));
     }
 };
 

@@ -73,16 +73,42 @@ Rectangle {
                                                                 artwork)
     }
 
-    // ROUND, NOT FLOOR, and the video card next door already rounds. A
-    // 25.7 s voice message printed "0:26" on the collapsed summary line and
-    // "0:25" on the card that line opens — the two visible in one frame the
-    // moment a reader expands it. Truncating also makes every clip read a
-    // second short of what its sender was told when recording it.
-    function formatMs(ms) {
+    // ── A POSITION FLOORS, A TOTAL ROUNDS, AND THEY ARE NOT ONE CLOCK ──
+    //
+    // Two different quantities shared one formatter in every player here,
+    // which is why they could never be made consistent. They pull opposite
+    // ways:
+    //
+    //   * a POSITION is elapsed time. At 25.7 s you have not reached 0:26,
+    //     and a clock that says you have is claiming time that has not
+    //     passed. It would also hit the total a half-second before the
+    //     audio ends and sit there.
+    //   * a TOTAL is a length. 25.7 s of audio IS 26 seconds to the nearest
+    //     second, which is what `embedDurationText` on the collapsed
+    //     summary line has always said, and a total that floors reads a
+    //     second short of the clip.
+    //
+    // Rounding BOTH (which this file briefly did) fixed the summary-line
+    // disagreement and broke the position clock. Flooring both, the state
+    // before that, made the card disagree with the one-line summary that
+    // opens it. Naming them apart is the only thing that makes every
+    // surface agree, and the reason the old comment here was wrong on both
+    // counts: the video card does NOT round, and the recording counter
+    // floors on purpose.
+    //
+    // The two RECORDING counters stay floored and are not this rule's
+    // business: a counter running while you speak is a position.
+    function formatPosition(ms) {
         if (!ms || ms < 0) ms = 0
-        var total = Math.round(ms / 1000)
-        var m = Math.floor(total / 60)
-        var s = total % 60
+        return root.clockText(Math.floor(ms / 1000))
+    }
+    function formatDuration(ms) {
+        if (!ms || ms < 0) ms = 0
+        return root.clockText(Math.round(ms / 1000))
+    }
+    function clockText(totalSeconds) {
+        var m = Math.floor(totalSeconds / 60)
+        var s = totalSeconds % 60
         return m + ":" + (s < 10 ? "0" : "") + s
     }
     function togglePlay() {
@@ -512,9 +538,9 @@ Rectangle {
 
             Label {
                 text: {
-                    var pos = root.formatMs(root.player ? root.player.position
+                    var pos = root.formatPosition(root.player ? root.player.position
                                                         : 0)
-                    var total = root.formatMs(
+                    var total = root.formatDuration(
                         root.player && root.player.duration > 0
                         ? root.player.duration : root.durationMs)
                     var line = root.ready ? pos + " / " + total : total

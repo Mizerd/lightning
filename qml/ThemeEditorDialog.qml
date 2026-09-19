@@ -563,17 +563,27 @@ Popup {
                             // report and the badge must never disagree about
                             // whether this theme has a problem.
                             //
-                            // INCLUDING "we could not check one of them",
-                            // which is a third thing to say and was the one
-                            // case this condition dropped. It matters most
-                            // exactly when it is hardest to see: while a
-                            // picker is open the report is not on screen at
-                            // all, so the badge is the only surface carrying
-                            // the qualification, and hiding it there is how
-                            // an unanswered question turns back into a pass.
+                            // INCLUDING "we could not check one of them" —
+                            // but ONLY where the badge is the sole route to
+                            // that fact. In COMPACT mode the report is not on
+                            // screen, so hiding the qualification there is
+                            // how an unanswered question turns back into a
+                            // pass. In WIDE mode the report column is
+                            // permanent and already carries the sentence —
+                            // and a new theme on the stock Storm base has one
+                            // ungradable pair from the moment it is created,
+                            // so an unconditional clause would qualify the
+                            // header of every pristine theme before the user
+                            // had touched anything. That is exactly the
+                            // failure this table's own calibration is tuned
+                            // to avoid: a warning that fires on a stock theme
+                            // teaches people to ignore every warning. The
+                            // TEXT change is what fixes the reported defect;
+                            // this clause only decides where it can be read.
                             visible: root.store.overrideCount > 0
                                      || root.readabilityProblems > 0
-                                     || root.readabilityUnchecked > 0
+                                     || (root.compact
+                                         && root.readabilityUnchecked > 0)
                             color: verdictHover.containsMouse
                                    ? AppTheme.editorSelection
                                    : AppTheme.editorInset
@@ -1778,8 +1788,8 @@ Popup {
                     // mouse sample.
                     //
                     // THE UNGRADABLE PAIRS ARE IN THE SAME LIST, because
-                    // leaving them out is what made this readout claim nine
-                    // checks and show eight. A row that says "not checked" is
+                    // leaving them out is what made this readout claim eight
+                    // checks and show seven. A row that says "not checked" is
                     // an answer; a row that is absent is indistinguishable
                     // from a check that does not exist.
                     model: root.editingRole.length > 0
@@ -1956,7 +1966,13 @@ Popup {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                     textFormat: Text.PlainText
-                    text: qsTr("%n colour(s) could not be checked — they are see-through, so how they read depends on whatever is behind them.",
+                    // WORDED TO SURVIVE n == 1. The English catalog has no
+                    // numerus forms filled in for this family (the sibling
+                    // "%n thing(s) hard to read" is still `unfinished`), so
+                    // the SOURCE string is what a reader sees at every n —
+                    // and "1 colour(s) … they are see-through" is worse than
+                    // the plural-agnostic sentence below.
+                    text: qsTr("%n colour(s) could not be checked: a see-through colour reads differently depending on what is behind it.",
                                "custom theme readability",
                                root.readabilityTranslucent)
                     color: AppTheme.editorTextMuted

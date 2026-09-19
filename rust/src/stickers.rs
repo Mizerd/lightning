@@ -873,11 +873,9 @@ async fn read_one_room_pack(
 }
 
 // ---------------------------------------------------------------------------
-// Sending a sticker
+// The sticker event's `info`
 // ---------------------------------------------------------------------------
 
-/// Send one `m.sticker` to a room or a thread.
-///
 /// The `info` block of a sticker event, with UNKNOWN fields left out.
 ///
 /// ZERO IS A CLAIM; ABSENT IS THE TRUTH. `UInt::new(0)` is `Some(0)`, so
@@ -886,9 +884,11 @@ async fn read_one_room_pack(
 /// encoding of "we did not measure it" is to omit the field entirely.
 ///
 /// It arrives here as 0 all the time and BY DESIGN: a pack entry's `info` is
-/// advisory and `add_to_user_pack_inner` deliberately will not decode an image
-/// to fill it (see its own note), so every sticker sent from a pack Lightning
-/// wrote has no dimensions to pass on.
+/// advisory and `upload_to_user_pack` deliberately will not decode an image to
+/// fill it (see its own note there), so a sticker sent from a pack LIGHTNING
+/// uploaded has no dimensions to pass on. One from another client, or from a
+/// pack Lightning did not write, usually does — `add_image_to_pack_content`
+/// preserves whatever it was given.
 ///
 /// The difference is invisible to us — Lightning's own renderer tests `> 0`
 /// and falls back to the file size either way — and it is exactly what every
@@ -912,6 +912,12 @@ fn sticker_image_info(mimetype: String, width: u64, height: u64, size: u64) -> I
     info
 }
 
+// ---------------------------------------------------------------------------
+// Sending a sticker
+// ---------------------------------------------------------------------------
+
+/// Send one `m.sticker` to a room or a thread.
+///
 /// The media is the pack's OWN `mxc://`. That is what MSC2545 packs are and
 /// what every other client sends — the pack image is already Matrix media, so
 /// there is nothing to upload and nothing to re-encode. **Consequence, stated

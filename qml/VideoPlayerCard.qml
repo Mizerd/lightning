@@ -40,14 +40,6 @@ Item {
         || (fetchState === "fetching")
     property string fetchState: "idle" // idle / fetching / failed
 
-    function formatMs(ms) {
-        if (!ms || ms < 0) ms = 0
-        var total = Math.floor(ms / 1000)
-        var m = Math.floor(total / 60)
-        var s = total % 60
-        return m + ":" + (s < 10 ? "0" : "") + s
-    }
-
     // Stable failure identity: MediaBridge marks/signals by this cache key.
     readonly property string fetchCacheKey: "full:" + mediaKey
 
