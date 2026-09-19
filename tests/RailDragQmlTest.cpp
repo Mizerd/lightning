@@ -202,6 +202,36 @@ private:
         return nullptr;
     }
 
+    // THE ONE SHARED TOOLTIP, found as the thing that is actually on screen.
+    //
+    // Qt Quick Controls instantiates a SINGLE ToolTip per window for every
+    // attached `ToolTip.text` — the instance Main.qml hardens to plain text,
+    // and the reason the rail must move an ANCHOR rather than declare a tip
+    // of its own. It is a Popup, so what is drawn is its `QQuickPopupItem`,
+    // parented into the window's overlay; there is no public handle to it
+    // from C++, and reading the attached object's own `x`/`y` would report
+    // where Qt was ASKED to put it rather than where it went. This walks the
+    // visual tree for the popup item that is currently visible, which is the
+    // same thing a screenshot would have caught.
+    static QQuickItem *visiblePopupItem(QQuickItem *from)
+    {
+        if (!from)
+            return nullptr;
+        const auto children = from->childItems();
+        for (QQuickItem *child : children) {
+            if (!child)
+                continue;
+            if (child->isVisible() && child->width() > 0
+                && QString::fromLatin1(child->metaObject()->className())
+                       .startsWith(QStringLiteral("QQuickPopupItem"))) {
+                return child;
+            }
+            if (QQuickItem *found = visiblePopupItem(child))
+                return found;
+        }
+        return nullptr;
+    }
+
     // The layered group field draws one rectangle PER ANCESTOR under the
     // same objectName, so `descendantNamed` — which stops at the first — can
     // only ever see the outermost. Collect them all.
@@ -962,6 +992,225 @@ private slots:
 
         entries()->setSources(m_spaces, store());
         QCoreApplication::processEvents();
+    }
+
+    // ── 2026-09-19: EVERY TOOLTIP THIS RAIL SHOWS, MEASURED WHERE IT LANDS ─
+    //
+    // The reported defect is "the tooltip covers the tile ABOVE the one you
+    // are pointing at". Qt centres an attached tooltip on its attachee and
+    // puts it ABOVE, so on a 68px rail of 40px tiles that is, precisely, the
+    // previous row. Three of the rail's tips were moved off the rail on
+    // 2026-09-18 by attaching them to an invisible anchor hanging below the
+    // row; FOUR MORE WERE NOT, and a live run on 2026-09-19 measured all four
+    // (rail 0-78, tooltips as diff-boxes against a mouse-parked baseline):
+    //
+    //   Settings cog   x 6-72    y 1011-1043   over the rail, over the tile
+    //   Account avatar x 6-248   y 1063-1095   over the rail, over the COG
+    //   Add-Space "+"  x 6-116   y  937- 969   over the rail, over the tile
+    //   A revealed room                        beside the PARENT Space, up to
+    //                                          three rows above the pointer
+    //
+    // The last one is not an anchor at all: `spaceHover` was a HoverHandler
+    // on the whole delegate, which spans the revealed-room column, so
+    // pointing at a room lit the parent tile's ring AND — 200 ms later, the
+    // 500 ms Space delay overtaking the room's 300 — replaced the room's own
+    // tooltip with the parent's, at the parent's row.
+    //
+    // WHY THIS IS GEOMETRIC AND NOT A SOURCE SCAN. Every one of these four
+    // reads correctly in the file: an attached `ToolTip.text` on the thing it
+    // names is exactly what the documentation shows, and a HoverHandler with
+    // no explicit parent is the normal spelling. Only the pixels disagree.
+    // So this case shows the REAL shared ToolTip — the one Main.qml hardens,
+    // the only one production ever instantiates — over REAL delegates, and
+    // measures its scene rectangle against the scene rectangle of the thing
+    // the pointer is on.
+    //
+    // THE WINDOW IS WIDENED ON PURPOSE. A Popup carries `margins: 6` and Qt
+    // MOVES it back inside the window rather than letting it overhang, so in
+    // the suite's own 160px window a tooltip placed off the rail's right edge
+    // would be pushed back over the rail by the toolkit and this case would
+    // measure the clamp instead of the placement.
+    void everyRailTooltipSitsBesideTheRowThePointerIsOn()
+    {
+        // The revealed-room column needs the controller's OWN SpaceManager
+        // (`topRoomsInSpace()` reads `app.spaces`), which is empty until the
+        // mock account is logged in. Guarded, so the case is independent of
+        // whether a sibling above it already logged in.
+        if (!m_controller->loggedIn()) {
+            QSignalSpy loginSpy(m_controller->auth(),
+                                &AuthManager::loginSucceeded);
+            m_controller->auth()->login(QStringLiteral("https://mock.local"),
+                                        QStringLiteral("alice"),
+                                        QStringLiteral("unused"));
+            QVERIFY(loginSpy.wait(kSignalTimeoutMs));
+            QTest::qWait(200);
+        }
+        entries()->setSources(m_controller->spaces(), store());
+        QCoreApplication::processEvents();
+        QTest::qWait(50);
+        // The bottom cluster is `visible: app.loggedIn`, so without this the
+        // case would skip the cog and the avatar and say nothing about the
+        // two anchors that were measured worst.
+        QVERIFY2(m_controller->loggedIn(),
+                 "the fixture reports itself logged out, so the rail's "
+                 "bottom cluster is hidden and cannot be pointed at");
+
+        const qreal railWidth = m_rail->width();
+        const QSize windowSize = m_window->size();
+        const auto restore = qScopeGuard([&] {
+            moveTo(QPoint(int(railWidth) + 40, 8));
+            QTest::qWait(60);
+            m_window->resize(windowSize);
+            m_rail->setWidth(railWidth);
+            entries()->setSources(m_spaces, store());
+            QCoreApplication::processEvents();
+        });
+        m_window->resize(760, windowSize.height());
+        m_rail->setWidth(railWidth);
+        QCoreApplication::processEvents();
+        QTest::qWait(80);
+
+        QString leafId;
+        const QVariantList all = m_controller->spaces()->allSpaces();
+        for (const QVariant &entry : all) {
+            const QVariantMap row = entry.toMap();
+            const QString id =
+                row.value(QStringLiteral("spaceId")).toString();
+            if (id.isEmpty()
+                || row.value(QStringLiteral("childSpaceCount")).toInt() > 0) {
+                continue;
+            }
+            if (!m_controller->spaces()->directChildRoomsDetailed(id)
+                     .isEmpty()) {
+                leafId = id;
+                break;
+            }
+        }
+        QVERIFY2(!leafId.isEmpty(),
+                 "the fixture has no Space with rooms and no subspaces, so "
+                 "no revealed room can be pointed at");
+        store()->setSpaceExpanded(leafId, true);
+        QCoreApplication::processEvents();
+        QTest::qWait(80);
+
+        QQuickItem *leafRow = delegateFor(leafId);
+        QVERIFY(leafRow);
+        QQuickItem *spaceTile =
+            descendantNamed(leafRow, QStringLiteral("railSpaceTile"));
+        QQuickItem *roomTile =
+            descendantNamed(leafRow, QStringLiteral("railRevealedRoomTile"));
+        QVERIFY2(spaceTile, "the leaf Space draws no tile");
+        QVERIFY2(roomTile, "the leaf Space revealed no room tile, so the "
+                           "expansion column cannot be pointed at");
+
+        struct Target
+        {
+            const char *what;
+            QQuickItem *item;
+        };
+        const QList<Target> targets = {
+            { "the Space tile", spaceTile },
+            { "a revealed room tile", roomTile },
+            { "the settings cog",
+              m_rail->findChild<QQuickItem *>(
+                  QStringLiteral("railSettingsButton")) },
+            { "the account avatar",
+              m_rail->findChild<QQuickItem *>(
+                  QStringLiteral("railAccountTile")) },
+            { "the add-Space button",
+              m_rail->findChild<QQuickItem *>(
+                  QStringLiteral("railAddSpaceButton")) },
+        };
+
+        int checked = 0;
+        QStringList skipped;
+        for (const Target &target : targets) {
+            const QString what = QString::fromLatin1(target.what);
+            if (!target.item) {
+                skipped << what + QStringLiteral(" (no such item)");
+                continue;
+            }
+            if (!target.item->isVisible() || target.item->width() <= 1
+                || target.item->height() <= 1) {
+                skipped << what
+                           + QStringLiteral(" (visible=%1 %2x%3)")
+                                 .arg(target.item->isVisible())
+                                 .arg(target.item->width())
+                                 .arg(target.item->height());
+                continue;
+            }
+            const QRectF hovered = target.item->mapRectToScene(
+                QRectF(0, 0, target.item->width(), target.item->height()));
+            if (hovered.center().y() < 0
+                || hovered.center().y() > m_window->height()) {
+                // Scrolled out of the window; nothing to point at.
+                skipped << what
+                           + QStringLiteral(" (centre y=%1 outside the "
+                                            "window)")
+                                 .arg(hovered.center().y());
+                continue;
+            }
+
+            // Park the pointer clear of the rail and let the previous tip
+            // close, so what is measured next is the one just asked for.
+            moveTo(QPoint(int(railWidth) + 200, 8));
+            QTest::qWait(120);
+            moveTo(hovered.center().toPoint());
+            // Past the longest delay any of these carries (500 ms).
+            QTRY_VERIFY_WITH_TIMEOUT(
+                visiblePopupItem(m_window->contentItem()) != nullptr, 3000);
+            QQuickItem *tip = visiblePopupItem(m_window->contentItem());
+            QVERIFY(tip);
+            const QRectF tipRect =
+                tip->mapRectToScene(QRectF(0, 0, tip->width(), tip->height()));
+            ++checked;
+
+            // (1) IT DOES NOT PAINT ON THE RAIL. The rail's only identity cue
+            // is a two-letter monogram, so a tip over it hides the very thing
+            // the reader is trying to recognise.
+            QVERIFY2(tipRect.left() >= railWidth - 0.5,
+                     qPrintable(QStringLiteral(
+                         "pointing at %1: the tooltip starts at x=%2 on a "
+                         "rail %3 wide — it is painted over the tile column, "
+                         "and Qt puts it ABOVE the attachee, so what it "
+                         "covers is the tile before the one being pointed at")
+                         .arg(QString::fromLatin1(target.what))
+                         .arg(tipRect.left()).arg(railWidth)));
+
+            // (2) IT IS BESIDE THE THING BEING POINTED AT. This is the half a
+            // "does it overlap the rail" check cannot see: a tip correctly
+            // off the rail can still name, and sit beside, a different row.
+            QVERIFY2(tipRect.center().y() >= hovered.top()
+                         && tipRect.center().y() <= hovered.bottom(),
+                     qPrintable(QStringLiteral(
+                         "pointing at %1 (y %2-%3): the tooltip is centred at "
+                         "y=%4, outside the thing it is supposed to be "
+                         "describing — it is beside a different row")
+                         .arg(QString::fromLatin1(target.what))
+                         .arg(hovered.top()).arg(hovered.bottom())
+                         .arg(tipRect.center().y())));
+        }
+
+        // The COUNT of anchors actually measured, never the count of loop
+        // iterations: a target that is invisible in this fixture is skipped
+        // above, and a case that silently measured one of five would pass on
+        // a tree where the other four are broken.
+        //
+        // FOUR, AND WHICH FOUR. The add-Space "+" is the fifth target and it
+        // is NOT covered here, measured rather than assumed: it is
+        // `visible: app.conversations.supported`, `supported()` asks
+        // `MatrixClient::supportsRoomManagement()`, and the mock does not
+        // override that virtual — so the button can never be drawn on this
+        // backend and a mutation putting its tooltip back on the button
+        // PASSES this case. Its anchor was verified live instead
+        // (2026-09-19, Xvfb, Regions and Classic). If the mock ever gains
+        // room management, raise this bar to 5.
+        QVERIFY2(checked >= 4,
+                 qPrintable(QStringLiteral(
+                     "only %1 of the rail's tooltip anchors could be pointed "
+                     "at; this case cannot say anything about the rest. "
+                     "Skipped: %2")
+                     .arg(checked).arg(skipped.join(QStringLiteral("; ")))));
     }
 
     // ── 2026-09-18: the rail scaled its Space tiles and NOTHING ELSE ──────

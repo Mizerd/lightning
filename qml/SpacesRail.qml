@@ -2048,6 +2048,23 @@ Rectangle {
                             root.updateTileDrag(centroid.scenePosition.y)
                     }
                 }
+                // THE TILE BAND, NOT THE WHOLE ROW — and it lives here for
+                // the reason the DragHandler above it does: a handler's
+                // reach is its parent's geometry, so the geometry is the
+                // API.
+                //
+                // On the delegate itself this reported `hovered` for
+                // EVERYTHING the delegate spans — the revealed-room rows,
+                // the trailing gap, the cap seam. Both readers of it then
+                // spoke about the wrong row: the tile's hover ring lit up
+                // on a Space three rows above the pointer, and the Space's
+                // tooltip (delay 500) replaced the room's own (delay 300)
+                // two hundred milliseconds later, so pointing at a revealed
+                // room named its PARENT, beside the parent's tile. Measured
+                // 2026-09-19 on a real rail: pointing at a room tile at
+                // y 462 put "category 1" at y 333-365, beside the Space at
+                // y 327-367.
+                HoverHandler { id: spaceHover }
                 }
 
                 // Right-click: folders are renamed and unmade here, and a
@@ -2077,7 +2094,6 @@ Rectangle {
                     }
                 }
 
-                HoverHandler { id: spaceHover }
                 // SAME OUTSET AS THE RING, and it was a raw -3 against the
                 // ring's 2. The chevron's gap is budgeted against the tile's
                 // visible edge, so an outset that reaches further out than
@@ -2403,9 +2419,18 @@ Rectangle {
                         TapHandler {
                             onTapped: root.showMoreRooms(spaceItem.spaceId)
                         }
+                        // OFF THE RAIL, like every other tip here. This one
+                        // was written `x: morePill.width` — the pill's own
+                        // 32px, which is a coordinate INSIDE the rail, not
+                        // the rail's right edge — so the tooltip was centred
+                        // over the tile column and covered the revealed rooms
+                        // above it. The row this anchor sits in spans the
+                        // whole rail width, so `root.width` is its right
+                        // edge; `morePill.y` is read because the pill is
+                        // vertically centred in a taller row.
                         Item {
-                            x: morePill.width
-                            y: morePill.height
+                            x: root.width
+                            y: morePill.y + morePill.height
                             width: AppTheme.scaled(150)
                             height: 1
                             ToolTip.visible: moreHover.hovered
@@ -2443,9 +2468,6 @@ Rectangle {
                     visible: app.loggedIn && app.conversations
                              && app.conversations.supported
                     Accessible.name: qsTr("Create a Space")
-                    ToolTip.text: qsTr("Create a Space")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
                     onClicked: root.createSpaceRequested()
                     // A QUIET SIBLING, not a hole. An outlined transparent
                     // square in a column of filled tiles reads as a GAP —
@@ -2462,6 +2484,23 @@ Rectangle {
                         border.width: 1
                         border.color: AppTheme.borderStrong
                     }
+                }
+                // OFF THE RAIL, for the reason the Space tile's own anchor
+                // carries. Attached to the button, Qt centred the tip on it
+                // and put it ABOVE — measured 2026-09-19 at x 6-116,
+                // y 937-969, over the rail and across the last Space tile at
+                // y 925-965. A SIBLING of the button rather than a child, so
+                // the x is the footer's own coordinate space (it spans the
+                // rail's full width) and no reparenting into the control's
+                // contentItem is assumed.
+                Item {
+                    x: root.width
+                    y: railAddSpaceButton.y + railAddSpaceButton.height
+                    width: AppTheme.scaled(150)
+                    height: 1
+                    ToolTip.visible: railAddSpaceButton.hovered
+                    ToolTip.text: qsTr("Create a Space")
+                    ToolTip.delay: 500
                 }
             }
         }
@@ -2529,11 +2568,25 @@ Rectangle {
                        ? qsTr("Settings — a Lightning update is available")
                        : qsTr("Settings"))
             Accessible.name: _attentionText
-            ToolTip.text: _attentionText
-            ToolTip.visible: hovered
-            ToolTip.delay: 500
             onClicked: app.currentScreen === 2 ? app.showMain()
                                                : app.showSettings()
+
+            // OFF THE RAIL. Attached to the cog, Qt centred the tip on it
+            // and put it ABOVE — measured 2026-09-19 at x 6-72, y 1011-1043,
+            // entirely over the rail and across the Space tile above it.
+            // `railSettingsButton.x` is what the ColumnLayout actually
+            // assigned, so this follows the column rather than restating
+            // `tileColumnX`; the anchor hangs off the cog's BOTTOM so
+            // "above the anchor" lands beside the cog itself.
+            Item {
+                x: root.width - railSettingsButton.x
+                y: railSettingsButton.height
+                width: AppTheme.scaled(150)
+                height: 1
+                ToolTip.visible: railSettingsButton.hovered
+                ToolTip.text: railSettingsButton._attentionText
+                ToolTip.delay: 500
+            }
 
             // Attention badge: this session is not verified AND the user
             // has not dismissed the reminder. A dot, not a full "!" glyph —
@@ -2695,9 +2748,21 @@ Rectangle {
                 z: -1
             }
             TapHandler { onTapped: railAccountMenu.open() }
-            ToolTip.visible: accountHover.hovered
-            ToolTip.text: app.accounts ? (app.accounts.activeUserId || "") : ""
-            ToolTip.delay: 500
+            // OFF THE RAIL, and this was the worst of the three: the user id
+            // is the widest string the rail shows, so attached to the avatar
+            // it drew a 242px slab at x 6-248, y 1063-1095 — directly over
+            // the settings cog at y 1048-1088, the one tile you are most
+            // likely to be aiming at next (measured 2026-09-19).
+            Item {
+                x: root.width - railAccount.x
+                y: railAccount.height
+                width: AppTheme.scaled(150)
+                height: 1
+                ToolTip.visible: accountHover.hovered
+                ToolTip.text: app.accounts
+                              ? (app.accounts.activeUserId || "") : ""
+                ToolTip.delay: 500
+            }
 
             AccountMenu {
                 id: railAccountMenu
