@@ -2352,6 +2352,121 @@ private slots:
         }
     }
 
+    // ── 2026-09-19: the expander's plate was ONE rung above the region it
+    //    sits on, and its own source asks for TWO ─────────────────────────
+    //
+    // `plateRung` is built from `innermostTint`, and `innermostTint` asked
+    // `bandTint(bandLayers - 1)`. A region layer at INDEX i draws DEPTH
+    // i + 1, so the innermost layer's depth is `bandLayers` and that
+    // expression named the layer one step OUTSIDE it. The Repeater that
+    // paints the regions already carries the correction in a comment
+    // ("INDEX `depth`, NOT `depth - 1`" — caught by measuring a capture);
+    // the plate never got it.
+    //
+    // MEASURED on a live rail rather than reasoned about — Lightning Dark,
+    // 78px rail, isolated Xvfb, 2026-09-19: at depth 1 the band read
+    // #141920 (L* 8.55) with its plate #1a1f29 (L* 11.69), a step of 3.13,
+    // which is exactly what separates two REGIONS. Depth 2: 11.69 -> 15.14.
+    // Depth 3: 15.14 -> 18.64. The two rungs the source asks for are
+    // 6.6-6.9, and a COLLAPSED Space — which has no region and so takes the
+    // `0` arm — got the full 6.73. So the control changed weight with the
+    // state of the thing it toggles, which is the exact complaint
+    // `plateRung`'s own comment records having been written to prevent.
+    // Lightning Light measured the same steps in the other direction
+    // (85.55 -> 82.03 -> 78.76 -> 75.26 -> 71.97, plate always one rung).
+    //
+    // ON THE COLOUR PROPERTY, never on a grab: an offscreen render holds
+    // each item's creation-time colour because its Behavior has not
+    // advanced, and this file's header records four rounds lost to that.
+    // The property is what the binding produced.
+    void theExpanderPlateIsTwoRungsOffTheRegionItSitsOn()
+    {
+        RailFakeClient nested;
+        RoomInfo lv0 = joinedSpace(QStringLiteral("!lv0:example.org"),
+                                   QStringLiteral("Level 0"));
+        lv0.childRoomIds = { QStringLiteral("!lv1:example.org") };
+        RoomInfo lv1 = joinedSpace(QStringLiteral("!lv1:example.org"),
+                                   QStringLiteral("Level 1"));
+        lv1.childRoomIds = { QStringLiteral("!lv2:example.org") };
+        RoomInfo lv2 = joinedSpace(QStringLiteral("!lv2:example.org"),
+                                   QStringLiteral("Level 2"));
+        lv2.childRoomIds = { QStringLiteral("!chan:example.org") };
+        nested.roomList = { lv0, lv1, lv2,
+                            joinedRoom(QStringLiteral("!chan:example.org"),
+                                       QStringLiteral("Channel")) };
+        SpaceManager nestedSpaces;
+        nestedSpaces.setClient(&nested);
+        const QStringList ids = { QStringLiteral("!lv0:example.org"),
+                                  QStringLiteral("!lv1:example.org"),
+                                  QStringLiteral("!lv2:example.org") };
+        for (const QString &id : ids)
+            store()->setSpaceExpanded(id, true);
+        entries()->setSources(&nestedSpaces, store());
+        QCoreApplication::processEvents();
+        // Past the plate's own 90 ms ColorAnimation, so a Behavior caught
+        // mid-flight cannot be mistaken for the binding's answer.
+        QTest::qWait(150);
+
+        const auto lstar = [](const QColor &c) {
+            const auto lin = [](qreal v) {
+                return v <= 0.04045 ? v / 12.92
+                                    : std::pow((v + 0.055) / 1.055, 2.4);
+            };
+            const qreal y = 0.2126 * lin(c.redF()) + 0.7152 * lin(c.greenF())
+                            + 0.0722 * lin(c.blueF());
+            return y > 0.008856 ? 116.0 * std::cbrt(y) - 16.0 : 903.3 * y;
+        };
+
+        int measured = 0;
+        for (const QString &id : ids) {
+            QQuickItem *row = delegateFor(id);
+            QVERIFY2(row, qPrintable(QStringLiteral(
+                              "no rail row for %1 — the nested fixture did "
+                              "not build").arg(id)));
+            QQuickItem *plate = descendantNamed(
+                row, QStringLiteral("railSpaceExpandPlate"));
+            QVERIFY2(plate, qPrintable(QStringLiteral(
+                                "row %1 draws no expander plate").arg(id)));
+            QList<QQuickItem *> layers;
+            collectDescendantsNamed(row, QStringLiteral("railGroupField"),
+                                    layers);
+            QVERIFY2(!layers.isEmpty(),
+                     qPrintable(QStringLiteral(
+                         "row %1 draws no region, so there is nothing for "
+                         "the plate to step off").arg(id)));
+            // The INNERMOST layer is the narrowest: each one is inset
+            // inside the one containing it.
+            QQuickItem *inner = layers.first();
+            for (QQuickItem *l : layers) {
+                if (l->width() < inner->width())
+                    inner = l;
+            }
+            const QColor plateColour = plate->property("color").value<QColor>();
+            const QColor bandColour = inner->property("color").value<QColor>();
+            const qreal step = qAbs(lstar(plateColour) - lstar(bandColour));
+            QVERIFY2(step >= 5.0,
+                     qPrintable(QStringLiteral(
+                         "%1: the expander plate is %2 (L* %3) on a region "
+                         "of %4 (L* %5) — %6 ΔL* apart. One rung of this "
+                         "ladder is ~3.4, which is what separates two "
+                         "REGIONS; the plate is a CONTROL and its own source "
+                         "asks for two rungs (~6.8), or it reads as another "
+                         "band.")
+                         .arg(id, plateColour.name())
+                         .arg(lstar(plateColour), 0, 'f', 2)
+                         .arg(bandColour.name())
+                         .arg(lstar(bandColour), 0, 'f', 2)
+                         .arg(step, 0, 'f', 2)));
+            ++measured;
+        }
+        // THE COUNT, not just the items: a loop that silently measured one
+        // row would pass on a rail whose deeper rows are the broken ones.
+        QCOMPARE(measured, 3);
+
+        entries()->setSources(m_spaces, store());
+        QCoreApplication::processEvents();
+    }
+
 };
 
 int main(int argc, char *argv[])

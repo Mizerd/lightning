@@ -1093,9 +1093,22 @@ Rectangle {
                     return up <= last ? up
                                       : Math.max(0, spaceItem.innermostTint - 2)
                 }
+                /// `bandLayers`, NOT `bandLayers - 1`. A region layer at
+                /// INDEX i draws DEPTH i + 1 (see the Repeater's own
+                /// `depth`), so the innermost layer's depth IS `bandLayers`
+                /// and the subtraction named the layer one step OUTSIDE it.
+                /// The Repeater already carries this correction in a comment
+                /// — "INDEX `depth`, NOT `depth - 1`", caught by measuring a
+                /// capture — and the plate never got it, so `plateRung`'s
+                /// "two rungs" came out as one: MEASURED live on 2026-09-19,
+                /// depth 1 plate #1a1f29 on band #141920, 3.13 ΔL* where a
+                /// REGION boundary is 3.4, while a row with no region (the
+                /// `0` arm below) got the full 6.73. That is precisely the
+                /// "a control that changes weight with the state of the
+                /// thing it toggles" failure `plateRung` records preventing.
                 readonly property int innermostTint:
                     spaceItem.bandLayers > 0
-                    ? spaceItem.bandTint(spaceItem.bandLayers - 1) : 0
+                    ? spaceItem.bandTint(spaceItem.bandLayers) : 0
                 /// Does a run hang off this tile — subspaces as model rows,
                 /// or rooms revealed inside this delegate?
                 readonly property bool ownsRegion:
