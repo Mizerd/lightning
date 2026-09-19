@@ -1,5 +1,44 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-19 (late) — presence observed from a SECOND account: the pipeline is not broken
+
+**PASS end to end, and it closes the half the "Offline for 29m" report lives
+in.** Two real accounts on this project's own Synapse, two separate
+processes, one publishing and one watching.
+
+* **Publisher** — `@lightningtest2:matrix.smetonis.net`, signed in by the
+  maintainer on his own desktop, left idle, `LIGHTNING_PRESENCE_TRACE=1`:
+  105 attempts over 41 minutes, 2.57/min, **zero rejections**, publishing
+  `state=1` (`unavailable`) after the idle threshold.
+* **Observer** — `@lightningtest:matrix.smetonis.net`, a copied fixture
+  profile on an isolated Xvfb, with the DM the two accounts already share
+  opened so the bounded poller watches that user.
+
+The observer's own poll reported **`entries=1 ok=1 online=0 away=1`**, and the
+room-list avatar rendered an **amber dot, sampled `#F59349`** — not judged by
+eye. So: the client publishes `unavailable`, the server accepts and stores
+it, a DIFFERENT account polls it back as `away`, and the UI paints it.
+
+**What this settles.** The reported fault was an account reading "Offline for
+29m" in Element Web while its process ran. The presence pipeline is not
+broken — publish, store, fetch and render all work between two accounts on
+this homeserver. Combined with the log evidence that nothing was being
+rejected during that observation window, the remaining explanations are that
+the client had STOPPED publishing (`publishTick` has four silent early
+returns) or that the observing view was stale — and the frozen "29m" across
+three readings eight minutes apart supports the second. See
+`docs/open-items.md`, 2026-09-19.
+
+**Closes**, from the presence audit's NOT TESTED list: the `unavailable`
+state, publish AND render; and the Lightning-to-Lightning observation
+direction for this account pair.
+
+**STILL NOT TESTED:** `offline` (state=2, published on a clean quit);
+Element Web and Sable as observers, which is where the original report was
+made and where a stale view would show; the Element-to-Lightning direction;
+and any second homeserver or federation. No message was sent and no room was
+created — the DM already existed.
+
 ## 2026-09-19 (late) — one client on the maintainer's own homeserver: 41 minutes, zero rejections
 
 **PASS on the publish side**, on the real `build-rust/lightning-matrix` signed
