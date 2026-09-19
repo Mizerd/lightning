@@ -1,5 +1,78 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-19 (evening) — Windows at `d6d0ee25`: both rail styles, the setting, and two clocks
+
+**PASS on all four items**, on a Windows 11 guest running a portable built by
+project 6 pipeline 244 (non-publishing snapshot; no tag, no release, no
+version bump). The commit was confirmed THREE ways before any of it was
+believed — the artifact's `build-info.json` before upload, the installed one
+after staging, and `--build-info` on the guest itself
+(`source_commit d6d0ee25bbfcd274aae0f30f710b03e2d1041084`, 0.9.8, Qt 6.11.1,
+`x86_64-pc-windows-gnu`, `build_kind unsigned-test`). The guest previously
+held a build from before the work being tested, which is exactly the stale
+evidence this run existed to replace.
+
+**Classic rail.** Every number equals the Linux reference exactly: rail base
+x 0..67 (68 px against Regions' 78), tile x 10..57 (48 px against 40), ring
+at 8..9 / 58..59 `#1D57FF`, room column starting x 69, and **zero region-rung
+pixels** in x 0..15. A tile census at the centre column shows 8 runs all 48 px
+against Regions' 14 runs including 28 px and 33 px nested tiles — so it really
+is top-level rows only, with no nested tiles and no chevron plates (the
+plate's `#1A1F29` fill is absent from the census). The detector is not
+vacuous: the same script on the Windows REGIONS capture reports 5350 rung
+pixels.
+
+**Regions is unchanged by the new setting**, re-measured at `d6d0ee25` and
+identical to the earlier numbers — base `#0D1117`, r1 `#141920`, r2 `#1A1F29`,
+r3 `#1F2635`, r4 `#232D45`, ΔL* 3.13–3.60, and the junction notch carrying the
+PARENT's rung at r1→r2, r2→r3, r3→r4 and the r4→r3 close.
+
+**The round trip.** Regions → Classic → Regions, with an ini write and a
+relaunch each way: the rail CHROME comes back with **0 differing pixels** —
+left gutter x 0..15 (11296 px) and right gutter x 60..77 (12708 px), at 8-bit
+and at full internal precision. It is NOT literally bit-exact over the whole
+78×706 rail the way Linux was (0 of 55068): **12 of 55068 differ**, every one
+inside the avatar artwork columns x 30..46 and each by 1/255 in one channel —
+image decode rounding across two process launches, not rail state. Recorded as
+the difference it is rather than rounded down to "0 px".
+
+**The settings control, which was untested on BOTH platforms.** Searching
+settings for "space bar" returns exactly one result, "Spaces rail depth",
+breadcrumb "Appearance · Panels", with an inline Regions | Classic segment. It
+reads the stored value back (ini at 0 showed Regions selected), writes it
+(clicking Classic made the ini 1), and **switches the rail live with no
+restart** — proven by printing the process id before and after the settings
+interaction: the same PID 10788 throughout, and the live-switched rail against
+a relaunched Classic capture differs by 0 of 7060 and 0 of 14120 pixels in the
+two gutters.
+
+**The two clocks agree on Windows.** The expanded card reads "Voice message"
+/ 0:26 and the collapsed summary reads "Voice message · 0:26". Qualification
+worth keeping: this proves the two SURFACES agree at that value; it does not
+exercise the rounding boundary itself, which is covered by the unit mutation
+proof on Linux instead (rounding `formatPosition` fails with 0:26 where 0:25
+is required). **A sticker renders** and its summary reads
+"Sticker · sticker-smile · 10 KB" with no `W×H` line, where neighbouring image
+rows carry one — which is what an unmeasured sticker should look like after
+`597f98b7`.
+
+**The theme was pinned** (`[ui] theme=2`) on the guest to match the Linux
+references, and the hex values matching exactly is the proof the pin held. An
+earlier attempt at this comparison had the theme UNPINNED and the guest
+rendered light where Linux rendered dark — a confident false FAIL about a
+renderer difference that does not exist.
+
+**NOT TESTED**, and none of it is a negative result: `Ctrl+,` as a shortcut
+(it is a real registered binding — `app.openSettings`, global — but PowerShell
+`SendKeys '^{,}'` did not deliver the chord to a Qt window, which says nothing
+about the binding); any non-1.0 scale factor on Windows (the guest is
+1280×800 at dpr 1.00); the Classic rail's drag and drop; and the voice clock's
+rounding boundary as distinct from the two surfaces agreeing.
+
+The guest's ini was restored from its backup afterwards and verified: 23
+lines, with no `spacesRailDepthStyle`, no `collapseEmbeds` and no `theme=`
+key left behind.
+
 ## 2026-09-18 (evening) — the rail with no lines in it
 
 **PASS**, on an isolated Xvfb display (`:99`) against the `lightningtest`
