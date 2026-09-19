@@ -245,7 +245,7 @@ private slots:
     // every other one. It is now ONE strip below the list, which is the
     // same guarantee expressed structurally: there is no per-row carrier
     // for it at all, so an inactive account cannot acquire one.
-    void statusStripUsesRealStateAndOmitsAbsentSpaceCount()
+    void statusStripSpeaksOnlyWhenSomethingIsWrong()
     {
         openMenu();
         auto *strip = find(QStringLiteral("accountStatusStrip"));
@@ -254,18 +254,34 @@ private slots:
         auto *meta = find(QStringLiteral("accountStatusMeta"));
         QVERIFY(meta);
         const QString text = meta->property("text").toString();
-        QVERIFY(text.contains(m_controller->connectionStatus()));
-        QVERIFY(!text.contains(QStringLiteral("Online")));
-        // The space count mirrors the LIVE model — rendered only when the
-        // account really has joined Spaces, never fabricated and never
-        // rendered as "0 spaces".
-        const int spaces = m_controller->spaces()->spaceCount();
-        if (spaces > 0) {
-            QVERIFY(text.contains(QStringLiteral("%1 space").arg(spaces))
-                    || text.contains(QStringLiteral("1 space")));
+
+        // THE SPACE COUNT IS GONE. A switcher answers "which account am I,
+        // switch me"; how many Spaces the account joined is not part of
+        // either question, and the rail beside it already shows them.
+        // Reported as a line whose purpose could not be guessed.
+        QVERIFY2(!text.contains(QStringLiteral("space")),
+                 qPrintable(QStringLiteral("the space count came back: \"%1\"")
+                                .arg(text)));
+
+        // AND A HEALTHY CONNECTION SAYS NOTHING. "Connected" on a working
+        // client is the same noise as a warning that fires on a stock
+        // theme: a line that always says "fine" teaches people not to read
+        // it, and then it cannot say "not fine".
+        const QString status = m_controller->connectionStatus();
+        if (status == QStringLiteral("Connected")) {
+            QVERIFY2(!text.contains(status),
+                     qPrintable(QStringLiteral("the strip announced a healthy "
+                                               "connection: \"%1\"")
+                                    .arg(text)));
         } else {
-            QVERIFY(!text.contains(QStringLiteral("space")));
+            // …and an UNHEALTHY one still does. This is the half that was
+            // doing real work all along: the reported screenshot read
+            // "Idle", which is the word for disconnected-while-logged-in.
+            QVERIFY2(text.contains(status),
+                     qPrintable(QStringLiteral("the strip swallowed \"%1\"")
+                                    .arg(status)));
         }
+        QVERIFY(!text.contains(QStringLiteral("Online")));
 
         // Exactly one strip, however many accounts are listed: this is a
         // property of the attached session, not a column.

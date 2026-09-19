@@ -88,20 +88,34 @@ Popup {
         !!(app.accounts && app.accounts.activeUserId
            && app.accounts.activeUserId.length > 0)
 
-    // Real presence + real space count for the ACTIVE account only — never
-    // fabricated, and the space-count portion is omitted entirely when
-    // there are no real Spaces (SpaceManager::spaceCount counts only real
-    // joined Spaces, never the pseudo Home/orphans rows). Read by the one
-    // status strip below the list, not by a row.
+    // ── THE STRIP SPEAKS WHEN SOMETHING IS WRONG, AND OTHERWISE NOT ─────
+    //
+    // It used to read "Connected · 1 space(s)", and the maintainer's report
+    // was that he could not tell what it was for. Both halves earned that:
+    //
+    // The SPACE COUNT is gone. A switcher answers "which account am I and
+    // switch me"; how many Spaces the account is in is not part of either
+    // question, and it is on screen in the rail beside it anyway.
+    //
+    // The CONNECTION STATE stays, but only when it is not healthy. On a
+    // working client the string is "Connected", which is the same noise as
+    // a readability badge that fires on a stock theme: a line that always
+    // says "fine" teaches people not to read it, and then it cannot say
+    // "not fine". Worth knowing what the report actually caught — the
+    // screenshot read "Idle", which is AppController's word for
+    // disconnected-while-logged-in, so the strip WAS reporting a real fault
+    // in a word that reads as benign.
+    //
+    // The own status text still leads when the user set one: that is theirs
+    // and they chose to show it.
+    readonly property string healthyConnectionText: qsTr("Connected")
     function activeMetaText() {
-        var parts = [app.connectionStatus]
-        // v0.9 (phase 10): the own status text leads the meta line.
+        var parts = []
         if (app.presence && app.presence.ownStatusText.length > 0)
-            parts.unshift(app.presence.ownStatusText)
-        if (app.spaces && app.spaces.spaceCount > 0) {
-            parts.push(qsTr("%n space(s)", "how many Spaces this account is in",
-                            app.spaces.spaceCount))
-        }
+            parts.push(app.presence.ownStatusText)
+        var conn = app.connectionStatus || ""
+        if (conn.length > 0 && conn !== root.healthyConnectionText)
+            parts.push(conn)
         return parts.join(" · ")
     }
 
