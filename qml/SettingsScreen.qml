@@ -41,7 +41,27 @@ Item {
         if (typeof backupCard !== "undefined" && backupCard)
             backupCard.pendingConfirm = ""
     }
-    onVisibleChanged: if (!visible) root.forgetTransientBackupState()
+    onVisibleChanged: {
+        if (!visible) {
+            root.forgetTransientBackupState()
+            // AND THE SEARCH QUERY GOES WITH IT. The screen is a warm
+            // Loader kept alive across opens, so the text in the search
+            // field outlived the screen — and the nav is NARROWED to the
+            // sections that match it, so a query matching nothing reopened
+            // Settings with an empty nav column: no Account, no Appearance,
+            // not even About. Measured on a real desktop 2026-09-19: type
+            // "zzqqxx", press Escape, press Ctrl+, — the only way out is
+            // the small clear button in the field. A filter is transient
+            // state, like the recovery key and the armed confirmation above.
+            //
+            // On HIDE and not on show: `Ctrl+,` while Settings is already
+            // open focuses this field (see the Shortcut below) and must not
+            // wipe what the user is typing, and the screenshot-demo
+            // controller sets a query after showing the screen.
+            if (settingsSearchField)
+                settingsSearchField.text = ""
+        }
+    }
     onSectionChanged: root.forgetTransientBackupState()
 
     // v0.7.2: whether the sanitized E2EE recovery diagnostics are expanded.
@@ -598,7 +618,14 @@ Item {
         bottomPadding: 0
         // SPEC 1v: typing in the search field narrows the nav to sections
         // with at least one matching result.
+        //
+        // A SEARCH NARROWS THE NAV; IT MUST NEVER EMPTY IT. With zero
+        // matches every row's condition is false at once, so the column
+        // went completely blank — About included — which is the one moment
+        // a reader most needs the list back. "No matching settings" still
+        // says the search found nothing; the rows below it are the way on.
         visible: root.settingsSearchQuery.trim().length === 0
+                 || root.matchedSearchResults.length === 0
                  || root.matchedSearchSections[sectionKey] === true
         highlighted: root.section === sectionKey
         Accessible.name: navLabel
@@ -1752,7 +1779,31 @@ Item {
                                             anchors.leftMargin: 12
                                             anchors.rightMargin: 12
                                             spacing: 8
+                                            // A RADIO'S RESTING RING IS A
+                                            // CONTROL BOUNDARY, NOT METADATA.
+                                            // It was stormTextFaint, which
+                                            // routes to the palette's
+                                            // DISABLED ink — a tone chosen to
+                                            // recede. Measured on screen
+                                            // against cardFoot (stormCanvas)
+                                            // in all eleven themes: 1.60:1 in
+                                            // Lightning Light, 1.76 in Warm,
+                                            // 2.27 in Moss Light, against the
+                                            // 3:1 WCAG 1.4.11 asks of a
+                                            // component boundary — and fine
+                                            // in Storm (4.41), which is why
+                                            // it was never noticed. The three
+                                            // that fail are exactly the three
+                                            // LIGHT palettes, where a
+                                            // disabled ink is a pale tint.
+                                            // stormTextMuted is the same ink
+                                            // `AppTheme.icon` already uses for
+                                            // resting interface glyphs and
+                                            // clears 3:1 everywhere (worst
+                                            // 4.59, Warm).
                                             Rectangle {
+                                                objectName: "themeCardRadio_"
+                                                            + themeCard.modelData.id
                                                 implicitWidth: 14
                                                 implicitHeight: 14
                                                 radius: 7
@@ -1761,7 +1812,7 @@ Item {
                                                 border.width: 2
                                                 border.color: themeCard.selectedTheme
                                                               ? AppTheme.bolt
-                                                              : AppTheme.stormTextFaint
+                                                              : AppTheme.stormTextMuted
                                                 Rectangle {
                                                     anchors.centerIn: parent
                                                     width: 5; height: 5; radius: 2.5

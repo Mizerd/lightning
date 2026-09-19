@@ -10,6 +10,8 @@
 
 #include <QtTest/QtTest>
 
+#include <cmath>
+
 #include <QColor>
 #include <QFile>
 #include <QRegularExpression>
@@ -64,6 +66,27 @@ int channelDelta(const QColor &a, const QColor &b)
 
 constexpr int kTolerance = 8;
 constexpr int kSignalTimeoutMs = 5000;
+
+// WCAG 2.1 relative luminance and contrast, on the sRGB values a token
+// carries. Kept local rather than shared with ThemeTokensTest: that suite
+// reads qml/AppTheme.qml as TEXT, and what is asserted here is the colour a
+// live control actually resolved under a live theme.
+double relativeLuminance(const QColor &c)
+{
+    auto channel = [](double v) {
+        v /= 255.0;
+        return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * channel(c.red()) + 0.7152 * channel(c.green())
+           + 0.0722 * channel(c.blue());
+}
+
+double contrastRatio(const QColor &a, const QColor &b)
+{
+    const double la = relativeLuminance(a);
+    const double lb = relativeLuminance(b);
+    return (qMax(la, lb) + 0.05) / (qMin(la, lb) + 0.05);
+}
 
 } // namespace
 
@@ -450,6 +473,82 @@ private slots:
                       QRect(int(focusPoint.x()), int(focusPoint.y()) - 1, 1, 2)),
                       themeColor("bolt")) <= kTolerance,
                  "focus ring invisible outside the card edge");
+    }
+
+    // A RADIO YOU CANNOT SEE IS NOT A RADIO — AND IT ONLY FAILED IN THE
+    // LIGHT PALETTES.
+    //
+    // The resting ring on the four featured cards was AppTheme.stormTextFaint,
+    // which routes to each palette's DISABLED ink. Measured on a real screen
+    // against cardFoot (stormCanvas) in all eleven themes: 1.60:1 in
+    // Lightning Light, 1.76 in Warm, 2.27 in Moss Light — against the 3:1
+    // WCAG 1.4.11 asks of a component boundary — while Storm sat at 4.41 and
+    // every dark theme passed, which is exactly why nobody saw it. A token
+    // that is fine on eight palettes and invisible on three is the shape this
+    // project keeps shipping, so the assertion runs over ALL ELEVEN rather
+    // than over the one the suite happens to be in.
+    //
+    // The ring is read off the LIVE control (border.color on the real
+    // Rectangle under the real theme), never off a token name: a test that
+    // read AppTheme.stormTextMuted would pass while the QML still asked for
+    // stormTextFaint.
+    //
+    // UNFIXED TREE: fails on Lightning Light at 1.60:1.
+    void theUnselectedThemeCardRadioRingClearsThreeToOneOnEveryTheme()
+    {
+        const int restore = m_controller->settings()->theme();
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+
+        // Every preset except System (0), which is not a palette.
+        const int themes[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+        double worst = 100.0;
+        QString worstWhere;
+        int checked = 0;
+        for (int id : themes) {
+            m_controller->settings()->setTheme(
+                static_cast<SettingsManager::Theme>(id));
+            QCoreApplication::processEvents();
+            // Any featured card that is NOT the active theme, so the ring
+            // is in its resting state and not the accent fill.
+            const int cardId = (id == 9) ? 8 : 9;
+            auto *radio = item(qPrintable(
+                QStringLiteral("themeCardRadio_%1").arg(cardId)));
+            QVERIFY2(radio, qPrintable(QStringLiteral(
+                         "no themeCardRadio_%1 under theme %2")
+                             .arg(cardId).arg(id)));
+            QQmlExpression expr(qmlContext(radio), radio,
+                                QStringLiteral("border.color"));
+            const QColor ring = expr.evaluate().value<QColor>();
+            QVERIFY(ring.isValid());
+            const QColor foot = themeColor("stormCanvas");
+            QVERIFY(foot.isValid());
+            const double ratio = contrastRatio(ring, foot);
+            if (ratio < worst) {
+                worst = ratio;
+                worstWhere = QStringLiteral("theme %1: ring %2 on %3")
+                                 .arg(id).arg(ring.name(), foot.name());
+            }
+            ++checked;
+            QVERIFY2(ratio >= 3.0,
+                     qPrintable(QStringLiteral(
+                         "theme %1: the resting theme-card radio ring is "
+                         "%2 on %3 = %4:1, below the 3:1 a control boundary "
+                         "needs")
+                             .arg(id)
+                             .arg(ring.name(), foot.name())
+                             .arg(ratio, 0, 'f', 2)));
+        }
+        // Assert the COUNT of what actually varied, never the count of loop
+        // iterations: a palette that never applied would otherwise be graded
+        // against the previous one eleven times over.
+        QCOMPARE(checked, 11);
+        qInfo("theme-card radio ring: worst %.2f:1 (%s)",
+              worst, qPrintable(worstWhere));
+
+        m_controller->settings()->setTheme(
+            static_cast<SettingsManager::Theme>(restore));
+        QCoreApplication::processEvents();
     }
 
     void clickingThemeCardSwitchesInstantly()
@@ -1140,6 +1239,60 @@ private slots:
         QCoreApplication::processEvents();
         QTRY_VERIFY(!resultsPanel->isVisible());
         QTRY_VERIFY(accountNav->isVisible());
+    }
+
+    // A SEARCH THAT MATCHES NOTHING MUST NOT LEAVE SETTINGS WITH NO
+    // SETTINGS IN IT.
+    //
+    // Reported by measurement, not by reading: type "zzqqxx" in the search
+    // field, press Escape, press Ctrl+, — Settings reopens showing "No
+    // matching settings" over an EMPTY nav column. Not Account, not
+    // Appearance, not even About, which is otherwise always there. Two
+    // causes, one per half of this case:
+    //
+    //   * every SettingsNavRow is gated on its section having a match, and
+    //     with zero matches every gate is false at once; and
+    //   * the screen is a warm Loader kept alive between opens, so the text
+    //     in the field outlives the screen that was closed on top of it.
+    //
+    // The only way out was the small clear button inside the field.
+    //
+    // UNFIXED TREE: fails on the first QTRY_VERIFY (the nav is hidden while
+    // the query matches nothing) and again after the reopen (the query is
+    // still in the field).
+    void aQueryThatMatchesNothingNeverLeavesTheNavEmpty()
+    {
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        auto *search = item("settingsSearchField");
+        auto *accountNav = item("settingsNavRow_account");
+        auto *aboutNav = item("settingsNavRow_about");
+        auto *resultsPanel = item("settingsSearchResults");
+        QVERIFY(search && accountNav && aboutNav && resultsPanel);
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+
+        search->setProperty("text", QStringLiteral("zzqqxx"));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(resultsPanel->isVisible());
+        auto *noResults = item("settingsSearchNoResults");
+        QVERIFY(noResults);
+        QVERIFY(noResults->isVisible());
+        QVERIFY2(accountNav->isVisible(),
+                 "a query matching nothing hid the whole nav column");
+        QVERIFY2(aboutNav->isVisible(),
+                 "a query matching nothing hid even About");
+
+        // And the stale query does not survive the screen being closed.
+        m_controller->showMain();
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(search->property("text").toString(), QString());
+
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(accountNav->isVisible());
+        QVERIFY2(!resultsPanel->isVisible(),
+                 "Settings reopened still filtered by the previous query");
     }
 
     // THE CALL DEVICES LIVE IN "Sound & video" AND ARE NOT LEFT BEHIND.
