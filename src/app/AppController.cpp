@@ -374,6 +374,35 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_forward      = std::make_unique<ForwardController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
     m_mediaBridge  = std::make_unique<MediaBridge>(this);
+    m_accountAvatars = std::make_unique<AccountAvatarStore>(this);
+    // ── KEEP THE ACTIVE ACCOUNT'S PICTURE WHEN WE HAVE ITS BYTES ────────
+    //
+    // This is the ONLY moment an account's avatar bytes exist in this
+    // process: `MediaBridge` fetches through whichever client is active, so
+    // account B's picture can never be fetched while account A is live —
+    // which is why the switcher shows initials for every other account and
+    // why a disk copy is the only thing that can draw them.
+    //
+    // Keyed on the mxc matching the ACTIVE account's recorded `avatarUrl`,
+    // so this stores a person's own picture and not every avatar that
+    // happens to scroll past. The store itself refuses anything that is not
+    // a raster image and anything over its cap.
+    connect(m_mediaBridge.get(), &MediaBridge::mediaCached, this,
+            [this](const QString &cacheKey) {
+                if (!m_settings || !m_accountAvatars)
+                    return;
+                const QString uid = m_settings->activeAccountUserId();
+                if (uid.isEmpty())
+                    return;
+                const QString mxc =
+                    m_settings->accountRecord(uid)
+                        .value(QStringLiteral("avatarUrl")).toString();
+                if (mxc.isEmpty() || !cacheKey.endsWith(mxc))
+                    return;
+                const QByteArray bytes = m_mediaBridge->cachedBytes(cacheKey);
+                if (!bytes.isEmpty())
+                    m_accountAvatars->store(uid, bytes);
+            });
     // The tray balloon is the notification delivery where there is no
     // freedesktop daemon (Windows, macOS) — see refreshTrayState for why the
     // icon shows there.
@@ -5556,6 +5585,13 @@ void AppController::removeAccountLocalState(
         RustSdkMatrixClient::kStoreCloseBudgetMs);
 #endif
     const auto removed = matrix::app_data::removeAccountRustState(identity);
+    // AND THE PICTURE GOES WITH IT. The avatar store is deliberately
+    // app-level rather than account-scoped — the whole point is reading
+    // account B's picture while A is the live session — so it is NOT
+    // swept by the account directory removal above and has to be told.
+    // §6: signing an account out must not leave its data on disk.
+    if (m_accountAvatars)
+        m_accountAvatars->forget(identity.userId);
 
     // v0.6.6: the local-starred-GIF store lives under the CANONICAL
     // account root (matrix::app_data::accountRoot(userId) — see

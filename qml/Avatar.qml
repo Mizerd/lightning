@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Controls
 import MatrixClient
 
@@ -138,6 +139,32 @@ Rectangle {
         && bridge.supported
     property string src: ""
 
+    /// ── A LAST-KNOWN PICTURE FOR WHEN THE BRIDGE CANNOT PRODUCE ONE ──────
+    ///
+    /// OPT-IN, and empty everywhere but the account switcher. `src` comes
+    /// from `MediaBridge`, which fetches through whichever client is ACTIVE —
+    /// so an inactive account's avatar is not slow to arrive, it CANNOT
+    /// arrive: its bytes live on that account's homeserver and this session
+    /// has no business asking. Those rows fell back to initials for ever.
+    ///
+    /// A plain local file, drawn only while `src` is empty, so the moment the
+    /// bridge does produce the real picture it wins. Deliberately NOT a
+    /// general fallback for every avatar in the application: a room or member
+    /// avatar that cannot be fetched should keep showing honest initials
+    /// rather than something this process happened to keep.
+    ///
+    /// It bypasses the media provider, so it does NOT arrive mask-baked the
+    /// way `src` does. This file deliberately avoids a per-item MultiEffect
+    /// because it cost two render passes per avatar on every scroll frame —
+    /// so the mask here is gated on `showingFallback`, which is false for
+    /// every avatar in the application except a switcher row whose account
+    /// is not the live one. A square picture among circles would be worse
+    /// than initials, and shipping one because the comment said `layer`
+    /// handles it is the kind of claim this project keeps paying for.
+    property string fallbackSource: ""
+    readonly property bool showingFallback:
+        root.src === "" && root.fallbackSource !== ""
+
     function refresh() {
         // Recovery point: if BOTH the creation-time lookup and completion
         // missed (never observed, but unbounded by inspection), any later
@@ -263,13 +290,29 @@ Rectangle {
         font.weight: Font.ExtraBold
     }
 
+    // The mask the fallback path is cut with, in the shape this avatar would
+    // have been baked in. `visible: false` and `layer.enabled` make it a
+    // texture rather than something drawn.
+    Item {
+        id: fallbackMask
+        anchors.fill: parent
+        visible: false
+        layer.enabled: root.showingFallback
+        Rectangle {
+            anchors.fill: parent
+            radius: root.circle ? width / 2 : root.radius
+            color: "black"
+        }
+    }
+
     Image {
         id: img
         objectName: "avatarImage"
         anchors.fill: parent
         // The provider bakes the mask into the bitmap; the suffix selects
         // circle or rounded-square (radius as a permille of the edge).
-        source: root.src === "" ? ""
+        source: root.src === ""
+                ? root.fallbackSource
                 : root.src + (root.circle
                     ? "|shape:circle"
                     : "|shape:rsq:" + Math.max(1, Math.min(500,
@@ -277,6 +320,16 @@ Rectangle {
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
         cache: true
+        // OFF unless a fallback is actually being drawn: see the note on
+        // `fallbackSource`. `layer.effect` is instantiated lazily, so a row
+        // showing a provider-baked bitmap pays nothing for this existing.
+        layer.enabled: root.showingFallback
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: fallbackMask
+            maskThresholdMin: 0.5
+            maskSpreadAtMin: 1.0
+        }
         // Only shown once fully decoded — no broken-image glyph, no flash.
         visible: img.status === Image.Ready
         // Self-heal the cache-hit-then-evicted race: avatarSource() saw the

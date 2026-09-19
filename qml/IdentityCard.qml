@@ -172,6 +172,17 @@ Item {
                 circle: true
                 name: root.visibleName
                 mxc: root.avatarMxc
+                // THE ONLY PLACE IN THE APPLICATION THAT SETS THIS, and the
+                // reason it exists: MediaBridge fetches through whichever
+                // client is ACTIVE, so an inactive account's avatar cannot
+                // be fetched here at all — its bytes are on that account's
+                // homeserver. Every row but one showed initials for ever.
+                // `avatarUrlFor` returns "" when nothing was ever stored,
+                // which leaves the honest initials behind.
+                fallbackSource: (typeof app !== "undefined" && app
+                                 && app.accountAvatars && root.userId.length > 0)
+                                ? app.accountAvatars.avatarUrlFor(root.userId)
+                                : ""
                 colorKey: root.userId
             }
             // Active marker 2 of 3 — Storm §3.5's yellow-ring identity

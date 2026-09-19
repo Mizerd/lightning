@@ -24,6 +24,7 @@
 #include <QQuickWindow>
 #include <QSignalSpy>
 
+#include "app/AccountAvatarStore.h"
 #include "matrix/MatrixClient.h"
 #include "media/MediaBridge.h"
 #include "media/MediaImageProvider.h"
@@ -337,6 +338,81 @@ private Q_SLOTS:
     // No avatar at all → deterministic initials fallback keyed on the
     // stable identity: the same user id keeps the same colour even when the
     // visible name changes (MXID → resolved display name).
+    // ── THE LAST KNOWN PICTURE, FOR THE ROWS THE BRIDGE CANNOT SERVE ────
+    //
+    // `MediaBridge` fetches through whichever client is ACTIVE, so an
+    // INACTIVE account's avatar is not slow to arrive — it cannot arrive at
+    // all, because its bytes live on that account's homeserver. Every row
+    // but one in the account switcher therefore fell back to initials for
+    // ever, and even the live account showed initials for the first moments
+    // of every launch, because the media cache is a QHash in RAM and
+    // nothing persisted it.
+    //
+    // Asserted on the STORE rather than through a rendered row, because the
+    // rendering half is `Avatar.fallbackSource` and is covered by the
+    // component's own contract; what had to exist first is a picture that
+    // survives the process.
+    void aStoredAvatarSurvivesTheProcessAndIsForgottenWithTheAccount()
+    {
+        QTemporaryDir home;
+        QVERIFY(home.isValid());
+        qputenv("XDG_DATA_HOME", home.path().toUtf8());
+
+        const QString uid = QStringLiteral("@someone:example.org");
+        AccountAvatarStore store;
+        QVERIFY2(store.avatarUrlFor(uid).isEmpty(),
+                 "an account with nothing stored must report nothing, so the "
+                 "row keeps its honest initials");
+
+        // A real PNG: the store refuses anything that is not a raster image
+        // this client already accepts, by SHAPE and not by a list of
+        // spellings (§6 — an image-class payload beginning with '<' is
+        // markup, and listing the spellings tells an attacker what to
+        // avoid).
+        QImage image(8, 8, QImage::Format_ARGB32);
+        image.fill(Qt::red);
+        QByteArray png;
+        QBuffer buffer(&png);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(image.save(&buffer, "PNG"));
+        buffer.close();
+
+        QSignalSpy stored(&store, &AccountAvatarStore::avatarStored);
+        QVERIFY2(store.store(uid, png), "a valid PNG was refused");
+        QCOMPARE(stored.count(), 1);
+
+        const QString url = store.avatarUrlFor(uid);
+        QVERIFY2(url.startsWith(QStringLiteral("file://")),
+                 qPrintable(QStringLiteral("not a local file url: %1").arg(url)));
+        // A SECOND STORE, reading what the first wrote: this is the whole
+        // property — the picture outlives the object that fetched it.
+        AccountAvatarStore reopened;
+        QCOMPARE(reopened.avatarUrlFor(uid), url);
+
+        // REFUSALS. Markup, an over-cap payload and an unusable id are all
+        // declined rather than written, and `store` reports false so a
+        // caller can tell "stored" from "declined".
+        QVERIFY2(!store.store(uid, QByteArray("<svg xmlns=\"http://x\"></svg>")),
+                 "markup was accepted as an avatar");
+        QVERIFY2(!store.store(uid, QByteArray(AccountAvatarStore::kMaxBytes + 1, '\x89')),
+                 "an over-cap payload was accepted");
+        QVERIFY2(!store.store(QStringLiteral("not-a-user-id"), png),
+                 "an unusable account id produced a file");
+        // …and none of them replaced the good picture.
+        QCOMPARE(store.avatarUrlFor(uid), url);
+
+        // SIGNING OUT TAKES IT. The store is app-level on purpose — reading
+        // account B's picture while A is live is the entire point — so it is
+        // NOT swept by the account-directory removal and must be told (§6:
+        // sign-out must not leave the account's data on disk).
+        QVERIFY(store.forget(uid));
+        QVERIFY(store.avatarUrlFor(uid).isEmpty());
+        // "Target absent" and "removed" are different outcomes.
+        QVERIFY2(!store.forget(uid),
+                 "forgetting an account with no stored picture reported that "
+                 "it removed something");
+    }
+
     void missingAvatarShowsStableIdentityFallback()
     {
         Harness a;

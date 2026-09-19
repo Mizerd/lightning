@@ -418,6 +418,8 @@ endif()
 set(APP_SOURCES
     src/main.cpp
 
+    src/app/AccountAvatarStore.h
+    src/app/AccountAvatarStore.cpp
     src/app/AppController.h
     src/app/AppController.cpp
     src/app/ConversationController.h

@@ -37,6 +37,7 @@
 #include "profile/ProfileBadges.h"
 #include "profile/ProfileBioManager.h"
 #include "profile/UserProfileResolver.h"
+#include "app/AccountAvatarStore.h"
 #include "media/MediaBridge.h"
 #include "media/StagedImageStore.h"
 #include "media/ImageCropper.h"
@@ -442,6 +443,12 @@ class AppController : public QObject
     Q_PROPERTY(ForwardController* forward READ forward CONSTANT)
     Q_PROPERTY(RoomInfoController* roomInfo READ roomInfo CONSTANT)
     Q_PROPERTY(MediaBridge* mediaBridge READ mediaBridge CONSTANT)
+    /// Every signed-in account's last known picture, on disk. See
+    /// AccountAvatarStore: the media cache is memory-only, and an INACTIVE
+    /// account's avatar cannot be fetched by the active client at all, so
+    /// without this the switcher shows initials for every other account for
+    /// ever.
+    Q_PROPERTY(AccountAvatarStore* accountAvatars READ accountAvatars CONSTANT)
     // Which images the reader has hidden locally; see MediaVisibilityStore.
     Q_PROPERTY(MediaVisibilityStore* mediaVisibility READ mediaVisibility
                    CONSTANT)
@@ -779,6 +786,10 @@ public:
     }
     RoomInfoController *roomInfo() const { return m_roomInfo.get(); }
     MediaBridge *mediaBridge() const { return m_mediaBridge.get(); }
+    AccountAvatarStore *accountAvatars() const
+    {
+        return m_accountAvatars.get();
+    }
     MediaVisibilityStore *mediaVisibility() const
     { return m_mediaVisibility.get(); }
     VoiceRecorder *voiceRecorder()
@@ -1639,6 +1650,7 @@ private:
     QSet<QString> m_pendingCopyKeys;
     std::unique_ptr<RoomInfoController> m_roomInfo;
     std::unique_ptr<MediaBridge> m_mediaBridge;
+    std::unique_ptr<AccountAvatarStore> m_accountAvatars;
     std::unique_ptr<MediaVisibilityStore> m_mediaVisibility;
     std::unique_ptr<VoiceRecorder> m_voiceRecorder; // lazy — see getter
     QString m_voiceOwner;                           // "", "room", "thread"
