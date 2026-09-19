@@ -138,6 +138,34 @@ public:
     QByteArray decryptFrame(const QByteArray &wire, FrameKind kind,
                             DecryptDiagnosis *why = nullptr);
 
+    /// DOES THIS WIRE FORM CARRY OUR TRAILER? A STRUCTURAL TEST, NOT A PROOF.
+    ///
+    /// Exists for one question the receive probe could not previously ask:
+    /// when a call is NOT encrypted for us and no key has been installed, a
+    /// frame is passed through in the clear — and a peer that IS encrypting
+    /// then feeds ciphertext straight into the decoder while every counter in
+    /// the engine reports healthy media. Cleartext and ciphertext are the
+    /// same bytes to everything downstream; the only thing that separates
+    /// them here is the two-byte trailer this class writes.
+    ///
+    /// It checks exactly what `decryptFrame` checks before it indexes:
+    /// enough bytes for header + tag + IV + trailer, an IV-length byte equal
+    /// to the one we write, and a key index inside the ring. Derived from the
+    /// same constants as the writer so the two cannot drift.
+    ///
+    /// IT IS NOT A DECRYPTION AND IT MUST NEVER BE READ AS ONE. A cleartext
+    /// frame whose last two bytes happen to be 12 and a value under 16
+    /// passes — roughly 1 frame in 4096 for uniformly distributed bytes, and
+    /// VP8/Opus payloads are not uniform, so the real rate is unknown and
+    /// could be much higher for a given encoder. The ONLY sound use is a
+    /// WINDOWED verdict over many frames: a peer that is encrypting produces
+    /// 100%, a peer that is not produces a trickle. A per-frame branch on
+    /// this would be a coin flip presented as a fact.
+    static bool looksEncrypted(const char *wire, qsizetype size,
+                               FrameKind kind);
+    static bool looksEncrypted(const QByteArray &wire, FrameKind kind)
+    { return looksEncrypted(wire.constData(), wire.size(), kind); }
+
     /// Test seam: pin the per-SSRC counter so a known-answer test can assert
     /// an exact IV. Production seeds it randomly.
     void setSendCounterForTest(quint32 ssrc, quint32 value);

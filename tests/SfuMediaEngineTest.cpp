@@ -1457,6 +1457,143 @@ private slots:
         receiver.stop();
     }
 
+    // 2026-09-19 — THE OPPOSITE ASYMMETRY, AND IT HAD NO COVERAGE AT ALL.
+    //
+    // The case above is `required && !haveKey`: the frame is dropped,
+    // counted and announced. Its mirror, `!required && !haveKey`, PASSES the
+    // frame through and counts it as a success — and before this round
+    // nothing in `src/` or `tests/` ever exercised it: `setEncryptionRequired
+    // (false)` appears in no production caller and in no test, so every
+    // engine test that touched crypto set it true.
+    //
+    // What the branch actually does when the peer IS encrypting: ciphertext
+    // goes into the depayloader, `frames in the clear` climbs, and
+    // `framesDecrypted()` counts frames that were never decrypted. The user
+    // hears silence on a call the client is telling them is fine. It fails
+    // in the SAFE direction — garbage downstream, never a plaintext leak —
+    // which is why the fix is an instrument and not a drop: refusing media
+    // on a two-byte heuristic would turn a reporting gap into an
+    // interoperability failure.
+    //
+    // This is the real probe, in a real engine, on real encrypted frames
+    // produced by another real engine. A policy test that calls the window
+    // itself would prove nothing about whether production reaches it.
+    void aPeerEncryptingIntoACallWeBelieveIsClearIsReported()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+
+        QString failure;
+        const auto note = [&failure](const QString &why) {
+            if (failure.isEmpty())
+                failure = why;
+        };
+        connect(&sender, &SfuMediaEngine::failed, this, note);
+        connect(&receiver, &SfuMediaEngine::failed, this, note);
+        connect(&sender, &SfuMediaEngine::localDescription, &receiver,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)
+                        && kind == QStringLiteral("offer")) {
+                        receiver.applyRemoteDescription(
+                            SfuMediaEngine::Target::Subscriber, kind, sdp);
+                    }
+                });
+        connect(&receiver, &SfuMediaEngine::localDescription, &sender,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target == int(SfuMediaEngine::Target::Subscriber)
+                        && kind == QStringLiteral("answer")) {
+                        sender.applyRemoteDescription(
+                            SfuMediaEngine::Target::Publisher, kind, sdp);
+                    }
+                });
+        connect(&sender, &SfuMediaEngine::localCandidate, &receiver,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)) {
+                        receiver.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Subscriber, init);
+                    }
+                });
+        connect(&receiver, &SfuMediaEngine::localCandidate, &sender,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Subscriber)) {
+                        sender.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Publisher, init);
+                    }
+                });
+
+        bool trackArrived = false;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &, const QString &, const QString &) {
+                    trackArrived = true;
+                });
+        QSignalSpy blocked(&receiver, &SfuMediaEngine::remoteMediaBlocked);
+        QVERIFY(blocked.isValid());
+
+        LogCapture log;
+        sender.start();
+        receiver.start();
+
+        // THE WHOLE FIXTURE. The sender encrypts; the receiver requires
+        // nothing (the engine's default, and the state a call in a room with
+        // no `m.room.encryption` is in) and is given NO inbound key, so the
+        // ring its frames will consult is empty.
+        sender.setEncryptionRequired(true);
+        sender.setOutboundKey(3, QByteArray(32, 'k'));
+        QCOMPARE(receiver.framesArrivingEncryptedOnAClearCall(), quint64(0));
+
+        sender.publishAudio(QStringLiteral("cid-clear-but-encrypted"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            trackArrived,
+            qPrintable(QStringLiteral("no media pad; failure=%1").arg(failure)),
+            45000);
+        // Frames must actually take the clear path, or everything below is
+        // vacuous. This counter is the one the branch bumps — and its name,
+        // `framesDecrypted`, is itself part of what made the state invisible.
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.framesDecrypted() > 100,
+            qPrintable(QStringLiteral("only %1 frames reached the clear "
+                                      "path; sent=%2 failure=%3")
+                           .arg(receiver.framesDecrypted())
+                           .arg(sender.framesEncrypted())
+                           .arg(failure)),
+            45000);
+        QCOMPARE(receiver.framesDropped(), quint64(0));
+
+        // A RATE, NOT A COUNT. `looksEncrypted` is a two-byte structural
+        // test that real cleartext passes by chance, so "some frames looked
+        // encrypted" is not a finding — "nearly all of them did" is, and no
+        // false-positive trickle reaches nine in ten.
+        const quint64 passed = receiver.framesDecrypted();
+        const quint64 shaped = receiver.framesArrivingEncryptedOnAClearCall();
+        QVERIFY2(shaped * 10 >= passed * 9,
+                 qPrintable(QStringLiteral(
+                     "%1 of %2 frames passed through in the clear carried "
+                     "the frame-crypto trailer — the peer is encrypting and "
+                     "this call cannot say so. log:\n%3")
+                                .arg(shaped).arg(passed).arg(log.text())));
+
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            log.contains("the sender IS encrypting"),
+            qPrintable(QStringLiteral(
+                "%1 ciphertext frames were handed to the decoder on a call "
+                "we believe is clear and nothing said so. log:\n%2")
+                           .arg(shaped).arg(log.text())),
+            15000);
+
+        // AND IT IS NOT THE BLOCKED BADGE. These frames were not blocked —
+        // they were passed on — so reusing `remoteMediaBlocked` would tell
+        // the call header something untrue about what happened to them, and
+        // that badge is not even instantiated on a call the client believes
+        // is unencrypted. What to SHOW the user here is an open decision;
+        // this case pins only that the engine can now say it.
+        QCOMPARE(blocked.count(), 0);
+
+        sender.stop();
+        receiver.stop();
+    }
+
     // A TRACK THAT APPEARS MID-CALL MUST REACH THE RECEIVER.
     //
     // The reported defect: A is in a call, B joins later, and A never hears

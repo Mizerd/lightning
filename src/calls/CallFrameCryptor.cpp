@@ -64,6 +64,28 @@ int CallFrameCryptor::headerBytes(FrameKind kind)
     return 1;
 }
 
+bool CallFrameCryptor::looksEncrypted(const char *wire, qsizetype size,
+                                      FrameKind kind)
+{
+    if (!wire)
+        return false;
+    // THE SAME THREE CHECKS `decryptFrame` MAKES BEFORE IT INDEXES, and
+    // deliberately derived from the same constants rather than restated: a
+    // second copy of the wire layout is a second thing to forget to update.
+    const qsizetype floorBytes =
+        headerBytes(kind) + kTagBytes + kIvBytes + kTrailerBytes;
+    if (size < floorBytes)
+        return false;
+    const int ivLength = static_cast<unsigned char>(wire[size - 2]);
+    if (ivLength != kIvBytes)
+        return false;
+    // The ring is 16 slots, matching LiveKit's; `hasKey` bounds on the same
+    // number. A frame naming a slot outside it was never written by this
+    // scheme.
+    const int keyIndex = static_cast<unsigned char>(wire[size - 1]);
+    return keyIndex >= 0 && keyIndex < 16;
+}
+
 QByteArray CallFrameCryptor::deriveKey(const QByteArray &rawKey)
 {
     if (rawKey.isEmpty())

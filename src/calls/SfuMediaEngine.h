@@ -750,6 +750,22 @@ public:
     quint64 framesEncrypted() const { return m_framesEncrypted.load(); }
     quint64 framesDecrypted() const { return m_framesDecrypted.load(); }
     quint64 framesDropped() const { return m_framesDropped.load(); }
+    /// FRAMES WE HANDED DOWNSTREAM IN THE CLEAR THAT CARRY A CRYPTO TRAILER.
+    ///
+    /// Only the receive side, and only on the `!required && !haveKey` path:
+    /// a call we believe is unencrypted, receiving from a peer who IS
+    /// encrypting. Nothing downstream can tell that apart from real
+    /// cleartext, so before this counter existed the state was invisible to
+    /// every instrument in the engine.
+    ///
+    /// A RATE, NOT A COUNT: `CallFrameCryptor::looksEncrypted` is a
+    /// structural two-byte test that real cleartext passes by chance, so a
+    /// handful here means nothing and a number tracking framesDecrypted()
+    /// means the call is not carrying what the user thinks it is. The
+    /// windowed verdict the log line is raised on is the sound reading; this
+    /// is the raw material and the seam a test can assert on.
+    quint64 framesArrivingEncryptedOnAClearCall() const
+    { return m_framesClearButCiphertextShaped.load(); }
     /// Require encryption. With this set and no key installed, frames are
     /// DROPPED rather than sent in the clear — the whole point of the gate.
     void setEncryptionRequired(bool required);
@@ -1189,6 +1205,9 @@ private:
     std::atomic<quint64> m_framesEncrypted{0};
     std::atomic<quint64> m_framesDecrypted{0};
     std::atomic<quint64> m_framesDropped{0};
+    /// See framesArrivingEncryptedOnAClearCall(). Reset per session in
+    /// start().
+    std::atomic<quint64> m_framesClearButCiphertextShaped{0};
     /// A distinct IV stream id per encrypting track.
     ///
     /// The cryptor keeps its send counter PER SSRC, so two tracks sharing

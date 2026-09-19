@@ -237,6 +237,86 @@ private Q_SLOTS:
         QVERIFY(!wire.contains(QByteArray("hello world")));
     }
 
+    // 2026-09-19 — THE TEST THAT TELLS CIPHERTEXT FROM CLEARTEXT WHEN WE
+    // HOLD NO KEY, and its false-positive rate, asserted rather than assumed.
+    //
+    // WHY IT EXISTS. `SfuMediaEngine`'s receive probe has two branches when
+    // no media key is installed. `required` DROPS, counts and announces;
+    // NOT required PASSES THE FRAME THROUGH and counts it as healthy — so a
+    // peer that is encrypting into a call we believe is clear feeds
+    // ciphertext to the decoder while every counter says the media is fine.
+    // Nothing downstream can tell the two apart: an Opus frame and an
+    // AES-GCM blob are both opaque bytes. The trailer is the only thing that
+    // can, and this is the test that reads it.
+    void theTrailerSaysWhetherAFrameWasEncryptedWithoutDecryptingIt()
+    {
+        CallFrameCryptor cryptor;
+        QVERIFY(cryptor.setKey(5, rawKey()));
+        cryptor.setCurrentKeyIndex(5);
+        const QByteArray payload("\x01" "hello world");
+        const QByteArray wire = cryptor.encryptFrame(
+            payload, CallFrameCryptor::FrameKind::Audio, 7, 99);
+        QVERIFY(!wire.isEmpty());
+
+        // A frame this scheme wrote is recognised WITHOUT a key: the point
+        // of the probe is that it has none.
+        QVERIFY2(CallFrameCryptor::looksEncrypted(
+                     wire, CallFrameCryptor::FrameKind::Audio),
+                 "a frame this class encrypted is not recognised as one");
+        CallFrameCryptor empty;
+        QVERIFY(!empty.hasAnyKey());
+
+        // The cleartext it was made from is not.
+        QVERIFY2(!CallFrameCryptor::looksEncrypted(
+                     payload, CallFrameCryptor::FrameKind::Audio),
+                 "an ordinary Opus-shaped payload is reported as encrypted");
+        // Too short to hold header + tag + IV + trailer, whatever its last
+        // two bytes say.
+        QByteArray tiny(8, '\0');
+        tiny[6] = char(12);
+        tiny[7] = char(3);
+        QVERIFY(!CallFrameCryptor::looksEncrypted(
+            tiny, CallFrameCryptor::FrameKind::Audio));
+        // A VP8 keyframe carries a 10-byte cleartext header, so the floor
+        // moves with the frame kind: the same bytes that are long enough for
+        // audio are not long enough for a keyframe.
+        QByteArray justAudio(1 + 16 + 12 + 2, 'x');
+        justAudio[justAudio.size() - 2] = char(12);
+        justAudio[justAudio.size() - 1] = char(0);
+        QVERIFY(CallFrameCryptor::looksEncrypted(
+            justAudio, CallFrameCryptor::FrameKind::Audio));
+        QVERIFY2(!CallFrameCryptor::looksEncrypted(
+                     justAudio, CallFrameCryptor::FrameKind::VideoKey),
+                 "the length floor does not follow the frame kind's header");
+
+        // An IV length we never write, and a key index outside the 16-slot
+        // ring, are both refused — the two bounds `decryptFrame` makes
+        // before it uses either as an offset.
+        QByteArray wrongIv = wire;
+        wrongIv[wrongIv.size() - 2] = char(16);
+        QVERIFY(!CallFrameCryptor::looksEncrypted(
+            wrongIv, CallFrameCryptor::FrameKind::Audio));
+        QByteArray wrongIndex = wire;
+        wrongIndex[wrongIndex.size() - 1] = char(200);
+        QVERIFY(!CallFrameCryptor::looksEncrypted(
+            wrongIndex, CallFrameCryptor::FrameKind::Audio));
+
+        // AND IT IS A SHAPE TEST, NOT A DECRYPTION — asserted, because the
+        // whole reason the engine takes a WINDOWED verdict on it is that a
+        // single frame can lie. A long-enough cleartext frame whose last two
+        // bytes happen to be 12 and a value under 16 passes, and this case
+        // fails the day someone "fixes" that by adding a stronger per-frame
+        // check they cannot actually make sound without the key.
+        QByteArray unluckyCleartext(64, 'a');
+        unluckyCleartext[unluckyCleartext.size() - 2] = char(12);
+        unluckyCleartext[unluckyCleartext.size() - 1] = char(4);
+        QVERIFY2(CallFrameCryptor::looksEncrypted(
+                     unluckyCleartext, CallFrameCryptor::FrameKind::Audio),
+                 "this test's own premise is gone: if a per-frame answer is "
+                 "now reliable, the engine's sliding window can be dropped "
+                 "— and if it is not, this must still pass");
+    }
+
     void roundTripRecoversTheExactPayload()
     {
         CallFrameCryptor sender;

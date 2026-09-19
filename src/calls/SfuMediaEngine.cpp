@@ -270,6 +270,9 @@ struct CryptoProbeCtx {
     /// pretending otherwise.
     std::atomic<quint64> *total = nullptr;
     std::atomic<quint64> *totalDropped = nullptr;
+    /// Receive side only: see framesArrivingEncryptedOnAClearCall(). Null on
+    /// the send side, where our own frames being clear is not a finding.
+    std::atomic<quint64> *totalCiphertextShaped = nullptr;
     /// Frames this probe let through, and frames it dropped.
     ///
     /// The ONE number that separates "our media never reaches the wire" from
@@ -292,6 +295,9 @@ struct CryptoProbeCtx {
     bool saidNoKey = false;
     bool saidFailed = false;
     bool saidWorking = false;
+    /// Said once, when a call we believe is CLEAR turns out to be carrying
+    /// somebody's ciphertext. See `ciphertextShaped` below.
+    bool saidUnexpectedCiphertext = false;
     /// THE SLIDING WINDOW OF FRAME OUTCOMES THE BADGE IS DECIDED ON.
     ///
     /// The policy is a pure struct on SfuMediaEngine so its thresholds can be
@@ -306,6 +312,28 @@ struct CryptoProbeCtx {
     /// key distribution, "the key does not decrypt these frames" to key
     /// agreement.
     CryptoDropCause lastCause = CryptoDropCause::None;
+    /// THE OPPOSITE ASYMMETRY TO THE ONE ABOVE, and it had no instrument.
+    ///
+    /// `required && !haveKey` drops, counts and announces. `!required &&
+    /// !haveKey` passed the frame through and counted it as a SUCCESS — so a
+    /// peer that IS encrypting fed ciphertext into the depayloader while
+    /// `frames in the clear` climbed and every counter said the call was
+    /// healthy. It fails in the safe direction (garbage downstream, never a
+    /// plaintext leak) which is why it was recorded rather than fixed, and
+    /// why the user was never told that what they believe is a clear call is
+    /// one they cannot hear.
+    ///
+    /// The SAME sliding window with hysteresis the badge already uses, for
+    /// the reason it was written: `looksEncrypted` is a two-byte structural
+    /// test that a cleartext frame passes by chance, so the per-frame answer
+    /// is a coin flip and only the RATE is a fact. A peer that encrypts
+    /// scores 100%, a peer that does not scores a trickle, and 90/25 over
+    /// 100 with a floor of 50 separates those two by a mile.
+    SfuMediaEngine::BlockedRunPolicy ciphertext;
+    /// How many of the frames passed through in the clear carried our
+    /// trailer, so the rate-limited line below can be read as evidence
+    /// rather than as reassurance.
+    quint64 ciphertextShaped = 0;
 };
 
 /// Record one frame outcome and tell the UI only if the verdict MOVED.
@@ -325,6 +353,71 @@ static void noteCryptoOutcome(CryptoProbeCtx *ctx, bool failed)
                            : ctx->lastCause == CryptoDropCause::NoKey
                                ? QStringLiteral("no_key")
                                : QStringLiteral("undecryptable"));
+}
+
+/// IS THE "CLEAR" FRAME WE ARE ABOUT TO WAVE THROUGH ACTUALLY CLEAR?
+///
+/// Called only on the receive side's `!required && !haveKey` path — the one
+/// branch of this probe that hands a frame downstream WITHOUT having looked
+/// at it. Two things can produce that branch and they are opposites:
+///
+///   * the call really is unencrypted and the peer really is sending
+///     cleartext, which is fine and is what the branch was written for;
+///   * the peer IS encrypting, we hold no key, and what goes into the
+///     depayloader is ciphertext. Nothing downstream can tell: `opusenc`
+///     output and AES-GCM output are both opaque bytes to a decoder, so the
+///     user gets silence or a green smear while `frames in the clear`
+///     climbs and the badge says nothing at all.
+///
+/// The second is the state the user's belief is wrong about, and until this
+/// function existed there was no instrument anywhere that could name it.
+///
+/// WINDOWED, NEVER PER FRAME. `looksEncrypted` is a two-byte structural
+/// test — see its declaration — so one frame answers nothing and a hundred
+/// answer conclusively. The verdict reuses the badge's own
+/// `BlockedRunPolicy` rather than a second set of thresholds: 90% of a
+/// 100-frame window to raise, 25% to clear, never judged on fewer than 50.
+/// A peer that encrypts scores 100, a peer that does not scores single
+/// digits, and nothing real sits between them.
+///
+/// It does NOT change what happens to the frame. Dropping here would turn a
+/// reporting gap into an interoperability failure on nothing better than a
+/// heuristic, and the existing behaviour already fails in the safe
+/// direction. This function only makes the state SAYABLE.
+static void noteClearFrameShape(CryptoProbeCtx *ctx, GstBuffer *buffer,
+                                CallFrameCryptor::FrameKind kind)
+{
+    GstMapInfo map;
+    if (!gst_buffer_map(buffer, &map, GST_MAP_READ))
+        return;
+    // No QByteArray: this runs on every frame of every clear track, and the
+    // QByteArray constructor the crypto path uses DEEP COPIES the frame.
+    const bool shaped = CallFrameCryptor::looksEncrypted(
+        reinterpret_cast<const char *>(map.data),
+        static_cast<qsizetype>(map.size), kind);
+    gst_buffer_unmap(buffer, &map);
+    if (shaped) {
+        ++ctx->ciphertextShaped;
+        if (ctx->totalCiphertextShaped)
+            ctx->totalCiphertextShaped->fetch_add(1);
+    }
+
+    bool raise = false;
+    if (!ctx->ciphertext.note(shaped, &raise))
+        return;
+    if (!raise || ctx->saidUnexpectedCiphertext)
+        return;
+    ctx->saidUnexpectedCiphertext = true;
+    qCWarning(lcSfuMedia)
+        << "call diagnosis: this call is NOT encrypted for us and no media "
+           "key is installed for stream="
+        << ctx->streamId
+        << "— but its frames carry the frame-crypto trailer, so the sender "
+           "IS encrypting and what reaches the decoder is ciphertext. You "
+           "will not hear or see them, and the two ends disagree about "
+           "whether this call is encrypted (video="
+        << ctx->video << "shaped=" << ctx->ciphertextShaped
+        << "of" << ctx->passed << ")";
 }
 
 /// A key ring's name, fit to print.
@@ -570,6 +663,22 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
     // either way, but the log named the wrong cause for the one report that
     // needed it named. Asking the ring the frame will actually be decrypted
     // with is both cheaper to reason about and true.
+    // VP8 keyframes leave 10 header bytes in the clear and delta frames 3
+    // (so an SFU can still route and detect keyframes); Opus leaves the TOC
+    // byte. The keyframe answer comes from GStreamer's own flag rather than
+    // from parsing the bitstream — the encoder already told us.
+    //
+    // READ BEFORE THE KEY IS CONSIDERED, and it used to be read after. The
+    // clear-pass branch below needs the same header rule to say whether what
+    // it is about to wave through is shaped like ciphertext, and this reads
+    // one buffer flag with no side effects, so hoisting it costs nothing.
+    CallFrameCryptor::FrameKind kind = CallFrameCryptor::FrameKind::Audio;
+    if (ctx->video) {
+        kind = GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT)
+            ? CallFrameCryptor::FrameKind::VideoDelta
+            : CallFrameCryptor::FrameKind::VideoKey;
+    }
+
     const bool haveKey = ctx->encrypting
         ? (ctx->keyReady && ctx->keyReady->load())
         : cryptor->hasAnyKey();
@@ -622,6 +731,11 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         // recorded nothing, so a stream that stopped requiring encryption
         // mid-call kept the window it had when it did.
         noteCryptoOutcome(ctx, /*failed=*/false);
+        // ...AND WHETHER IT IS ACTUALLY CLEAR IS A SEPARATE QUESTION THIS
+        // BRANCH NEVER ASKED. Receive side only: our own frames are clear
+        // because we did not encrypt them, which is not news.
+        if (!ctx->encrypting)
+            noteClearFrameShape(ctx, buffer, kind);
         if (shouldReport(ctx->passed)) {
             // NAME THE STREAM. Without it this line says only "some video is
             // flowing", so a harness cannot tell a SCREEN SHARE from a camera
@@ -637,24 +751,20 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             // node type for video (see src/main.cpp's fallback warning), so
             // this counter climbs against a blank rectangle. Do not read it
             // as "the other end can see it".
+            //
+            // `ciphertextShaped` is the half that turns this line from
+            // reassurance into evidence: it is how many of those frames
+            // carried the frame-crypto trailer, so a capture answers "is
+            // this call clear, or are we handing somebody's ciphertext to
+            // the decoder" without a second run.
             qCInfo(lcSfuMedia) << "frames in the clear"
                                << (ctx->encrypting ? "out" : "in")
                                << "stream=" << ctx->streamId
                                << "video=" << ctx->video
-                               << "count=" << ctx->passed;
+                               << "count=" << ctx->passed
+                               << "ciphertextShaped=" << ctx->ciphertextShaped;
         }
         return GST_PAD_PROBE_OK;
-    }
-
-    // VP8 keyframes leave 10 header bytes in the clear and delta frames 3
-    // (so an SFU can still route and detect keyframes); Opus leaves the TOC
-    // byte. The keyframe answer comes from GStreamer's own flag rather than
-    // from parsing the bitstream — the encoder already told us.
-    CallFrameCryptor::FrameKind kind = CallFrameCryptor::FrameKind::Audio;
-    if (ctx->video) {
-        kind = GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT)
-            ? CallFrameCryptor::FrameKind::VideoDelta
-            : CallFrameCryptor::FrameKind::VideoKey;
     }
 
     GstMapInfo map;
@@ -875,6 +985,7 @@ void SfuMediaEngine::start()
     m_framesEncrypted.store(0);
     m_framesDecrypted.store(0);
     m_framesDropped.store(0);
+    m_framesClearButCiphertextShaped.store(0);
     m_microphoneMuted = false;
     m_outputMuted.store(false);
     m_publishedMedia.store(0);
@@ -6456,6 +6567,7 @@ void SfuMediaEngine::installDecryptProbe(GstPad *pad, bool video,
     ctx->keyReady = &m_recvKeyReady;
     ctx->total = &m_framesDecrypted;
     ctx->totalDropped = &m_framesDropped;
+    ctx->totalCiphertextShaped = &m_framesClearButCiphertextShaped;
     gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, cryptoProbe, ctx,
                       cryptoProbeCtxFree);
 }
