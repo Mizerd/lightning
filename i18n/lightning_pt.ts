@@ -9556,17 +9556,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+476"/>
+        <location line="+513"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Falha ao criar o identificador do backend Rust SDK.</translation>
     </message>
     <message>
-        <location line="-315"/>
-        <source>Homeserver, user, and password are required.</source>
-        <translation>O servidor, o utilizador e a palavra-passe são obrigatórios.</translation>
-    </message>
-    <message>
-        <location line="+61"/>
+        <location line="-254"/>
         <source>This account&apos;s local storage name collides with a different account already saved on this device. Remove that account first if you want to sign in with this one.</source>
         <translation>O nome de armazenamento local desta conta colide com o de outra conta já guardada neste dispositivo. Remova essa conta primeiro se quiser iniciar sessão com esta.</translation>
     </message>
@@ -9769,7 +9764,32 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location line="-4432"/>
+        <source>Enter your homeserver, for example https://matrix.org</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+3"/>
+        <source>Enter your username.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>That homeserver address is not a full URL. Include https://, for example https://matrix.org</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>That username is not a valid Matrix id. Use your username, or the full @you:server form.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Enter your password.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4420"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Não foi possível enviar a mensagem. Pode tentar de novo a partir da ação Tentar novamente da mensagem.</translation>
     </message>
@@ -14884,19 +14904,19 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Expandir espaço</translation>
     </message>
     <message>
-        <location line="+558"/>
+        <location line="+583"/>
         <location line="+4"/>
         <source>Show more rooms</source>
         <translation>Mostrar mais salas</translation>
     </message>
     <message>
         <location line="+29"/>
-        <location line="+1"/>
+        <location line="+32"/>
         <source>Create a Space</source>
         <translation>Criar um espaço</translation>
     </message>
     <message>
-        <location line="+81"/>
+        <location line="+64"/>
         <source>Settings — this session is not verified</source>
         <translation>Definições — esta sessão não está verificada</translation>
     </message>
@@ -14911,7 +14931,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Definições</translation>
     </message>
     <message>
-        <location line="+82"/>
+        <location line="+96"/>
         <source>Account menu for %1</source>
         <translation>Menu de conta de %1</translation>
     </message>
@@ -14932,7 +14952,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Sem ligação ao seu servidor</translation>
     </message>
     <message>
-        <location line="+84"/>
+        <location line="+96"/>
         <source>Expand folder</source>
         <translation>Expandir a pasta</translation>
     </message>

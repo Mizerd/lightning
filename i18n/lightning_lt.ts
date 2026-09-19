@@ -9577,17 +9577,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+476"/>
+        <location line="+513"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Nepavyko sukurti Rust SDK posistemės objekto.</translation>
     </message>
     <message>
-        <location line="-315"/>
-        <source>Homeserver, user, and password are required.</source>
-        <translation>Reikalingas namų serveris, vartotojas ir slaptažodis.</translation>
-    </message>
-    <message>
-        <location line="+61"/>
+        <location line="-254"/>
         <source>This account&apos;s local storage name collides with a different account already saved on this device. Remove that account first if you want to sign in with this one.</source>
         <translation>Šios paskyros vietinės saugyklos pavadinimas susiduria su kita paskyra, jau išsaugota šiame įrenginyje. Pirmiausia pašalinkite tą paskyrą, jei norite prisijungti naudodami šią paskyrą.</translation>
     </message>
@@ -9790,7 +9785,32 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location line="-4432"/>
+        <source>Enter your homeserver, for example https://matrix.org</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+3"/>
+        <source>Enter your username.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>That homeserver address is not a full URL. Include https://, for example https://matrix.org</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>That username is not a valid Matrix id. Use your username, or the full @you:server form.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Enter your password.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4420"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Nepavyko išsiųsti pranešimo. Galite bandyti dar kartą naudodami pranešimo veiksmą Bandyti iš naujo.</translation>
     </message>
@@ -14909,19 +14929,19 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Išplėsti erdvę</translation>
     </message>
     <message>
-        <location line="+558"/>
+        <location line="+583"/>
         <location line="+4"/>
         <source>Show more rooms</source>
         <translation>Rodyti daugiau kambarių</translation>
     </message>
     <message>
         <location line="+29"/>
-        <location line="+1"/>
+        <location line="+32"/>
         <source>Create a Space</source>
         <translation>Sukurkite erdvę</translation>
     </message>
     <message>
-        <location line="+81"/>
+        <location line="+64"/>
         <source>Settings — this session is not verified</source>
         <translation>Nustatymai – ši sesija nepatvirtinta</translation>
     </message>
@@ -14936,7 +14956,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Nustatymai</translation>
     </message>
     <message>
-        <location line="+82"/>
+        <location line="+96"/>
         <source>Account menu for %1</source>
         <translation>%1 paskyros meniu</translation>
     </message>
@@ -14957,7 +14977,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Neprisijungęs prie namų serverio</translation>
     </message>
     <message>
-        <location line="+84"/>
+        <location line="+96"/>
         <source>Expand folder</source>
         <translation>Išskleisti aplanką</translation>
     </message>

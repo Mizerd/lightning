@@ -9535,17 +9535,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+476"/>
+        <location line="+513"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Gagal membuat handle backend Rust SDK.</translation>
     </message>
     <message>
-        <location line="-315"/>
-        <source>Homeserver, user, and password are required.</source>
-        <translation>Homeserver, pengguna, dan kata sandi wajib diisi.</translation>
-    </message>
-    <message>
-        <location line="+61"/>
+        <location line="-254"/>
         <source>This account&apos;s local storage name collides with a different account already saved on this device. Remove that account first if you want to sign in with this one.</source>
         <translation>Nama penyimpanan lokal akun ini bertabrakan dengan akun lain yang sudah tersimpan di perangkat ini. Hapus akun itu dulu jika Anda ingin masuk dengan akun ini.</translation>
     </message>
@@ -9748,7 +9743,32 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location line="-4432"/>
+        <source>Enter your homeserver, for example https://matrix.org</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+3"/>
+        <source>Enter your username.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>That homeserver address is not a full URL. Include https://, for example https://matrix.org</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>That username is not a valid Matrix id. Use your username, or the full @you:server form.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Enter your password.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4420"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Pesan tidak dapat dikirim. Anda dapat mencoba lagi dari tindakan Coba lagi pada pesan.</translation>
     </message>
@@ -14859,19 +14879,19 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Perluas ruang</translation>
     </message>
     <message>
-        <location line="+558"/>
+        <location line="+583"/>
         <location line="+4"/>
         <source>Show more rooms</source>
         <translation>Tampilkan lebih banyak ruang</translation>
     </message>
     <message>
         <location line="+29"/>
-        <location line="+1"/>
+        <location line="+32"/>
         <source>Create a Space</source>
         <translation>Buat Space</translation>
     </message>
     <message>
-        <location line="+81"/>
+        <location line="+64"/>
         <source>Settings — this session is not verified</source>
         <translation>Pengaturan — sesi ini belum terverifikasi</translation>
     </message>
@@ -14886,7 +14906,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Pengaturan</translation>
     </message>
     <message>
-        <location line="+82"/>
+        <location line="+96"/>
         <source>Account menu for %1</source>
         <translation>Menu akun untuk %1</translation>
     </message>
@@ -14907,7 +14927,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Tidak terhubung ke homeserver Anda</translation>
     </message>
     <message>
-        <location line="+84"/>
+        <location line="+96"/>
         <source>Expand folder</source>
         <translation>Bentangkan folder</translation>
     </message>

@@ -9577,17 +9577,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+476"/>
+        <location line="+513"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Не удалось создать дескриптор бэкенда Rust SDK.</translation>
     </message>
     <message>
-        <location line="-315"/>
-        <source>Homeserver, user, and password are required.</source>
-        <translation>Требуются домашний сервер, пользователь и пароль.</translation>
-    </message>
-    <message>
-        <location line="+61"/>
+        <location line="-254"/>
         <source>This account&apos;s local storage name collides with a different account already saved on this device. Remove that account first if you want to sign in with this one.</source>
         <translation>Имя локального хранилища этой учётной записи конфликтует с другой учётной записью, уже сохранённой на этом устройстве. Сначала удалите её, если хотите войти с этой.</translation>
     </message>
@@ -9790,7 +9785,32 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location line="-4432"/>
+        <source>Enter your homeserver, for example https://matrix.org</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+3"/>
+        <source>Enter your username.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>That homeserver address is not a full URL. Include https://, for example https://matrix.org</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>That username is not a valid Matrix id. Use your username, or the full @you:server form.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Enter your password.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4420"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Не удалось отправить сообщение. Можно повторить через действие «Повторить» у сообщения.</translation>
     </message>
@@ -14909,19 +14929,19 @@ Note: importing keys does not verify this session.</source>
         <translation>Расширить пространство</translation>
     </message>
     <message>
-        <location line="+558"/>
+        <location line="+583"/>
         <location line="+4"/>
         <source>Show more rooms</source>
         <translation>Показать больше комнат</translation>
     </message>
     <message>
         <location line="+29"/>
-        <location line="+1"/>
+        <location line="+32"/>
         <source>Create a Space</source>
         <translation>Создать пространство</translation>
     </message>
     <message>
-        <location line="+81"/>
+        <location line="+64"/>
         <source>Settings — this session is not verified</source>
         <translation>Настройки — этот сеанс не проверен</translation>
     </message>
@@ -14936,7 +14956,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Настройки</translation>
     </message>
     <message>
-        <location line="+82"/>
+        <location line="+96"/>
         <source>Account menu for %1</source>
         <translation>Меню учётной записи %1</translation>
     </message>
@@ -14957,7 +14977,7 @@ Note: importing keys does not verify this session.</source>
         <translation>Нет подключения к вашему домашнему серверу</translation>
     </message>
     <message>
-        <location line="+84"/>
+        <location line="+96"/>
         <source>Expand folder</source>
         <translation>Развернуть папку</translation>
     </message>
