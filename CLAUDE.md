@@ -1520,7 +1520,94 @@ INK, never the box** — `expand_more`'s ink is 12x6 device px and
 `chevron_right`'s is 7x12, transposes of each other, so one plate around both
 reads as two different boxes unless it is square.
 
-Full account in `docs/round-history.md`, 2026-09-19.
+Full account in `docs/round-history.md`, 2026-09-19 (night).
+
+**A KEEP-ALIVE SLOWER THAN THE EXPIRY IT EXISTS TO BEAT IS NOT A KEEP-ALIVE.**
+Lightning published presence every FOUR MINUTES on the strength of a comment
+reading "servers expire presence after a few minutes without activity".
+Measured from a second account against this project's own Synapse, the window
+is **33 to 63 seconds** (`SYNC_ONLINE_TIMEOUT` plus activity granularity), so
+the account read OFFLINE to everyone else for about three quarters of every
+live, continuously syncing session. **AND THE PUT IS THE ONLY LEVER**: a client
+normally stays online because its `/sync` carries `set_presence`, and
+simplified sliding sync has no such parameter — `set_presence::v3` in
+`rust/src/presence.rs` is the only call that touches presence at all. It is
+25 s now, and JITTERED to 21-25 s, because every session on one account
+publishes on the same period and Synapse's `rc_presence` burst is 1: measured,
+3 of 38 PUTs came back 429 with four clients open, on the steady keep-alive and
+not at session start. Generalise both halves — measure a refresh against the
+server's real expiry rather than against a comment about it, and a FIXED period
+makes a user's devices collide for ever rather than once.
+
+**A FIX WRITTEN FROM RE-READING AN INVARIANT IS NOT A FIX FOR THE PHOTOGRAPH.**
+A square corner was reported in the rail from a screenshot. The first answer
+rounded the cap backdrop, on a sound reading of a comment that contradicted the
+element's own visibility condition — and its own commit message said outright
+that it came from the invariant and NOT from reproducing the report. It shipped
+and regressed: that rectangle exists to be the PARENT's colour in the notch a
+child's rounded corner opens at a cap, so a radius rounds it away from the
+notch and the GRANDPARENT shows through instead, a rung too light under a hard
+full-width edge (measured at the same junction on a Windows guest before and
+after, and the notch unfilled again on a Linux sweep). The real cause was
+`folderLast`, stamped by the store over a folder's TOP-LEVEL members only with
+every nested row hard-coded false — one wrong flag that the view read three
+ways. §18 already says to instrument rather than guess; this is the cost of
+not: a fix whose own justification admits it never reproduced the report is a
+hypothesis, and shipping it buys a regression plus the round that undoes it.
+
+**A PROBE DELIVERED THROUGH THE CHANNEL IT IS TESTING ANSWERS NOTHING.** The
+`lt-windows` job runner stopped producing output, and four diagnostic jobs were
+written to decide whether the SMB share had gone read-only or the guest's disk
+had filled — `net use`, `fsutil volume diskfree`, five separate write tests,
+`ren`/`md`. All four were delivered as `job.bat` THROUGH the runner, so all
+four produced the same nothing and none of them said anything about SMB; it was
+settled by typing into the guest's Run box over RDP instead. The fault: a job
+launched `Lightning.exe` without `start ""`, so the GUI app INHERITED the
+runner's redirected stdout handle and kept running, and **a failed redirect
+makes `cmd` SKIP the command entirely** — `j.bat` never ran while
+`echo %RC% > job.done` still worked, so every job looked like it had run and
+returned an rc with no output at all. Sibling of "a probe is evidence only if
+it shares the property under test": it must NOT share the fault.
+
+**AN IMPERATIVE WRITE TO A BOUND PROPERTY IS A ONE-WAY DOOR.** Assigning to a
+property that carries a binding destroys that binding for the life of the
+object and nothing warns. Five media-cache handlers assigned `Image.source`, so
+the first image that arrived froze the row; the follow checkbox and the rail's
+saved width went the same way on 2026-09-18; and the theme editor's audit
+throttle assigned the result it was meant to publish, so the import notice
+counted the PREVIOUS theme. Put the binding back, or drive the value from a
+signal and never assign it.
+
+**A COLLAPSED ROW SETS `active: false`, NEVER `visible: false`.** Every media
+fetch in `MessageDelegate` lives inside a Loader's component, so an attachment
+that is merely HIDDEN is still instantiated and still fetches, decodes and
+prefetches — identical on screen, with the whole point of the setting lost. One
+`collapsed-embeds-qml` case exists purely to tell those two implementations
+apart.
+
+**A GATE THAT CANNOT TELL "NOTHING YET" FROM "NOTHING THERE" PAYS FOR BOTH.**
+`read_membership_events` escalated to a full `/state` whenever the store held
+no LIVE membership — and an EMPTY store failed that test identically to a stale
+one. So besides the ~60 MatrixRTC pokes that collapsed into TEN `/state` calls
+on initial sync, every room the user OPENED paid for one too, through
+`setCurrentRoomId`, under a comment reading "a read is cheap (state store, no
+request)". That half appears in no poke trace, which is why a round spent
+reading the poke path could not find it. The escalation now needs a positive
+reason to believe a session exists, and the log says `store-no-session` versus
+`store-cooling-*`, because otherwise "we did not need to ask" and "we were not
+allowed to ask" are the same observable.
+
+**A `ctest` KILLED MID-LOOP LEAVES ITS SETTINGS ON DISK.** `ComposerQmlTest`
+shares one `QSettings` file across every case, and its hidden-button case
+measures first, restores, then asserts — which defends against a FAILING
+ASSERTION and not against the process being killed. A killed run left a
+composer button hidden on disk and three cases failed the NEXT run on a tree
+that was fine. Read a `composer-qml` failure against that file before reading
+it as a regression.
+
+Full account in `docs/round-history.md`, 2026-09-19 — presence, the RTC
+`/state` storm, collapsed embeds, the rail's chroma ladder, self badge and
+`folderLast`, and the theme editor's readability audit.
 
 **Timeline test conventions — do not "re-fix" these.** The rotated
 Flickable + Column has no `positionViewAtIndex`,

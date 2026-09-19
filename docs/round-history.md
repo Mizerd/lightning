@@ -1,5 +1,379 @@
 # Round history
 
+## 2026-09-19 — the keep-alive that was slower than the expiry, and a square corner chased twice
+
+Eleven commits. Almost all of it came from the maintainer looking at the thing
+and from one interop audit asking a second account what this one looked like
+from outside. Two of the defects were mine, made earlier the same day.
+Organised by lesson.
+
+### A keep-alive slower than the expiry it exists to beat
+
+The number it replaces was assumed and the constant's own comment said so:
+"servers expire presence after a few minutes without activity", and the
+keep-alive was set to **four minutes** on that basis. A second account
+querying this project's own Synapse measured the real figure. It saw the
+Lightning user online at 08:59, **OFFLINE for the next two and a half
+minutes**, online again at 09:03 — a sawtooth, online for roughly a quarter of
+a live, continuously syncing session. The server's window here is **33 to 63
+seconds**: Synapse's `SYNC_ONLINE_TIMEOUT` plus its activity granularity.
+
+**AND THE PUT IS THE ONLY LEVER.** A client normally stays online because its
+`/sync` carries `set_presence`. Lightning syncs through simplified sliding
+sync, which has no such parameter — verified in `rust/src/presence.rs`, where
+`set_presence::v3` is the only call that touches presence at all. So nothing
+about syncing told this server we were here, and the only thing that could was
+the periodic PUT. It is 25 s now, strictly inside the floor.
+
+**The `rate_limited` line in the maintainer's own logs was a second, separate
+fault: a startup double publish.** `handleConnectionState` forces a publish on
+every edge into Syncing, and a session start flaps `starting -> offline ->
+retrying -> starting -> running`, so two identical PUTs go out about three
+seconds apart. Synapse's `rc_presence` burst is 1 and refuses the second, and
+the Rust side sends with `.disable_retry()` — so the first keep-alive window
+was simply lost. An unchanged state is now dropped inside a 10 s window; a
+real change never is. One existing case had asserted the duplicate this
+removes, and now encodes the window instead of losing its intent.
+
+**This is also what made the same day's rail badge dishonest.** `stateFor()`
+answers for the own user from the locally published value, deliberately — a
+server with presence disabled returns "offline" for everybody, and a user once
+watched their own card read Offline. That value was right about what we sent
+and wrong about what anyone saw. Fixing the cadence is what makes the two
+agree.
+
+### And the fix's own cost, measured rather than assumed
+
+With 25 s in place the account stays online continuously: **15 consecutive
+server samples over 6m55s with no gap**, against the old sawtooth of ~30-60 s
+in every 240. But every client publishes on the same period, so one account
+with several sessions puts **N x 2.4 PUT/min** on the server. With four
+clients open, **3 of 38 PUTs came back HTTP 429** on the steady keep-alive —
+not at session start. `rc_presence`'s burst of 1 does not tolerate that, and a
+desktop plus a laptop is enough to reach it, which is ordinary use here.
+
+Each client now re-arms **21-25 s** after publishing instead of exactly 25, so
+two clients drift apart rather than aligning for ever. Jitter is subtracted
+and never added, so the effective period stays inside the 33 s floor the
+interval was measured against, and the test seam turns it off because a suite
+wants a deterministic cadence. Stated plainly: **this is not a full answer** —
+a 429 is still reachable if two clients happen to land together — but it turns
+a periodic collision into a transient one, and a missed publish costs nothing,
+because the next tick is 25 s away and the server holds the state for 33.
+
+`presence-manager` 40/40, the new case mutation-proved against the unfixed
+guard.
+
+### A gate that could not tell "nothing yet" from "no session"
+
+Reported from the maintainer's own launch log: ~60 MatrixRTC pokes on initial
+sync collapsing into **TEN full `/state` requests**, every one returning
+`participants= 0` with nothing in it but stale membership events.
+
+`read_membership_events` had exactly two outcomes: answer from the store if it
+holds a LIVE membership, otherwise ask the server. "Not live" is the ordinary
+state of every idle room — **and an EMPTY store failed that same gate
+identically**, so the cost was wider than the pokes: every room the user opens
+paid for a `/state` too, through `setCurrentRoomId`, under a comment claiming
+"a read is cheap (state store, no request)". It was not. That half never
+appears in a poke trace, which is exactly why it stayed invisible while the
+poke path was the thing being read.
+
+The store read still happens on every poke; only the ESCALATION is gated. It
+now needs an absence of live membership AND a reason to believe a session
+exists: we are published in that room's call (the case the fallback was
+written for — media-key targets), a MatrixRTC ring arrived within three
+minutes, or the store's newest call-state signal is within fifteen. A per-room
+backoff (15 s, doubling to 5 min) stops a ghost membership inside that horizon
+from becoming the same storm in a smaller costume; a ring or our own publish
+clears it. `refreshFromServer`'s forced lane is untouched.
+
+**What it gives up, stated plainly:** a call already live in a room whose
+membership state sync has never delivered shows no banner until sync delivers
+it — opening the room subscribes it, so it self-corrects within a round trip.
+A call STARTING is unaffected (a joining peer's membership is live, so the
+store answers for free), and so are call teardown, our own call's key targets,
+the incoming-call Answer gate and the SFU's unknown-participant path.
+
+The new `source` words distinguish "we did not need to ask" from "we were not
+allowed to ask" — `store-no-session` versus `store-cooling-{own,ring,recent}`
+— because otherwise those are the same observable in a log. 10 new tests in
+`rtc.rs`; cargo 459/459.
+
+### A fix that shipped on reasoning alone, and the regression it caused
+
+The maintainer photographed a square corner in the rail. My first answer was
+`9474ae43`, and its own commit message says what was wrong with it: the
+backdrop behind an over-cap child was a flat `radius: 0` whose comment claimed
+it stood in "for a parent whose run CONTINUES through this row — that is the
+only condition under which it exists", while its actual visibility is
+`trueBandDepth > maxBandLayers` and says nothing about continuation. On the
+LAST row of an over-cap run the parent ends exactly there, so a radius-0
+rectangle leaves a hard square corner under the child's rounded one. That
+reasoning is still sound as a reading of the invariant. **It was found by
+re-reading the invariant after the photograph, NOT by reproducing the
+photograph**, the commit said so outright, and it should not have shipped on
+that.
+
+`3ea7b320` undid it. That rectangle exists to be the PARENT's colour in the
+notch a child's rounded corner opens at the cap. Giving it a radius rounds it
+away from that notch, and what shows through instead is the **GRANDPARENT** —
+a rung too light, under a hard full-width edge. Measured on a Windows guest at
+the same junction before and after the change: before, the parent's rung
+persists under the child's corner; after, the grandparent's does. A second
+sweep on Linux found the same notch unfilled. If an end-of-run corner ever
+does need rounding there, it needs a rectangle that is **square where the
+child's corner is and rounded where the run stops** — one radius cannot be
+both.
+
+The same commit corrected a second thing of mine. The expander's plate stepped
+two rungs UP the ladder and clamped at the ceiling, so on a row already at the
+top rung it took its own band's colour: measured on Windows at depth 3 as
+plate `#97B8A7` against band `#97B7A7`, **ΔL* 0.28**. The box the expander had
+just been given disappeared exactly where the rail is busiest. It steps DOWN
+when it runs out of ladder now, because what makes it read as a control is
+that it **differs** from its background, not that it is lighter.
+`rail-drag-qml` 17/17.
+
+### The square corner was one wrong flag, and the view read it three ways
+
+The real cause was never in the QML. `folderLast` is stamped by the STORE,
+which knows a folder's top-level members only, and `appendSubspaces()` then
+gives every nested row a hard-coded `false`. So the moment a folder's last
+member is an EXPANDED Space, the flag sits on that Space instead of on the
+last ROW of the block — and three separate visual defects came out of that one
+row:
+
+* the container squares its bottom at the block's true end;
+* it overshoots by one `list.spacing` into the gap below;
+* and it pinches mid-block at the row that wrongly holds the flag.
+
+Measured on a capture: the container's bottom corner insets **0px where its
+top insets 19**, at dpr 1.5 AND at 1.0, so it is not a rounding artefact of
+one scale.
+
+`refreshFolderRuns()` has always computed this correctly over every row — and
+its only caller is the drag-preview path, so the ordinary refresh never ran
+it. Same family as `refreshIndexStats()` and the unregistered test file: code
+that exists, looks right, and is never reached. It is stamped in `applyRows()`
+beside `stampGroupField` now, and it has to be **there rather than after**:
+the bounds of a run are part of what makes two row sets the same picture, so a
+reorder that only moves a run's end would otherwise compare equal and never
+reach the view.
+
+The regression case needs the last member EXPANDED to discriminate — with
+everything collapsed the last member IS the last row and the broken code
+agrees with the correct one, which is how this survived. Mutation-proved
+against the unstamped tree. `rail-layout` 39/39.
+
+### Depth had exactly one cue, and it was lightness
+
+Reported as "hard to tell the layers apart". MEASURED before changing
+anything, and the ladder was doing exactly one thing: rung to rung it moved
+3.4 ΔL* while the CHROMA went **4.87 -> 4.63** — flat, and very slightly DOWN.
+Every boundary in the rail was a brightness step and nothing else, because
+`text` is a near-neutral and tinting a near-neutral rail toward it can only
+produce greys.
+
+Each rung's ink is now mixed toward the theme's own `accent` by a growing
+fraction. **THE LIGHTNESS LADDER IS UNCHANGED**: the alphas are re-solved by
+bisection so every rung lands on the same L* it did before, so the ceiling the
+2026-09-18 round argued for does not move. What is added is a SECOND,
+independent cue — chroma climbs 5.2 -> 16.5, and the perceptual distance
+between adjacent regions goes from a flat 3.4 ΔE to **3.9 / 4.9 / 6.5** at the
+depths where the rail is busiest.
+
+The accent rather than a new colour, so it follows all eleven presets for
+free. Kept small: the deepest region is `#222c44`, a muted navy, and the
+selection language is untouched — that is a saturated 2px stroke plus an
+`accentSoft` fill ON the tile, a different device from a wash three shades off
+the rail's own ground. Measured on the render and not just modelled: the bands
+come back L* 8.55 / 11.69 / 13.34 / 15.14 with chroma 5.64 -> 10.85 where it
+used to be flat.
+
+build-rust 210/210, build 201/201, `rail-drag-qml` 17/17 including the
+eleven-theme ladder case. Live: **PASS** on Xvfb at 1430x902 dpr 1.5.
+
+### A self badge that could not answer the one question it was for
+
+Two reports, one badge: it did not show "the correct status", and it covered
+the profile picture.
+
+**It was a CONNECTION indicator** — green while the sync socket was up — and
+it was the only self-status surface in the application, so "what am I showing
+as to other people?" was the one question it could not answer. It shows real
+Matrix presence now, through the same `PresenceDot` every other surface uses,
+which is where the lifecycle already lives: the watch/unwatch bookkeeping,
+unknown rendering NOTHING rather than a fabricated Offline, and offline drawn
+as a hollow ring so the three states differ in FORM and not only in hue. The
+rail was the one place hand-rolling a rival indicator.
+
+**Connection is not lost, it moves to the tooltip** — the same argument
+`PresenceDot` itself makes about `unavailable`: a dot has no room for prose,
+so the only thing it can do with a second fact is paint another colour, which
+is a fabricated indicator by another name. And because an unknown presence
+renders nothing, the old connection dot stays as the FALLBACK for a server
+with presence disabled, where otherwise the user's own tile would carry no
+indicator at all.
+
+**It covered the face because it was anchored to the tile's square bounding
+box** at a 6.5% margin: that put its centre 15.4px from the centre of a disc
+of radius 20, i.e. inside the avatar, so it sat on the picture. It is placed
+by the geometry now — centre at `avatarR + dotR - ring` along the 45-degree
+diagonal — so the state ink lands exactly at the disc's edge and only the
+rail-coloured ring, whose whole job is separating the badge from what is under
+it, overlaps at all.
+
+**And the scrollbar is gone.** A 78px column of round tiles has no room for a
+rail-length bar beside them, and what it drew was a hard grey line down the
+one edge every region boundary meets. The wheel, a drag and the keyboard all
+still scroll it.
+
+`rail-drag-qml` 17/17, `qml-component-load` 32/32, `tester-report-2-contract`
+8/8. Live: **PASS** on Xvfb at 1430x902 dpr 1.5 — badge tangent to the avatar
+with a clean notch, no scrollbar, zero QML warnings.
+
+### Collapsing an embed is `active: false`, and `visible: false` is the trap
+
+Requested as "modern media, too much clutter — reduce all embeds into single
+lines, with an expanding arrow or mouse over or keyboard shortcut". Off by
+default; Settings › Appearance › Timeline.
+
+**THE PROPERTY THAT MATTERS: collapsing sets `active: false` on the loader,
+not `visible: false`.** Every media fetch in this delegate lives inside those
+components, so a collapsed attachment is never instantiated and therefore
+cannot fetch, decode or prefetch. A `visible: false` implementation would look
+identical on screen and download everything; one of the ten new cases exists
+purely to tell those two apart.
+
+It covers the six blocks that dominate a room — image/GIF, sticker, video,
+audio and voice, file, and a LOADED link preview — and deliberately does NOT
+cover reply quotes, thread cards, polls or shared places, because each of
+those IS the message rather than an attachment to it, and a poll collapsed to
+one line hides the question and the vote. Nor the link preview's consent gate,
+which is already one band and carries the reader's only control: putting a
+click in front of a privacy decision is a worse trade than the pixels it
+saves. Every exclusion is listed in the delegate beside the setting, so "not
+covered" is a decision on the record rather than an omission.
+
+The affordance is a visible chevron and the whole row is the target. Hover
+alone is invisible at rest and unreachable by keyboard or touch; a shortcut
+needs a "current message", which this timeline has no concept of — rows are
+not a focus ring. So hover and keyboard come along as additions: the row takes
+Tab focus, Space/Return toggle, Right/Left are directional. Expansion is
+reversible and the summary line stays above the expanded embed, because a
+one-way expand would mean the setting silently stopped applying to every row
+the reader had ever opened. Filenames and hosts render as `PlainText`, and a
+voice message deliberately drops its generated filename.
+
+`collapsed-embeds-qml` 10/10 new, `qml-component-load` covers the new
+component, catalogs regenerated for 18 new strings.
+
+### Two facts about one file, and the string no catalog could reach
+
+Both from a GUI pass over the feature above, and both visible as the setting
+is toggled. **Audio collapsed to a bare filename** whenever its duration was
+not known, while every other kind carried a second fact — and the uncollapsed
+card sitting beside it said `0:00 • 281 KB`. It falls back to the size now.
+**And the same file reported two different sizes**, `427 B` on the collapsed
+line and `0.4 KB` on the card: the card computed its own, with no bytes tier,
+and being built from bare `" KB"` / `" MB"` literals it was the one size
+string in this file that no catalog could translate. Both use the one
+formatter now.
+
+### The theme maker learned to measure itself, and its review caught two things
+
+Reported as "works, but it's very basic looking", with a request to test it on
+the GUI including light and dark contrasts. So the editor now MEASURES.
+`CustomThemeStore` gained a readability audit — WCAG contrast and CIE L*, in
+C++ where the policy belongs — grading the pairs that decide whether a theme
+is usable: body text on its surfaces, secondary text, a button's label on the
+accent, text fields, hovered and selected rows, reaction pills. The dialog
+around it is a three-column workspace: grouped roles with swatches and hex, a
+filter, a picker with the theme's own colours offered as a lightness ladder, a
+live readout that names each check in a sentence as you drag, a report panel,
+and a header badge that says how many things are hard to read.
+
+**A ONE-PIXEL SEAM WAS PAINTING A WHOLE COLUMN.** Its anchors were conditional
+on `compact`, and the panel is built while the width is still 0 — so both
+edges ended up anchored, the anchor system wrote `width` directly, and the
+`width: 1` binding was gone for good. MEASURED as `#4C596D` across the entire
+268px picker column where `editorPanel` is `#2A3140`, in both a light and a
+dark base. The irony is the point: it put the readability panel's own text at
+4.44:1 on a light base — the panel that enforces 4.5 failing it. Positioned
+explicitly now, and re-measured on screen at `#2A3140`.
+
+**AND THE AUDIT GRADED AN INK THE APPLICATION NEVER PAINTS.** The
+reaction-pill check used `textPrimary`; a pill is painted with `reactionInk`,
+which is `textSecondary`. Grading the brighter ink made the check strictly
+LOOSER than reality — it could call a pill readable whose real label was not,
+and it printed advice about a pixel that does not exist. Corrected, and
+re-run: all eleven shipped presets still pass with the honest ink.
+
+Three claims in comments were also wrong and are now right: the transfer
+function's knee is WCAG's `0.03928` and not the sRGB spec's `0.04045`; the 3:1
+bar on an accent button is a CALIBRATION decision — it is what caps the
+accent's luminance, and Nordic 4.03 / Purple Dusk 3.62 sit under 4.5 by design
+— and not the "large text" rule it claimed; and the import notice counted the
+PREVIOUS theme, because the audit throttle's imperative assignment destroys
+the binding it writes to, the same shape already recorded here for
+`Image.source`.
+
+**One test could not fail**: `lstar("#000000")` is 0 under any coefficient, so
+L*'s linear segment was unpinned. A near-black case pins it, which is exactly
+where a custom dark theme's checks land.
+
+Accepted follow-ups, NOT done: a skipped check is invisible in the UI while
+the badge still says "Readable"; four editable roles are never graded and that
+is not recorded as deliberate; the live readout shows the ratio but not the
+target; and the report rows are mouse-only.
+
+`custom-theme` 27/27, build-rust 211/211, build 202/202. Live: **PASS** —
+editor opened in a dark base, every column measured on the rendered pixels,
+zero QML warnings.
+
+### Three ways a run lied about itself
+
+**A `ctest` killed mid-loop leaves its settings on disk.** `ComposerQmlTest`
+shares one `QSettings` file across every case in the binary, and its
+hidden-button case already measures first, restores, and asserts afterwards —
+a discipline added on 2026-09-03 for exactly this. That defends against a
+FAILING ASSERTION. It does not defend against the process being killed, and a
+run killed mid-loop left a composer button hidden on disk, so three cases
+failed the NEXT run on a tree that was fine. Diagnosed today, not fixed: read
+a `composer-qml` failure against that file before reading it as a regression.
+
+**A Windows job runner wedged on an inherited handle, and `cmd` said
+nothing.** The `lt-windows` guest runs each job as `call j.bat >
+C:\Users\tester\runner\job.out 2>&1`. One job launched `Lightning.exe` without
+`start ""`, so the GUI app INHERITED the runner's redirected stdout handle and
+then kept running. Every later iteration's redirect failed with *"The process
+cannot access the file because it is being used by another process"* — **and a
+failed redirect makes `cmd` SKIP the command entirely**, so `j.bat` never ran
+at all. The stale local `job.out` could not be copied to the share either, and
+only `echo %RC% > job.done` kept working: jobs looked like they ran, returned
+an rc, and produced no output. This is NOT the old deleted-`job.out` trap;
+nothing was deleted from the Linux side. The repaired runner uses a unique
+local output file per iteration (`out_!RANDOM!!RANDOM!.txt`) so a leftover
+long-lived child can never block the next job, and fixes `%RC%`, which was
+expanded at block-parse time and so reported the PREVIOUS job's exit code. Two
+rules are written into the runner itself: the guest owns both `job.out` and
+`job.done` and the host deletes neither, and a job that starts a long-lived
+GUI app must launch it with `start ""`.
+
+**And four probes for it all ran through the channel they were testing.**
+Before the handle was found, the hypothesis was that the share had gone
+read-only or the guest's disk had filled, and four diagnostic jobs were
+written to settle it: `net use`, `fsutil volume diskfree`, five distinct write
+tests (a `cmd` redirect, `copy`, `[IO.File]::WriteAllText`, an overwrite of an
+existing file, and `[IO.File]::Open`), then `ren` and `md`. Every one of them
+was delivered as `job.bat` through the job runner — **the thing under test** —
+so all four produced exactly the same nothing, and none of them said anything
+about SMB. It was settled only by typing into the guest's Run box over RDP, a
+channel that does not go through the runner: that listed the live `cmd.exe`
+command lines and showed the wedged redirect. The repaired runner was
+installed the same way and then proved with a nonce echoed back through it.
+
 ## 2026-09-19 (night) — a control placed by its box, and a ladder solved over a chain nobody draws
 
 Four maintainer reports from one screenshot, one independent review that came
