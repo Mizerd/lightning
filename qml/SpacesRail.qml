@@ -1028,6 +1028,27 @@ Rectangle {
                 /// expanded one's 6.8 above its region — a control that
                 /// changes weight with the state of the thing it toggles,
                 /// which is the same complaint as the box that changed size.
+                /// WHICH RUNG THE EXPANDER'S PLATE IS PAINTED WITH.
+                ///
+                /// Two rungs ABOVE the region it sits on — except where that
+                /// runs out of ladder, and then two rungs BELOW instead.
+                /// `Math.min(last, tint + 2)` clamped to the ceiling, so on a
+                /// row already at the top rung the plate took the band's own
+                /// colour and the control simply disappeared: MEASURED on a
+                /// Windows guest at depth 3 as plate #97B8A7 against band
+                /// #97B7A7, ΔL* 0.28 — invisible, and invisible exactly where
+                /// the rail is busiest and the expander matters most.
+                ///
+                /// Going down at the ceiling keeps the plate a CONTRAST
+                /// rather than a direction: what makes it read as a control
+                /// is that it differs from its background, not that it is
+                /// lighter than it.
+                readonly property int plateRung: {
+                    var last = AppTheme.railNestSurfaces.length - 1
+                    var up = spaceItem.innermostTint + 2
+                    return up <= last ? up
+                                      : Math.max(0, spaceItem.innermostTint - 2)
+                }
                 readonly property int innermostTint:
                     spaceItem.bandLayers > 0
                     ? spaceItem.bandTint(spaceItem.bandLayers - 1) : 0
@@ -1430,46 +1451,36 @@ Rectangle {
                             + (spaceItem.bandNextLevel >= root.maxBandLayers
                                ? list.spacing + spaceItem.trailingGap : 0)
                     z: -20 + root.maxBandLayers - 0.5
-                    // ROUNDED WHERE THE PARENT'S RUN ACTUALLY ENDS.
+                    // SQUARE, AND IT HAS TO BE. This rectangle exists for
+                    // one purpose: to be the PARENT's colour in the notch a
+                    // child's rounded corner opens at the cap. A radius here
+                    // rounds it away from that notch, and what shows through
+                    // is whatever is further back — the GRANDPARENT, a rung
+                    // too light, with a hard full-width edge above it.
                     //
-                    // This was a flat `radius: 0`, on the reasoning that the
-                    // backdrop only ever stands in for a parent whose run
-                    // CONTINUES through the row. That reasoning does not match
-                    // its own visibility: it is drawn whenever the row is past
-                    // the cap, which says nothing about whether the parent
-                    // continues — and on the LAST row of an over-cap run the
-                    // parent ends exactly here, so a radius-0 rectangle left a
-                    // hard square corner under the child's rounded one.
-                    // Reported 2026-09-19 with a photograph of that corner.
+                    // It was briefly given `bandRadius(maxBandLayers)` on the
+                    // reasoning that a run's last row has an end to round.
+                    // That was speculative, it was wrong, and it was MEASURED
+                    // wrong on two machines: a Windows guest captured the same
+                    // junction on the build before and after and found the
+                    // parent's rung persisting under the child's corner
+                    // before, and the grandparent's rung filling it after; a
+                    // second sweep on Linux found the same notch unfilled.
+                    // The square corner that prompted the change was a
+                    // different defect entirely — `folderLast` stamped over a
+                    // folder's top-level members only (RailEntryModel).
                     //
-                    // So it rounds like every other band and squares off the
-                    // end that CONTINUES, which is the same device the layers
-                    // above use — `bandPrevLevel`/`bandNextLevel` still at or
-                    // past the cap means the parent's run carries on through
-                    // that edge and there is nothing to round there.
-                    radius: root.bandRadius(root.maxBandLayers)
+                    // If a real end-of-run corner ever needs rounding here, it
+                    // needs a rectangle that is square where the child's
+                    // corner is and rounded where the run stops. One radius
+                    // cannot be both.
+                    radius: 0
                     // THE OTHER PARITY — the rung the child is not wearing.
                     color: AppTheme.railNestSurfaces[
                         Math.min(AppTheme.railNestSurfaces.length - 1,
                                  root.maxBandLayers
                                  + ((spaceItem.trueBandDepth
                                      - root.maxBandLayers + 1) % 2))]
-                    Rectangle {
-                        visible: spaceItem.bandPrevLevel >= root.maxBandLayers
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        height: parent.radius
-                        color: parent.color
-                    }
-                    Rectangle {
-                        visible: spaceItem.bandNextLevel >= root.maxBandLayers
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: parent.radius
-                        color: parent.color
-                    }
                 }
 
                 Repeater {
@@ -1762,10 +1773,7 @@ Rectangle {
                         // state now has left to say.
                         color: chevronHover.hovered
                                ? AppTheme.hover
-                               : AppTheme.railNestSurfaces[
-                                   Math.min(
-                                       AppTheme.railNestSurfaces.length - 1,
-                                       spaceItem.innermostTint + 2)]
+                               : AppTheme.railNestSurfaces[spaceItem.plateRung]
                         Behavior on color { ColorAnimation { duration: 90 } }
                         z: -1
                     }
