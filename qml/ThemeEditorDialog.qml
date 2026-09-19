@@ -146,7 +146,8 @@ Popup {
     // THROTTLED, AND THE MEASUREMENT IS WHY. Graded straight off
     // `previewPalette` the report re-evaluated once per MOUSE SAMPLE while the
     // picker was dragged: the whole ~40-key palette crossed into C++ twice
-    // (once for the summary, once for the open role's live readout) and the
+    // (once for the summary, once for the open role's live readout — FOUR
+    // times since the skipped-check pass was added beside each) and the
     // report's Repeater tore down and rebuilt a delegate per finding — with
     // thirteen findings on screen that is ~780 delegate rebuilds over one
     // drag. Measured on the GUI, 60-sample drag, identical protocol and the
@@ -2001,6 +2002,14 @@ Popup {
                 }
 
                 Flickable {
+                    // NAMED so a focused row can scroll itself into view.
+                    // The 26 role rows have done this all along; these rows
+                    // gained the keyboard and not the clamp, and this list
+                    // routinely overflows — the suite's own Ink fixture
+                    // produces TWENTY findings. Tabbing past the visible
+                    // ones moved focus, and the focus ring with it, off
+                    // screen: the reader this whole surface exists for.
+                    id: problemScroll
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     visible: root.readabilityProblems > 0
@@ -2051,6 +2060,29 @@ Popup {
                                 activeFocusOnTab: true
                                 Accessible.role: Accessible.Button
                                 Accessible.name: problemText.text
+                                // The role rows' clamp, mirrored: assigning
+                                // `contentY` does NOT clamp (StopAtBounds
+                                // governs dragging, not assignment), and
+                                // `problemColumn` has no y of its own, so its
+                                // space and the Flickable's content space
+                                // coincide.
+                                onActiveFocusChanged: {
+                                    if (!activeFocus)
+                                        return
+                                    var top = mapToItem(problemColumn, 0, 0).y
+                                    var want = problemScroll.contentY
+                                    if (top < want)
+                                        want = top
+                                    else if (top + height
+                                             > want + problemScroll.height)
+                                        want = top + height
+                                               - problemScroll.height
+                                    problemScroll.contentY =
+                                        Math.max(0, Math.min(
+                                            want,
+                                            problemScroll.contentHeight
+                                            - problemScroll.height))
+                                }
                                 Keys.onPressed: (e) => {
                                     if (e.key === Qt.Key_Return
                                         || e.key === Qt.Key_Enter

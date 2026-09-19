@@ -1053,6 +1053,23 @@ private Q_SLOTS:
         QCOMPARE(absent.first().toMap().value(QStringLiteral("reason")).toString(),
                  QStringLiteral("missing"));
 
+        // AND WHEN BOTH REASONS ARE TRUE AT ONCE, OURS IS THE ONE TO SAY.
+        // A translucent background beside a foreground key this build no
+        // longer returns: the first cut preferred "translucent" because it
+        // is the one a person can act on, which reported OUR defect as
+        // THEIR colour — unfixable by anything they could do. Reachable
+        // rather than theoretical: Storm's `hover` really is translucent, so
+        // a rename on the other side of that pair lands here.
+        QVariantMap both{
+            {QStringLiteral("hover"), QColor(0x64, 0x69, 0xBF, 56)}};
+        const QVariantList mixed =
+            store.auditSkipped(both, QStringLiteral("hover"));
+        QVERIFY(!mixed.isEmpty());
+        for (const QVariant &row : mixed) {
+            QCOMPARE(row.toMap().value(QStringLiteral("reason")).toString(),
+                     QStringLiteral("missing"));
+        }
+
         // Narrowing follows auditForRole exactly: an unknown role narrows to
         // nothing, an empty one narrows nothing.
         QCOMPARE(store.auditSkipped(translucent, QStringLiteral("nope")).size(),
@@ -1093,7 +1110,29 @@ private Q_SLOTS:
     void everyCheckGradesTheColourItsRoleWouldEdit()
     {
         const QVariantList checks = CustomThemeStore::readabilityChecks();
-        QCOMPARE(checks.size(), CustomThemeStore::readabilityCheckCount());
+        // NOT `checks.size() == readabilityCheckCount()` — both are
+        // `std::size(kReadability)`, so that compare cannot fail and is
+        // decoration by this round's own standard. What CAN go wrong is a
+        // field the exporter forgets: every entry has to carry the six keys
+        // the callers read, and `fgRole` may be empty but must be PRESENT.
+        QVERIFY(!checks.isEmpty());
+        for (const QVariant &entry : checks) {
+            const QVariantMap m = entry.toMap();
+            for (const char *key : { "fg", "fgRole", "bg", "bgRole",
+                                     "label", "minimum", "kind" }) {
+                QVERIFY2(m.contains(QLatin1String(key)),
+                         qPrintable(QStringLiteral("a readability check is "
+                                                   "missing '%1'")
+                                        .arg(QLatin1String(key))));
+            }
+            QVERIFY(!m.value(QStringLiteral("label")).toString().isEmpty());
+            QVERIFY(m.value(QStringLiteral("minimum")).toDouble() > 0.0);
+            const QString kind = m.value(QStringLiteral("kind")).toString();
+            QVERIFY2(kind == QStringLiteral("ink")
+                     || kind == QStringLiteral("edge"),
+                     qPrintable(QStringLiteral("unknown check kind '%1'")
+                                    .arg(kind)));
+        }
 
         SettingsManager settings;
         CustomThemeStore store(&settings);
@@ -1201,7 +1240,15 @@ private Q_SLOTS:
         const QString source = QString::fromUtf8(dialog.readAll());
         QVERIFY2(source.contains(QStringLiteral("store.roleAliases()")),
                  "the editor no longer reads the alias map from the store");
-        QVERIFY2(!source.contains(QStringLiteral("\"mentionBadge\"")),
+        // SCOPED TO THE SHAPE, not to the word. Forbidding "mentionBadge"
+        // anywhere in the file would also forbid a comment mentioning it and
+        // any legitimate future `palette["mentionBadge"]` read — it passes
+        // today only because the one mention is unquoted. What must not come
+        // back is the object literal: a `storeKeyAliases` whose right-hand
+        // side is a `{` rather than the store call.
+        static const QRegularExpression literalAliases(
+            QStringLiteral("storeKeyAliases\\s*:\\s*\\(?\\s*\\{"));
+        QVERIFY2(!literalAliases.match(source).hasMatch(),
                  "ThemeEditorDialog.qml is keeping its own copy of the alias "
                  "map again");
     }

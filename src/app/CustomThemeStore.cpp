@@ -706,17 +706,30 @@ QVariantList gradePalette(const QVariantMap &palette, const QString &onlyRole,
 
         QVariantMap entry;
         if (!graded) {
-            // The see-through one when BOTH are unusable: it is the one a
-            // person can do something about, and the one their eyes can see
-            // on the row's swatch.
-            const bool fgTranslucent = !fg.isValid()
-                                       && rawColor(fgValue).isValid();
-            const bool bgTranslucent = !bg.isValid()
-                                       && rawColor(bgValue).isValid();
+            // "MISSING" WINS, AND IT USED TO LOSE. The first cut preferred
+            // "translucent" whenever either endpoint was see-through, on the
+            // reasoning that it is the one a person can act on. But the two
+            // reasons are not two flavours of the same answer: one is the
+            // user's colour and the other is a KEY THIS BUILD NO LONGER
+            // RETURNS, which is our bug. A check whose fg key was renamed
+            // away while its bg happens to be translucent — Storm's `hover`
+            // is, so that pairing is reachable rather than theoretical —
+            // would have been reported to the user as "your colour is
+            // see-through": our defect, spelled as theirs, and unfixable by
+            // anything they can do.
+            //
+            // Keyed on the palette not CONTAINING the key rather than on the
+            // parse failing, because an empty or unparseable value is also
+            // ours and reads the same way from here.
+            const auto absent = [&palette](const char *key) {
+                const QString name = QLatin1String(key);
+                return !palette.contains(name)
+                       || palette.value(name).toString().trimmed().isEmpty();
+            };
             entry.insert(QStringLiteral("reason"),
-                         fgTranslucent || bgTranslucent
-                             ? QStringLiteral("translucent")
-                             : QStringLiteral("missing"));
+                         (absent(check.fg) || absent(check.bg))
+                             ? QStringLiteral("missing")
+                             : QStringLiteral("translucent"));
         }
         // What the editor opens when this row is clicked. The foreground when
         // the user can edit it; otherwise the background, because a white ink
