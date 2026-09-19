@@ -641,10 +641,20 @@ void PresenceManager::publishTick(bool force)
     const int desired = desiredOwnState();
     if (!force && desired == m_lastPublished)
         return;
+    // A FORCED REPUBLISH OF AN UNCHANGED STATE IS DROPPED INSIDE THE RATE
+    // WINDOW. The forced path exists so a session that just became live
+    // republishes without waiting for the timer — but the edge into Syncing
+    // fires more than once during a normal start, and the second identical
+    // PUT is the one the server rate-limits (see kMinPublishGapMs). A real
+    // change is never dropped: only `desired == m_lastPublished` qualifies.
+    if (force && desired == m_lastPublished && m_lastPublishAtMs >= 0
+        && m_clock.elapsed() - m_lastPublishAtMs < m_minPublishGapMs)
+        return;
     const int previous = m_lastPublished;
     loadOwnStatusIfNeeded();
     m_client->publishPresence(desired, ownStatusText());
     m_lastPublished = desired;
+    m_lastPublishAtMs = m_clock.elapsed();
     // stateFor()/infoFor() answer the local user from m_lastPublished, so
     // the dot and the profile line only move when the revision does.
     if (previous != m_lastPublished) {
@@ -696,6 +706,7 @@ void PresenceManager::clearSession()
     m_pollCursor = 0;
     m_forbiddenBatches = 0;
     m_lastPublished = -1;
+    m_lastPublishAtMs = -1;
     m_pendingFinalOffline = false;
     m_syncing = false;
     // The watched set is DROPPED with the session: it names the previous

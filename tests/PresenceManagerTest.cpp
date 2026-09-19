@@ -120,6 +120,7 @@ private Q_SLOTS:
     void loggedOutClearsSessionAndResetsLatch();
     void loggedOutDropsWatchedSet();
     void syncingEdgePublishesAndPolls();
+    void aRepeatedSyncingEdgeDoesNotRepublishTheSameState();
     void backgroundGraceKeepsOnlineUntilIdleDwell();
     void batchRotationCoversWatchedSetBeyondCap();
     void disablingShareSettingPublishesOfflineOnce();
@@ -509,6 +510,56 @@ void PresenceManagerTest::backgroundGraceKeepsOnlineUntilIdleDwell()
     QTRY_VERIFY(client.published.contains(1));
 }
 
+// THE START OF A SESSION PUBLISHED TWICE AND THE SERVER REFUSED THE SECOND.
+//
+// `handleConnectionState` forces a publish on every edge into Syncing, and a
+// real session start flaps `starting -> offline -> retrying -> starting ->
+// running`, so two identical PUTs went out within about three seconds of
+// launch. Synapse's `rc_presence` burst is 1, so it rejected the second, and
+// the Rust side sends with `.disable_retry()` — which is the
+// `own-presence publish failed: "rate_limited"` an interop audit reproduced
+// in both instances it ran, once per session.
+//
+// The guard drops a FORCED republish only while the state is UNCHANGED and
+// only inside the rate window; the case below pins both halves, because a
+// guard that also swallowed a real change would silently stop the app
+// reporting Away.
+void PresenceManagerTest::aRepeatedSyncingEdgeDoesNotRepublishTheSameState()
+{
+    FakePresenceClient client;
+    SettingsManager settings;
+    PresenceManager presence;
+    presence.setSettings(&settings);
+    presence.setClient(&client);
+    presence.setApplicationActive(true);
+    // A window long enough that the whole case runs inside it, so the drop
+    // is decided by the guard and never by the clock running out.
+    presence.setMinPublishGapForTest(5000);
+    presence.setPublishIntervalForTest(1000 * 1000);
+
+    goSyncing(client);
+    QCOMPARE(client.published, (QList<int>{ 0 }));
+
+    // The flap: leave Syncing and come back, twice, exactly as a starting
+    // session does. Nothing changed about our state, so nothing is owed.
+    for (int i = 0; i < 2; ++i) {
+        Q_EMIT client.connectionStateChanged(MatrixClient::Connecting);
+        goSyncing(client);
+    }
+    QVERIFY2(client.published == (QList<int>{ 0 }),
+             "a repeated syncing edge re-sent an unchanged presence, which "
+             "is the PUT the server rate-limits");
+
+    // A REAL CHANGE IS NEVER DROPPED, inside the same window.
+    presence.setIdleThresholdForTest(50);
+    presence.setApplicationActive(false);
+    QTest::qWait(150);
+    Q_EMIT client.connectionStateChanged(MatrixClient::Connecting);
+    goSyncing(client);
+    QVERIFY2(client.published.contains(1),
+             "the guard swallowed a genuine change to Away");
+}
+
 void PresenceManagerTest::syncingEdgePublishesAndPolls()
 {
     FakePresenceClient client;
@@ -523,10 +574,24 @@ void PresenceManagerTest::syncingEdgePublishesAndPolls()
     QCOMPARE(client.published.size(), 1);
     QCOMPARE(client.published.first(), 0); // online
 
-    // Re-entering Syncing (reconnect) publishes again; staying in Syncing
-    // does not.
+    // Staying in Syncing does not publish.
     goSyncing(client);
     QCOMPARE(client.published.size(), 1);
+
+    // A RECONNECT REPUBLISHES — but not inside the rate window, and this
+    // case asserted the opposite until 2026-09-19. An unchanged state
+    // re-sent seconds after the last one is the PUT Synapse's `rc_presence`
+    // refuses, and a session start produces exactly that by flapping through
+    // Syncing more than once. Inside the window the server still holds our
+    // state anyway: a published "online" was measured to survive 33-63 s.
+    Q_EMIT client.connectionStateChanged(MatrixClient::Error);
+    goSyncing(client);
+    QCOMPARE(client.published.size(), 1);
+
+    // Past the window the same reconnect does republish, because by then the
+    // server's copy can have expired.
+    presence.setMinPublishGapForTest(50);
+    QTest::qWait(80);
     Q_EMIT client.connectionStateChanged(MatrixClient::Error);
     goSyncing(client);
     QCOMPARE(client.published.size(), 2);

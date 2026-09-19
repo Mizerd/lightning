@@ -144,6 +144,7 @@ public:
     // untestable at those scales (review L7).
     void setIdleThresholdForTest(qint64 ms) { m_idleAfterMs = ms; }
     void setPublishIntervalForTest(int ms) { m_publishTimer.setInterval(ms); }
+    void setMinPublishGapForTest(int ms) { m_minPublishGapMs = ms; }
     // The real typing-evidence window is 35 s; that it EXPIRES is untestable
     // at that scale. Deliberately not reset by clearSession() — it is a
     // harness value, not session state.
@@ -177,9 +178,37 @@ private:
     static constexpr qint64 kFreshWatchMs = 10000;
     // Mirrors PRESENCE_BATCH_CAP in rust/src/presence.rs.
     static constexpr int kBatchCap = 40;
-    // Servers expire presence after a few minutes without activity, so the
-    // keep-alive must be comfortably faster than that.
-    static constexpr int kPublishIntervalMs = 4 * 60 * 1000;
+    // MEASURED, and the number this replaced was assumed. The comment here
+    // used to read "servers expire presence after a few minutes without
+    // activity" and set the keep-alive to four minutes on that basis. An
+    // interop audit on 2026-09-19 measured the real figure against this
+    // project's own Synapse: a published "online" survives between 33 and
+    // 63 seconds, which is Synapse's `SYNC_ONLINE_TIMEOUT` (30 s after the
+    // last sync activity) plus its activity granularity. So the keep-alive
+    // was FOUR TIMES SLOWER than the expiry, and the account read OFFLINE to
+    // everybody else for about three quarters of every live session —
+    // measured from a second account querying the server, not inferred.
+    //
+    // AND THE PUT IS THE ONLY LEVER WE HAVE. A client normally stays online
+    // because its /sync carries `set_presence`; Lightning syncs through
+    // simplified sliding sync, which has no such parameter, so nothing about
+    // syncing tells this server we are here. Verified in `rust/src/presence.rs`
+    // — `set_presence::v3` is the only call that touches presence.
+    //
+    // 25 s therefore, strictly inside the 30 s floor. That is one small PUT
+    // per 25 s for a live session, which is the cost of the protocol here;
+    // Synapse's `rc_presence` default (0.1/s sustained) allows it with room
+    // to spare.
+    static constexpr int kPublishIntervalMs = 25 * 1000;
+    // NO TWO IDENTICAL PUBLISHES INSIDE THIS WINDOW. `handleConnectionState`
+    // forces a publish on every edge into Syncing, and a session start flaps
+    // `starting -> offline -> retrying -> starting -> running`, so two PUTs
+    // went out within ~3 s of launch; Synapse's `rc_presence` burst is 1, it
+    // rejected the second, and the Rust side sends with `.disable_retry()` —
+    // so the reported `own-presence publish failed: "rate_limited"` cost the
+    // whole first keep-alive window. Only an UNCHANGED state is dropped: a
+    // real state change still publishes immediately.
+    static constexpr int kMinPublishGapMs = 10 * 1000;
     // The app being CONTINUOUSLY in the background this long reads as
     // "idle" — measured from the moment focus was lost (review H2: an
     // earlier draft measured from the moment focus was GAINED, so any
@@ -261,6 +290,9 @@ private:
     QTimer m_publishTimer;
     QTimer m_typingTimer;
     QElapsedTimer m_clock;
+    // m_clock time of the last PUT we actually sent, for kMinPublishGapMs.
+    qint64 m_lastPublishAtMs = -1;
+    int m_minPublishGapMs = kMinPublishGapMs;
 
     quint64 m_nextOpId = 1;
     int m_revision = 0;
