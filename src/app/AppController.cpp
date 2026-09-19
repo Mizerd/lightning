@@ -1373,6 +1373,24 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // The rail's rows: the user's arrangement applied to the hierarchy, with
     // the transient drag preview living in the model rather than in QML.
     m_railEntries->setSources(m_spaces.get(), m_railLayout.get());
+    // ── CLASSIC RAIL: THE MODEL GOES FLAT, NOT THE PAINT ────────────────
+    //
+    // `spacesRailDepthStyle` 1 is the Classic rail — a plain top-level
+    // Space list, which is what this client drew before the hierarchy
+    // landed and what Element draws. The setting is C++'s and the row list
+    // is C++'s, so the wiring belongs here rather than in a QML binding
+    // that would have to hide rows the drag arithmetic still counts.
+    //
+    // Connected AND applied once: a setting read only on change is a
+    // setting that does nothing until the user toggles it, which is the
+    // shape of several defects this project has already paid for.
+    const auto applyRailStyle = [this] {
+        m_railEntries->setFlat(m_settings->spacesRailDepthStyle()
+                               == SettingsManager::kRailDepthClassic);
+    };
+    connect(m_settings.get(), &SettingsManager::spacesRailDepthStyleChanged,
+            this, applyRailStyle);
+    applyRailStyle();
     // The arrangement is per-account storage behind a process-lifetime cache,
     // so the store has to be TOLD about a sign-out / switch: without this the
     // outgoing account's Space ids and folder names stay on screen under the

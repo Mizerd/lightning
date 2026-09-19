@@ -1562,6 +1562,82 @@ private Q_SLOTS:
         QCOMPARE(modelIds(model).indexOf(QStringLiteral("!shared:x")), first);
     }
 
+    // ── THE CLASSIC RAIL IS A MODEL STATE, NOT A PAINT STATE ────────────
+    //
+    // "Just a plain top level space list" — Element's rail, and this
+    // client's own before the hierarchy landed. The rows have to be ABSENT
+    // rather than hidden: the drag arithmetic, the group bands and the drop
+    // targets all index into this list, and every one of them would be
+    // measuring rows nobody can see if Classic were a QML `visible` binding.
+    void aFlatRailListsTopLevelSpacesAndNothingUnderThem()
+    {
+        FakeClient client;
+        client.roomList = {
+            spaceRoom(QStringLiteral("!top:x"), QStringLiteral("Top"),
+                      { QStringLiteral("!mid:x") }),
+            spaceRoom(QStringLiteral("!mid:x"), QStringLiteral("Mid"),
+                      { QStringLiteral("!deep:x") },
+                      { QStringLiteral("!top:x") }),
+            spaceRoom(QStringLiteral("!deep:x"), QStringLiteral("Deep"), {},
+                      { QStringLiteral("!mid:x") }),
+            spaceRoom(QStringLiteral("!other:x"), QStringLiteral("Other"), {}),
+        };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        store.setSpaceExpanded(QStringLiteral("!top:x"), true);
+        store.setSpaceExpanded(QStringLiteral("!mid:x"), true);
+        RailEntryModel model;
+        model.setSources(&spaces, &store);
+
+        // Regions: the whole chain is listed.
+        const QStringList nested = modelIds(model);
+        QVERIFY2(nested.contains(QStringLiteral("!mid:x")), "mid is missing "
+                                                            "from the nested rail");
+        QVERIFY2(nested.contains(QStringLiteral("!deep:x")), "deep is missing "
+                                                             "from the nested rail");
+
+        model.setFlat(true);
+        const QStringList flat = modelIds(model);
+        QVERIFY2(flat.contains(QStringLiteral("!top:x")), "a TOP-LEVEL Space "
+                                                          "went missing on the flat rail");
+        QVERIFY2(flat.contains(QStringLiteral("!other:x")),
+                 "a second top-level Space went missing on the flat rail");
+        QVERIFY2(!flat.contains(QStringLiteral("!mid:x")),
+                 "a subspace is still listed on the flat rail");
+        QVERIFY2(!flat.contains(QStringLiteral("!deep:x")),
+                 "a deep subspace is still listed on the flat rail");
+
+        // NOTHING EXPANDS, and both fields matter: `expandable` is what puts
+        // a chevron beside a tile, `expanded` is what the region and band
+        // code reads. A row carrying either would draw a control that cannot
+        // act, or box a run with no members in it.
+        for (int i = 0; i < model.rowCount(); ++i) {
+            const QModelIndex idx = model.index(i, 0);
+            const QString id =
+                model.data(idx, RailEntryModel::EntryIdRole).toString();
+            QVERIFY2(!model.data(idx, RailEntryModel::ExpandableRole).toBool(),
+                     qPrintable(QStringLiteral("%1 is expandable on the flat "
+                                               "rail").arg(id)));
+            QVERIFY2(!model.data(idx, RailEntryModel::ExpandedRole).toBool(),
+                     qPrintable(QStringLiteral("%1 is expanded on the flat "
+                                               "rail").arg(id)));
+            QVERIFY2(!model.data(idx,
+                                 RailEntryModel::HierarchyChildRole).toBool(),
+                     qPrintable(QStringLiteral("%1 is a hierarchy child on "
+                                               "the flat rail").arg(id)));
+            QCOMPARE(model.data(idx, RailEntryModel::LevelRole).toInt(), 0);
+        }
+
+        // AND THE ROUND TRIP IS LOSSLESS. Classic does not CLEAR the
+        // expansion state, it declines to read it — so a person who tries
+        // the flat rail and goes back finds exactly the rail they left,
+        // rather than every Space they had opened now shut.
+        model.setFlat(false);
+        QCOMPARE(modelIds(model), nested);
+    }
+
     void draggingASpaceCarriesItsExpandedSubspacesWithIt()
     {
         // Those rows are Matrix's arrangement UNDER this Space. Moving the

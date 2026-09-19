@@ -206,6 +206,25 @@ class SettingsManager : public QObject
                    WRITE setRoomListWidth NOTIFY roomListWidthChanged)
     Q_PROPERTY(int spacesRailWidth READ spacesRailWidth
                    WRITE setSpacesRailWidth NOTIFY spacesRailWidthChanged)
+    /// HOW THE RAIL SHOWS NESTING: 0 = Regions (the default since 0.9.9 —
+    /// one tinted region per ancestor drawn behind the rows), 1 = Classic
+    /// (the 0.9.8 rail — no tinted regions, depth shown by stepping the
+    /// tile in, and the expander with no plate under it).
+    ///
+    /// Offered because the regions are a large change to a surface that is
+    /// on screen the whole time and was not asked for by the people looking
+    /// at it. It is a PRESENTATION choice and nothing else: both styles draw
+    /// the same rows, in the same order, with the same drag behaviour, and
+    /// the model is untouched by it. Nothing about the hierarchy is hidden
+    /// in Classic — a nested Space is still nested, still reachable, still
+    /// expandable — it is shown with indentation instead of colour.
+    ///
+    /// Shell-scoped and app-wide, like `spacesRailWidth` beside it: the rail
+    /// is chrome, and a per-account look for the strip down the side of the
+    /// window would change under the user when they switch accounts.
+    Q_PROPERTY(int spacesRailDepthStyle READ spacesRailDepthStyle
+                   WRITE setSpacesRailDepthStyle
+                   NOTIFY spacesRailDepthStyleChanged)
     Q_PROPERTY(int sidePanelWidth READ sidePanelWidth
                    WRITE setSidePanelWidth NOTIFY sidePanelWidthChanged)
     // The clamps, exposed so a slider cannot invent its own bounds. Written
@@ -697,6 +716,8 @@ public:
     void setRoomListWidth(int px);
     int spacesRailWidth() const;
     void setSpacesRailWidth(int px);
+    int spacesRailDepthStyle() const;
+    void setSpacesRailDepthStyle(int style);
     int sidePanelWidth() const;
     void setSidePanelWidth(int px);
     bool closeToTray() const;
@@ -723,6 +744,14 @@ public:
     // deep a tree is worth showing rather than by how wide a label would be.
     static constexpr int kSpacesRailMinWidth = 68;
     static constexpr int kSpacesRailMaxWidth = 260;
+    /// Rail depth styles (see the Q_PROPERTY note). Clamped on READ as well
+    /// as on write, for the reason the widths are: an unknown value from a
+    /// hand-edited config, or from a NEWER build that had a third style,
+    /// must land on something this build can draw rather than on a rail with
+    /// no depth cue at all.
+    static constexpr int kRailDepthRegions = 0;
+    static constexpr int kRailDepthClassic = 1;
+    static constexpr int kMaxSpacesRailDepthStyle = kRailDepthClassic;
     static constexpr int kSidePanelMinWidth = 240;
     static constexpr int kSidePanelMaxWidth = 640;
     static constexpr int roomListMinWidth() { return kRoomListMinWidth; }
@@ -1112,6 +1141,7 @@ Q_SIGNALS:
     void roomListVisibleChanged();
     void roomListWidthChanged();
     void spacesRailWidthChanged();
+    void spacesRailDepthStyleChanged();
     void sidePanelWidthChanged();
     void closeToTrayChanged();
     void startInTrayChanged();

@@ -152,6 +152,29 @@ public:
 
     void setSources(SpaceManager *spaces, RailLayoutStore *layout);
 
+    /// ── THE FLAT RAIL, WHICH IS WHAT ELEMENT DRAWS ──────────────────────
+    ///
+    /// When true the model emits TOP-LEVEL ENTRIES ONLY: no subspace is
+    /// listed under its parent, nothing is expandable, and nothing is
+    /// expanded. That is the whole of the Classic rail — a plain column of
+    /// Space icons, which is what this client drew before the hierarchy
+    /// landed and what Element draws today.
+    ///
+    /// IT IS A MODEL FLAG AND NOT A PAINT FLAG, deliberately. Hiding the
+    /// nested rows in QML would leave them in the row list that the drag
+    /// arithmetic, the group bands and the drop targets all index into —
+    /// every one of which would then be measuring rows nobody can see. The
+    /// rows simply do not exist in Classic, so there is nothing to keep in
+    /// step.
+    ///
+    /// What it does NOT touch: folders. A folder is the user's own grouping
+    /// of TOP-LEVEL Spaces, not Matrix hierarchy, and collapsing one hides
+    /// nothing that Classic would otherwise show. Dropping folders here
+    /// would rearrange a rail the user built by hand, which is a bigger
+    /// change than the one being asked for.
+    void setFlat(bool flat);
+    bool flat() const { return m_flat; }
+
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
@@ -286,6 +309,7 @@ private:
     RailLayoutStore *m_layout = nullptr;
     QVector<QVariantMap> m_rows;
 
+    bool m_flat = false;
     bool m_peopleEntryVisible = false;
     // Default TRUE: Classic is the default layout and the tile belongs there.
     bool m_orphansEntryVisible = true;

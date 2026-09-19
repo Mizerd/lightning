@@ -55,6 +55,7 @@ constexpr auto kSpaceBannerExpanded = "shell/spaceBannerExpanded";
 constexpr auto kRoomListVisible   = "shell/roomListVisible";
 constexpr auto kRoomListWidth     = "shell/roomListWidth";
 constexpr auto kSpacesRailWidth   = "shell/spacesRailWidth";
+constexpr auto kSpacesRailDepthStyle = "shell/spacesRailDepthStyle";
 constexpr auto kSidePanelWidth    = "shell/sidePanelWidth";
 constexpr auto kCloseToTray       = "shell/closeToTray";
 constexpr auto kWindowGeometry    = "shell/windowGeometry";
@@ -2241,6 +2242,40 @@ void SettingsManager::setSpacesRailWidth(int px)
         return;
     m_store->setValue(kSpacesRailWidth, clamped);
     Q_EMIT spacesRailWidthChanged();
+}
+
+int SettingsManager::spacesRailDepthStyle() const
+{
+    // DEFAULTS TO REGIONS, which is what the tree already renders, so an
+    // existing install sees no change from the option existing. Clamped on
+    // read for the same reason the widths are, and with one extra reason of
+    // its own: this value can arrive from a NEWER build that had a third
+    // style, and an out-of-range style would leave the rail drawing no depth
+    // cue at all rather than the wrong one.
+    const int stored =
+        m_store->value(kSpacesRailDepthStyle, kRailDepthRegions).toInt();
+    // FALL BACK, DO NOT CLAMP. `std::clamp(2, 0, 1)` is 1 — so a value
+    // written by a newer build with a third style would land this one on
+    // CLASSIC, silently switching the rail to a look the person never chose,
+    // as far from their actual choice as the range allows. A width can be
+    // clamped because 4000 and 260 are the same intent at different
+    // magnitudes; an enum has no such ordering, and the honest answer to a
+    // style this build does not know is the default.
+    if (stored < 0 || stored > kMaxSpacesRailDepthStyle)
+        return kRailDepthRegions;
+    return stored;
+}
+
+void SettingsManager::setSpacesRailDepthStyle(int style)
+{
+    // Same rule on the way in, for the same reason: a caller that hands us
+    // a style we do not have gets the default, not the nearest.
+    const int valid = (style < 0 || style > kMaxSpacesRailDepthStyle)
+                          ? kRailDepthRegions : style;
+    if (spacesRailDepthStyle() == valid)
+        return;
+    m_store->setValue(kSpacesRailDepthStyle, valid);
+    Q_EMIT spacesRailDepthStyleChanged();
 }
 
 int SettingsManager::sidePanelWidth() const

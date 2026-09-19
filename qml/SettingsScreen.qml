@@ -86,6 +86,14 @@ Item {
           keywords: qsTr("message layout modern bubbles compact"),
           section: "appearance", breadcrumb: qsTr("Appearance"),
           control: "messageLayout" },
+        // Indexed under the words someone would actually type after
+        // deciding the rail looks wrong — "space bar" included, because that
+        // is what the maintainer calls it and it is what a report says.
+        { title: qsTr("Spaces rail depth"),
+          keywords: qsTr("spaces rail depth space bar sidebar nesting regions "
+                         + "classic old style flat tint indent"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
+          control: "spacesRailDepth" },
         { title: qsTr("Text size"), keywords: qsTr("text size font scale"),
           section: "appearance", breadcrumb: qsTr("Appearance") },
         { title: qsTr("Interface zoom"),
@@ -1186,6 +1194,30 @@ Item {
                                             current: app.settings.messageLayout
                                             onActivated: (value) =>
                                                 app.settings.messageLayout = value
+                                        }
+
+                                        // Two segments, so it fits the nav
+                                        // column's width where the layout
+                                        // control above does not — but it
+                                        // sits here rather than beside the
+                                        // title for the same reason, which
+                                        // is that a search result's row is
+                                        // one shape and not two.
+                                        SegmentedControl {
+                                            storm: true
+                                            objectName: "settingsSearchInlineRailDepth_" + resultRow.index
+                                            visible: resultRow.modelData.control === "spacesRailDepth"
+                                            dense: true
+                                            enabled: app.settings.spacesRailVisible
+                                            opacity: enabled ? 1.0 : 0.5
+                                            Layout.topMargin: AppTheme.spacing4
+                                            model: [
+                                                { label: qsTr("Regions"), value: 0 },
+                                                { label: qsTr("Classic"), value: 1 },
+                                            ]
+                                            current: app.settings.spacesRailDepthStyle
+                                            onActivated: (value) =>
+                                                app.settings.spacesRailDepthStyle = value
                                         }
                                     }
 
@@ -2816,6 +2848,59 @@ Item {
                                     font.pixelSize: AppTheme.textMeta
                                     text: qsTr("Drag the line between two panels to "
                                                + "resize them. Widths are remembered.")
+                                }
+
+                                // HOW THE SPACES RAIL SHOWS NESTING. Its own
+                                // control rather than a line in the theme
+                                // page, because it belongs with the panel
+                                // that it is about — someone who has just
+                                // decided the rail is too loud is looking at
+                                // the rail's own settings, not at a colour
+                                // page two screens away.
+                                //
+                                // Enabled only while the rail is SHOWN: a
+                                // choice about how a hidden panel draws
+                                // itself is a control that does nothing, and
+                                // this one sits directly under the checkbox
+                                // that hides it.
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing4
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    text: qsTr("Spaces rail depth")
+                                    color: AppTheme.stormText
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: AppTheme.textMeta
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                SegmentedControl {
+                                    storm: true
+                                    objectName: "spacesRailDepthControl"
+                                    enabled: app.settings.spacesRailVisible
+                                    opacity: enabled ? 1.0 : 0.5
+                                    model: [
+                                        { label: qsTr("Regions"), value: 0 },
+                                        { label: qsTr("Classic"), value: 1 },
+                                    ]
+                                    current: app.settings.spacesRailDepthStyle
+                                    onActivated: (value) =>
+                                        app.settings.spacesRailDepthStyle = value
+                                    Accessible.description: qsTr(
+                                        "Choose how the Spaces rail shows which "
+                                        + "Space contains which")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Regions tint the rail behind a Space "
+                                               + "and everything inside it. Classic is "
+                                               + "the flat rail from earlier versions, "
+                                               + "where a nested Space steps in instead. "
+                                               + "Both show the same Spaces.")
                                 }
                             }
                         }

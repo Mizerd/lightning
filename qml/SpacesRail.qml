@@ -321,7 +321,37 @@ Rectangle {
     /// and it is worth saying out loud because this file also records "the
     /// space bar is a bit too wide for comfort" as a report from the same
     /// maintainer. If it has to come back, the plate is the thing to shrink.
-    readonly property int railSideMargin: AppTheme.scaled(19)
+    readonly property int railSideMargin:
+        root.classicDepth ? AppTheme.scaled(10) : AppTheme.scaled(19)
+
+    /// ── THE 0.9.8 RAIL, ON REQUEST ─────────────────────────────────────
+    ///
+    /// The tinted regions are a big change to a surface that is on screen
+    /// every second the app is open, and they replaced a cue — stepping the
+    /// tile in — that people had a year of muscle memory for. This restores
+    /// that cue for anyone who wants it. `app.settings` is read DEFENSIVELY
+    /// because this component is loaded standalone by three suites and by
+    /// the layout probe, none of which set up an AppController.
+    ///
+    /// CLASSIC IS A PLAIN TOP-LEVEL SPACE LIST — Element's rail, and this
+    /// client's own before the hierarchy landed. `RailEntryModel::setFlat`
+    /// does the real work: no subspace is listed, nothing is expandable and
+    /// nothing is expanded, so the rows simply are not there. What is left
+    /// here is what this component draws on top of them, and every one of
+    /// these is a consequence of the rows rather than a second opinion
+    /// about them: no tinted region, no cap backdrop, no plate under a
+    /// chevron there is no longer any reason to draw, one tile size, and
+    /// the narrower side margin the rail had before the gutter grew to hold
+    /// that plate.
+    ///
+    /// NOTHING IS HIDDEN, and this is the line to check before believing
+    /// otherwise: a subspace is still joined, still in its parent's room
+    /// list, still reachable by search and by permalink. It is not listed a
+    /// second time down the side of the window. The expansion state it had
+    /// is kept, not cleared, so switching back to Regions restores exactly
+    /// the rail the person left.
+    readonly property bool classicDepth:
+        app.settings ? app.settings.spacesRailDepthStyle === 1 : false
     /// THE WIDTH NOW BUYS SOMETHING. It used to buy indent, then lanes; both
     /// were spent on structure rather than on content, so dragging the rail
     /// wider changed the tiles by nothing at all. Past the default the tile
@@ -493,6 +523,15 @@ Rectangle {
         AppTheme.scaled(48) + 2 * railSideMargin
 
     function revealCount(spaceId) {
+        // NO ROOMS ON A FLAT RAIL. The model drops every nested SPACE for
+        // Classic (`RailEntryModel::setFlat`), but a revealed room is drawn
+        // by this component out of `railLayout`'s expansion state, which
+        // Classic deliberately does NOT clear — so the rail must decline to
+        // read it rather than the store forgetting it. Keeping the store
+        // intact is what makes switching back and forth lossless: every
+        // Space a person had open is still open when they return to Regions.
+        if (root.classicDepth)
+            return 0
         if (!app.railLayout || !app.railLayout.spaceExpanded(spaceId))
             return 0
         var explicitCount = railReveal[spaceId]
@@ -1008,9 +1047,14 @@ Rectangle {
                     ? root.dividerRowBand
                     : spaceItem.rowTileSize + 2 * root.rowPad
                 /// Anything nested is drawn one step smaller, at any depth.
+                /// EVERY ROW THE SAME SIZE IN CLASSIC. The nested step is
+                /// part of the region language — a smaller tile inside a
+                /// tinted box reads as contained — and on a flat rail it
+                /// reads as a tile that shrank for no reason.
                 readonly property int rowTileSize:
-                    spaceItem.hierarchyChild ? root.railNestedTileSize
-                                             : root.railTileSize
+                    (spaceItem.hierarchyChild && !root.classicDepth)
+                    ? root.railNestedTileSize : root.railTileSize
+
                 /// How many nested regions this row draws, capped: one per
                 /// ancestor, plus its own when it owns the run below it.
                 readonly property int bandLayers:
@@ -1441,7 +1485,13 @@ Rectangle {
                     // colour is behind this child's corners", and the answer
                     // to the second is "its parent" on every row past the
                     // cap, air or no air.
-                    visible: spaceItem.trueBandDepth > root.maxBandLayers
+                    // Nothing to back on to in Classic: this rectangle
+                    // exists to be the PARENT REGION's colour in the notch a
+                    // child's rounded corner opens, and Classic draws no
+                    // regions, so leaving it on would paint a lone band on
+                    // bare rail.
+                    visible: !root.classicDepth
+                             && spaceItem.trueBandDepth > root.maxBandLayers
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.leftMargin: root.bandInset(root.maxBandLayers)
@@ -1509,9 +1559,17 @@ Rectangle {
                     // top-level Space is at depth 0 and draws exactly that
                     // one, which is why an expanded Space is boxed and a
                     // collapsed one sits on bare rail.
-                    model: Math.min(root.maxBandLayers,
-                                    Math.max(0, spaceItem.level)
-                                    + (spaceItem.ownsRegion ? 1 : 0))
+                    // ZERO IN CLASSIC, which is the whole region system
+                    // turned off at ONE place. Every rectangle in this
+                    // ladder is this Repeater's delegate, so there is no
+                    // second switch to forget — and a `model` of 0 does not
+                    // instantiate them, where a `visible` binding on each
+                    // would build them all and then hide them.
+                    model: root.classicDepth
+                           ? 0
+                           : Math.min(root.maxBandLayers,
+                                      Math.max(0, spaceItem.level)
+                                      + (spaceItem.ownsRegion ? 1 : 0))
                     delegate: Rectangle {
                         id: bandLayer
                         objectName: "railGroupField"
@@ -1748,6 +1806,13 @@ Rectangle {
                     // brightening rather than an appearance.
                     Rectangle {
                         objectName: "railSpaceExpandPlate"
+                        // THE PLATE IS A RUNG OF THE REGION LADDER, so in
+                        // Classic it has nothing to step up FROM: its whole
+                        // job is to lift the chevron off the region under it
+                        // (see `plateRung`), and on bare rail it would be a
+                        // grey box behind a glyph that reads fine without
+                        // one — which is how 0.9.8 drew it.
+                        visible: !root.classicDepth
                         x: root.chevronPlateLeft
                         width: root.chevronPlateWidth
                         height: root.chevronPlateHeight

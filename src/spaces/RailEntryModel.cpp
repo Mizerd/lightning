@@ -18,6 +18,19 @@ RailEntryModel::RailEntryModel(QObject *parent)
 {
 }
 
+void RailEntryModel::setFlat(bool flat)
+{
+    if (m_flat == flat)
+        return;
+    m_flat = flat;
+    // `refresh()` and not a direct rebuild: this adds or removes ROWS, and
+    // refresh is the entry point that DEFERS when a drag is live. Rebuilding
+    // under the pointer is what destroyed the gesture in an earlier round,
+    // and a style change is the one refresh a person could plausibly trigger
+    // from a settings window while a rail drag is somehow still open.
+    refresh();
+}
+
 void RailEntryModel::setSources(SpaceManager *spaces, RailLayoutStore *layout)
 {
     if (m_spaces) {
@@ -257,11 +270,16 @@ void RailEntryModel::refresh()
             entry.value(QStringLiteral("childSpaceCount")).toInt();
         const int directRooms =
             entry.value(QStringLiteral("directChildRoomCount")).toInt();
+        // NOTHING EXPANDS ON A FLAT RAIL, and the flag has to reach these
+        // two fields and not only the walk below. `expandable` is what puts
+        // a chevron beside a tile, so leaving it true would draw a control
+        // that cannot do anything; `expanded` is read by the region and
+        // band code, which would then box a run that has no members.
         entry.insert(QStringLiteral("expandable"),
-                     !folder && !pseudo
+                     !m_flat && !folder && !pseudo
                          && (childSpaces > 0 || directRooms > 0));
         entry.insert(QStringLiteral("expanded"),
-                     !folder && !pseudo
+                     !m_flat && !folder && !pseudo
                          && m_layout->spaceExpanded(spaceId));
         rows.append(entry);
         // Home is `allRoomsId()` — the empty spaceId — and it is always row 0.
@@ -270,7 +288,11 @@ void RailEntryModel::refresh()
             peopleInserted = true;
             insertPeople();
         }
-        if (!folder && !pseudo) {
+        // The hierarchy walk itself. A Space's subspaces are still THERE
+        // in Classic — reachable from the Space's own room list, from
+        // search and from a permalink — they are simply not listed a second
+        // time down the side of the window.
+        if (!m_flat && !folder && !pseudo) {
             appendSubspaces(spaceId,
                             entry.value(QStringLiteral("folderId")).toString(),
                             byId, rows, 1);

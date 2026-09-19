@@ -116,6 +116,7 @@ private Q_SLOTS:
     void messageLayoutAndTextScalePersistAndClamp();
     void interfaceZoomAndRoomFilterPersistAndClamp();
     void spacesRailWidthDefaultsToTheOldFixedWidthAndClamps();
+    void spacesRailDepthStyleDefaultsToRegionsAndClamps();
     void appearanceIsPerAccountWithGlobalFallback();
     void switchingAccountsReAnnouncesTheRoomListFilter();
     void uiFontPersistsPerAccountAndValidates();
@@ -669,6 +670,58 @@ void SettingsSessionTest::themeChangeEmitsSignal()
 //     nested Space can be indented. An out-of-range value would hand the
 //     shell either a sliver with no room for a 40px tile or an icon strip
 //     wide enough to crowd out the room list.
+// ── THE RAIL'S DEPTH STYLE ───────────────────────────────────────────────
+//
+// Clamped on READ, and the reason is not only the hand-edited config that
+// every other clamp here guards against. This value can arrive from a NEWER
+// build that shipped a third style: a person who runs a beta, picks it, and
+// goes back to a release must not land on a rail with NO depth cue at all,
+// which is what an unhandled 2 would draw — no regions (style != 0) and no
+// flat model (style != 1). It reads back as Regions instead.
+void SettingsSessionTest::spacesRailDepthStyleDefaultsToRegionsAndClamps()
+{
+    SettingsManager settings;
+    QCOMPARE(settings.spacesRailDepthStyle(),
+             SettingsManager::kRailDepthRegions);
+
+    QSettings raw;
+    // The future-build case, which is the one a user can actually reach.
+    raw.setValue(QStringLiteral("shell/spacesRailDepthStyle"), 2);
+    raw.sync();
+    SettingsManager fromTheFuture;
+    QCOMPARE(fromTheFuture.spacesRailDepthStyle(),
+             SettingsManager::kRailDepthRegions);
+
+    raw.setValue(QStringLiteral("shell/spacesRailDepthStyle"), -1);
+    raw.sync();
+    SettingsManager negative;
+    QCOMPARE(negative.spacesRailDepthStyle(),
+             SettingsManager::kRailDepthRegions);
+
+    raw.remove(QStringLiteral("shell/spacesRailDepthStyle"));
+    raw.sync();
+    SettingsManager fresh;
+    QSignalSpy spy(&fresh, &SettingsManager::spacesRailDepthStyleChanged);
+    fresh.setSpacesRailDepthStyle(SettingsManager::kRailDepthClassic);
+    QCOMPARE(fresh.spacesRailDepthStyle(),
+             SettingsManager::kRailDepthClassic);
+    QCOMPARE(spy.count(), 1);
+    // Idempotent, and an out-of-range WRITE lands on the same clamp the read
+    // uses rather than on whatever the caller passed.
+    fresh.setSpacesRailDepthStyle(SettingsManager::kRailDepthClassic);
+    QCOMPARE(spy.count(), 1);
+    // 99 is not "as far towards Classic as we can go", it is a style this
+    // build does not have — so it reads as Regions, and that IS a change
+    // from Classic, so the signal fires. This assertion caught a real
+    // defect: the first implementation used std::clamp, and clamp(2, 0, 1)
+    // is 1, which would have switched a returning beta user's rail to a
+    // look they never picked.
+    fresh.setSpacesRailDepthStyle(99);
+    QCOMPARE(fresh.spacesRailDepthStyle(),
+             SettingsManager::kRailDepthRegions);
+    QCOMPARE(spy.count(), 2);
+}
+
 void SettingsSessionTest::spacesRailWidthDefaultsToTheOldFixedWidthAndClamps()
 {
     SettingsManager settings;
