@@ -1,5 +1,33 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-19 (late) — one client on the maintainer's own homeserver: 41 minutes, zero rejections
+
+**PASS on the publish side**, on the real `build-rust/lightning-matrix` signed
+in by the maintainer himself as `@lightningtest2:matrix.smetonis.net`, with
+`LIGHTNING_PRESENCE_TRACE=1` and an isolated scratch profile. Left idle on
+purpose.
+
+**105 publish attempts over 41 minutes, 2.57/min, ZERO rejections.** The
+cadence is the designed 21-25 s and the account never once hit
+`rc_presence`. That is a single well-behaved client on the same homeserver
+where an account was measured being rejected on 100% of its ticks earlier the
+same evening — which is the strongest available evidence that the rejections
+there were CONTENTION from other publishers on that account, not anything
+this client does wrong.
+
+**The idle transition works, publish-side.** 26 attempts published `online`
+(state=0), then 79 published `unavailable` (state=1) after the app crossed
+`kIdleAfterMs`, with no further intervention. The presence audit had item 2
+(the `unavailable` and `offline` states) recorded as NOT TESTED; this closes
+the publishing half of `unavailable` and leaves the rest open.
+
+**NOT COVERED, and it is the half that matters for the original report:**
+nothing observed this account from a second client. Whether Element, Sable or
+Lightning RENDER that `unavailable` as Away — and whether the account reads
+online to anyone at all — is still untested, and it is exactly where the
+"Offline for 29m" report lives. `offline` (state=2, published on a clean
+quit) was not exercised either.
+
 ## 2026-09-19 (late) — Windows: Ctrl+, , a 1.5 scale factor, and the Classic rail's drag
 
 **PASS on all three**, on the guest running the `d6d0ee25` portable —
