@@ -458,6 +458,14 @@ Item {
         if (model.isVideo === true || model.isAudio === true) {
             var d = root.embedDurationText(model.mediaDurationMs || 0)
             if (d.length > 0) parts.push(d)
+            // A CLIP WHOSE DURATION IS NOT KNOWN YET STILL HAS A SIZE, and
+            // without this an audio row collapsed to its bare filename while
+            // every other kind carried a second fact — measured on a GUI pass
+            // against a card that said "0:00 • 281 KB" beside it.
+            else if (model.isAudio === true) {
+                var as = root.embedSizeText(model.mediaSize || 0)
+                if (as.length > 0) parts.push(as)
+            }
         } else if ((model.isImage === true || model.isSticker === true)
                    && model.mediaWidth > 0 && model.mediaHeight > 0) {
             parts.push(model.mediaWidth + "×" + model.mediaHeight)
@@ -6748,16 +6756,22 @@ Item {
                     }
                     Label {
                         text: {
-                            var kb = model.mediaSize / 1024
-                            var size = kb < 1024 ? kb.toFixed(1) + " KB"
-                                                 : (kb / 1024).toFixed(1) + " MB"
+                            // ONE FORMATTER. This computed its own size and
+                            // disagreed with the collapsed summary about the
+                            // same file — 427 B there, "0.4 KB" here, both on
+                            // screen as the setting is toggled. It also had no
+                            // bytes tier and, being built from bare " KB" /
+                            // " MB" literals, was the one size string in this
+                            // file that no catalog could translate.
+                            var size = root.embedSizeText(model.mediaSize || 0)
                             var kind = fileCard.fileTypeLabel(model.mediaMimetype)
                             var status = fileCard.saving ? qsTr("Saving…")
                                        : fileCard.savedFlash
                                          ? (fileCard.savedOk ? qsTr("Saved")
                                                              : qsTr("Save failed"))
                                          : ""
-                            var base = kind ? size + " • " + kind : size
+                            var base = size.length === 0 ? (kind || "")
+                                     : kind ? size + " • " + kind : size
                             return status ? base + " • " + status : base
                         }
                         color: fileCard.savedFlash && !fileCard.savedOk
