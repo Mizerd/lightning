@@ -1,5 +1,136 @@
 # Round history
 
+## 2026-09-19 (evening) — the rail people can turn off, and three of my own claims that were not true
+
+Four commits on top of the morning's eleven. Two features and two rounds of
+undoing my own work, one of which an independent review had to find.
+
+### The Spaces rail can be the plain list it used to be
+
+`0eb37934`. The tinted-region rail is a large change to a surface that is on
+screen every second the app is open, and nobody looking at it asked for it.
+Appearance now carries **Spaces rail depth**: Regions, which is today's rail
+and stays the default, or **Classic** — a plain top-level Space list, which
+is what this client drew through 0.9.8 and what Element draws.
+
+The first cut was wrong about what "like 0.9.8" meant. It restored 0.9.8's
+*paint*: no tinted regions, no chevron plates, one tile size, and the
+step-in indent (7 for a filed Space, 6 per level to a depth of 2, capped at
+14) that the regions replaced. It was measured on screen and the step-in was
+exactly right — top-level +0, level 1 +6, level 2 and deeper +12. Then the
+maintainer said what he actually wanted: "just copy 1:1 what element does, no
+fancy expanding spaces or rooms just a plain top level space list." Which is
+**simpler** than what had been built, and made the whole indent machinery
+dead code, because nothing is nested any more.
+
+**CLASSIC IS A MODEL STATE, NOT A PAINT STATE, and that is the design.**
+`RailEntryModel::setFlat` stops the hierarchy walk, so a subspace is not in
+the row list at all, and `expandable`/`expanded` go false with it.
+Hiding those rows in QML instead would have left them in the list that the
+drag arithmetic, the group bands and every drop target index into — all of
+them measuring rows nobody can see. Same family as the slice-and-splice
+lesson: the thing that bites is not the pixels, it is everything that
+counts rows.
+
+What stays in QML is what the component draws ON TOP of those rows, and each
+one follows from the rows rather than being a second opinion: the region
+Repeater's `model` goes to 0 (one switch, and a model of 0 does not
+instantiate rectangles to then hide them), the cap backdrop has no parent
+region to be, the expander's plate has no rung to step up from, and the side
+margin narrows back to what it was before the gutter grew to hold that
+plate. Revealed rooms are the one thing the model cannot answer — they are
+drawn from `railLayout`'s expansion state — so the rail declines to read it.
+
+**The expansion state is KEPT, not cleared**, which is what makes the round
+trip lossless: switching to Classic and back restored the full
+DC -> S1 -> C1 chain with its revealed rooms, measured on screen and asserted
+in the test. On Windows the same round trip is **bit-exact**, 0 differing
+pixels of 55068.
+
+**AND `std::clamp` IS THE WRONG TOOL FOR AN ENUM — my own test caught it
+before it shipped.** The getter clamped the stored style to `[0, 1]`, and
+`std::clamp(2, 0, 1)` is **1**: a value written by a newer build with a third
+style would have landed this one on **Classic**, silently switching the rail
+to a look the person never chose, as far from their real choice as the range
+allows. A width can be clamped because 4000 and 260 are the same intent at
+different magnitudes; an enum has no such ordering, and the honest answer to
+a style this build does not know is the DEFAULT. Generalise: clamping is for
+quantities, fallback is for names.
+
+### A position floors, a total rounds, and they were never one clock
+
+`d6d0ee25`, and it exists because an independent review found the commit
+before it was wrong in the way it claimed to be right.
+
+That commit changed `AudioPlayerCard.formatMs` from floor to round, justified
+by "the video card next door already rounds". **It floors.** So do
+`VideoControlBar`, `VoicePreviewBar` and both recording counters; only the
+collapsed summary line and `MediaBrowserRow` rounded. So the two-clocks
+disagreement the commit set out to fix was **untouched for video**, and the
+audio card's own POSITION clock now ran half a second fast and would reach
+the total before the audio ended. The function quoted to justify it,
+`VideoPlayerCard.formatMs`, **has no caller anywhere in the tree** — the
+"grep for the caller, not the definition" lesson, in the middle of a
+justification.
+
+The real defect is older and is why nobody could keep these consistent: a
+POSITION and a TOTAL are different quantities and every player formatted them
+with one function. At 25.7 s you have not reached 0:26, so a position floors.
+25.7 s of audio IS 26 seconds to the nearest second — which is what the
+summary line has always said — so a total rounds. `formatPosition` and
+`formatDuration` in all three players now, `clockText` shared beneath them,
+every call site moved to the one it means. The recording counters stay
+floored and are named as out of scope: a counter running while you speak is a
+position.
+
+**GENERALISE: when two surfaces disagree and one of them is "obviously"
+right, check that the one you are copying does what you think.** The whole
+fix, its code comment, its test comment and its commit message were built on
+a property of a neighbouring file that nobody read.
+
+### Three more of my own claims the same review disproved
+
+* **A doc comment spliced into the middle of another one steals its summary
+  line.** The new `sticker_image_info` block was inserted after
+  `/// Send one \`m.sticker\` to a room or a thread.`, so the HELPER was
+  documented as the sending function and `send_sticker` had no summary at
+  all. Two wrong doc comments from one insertion, both rendered by
+  `cargo doc`, and it compiles perfectly. It also credited the
+  no-decoder note to `add_to_user_pack_inner`, which does not carry it —
+  `upload_to_user_pack` does.
+* **A comment said "EIGHT of the nine checks that name `textPrimary`".** The
+  table has EIGHT and Storm grades SEVEN. The GUI capture that produced the
+  number had said eight; the prose said nine.
+* **A badge that qualifies a pristine theme teaches people to ignore
+  badges.** `|| readabilityUnchecked > 0` fires on the stock Storm base from
+  the moment a theme is created, and in wide mode the permanent report
+  column already carries the sentence. Scoped to compact mode, where the
+  badge really is the only route. The TEXT change is what closed the
+  original lie; the visibility clause only decides where it can be read.
+
+And one test that could not fail: `everyCheckGradesTheColourItsRoleWouldEdit`
+asserted the static alias table and GREPPED the QML for the call, but never
+called `roleAliases()` — the one entry point the dialog uses. Stubbing that
+delegation to `{}` left every assertion green while three role swatches paint
+the muted colour.
+
+### Windows: Regions is pixel-identical to Linux, and the theme nearly faked a failure
+
+The rail was re-measured on the guest against a controlled Linux capture —
+same account, same layout, same size, same Qt, only the renderer differing
+(d3d11 vs opengl). All five rungs match in colour, x-extent and run length;
+the notch at every junction carries the PARENT's rung on both platforms,
+including a closing junction only Windows' viewport reached; an aligned diff
+of the band columns found **0 differing pixels** in x 0..2 and **2 pixels, 1/255
+in one channel** in x 72..77.
+
+**The confound is worth more than the result.** The theme was not pinned, and
+it resolved differently per platform — the guest had no `[ui]` section and
+rendered a light theme where Linux rendered dark. A comparison taken before
+pinning `theme=2` on both sides would have been a confident false FAIL about
+a renderer difference that does not exist. **Pin every input a cross-platform
+comparison does not mean to be testing.**
+
 ## 2026-09-19 — the keep-alive that was slower than the expiry, and a square corner chased twice
 
 Eleven commits. Almost all of it came from the maintainer looking at the thing

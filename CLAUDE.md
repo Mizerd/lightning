@@ -1609,6 +1609,52 @@ Full account in `docs/round-history.md`, 2026-09-19 — presence, the RTC
 `/state` storm, collapsed embeds, the rail's chroma ladder, self badge and
 `folderLast`, and the theme editor's readability audit.
 
+**`std::clamp` IS FOR QUANTITIES; AN ENUM NEEDS A FALLBACK.** The rail's new
+depth-style setting clamped its stored value to `[0, 1]`, and
+`std::clamp(2, 0, 1)` is **1** — so a value written by a NEWER build with a
+third style would have landed this one on the LAST style rather than the
+default, silently switching a returning beta user's rail to a look they never
+chose, as far from their real choice as the range allows. A width clamps
+because 4000 and 260 are the same intent at different magnitudes; a style name
+has no such ordering. Caught by the test written for it, before it shipped.
+
+**A SETTING THAT REMOVES ROWS IS A MODEL STATE, NOT A PAINT STATE.** The
+Classic rail (`RailEntryModel::setFlat`) drops the hierarchy walk so a
+subspace is not in the row list at all. Hiding those rows in QML instead would
+have left them in the list the drag arithmetic, the group bands and every drop
+target index into — all of them measuring rows nobody can see. Same family as
+the slice-and-splice lesson: what bites is never the pixels, it is everything
+that counts rows. Corollary: a `Repeater` whose `model` goes to 0 instantiates
+nothing, where a `visible` binding on each delegate builds them all and hides
+them.
+
+**A POSITION FLOORS, A TOTAL ROUNDS, AND SHARING ONE FORMATTER IS WHY THEY
+COULD NEVER AGREE.** At 25.7 s you have not reached 0:26, so an elapsed clock
+floors; 25.7 s of audio IS 26 seconds to the nearest second, so a length
+rounds. Every player in this tree formatted both with one function, and
+"fixing" it by rounding both broke the position clock (it reaches the total
+before the audio ends). `formatPosition` / `formatDuration`, and the two
+RECORDING counters stay floored because a counter running while you speak is a
+position. **The fix that caused this cited "the video card next door already
+rounds" — it floors, and the function quoted had NO CALLER ANYWHERE.** When
+two surfaces disagree and one is "obviously" right, check that the one you are
+copying does what you think.
+
+**A DOC COMMENT SPLICED INTO ANOTHER ONE STEALS ITS SUMMARY LINE, AND IT
+COMPILES.** Inserting a helper's `///` block after `send_sticker`'s summary
+left the HELPER documented as the sending function and `send_sticker` with no
+summary at all — two wrong doc comments from one insertion, both rendered by
+`cargo doc`, nothing failing anywhere.
+
+**PIN EVERY INPUT A CROSS-PLATFORM COMPARISON DOES NOT MEAN TO TEST.** A
+Windows-vs-Linux rail capture was taken with the THEME unpinned: the guest had
+no `[ui]` section and rendered light where Linux rendered dark. That would have
+been a confident false FAIL about a renderer difference that does not exist.
+With `theme=2` pinned both sides the rails are pixel-identical — 0 differing
+pixels across the band columns, 2 pixels at 1/255 in one channel at the edge.
+
+Full account in `docs/round-history.md`, 2026-09-19 (evening).
+
 **Timeline test conventions — do not "re-fix" these.** The rotated
 Flickable + Column has no `positionViewAtIndex`,
 `positionViewAtBeginning` or `itemAtIndex`; `QMetaObject::invokeMethod`
