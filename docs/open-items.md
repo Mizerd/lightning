@@ -1,5 +1,95 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-19 — presence: the reported "Offline for 29m" is NOT the rate limiting, and the leading hypothesis is now SILENCE
+
+**OPEN. Do not read the retry fix as a fix for the report.** The retry
+(`a0bac74e` and before) closes a real defect that was found on the way to
+this one, and is live-validated for what it does. It is not validated as a
+cure for the report, and the evidence now says it probably is not one.
+
+### What the report was
+
+A live audit saw Element Web showing `@mizerd` **"Offline for 29m"** while a
+Lightning process on that account had been running 51 minutes, and found 53
+`rate_limited` rejections in the client's log over a 33-minute window, ~62%
+of expected ticks, with a run of 29 consecutive rejections. The obvious
+reading was that rate limiting had silenced the account.
+
+### Why that reading does not survive the log
+
+Re-read over the process's WHOLE life rather than the window the audit
+picked, the same log says something different:
+
+* **60 rejections over 103 minutes against ~258 expected ticks — 23%, not
+  62%.** The 62% is real but local to a burst.
+* **51 of 59 inter-rejection gaps are under 30 s**, so the rejections arrive
+  in consecutive-tick BURSTS rather than spread out.
+* **The longest quiet stretch is 68 MINUTES with no rejection at all**, from
+  16:22 to 17:31 UTC.
+* **Element was read at 16:32, 16:35 and 16:40 UTC — inside that quiet
+  stretch**, 10 to 18 minutes after the last rejection. Nothing was being
+  rejected while the account was being observed as offline.
+
+And the contention model cannot produce the report either: three clients
+contending on one account, measured the same evening, were rejected 57% of
+the time and the ACCOUNT still stayed continuously live — worst gap between
+any accepted publish 14 s against a 33 s floor (`docs/live-validation.md`).
+Under contention an account stays online; that is what contention looks like.
+
+### The leading hypothesis: it stopped publishing
+
+The quiet stretch is **ambiguous in the old binary**, and that is the whole
+problem: it logged only FAILURES. Silence means "no failures" and says
+nothing about whether any publish happened. Two readings fit it:
+
+1. publishes succeeded silently every ~24 s — in which case Element was
+   wrong, and the frozen label supports that: **"29m" read identically at
+   16:32, 16:35 and 16:40**, where a live label should have read 29, 32 and
+   37 minutes. A value that does not advance over eight minutes is a stale
+   view, not a live one.
+2. **the client stopped publishing altogether** — which produces exactly
+   this: no failures in the log, no presence on the server, and a
+   `last_active_ts` frozen at the moment it stopped (the audit put it at
+   ≈16:03 UTC, which is inside the burst period and an hour before the
+   observation).
+
+`publishTick` returns early and SILENTLY on four conditions — no client, no
+`supportsPresence()`, `!m_syncing`, `!publishEnabled()`. A connection that
+left Syncing and never returned stops presence dead while the app looks
+entirely healthy. Nothing in this defect's evidence distinguishes that from
+a working client.
+
+### What settles it, and it is cheap now
+
+The instrument landed after the audit: `LIGHTNING_PRESENCE_TRACE=1` makes
+every ATTEMPT log a `presence-publish` line with the running attempt and
+rejection counters, so the denominator is visible instead of inferred.
+Re-run on the maintainer's own account:
+
+```sh
+LIGHTNING_PRESENCE_TRACE=1 ./build-rust/lightning-matrix --backend=rust \
+    --log-file=/tmp/presence.log
+```
+
+Then, with the account observed from a second client:
+
+* `presence-publish` lines continuing at ~2.5/min with the account showing
+  offline ⇒ the publishes are going out and the fault is server-side or in
+  the observer.
+* `presence-publish` lines STOPPING ⇒ hypothesis 2, and the next question is
+  which of the four early returns fired.
+
+**Re-open the observation too.** Read the other client's presence label two
+or three times several minutes apart and check the number MOVES before
+trusting it; a label repeating the same "29m" is the probe failing, and this
+project has a standing rule about validating a probe before believing it.
+
+### Not covered by any of this
+
+The `unavailable` and `offline` states, the Element-to-Lightning direction,
+and Sable in either direction are all still **NOT TESTED** — the audit was
+blocked on them for rig reasons, not for want of trying.
+
 ## 2026-09-18 — the rail tooltip covers the tile above the one you are pointing at
 
 Found by a screenshot audit of the Spaces rail, measured off
