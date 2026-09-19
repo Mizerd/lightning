@@ -534,6 +534,70 @@ jq -n \
       native_macos_tested:false, calls_live_tested:false}' \
     >"$CONTENTS/Resources/build-info.json"
 
+# --- licences ----------------------------------------------------------------
+# THE macOS BUNDLE SHIPPED WITH NO LICENCE TEXT OF ANY KIND, INCLUDING OURS.
+#
+# Measured on the published 0.9.8 bundle (2026-09-19): `find Lightning.app
+# -iname '*licen*' -o -iname 'COPYING*'` returns NOTHING across 2,066 files.
+# That is not only a third-party problem — Lightning is GPL-3.0-or-later and
+# §4 of that licence requires a copy of it to accompany the program, so the one
+# licence the project unambiguously owes its users was the one missing.
+#
+# What the bundle carries besides our own code: Qt 6 (LGPL-3.0 with Qt's
+# exception), the official GStreamer framework's core/-base/-good/-bad plugins
+# and 35 dylibs, libnice, glib/gio/gobject, hunspell, freetype, harfbuzz,
+# graphite2, ICU, OpenSSL, libpng/libjpeg/libtiff/libwebp and more. This block
+# closes the part with exactly one right answer — the text must travel with the
+# binaries — for the two sources this repository can prove it has. The rest is
+# recorded in docs/open-items.md as the maintainer's call, because it needs a
+# decision about where the corresponding source is offered, not a patch.
+#
+# BEFORE THE SIGNATURE, DELIBERATELY. Contents/Resources is sealed by codesign;
+# adding a file after the bundle is signed invalidates it, which is the same
+# constraint the build-info.json block above is written against.
+LICENSE_DIR="$CONTENTS/Resources/licenses"
+mkdir -p "$LICENSE_DIR"
+[[ -f "$SOURCE_DIR/LICENSE" ]] \
+    || die "the source tree has no LICENSE: the bundle cannot ship Lightning's own GPL-3 text"
+install -m 0644 "$SOURCE_DIR/LICENSE" "$LICENSE_DIR/Lightning-GPL-3.0.txt"
+
+# gst-plugins-good, from THIS REPOSITORY. The staged plugin set includes
+# libgstrtp, libgstrtpmanager, libgstautodetect, libgstlevel, libgstvpx,
+# libgstjpeg, libgstvolume and libgstosxaudio; osxaudio in particular exists
+# nowhere else. The text is vendored rather than copied off the framework for
+# the same reason the Windows stage vendors it — see
+# packaging-ci/packaging/common/licenses/gst-plugins-good-1.0/PROVENANCE.txt.
+# `$ROOT/packaging-ci/packaging/...`, NOT `$ROOT/packaging/...`. project_dir()
+# is the REPOSITORY root and the packaging tree lives under packaging-ci/ since
+# it was folded in; a path that reaches for packaging/ from the root finds a
+# real directory with none of these files in it, which has cost dead pipelines
+# before. Identical spelling to build-appimage.sh, deliberately.
+GOOD_LICENSE_SRC="$ROOT/packaging-ci/packaging/common/licenses/gst-plugins-good-1.0"
+[[ -f "$GOOD_LICENSE_SRC/COPYING" ]] \
+    || die "the vendored gst-plugins-good licence is missing at $GOOD_LICENSE_SRC: the bundle stages its binaries and must carry its licence"
+mkdir -p "$LICENSE_DIR/lightning-gstreamer/gst-plugins-good-1.0"
+install -m 0644 "$GOOD_LICENSE_SRC/COPYING" \
+    "$LICENSE_DIR/lightning-gstreamer/gst-plugins-good-1.0/COPYING"
+install -m 0644 "$GOOD_LICENSE_SRC/PROVENANCE.txt" \
+    "$LICENSE_DIR/lightning-gstreamer/gst-plugins-good-1.0/PROVENANCE.txt"
+
+# Whatever the upstream GStreamer framework carries for itself. It is expanded
+# whole from the publisher's .pkg (install-macos-gstreamer.sh), so if it ships
+# licence text it is under the prefix. This is REPORTED rather than asserted:
+# nobody here has listed that tree, and a count printed in the job log is how
+# the next person finds out without guessing.
+gst_license_files=0
+while IFS= read -r f; do
+    rel="${f#"$GSTREAMER_PREFIX"/}"
+    mkdir -p "$LICENSE_DIR/gstreamer-framework/$(dirname "$rel")"
+    install -m 0644 "$f" "$LICENSE_DIR/gstreamer-framework/$rel"
+    gst_license_files=$((gst_license_files + 1))
+done < <(find "$GSTREAMER_PREFIX/share" \
+    \( -iname 'COPYING*' -o -iname 'LICENSE*' -o -iname 'LICENCE*' \) \
+    -type f 2>/dev/null)
+printf 'licences: staged Lightning GPL-3, vendored gst-plugins-good, and %s file(s) found in the GStreamer framework prefix\n' \
+    "$gst_license_files"
+
 # --- signature ---------------------------------------------------------------
 # Ad-hoc (-) signature, NOT a Developer ID identity. On Apple Silicon every
 # executable page must carry a valid signature or the kernel refuses to run the

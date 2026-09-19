@@ -170,6 +170,72 @@ test -s "$good_license" \
     || die "the AppImage bundles gst-plugins-good binaries and carries no licence for them: usr/share/licenses/lightning-gstreamer/gst-plugins-good-1.0/COPYING is missing or empty"
 grep -q "GNU LESSER GENERAL PUBLIC LICENSE" "$good_license" \
     || die "the staged gst-plugins-good licence is not the LGPL text"
+
+# AND THE SAME FOR EVERY OTHER PROJECT IN THE PAYLOAD, which the 2026-09-17 fix
+# did not cover and this file's comment above therefore overstated. Measured on
+# the SHIPPED 0.9.8 AppImage: 371 distinct shared objects and licence text for
+# exactly one upstream project. build-appimage.sh now harvests
+# /usr/share/doc/<pkg>/copyright for every Debian package that owns a bundled
+# object — 242 of them, 5.2 MB, measured in the pinned build image against that
+# same payload.
+#
+# THE COUNT IS THE ASSERTION. A harvest that silently comes back short is the
+# defect, not its symptom: `report-optional-assets`, the release verifier's
+# dropped last link and the unregistered test file are all the same shape, and
+# each was found only once something asserted a number. 100 is a floor chosen
+# well below the measured 242 so a Debian package split does not fail a release,
+# and far above anything a broken index could produce.
+third_party="$tree/usr/share/licenses/third-party"
+test -d "$third_party" \
+    || die "the AppImage bundles ~240 third-party libraries and carries no licence directory: usr/share/licenses/third-party is missing"
+# `-size +0`, because a harvest that produced 240 EMPTY files would satisfy a
+# bare count — and the count is what this claims to be asserting.
+third_party_count=$(find "$third_party" -maxdepth 1 -name '*.copyright' -type f -size +0 | wc -l)
+test "$third_party_count" -ge 100 \
+    || die "only $third_party_count non-empty third-party licence files are in the payload; the harvest in build-appimage.sh came back short"
+# AND THAT THEY ARE NOT ALL THE SAME FILE. A count alone passes on 240 copies
+# of one copyright, which is the degenerate harvest a broken index would
+# produce. Debian copyright files repeat legitimately (one text per source
+# package, several binary packages each), so this is a loose floor rather
+# than a one-to-one check.
+third_party_distinct=$(find "$third_party" -maxdepth 1 -name '*.copyright' -type f -size +0 \
+    -exec md5sum {} + | awk '{print $1}' | sort -u | wc -l)
+test "$third_party_distinct" -ge 40 \
+    || die "the $third_party_count licence files in the payload contain only $third_party_distinct distinct texts; the harvest is emitting the same file under many names"
+# Spot-check the projects whose ABSENCE has a name: the GPL-2+ codec closure Qt
+# Multimedia's ffmpeg plugin drags in, and GStreamer's own core and -base, which
+# the gst-plugins-good fix did not touch.
+# Matched as GLOBS, not exact names: every one of these carries a soversion in
+# its Debian package name, and pinning the soversion here would turn a routine
+# base-image bump into a red release job for no compliance reason.
+# GATED ON THE LIBRARY ACTUALLY BEING THERE, and that is the whole point.
+# Asserting "a licence file for libavcodec exists" makes the PRESENCE of the
+# GPL-2+ ffmpeg closure a release requirement: the moment somebody takes the
+# documented option of dropping `libffmpegmediaplugin.so` — which removes
+# that closure and makes the payload MORE compliant, not less — this check
+# goes red and says "the payload carries libavcodec and no licence text for
+# it" about a payload that carries no libavcodec. `libffmpegmediaplugin.so`
+# is deployed incidentally by linuxdeploy-plugin-qt, not by an explicit
+# stage, so a Qt or Debian change can remove it without anyone here
+# deciding to.
+#
+# Each entry is therefore a PAIR: a library glob to look for in the payload,
+# and the licence glob owed if and only if it is found.
+while IFS='|' read -r lib_glob owed; do
+    [ -n "$lib_glob" ] || continue
+    present=$(find "$tree/usr" -name "$lib_glob" -type f 2>/dev/null | head -1)
+    [ -n "$present" ] || continue
+    hits=$(find "$third_party" -maxdepth 1 -name "$owed.copyright" -type f -size +0 | wc -l)
+    test "$hits" -ge 1 \
+        || die "the payload carries $(basename "$present") and no licence text for it: no non-empty $third_party/$owed.copyright"
+done <<'OWED'
+libavcodec.so.*|libavcodec*
+libx264.so.*|libx264-*
+libgstreamer-1.0.so.*|libgstreamer1.0-*
+libgstapp-1.0.so.*|libgstreamer-plugins-base1.0-*
+libQt6Core.so.*|libqt6core*
+OWED
+echo "third-party licences in the payload: $third_party_count"
 # NSS'S OWN PKCS#11 MODULES, and this one cost an entire call lane.
 #
 # Debian builds libsrtp2 against NSS. `ldd` names libnss3 and friends, so the

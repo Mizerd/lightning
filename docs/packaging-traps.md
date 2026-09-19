@@ -98,3 +98,57 @@ next release by itself**; Matrix traffic was unaffected (rustls). Deploy
 files, because graceful fallback and silent absence are the same observable
 until something asserts the payload — the fourth time this shape has bitten
 (sctp, ximagesrc, opengl, now this). Detail in `docs/round-history.md`.
+
+**A FLAG TESTED OVER A CACHE HIT WAS NEVER TESTED (2026-09-19).**
+`flatpak-builder` caches per stage, and `cleanup` is the stage that runs
+`appstreamcli compose`. A round added `--compose-url-policy=full` to a rebuild
+whose log says `Cache hit for cleanup, skipping`, saw the catalogue unchanged,
+and recorded the flag as REFUTED — over a stage that never executed. On a cold
+cache it changes the output completely: the catalogue goes from
+`media_baseurl=` plus relative paths to absolute `https://dl.flathub.org/media/`
+URLs, and both `appstream-external-screenshot-url` and
+`appstream-remote-icon-not-mirrored` disappear. Two days of "the linter is
+wrong" were one missing flag. The packaging cousin of "a job that exists and
+looks right is not a job that has run": **check the build log for the cache line
+before believing any conclusion about a cached stage.**
+Corollary already paid for twice here: **do not hand-roll `flatpak-builder`
+flags.** `flathub-build`, inside the `org.flatpak.Builder` flatpak, is what
+Flathub's own buildbot runs and it passes both
+`--mirror-screenshots-url=https://dl.flathub.org/media` and
+`--compose-url-policy=full`. The tracked driver is
+`packaging-ci/scripts/flathub-presubmission-lint.sh`; it calls that wrapper,
+never its own argument list, and warns on the cache line.
+
+**THE LICENCE TEXT TRAVELS WITH THE BINARIES, AND "THE ONE PROJECT A REVIEW
+NAMED" IS NOT THE SCOPE (2026-09-19).** A 2026-09-17 round shipped
+gst-plugins-good's LGPL text on Windows, the AppImage and the snap, and called
+itself RESOLVED.
+
+**THE FIRST VERSION OF THIS ENTRY WAS WRONG ABOUT THE APPIMAGE and the way it
+was wrong is the lesson.** It said the payload had licence text for one
+project out of ~150. It does not: linuxdeploy deploys Debian copyright files
+by design, and the published 0.9.8 AppImage already carries **235
+`usr/share/doc/<pkg>/copyright` files, 4.95 MB**, libavcodec61 and
+libqt6core6t64 among them. The claim came from a probe searching `*licen*`
+and `COPYING*` — and Debian names the file `copyright`, so it found two where
+`-name copyright` finds 235. *A probe that answers "absent" for everything is
+a broken probe until it has answered "present" for something*, and it was
+believed because its answer was the one being looked for. The real AppImage
+gap is **ten packages** hand-staged past linuxdeploy's excludelist.
+
+The macOS half needed no correction and is the serious one: that bundle
+carried **no licence file at all** across 2,066 files, **including
+Lightning's own GPL-3, which §4 of that licence requires to accompany the
+program**. A self-contained format's licence
+obligation is a property of the PAYLOAD, so derive it from the payload:
+`build-appimage.sh` now maps every bundled object to its Debian package through
+`/var/lib/dpkg/info/*.list` (plus the two packages the job `dpkg-deb -x`s into
+`/opt` rather than installing — `kimg_jxl.so` is in no dpkg file list) and
+copies `/usr/share/doc/<pkg>/copyright`. 242 packages, 5.2 MB, in a 136 MB
+image. A hand-written list would go stale the first time linuxdeploy's ELF walk
+pulled in one more library, and nothing would say so.
+And check what CLASS of licence it is before assuming the duty: Qt Multimedia's
+ffmpeg plugin drags Debian's GPL-enabled libavcodec and with it x264, x265,
+xvidcore, dvdnav, dvdread, gme and openmpt — **GPL-2-or-later, not LGPL**, so
+the source obligation is GPL §3's. Options and tradeoffs in
+`docs/open-items.md`; that one is the maintainer's call.

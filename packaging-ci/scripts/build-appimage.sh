@@ -848,6 +848,190 @@ for lib in "${PRUNE_HOST_LIBS[@]}"; do
     [ "$found" = 1 ] || echo "note: $lib was not bundled, nothing to prune"
 done
 
+# ── THE TEN PACKAGES linuxdeploy DOES NOT ATTRIBUTE ─────────────────────────
+#
+# 2026-09-19, and the first version of this comment was WRONG in a way worth
+# keeping, because it is this project's own recorded lesson wearing a new
+# costume. It claimed the shipped AppImage carried licence text for one
+# project out of ~150. It does not: **linuxdeploy deploys Debian copyright
+# files by design** (its binary carries a "copyright files manager" that
+# shells out to `dpkg-query`), and the published 0.9.8 payload already
+# contains **235 `usr/share/doc/<pkg>/copyright` files, 4.95 MB** — including
+# libavcodec61, libx264-164, libx265-215, libqt6core6t64 and libglib2.0-0t64,
+# every one of which the first draft named as shipping bare.
+#
+# The claim came from a probe that searched for `*licen*` and `COPYING*`.
+# Debian names the file `copyright`. That pattern finds TWO files where
+# `-name copyright` finds 235 — "a probe that answers absent for everything
+# is a broken probe until it has answered present for something", and it was
+# believed because the answer was the one being looked for.
+#
+# WHAT IS ACTUALLY OWED, measured against the published payload: **ten
+# packages** whose libraries are in the AppImage and whose copyright is not,
+# because they are hand-staged past linuxdeploy's excludelist or unpacked
+# into /opt rather than installed — kimageformat6-plugins,
+# libspa-0.2-modules, libcom-err2, libexpat1, libfontconfig1, libfreetype6,
+# libgmp10, libharfbuzz0b, libopengl0, zlib1g. Verified: all ten libraries
+# present, all ten copyright files absent.
+#
+# So this harvest is a SECOND, independently derived attribution pass, not a
+# rescue of a bare payload. It is kept whole rather than narrowed to those
+# ten because deriving the set from the payload is what makes it survive a
+# base-image bump; a hand list of ten goes stale the first time linuxdeploy's
+# excludelist changes and nothing says so. mksquashfs deduplicates identical
+# files, so the overlap with linuxdeploy's own copies costs approximately
+# nothing.
+#
+# AND SOME OF IT IS GPL, NOT LGPL. Debian's libavcodec61 copyright says
+# outright: "For building the default Debian packages some of the GPL licensed
+# files are used, so the resulting binaries are licensed under GPL v2+." Qt
+# Multimedia's ffmpeg plugin drags in libavcodec/libavformat/libavutil and with
+# them libx264, libx265, libxvidcore, libdvdnav, libdvdread, libgme and
+# libopenmpt — all GPL-2-or-later. Lightning is GPL-3.0-or-later so the
+# combination is fine, but the SOURCE obligation for those is GPL's, not
+# LGPL §6's, and that is a maintainer decision recorded in docs/open-items.md.
+# This block discharges the half that has exactly one right answer.
+#
+# WHY dpkg AND NOT A HAND-WRITTEN LIST. Every file in this payload came out of
+# a Debian package on this pinned image, and Debian Policy §12.5 makes
+# /usr/share/doc/<pkg>/copyright mandatory and complete. A hand-maintained list
+# goes stale the first time linuxdeploy's ELF walk pulls in one more library
+# and nothing says so; an index built from the dpkg file list cannot. Measured
+# in this base image: 236 binary packages, 236 copyright files, 4.9 MB, against
+# a 136 MB AppImage.
+#
+# IT IS FATAL, NOT A WARNING. A file nobody can attribute is the one case that
+# matters — it means something entered the payload from outside the package
+# manager and nobody knows its terms. "Graceful fallback and silent absence are
+# the same observable" is this script's oldest lesson.
+#
+# TWO SOURCES, BECAUSE TWO PACKAGES ARE UNPACKED RATHER THAN INSTALLED. The
+# job downloads kimageformat6-plugins and pipewire-bin and `dpkg-deb -x`s them
+# into /opt, deliberately, to keep libheif/libraw/OpenEXR/x265 out of the
+# image. Those files are in the payload and are in NO dpkg file list, so an
+# index built from /var/lib/dpkg alone reports kimg_jxl.so as unattributable
+# and kills the job. `dpkg-deb -x` extracts usr/share/doc/<pkg>/copyright with
+# everything else, so the unpacked roots carry their own answer.
+LICENSE_INDEX="$ROOT/work/licence-basename-index"
+: >"$LICENSE_INDEX"
+for list in /var/lib/dpkg/info/*.list; do
+    pkg="$(basename "$list" .list)"
+    pkg="${pkg%%:*}"
+    awk -v p="$pkg" '{ n = $0; sub(/.*\//, "", n); if (n != "") print n "\t" p "\t/usr/share/doc/" p "/copyright\t" $0 }' \
+        "$list"
+done >>"$LICENSE_INDEX"
+for unpacked in /opt/kimageformats /opt/pipewire-conf; do
+    [ -d "$unpacked" ] || continue
+    while IFS= read -r copyright; do
+        pkg="$(basename "$(dirname "$copyright")")"
+        find "$unpacked" -type f -printf '%f\t'"$pkg"'\t'"$copyright"'\t%p\n'
+    done < <(find "$unpacked/usr/share/doc" -maxdepth 2 -name copyright 2>/dev/null)
+done >>"$LICENSE_INDEX"
+sort -u -o "$LICENSE_INDEX" "$LICENSE_INDEX"
+test -s "$LICENSE_INDEX" || die "could not build a licence basename index: no /var/lib/dpkg/info/*.list"
+
+THIRD_PARTY_LICENSES="$APPDIR/usr/share/licenses/third-party"
+install -d -m 0755 "$THIRD_PARTY_LICENSES"
+
+# Lightning's own shared objects are covered by Lightning-GPL-3.0.txt, staged
+# above. MEASURED on the 0.9.8 payload this list matches NOTHING — the Rust
+# bridge is linked statically into the executable and every one of the 406
+# objects came out of a Debian package — so it is a guard for a future build
+# that ships one, not a live exemption. Named rather than pattern-matched on
+# purpose: a pattern would silently absolve a third-party file that happened to
+# match it, which is the whole failure this block exists to stop.
+OUR_OWN_OBJECTS=(
+    liblightning_rust_bridge.so
+    libmatrix_rust_bridge.so
+)
+is_our_own() {
+    local n="$1"
+    for o in "${OUR_OWN_OBJECTS[@]}"; do [ "$n" = "$o" ] && return 0; done
+    return 1
+}
+
+harvest_total=0
+harvest_attributed=0
+harvest_unattributed=()
+harvest_ambiguous=()
+declare -A HARVEST_PKGS=()
+while IFS= read -r -d '' object; do
+    base="$(basename "$object")"
+    harvest_total=$((harvest_total + 1))
+    if is_our_own "$base"; then
+        harvest_attributed=$((harvest_attributed + 1))
+        continue
+    fi
+    # A BASENAME IS NOT AN IDENTITY, and taking the first match is how the
+    # wrong licence ships silently. MEASURED on the 0.9.8 payload: nine Qt 6
+    # plugins (libqgif, libqico, libqjpeg, libqxcb, libqoffscreen, the two
+    # xcb integrations and the two input-context plugins) share a basename
+    # with files in `libqt5gui5t64`, and a sorted first-match picks the Qt 5
+    # package — whose binaries are not in the payload at all. Both are Qt
+    # under the same terms so nothing false shipped, but the MECHANISM would
+    # ship the wrong licence the first time two packages with different
+    # terms collide, which is exactly what this harvest exists to prevent.
+    #
+    # Resolved by the bytes, because the candidate files are all still on
+    # disk in this image: compare the payload object against each candidate's
+    # real path and take the one it IS. Ambiguity that survives that is a
+    # hard error rather than a guess — an unattributed object stops the build
+    # and so must a misattributed one.
+    mapfile -t cands < <(awk -v n="$base" -F'\t' '$1 == n { print }' "$LICENSE_INDEX")
+    hit=""
+    if [ "${#cands[@]}" -eq 1 ]; then
+        hit="${cands[0]}"
+    elif [ "${#cands[@]}" -gt 1 ]; then
+        for cand in "${cands[@]}"; do
+            src="${cand##*$'\t'}"
+            if [ -f "$src" ] && cmp -s "$object" "$src"; then
+                hit="$cand"
+                break
+            fi
+        done
+        if [ -z "$hit" ]; then
+            harvest_ambiguous+=("${object#$APPDIR/} -> $(printf '%s\n' "${cands[@]}" | cut -f2 | sort -u | tr '\n' ' ')")
+            continue
+        fi
+    fi
+    if [ -n "$hit" ]; then
+        harvest_attributed=$((harvest_attributed + 1))
+        pkg_name="$(printf '%s' "$hit" | cut -f2)"
+        pkg_copyright="$(printf '%s' "$hit" | cut -f3)"
+        HARVEST_PKGS["$pkg_name"]="$pkg_copyright"
+    else
+        harvest_unattributed+=("${object#$APPDIR/}")
+    fi
+done < <(find "$APPDIR/usr" -type f -name '*.so*' -print0)
+
+if [ "${#harvest_ambiguous[@]}" -gt 0 ]; then
+    printf 'ambiguous payload object: %s\n' "${harvest_ambiguous[@]}" >&2
+    die "${#harvest_ambiguous[@]} bundled shared objects match more than one Debian package by basename and none of the candidates by content, so the licence that applies to them cannot be decided"
+fi
+
+if [ "${#harvest_unattributed[@]}" -gt 0 ]; then
+    printf 'unattributed payload object: %s\n' "${harvest_unattributed[@]}" >&2
+    die "${#harvest_unattributed[@]} of $harvest_total bundled shared objects could not be traced to a Debian package, so their licence terms are unknown and cannot be shipped. If one of them is OURS, name it in OUR_OWN_OBJECTS above"
+fi
+
+harvest_copied=0
+harvest_bytes=0
+for pkg in $(printf '%s\n' "${!HARVEST_PKGS[@]}" | sort); do
+    src="${HARVEST_PKGS[$pkg]}"
+    test -f "$src" \
+        || die "Debian package $pkg owns a bundled library and has no $src (Policy 12.5 requires one)"
+    install -m 0644 "$src" "$THIRD_PARTY_LICENSES/$pkg.copyright"
+    harvest_copied=$((harvest_copied + 1))
+    harvest_bytes=$((harvest_bytes + $(stat -c %s "$src")))
+done
+
+# The count is the assertion, not the presence of the directory: a harvest that
+# silently comes back short is the defect this project has paid for four times.
+[ "$harvest_copied" -ge 100 ] \
+    || die "only $harvest_copied third-party licence files were harvested; this payload has always needed well over a hundred, so the index or the walk is broken"
+printf 'third-party licences: %s payload objects, %s Debian packages, %s files, %s bytes\n' \
+    "$harvest_total" "${#HARVEST_PKGS[@]}" "$harvest_copied" "$harvest_bytes"
+
 ARCH=x86_64 "$TOOLS/appimagetool" --no-appstream "$APPDIR" "$OUT"
 
 test -s "$OUT" || die "AppImage not produced at $OUT"

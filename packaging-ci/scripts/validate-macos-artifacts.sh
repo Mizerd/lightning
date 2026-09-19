@@ -481,6 +481,21 @@ gst_plugin_count="$(find "$GST_PLUGIN_DIR" -maxdepth 1 -type f 2>/dev/null | wc 
 gst_lib_count="$(find "$GST_LIB_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
 printf '  GStreamer: %s plugins, %s support libraries\n' "$gst_plugin_count" "$gst_lib_count"
 
+# --- licences ----------------------------------------------------------------
+# THE PUBLISHED 0.9.8 BUNDLE CARRIED NO LICENCE FILE AT ALL — measured, `find
+# Lightning.app -iname '*licen*' -o -iname 'COPYING*'` over 2,066 files returned
+# nothing. Lightning is GPL-3.0-or-later and §4 requires its own text to
+# accompany the program, so the first thing asserted here is ours.
+#
+# Asserted on the BUNDLE, never on the script that stages it: every packaging
+# defect of this shape in this repository — sctp, ximagesrc, the Qt TLS backend,
+# the Wayland shell integration, gst-plugins-good — was named in a script and
+# absent from the artifact.
+check "Lightning's own GPL-3 text is in the bundle" \
+    test -s "$APP_DIR/Contents/Resources/licenses/Lightning-GPL-3.0.txt"
+check "the staged gst-plugins-good licence is present" \
+    test -s "$APP_DIR/Contents/Resources/licenses/lightning-gstreamer/gst-plugins-good-1.0/COPYING"
+
 # --- signature ---------------------------------------------------------------
 # Ad-hoc signature must be structurally valid or the bundle will not run on
 # Apple Silicon at all.

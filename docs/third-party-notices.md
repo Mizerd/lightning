@@ -23,15 +23,37 @@ Lightning; see [`docs/windows-signing-inventory.md`](windows-signing-inventory.m
 | **OpenSSL / rustls** and their transitive crates | Apache-2.0 / MIT / ISC as applicable | Per `rust/Cargo.lock`; TLS on Windows also uses the Schannel Qt TLS backend |
 | **SQLite** | Public domain | Via Qt's SQL driver and the SDK's store |
 | **libsecret** | LGPL-2.1-or-later | Linux only, for OS keyring storage. Windows uses the system Credential Manager |
+| **GStreamer** (core, `-base`, `-good`, `-bad`) and `libnice`, `libsrtp2`, `libvpx`, `opus`, `orc`, `webrtc-audio-processing` | LGPL-2.1-or-later (libnice also MPL-1.1; libvpx/opus/libsrtp BSD) | The voice/video call media engine. deb and rpm declare them as dependencies; the AppImage, snap, Windows packages and the macOS bundle BUNDLE them |
+| **glib / gobject / gio**, freetype, fontconfig, harfbuzz, graphene, ICU, libpng, libjpeg, libtiff, libwebp, PCRE2, expat, libffi, zlib, bzip2 | LGPL-2.1-or-later, MIT, BSD, FTL and similar, per project | Pulled in as dependencies of Qt and GStreamer; bundled by every self-contained format |
 
 The complete, authoritative Rust dependency list with exact versions is
 [`rust/Cargo.lock`](../rust/Cargo.lock). It is lock-file controlled and is not
 updated incidentally.
 
-Windows packages additionally ship a `licences`/`licenses` directory containing
-Lightning's own GPL-3.0 text and the upstream Qt licence files staged by the
-packaging pipeline, and a `runtime-dependencies.json` recording the exact set of
-PE files staged and their import graph.
+## What each package carries, and where it is
+
+A self-contained package redistributes these libraries, so the licence text has
+to travel with them. The AppImage, snap and macOS rows below describe the
+**next** release: the licence staging for them landed after 0.9.8, and the
+published 0.9.8 AppImage and snap carry only Lightning's GPL-3 and
+gst-plugins-good while the published 0.9.8 macOS bundle carries none at all.
+
+| Package | Licence texts it carries |
+|---|---|
+| **deb / rpm** | `/usr/share/doc/lightning/copyright` and `LICENSE`. Nothing third-party is bundled — GStreamer and Qt are declared dependencies, so the distribution already ships their licences |
+| **Flatpak** | Lightning's own; GStreamer and Qt come from the KDE runtime |
+| **Windows** | `Lightning/licenses/`: Lightning's GPL-3, seven Qt directories, and thirteen under `lightning-gstreamer` (gstreamer-1.0, `-base`, `-good`, `-bad`, gst-plugins-rs, libnice, libsrtp, libvpx, opus, orc, zlib, webrtc-audio-processing, mingw-runtime). Plus `runtime-dependencies.json`, recording the exact set of PE files staged and their import graph |
+| **AppImage / snap** | Lightning's GPL-3; `usr/share/doc/<pkg>/copyright` for ~235 packages, deployed by **linuxdeploy's own** `dpkg-query` pass and present since long before this round; and `usr/share/licenses/third-party/<pkg>.copyright`, a second pass derived from the payload that additionally covers the ten packages hand-staged past linuxdeploy's excludelist |
+| **macOS** | `Contents/Resources/licenses/`: Lightning's GPL-3 and the **vendored** gst-plugins-good text from this repository. Whatever the upstream GStreamer framework itself carries is REPORTED in the job log and not yet asserted — nobody has listed that tree, and the build succeeds with a count of zero |
+
+**Known gaps, stated rather than glossed.** The AppImage's FFmpeg closure
+(`libavcodec`, `libavformat`, `libavutil` and the codec libraries they use) is
+built from Debian's GPL-enabled FFmpeg and is therefore **GPL-2-or-later**, not
+LGPL. The Windows package does not yet carry licence text for FFmpeg or for the
+Qt/GStreamer support libraries listed above, and the macOS bundle carries only
+part of its set. Both are tracked in
+[`docs/open-items.md`](open-items.md); the corresponding-source offer those
+GPL libraries require is an open decision recorded there.
 
 ## Bundled assets
 

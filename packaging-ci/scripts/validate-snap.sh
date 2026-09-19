@@ -81,6 +81,19 @@ test -s "$snap_good_license" \
     || die "the snap bundles gst-plugins-good binaries and carries no licence for them: usr/share/licenses/lightning-gstreamer/gst-plugins-good-1.0/COPYING is missing or empty"
 grep -q "GNU LESSER GENERAL PUBLIC LICENSE" "$snap_good_license" \
     || die "the staged gst-plugins-good licence in the snap is not the LGPL text"
+# AND THE REST OF THE PAYLOAD'S, harvested per Debian package by
+# build-appimage.sh. The snap inherits both the libraries and the harvest; it is
+# asserted here for the same reason the line above is, and with the same floor
+# (measured 242 on the 0.9.8 payload).
+snap_third_party="$audit/prime/usr/share/licenses/third-party"
+test -d "$snap_third_party" \
+    || die "the snap carries ~240 third-party libraries and no licence directory: usr/share/licenses/third-party is missing"
+snap_tp_# `-size +0`: a harvest that produced empty files would satisfy a bare count,
+# and the count is what this claims to assert.
+count=$(find "$snap_third_party" -maxdepth 1 -name '*.copyright' -type f -size +0 | wc -l)
+test "$snap_tp_count" -ge 100 \
+    || die "only $snap_tp_count third-party licence files are in the snap payload; the AppImage harvest came back short"
+echo "third-party licences in the snap payload: $snap_tp_count"
 
 # Run through the snap launcher with $SNAP simulated (snapd would provide
 # it at runtime); everything but base-system libs must come from the snap.

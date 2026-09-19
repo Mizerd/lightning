@@ -191,6 +191,122 @@ The 2026-09-18 fix removes the common way the two clients disagree at all, so
 this state should now be rare. It is written down because a known gap with no
 written home gets rediscovered from a user report.
 
+## 2026-09-19 — RESOLVED: the Flathub repo lint is CLEAN, and the harness fault was one missing flag
+
+**BOTH LINTS PASS ON LIGHTNING'S OWN BUILD.** `flatpak-builder-lint builddir`
+and `flatpak-builder-lint repo` each exit 0 with no output, measured on the
+2026-09-17 builddir in the `flathub-rig` container after the appstream compose
+stage was re-run with the policy Flathub's own build command uses:
+
+```
+image urls total / absolute-flathub: 20 / 20
+remote icons total / absolute-flathub: 2 / 2
+media files staged: 22
+--- lint builddir AFTER: rc=0
+--- lint repo:           rc=0
+```
+
+The BEFORE half of the same run is the control and it is the entry below:
+the same tree, the same linter, the same minute, `rc=1` with
+`appstream-external-screenshot-url` and `appstream-remote-icon-not-mirrored`.
+
+**EXACTLY WHAT WAS RUN, so nobody reads more into it than it says.** The app
+was NOT rebuilt — hours of Qt and Rust for a metadata question. A copy of the
+2026-09-17 `builddir` had its `app-info` tree deleted and `appstreamcli
+compose` re-run on it with the arguments flatpak-builder passes under
+`--compose-url-policy=full` (`--no-partial-urls`, same binary, same version,
+from inside the same `org.flatpak.Builder` flatpak), and the repo was then made
+with `flatpak build-export` plus an `ostree commit` of the media tree onto
+`screenshots/x86_64` — the same two refs `flathub-build` produces. So the
+CATALOGUE and both LINTS are measured on Lightning's real payload; the
+end-to-end `flathub-build` run through the new tracked script is **NOT TESTED**
+and is the next thing to do on a machine with flatpak.
+
+**THE ENTRY BELOW GOT THE VERDICT RIGHT AND THE MECHANISM HALF-WRONG, AND ITS
+REFUTATION WAS MEASURED OVER A CACHE HIT.** It concluded "the harness, not the
+package", which is correct. Two of its three supporting claims hold and the
+decisive one does not:
+
+* TRUE, verified in the linter's own source rather than by absence of a grep:
+  `checks/screenshots.py` tests each `<image>` with
+  `any(s.startswith(("https://dl.flathub.org/media",)) …)` and
+  `appstream.is_remote_icon_mirrored` does the same for
+  `//icon[@type='remote']`. Neither resolves `media_baseurl`.
+* TRUE: the 2026-09-17 catalogue really was
+  `<components version="1.0" media_baseurl="https://dl.flathub.org/media/">`
+  plus relative paths.
+* **FALSE: "`--compose-url-policy=full` does not change the output."** Run 5's
+  own log says `Cache hit for cleanup, skipping` — and `cleanup` is the stage
+  where flatpak-builder invokes `appstreamcli compose`
+  (`builder-manifest.c:3100-3160`). The flag never reached the tool. Nothing
+  about that run could have measured it.
+
+**WHAT THE FLAG ACTUALLY DOES**, and why the catalogue has two legal forms.
+`--compose-url-policy=full` becomes `--no-partial-urls`
+(`builder-manifest.c:2450`). In AppStream's composer,
+`asc_process_screenshots` builds the image URL as
+`media_url_prefix + gcid + "/screenshots"` when a prefix is set and as a bare
+relative path when it is not — and `as_image_to_xml_node` then writes
+`priv->url` VERBATIM, so the XML catalogue is absolute or relative exactly as
+the composer left it. `media_baseurl` is resolved only on the READ side
+(`as-image.c:383-390`). Both forms are valid AppStream; the linter accepts one.
+
+**THE CONTROL VARIED THE WRONG THING.** `org.example.LintProbe` was built to
+show the errors are not Lightning's. It did — but it was built with the SAME
+hand-rolled command, so it could only ever reproduce a command fault. Re-run
+2026-09-19 as a two-case experiment on a cold cache, same app, same minute:
+
+| case | catalogue | lint |
+|---|---|---|
+| `--mirror-screenshots-url` alone (default `partial`) | `media_baseurl=` + relative | both errors, rc=1 |
+| the same plus `--compose-url-policy=full` | no `media_baseurl`, absolute `https://dl.flathub.org/media/…` | **errors gone** |
+
+The probe's own deliberate defect (`url-homepage-missing`) fails in BOTH cases,
+which is what proves the second run is a real pass and not a silent one.
+
+**AND THE MAINTAINER HAD ALREADY MEASURED THE CLEAN RESULT, which nobody
+reconciled.** `Lightning/Tasks/Flathub submission preparation.md` records his
+2026-09-16 Fedora 44 run at tag v0.9.6: `flatpak-builder-lint repo repo ->
+exit 0, no output`, mutation-checked twice. He used `flathub-build` — the
+wrapper shipped inside `org.flatpak.Builder` and the command Flathub's own
+docs give — whose argument list is fixed:
+
+```
+--verbose --force-clean --sandbox --keep-build-dirs
+--override-source-date-epoch 1321009871 --user --install-deps-from=flathub
+--ccache --mirror-screenshots-url=https://dl.flathub.org/media
+--compose-url-policy=full --repo=repo builddir
+```
+
+The rig never used it. Two runs of the same gate disagreed for a day and the
+disagreement was a flag.
+
+**THE FIX IS TRACKED SO IT CANNOT BE HAND-ROLLED AGAIN:**
+`packaging-ci/scripts/flathub-presubmission-lint.sh` calls `flathub-build`,
+never assembles its own flags, carries the three traps that have cost builds
+(no session bus → `dbus-run-session`; the sandbox cannot write a host-owned
+directory; `cmd | tail` makes `$?` the status of `tail`), WARNS when the build
+log says `Cache hit for cleanup` because any compose conclusion from such a run
+is void, and asserts the catalogue's image URLs are absolute BEFORE reporting a
+lint verdict.
+
+**GENERALISE, and this is the part worth keeping:** *a flag tested over a cache
+hit was never tested.* It is the packaging cousin of "a job that exists and
+looks right is not a job that has run" — the stage that would have consumed the
+change did not execute, and a build that prints `rc=0` says nothing about it.
+Check for the cache line before believing any conclusion about a cached stage.
+
+**WHAT IS STILL OPEN**, and none of it is a linter finding: the verified-app
+token at `https://www.lightning-matrix.org/.well-known/org.flathub.VerifiedApps.txt`
+(404), the donation link, `x-checker-data`, the `UPDATE_CHANNEL_FLATPAK_AVAILABLE`
+go-live flip, and the submission PR itself — which Flathub's rules say an AI
+agent may not open, write or reply on. The repo lint above was run against the
+v0.9.7 builddir that was already on the rig; it must be re-run at the tag
+actually submitted, which is what the tracked script is for.
+
+The original entry follows, because the evidence in it is what made this
+possible and its one wrong line is the whole lesson.
+
 ## 2026-09-17 — the Flathub REPO lint finally ran, and its two errors are the harness
 
 The maintainer's gate is "on the vm that supports flatpak, run the full lint
@@ -269,6 +385,14 @@ local toolchain that a second app reproduces exactly.** That is as far as this
 rig can take it; the remaining question — whether Flathub's own pipeline
 skips those two for a submission or resolves `media_baseurl` upstream — is
 answerable only by submitting. It is not reported as a full green.
+
+> **SUPERSEDED 2026-09-19 — this paragraph's last two sentences are wrong.**
+> It was not answerable only by submitting: it was answerable by passing the
+> flag Flathub's own build command passes. `--compose-url-policy=full` over a
+> cold cache makes both errors go away, and the rig now reports a full green.
+> The claim above that the flag "does not change the output" was measured over
+> `Cache hit for cleanup, skipping`, so it measured nothing. See the entry at
+> the top of this section.
 
 ## 2026-09-17 — voice delay: PASS on Linux for the NUMBER, NOT TESTED everywhere else
 
@@ -461,7 +585,159 @@ rotted for Windows is not repeated elsewhere. A sweep of `packaging-ci/` for
 nothing else; no other lane pins a distro package by exact version.
 
 
-## 2026-09-17 — RESOLVED, and it was never Windows-only
+## 2026-09-19 — macOS ships no licence at all; the AppImage's gap is ten packages, not a hundred and fifty
+
+> **CORRECTED 2026-09-19, same evening, by an independent review and then
+> re-measured by hand.** The first version of this entry said the AppImage
+> carried licence text for ONE project out of ~150. **That is false.**
+> linuxdeploy deploys Debian copyright files by design — its binary carries a
+> copyright-files manager that shells out to `dpkg-query` — and the published
+> 0.9.8 AppImage already contains **235 `usr/share/doc/<pkg>/copyright`
+> files, 4.95 MB**, libavcodec61, libx264-164, libx265-215, libqt6core6t64
+> and libglib2.0-0t64 among them; every one of those was named in the first
+> draft as shipping bare.
+>
+> The error came from the PROBE: it searched `*licen*` and `COPYING*`, and
+> Debian names the file `copyright`. That pattern finds **two** files where
+> `-name copyright` finds **235**. This project's own rule — *a probe that
+> answers "absent" for everything is a broken probe until it has answered
+> "present" for something* — and it was believed because its answer was the
+> one being looked for. The table and the paragraphs below are corrected;
+> the wrong claim is left here rather than deleted, because the record of it
+> is the lesson.
+
+**MEASURED ON THE PUBLISHED 0.9.8 ARTIFACTS, not on the scripts.** The entry
+below closed gst-plugins-good on Windows, the AppImage and (through it) the
+snap, and headlined itself RESOLVED. On the AppImage that mattered far less
+than it looked, because linuxdeploy was already attributing the payload. On
+**macOS it mattered completely**, and that is the finding that survives.
+
+| format | third-party binaries shipped | licence text present |
+|---|---|---|
+| **AppImage** 0.9.8 | 371 distinct shared objects, ~150 upstream projects | **235 Debian `copyright` files, 4.95 MB**, deployed by linuxdeploy — plus Lightning's GPL-3 and the vendored gst-plugins-good text. **Ten packages are genuinely missing** (below). |
+| **snap** 0.9.8 | repacks the AppImage — identical | identical |
+| **macOS** 0.9.8 | Qt 6 frameworks, 26 GStreamer plugins, 35 dylibs, 2,066 files | **NOTHING.** `find Lightning.app -iname '*licen*' -o -iname 'COPYING*'` returns zero hits — Lightning's OWN GPL-3 text included |
+| **Windows** 0.9.8 | 206 DLLs | 10 directories: Qt (7), GStreamer family (13 under `lightning-gstreamer`), Lightning's GPL-3. **No FFmpeg, no glib, no freetype/fontconfig/harfbuzz/ICU/png/jpeg/tiff/webp/pcre2/expat/sqlite/openssl.** |
+| **deb / rpm** | none bundled — system packages, declared as dependencies | `copyright` / `%license`, correct |
+| **flatpak** | none bundled — the KDE runtime's | correct |
+
+**THE macOS BUNDLE IS THE ONE THAT IS NOT ARGUABLE.** Lightning is
+GPL-3.0-or-later. Section 4 of that licence requires a copy of it to accompany
+the program. Every macOS package this project has published shipped without
+one. That is our own licence, not a dependency's, and it needs no decision.
+
+**THE TEN THAT ARE ACTUALLY MISSING**, verified against the published payload
+(library present, `usr/share/doc/<pkg>/copyright` absent):
+`kimageformat6-plugins`, `libspa-0.2-modules`, `libcom-err2`, `libexpat1`,
+`libfontconfig1`, `libfreetype6`, `libgmp10`, `libharfbuzz0b`, `libopengl0`,
+`zlib1g`. They are the set hand-staged past linuxdeploy's excludelist or
+unpacked into `/opt` rather than installed, which is exactly why linuxdeploy's
+own `dpkg-query` pass does not see them. Real, owed, and a tenth the size of
+what the first draft claimed.
+
+**AND SOME OF THE AppImage'S PAYLOAD IS GPL, NOT LGPL — which changes what is
+owed.** Qt Multimedia's `libffmpegmediaplugin.so` pulls in
+`libavcodec.so.61`/`libavformat.so.61`/`libavutil.so.59`, and with them
+`libx264.so.164`, `libx265.so.215`, `libxvidcore.so.4`, `libdvdnav.so.4`,
+`libdvdread.so.8`, `libgme.so.0` and `libopenmpt.so.0`. Debian's own
+`libavcodec61` copyright says it outright:
+
+> For building the default Debian packages some of the GPL licensed files are
+> used, so the resulting binaries are licensed under GPL v2+.
+
+Lightning being GPL-3.0-or-later makes the combination licence-compatible. It
+does **not** discharge the obligation: for a GPL library the source duty is
+GPL §3's (accompany with the complete corresponding source, or a written offer
+valid three years under v2 / a network-server offer under v3), which is
+stronger than the LGPL §6 menu the entry below left open. macOS has no FFmpeg
+(it uses `libdarwinmediaplugin.dylib`); Windows ships Fedora's `avcodec-61.dll`,
+whose GPL status was NOT established here and must be before the Windows gap is
+closed.
+
+### What changed in the tree (uncommitted, 2026-09-19)
+
+* **`packaging-ci/scripts/build-appimage.sh`** — harvests
+  `/usr/share/doc/<pkg>/copyright` for every Debian package that owns a bundled
+  shared object, into `usr/share/licenses/third-party/<pkg>.copyright`, and
+  **dies** on any object it cannot attribute. The index is built from
+  `/var/lib/dpkg/info/*.list` **and** from the two packages the job `dpkg-deb
+  -x`s into `/opt` rather than installing — without that second source
+  `kimg_jxl.so` is in no dpkg file list and the job would die on it. Why dpkg
+  and not a hand-written list: a hand list goes stale the first time
+  linuxdeploy's ELF walk pulls in one more library and nothing says so.
+* **`packaging-ci/scripts/build-macos.sh`** — stages Lightning's own `LICENSE`,
+  the vendored gst-plugins-good text, and anything licence-shaped found in the
+  GStreamer framework prefix, into `Contents/Resources/licenses/`, BEFORE the
+  codesign step (Resources is sealed by the signature).
+* **`validate-appimage.sh` / `validate-snap.sh`** — assert the directory AND a
+  COUNT (`>= 100`, measured 242), plus glob spot-checks for `libavcodec*`,
+  `libx264-*`, `libgstreamer1.0-*`, `libgstreamer-plugins-base1.0-*` and
+  `libqt6core*`. Globs, not exact names: those all carry a soversion and
+  pinning it would turn a base-image bump into a red release job.
+* **`validate-macos-artifacts.sh`** — asserts both staged files on the BUNDLE.
+* **`packaging-ci/tests/test-pipeline-config.py`** — eleven new assertions over
+  the call sites. **Proven to fail on the unfixed tree**: reverting the five
+  scripts to `HEAD` fails all ten and nothing else.
+
+**VALIDATION, stated exactly.** The harvest code was extracted from
+`build-appimage.sh` and executed inside the pinned build base image
+(`debian@sha256:d7e1218…`, the digest `.gitlab-ci.yml` pins) with the job's own
+apt set and both `dpkg-deb -x` unpacks, against the payload of the **published
+0.9.8 AppImage**: `third-party licences: 406 payload objects, 242 Debian
+packages, 242 files, 5192279 bytes`, zero unattributed, 5.4 MB in a 136 MB
+image. **It has NOT run inside the job** — the packaging scripts a pipeline
+executes come from the pushed ref, so an uncommitted change cannot be tested by
+one. The macOS staging has NOT been executed at all: there is no macOS host
+here, and the GStreamer-framework licence sweep in it is deliberately REPORTED
+(a count in the job log) rather than asserted, because nobody has listed that
+tree.
+
+### The maintainer's decision, with the options
+
+Shipping the licence text is settled — that half has one right answer and is
+implemented. What is **not** settled is the **corresponding source** offer,
+and the GPL-2+ libraries above make it a real question rather than a formality.
+
+1. **Publish a written offer** on `lightning-matrix.org` naming Debian's source
+   repository for the exact image the AppImage is built from, and reference it
+   from the payload. Cheapest; relies on Debian keeping those sources
+   reachable, which for a pinned snapshot it does not guarantee for ever.
+2. **Mirror the source alongside each release.** Complete and self-contained;
+   roughly a gigabyte of `.orig.tar` per release, and the release already
+   fights an artifact-size cap (see `docs/release-operations.md`).
+3. **Drop `libffmpegmediaplugin.so` from the AppImage.** Removes the whole
+   GPL-2+ closure (~40 MB and a dozen libraries) and reduces the remaining duty
+   to LGPL §6. Cost: Qt Multimedia loses its decoder, which is what draws video
+   posters and plays back video attachments. This is a product decision, not a
+   packaging one.
+4. **Do nothing further** and rely on the licence texts alone. Not defensible
+   for the GPL-2+ set.
+
+Nothing here picks one. Recorded so the next round does not rediscover it.
+
+### Still open after this round
+
+* **Windows** — FFmpeg, glib, libintl/iconv, freetype, fontconfig, harfbuzz,
+  graphene, ICU, png/jpeg/tiff/webp, pcre2, expat, ffi, bz2, sqlite3 and
+  OpenSSL are shipped with no licence text. The Windows stage copies whole
+  directories out of `/usr/share/licenses` in the builder image, so the fix is
+  the same shape as the gst-plugins-good one — a Dockerfile change, which means
+  it belongs with the next hand-built image (`docs/packaging-traps.md`) and not
+  before it. Whether Fedora's mingw ffmpeg is the GPL or the LGPL build is
+  UNKNOWN and must be established, not assumed.
+* **macOS** — Qt's own LGPL-3 text, the GStreamer framework's core/-base/-bad,
+  glib, hunspell, freetype, harfbuzz, ICU, OpenSSL and the rest of the 35
+  dylibs. The next concrete step is one command on the runner: list
+  `$LIGHTNING_MACOS_GSTREAMER_PREFIX/share` and
+  `$(brew --prefix qt)/share` for licence directories, which decides whether
+  this is a staging change or a vendoring one.
+* **AppImage** — `AppRun` and the appimagetool runtime are linuxdeploy's and
+  AppImage's own (MIT-ish) and are not covered by the dpkg harvest, because
+  they come from pinned GitHub downloads rather than packages.
+
+The entry it supersedes follows.
+
+## 2026-09-17 — PARTIAL, not resolved: gst-plugins-good alone
 
 **The licence text is vendored in this repository now**
 (`packaging-ci/packaging/common/licenses/gst-plugins-good-1.0/`) and staged by
@@ -480,6 +756,13 @@ its validator returned one hit, a comment about HEVC. The snap repacks the
 AppImage, so it inherits the gap. Deb and rpm link the system GStreamer and
 Flatpak uses the runtime's, so those three are clean.
 
+> **AND THIS SCOPE WAS WRONG TOO, 2026-09-19.** It widened from "Windows" to
+> "Windows + AppImage + snap" and stopped there. It never listed **macOS**,
+> which bundles 26 GStreamer plugins and carried no licence file of any kind —
+> not even Lightning's own GPL-3. And widening by ONE PROJECT was the wrong
+> axis: the AppImage ships ~150 upstream projects and had text for one. A scope
+> corrected once is not a scope that is now right; see the entry above.
+
 **AND THE BLOCKER WAS AN ASSUMPTION, NOT A CONSTRAINT.** The text below says
 fixing it "means SOURCING the text rather than copying it", which was read as
 needing a 960 MB builder-image rebuild. It does not: the licence is a file,
@@ -491,6 +774,12 @@ publish a written offer for the corresponding source of those plugins, and
 where. LGPL-2.1 section 6 allows several ways to satisfy it and the choice is
 about the project, not about packaging. Recorded in PROVENANCE.txt beside the
 text.
+
+> **2026-09-19: that question is bigger than LGPL §6.** The AppImage also ships
+> GPL-2-or-later binaries — Debian's libavcodec/libavformat/libavutil plus
+> x264, x265, xvidcore, dvdnav, dvdread, gme and openmpt, all reached through
+> Qt Multimedia's ffmpeg plugin. For those the duty is GPL §3's, not the LGPL
+> §6 menu. Four options and their tradeoffs are in the entry above.
 
 The original entry follows, because the evidence in it is what made the fix
 possible.

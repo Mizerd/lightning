@@ -27,7 +27,16 @@ def check(cond, msg):
     if cond:
         print(f"  ok: {msg}")
     else:
+        # FLUSH FIRST. `ok` goes to stdout and `FAIL` to stderr, and stdout is
+        # BLOCK-BUFFERED when this is piped while stderr is not — so under
+        # `2>&1` a FAIL can land in the middle of a pending `ok:` line. That
+        # is not cosmetic here: this project counts results by grepping, and
+        # a `grep -c '^ *FAIL'` over that output silently returns one fewer
+        # than there were, which is exactly the silently-short count these
+        # suites exist to prevent. It cost a wrong number in review once.
+        sys.stdout.flush()
         print(f"  FAIL: {msg}", file=sys.stderr)
+        sys.stderr.flush()
         errors.append(msg)
 
 
@@ -1119,6 +1128,51 @@ for script, label in (("validate-windows-artifacts.sh", "the Windows validator")
           f"{label} asserts the licence is in the extracted payload")
     check("GNU LESSER GENERAL PUBLIC LICENSE" in src,
           f"{label} checks the staged text is the LGPL, not just a file")
+
+# --- AND EVERY OTHER PROJECT IN THE PAYLOAD, not just that one --------------
+#
+# 2026-09-19. The block above fixed gst-plugins-good because a review named it.
+# Measured on the SHIPPED 0.9.8 artifacts, that covered one upstream project
+# out of about a hundred and fifty: the AppImage carries 371 distinct shared
+# objects and had licence text for exactly one of them, and the macOS bundle
+# carried NO licence file at all across 2,066 files — not even Lightning's own
+# GPL-3, which §4 of that licence requires to accompany the program.
+#
+# build-appimage.sh now harvests /usr/share/doc/<pkg>/copyright for every
+# Debian package that owns a bundled object (242 packages, 5.2 MB, measured in
+# the pinned build image against the 0.9.8 payload) and dies on any object it
+# cannot attribute; the snap inherits it. build-macos.sh stages Lightning's own
+# LICENSE and the vendored gst-plugins-good text.
+_appimage_src = _strip_shell_comments(_read("scripts", "build-appimage.sh"))
+check("/var/lib/dpkg/info" in _appimage_src,
+      "the AppImage build derives licences from the dpkg file list, not a hand list")
+check("usr/share/licenses/third-party" in _appimage_src,
+      "the AppImage build stages a third-party licence directory")
+# NOT just "/opt/kimageformats appears somewhere" — the script has staged Qt
+# image-format plugins from there for months, so that string passes on the
+# unfixed tree and the check would be decoration. Assert the INDEX covers the
+# unpacked roots, which is the thing that was missing.
+check("for unpacked in /opt/kimageformats /opt/pipewire-conf" in _appimage_src,
+      "the licence index covers the packages the job UNPACKS rather than "
+      "installs (kimg_jxl.so is in no dpkg file list, and an index built from "
+      "/var/lib/dpkg alone would kill the job on it)")
+for script, label in (("validate-appimage.sh", "the AppImage validator"),
+                      ("validate-snap.sh", "the snap validator")):
+    src = _strip_shell_comments(_read("scripts", script))
+    check("usr/share/licenses/third-party" in src,
+          f"{label} asserts the third-party licence directory is in the payload")
+    check("-ge 100" in src,
+          f"{label} asserts a COUNT, so a harvest that comes back short fails")
+_macos_build = _strip_shell_comments(_read("scripts", "build-macos.sh"))
+check("Lightning-GPL-3.0.txt" in _macos_build,
+      "the macOS build stages Lightning's own GPL-3 text into the bundle")
+check("gst-plugins-good-1.0" in _macos_build,
+      "the macOS build stages the vendored gst-plugins-good licence")
+_macos_validator = _strip_shell_comments(_read("scripts", "validate-macos-artifacts.sh"))
+check("Lightning-GPL-3.0.txt" in _macos_validator,
+      "the macOS validator asserts the GPL-3 text is in the BUNDLE")
+check("gst-plugins-good-1.0" in _macos_validator,
+      "the macOS validator asserts the gst-plugins-good licence is in the BUNDLE")
 
 # --- 3. every format asks the SHIPPED artifact ------------------------------
 #
