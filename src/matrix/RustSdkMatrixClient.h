@@ -800,9 +800,16 @@ Q_SIGNALS:
     // v0.6.0 checkpoint 9: entries carry deviceId, displayName, lastSeenTs,
     // lastSeenIp, isCurrent, hasCryptoIdentity, verified, crossSigned.
     void deviceListUpdated(bool ok, const QVariantList &devices);
+    // `deviceVerified` is Device::is_verified() and is the flag a trust
+    // LABEL may use. `deviceCrossSigned` is is_cross_signed_by_owner() —
+    // signed by the owner's key, with NO requirement that we have verified
+    // that owner identity — so it describes HOW a device is trusted and must
+    // never by itself promote anything to "Verified". Both are carried
+    // because the distinction is the point.
     void ownDeviceStatusUpdated(const QString &deviceId,
                                 bool ownIdentityAvailable,
                                 bool ownIdentityVerified,
+                                bool deviceVerified,
                                 bool deviceCrossSigned,
                                 bool hasMasterKey,
                                 bool hasSelfSigningKey,

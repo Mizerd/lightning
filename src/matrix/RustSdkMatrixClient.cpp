@@ -6215,6 +6215,7 @@ void RustSdkMatrixClient::refreshOwnDeviceStatus()
         obj.value(QStringLiteral("device_id")).toString(),
         obj.value(QStringLiteral("own_identity_available")).toBool(false),
         obj.value(QStringLiteral("own_identity_verified")).toBool(false),
+        obj.value(QStringLiteral("device_verified")).toBool(false),
         obj.value(QStringLiteral("device_cross_signed")).toBool(false),
         obj.value(QStringLiteral("has_master")).toBool(false),
         obj.value(QStringLiteral("has_self_signing")).toBool(false),

@@ -1,5 +1,43 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-20 — EXPECTED, NOT A REGRESSION: an unverified session now shows every device as "Not verified"
+
+If a tester reports that the Sessions list "went from all green to all grey"
+after this round, that is the fix working. Do not chase it.
+
+Four trust surfaces read `cross_signed` — `is_cross_signed_by_owner()`, which
+asks only whether the owner's self-signing key signed the device and does
+**not** require that we have verified that owner identity. They now read
+`verified` — `Device::is_verified()` =
+`is_locally_trusted() || is_cross_signing_trusted()`, and the second of those
+does check the owner identity (matrix-sdk-crypto 0.18.0,
+`identities/device.rs:757` and `:765`).
+
+**The consequence, confirmed in review against the vendored SDK.** From a
+session that has not verified itself, `own_identity.is_verified()` is false,
+so `is_cross_signing_trusted()` is false for **every** device of that user.
+So on a fresh unverified login the whole list flips from green "Verified" to
+"Not verified" and the all-devices rollup goes incomplete. That is correct —
+it is exactly the false green being removed, and Element behaves the same way
+— but it is a dramatic visible change on the most-looked-at security screen.
+
+**No healthy state regresses.** Old and new differ on exactly one input,
+`cross_signed && !verified`; everywhere else the old expression already fell
+through to the verified flag. Traced in review for the own current device:
+fresh login before self-verification (both No), after interactive
+verification (both Yes), after recovery-key login (both Yes — importing
+matching private cross-signing keys marks the public identity verified), and
+cross-signing not set up (both false). The only "less green than before"
+window constructible is transient — the SSK signature landing before our own
+identity is marked verified — and in that window the SDK itself says not
+verified, which is what §6 and §9 require the label to report.
+
+**Information the UI no longer exposes.** A `verified=false, cross_signed=true`
+device collapses into "Not verified" and nothing says the signature exists. A
+third label ("Signed, not trusted") was considered and deliberately deferred:
+it adds a state to a security surface, and "Not verified" is never wrong for
+it. Accepted follow-up, not a defect.
+
 ## 2026-09-20 — OPEN DECISION: what an unrecognised notification-preview mode should resolve to
 
 `SettingsManager::notificationPreview()` falls back to **0 (sender and

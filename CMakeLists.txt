@@ -2115,7 +2115,11 @@ if(BUILD_TESTING)
     # two confirmation dialogs and timeline pagination header.
     qt_add_executable(qml-binding-contract-test tests/QmlBindingContractTest.cpp)
     target_compile_definitions(qml-binding-contract-test PRIVATE
-        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+        # A trust LABEL can be composed in C++ and merely displayed by QML —
+        # `app.sessionTrustState` is, and a QML-only scan cannot see it. The
+        # fourth trust surface was missed for exactly that reason.
+        LIGHTNING_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(qml-binding-contract-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME qml-binding-contract COMMAND qml-binding-contract-test)
 

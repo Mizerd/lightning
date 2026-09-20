@@ -5353,8 +5353,15 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
 
 /// Report the cross-signing state of the current session. Only aggregate,
 /// non-secret metadata crosses the FFI — device keys and signatures never
-/// do. `device_cross_signed = true` is the source of truth for the
-/// "Verified" label in the UI.
+/// do.
+///
+/// `device_verified` is `Device::is_verified()` and IS the source of truth
+/// for the "Verified" label. This comment used to name `device_cross_signed`
+/// instead, and that field was not even emitted here — which is how
+/// `AppController`'s session trust chip came to be driven by
+/// `is_cross_signed_by_owner()`, a signature by the owner's key that does NOT
+/// require us to have verified that owner identity. Emit both: the narrower
+/// flag still describes HOW a device is trusted.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_query_own_device_status(
     ptr: *mut c_void,
@@ -5377,6 +5384,7 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
             let device_id_opt = client.device_id().map(|d| d.to_string());
             let mut own_identity_available = false;
             let mut own_identity_verified = false;
+            let mut device_verified = false;
             let mut device_cross_signed = false;
             let mut has_master = false;
             let mut has_self_signing = false;
@@ -5388,6 +5396,7 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
                 }
             }
             if let Ok(Some(device)) = client.encryption().get_own_device().await {
+                device_verified = device.is_verified();
                 device_cross_signed = device.is_cross_signed_by_owner();
             }
             // The identity-key check that names a permanently undecryptable
@@ -5405,6 +5414,7 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
                 "device_id": device_id_opt.unwrap_or_default(),
                 "own_identity_available": own_identity_available,
                 "own_identity_verified": own_identity_verified,
+                "device_verified": device_verified,
                 "device_cross_signed": device_cross_signed,
                 "has_master": has_master,
                 "has_self_signing": has_self_signing,

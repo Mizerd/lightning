@@ -2292,13 +2292,27 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         });
 
         // v0.5.6 Security & Recovery: aggregate cross-signing snapshot
-        // and room-key import lifecycle. Only the SDK-provided
-        // "device_cross_signed" flag promotes the label to Verified.
+        // and room-key import lifecycle.
+        //
+        // THE LABEL READS `deviceVerified`, WHICH IS `Device::is_verified()`.
+        // It used to read `deviceCrossSigned`, and this comment used to say
+        // that was the flag which promotes the label to Verified — which was
+        // the false green: `is_cross_signed_by_owner()` asks only whether the
+        // owner's self-signing key signed the device and does NOT require
+        // that we have verified that owner identity, so a session which had
+        // not verified itself chipped its own device green on a signature it
+        // had no reason to trust. This was the FOURTH surface reading that
+        // flag; the device list, its two filters and the all-devices rollup
+        // were corrected in the same round, and leaving this one behind would
+        // have put two contradictory chips on the Sessions page AND
+        // suppressed `sessionVerificationNeeded()` in exactly the state that
+        // needs to offer verification.
         connect(rust, &RustSdkMatrixClient::ownDeviceStatusUpdated,
                 this, [this](const QString &deviceId,
                              bool ownIdentityAvailable,
                              bool /*ownIdentityVerified*/,
-                             bool deviceCrossSigned,
+                             bool deviceVerified,
+                             bool /*deviceCrossSigned*/,
                              bool hasMaster,
                              bool hasSelf,
                              bool hasUser) {
@@ -2308,7 +2322,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                                       || ownIdentityAvailable;
             if (!ownIdentityAvailable) {
                 m_sessionTrustState = QStringLiteral("Cross-signing unavailable");
-            } else if (deviceCrossSigned) {
+            } else if (deviceVerified) {
                 m_sessionTrustState = QStringLiteral("Verified");
                 // v0.7.x: a dismissal answered "I know this session is
                 // unverified". Once it IS verified that answer is spent —

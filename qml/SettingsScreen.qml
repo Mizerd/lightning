@@ -7338,9 +7338,11 @@ Item {
                                 || app.sessionDevicesLoading
                                 ? false
                                 : app.sessionDevices.length > 0
+                                  // NOT `|| d.crossSigned`: a signature from an
+                                  // identity we have not verified must not make
+                                  // the whole account read as trusted.
                                   ? app.sessionDevices.every(
-                                        d => d.verified === true
-                                             || d.crossSigned === true)
+                                        d => d.verified === true)
                                   : app.cryptoHealth.currentDeviceVerified
                                     === CryptoHealthModel.Yes
                             readonly property var chainSteps: [
@@ -7545,11 +7547,13 @@ Item {
                                             var d = all[i]
                                             if (f === "current" && d.isCurrent === true)
                                                 out.push(d)
-                                            else if (f === "verified" && d.crossSigned === true)
+                                            // Same fact as the chip above, or the
+                                            // filter disagrees with the badge it filters.
+                                            else if (f === "verified" && d.verified === true)
                                                 out.push(d)
                                             else if (f === "unverified"
                                                      && d.hasCryptoIdentity === true
-                                                     && d.crossSigned !== true)
+                                                     && d.verified !== true)
                                                 out.push(d)
                                         }
                                         return out
@@ -7617,14 +7621,29 @@ Item {
                                                     }
                                                     StatusChip {
                                                         storm: true
-                                                        label: modelData.crossSigned === true
+                                                        // THE STRONGEST WORD WAS BOUND TO THE
+                                                        // WEAKEST FACT. This read `crossSigned`,
+                                                        // i.e. is_cross_signed_by_owner() — merely
+                                                        // SIGNED by the owner's key, with no
+                                                        // requirement that we trust that identity —
+                                                        // and labelled it "Verified". Wrong both
+                                                        // ways: a locally verified device that is
+                                                        // not cross-signed read "Not verified"
+                                                        // while the Cross-signing card above called
+                                                        // it verified, and a device signed by an
+                                                        // identity this session has never verified
+                                                        // could read a green "Verified".
+                                                        // `verified` is is_verified() — the SDK's
+                                                        // own verdict — and was carried in this
+                                                        // same map, read by one line of the file.
+                                                        label: modelData.verified === true
                                                               ? qsTr("Verified")
                                                               : modelData.hasCryptoIdentity === true
                                                                 ? qsTr("Not verified")
                                                                 : qsTr("No encryption")
-                                                        iconName: modelData.crossSigned === true
+                                                        iconName: modelData.verified === true
                                                                   ? "verified_user" : ""
-                                                        tone: modelData.crossSigned === true
+                                                        tone: modelData.verified === true
                                                               ? "success" : "neutral"
                                                     }
                                                 }

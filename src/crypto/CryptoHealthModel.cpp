@@ -50,12 +50,20 @@ void CryptoHealthModel::applySnapshot(const QVariantMap &snapshot,
     m_hasSnapshot = true;
     m_error = false;
     m_deviceId = snapshot.value(QStringLiteral("device_id")).toString();
-    // "Verified" means cross-signed by the account owner — SDK truth, never
-    // an inference from local session restoration.
-    m_deviceVerified =
-        snapshot.value(QStringLiteral("device_cross_signed")).toBool()
-            ? Yes
-            : triState(QStringLiteral("device_verified"));
+    // "Verified" IS `Device::is_verified()` AND NOTHING WIDER. This used to
+    // read `device_cross_signed ? Yes : device_verified`, and the extra arm
+    // is a FALSE GREEN: matrix-sdk's `is_cross_signed_by_owner()` asks only
+    // whether the owner's self-signing key signed the device, and does NOT
+    // require that we have verified that owner identity. So a session that
+    // has not verified itself could report its own device as verified on a
+    // signature it has no reason to trust.
+    //
+    // `is_verified()` is `is_locally_trusted() || is_cross_signing_trusted()`
+    // (matrix-sdk-crypto 0.18.0, identities/device.rs:757), and
+    // is_cross_signing_trusted DOES check the owner identity. It therefore
+    // already covers every case the dropped arm covered that was true, and
+    // none that was not. §6: trust labels come from SDK state.
+    m_deviceVerified = triState(QStringLiteral("device_verified"));
     const bool hasMaster =
         snapshot.value(QStringLiteral("has_master")).toBool();
     const bool hasSelf =
