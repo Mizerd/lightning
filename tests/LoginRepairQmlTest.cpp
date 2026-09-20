@@ -19,6 +19,8 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickItem>
+
+#include <functional>
 #include <QQuickWindow>
 #include <QSignalSpy>
 
@@ -683,6 +685,93 @@ private slots:
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString text = QString::fromUtf8(file.readAll());
         QVERIFY(!text.contains(QStringLiteral("resetLocalRustSession(")));
+    }
+
+    // THE CARD MUST NOT MOVE THE FIELDS UNDER THE USER'S CURSOR.
+    //
+    // It used to be centred on its CURRENT height. The homeserver probe is
+    // async, so the browser-login and SSO sections are on screen for
+    // matrix.org and vanish once a server offering neither answers;
+    // `implicitHeight` then shrinks, `(viewport - implicitHeight) / 2` grows,
+    // and the whole card slides DOWN. Measured on Windows against the
+    // published 0.9.8 at 1280x800: **126 px**, card fill y=56 -> y=182.
+    //
+    // The three fields are at the TOP of this card and the optional buttons
+    // at the bottom, so the reader is typing into the part that moves. Type
+    // the homeserver, click where "User" was, and the PASSWORD lands in the
+    // clear-text Homeserver URL field. Reproduced on Windows, and twice by an
+    // agent driving this screen.
+    //
+    // The case shrinks the form the way the probe does — by hiding a real
+    // child — and asserts the PREMISE (the form actually got shorter) before
+    // asserting the fields did not move. Without that premise check a card
+    // that never resized would pass while proving nothing.
+    void theLoginCardDoesNotMoveWhenOptionalSectionsDisappear()
+    {
+        QQuickItem *panel = item("loginPanel");
+        QVERIFY2(panel, "the login card was not found");
+        QQuickItem *user = item("userField");
+        QQuickItem *pass = item("passField");
+        QVERIFY(user && pass);
+
+        const qreal panelY0 = panel->y();
+        const qreal formH0 = panel->property("implicitHeight").toReal();
+        const QPointF userScene0 = user->mapToScene(QPointF(0, 0));
+        const QPointF passScene0 = pass->mapToScene(QPointF(0, 0));
+        QVERIFY(formH0 > 0);
+
+        // Shrink the form the way the async probe does: hide something that
+        // sits BELOW the password field, which is exactly where the optional
+        // browser-login and SSO sections live.
+        const qreal passBottom = pass->mapToItem(panel, QPointF(0, pass->height())).y();
+        QQuickItem *shrink = nullptr;
+        qreal best = 0;
+        std::function<void(QQuickItem *)> walk = [&](QQuickItem *node) {
+            for (QQuickItem *c : node->childItems()) {
+                if (c->isVisible() && c->height() > 20) {
+                    const qreal top = c->mapToItem(panel, QPointF(0, 0)).y();
+                    if (top > passBottom && c->height() > best) {
+                        best = c->height();
+                        shrink = c;
+                    }
+                }
+                walk(c);
+            }
+        };
+        walk(panel);
+        QVERIFY2(shrink,
+                 qPrintable(QStringLiteral(
+                     "no visible section below the password field (bottom %1) "
+                     "was found to shrink the card with")
+                         .arg(passBottom)));
+        shrink->setProperty("visible", false);
+        QTest::qWait(60);
+
+        const qreal formH1 = panel->property("implicitHeight").toReal();
+        QVERIFY2(formH1 < formH0,
+                 qPrintable(QStringLiteral(
+                     "the form did not get shorter (%1 -> %2), so this case "
+                     "would pass without testing anything")
+                         .arg(formH0).arg(formH1)));
+
+        const qreal moved = qAbs(panel->y() - panelY0);
+        const qreal userMoved = qAbs(user->mapToScene(QPointF(0, 0)).y()
+                                     - userScene0.y());
+        const qreal passMoved = qAbs(pass->mapToScene(QPointF(0, 0)).y()
+                                     - passScene0.y());
+        shrink->setProperty("visible", true);
+        QTest::qWait(60);
+
+        QVERIFY2(moved < 1.0,
+                 qPrintable(QStringLiteral(
+                     "the login card moved %1px when the form shrank %2px; a "
+                     "field moving under the pointer is how a password lands "
+                     "in the clear-text homeserver box")
+                         .arg(moved).arg(formH0 - formH1)));
+        QVERIFY2(userMoved < 1.0 && passMoved < 1.0,
+                 qPrintable(QStringLiteral(
+                     "the User field moved %1px and the Password field %2px")
+                         .arg(userMoved).arg(passMoved)));
     }
 
     void noQmlWarnings()

@@ -121,8 +121,13 @@ builder image does not carry `libgstlevel.dll` (builder **v7** adds it, §16);
 on the AppImage the plugin entered `GST_REQUIRED_PLUGINS` in `8e744c7`, which
 is AFTER the release commit. So 0.9.7's headline diagnostic, and the
 mic-silence badge that depends on it, cannot fire in anything shipped. Both
-halves are fixed on `main` and neither is released
-(`docs/open-items.md`). **THE WINDOWS CAMERA DID NOT REPRODUCE ON
+halves are fixed on `main`. **AND 0.9.8 SHIPS THE WINDOWS HALF — measured on
+the published artifact 2026-09-20**: the released
+`Lightning-0.9.8-c04ea54-windows-x86_64-portable.zip`, fetched from the mirror
+and checked against the release `SHA256SUMS`, carries `libgstlevel.dll` among
+its 29 plugin DLLs. The paragraph above is about 0.9.7 and must not be quoted
+at 0.9.8. Still absent there: `libgstd3d11.dll`, so Windows capture remains
+GDI. (`docs/open-items.md`) **THE WINDOWS CAMERA DID NOT REPRODUCE ON
 2026-09-17, and that refutes two hypotheses including my own next one.** Same
 published 0.9.7 package, same guest, same camera: the self-view drew a real
 picture on the compressed chain AND on the raw one (forced by moving

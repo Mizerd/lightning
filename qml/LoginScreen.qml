@@ -97,9 +97,43 @@ Item {
 
         Rectangle {
             id: panel
+            objectName: "loginPanel"
             anchors.horizontalCenter: parent.horizontalCenter
+
+            // CENTRED ON THE TALLEST STATE THE FORM REACHES, NOT ON ITS
+            // CURRENT HEIGHT — because a card centred on its current height
+            // MOVES THE FIELDS UNDER THE USER'S CURSOR.
+            //
+            // The homeserver probe is async: the browser-login and SSO
+            // sections are visible for matrix.org and disappear once a server
+            // that offers neither answers. `implicitHeight` then shrinks, so
+            // `(height - implicitHeight) / 2` GROWS and the whole card slides
+            // down — measured on Windows at 1280x800, **126 px**, with the
+            // card fill moving y=56 to y=182.
+            //
+            // The fields are at the TOP of this card and the optional buttons
+            // at the bottom, so the reader is typing into the part that
+            // moves. Type a homeserver, click where "User" was, and the
+            // PASSWORD goes into the clear-text Homeserver URL field.
+            // Reproduced on Windows against the published 0.9.8, and twice by
+            // an agent driving this screen. It is not persisted — the INI
+            // still held the URL — but it is on screen in clear text, and the
+            // user believes they typed it into a masked field.
+            //
+            // `_tallest` only ever grows, and resets on a viewport resize so
+            // a genuinely smaller window re-centres. A section appearing or
+            // vanishing can no longer move anything.
+            property real _tallest: implicitHeight
+            onImplicitHeightChanged: {
+                if (implicitHeight > _tallest)
+                    _tallest = implicitHeight
+            }
+            Connections {
+                target: loginFlick
+                function onHeightChanged() { panel._tallest = panel.implicitHeight }
+            }
             y: Math.max(AppTheme.spacingXL,
-                        (loginFlick.height - implicitHeight) / 2)
+                        (loginFlick.height - _tallest) / 2)
             width: Math.max(300, Math.min(loginFlick.width - AppTheme.spacingXL * 2, 420))
             implicitHeight: loginForm.implicitHeight + AppTheme.spacingXL * 2
             radius: AppTheme.radiusLg
