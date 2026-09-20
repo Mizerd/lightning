@@ -2072,6 +2072,32 @@ it, so it waits on itself forever; two background shells deadlocked this way in
 one session. Use `pgrep -x ninja`. Same family as the recorded
 `$(pgrep -c x || echo 0)` trap.
 
+**A THEME-DEPENDENT CLAIM MEASURED IN ONE THEME IS A CLAIM ABOUT THAT THEME.**
+"Ctrl+A doesn't work in the text fields" was reported, and I measured it
+WORKING and said NOT REPRODUCED — in Storm, the one theme where the token
+resolved to something visible. Selection worked everywhere; it was invisible
+in the two DEFAULT themes, because `selectionColor` read `accentSoft`, a TILE
+FILL that only three of eleven palettes define. Sibling of the settings cards
+painting `stormCanvas`, which IS the page colour, on the same day: **the
+semantically obvious token is often the broken one, and it renders correctly
+on whichever theme you happen to test.** Both are gated now by
+`ThemeTokensTest` cases that assert an L* floor across all eleven AND assert
+the COUNT of palettes they checked.
+
+**A BRIDGE THAT CARRIES TWO NEAR-SYNONYMS WILL HAVE THE UI READING THE WRONG
+ONE.** matrix-sdk's `is_verified()` (locally trusted OR cross-signing trusted)
+and `is_cross_signed_by_owner()` (merely SIGNED by the owner's key, with no
+requirement that we trust that identity) both reach QML. The Sessions chip,
+both filters and the account rollup key on the second and label it
+"Verified" — wrong in BOTH directions, including a green badge for a device
+matrix-sdk does not trust. `verified` is read in one line of the file. §6:
+trust labels come from SDK state. NOT FIXED, §18 review pending.
+
+Full account in `docs/round-history.md`, 2026-09-20 — also the ToolTip that is
+centred on its anchor, a Qt border painting inside the bounds under an Avatar,
+a parity bug in a derived tile size, a correct drop refusal delivered a whole
+subtree away from the pointer, and a `qmlformat -i` that rewrites the file.
+
 
 ### Round history (newest first)
 

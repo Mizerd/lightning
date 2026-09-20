@@ -1,5 +1,160 @@
 # Round history
 
+## 2026-09-20 — "Ctrl+A doesn't work" was the highlight, and a word bound to the wrong fact
+
+Twelve commits across five surfaces, all from one GUI audit round plus two
+reports from Rokas. The theme running through them: **a correct value
+rendered invisibly, or a correct refusal delivered in the wrong place**, and
+in four cases my own first measurement said the thing worked.
+
+### "Ctrl+A didn't work in the text fields, Ctrl+V was fine"
+
+Ctrl+A worked. The selection was invisible. `AppTextField.qml` set
+`selectionColor: storm ? AppTheme.stormSelection : AppTheme.accentSoft`, and
+both arms are wrong:
+
+* `accentSoft` is a **tile fill**, not a selection colour, and only three of
+  the eleven palettes define it — the same three whose default happens to be
+  the least readable behind text;
+* `stormSelection` is not defined by most palettes either and falls through
+  to `hover`, which by construction is a few L\* from the field's own
+  background.
+
+Fixed to `AppTheme.selectedHover`, with a new `ThemeTokensTest` case,
+`theTextSelectionIsVisibleOnEveryTheme`, asserting an **8.0 ΔL\*** floor
+against the field background on all eleven and asserting the COUNT of
+palettes it checked (the derived-from-token-names trick, so a twelfth theme
+cannot slip past it).
+
+**AND I FIRST REPORTED THIS "NOT REPRODUCED".** I measured it in Storm —
+the one theme where `stormSelection` resolves to something visible. A
+theme-dependent claim measured in one theme is a claim about that theme.
+Measure it in the theme the reporter is running, or in all of them.
+
+### A word bound to the wrong fact, three times on the Sessions page
+
+Not fixed in this round — it is a trust label and §18 wants a non-author
+review — but the analysis is done and lives in the round's notes.
+
+matrix-sdk-crypto 0.18.0 exposes three different facts and Lightning ships
+two of them to QML:
+
+```rust
+// device.rs:757
+is_verified() = is_locally_trusted() || is_cross_signing_trusted(..)
+// device.rs:293 — merely SIGNED by the owner's key. Does NOT require
+// that we have verified that owner identity.
+is_cross_signed_by_owner()
+```
+
+The device-list chip, both filter chips and the all-devices rollup key on
+`crossSigned`; `verified` — the SDK's own verdict — is delivered to QML and
+read in **one line of the whole file**. So the strongest word is bound to
+the weakest fact, and it is wrong in both directions: a locally verified
+device reads "Not verified" (what Rokas saw, contradicting the Cross-signing
+card 590px above on the same page), and a device signed by an owner identity
+this session has never verified can read a green "Verified" with the
+`verified_user` icon. §6: trust labels come from SDK state.
+
+**GENERALISE: when a bridge carries two flags whose names are near-synonyms
+in English but not in the SDK, grep which one the UI actually reads.** Both
+existed and were correct; only the binding was wrong.
+
+### Two fixes of mine that shipped a regression, and one attribution I refuted
+
+* `645d876f` let the call control row shrink and **installed a one-way
+  door**: the compaction latch had no release path, so one narrow moment
+  removed the controls for the rest of the call. `aea639c7` makes the latch
+  ask the row for its own natural width
+  (`callHeaderRow.width - (callHeaderRow.implicitWidth - implicitWidth)`),
+  as a **function, not a property** — a property there is a binding loop.
+* `9b07f825` left `qml-binding-contract` **red at HEAD for an hour** because
+  I committed without running it. Three of its contracts asserted whole
+  LINES of QML; they assert expressions now.
+* I attributed the account switcher opening off-screen to `18b56dd8` and
+  **refuted my own attribution** by checking the old code out and
+  reproducing it there. The cause is that `mapFromItem()` is not reactive —
+  a scene position cached before layout stays stale for ever. Fixed by
+  dropping the cached `_windowTopLocalY` and the `Math.max` guard built on
+  it, and positioning from the parent directly.
+
+### Settings cards were the colour of the page on ten of eleven themes
+
+`SettingsCard` painted `stormCanvas`, which **is** the page background, so
+every card boundary vanished except on the one theme where the two tokens
+happen to differ. Moved to `stormPanel`, with two nested elements to
+`stormInset` so the hierarchy survives, and a `ThemeTokensTest` case naming
+the raised plane. Same family as the selection colour: a semantically wrong
+token that renders correctly on whichever theme you happen to test.
+
+### The rail round: three geometric defects no source scan can see
+
+* **The account tooltip was drawn on the avatar.** Not a tile defect — Qt
+  Basic's ToolTip is `x: (parent.width - implicitWidth) / 2`, *centred on
+  its anchor*, so an anchor at the rail's right edge only works while the
+  tip is NARROWER than the anchor. All six anchors carried a flat
+  `scaled(150)`; the account id is the widest string the rail shows (258px
+  live), so 54+px spilled back over the rail. `9b6120fd` had moved the
+  anchors' POSITION and never their WIDTH, which is exactly why it fixed six
+  targets and left this one.
+* **The group drop ring painted under the avatar.** It was `border.width` on
+  the tile Rectangle, and a Qt border paints INSIDE the bounds, beneath the
+  `Avatar { anchors.fill: parent }`. Zero accent pixels ever reached the
+  screen. Now a CHILD outset by its own stroke — child rather than sibling
+  because a drop target also scales to 1.08, and a sibling anchored to the
+  unscaled bounds gets swallowed by the growth.
+* **"Every tile shares one axis" was false at 5 of 9 rail widths**, on
+  parity: `round((railTileSize - rowTileSize)/2)` is exact only when the two
+  sizes agree in parity. Both derived sizes now round the half difference
+  and double it.
+
+### A refusal delivered at the wrong end of the run
+
+`RailEntryModel::legalGap()` correctly refuses to land a top-level entry
+inside a subspace run — and answered every such refusal by walking UP to the
+slot in front of the run's owner, however far below the pointer was. A Space
+released at y=560 inside an open folder's block was offered the slot at
+y 169..234, **seven rows and ~360px above the pointer**, and the release
+confirmed it. "Where the tile sits is where it lands" is this gesture's
+stated contract.
+
+It now walks both ways and takes the nearer boundary. It cannot oscillate,
+and the reason is worth keeping because two earlier readings of this gesture
+died of exactly that: `hoverGap()` MOVES the block to the slot it resolves,
+and a dragged top-level row is neither a `hierarchyChild` nor a folder
+member, so after a downward snap the block itself terminates the downward
+walk, and the same pointer then lands in `hoverGap()`'s own no-op window.
+
+**GENERALISE: a correct refusal still owes the user a destination near where
+they aimed.** Refusing and then snapping somewhere arbitrary reads as a bug
+even though the refusal is right.
+
+### The room-list header drew outside its own panel
+
+Card floor 120 + three fixed 30px actions + margins = 258, against a
+`SplitView.minimumWidth` of 200 the user can drag to. A RowLayout that
+cannot shrink draws past its anchored edge and **layouts do not clip**, so
+the compass button was six pixels over at 245 and simply absent at 200. Now
+a `GridLayout` stacking to one column below a threshold DERIVED from the
+pieces, no term of which depends on the width the row is given — so it
+cannot loop and cannot go stale when a fourth action lands.
+
+### Harness notes from the round
+
+* **A concurrent `ar` corrupted `liblightning-app-testlib.a`** on a quiet
+  tree: the archive listed all 304 members with a bad index, and two link
+  attempts failed with `undefined reference to typeinfo for MatrixClient`.
+  `ninja -t clean lightning-app-testlib` then rebuild. Worth knowing while
+  several agents share one build tree — §18's one-builder rule is about
+  `.ninja_deps`, and this is a second artefact with the same exposure.
+* **`qmlformat -i` reformats the whole file** to a style this repo does not
+  use — 455 lines changed for a 50-line edit. `qmlformat -n` is safe as a
+  parse check; `-i` is not safe on this tree.
+* `TesterReportFixesTest` scans a **2200-character window** after an `id:`
+  and asserts three item ids fall inside it. An unrelated insertion above
+  pushed one out and turned the suite red. Same family as every other
+  assertion in this file that goes stale on a byte offset.
+
 ## 2026-09-19 (late) — the account switcher, and a presence fix whose own tests could not fail
 
 Six commits after the rail. Two reported defects, and two rounds of review
