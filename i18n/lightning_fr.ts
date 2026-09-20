@@ -1934,7 +1934,12 @@
 <context>
     <name>ConversationController</name>
     <message>
-        <location filename="../src/app/ConversationController.cpp" line="+65"/>
+        <location filename="../src/app/ConversationController.cpp" line="+43"/>
+        <source>This is taking longer than expected. The other person&apos;s server may be slow to respond. If a room appears in your list, use that one rather than starting another.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+42"/>
         <source>You do not have permission to do that.</source>
         <translation>Vous n&apos;avez pas la permission de faire cela.</translation>
     </message>
@@ -1979,7 +1984,7 @@
         <translation>Le démarrage de conversations privées n&apos;est pas pris en charge par ce backend.</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+15"/>
         <source>The room needs a name.</source>
         <translation>Le salon a besoin d&apos;un nom.</translation>
     </message>
@@ -1989,7 +1994,7 @@
         <translation>La création de salons n&apos;est pas prise en charge par ce backend.</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+25"/>
         <source>Inviting users is not supported on this backend.</source>
         <translation>L&apos;invitation d&apos;utilisateurs n&apos;est pas prise en charge par ce backend.</translation>
     </message>
@@ -9882,7 +9887,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RustTimeline</name>
     <message>
-        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+382"/>
+        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+384"/>
         <source>[unable to decrypt yet]</source>
         <translation>[déchiffrement impossible pour l&apos;instant]</translation>
     </message>
