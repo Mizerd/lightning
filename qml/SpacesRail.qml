@@ -2780,20 +2780,41 @@ Rectangle {
             AccountMenu {
                 id: railAccountMenu
                 x: parent.width + AppTheme.spacing8
-                // v0.6.5: the vertical identity-card stack can grow far
-                // taller than the old single-header popover. By default it
-                // still grows upward from the rail avatar's bottom (unchanged
-                // behavior), but it must never push its top above the
-                // window's top edge. `root.height` is read only to force
-                // this binding to re-evaluate on a window resize —
-                // Item.mapFromItem() results are not tracked reactively by
-                // QML's binding engine on their own.
-                readonly property real _windowTopLocalY: {
-                    var _dep = root.height
-                    return parent ? parent.mapFromItem(null, 0, 0).y : 0
-                }
-                y: Math.max(_windowTopLocalY + AppTheme.spacing12,
-                            parent.height - implicitHeight)
+                // THE POPOVER GROWS UPWARD FROM THE TILE'S BOTTOM, AND
+                // KEEPING IT INSIDE THE WINDOW IS QT'S JOB, NOT A BINDING'S.
+                //
+                // v0.6.5 clamped the top here, with
+                // `Math.max(_windowTopLocalY + spacing12,
+                //           parent.height - implicitHeight)`, where
+                // `_windowTopLocalY` was `parent.mapFromItem(null, 0, 0).y`
+                // re-read whenever `root.height` changed — `root.height`
+                // being there precisely because mapFromItem() is not
+                // reactive.
+                //
+                // MEASURED 2026-09-20, in the running app: that snapshot is
+                // taken ONCE, during start-up, while this ColumnLayout has
+                // not had its first pass and the account tile is still 12 px
+                // from the rail's TOP. It cached -12 for the rest of the
+                // session, so the first term evaluated to 0 and 0 beat the
+                // real -239 — the popover opened with its top level with the
+                // TILE'S top and ~200 px of it off the bottom of the window,
+                // on every open, until a window resize poked `root.height`
+                // and refreshed the snapshot (which is why any check that
+                // resized first saw a working switcher). The list's own
+                // height was never involved: `implicitHeight` was already
+                // 279 at that single evaluation, and the same defect
+                // reproduces on the code from before the switcher was
+                // rebuilt, at implicitHeight 488.
+                //
+                // `margins` is the same clamp expressed where it cannot go
+                // stale: QQuickPopup pushes the popup inside the window at
+                // every reposition, in C++, from the geometry that exists at
+                // that instant. What is left here is arithmetic on the
+                // parent tile alone, in the tile's own coordinates, which
+                // re-evaluates on its own and cannot be wrong for having run
+                // early.
+                margins: AppTheme.spacing12
+                y: parent.height - implicitHeight
             }
             // Development-only: the screenshot-demo "account-switching" scenario
             // opens the real account switcher popover. Null target in a

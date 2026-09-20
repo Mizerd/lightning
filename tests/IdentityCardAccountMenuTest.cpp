@@ -737,6 +737,132 @@ Item {
         QVERIFY(!cardContent.contains(QStringLiteral("property string name")));
         QVERIFY(!cardContent.contains(QStringLiteral("property var name")));
     }
+
+    // ── THE SWITCHER MUST BE ON SCREEN ON THE FIRST OPEN ─────────────
+    //
+    // 2026-09-19: the account switcher opened with its top level with the
+    // rail avatar tile's TOP and grew downward, so ~200 px of a 279 px
+    // popover was off the bottom of the window and nothing below the header
+    // could be reached. It was wrong on EVERY open until the window's height
+    // changed once, and right for the rest of the session afterwards — which
+    // is why it survived review and several GUI audits: anything that resizes
+    // the window before looking sees a working switcher.
+    //
+    // The cause was `SpacesRail.qml`'s placement reading
+    // `parent.mapFromItem(null, 0, 0).y` into a cached property to clamp the
+    // popover against the window's top edge. mapFromItem() is not reactive,
+    // and the snapshot was taken while the rail's own ColumnLayout had not
+    // had its first pass — the account tile was still 12 px from the rail's
+    // TOP rather than at its foot — so the clamp term came out 0 and beat the
+    // real -239 for the rest of the session. The list's height was never
+    // involved: measured in the running app, `implicitHeight` was already at
+    // its final 279 when that one evaluation happened.
+    //
+    // WHY THIS CASE BUILDS ITS OWN SCENE. Every other case here pins the
+    // popover at a fixed `x`/`y`, which is exactly the placement under test.
+    // This one loads the REAL compiled `SpacesRail.qml` on the same real
+    // AppController, in its own window, and NEVER RESIZES IT.
+    //
+    // WHY IT READS `y` BEFORE SHOWING. In the running app the placement
+    // binding is evaluated during start-up, before the rail's layout has run
+    // (measured: the cached value changes to -12 before the popover's own
+    // Component.onCompleted). An offscreen scene that nobody reads settles
+    // its layout first and would therefore take the snapshot at the RIGHT
+    // moment and pass over the defect. The read below is what makes the
+    // harness evaluate the placement as early as production does; it names
+    // no private property, so it stays valid whatever the placement is
+    // written in.
+    void theSwitcherOpensFullyInsideTheWindowOnAFirstOpenWithNoResize()
+    {
+        const char *railScene = R"QML(
+import QtQuick
+import MatrixClient
+
+Window {
+    id: win
+    width: 1000
+    height: 700
+    // An EXPLICIT rail height, not an anchor: the defect's one escape hatch
+    // was that a change to the rail's own height re-ran the stale snapshot,
+    // so a rail whose height is still settling would repair itself and the
+    // case would pass on the unfixed tree.
+    SpacesRail {
+        objectName: "placementRail"
+        x: 0
+        y: 0
+        width: 68
+        height: 700
+    }
+}
+)QML";
+        QQmlComponent component(m_engine);
+        component.setData(QByteArray(railScene),
+                          QUrl(QStringLiteral("railplacementscene.qml")));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *win = qobject_cast<QQuickWindow *>(root.data());
+        QVERIFY(win);
+
+        auto *popup = root->findChild<QObject *>(
+            QStringLiteral("accountSwitcherPopover"));
+        QVERIFY(popup);
+        // See above: evaluate the placement now, before the rail has been
+        // laid out, exactly as the running app does.
+        popup->property("y");
+
+        win->show();
+        QVERIFY(QTest::qWaitForWindowExposed(win));
+        QCoreApplication::processEvents();
+
+        auto *tile = root->findChild<QQuickItem *>(
+            QStringLiteral("railAccountTile"));
+        QVERIFY(tile);
+        QTRY_VERIFY(tile->isVisible());
+        // The tile must have reached the foot of the rail, or this case is
+        // measuring a rail that never laid out rather than a placement.
+        QTRY_VERIFY(tile->mapToScene(QPointF(0, 0)).y() > win->height() / 2);
+
+        // FIRST OPEN. Nothing has resized this window and nothing will.
+        QMetaObject::invokeMethod(popup, "open");
+        QTRY_VERIFY(popup->property("opened").toBool());
+        auto *list = root->findChild<QQuickItem *>(
+            QStringLiteral("identityCardList"));
+        QVERIFY(list);
+        QTRY_COMPARE(list->property("count").toInt(), 2);
+        QCoreApplication::processEvents();
+
+        // The popup's own item in the overlay, not the Popup object: this is
+        // the rectangle the user can actually press.
+        auto *content = popup->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+        QQuickItem *popupItem = content->parentItem();
+        QVERIFY(popupItem);
+        QTRY_VERIFY(popupItem->height() > tile->height());
+        const QRectF scene(popupItem->mapToScene(QPointF(0, 0)),
+                           popupItem->size());
+
+        QVERIFY2(scene.height() > 0, "the popover has no height to place");
+        QVERIFY2(scene.top() >= 0.0 && scene.bottom() <= win->height(),
+                 qPrintable(QStringLiteral(
+                     "the account switcher opened at scene y %1..%2 in a %3 px "
+                     "window — %4 px of it is outside. The rail avatar tile is "
+                     "at y %5, so a popover %6 px tall must sit at %7. A "
+                     "placement that is only right after the window has been "
+                     "resized once is the defect this case exists for; do not "
+                     "make it pass by resizing before measuring.")
+                     .arg(scene.top(), 0, 'f', 1)
+                     .arg(scene.bottom(), 0, 'f', 1)
+                     .arg(win->height())
+                     .arg(qMax(0.0, scene.bottom() - win->height())
+                              + qMax(0.0, -scene.top()), 0, 'f', 1)
+                     .arg(tile->mapToScene(QPointF(0, 0)).y(), 0, 'f', 1)
+                     .arg(scene.height(), 0, 'f', 1)
+                     .arg(tile->mapToScene(QPointF(0, tile->height())).y()
+                              - scene.height(), 0, 'f', 1)));
+
+        QMetaObject::invokeMethod(popup, "close");
+        QTRY_VERIFY(!popup->property("visible").toBool());
+    }
 };
 
 int main(int argc, char *argv[])

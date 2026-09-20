@@ -585,49 +585,71 @@ rotted for Windows is not repeated elsewhere. A sweep of `packaging-ci/` for
 nothing else; no other lane pins a distro package by exact version.
 
 
-## 2026-09-19 (night) — CRITICAL: the account switcher opens off the bottom of the window
+## 2026-09-19 (night) — RESOLVED 2026-09-20: the account switcher opened off the bottom of the window
 
-**OPEN, and very likely caused by `18b56dd8` the same evening.** Found by
-the dialogs GUI audit; full note and captures in the session scratchpad at
-`gui-audit/dialogs.md` and `dlgaudit/`.
+**FIXED on 2026-09-20 in `qml/SpacesRail.qml`, and the cause recorded here
+on the night was WRONG.** The defect is exactly as measured — the popover's
+top landed level with the rail avatar tile's TOP, ~200 px of 279 outside the
+window, on every open until the window's height changed once in a session.
+The original note, its captures and its severity qualifier are in the session
+scratchpad at `gui-audit/dialogs.md` and `dlgaudit/`.
 
-**The popover's top lands level with the rail avatar tile's TOP and grows
-downward**, so only the header and a sliver of the first row are on screen —
-about 200 px of 279 is outside the window. Measured at 1000x700 (tile
-y 614..653, popover top 614) and at 1600x1200 (tile top 1110, popover top
-1118), and **identical at one account and at three**, so it is not tracking
-content height. The sibling `x` binding is correct, so only `y` is wrong.
+**THE ROOT CAUSE IS A CACHED `mapFromItem()`, NOT THE LIST'S HEIGHT.**
+Measured in the running app on 2026-09-20 with `console.warn` on every input
+to the binding (mock backend, 3 accounts, 1000x700, Xvfb, first open, no
+resize):
 
-`qml/SpacesRail.qml:2780` reads
-`y: Math.max(_windowTopLocalY + spacing12, parent.height - implicitHeight)`
-and holds its default 0 — `40 - implicitHeight == 0` means the one
-evaluation happened while the Popup's `implicitHeight` was still ~40, and it
-is never re-run when that becomes 279.
+```text
+ihChanged 24          <- the Popup's implicitHeight, empty
+ihChanged 279         <- ... and its FINAL value, already correct
+yChanged 0
+wtlChanged -12        <- _windowTopLocalY snapshots the tile 12 px from the RAIL'S TOP
+yChanged 0
+completed
+opened y= 0 ih= 279 ph= 40 tileSceneY= 614
+```
 
-**WHY IT WAS MISSED, and this is the part to keep.** Resizing the window
-while the popover is open SNAPS IT TO THE RIGHT PLACE. The sequence on a
-fresh launch is: open, broken at y=614; resize 700 -> 701 -> 700; y=375,
-correct; close and reopen, still correct. **So it is wrong on every open
-until the window height changes once in a session, and right for the rest of
-it** — and any audit that resizes the window before looking, which is most
-of them, sees a working switcher.
+So `implicitHeight` was **279, not ~40**, at the one evaluation, and the
+arithmetic that produced 0 was `Math.max(-12 + 12, 40 - 279)` — the CLAMP
+term won with a stale scene position, and the content height never entered
+into it. `_windowTopLocalY` is `parent.mapFromItem(null, 0, 0).y`, which is
+not reactive; its one refresh trigger was `root.height`, and the rail's own
+height never changes again after start-up, so a window resize was the only
+thing that could ever repair it — permanently, for the rest of the session.
 
-**The attribution is a strong hypothesis, NOT proven.** The placement code
-is unchanged since July. What changed in `18b56dd8` is that the list's
-`Layout.preferredHeight` moved from an off-layout IdentityCard PROBE — whose
-`implicitHeight` exists at component-creation time — to `count * rowH`, and
-`count` is 0 on a Popup that has never been opened. The auditor could not run
-the old code to confirm, and **a faithful standalone `qml` probe does NOT
-reproduce it** (there the binding evaluates lazily at `open()` and gets the
-right answer), so do not try to fix this from a probe.
+**THE `18b56dd8` ATTRIBUTION IS REFUTED, by running the old code.** Both
+`qml/AccountMenu.qml` and `qml/IdentityCard.qml` from `18b56dd8^` were built
+and run on the same profile: identical failure, `y= 0`, tile at scene 614,
+popover top 614 — at `implicitHeight` **488**. The probe-based list sizing
+that commit removed made no difference, because any popover taller than the
+40 px tile loses the `Math.max` to the stale clamp. The defect predates the
+switcher rebuild.
 
-**Not fixed** because `qml/SpacesRail.qml` was owned by another agent
-mid-edit when this was found. The fix wants either an explicit
-`implicitHeight` on the Popup computed the same way the list is, or a `y`
-recomputed in `onAboutToShow`. `tests/RailDragQmlTest.cpp` already loads the
-real rail on a real `AppController` and is the right host for an assertion
-that the popover's scene bottom is inside the window — which must fail on
-the unfixed tree BEFORE any resize.
+**THE FIX REMOVES THE SNAPSHOT RATHER THAN REFRESHING IT.** `y` is now
+`parent.height - implicitHeight` — arithmetic in the tile's own coordinates,
+which cannot be wrong for having run early — and the window-edge clamp is
+`margins: AppTheme.spacing12`, which QQuickPopup applies in C++ at every
+reposition from the geometry that exists at that instant. Measured after the
+fix: first open, no resize, 3 accounts at 1000x700 -> popover 375..654 in a
+700 px window, bottom flush with the tile; 1 account at 1600x1200 -> fully
+inside; and a 260 px window, where the popover does not fit above the tile,
+is pushed down to exactly the 12 px margin instead of off the top.
+
+**GENERALISE: a binding that caches a scene position is only as true as the
+layout pass it happened to run in**, and giving it an unrelated refresh
+trigger (`root.height`) hides that for as long as the trigger stays quiet.
+The sibling `x` binding was right throughout for the one reason that matters
+— it is local arithmetic on the parent.
+
+**Regression cover:**
+`IdentityCardAccountMenuTest::theSwitcherOpensFullyInsideTheWindowOnAFirstOpenWithNoResize`
+loads the real compiled `SpacesRail.qml` on a real `AppController` in its own
+1000x700 window, reads the placement once before the rail is laid out (which
+is what the running app does by itself, and what an offscreen scene nobody
+reads would otherwise skip), and asserts the popover's scene rect is inside
+the window on the FIRST open with no resize. It fails on the unfixed tree at
+`scene y 660..895 in a 700 px window — 195 px outside`.
+
 
 ### And a harness lesson that invalidates part of every GUI run in this tree
 
