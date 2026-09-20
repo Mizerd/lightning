@@ -322,6 +322,27 @@ ApplicationWindow {
     Rectangle { objectName: "toneLegacyWarningTok"; visible: false; color: AppTheme.warning }
     Rectangle { objectName: "toneLegacyDangerTok";  visible: false; color: AppTheme.mentionBadge }
     Rectangle { objectName: "toneLegacyInfoTok";    visible: false; color: AppTheme.info }
+
+    // ── The composer command autocomplete ────────────────────────────────
+    //
+    // Same menu language, and a row here is TWO surfaces: the panel, and the
+    // selection chip over the panel. Only the panel had ever been graded.
+    // NO APOSTROPHE in these strings, for the moc reason above the scene.
+    SlashCommandPopup {
+        id: slashPopup
+        completions: [
+            { name: "me", argsHint: "<message>",
+              description: "Send an emote to the room", enabled: true },
+            { name: "shrug", argsHint: "",
+              description: "Append a shrug to your message", enabled: true },
+            { name: "op", argsHint: "<user> [level]",
+              description: "Set a power level", enabled: false }
+        ]
+        anchorInputTop: Qt.point(24, 660)
+        anchorWidth: 360
+    }
+    function openSlash() { slashPopup.open() }
+    function selectSlashRow(i) { slashPopup.currentIndex = i }
 }
 )QML";
 
@@ -1255,6 +1276,213 @@ ApplicationWindow {
         QCOMPARE(distinctFills.size(), 55);
         QCOMPARE(measured, 11 * int(std::size(probes)));
         m_root->setProperty("themeMode", 9);
+    }
+
+    // ── F7: A SLASH-COMMAND ROW IS TWO SURFACES, AND ONE WAS GRADED ─────
+    //
+    // The popup panel is `stormPanel`; the SELECTED row paints
+    // `stormSelection` over it. Both inks in the row were pinned to tokens
+    // chosen against the panel alone, so the state that matters — the row you
+    // are about to run — had never been measured.
+    //
+    // Measured 2026-09-20 over all eleven palettes on the fill each row
+    // really paints:
+    //   description (`textMuted`) — clears AA on every RESTING row, floor
+    //     4.59 (Deep Teal), and FAILS on eight selected ones: Graphite 3.09,
+    //     Indigo Night 3.44, Deep Teal 3.45, Nordic 3.46, Midnight 3.58,
+    //     Lightning Dark 3.61, Purple Dusk 3.72, Storm 4.38;
+    //   command NAME (`AppTheme.bolt`) — fails on TEN, worst Indigo Night
+    //     1.61, then Lightning Dark 1.65, Midnight 1.69, Nordic 1.83,
+    //     Graphite 1.87, Purple Dusk 2.21, Deep Teal 4.00, Lightning Light
+    //     4.14, Moss Light 4.27, Warm 4.46. Storm alone passed at 7.53,
+    //     because Storm is the one palette where `bolt` is the bolt: on the
+    //     other ten it routes to `accent` while `stormSelection` routes to
+    //     `hover`, a lighter tint of the same family. Two mid tones, one on
+    //     the other.
+    //
+    // Three separate questions are asserted, because they have three
+    // different answers. Both inks clear 4.5:1 AA on the fill THIS row
+    // paints; the two lines still read as a hierarchy (the name at least 1.3x
+    // the description, which is what rules out the derived-bolt fix that was
+    // measured at 0.91-1.05 and rejected); and the row's own `rowFill`
+    // agrees with the composite computed here, so the QML is grading the
+    // ground it actually draws rather than one it assumes.
+    //
+    // Eleven palettes are DEMANDED to be distinct, not counted.
+    //
+    // UNFIXED TREE: fails on theme 1 (Lightning Light) on the selected row,
+    // `bolt` at 4.14:1.
+    void theSlashCommandRowInksClearTheFillThatRowPaintsOnEveryPalette()
+    {
+        QMetaObject::invokeMethod(m_root, "openSlash");
+        auto *popup = m_root->findChild<QObject *>(
+            QStringLiteral("slashCommandPopup"));
+        QVERIFY(popup);
+        QTRY_VERIFY(popup->property("opened").toBool());
+        auto *list = item("slashCommandPopupList");
+        QVERIFY(list);
+        QTRY_COMPARE(list->property("count").toInt(), 3);
+        auto *surface = item("slashCommandPopupSurface");
+        QVERIFY(surface);
+
+        auto rowAt = [&](int i) -> QQuickItem * {
+            QQuickItem *row = nullptr;
+            QMetaObject::invokeMethod(list, "itemAtIndex",
+                                      Q_RETURN_ARG(QQuickItem *, row),
+                                      Q_ARG(int, i));
+            return row;
+        };
+
+        QSet<QRgb> distinctPanels;
+        QSet<QRgb> distinctFills;
+        int measured = 0;
+        int rawTokenFailures = 0;
+        double worstName = 100.0;
+        double worstDesc = 100.0;
+        double worstHierarchy = 100.0;
+        QString worstNameWhere;
+        QString worstDescWhere;
+        const int restoreMode = m_root->property("themeMode").toInt();
+        for (int mode = 1; mode <= 11; ++mode) {
+            m_root->setProperty("themeMode", mode);
+            QTRY_COMPARE(surface->property("color").value<QColor>(),
+                         token("tokStormPanel"));
+            const QColor panel = surface->property("color").value<QColor>();
+            distinctPanels.insert(panel.rgb());
+
+            for (int selected = 0; selected < 3; ++selected) {
+                QMetaObject::invokeMethod(m_root, "selectSlashRow",
+                                          Q_ARG(QVariant, QVariant(selected)));
+                QTRY_COMPARE(popup->property("currentIndex").toInt(), selected);
+                for (int i = 0; i < 3; ++i) {
+                    QQuickItem *row = rowAt(i);
+                    QVERIFY2(row, qPrintable(QStringLiteral(
+                                 "row %1 not instantiated").arg(i)));
+                    QTRY_COMPARE(row->property("selected").toBool(),
+                                 i == selected);
+                    const bool rowEnabled =
+                        row->property("rowEnabled").toBool();
+                    const QColor fill =
+                        over(row->property("color").value<QColor>(), panel);
+                    distinctFills.insert(fill.rgb());
+                    // The ground the QML derives against must BE the ground
+                    // it paints, or every number below is about a surface
+                    // nobody draws.
+                    QCOMPARE(QColor(row->property("rowFill").value<QColor>()
+                                        .rgb()),
+                             QColor(fill.rgb()));
+
+                    auto *name = rowChild(row, "slashCommandName");
+                    auto *desc = rowChild(row, "slashCommandDescription");
+                    QVERIFY(name && desc);
+                    const QColor nameInk =
+                        name->property("color").value<QColor>();
+                    const QColor descInk =
+                        desc->property("color").value<QColor>();
+                    const double nameRatio = contrastRatio(nameInk, fill);
+                    const double descRatio = contrastRatio(descInk, fill);
+                    if (nameRatio < worstName) {
+                        worstName = nameRatio;
+                        worstNameWhere =
+                            QStringLiteral("theme %1 row %2 %3 %4 on %5")
+                                .arg(mode).arg(i)
+                                .arg(i == selected ? QStringLiteral("sel")
+                                                   : QStringLiteral("rest"))
+                                .arg(nameInk.name(), fill.name());
+                    }
+                    if (descRatio < worstDesc) {
+                        worstDesc = descRatio;
+                        worstDescWhere =
+                            QStringLiteral("theme %1 row %2 %3 %4 on %5")
+                                .arg(mode).arg(i)
+                                .arg(i == selected ? QStringLiteral("sel")
+                                                   : QStringLiteral("rest"))
+                                .arg(descInk.name(), fill.name());
+                    }
+                    QVERIFY2(nameRatio >= 4.5,
+                             qPrintable(QStringLiteral(
+                                 "theme %1, row %2 (%3, %4): the command name "
+                                 "%5 is %6:1 on the fill %7 this row paints")
+                                    .arg(mode).arg(i)
+                                    .arg(i == selected ? QStringLiteral("selected")
+                                                       : QStringLiteral("resting"),
+                                         rowEnabled ? QStringLiteral("enabled")
+                                                    : QStringLiteral("disabled"))
+                                    .arg(nameInk.name())
+                                    .arg(nameRatio, 0, 'f', 2)
+                                    .arg(fill.name())));
+                    QVERIFY2(descRatio >= 4.5,
+                             qPrintable(QStringLiteral(
+                                 "theme %1, row %2 (%3, %4): the description "
+                                 "%5 is %6:1 on the fill %7 this row paints")
+                                    .arg(mode).arg(i)
+                                    .arg(i == selected ? QStringLiteral("selected")
+                                                       : QStringLiteral("resting"),
+                                         rowEnabled ? QStringLiteral("enabled")
+                                                    : QStringLiteral("disabled"))
+                                    .arg(descInk.name())
+                                    .arg(descRatio, 0, 'f', 2)
+                                    .arg(fill.name())));
+                    // The hierarchy the derived-bolt fix destroyed. A
+                    // disabled row is deliberately ONE ink on both lines —
+                    // its typographic hierarchy is weight and size — so it
+                    // is excluded rather than assumed.
+                    if (rowEnabled) {
+                        worstHierarchy = qMin(worstHierarchy,
+                                              nameRatio / descRatio);
+                        QVERIFY2(nameRatio / descRatio >= 1.3,
+                                 qPrintable(QStringLiteral(
+                                     "theme %1, row %2 (%3): name %4 at %5:1 "
+                                     "over description %6 at %7:1 is a ratio "
+                                     "of %8 — the command you are running "
+                                     "does not lead its own description")
+                                        .arg(mode).arg(i)
+                                        .arg(i == selected
+                                                 ? QStringLiteral("selected")
+                                                 : QStringLiteral("resting"))
+                                        .arg(nameInk.name())
+                                        .arg(nameRatio, 0, 'f', 2)
+                                        .arg(descInk.name())
+                                        .arg(descRatio, 0, 'f', 2)
+                                        .arg(nameRatio / descRatio, 0, 'f', 2)));
+                    }
+                    ++measured;
+
+                    // NOT VACUOUS. The two RAW tokens this row used to ask
+                    // for fail on a large share of these (palette, row,
+                    // selection) triples, so a case that passed only because
+                    // every palette was already fine would count zero here
+                    // and be caught.
+                    if (i == selected) {
+                        if (contrastRatio(token("tokBolt"), fill) < 4.5)
+                            ++rawTokenFailures;
+                        if (contrastRatio(token("tokTextMuted"), fill) < 4.5)
+                            ++rawTokenFailures;
+                    }
+                }
+            }
+        }
+        QCOMPARE(distinctPanels.size(), 11);
+        // Eleven palettes times two distinct fills (panel, selection) — a
+        // loop that read one palette eleven times returns 2 here.
+        QCOMPARE(distinctFills.size(), 22);
+        QCOMPARE(measured, 11 * 3 * 3);
+        QVERIFY2(rawTokenFailures >= 18,
+                 qPrintable(QStringLiteral(
+                     "only %1 of the raw-token pairs fail AA on the selection "
+                     "fill — this case can no longer tell the fix from its "
+                     "absence").arg(rawTokenFailures)));
+        qInfo("slash-command rows: %d (palette,row,state) triples measured, "
+              "%d raw-token AA failures on the selected fill; worst name "
+              "%.2f:1 (%s), worst description %.2f:1 (%s), worst hierarchy "
+              "%.2f",
+              measured, rawTokenFailures,
+              worstName, qPrintable(worstNameWhere),
+              worstDesc, qPrintable(worstDescWhere), worstHierarchy);
+
+        QMetaObject::invokeMethod(popup, "close");
+        QTRY_VERIFY(!popup->property("opened").toBool());
+        m_root->setProperty("themeMode", restoreMode);
     }
 };
 

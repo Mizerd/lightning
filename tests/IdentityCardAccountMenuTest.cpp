@@ -15,6 +15,7 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQmlExpression>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QTemporaryDir>
@@ -1162,6 +1163,113 @@ Item {
         QTRY_VERIFY(!menu->property("opened").toBool());
     }
 
+    // ── ESCAPE MUST DISMISS THE SWITCHER, AND IT NEVER HAS ──────────────
+    //
+    // The popover has always declared `closePolicy: Popup.CloseOnEscape |
+    // Popup.CloseOnPressOutside`, and half of that declaration did nothing:
+    // `QQuickPopup::keyPressEvent` gates its Escape branch on
+    // `hasActiveFocus()`, and a Popup only takes active focus when `focus` is
+    // true — which DEFAULTS TO FALSE. Measured on Windows against the
+    // published 0.9.8: four Escape presses, zero differing pixels, with a
+    // hover/park control proving the screen was live. Press-outside worked
+    // the whole time because the overlay handles that with the mouse,
+    // independently of focus, and that asymmetry is what disguised it.
+    //
+    // The two confirmations inherit the same rule and were broken the same
+    // way — worse, because each carries `focus: true` on its Cancel BUTTON,
+    // which sets focus WITHIN the popup focus scope and cannot become ACTIVE
+    // focus while the scope itself has none. So the safe default action was
+    // not the focused one either. The case above asserts the declared
+    // `focus`; this one asserts `activeFocus`, which is the property that
+    // decides whether a keystroke arrives.
+    //
+    // UNFIXED TREE: `activeFocus` is false on the popover and neither the
+    // popover nor either dialog closes on Escape.
+    void escapeDismissesTheSwitcherAndBothConfirmations()
+    {
+        openMenu();
+        auto *menu = find(QStringLiteral("menu"));
+        QVERIFY(menu);
+        QVERIFY(menu->property("opened").toBool());
+        // Read the flag out of QML rather than pinning its numeric value
+        // here: an enum spelled by hand in a test is a second source of
+        // truth that can be wrong on its own.
+        {
+            auto *menuItem = menu->property("contentItem")
+                                 .value<QQuickItem *>();
+            QVERIFY(menuItem);
+            QQmlExpression asksForEscape(
+                qmlContext(menu), menu,
+                QStringLiteral("(closePolicy & Popup.CloseOnEscape) !== 0"));
+            QVERIFY2(asksForEscape.evaluate().toBool(),
+                     "the popover does not ask to close on Escape");
+        }
+        QTRY_VERIFY2(menu->property("activeFocus").toBool(),
+                     "the account switcher never takes active focus, so no "
+                     "key press can reach it and CloseOnEscape is inert");
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY2(!menu->property("opened").toBool(),
+                     "Escape did not dismiss the account switcher");
+
+        // SIGN OUT. Escape must abandon it, and the session must survive.
+        openMenu();
+        auto *signOutButton = find(QStringLiteral("accountFooterSignOut"));
+        QVERIFY(signOutButton);
+        QMetaObject::invokeMethod(signOutButton, "clicked");
+        auto *signOutDialog = find(QStringLiteral("signOutConfirmDialog"));
+        QVERIFY(signOutDialog);
+        QTRY_VERIFY(signOutDialog->property("opened").toBool());
+        QTRY_VERIFY2(signOutDialog->property("activeFocus").toBool(),
+                     "the sign-out confirmation never takes active focus");
+        // And now Cancel is really the focused action rather than merely
+        // the one that asked to be.
+        bool cancelHasActiveFocus = false;
+        for (QObject *candidate : signOutDialog->findChildren<QObject *>()) {
+            if (candidate->property("text").toString()
+                    == QStringLiteral("Cancel")
+                && candidate->property("activeFocus").toBool()) {
+                cancelHasActiveFocus = true;
+                break;
+            }
+        }
+        QVERIFY2(cancelHasActiveFocus,
+                 "Cancel declares focus but does not hold ACTIVE focus, so "
+                 "the safe default action is not the focused one");
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY2(!signOutDialog->property("opened").toBool(),
+                     "Escape did not abandon the sign-out confirmation");
+        QVERIFY(m_controller->auth()->isLoggedIn());
+
+        // REMOVE ACCOUNT. Same, and the account must survive.
+        auto *menuAgain = find(QStringLiteral("menu"));
+        if (!menuAgain->property("opened").toBool())
+            openMenu();
+        const QString inactive =
+            m_controller->accounts()->activeUserId() == kAlice ? kBob : kAlice;
+        auto *card = qobject_cast<QQuickItem *>(findCard(inactive));
+        QVERIFY(card);
+        QVERIFY(!card->property("active").toBool());
+        QMetaObject::invokeMethod(card, "removeRequested");
+        auto *removeDialog = find(QStringLiteral("removeAccountConfirmDialog"));
+        QVERIFY(removeDialog);
+        QTRY_VERIFY(removeDialog->property("opened").toBool());
+        QCOMPARE(removeDialog->property("targetUserId").toString(), inactive);
+        QTRY_VERIFY2(removeDialog->property("activeFocus").toBool(),
+                     "the remove-account confirmation never takes active "
+                     "focus");
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY2(!removeDialog->property("opened").toBool(),
+                     "Escape did not abandon the remove-account "
+                     "confirmation");
+        QVERIFY2(m_controller->settings()->hasSavedAccount(inactive),
+                 "abandoning the confirmation removed the account anyway");
+
+        auto *leftOpen = find(QStringLiteral("menu"));
+        if (leftOpen->property("opened").toBool()) {
+            QMetaObject::invokeMethod(leftOpen, "close");
+            QTRY_VERIFY(!leftOpen->property("opened").toBool());
+        }
+    }
     void noTokenOrPathEverBoundIntoTheUi()
     {
         // Source-level guarantee alongside the live checks above: neither

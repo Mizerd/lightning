@@ -141,6 +141,7 @@ Popup {
             }
 
             delegate: Rectangle {
+                id: commandRow
                 required property var modelData
                 required property int index
                 readonly property bool selected: index === root.currentIndex
@@ -149,6 +150,26 @@ Popup {
                 height: root.rowH
                 radius: AppTheme.radiusSm
                 color: selected ? AppTheme.stormSelection : "transparent"
+
+                // ── A ROW IS TWO SURFACES, AND ONLY ONE WAS EVER MEASURED ──
+                //
+                // The pixels under this row's text are the selection chip
+                // OVER the panel when the row is selected and the panel
+                // itself when it is not, so an ink graded on `stormPanel`
+                // answers for one of the two. Measured 2026-09-20 across all
+                // eleven palettes, the description inked `textMuted` clears
+                // 4.5:1 AA on every RESTING row (floor 4.59, Deep Teal) and
+                // fails on EIGHT selected ones — Graphite 3.09, Indigo Night
+                // 3.44, Deep Teal 3.45, Nordic 3.46, Midnight 3.58,
+                // Lightning Dark 3.61, Purple Dusk 3.72, Storm 4.38 — which
+                // is exactly why measuring the resting state found nothing.
+                //
+                // This is `flatten`'s reason for existing: `stormSelection`
+                // is TRANSLUCENT in some palettes (Storm's row fills are
+                // alpha'd), so the ground is the composite, never the chip's
+                // own colour property.
+                readonly property color rowFill:
+                    AppTheme.flatten(commandRow.color, AppTheme.stormPanel)
 
                 Accessible.role: Accessible.ListItem
                 Accessible.name: "/" + modelData.name + " "
@@ -169,11 +190,48 @@ Popup {
                         text: "/" + modelData.name
                               + (modelData.argsHint && modelData.argsHint.length > 0
                                      ? " " + modelData.argsHint : "")
+                        objectName: "slashCommandName"
                         font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.scaled(13)
                         font.weight: Font.DemiBold
-                        color: !rowEnabled ? AppTheme.textMuted
-                               : selected ? AppTheme.bolt : AppTheme.text
+                        // ── THE SELECTED COMMAND'S NAME IS NOT BOLT ───────
+                        //
+                        // It was, and `bolt` is the one token that cannot
+                        // carry it: on the ten non-Storm palettes `bolt`
+                        // routes to `accent` while `stormSelection` routes to
+                        // `hover`, which is a lighter tint of the SAME hue
+                        // family — two mid tones, one on the other. Measured
+                        // 2026-09-20 on the fill this row paints, the name of
+                        // the command you are about to run failed AA on ten
+                        // of eleven: Indigo Night 1.61, Lightning Dark 1.65,
+                        // Midnight 1.69, Nordic 1.83, Graphite 1.87, Purple
+                        // Dusk 2.21, Deep Teal 4.00, Lightning Light 4.14,
+                        // Moss Light 4.27, Warm 4.46. Only Storm passed
+                        // (7.53), because Storm is the one palette where
+                        // `bolt` is the actual bolt — which is precisely why
+                        // it looked right to whoever wrote it.
+                        //
+                        // `stormText` is what MentionPopup — "same
+                        // construction", per this file's own header — already
+                        // does: it inks the selected row's NAME with
+                        // stormText and spends bolt only on the matched
+                        // SUBSTRING, the yellow discipline. Here the whole
+                        // string is the match, so bolt-on-everything was the
+                        // defect. 6.40-13.17:1 on all eleven, and the row is
+                        // still marked by its fill and its Return keycap.
+                        //
+                        // DERIVING bolt was measured and REJECTED: it reaches
+                        // AA but lands the name at 4.52-4.92 beside a
+                        // description derived to 4.55-4.88, a hierarchy ratio
+                        // of 0.91-1.05 — on four palettes the description
+                        // would be BRIGHTER than the command name. That is
+                        // the collapse recorded as refuted beside
+                        // `legibleInkOn` in AppTheme.qml. stormText gives
+                        // 1.38-2.70.
+                        color: rowEnabled
+                               ? AppTheme.stormText
+                               : AppTheme.legibleInkOn(AppTheme.textMuted,
+                                                       commandRow.rowFill)
                     }
                     Label {
                         width: parent.width
@@ -183,8 +241,17 @@ Popup {
                               ? (modelData.description || "")
                               : qsTr("%1 · you lack the required power level")
                                     .arg(modelData.description || "")
+                        objectName: "slashCommandDescription"
                         font.pixelSize: AppTheme.fontChip
-                        color: AppTheme.textMuted
+                        // Derived against the fill THIS ROW paints, never
+                        // against the panel and never against the worst of
+                        // the two: where the token already clears its own
+                        // fill — every resting row, on every palette —
+                        // `legibleInkOn` hands it straight back, so the
+                        // resting state is bit-identical to before and the
+                        // name/description hierarchy is untouched there.
+                        color: AppTheme.legibleInkOn(AppTheme.textMuted,
+                                                     commandRow.rowFill)
                     }
                 }
                 MenuKeycap {

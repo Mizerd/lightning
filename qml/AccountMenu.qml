@@ -45,6 +45,25 @@ Popup {
     modal: true
     width: 320
     padding: AppTheme.spacing12
+    // ── `CloseOnEscape` IS HALF OF A TWO-PART DECLARATION ────────────────
+    //
+    // `QQuickPopup::keyPressEvent` gates its Escape branch on
+    // `hasActiveFocus()`, and a Popup only takes active focus when `focus` is
+    // true — which defaults to FALSE. So this popover declared
+    // `CloseOnEscape`, looked correct in review, and Escape did nothing:
+    // measured on Windows against the published 0.9.8, four presses, zero
+    // differing pixels, with a hover/park control proving the screen was
+    // live. Press-outside kept working the whole time because the overlay
+    // handles that with the mouse, independently of focus, and that asymmetry
+    // is exactly what disguised it.
+    //
+    // Every other root popup in this tree that means it declares both. The
+    // two confirmations below are Dialogs, and inherit the same rule: a
+    // `focus: true` on their Cancel BUTTON sets focus within the popup's own
+    // focus scope, which cannot become ACTIVE focus while the scope itself
+    // has none — so Cancel was not focused either, and neither dialog closed
+    // on Escape.
+    focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     readonly property bool connected: app.connectionStatus === qsTr("Connected")
@@ -557,6 +576,11 @@ Popup {
         Overlay.modal: Rectangle { color: AppTheme.modalScrim }
         title: qsTr("Remove account?")
         standardButtons: Dialog.NoButton
+        // Both halves, for the reason on the popover above: without `focus`
+        // the Dialog never takes active focus, `CloseOnEscape` cannot fire,
+        // and the `focus: true` on Cancel below never becomes ACTIVE focus
+        // either — so the safe default action was not the focused one.
+        focus: true
         closePolicy: Popup.CloseOnEscape
 
         background: Rectangle {
@@ -646,6 +670,9 @@ Popup {
         Overlay.modal: Rectangle { color: AppTheme.modalScrim }
         title: qsTr("Sign out?")
         standardButtons: Dialog.NoButton
+        // See removeConfirm above: `CloseOnEscape` needs `focus` to fire, and
+        // Cancel cannot hold active focus until this scope does.
+        focus: true
         closePolicy: Popup.CloseOnEscape
 
         background: Rectangle {

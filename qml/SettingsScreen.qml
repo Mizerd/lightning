@@ -2004,6 +2004,31 @@ Item {
                                     // path is machinery without evidence.
                                     readonly property bool selectedTheme:
                                         app.settings.theme === modelData.id
+                                    // ── A THEME IN EFFECT THAT NOBODY CHOSE
+                                    // STILL HAS TO BE FINDABLE ─────────────
+                                    //
+                                    // "Match system light/dark" is theme 0,
+                                    // and 0 is not any card's id — so with the
+                                    // FRESH-PROFILE DEFAULT on, `selectedTheme`
+                                    // is false for all four and the picker said
+                                    // nothing at all about the theme the user
+                                    // was looking at. It resolves to Moss Light
+                                    // or Indigo Night (AppTheme.effectiveTheme),
+                                    // BOTH of which are featured cards, so the
+                                    // answer was always on screen and merely
+                                    // unmarked.
+                                    //
+                                    // It is a THIRD state, not a second name
+                                    // for selection: the user did not pick this
+                                    // theme, the system did, and a filled radio
+                                    // would say they had. In effect -> bolt edge
+                                    // + bolt RING; chosen -> bolt edge + FILLED
+                                    // radio; neither -> the quiet edge.
+                                    readonly property bool inEffect:
+                                        app.settings.theme === 0
+                                        && AppTheme.effectiveTheme === modelData.id
+                                    readonly property bool cardIsLive:
+                                        selectedTheme || inEffect
                                     // SPEC 1v: three 150px preview cards.
                                     implicitWidth: 150
                                     // Integral height keeps the card edge on
@@ -2020,7 +2045,32 @@ Item {
                                     // the preview's corners anyway — all it
                                     // did was shave the rings to corner
                                     // crescents and a protruding edge sliver.
-                                    color: AppTheme.stormCanvas
+                                    //
+                                    // ── A CARD PAINTED IN THE PAGE'S OWN
+                                    // COLOUR IS NOT A CARD ──────────────────
+                                    //
+                                    // This was stormCanvas over a page painted
+                                    // stormDeep, and on every theme but Storm
+                                    // BOTH route to the palette's `background`
+                                    // — measured card-vs-page on all eleven,
+                                    // 1.0000:1 on ten and 1.2204:1 on Storm.
+                                    // The card whose theme is IN EFFECT
+                                    // previews that same background too, so on
+                                    // a fresh Moss Light profile the Moss Light
+                                    // card was the page from edge to edge and
+                                    // the only thing left of it was a 1.02:1
+                                    // hairline. Deep Teal beside it read 12.56.
+                                    //
+                                    // This is the identical defect, and the
+                                    // identical fix, that SettingsCard above
+                                    // carries — stormPanel is the raised plane
+                                    // every palette defines, 1.24-1.55 above
+                                    // `background`, and MORE separation for
+                                    // Storm (1.50) than it had (1.22). The
+                                    // theme card was missed by that round only
+                                    // because it is a bespoke Rectangle in a
+                                    // Flow rather than a SettingsCard.
+                                    color: AppTheme.stormPanel
                                     // The outline is drawn as an overlay
                                     // sibling BELOW (z above the children):
                                     // previewTop/cardFoot fill to the edges
@@ -2028,7 +2078,14 @@ Item {
                                     // this base rectangle.
                                     border.width: 0
                                     Accessible.role: Accessible.RadioButton
-                                    Accessible.name: modelData.name
+                                    // The bolt ring is the only thing marking an
+                                    // in-effect-but-unchosen card, and a ring is
+                                    // not readable: `checked` is false for it,
+                                    // correctly, so the state has to be in the NAME.
+                                    Accessible.name: themeCard.inEffect
+                                        ? qsTr("%1 (in effect)").arg(modelData.name)
+                                        : modelData.name
+                                    Accessible.checked: themeCard.selectedTheme
                                     Accessible.focusable: true
                                     activeFocusOnTab: true
                                     Keys.onReturnPressed: app.settings.theme = modelData.id
@@ -2042,7 +2099,7 @@ Item {
                                         anchors.margins: -3
                                         radius: parent.radius + 3
                                         z: -1
-                                        visible: themeCard.selectedTheme
+                                        visible: themeCard.cardIsLive
                                         color: "transparent"
                                         border.width: 3
                                         border.color: Qt.alpha(AppTheme.bolt,
@@ -2119,11 +2176,15 @@ Item {
                                     // theme name.
                                     Rectangle {
                                         id: cardFoot
+                                        objectName: "themeCardFoot_"
+                                                    + themeCard.modelData.id
                                         anchors.top: previewTop.bottom
                                         anchors.left: parent.left
                                         anchors.right: parent.right
                                         height: footRow.implicitHeight + 20
-                                        color: AppTheme.stormCanvas
+                                        // Same plane as the card it closes —
+                                        // see themeCard.color above.
+                                        color: AppTheme.stormPanel
                                         // Follow the card's rounded bottom,
                                         // mirroring previewTop's top arcs.
                                         bottomLeftRadius: AppTheme.radiusLg - 1
@@ -2162,10 +2223,16 @@ Item {
                                                 implicitWidth: 14
                                                 implicitHeight: 14
                                                 radius: 7
+                                                // FILLED only for a theme the
+                                                // user chose. A theme that is
+                                                // merely in effect gets the bolt
+                                                // RING: present and unmistakable,
+                                                // without claiming a choice
+                                                // nobody made.
                                                 color: themeCard.selectedTheme
                                                        ? AppTheme.bolt : "transparent"
                                                 border.width: 2
-                                                border.color: themeCard.selectedTheme
+                                                border.color: themeCard.cardIsLive
                                                               ? AppTheme.bolt
                                                               : AppTheme.stormTextMuted
                                                 Rectangle {
@@ -2196,14 +2263,42 @@ Item {
                                     // at the 1.25/1.5 ratios common on
                                     // Windows and KDE).
                                     Rectangle {
+                                        objectName: "themeCardOutline_"
+                                                    + themeCard.modelData.id
                                         anchors.fill: parent
                                         z: 5
                                         radius: AppTheme.radiusLg
                                         color: "transparent"
-                                        border.width: themeCard.selectedTheme ? 2 : 1
-                                        border.color: themeCard.selectedTheme
+                                        // ── THE RESTING EDGE WAS 1.02:1 ──
+                                        //
+                                        // With the card body now a real plane
+                                        // this edge is what draws the card's
+                                        // silhouette across the preview half,
+                                        // which paints an ARBITRARY theme's
+                                        // background — so it has to clear
+                                        // WCAG 1.4.11's 3:1 for a component
+                                        // boundary on every palette. It did
+                                        // not clear it on ANY: stormBorder
+                                        // routes to `border`, measured against
+                                        // the page 1.02 Moss Light, 1.13 Warm,
+                                        // 1.15 Lightning Light, 1.52 Nordic,
+                                        // 1.61 Indigo Night, 1.81 Deep Teal,
+                                        // 1.89 Graphite, 1.90 Midnight, 2.00
+                                        // Storm, 2.57 Purple Dusk, 2.66
+                                        // Lightning Dark. stormBorderStrong
+                                        // clears on two of eleven.
+                                        //
+                                        // stormTextMuted is the same ink the
+                                        // radio ring in this card's own foot
+                                        // already carries, for the same reason
+                                        // and against the same ground — and it
+                                        // clears on all eleven, worst 4.59
+                                        // (Warm), which is the identical number
+                                        // that round recorded.
+                                        border.width: themeCard.cardIsLive ? 2 : 1
+                                        border.color: themeCard.cardIsLive
                                                       ? AppTheme.bolt
-                                                      : AppTheme.stormBorder
+                                                      : AppTheme.stormTextMuted
                                     }
 
                                     TapHandler {

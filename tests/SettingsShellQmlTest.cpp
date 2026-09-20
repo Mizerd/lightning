@@ -566,13 +566,22 @@ private slots:
                                 QStringLiteral("border.color"));
             const QColor ring = expr.evaluate().value<QColor>();
             QVERIFY(ring.isValid());
-            const QColor foot = themeColor("stormCanvas");
-            QVERIFY(foot.isValid());
-            const double ratio = contrastRatio(ring, foot);
+            // The LIVE foot, not the token this card once asked for. It
+            // painted stormCanvas when this case was written and paints
+            // stormPanel since the card-vs-page fix below; a probe pinned to
+            // a token name goes on answering about a surface nobody draws.
+            auto *foot = item(qPrintable(
+                QStringLiteral("themeCardFoot_%1").arg(cardId)));
+            QVERIFY2(foot, qPrintable(QStringLiteral(
+                         "no themeCardFoot_%1 under theme %2")
+                             .arg(cardId).arg(id)));
+            const QColor footColor = foot->property("color").value<QColor>();
+            QVERIFY(footColor.isValid());
+            const double ratio = contrastRatio(ring, footColor);
             if (ratio < worst) {
                 worst = ratio;
                 worstWhere = QStringLiteral("theme %1: ring %2 on %3")
-                                 .arg(id).arg(ring.name(), foot.name());
+                                 .arg(id).arg(ring.name(), footColor.name());
             }
             ++checked;
             QVERIFY2(ratio >= 3.0,
@@ -581,7 +590,7 @@ private slots:
                          "%2 on %3 = %4:1, below the 3:1 a control boundary "
                          "needs")
                              .arg(id)
-                             .arg(ring.name(), foot.name())
+                             .arg(ring.name(), footColor.name())
                              .arg(ratio, 0, 'f', 2)));
         }
         // Assert the COUNT of what actually varied, never the count of loop
@@ -676,6 +685,276 @@ private slots:
         QCoreApplication::processEvents();
     }
 
+    // ── AND THE THEME PICKER'S OWN CARDS WERE STILL THE PAGE ────────────
+    //
+    // The case above fixed SettingsCard. The four featured theme cards are
+    // not SettingsCards — they are bespoke Rectangles in a Flow — so the same
+    // routing kept them invisible for another round: `stormCanvas` over a
+    // page painted `stormDeep`, and on ten of eleven palettes BOTH resolve to
+    // the palette's `background`. Measured 2026-09-20, card fill against
+    // page: 1.0000:1 on the ten and 1.2204:1 on Storm.
+    //
+    // It is worse here than it was there, because the card whose theme is IN
+    // EFFECT previews that same background in its top half as well — so on a
+    // fresh Moss Light profile the Moss Light card was the page from edge to
+    // edge, and its 1px `stormBorder` hairline measured 1.02:1. The Deep Teal
+    // card next to it, previewing a dark palette on a light page, read 12.56.
+    //
+    // Both halves are asserted, off LIVE items and never off token names:
+    // the body has to be a different plane from the page, and the resting
+    // EDGE — which is what draws the card silhouette across the preview half,
+    // where the fill cannot help — has to clear the 3:1 WCAG 1.4.11 asks of a
+    // component boundary. `stormBorder` cleared that on ZERO of eleven and
+    // `stormBorderStrong` on two; `stormTextMuted`, the ink the radio ring in
+    // this same card foot already carries, clears on all eleven at a floor of
+    // 4.59 (Warm).
+    //
+    // UNFIXED TREE: fails on the first non-Storm theme at 0.0 dL*.
+    void theFeaturedThemeCardIsVisibleAgainstThePageOnEveryTheme()
+    {
+        const int restore = m_controller->settings()->theme();
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+
+        auto *ground = item("settingsPageGround");
+        QVERIFY2(ground, "no live settings page ground rectangle");
+        // All four, not the first: a Repeater delegate is exactly the shape
+        // that gets checked once and assumed for its siblings.
+        const int cardIds[] = { 9, 8, 10, 11 };
+
+        const int themes[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+        double worstSep = 1000.0;
+        double worstEdge = 1000.0;
+        QString worstSepWhere;
+        QString worstEdgeWhere;
+        int measured = 0;
+        QSet<QRgb> distinctPages;
+        for (int id : themes) {
+            m_controller->settings()->setTheme(
+                static_cast<SettingsManager::Theme>(id));
+            QCoreApplication::processEvents();
+            const QColor page = ground->property("color").value<QColor>();
+            QVERIFY(page.isValid());
+            distinctPages.insert(page.rgb());
+            for (int cardId : cardIds) {
+                auto *card = item(qPrintable(
+                    QStringLiteral("featuredThemeCard_%1").arg(cardId)));
+                auto *outline = item(qPrintable(
+                    QStringLiteral("themeCardOutline_%1").arg(cardId)));
+                QVERIFY2(card, qPrintable(QStringLiteral(
+                             "no featuredThemeCard_%1 under theme %2")
+                                 .arg(cardId).arg(id)));
+                QVERIFY2(outline, qPrintable(QStringLiteral(
+                             "no themeCardOutline_%1 under theme %2")
+                                 .arg(cardId).arg(id)));
+                // Guard the premise. This case is about the RESTING edge;
+                // a card that happens to be live carries the bolt instead
+                // and would pass on a broken token.
+                if (card->property("cardIsLive").toBool())
+                    continue;
+
+                const QColor fill = card->property("color").value<QColor>();
+                QVERIFY(fill.isValid());
+                const double sep = qAbs(lstarOf(fill) - lstarOf(page));
+                if (sep < worstSep) {
+                    worstSep = sep;
+                    worstSepWhere = QStringLiteral("theme %1 card %2: %3 on %4")
+                                        .arg(id).arg(cardId)
+                                        .arg(fill.name(), page.name());
+                }
+                QVERIFY2(sep >= 5.0,
+                         qPrintable(QStringLiteral(
+                             "theme %1: the featured theme card %2 is %3 on a "
+                             "page of %4 — only %5 dL* (%6:1) apart. A card "
+                             "painted in the colour of the page behind it is "
+                             "not a card")
+                                 .arg(id).arg(cardId)
+                                 .arg(fill.name(), page.name())
+                                 .arg(sep, 0, 'f', 1)
+                                 .arg(contrastRatio(fill, page), 0, 'f', 2)));
+
+                QQmlExpression expr(qmlContext(outline), outline,
+                                    QStringLiteral("border.color"));
+                const QColor edge = expr.evaluate().value<QColor>();
+                QVERIFY(edge.isValid());
+                const double edgeRatio = contrastRatio(edge, page);
+                if (edgeRatio < worstEdge) {
+                    worstEdge = edgeRatio;
+                    worstEdgeWhere =
+                        QStringLiteral("theme %1 card %2: %3 on %4")
+                            .arg(id).arg(cardId).arg(edge.name(), page.name());
+                }
+                QVERIFY2(edgeRatio >= 3.0,
+                         qPrintable(QStringLiteral(
+                             "theme %1: the resting edge of theme card %2 is "
+                             "%3 on the page %4 = %5:1, below the 3:1 a "
+                             "component boundary needs — and this edge is the "
+                             "only thing bounding the preview half, which "
+                             "paints an arbitrary palette")
+                                 .arg(id).arg(cardId)
+                                 .arg(edge.name(), page.name())
+                                 .arg(edgeRatio, 0, 'f', 2)));
+                ++measured;
+            }
+        }
+        // Assert the COUNT of what actually varied, never the count of loop
+        // iterations — and the pages have to be eleven DIFFERENT colours or
+        // this measured one palette eleven times.
+        QCOMPARE(distinctPages.size(), 11);
+        // Four cards, eleven themes, minus the one card that is live under
+        // its own theme (Moss Light, Indigo Night, Deep Teal and Storm are
+        // all featured, so exactly four of the 44 are skipped).
+        QCOMPARE(measured, 40);
+        qInfo("featured theme card: worst %.1f dL* (%s), worst edge %.2f:1 (%s)",
+              worstSep, qPrintable(worstSepWhere),
+              worstEdge, qPrintable(worstEdgeWhere));
+
+        m_controller->settings()->setTheme(
+            static_cast<SettingsManager::Theme>(restore));
+        QCoreApplication::processEvents();
+    }
+
+    // ── A THEME IS IN EFFECT EVEN WHEN NOBODY PICKED IT ─────────────────
+    //
+    // "Match system light/dark" is theme 0, and 0 is not any card id — so on
+    // the FRESH-PROFILE DEFAULT `selectedTheme` was false for all four cards
+    // and the picker marked nothing at all. The theme actually running is
+    // Moss Light or Indigo Night, and both of those ARE featured cards, so
+    // the answer was on screen the whole time and simply unmarked.
+    //
+    // It is a third state, not a second name for selection. The assertions
+    // are therefore about the DIFFERENCE between the two: a card in effect
+    // gets the bolt edge and the bolt RING, a card the user chose gets the
+    // bolt edge and the FILLED radio, and `Accessible.checked` stays false
+    // for the first — which is why the state also has to be in the name.
+    //
+    // UNFIXED TREE: `cardIsLive` does not exist, so it reads false on every
+    // card and the "exactly one is live" assertion fails with 0.
+    void theThemeInEffectIsMarkedWhenMatchSystemIsOn()
+    {
+        const int restore = m_controller->settings()->theme();
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+
+        m_controller->settings()->setTheme(
+            static_cast<SettingsManager::Theme>(0));
+        QCoreApplication::processEvents();
+
+        // Read the answer out of the singleton rather than assuming which
+        // way the platform reports the system scheme.
+        QQmlExpression effExpr(qmlContext(m_window), m_window,
+                               QStringLiteral("AppTheme.effectiveTheme"));
+        const int effective = effExpr.evaluate().toInt();
+        QVERIFY2(effective == 8 || effective == 9,
+                 qPrintable(QStringLiteral("match-system resolved to %1, "
+                                           "which is not a featured card")
+                                .arg(effective)));
+
+        const int cardIds[] = { 9, 8, 10, 11 };
+        int live = 0;
+        int chosen = 0;
+        for (int cardId : cardIds) {
+            auto *card = item(qPrintable(
+                QStringLiteral("featuredThemeCard_%1").arg(cardId)));
+            QVERIFY(card);
+            const bool isLive = card->property("cardIsLive").toBool();
+            const bool isChosen = card->property("selectedTheme").toBool();
+            if (isLive)
+                ++live;
+            if (isChosen)
+                ++chosen;
+            QVERIFY2(isLive == (cardId == effective),
+                     qPrintable(QStringLiteral(
+                         "match-system resolved to theme %1, and card %2 "
+                         "reports live=%3 — with no theme chosen, exactly the "
+                         "card whose theme is running must be marked and no "
+                         "other")
+                            .arg(effective).arg(cardId)
+                            .arg(isLive ? QStringLiteral("true")
+                                        : QStringLiteral("false"))));
+            // Nothing was chosen: match-system is on.
+            QVERIFY2(!isChosen,
+                     qPrintable(QStringLiteral("card %1 reports a user "
+                                               "choice while match-system is "
+                                               "on").arg(cardId)));
+
+            auto *radio = item(qPrintable(
+                QStringLiteral("themeCardRadio_%1").arg(cardId)));
+            QVERIFY(radio);
+            const QColor ringFill =
+                radio->property("color").value<QColor>();
+            QQmlExpression ringExpr(qmlContext(radio), radio,
+                                    QStringLiteral("border.color"));
+            const QColor ring = ringExpr.evaluate().value<QColor>();
+            const QColor bolt = themeColor("bolt");
+            if (isLive) {
+                // The ring says "running"; the FILL is what would say
+                // "you picked this", and nobody did.
+                QCOMPARE(ring, bolt);
+                QVERIFY2(ringFill.alpha() == 0,
+                         qPrintable(QStringLiteral(
+                             "card %1 draws a FILLED radio for a theme the "
+                             "system chose, not the user").arg(cardId)));
+            } else {
+                QVERIFY2(ring != bolt,
+                         qPrintable(QStringLiteral(
+                             "card %1 is not in effect and not chosen, yet "
+                             "carries the bolt ring").arg(cardId)));
+            }
+        }
+        QCOMPARE(live, 1);
+        QCOMPARE(chosen, 0);
+
+        // The state has to be readable, not only visible. An ATTACHED
+        // property is not a QObject property, so `property("Accessible.name")`
+        // comes back null and every assertion below it would pass on nothing.
+        auto attached = [](QQuickItem *it, const char *what) {
+            QQmlExpression expr(qmlContext(it), it,
+                                QStringLiteral("Accessible.%1")
+                                    .arg(QLatin1String(what)));
+            return expr.evaluate();
+        };
+        auto *liveCard = item(qPrintable(
+            QStringLiteral("featuredThemeCard_%1").arg(effective)));
+        auto *otherCard = item(qPrintable(
+            QStringLiteral("featuredThemeCard_%1").arg(effective == 8 ? 9 : 8)));
+        QVERIFY(liveCard && otherCard);
+        const QString liveName = attached(liveCard, "name").toString();
+        const QString otherName = attached(otherCard, "name").toString();
+        QVERIFY2(!liveName.isEmpty() && !otherName.isEmpty(),
+                 "the theme cards report no accessible name at all");
+        QVERIFY2(liveName != otherName,
+                 qPrintable(QStringLiteral("accessible name %1 vs %2")
+                                .arg(liveName, otherName)));
+        QVERIFY2(liveName.length() > otherName.length(),
+                 qPrintable(QStringLiteral(
+                     "the in-effect card reads %1, which carries no more "
+                     "state than a plain card name").arg(liveName)));
+        QVERIFY2(!attached(liveCard, "checked").toBool(),
+                 "a theme the system chose must not report itself checked");
+
+        // And the other half of the contrast: a card the user DID choose
+        // fills its radio and reports checked.
+        m_controller->settings()->setTheme(
+            static_cast<SettingsManager::Theme>(10));
+        QCoreApplication::processEvents();
+        auto *teal = item("featuredThemeCard_10");
+        auto *tealRadio = item("themeCardRadio_10");
+        QVERIFY(teal && tealRadio);
+        QVERIFY(teal->property("selectedTheme").toBool());
+        QVERIFY(teal->property("cardIsLive").toBool());
+        QVERIFY2(!teal->property("inEffect").toBool(),
+                 "an explicitly chosen theme is not in effect BY the system");
+        QCOMPARE(tealRadio->property("color").value<QColor>(),
+                 themeColor("bolt"));
+        QVERIFY(attached(teal, "checked").toBool());
+        QCOMPARE(attached(teal, "name").toString(),
+                 QStringLiteral("Deep Teal"));
+
+        m_controller->settings()->setTheme(
+            static_cast<SettingsManager::Theme>(restore));
+        QCoreApplication::processEvents();
+    }
     // ── AND NEITHER IS A SELECTION PILL THAT IS NEVER DRAWN ─────────────
     //
     // Same family, same root: the selected nav row filled stormSelection,
