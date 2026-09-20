@@ -8,6 +8,8 @@
 
 #include <QtTest/QtTest>
 
+#include <QRegularExpression>
+
 #include <QDirIterator>
 
 #include <QDir>
@@ -245,13 +247,60 @@ private Q_SLOTS:
 
     // "could this button open above the send prompt so not to cover it
     // all": a bare popup() opens at the pointer, over the message box. The
+    // THE ENCLOSING DECLARATION, NOT A FIXED NUMBER OF BYTES.
+    //
+    // Three cases in this file scanned `source.mid(at, 2600)`. A byte window
+    // silently goes stale: it drifts as unrelated code is inserted above the
+    // thing it asserts, and the failure then names an assertion that has not
+    // changed. It has now cost this project twice in one day — once when a
+    // new menu row pushed an item out of a 2200-byte window, and once when a
+    // COMMENT added inside a declaration spent 622 of 259 remaining
+    // characters and produced a failure about `popup()` versus `open()` that
+    // said nothing about what had changed.
+    //
+    // Derives the block from the anchor's own indentation instead: everything
+    // up to the first line that closes at a SHALLOWER indent. Callers must
+    // still assert the extent is plausible before concluding from it — an
+    // extent that silently shrinks is the same defect wearing the other face.
+    static QString declBlock(const QString &source, int at)
+    {
+        if (at < 0)
+            return {};
+        const int lineStart = source.lastIndexOf(QLatin1Char('\n'), at) + 1;
+        int indent = 0;
+        while (lineStart + indent < source.size()
+               && source.at(lineStart + indent) == QLatin1Char(' ')) {
+            ++indent;
+        }
+        int pos = source.indexOf(QLatin1Char('\n'), at);
+        while (pos >= 0) {
+            const int next = source.indexOf(QLatin1Char('\n'), pos + 1);
+            const QString line = source.mid(pos + 1,
+                                            (next < 0 ? source.size() : next) - pos - 1);
+            const QString trimmed = line.trimmed();
+            int lead = 0;
+            while (lead < line.size() && line.at(lead) == QLatin1Char(' '))
+                ++lead;
+            if (!trimmed.isEmpty() && lead < indent
+                && (trimmed.startsWith(QLatin1Char('}'))
+                    || trimmed.startsWith(QLatin1Char(')')))) {
+                return source.mid(at, pos - at);
+            }
+            pos = next;
+        }
+        return source.mid(at);
+    }
+
     // menu is anchored to its button with a NEGATIVE y, i.e. above it.
     void theSendOptionsMenuOpensAboveTheComposer()
     {
         const QString bar = read(QStringLiteral("MessageComposerBar.qml"));
         const int at = bar.indexOf(QStringLiteral("id: sendOptionsButton"));
         QVERIFY(at > 0);
-        const QString block = bar.mid(at, 2600);
+        const QString block = declBlock(bar, at);
+        QVERIFY2(block.size() > 200,
+                 qPrintable(QStringLiteral("the sendOptionsButton block scanned "
+                                           "only %1 chars").arg(block.size())));
         QVERIFY2(!block.contains(QStringLiteral("sendOptionsMenu.popup(")),
                  "popup(x, y) computes the place on the click, when the menu's "
                  "height is still 0 on its first open — it landed on the bar");
@@ -280,20 +329,27 @@ private Q_SLOTS:
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
         const int lock = pane.indexOf(QStringLiteral("id: encryptionLock"));
         QVERIFY(lock > 0);
-        const QString before = pane.mid(lock - 2600, 2600);
-        // Fill, so a narrow header can shrink the name (a non-fill item is
-        // fixed at its preferred width and the icons drew over the title at
-        // 520 px), bounded by the text's own width so the lock hugs a short
-        // name.
-        QVERIFY2(before.contains(QStringLiteral(
-                     "Layout.maximumWidth: Math.min(header.width * 0.5,\n"
-                     "                                                          Math.ceil(implicitWidth))")),
-                 "the name's fill must be bounded by its own text width");
-        const int cap = before.indexOf(QStringLiteral("Layout.maximumWidth: Math.min("));
-        // A wide window: the bound now carries a comment explaining the
-        // ceiling (2026-09-05), and the fill sits above it.
-        QVERIFY2(before.mid(qMax(0, cap - 1400), 1400).contains(QStringLiteral("Layout.fillWidth: true")),
+        // Everything from the room-name label down to the lock. Derived from
+        // the label rather than taken as a fixed 2600 bytes backwards: that
+        // window drifted the moment the header was reworked on 2026-09-20 and
+        // the failure named an assertion that had not changed.
+        const int name = pane.lastIndexOf(QStringLiteral("objectName: \"roomHeaderTitle\""), lock);
+        QVERIFY2(name > 0, "the room title label was not found above the lock");
+        const QString before = pane.mid(name, lock - name);
+        QVERIFY2(before.size() > 100 && before.size() < 8000,
+                 qPrintable(QStringLiteral("the title-to-lock extent is %1 chars, which is not a plausible "
+                                "distance between two items in one row")
+                                .arg(before.size())));
+        // The name FILLS, so a narrow header can shrink it — a non-fill item
+        // is fixed at its preferred width and the icons drew over the title
+        // at 520 px.
+        QVERIFY2(before.contains(QStringLiteral("Layout.fillWidth: true")),
                  "the name must fill so a narrow header can shrink it");
+        // The cap that used to be asserted here verbatim was REMOVED on
+        // 2026-09-20 — `header.width * 0.5` made the title refuse width the
+        // header was not otherwise using. What replaced the source scan is a
+        // geometric case on real delegates; see
+        // TimelinePaneQmlTest::theRoomTitleOutranksTheHeaderIconRowAtEveryWidth.
     }
 
     // "shouldn't this say the start of the text and not the end": a
@@ -721,12 +777,57 @@ private Q_SLOTS:
                                                  "        && root.eventIdForActions() !== \"\"")));
     }
 
+    // §16: a QtQuick Layout FLOORS a fractional bound, so a maximumWidth of
+    // 53.28 becomes 53 and the text elides one pixel early.
+    //
+    // This used to assert one exact expression, whitespace and all. That
+    // expression was `Math.min(header.width * 0.5, Math.ceil(implicitWidth))`
+    // — and the `* 0.5` half turned out to be a DEFECT in its own right: the
+    // title refused width nothing else wanted, so at a 480 px header it
+    // elided at 240 px of a 322 px name while 96 px sat empty beside it. It
+    // was removed on 2026-09-20, and this case went red for asserting the
+    // bug.
+    //
+    // The RULE survives its expression: any `Layout.maximumWidth` in this
+    // file must be integer-valued. The outcome — a title that never gives up
+    // width the header is not using — is asserted GEOMETRICALLY by
+    // `TimelinePaneQmlTest::theRoomTitleOutranksTheHeaderIconRowAtEveryWidth`
+    // on real delegates at ten widths, which is a better test than any
+    // source scan and is why this one no longer tries to be.
     void theRoomTitleNeverElidesByAFraction()
     {
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
-        QVERIFY2(pane.contains(QStringLiteral("Math.min(header.width * 0.5,\n"
-                                              "                                                          Math.ceil(implicitWidth))")),
-                 "a fractional maximumWidth is floored by the Layout and the title elides");
+        static const QRegularExpression cap(
+            QStringLiteral("Layout\\.maximumWidth:\\s*([^\\n]+)"));
+        auto it = cap.globalMatch(pane);
+        int checked = 0;
+        while (it.hasNext()) {
+            const QString expr = it.next().captured(1).trimmed();
+            ++checked;
+            const bool rounded = expr.contains(QStringLiteral("Math.ceil"))
+                              || expr.contains(QStringLiteral("Math.floor"))
+                              || expr.contains(QStringLiteral("Math.round"));
+            // NARROWED, after this case's first run flagged
+            // `unifiedRow.width * 0.7` — which is fine. A PROPORTIONAL cap
+            // losing a sub-pixel to the floor costs a sub-pixel. The §16
+            // defect is a cap bound to a TEXT'S OWN measure: there the
+            // fraction is exactly the difference between the text fitting and
+            // eliding, which is how a 53.28 became 53 and elided a label that
+            // fit. Only those must be rounded.
+            const bool boundToOwnText =
+                expr.contains(QStringLiteral("implicitWidth"))
+                || expr.contains(QStringLiteral("contentWidth"))
+                || expr.contains(QStringLiteral("paintedWidth"));
+            if (!boundToOwnText)
+                continue;
+            QVERIFY2(rounded,
+                     qPrintable(QStringLiteral(
+                         "Layout.maximumWidth: %1 is bound to the text's own "
+                         "measure and is not rounded; a Layout floors it and "
+                         "the text elides one pixel early")
+                             .arg(expr)));
+        }
+        QVERIFY2(checked > 0, "no Layout.maximumWidth found to check");
     }
 
     void theVoiceBarKeepsItsButtonsInsideItself()
@@ -748,7 +849,10 @@ private Q_SLOTS:
         const QString row = read(QStringLiteral("ChannelDelegate.qml"));
         const int star = row.indexOf(QStringLiteral("objectName: \"channelFavouriteStar\""));
         QVERIFY2(star > 0, "no favourite star in the channel row");
-        const QString block = row.mid(star, 2600);
+        const QString block = declBlock(row, star);
+        QVERIFY2(block.size() > 200,
+                 qPrintable(QStringLiteral("the favourite-star block scanned "
+                                           "only %1 chars").arg(block.size())));
         QVERIFY(block.contains(QStringLiteral("&& (root.isFavourite || root.hovered)")));
         QVERIFY2(block.contains(QStringLiteral("onClicked: root.setFavourite(!root.isFavourite)")),
                  "the star must toggle the same tag the menu writes");

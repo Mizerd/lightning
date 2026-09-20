@@ -538,8 +538,10 @@ private Q_SLOTS:
         QVERIFY(button >= 0);
         // Wide enough to cover the button's whole block including its
         // rationale comments (widened 2026-08-19 when the coming-soon note
-        // landed) — a too-tight window fails on prose, not on behaviour.
-        const QString scope = norm.mid(button, 1600);
+        // landed, and again 2026-09-20 when the narrow-header fold gave every
+        // action in this row a `folded` and an `actionLabel`) — a too-tight
+        // window fails on prose, not on behaviour.
+        const QString scope = norm.mid(button, 2000);
         // 2026-08-23: lane selection is ONE policy question, answered in
         // AppController — MatrixRTC where available, the legacy 1:1 lane as
         // the audio-only DM fallback. The button asks whether either lane
@@ -4904,18 +4906,28 @@ ApplicationWindow {
         // and the key can once again act where the button refuses. Deriving
         // inverts that: a new button clause fails this case until somebody
         // decides what the key should do about it.
-        const QString vis = QStringLiteral("visible: app.currentRoomId !== \"\""
-                                           " && app.canStartCall");
+        //
+        // THE GATE MOVED OFF `visible:` ON 2026-09-20 and this anchor moved
+        // with it. The narrow-header fold made the row's icons
+        // `visible: available && !folded`, so `visible` now carries a LAYOUT
+        // decision as well as the gate — and `!folded` must NOT reach the
+        // shortcut, because a folded action is still offered (in the header's
+        // overflow menu) and the key must still work. `available:` is the
+        // gate, and it is the expression this slice derives from.
+        const QString vis =
+            QStringLiteral("property bool available: app.currentRoomId !== \"\""
+                           " && app.canStartCall");
         const int from = button.indexOf(vis);
         QVERIFY2(from >= 0,
                  "TimelinePane's call button no longer opens with "
                  "currentRoomId + canStartCall — re-anchor this slice");
         const int to = button.indexOf(QStringLiteral(" enabled:"), from);
-        QVERIFY2(to > from, "the call button's visible: expression is not "
+        QVERIFY2(to > from, "the call button's available: expression is not "
                             "terminated by an enabled: property");
+        const char *kGate = "property bool available:";
         const QString expr =
-            button.mid(from + int(qstrlen("visible:")), to - from
-                       - int(qstrlen("visible:")))
+            button.mid(from + int(qstrlen(kGate)), to - from
+                       - int(qstrlen(kGate)))
                 .trimmed();
 
         // Split on `&&` at PAREN DEPTH ZERO. The last conjunct is itself a

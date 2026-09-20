@@ -20,6 +20,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <cmath>
 #include <QQmlExpression>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -4333,6 +4334,327 @@ private Q_SLOTS:
         // polish passes, which is long enough for the host's audio stack to
         // log its own noise (PipeWire spa parse chatter, an FFmpeg version
         // banner) into the same sink. Those say nothing about the header.
+    }
+
+    // ── The room title outranks the header's icon row ───────────────────
+    //
+    // Finding H3, 2026-09-20, from a sweep on Windows against the published
+    // 0.9.8: at the 640px minimum client width the room title elided to
+    // three dots while empty header sat beside it. MEASURED HERE on the real
+    // pane before any fix, with the production six-icon row forced visible:
+    //
+    //   pane 320 (header 280)  identity 0 px, TITLE 0 px of ink
+    //   pane 400 (header 360)  identity 56,   title 39
+    //   pane 520 (header 480)  identity 176,  title 159
+    //
+    // The reported cause was the header spacer. It is NOT: measured at
+    // 320/400/520/640 in four topic/lock combinations the spacer is 0 px at
+    // every width where the title is truncated. Two real mechanisms:
+    //
+    //   1. The action row cannot yield. A nested RowLayout's minimum width
+    //      is the SUM of its children's, so `roomHeaderActions` is pinned at
+    //      its own implicit width and every pixel of the shortfall lands on
+    //      the identity column — the one thing here that can elide.
+    //   2. The title's own `Layout.maximumWidth` carried a
+    //      `header.width * 0.5` term, so in a room with no topic and no lock
+    //      (the configuration in which the identity column acquires a FINITE
+    //      maximum) it refused width that nothing else wanted and the spacer
+    //      received it: the reported "elided title with empty header beside
+    //      it", exactly.
+    //
+    // Both invariants below are geometric and measured on real delegates,
+    // because a source scan cannot see an elision (§16).
+    void theRoomTitleOutranksTheHeaderIconRowAtEveryWidth()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window,
+                                          QStringLiteral("!general:example.org"),
+                                          {}, 0, 700, &timeline);
+        QVERIFY(root);
+        auto *identity = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderIdentity"));
+        auto *actions = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderActions"));
+        auto *spacer = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderSpacer"));
+        auto *title = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderTitle"));
+        QVERIFY(identity);
+        QVERIFY(actions);
+        QVERIFY(spacer);
+        QVERIFY(title);
+        auto *header = identity->parentItem();
+        QVERIFY(header);
+
+        // The floor is expressed in the title's OWN font so it follows the
+        // text-size slider and the UI font, and it is capped by the text's
+        // natural width so a short room name that fits entirely is never a
+        // failure.
+        QQmlExpression titlePxExpr(qmlContext(root), root,
+                                   QStringLiteral(
+                                       "AppTheme.scaled(AppTheme.textTitle)"));
+        const double titlePx = titlePxExpr.evaluate().toDouble();
+        QVERIFY2(titlePx > 0, "the title's scaled font size did not evaluate");
+        // Fifteen characters of this bold face. Measured on the fixture's
+        // own name: 321.89 px for 38 characters at a 16 px pixel size, i.e.
+        // 0.53 x the pixel size per character — so the floor follows the
+        // text-size slider and the UI font rather than being a literal.
+        const double inkFloor = 15.0 * 0.53 * titlePx;
+
+        struct Variant { const char *label; bool topic; bool lock; };
+        const Variant variants[] = {
+            { "topic+lock", true, true },
+            { "no topic, no lock", false, false },
+        };
+        // IconButton's "lg" rung: what one overflow control costs.
+        const double kOneIconSlot = 34.0;
+        QStringList failures;
+        int measured = 0;
+        int sawTruncated = 0;
+        int sawStarved = 0;
+        double worstInk = -1.0;
+
+        // BOTH ENDS OF THE TEXT-SIZE SLIDER. The icon row is a CONSTANT
+        // 34 px per button at every scale (IconButton's rungs are not
+        // scaled), while the title's floor grows with the font — so 1.4 is
+        // where the header runs out of room at widths 1.0 can still afford,
+        // and it is the half of this sweep that the unfixed tree fails most
+        // widely.
+        for (const double scale : { 1.0, 1.4 }) {
+        QQmlExpression setScale(qmlContext(root), root,
+                                QStringLiteral("AppTheme.textScale = %1")
+                                    .arg(scale));
+        setScale.evaluate();
+        QTest::qWait(60);
+        QCoreApplication::processEvents();
+        const double scaledTitlePx = titlePxExpr.evaluate().toDouble();
+        const double scaledInkFloor = 15.0 * 0.53 * scaledTitlePx;
+
+        for (const Variant &v : variants) {
+            QVariantMap room;
+            // Longer than any header this sweep builds, so the title is
+            // always a candidate for elision.
+            room.insert(QStringLiteral("name"),
+                        QStringLiteral("Lightning development and release chat"));
+            room.insert(QStringLiteral("topic"),
+                        v.topic ? QStringLiteral("Where the work happens")
+                                : QString());
+            room.insert(QStringLiteral("encrypted"), v.lock);
+            root->setProperty("currentRoom", room);
+            // Layouts settle on the POLISH pass, which an offscreen window
+            // runs only when it actually updates.
+            QTest::qWait(60);
+            QCoreApplication::processEvents();
+
+            for (const int w : { 320, 360, 400, 460, 520, 600, 640, 760,
+                                 900, 1200 }) {
+                root->setSize(QSizeF(w, 700));
+                QTest::qWait(60);
+                QCoreApplication::processEvents();
+                ++measured;
+
+                const double ink = title->width();
+                const double natural =
+                    std::ceil(title->property("implicitWidth").toDouble());
+                const bool truncated = title->property("truncated").toBool();
+                if (truncated)
+                    ++sawTruncated;
+                if (worstInk < 0.0 || ink < worstInk)
+                    worstInk = ink;
+
+                // INVARIANT 1 — the icon row yields BEFORE the title does.
+                // The title may end up short, but only once the row is down
+                // to a single control; a row still holding several icons
+                // beside a title below its floor is the reported defect. On
+                // the unfixed tree the row is pinned at its own implicit
+                // width and never yields at all, so the title is 119 px
+                // beside 74 px of icons at a 280 px header (and 0 px beside
+                // the production 234 px row).
+                const bool titleStarved =
+                    ink + 0.5 < std::min(scaledInkFloor, natural);
+                if (titleStarved && actions->width() > kOneIconSlot + 0.5)
+                    failures.append(QStringLiteral(
+                        "at text scale %10: %1 at pane %2 (header %3): the "
+                        "room title is %4 px of ink where its own text wants "
+                        "%5 and fifteen "
+                        "characters are %6 — while the icon row still holds "
+                        "%7 px, more than the one slot an overflow costs. "
+                        "identity %8, spacer %9.")
+                        .arg(QLatin1String(v.label)).arg(w)
+                        .arg(header->width()).arg(ink).arg(natural)
+                        .arg(int(scaledInkFloor)).arg(actions->width())
+                        .arg(identity->width()).arg(spacer->width())
+                        .arg(scale));
+                if (titleStarved)
+                    ++sawStarved;
+
+                // INVARIANT 2 — the title never yields width to nothing. If
+                // it had to elide, every pixel of this header is spoken for,
+                // so the spacer is empty. On the unfixed tree the
+                // half-header cap broke this in the no-topic/no-lock room.
+                if (truncated && spacer->width() > 0.5)
+                    failures.append(QStringLiteral(
+                        "at text scale %9: %1 at pane %2 (header %3): the "
+                        "room title elided at %4 px of a %5 px name while %6 "
+                        "px of header sat EMPTY beside it (identity %7, "
+                        "icons %8)")
+                        .arg(QLatin1String(v.label)).arg(w)
+                        .arg(header->width()).arg(ink).arg(natural)
+                        .arg(spacer->width()).arg(identity->width())
+                        .arg(actions->width()).arg(scale));
+            }
+        }
+
+        }
+
+        QQmlExpression resetScale(qmlContext(root), root,
+                                  QStringLiteral("AppTheme.textScale = 1.0"));
+        resetScale.evaluate();
+        QCoreApplication::processEvents();
+
+        qInfo("room header sweep: %d widths measured, %d elided, %d below the "
+              "ink floor (each with the row already down to one control); "
+              "title font %.0f px at scale 1.0, floor %.0f px, narrowest "
+              "title %.0f px",
+              measured, sawTruncated, sawStarved, titlePx, inkFloor, worstInk);
+        // The sweep is only as good as what it rendered: a run in which the
+        // title never had to elide would prove neither invariant.
+        QVERIFY2(sawTruncated > 0,
+                 "no width in this sweep elided the room title, so neither "
+                 "invariant was actually exercised");
+        QVERIFY2(failures.isEmpty(),
+                 qPrintable(failures.join(QStringLiteral("\n  "))));
+
+        root->setSize(QSizeF(700, 700));
+        QCoreApplication::processEvents();
+    }
+
+    // The other half of the priority decision, and the thing that makes
+    // folding an icon different from letting the band CLIP it (2026-09-02):
+    // every action that leaves the row is still reachable, in one menu that
+    // costs the row a single icon slot.
+    //
+    // NOT a regression proof — the overflow does not exist on the unfixed
+    // tree, so this cannot fail there. It is the forward contract that stops
+    // the fold above from decaying into "hide it and hope".
+    void everyFoldedHeaderActionIsStillReachable()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window,
+                                          QStringLiteral("!general:example.org"),
+                                          {}, 0, 700, &timeline);
+        QVERIFY(root);
+        auto *actions = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderActions"));
+        auto *overflow = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderOverflowButton"));
+        QVERIFY(actions);
+        QVERIFY(overflow);
+
+        QVariantMap room;
+        room.insert(QStringLiteral("name"),
+                    QStringLiteral("Lightning development and release chat"));
+        root->setProperty("currentRoom", room);
+        QTest::qWait(60);
+        QCoreApplication::processEvents();
+
+        // Wide: nothing folds, nothing is in the menu, and the overflow
+        // button costs the row nothing.
+        root->setSize(QSizeF(1200, 700));
+        QTest::qWait(60);
+        QCoreApplication::processEvents();
+        QCOMPARE(actions->property("foldedActions").toStringList().size(), 0);
+        QVERIFY2(!overflow->isVisible(),
+                 "the overflow button is drawn on a header with room to spare");
+
+        // Narrowest supported pane. Every action that left the row must have
+        // a row in the menu, and the menu must not carry one for an action
+        // that is still an icon.
+        root->setSize(QSizeF(320, 700));
+        QTest::qWait(60);
+        QCoreApplication::processEvents();
+        const QStringList folded =
+            actions->property("foldedActions").toStringList();
+        QVERIFY2(!folded.isEmpty(),
+                 "the narrowest supported pane folded nothing, so this case "
+                 "measured a header that was never under pressure");
+        QVERIFY2(overflow->isVisible(),
+                 "actions folded out of the row with no overflow button to "
+                 "reach them through");
+
+        auto *menu = root->findChild<QObject *>(
+            QStringLiteral("roomHeaderOverflowMenu"));
+        QVERIFY(menu);
+        // OPEN IT BEFORE MEASURING. `visible` on a QQuickItem reads
+        // EFFECTIVE visibility, so every row of a closed popup reports
+        // false whatever its own binding says — a closed menu would have
+        // made this case report that nothing is reachable, which is the
+        // opposite of the truth.
+        QMetaObject::invokeMethod(menu, "open");
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QCoreApplication::processEvents();
+        const QMap<QString, QString> rowFor = {
+            { QStringLiteral("startVoiceCallButton"),
+              QStringLiteral("overflowStartVoiceCall") },
+            { QStringLiteral("pinnedMessagesButton"),
+              QStringLiteral("overflowPinnedMessages") },
+            { QStringLiteral("threadsViewButton"),
+              QStringLiteral("overflowThreads") },
+            { QStringLiteral("timelineSearchButton"),
+              QStringLiteral("overflowSearch") },
+            { QStringLiteral("memberPanelButton"),
+              QStringLiteral("overflowMembers") },
+            { QStringLiteral("roomInfoButton"),
+              QStringLiteral("overflowRoomInfo") },
+        };
+        QStringList unreachable;
+        for (auto it = rowFor.cbegin(); it != rowFor.cend(); ++it) {
+            auto *button = root->findChild<QObject *>(it.key());
+            QVERIFY2(button, qPrintable(it.key()));
+            auto *row = menu->findChild<QObject *>(it.value());
+            QVERIFY2(row, qPrintable(it.value()));
+            const bool isFolded = button->property("folded").toBool();
+            if (isFolded != row->property("visible").toBool())
+                unreachable.append(QStringLiteral(
+                    "%1 is %2 but its menu row is %3")
+                    .arg(it.key(),
+                         isFolded ? QStringLiteral("folded out of the row")
+                                  : QStringLiteral("still an icon"),
+                         row->property("visible").toBool()
+                             ? QStringLiteral("shown") : QStringLiteral("hidden")));
+            if (isFolded && row->property("text").toString().isEmpty())
+                unreachable.append(QStringLiteral(
+                    "%1 folded into a menu row with no label").arg(it.key()));
+        }
+        QVERIFY2(unreachable.isEmpty(),
+                 qPrintable(unreachable.join(QStringLiteral("\n  "))));
+
+        // And a folded action still does what its icon did: the menu row
+        // runs the button's own handler, not a second copy of it.
+        auto *searchRow = menu->findChild<QObject *>(
+            QStringLiteral("overflowSearch"));
+        QVERIFY(searchRow);
+        if (searchRow->property("visible").toBool()) {
+            const bool before = root->property("searchOpen").toBool();
+            QMetaObject::invokeMethod(searchRow, "triggered");
+            QCoreApplication::processEvents();
+            QVERIFY2(root->property("searchOpen").toBool() != before,
+                     "the overflow row for Search messages did not open the "
+                     "search panel");
+            if (root->property("searchOpen").toBool() != before)
+                root->setProperty("searchOpen", before);
+        }
+        QMetaObject::invokeMethod(menu, "close");
+        QCoreApplication::processEvents();
+
+        root->setSize(QSizeF(700, 700));
+        QCoreApplication::processEvents();
     }
 
     // Read-receipt chips: empty list = zero footprint (the strip stays

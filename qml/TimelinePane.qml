@@ -991,7 +991,67 @@ Rectangle {
                 anchors.leftMargin: AppTheme.spacing20
                 anchors.rightMargin: AppTheme.spacing20
                 spacing: AppTheme.spacing12
+
+                // ── Who yields when this header cannot fit everything ────
+                //
+                // MEASURED 2026-09-20 on the real pane with the production
+                // six-icon row: at a 280px header the identity column got
+                // ZERO width and the room title was 0px of ink; at 360 it
+                // was 39px. The icon row never yields — a nested RowLayout's
+                // minimum width is the SUM of its children's, so
+                // `roomHeaderActions` is pinned at its own implicit width
+                // (234px with six buttons) and cannot shrink — so the whole
+                // shortfall lands on the one thing here that can elide.
+                // The spacer below was reported as the cause and is NOT:
+                // measured at 320/400/520/640 in four topic/lock
+                // combinations it is 0px at every width where the title is
+                // truncated.
+                //
+                // THE TITLE WINS. It is the only thing in this band that
+                // says which room the reader is in and it has no other
+                // route; every action icon has one — the overflow menu at
+                // the end of the row, which costs ONE icon slot however many
+                // fold into it. Folding is not hiding: the 2026-09-02 report
+                // was icons the band CLIPPED, which is an action with no
+                // route at all.
+                //
+                // Nothing here reads a layout-derived width: `header.width`
+                // comes from `anchors.fill`, so the budget cannot fold back
+                // on the row it sizes.
+
+                // The TITLE's floor (about fifteen characters of its own
+                // face, so it follows the text-size slider and the UI font)
+                // plus what shares its row: the encryption lock and its gap.
+                // Bounding the column and forgetting the lock leaves the
+                // title 17px short of the floor at the exact width where the
+                // last icon still fits.
+                readonly property real identityFloor:
+                    Math.round(AppTheme.scaled(AppTheme.textTitle) * 9)
+                    + AppTheme.spacingS + 14
+                // How many 34px icons fit beside a title at its floor. An
+                // unmeasured header (width 0 during load) means "no limit",
+                // so the overflow button does not flash on every open.
+                readonly property int actionSlots: {
+                    if (width <= 0)
+                        return 99
+                    // 34 is IconButton's "lg" rung, which is what this
+                    // row draws and what the band's own design note names.
+                    var step = 34 + AppTheme.spacing6
+                    // `size`, never `width`: an item's WIDTH is assigned by
+                    // this same layout, and a layout may shrink an item
+                    // below its preferred width — reading it here would put
+                    // the budget downstream of the row it sizes.
+                    var budget = width
+                                 - (roomHeaderAvatar.visible
+                                    ? roomHeaderAvatar.size + spacing : 0)
+                                 - 2 * spacing
+                                 - identityFloor
+                    return Math.max(
+                        0, Math.floor((budget + AppTheme.spacing6) / step))
+                }
+
                 Avatar {
+                    id: roomHeaderAvatar
                     visible: app.currentRoomId !== ""
                     size: 34
                     squareRadius: 9
@@ -1018,6 +1078,7 @@ Rectangle {
                     RowLayout {
                         spacing: AppTheme.spacingS
                         Label {
+                            objectName: "roomHeaderTitle"
                             // Remote or externally chosen text: never markup.
                             textFormat: Text.PlainText
                             text: {
@@ -1065,8 +1126,18 @@ Rectangle {
                             // ellipsis on every room name (measured
                             // offscreen 2026-09-05: width 53, truncated
                             // true; ceiled: 54, false).
-                            Layout.maximumWidth: Math.min(header.width * 0.5,
-                                                          Math.ceil(implicitWidth))
+                            //
+                            // AND THE HALF-HEADER TERM IS GONE (2026-09-20).
+                            // `Math.min(header.width * 0.5, …)` refused
+                            // width that nothing else wanted, and the spacer
+                            // below took it: measured on a room with no
+                            // topic and no lock, the title elided at 322px
+                            // of natural text while 234px of header sat
+                            // empty beside it (860px header), and 534px at
+                            // 1160. Capping at the text's own width is what
+                            // keeps the lock beside a SHORT name — the half
+                            // only ever bounded a LONG one.
+                            Layout.maximumWidth: Math.ceil(implicitWidth)
                         }
                         Icon {
                             id: encryptionLock
@@ -1117,8 +1188,12 @@ Rectangle {
                         onTapped: root.toggleRoomInfo()
                     }
                 }
-                Item { Layout.fillWidth: true }
+                // Named so a geometric test can say what it measured: this
+                // spacer was REPORTED as the thing taking the title's width
+                // and is not (see the note above the identity column).
+                Item { objectName: "roomHeaderSpacer"; Layout.fillWidth: true }
                 RowLayout {
+                    id: roomHeaderActions
                     objectName: "roomHeaderActions"
                     spacing: AppTheme.spacing6
                     // NEVER SQUEEZED. This is a nested layout, so
@@ -1146,8 +1221,76 @@ Rectangle {
                     // shortfall is taken from text that can elide instead of
                     // from a row the band then clips.
                     Layout.fillWidth: false
+
+                    // ── The fold ────────────────────────────────────────
+                    //
+                    // Declaration order is the DRAWN order; `foldOrder` is
+                    // the priority order, least important first, and the two
+                    // are deliberately different. What ranks an action here
+                    // is how directly the same thing is reachable without
+                    // it:
+                    //   room info   — the header identity right beside this
+                    //                 row opens the same panel on tap, so
+                    //                 this icon is the one control here that
+                    //                 is already duplicated in this header.
+                    //   pinned      — its own comment calls it a one-click
+                    //                 shortcut for Room Information → Pinned,
+                    //                 and `room.togglePinned` is bound.
+                    //   members     — Room Information → People, and
+                    //                 `room.togglePeople` is bound.
+                    //   search      — the find shortcut opens the same panel.
+                    //   threads     — panel only.
+                    //   voice call  — no other route at all, so it is the
+                    //                 last icon to leave the row.
+                    // Everything that folds is in the overflow menu, so
+                    // nothing here becomes unreachable.
+                    readonly property var foldOrder: [
+                        "roomInfoButton", "pinnedMessagesButton",
+                        "memberPanelButton", "timelineSearchButton",
+                        "threadsViewButton", "startVoiceCallButton"]
+                    // The buttons themselves, so this reads `available`
+                    // from the ONE place each rule is written. Reading a
+                    // property off a QObject inside a binding is captured
+                    // however the reference was obtained; it is a FUNCTION
+                    // CALL that Qt cannot record (§16), and there is none
+                    // here.
+                    readonly property var actionButtons: [
+                        startVoiceCallButton, pinnedMessagesButton,
+                        threadsViewButton, timelineSearchButton,
+                        memberPanelButton, roomInfoButton]
+                    // Each button declares `available` (its own gate,
+                    // unchanged), `folded` (this list), `actionLabel` (ONE
+                    // producer for its accessible name and its overflow row,
+                    // so the two cannot drift) and
+                    // `visible: available && !folded`. `available` and not
+                    // `visible` is what gates the keyboard shortcut: a folded
+                    // action is still offered, just not as an icon.
+                    readonly property var foldedActions: {
+                        var live = []
+                        for (var i = 0; i < actionButtons.length; ++i)
+                            if (actionButtons[i].available)
+                                live.push(actionButtons[i].objectName)
+                        var slots = header.actionSlots
+                        if (live.length <= slots)
+                            return []
+                        // One slot is the overflow button itself.
+                        var keep = Math.max(0, slots - 1)
+                        var folded = []
+                        for (var j = 0;
+                             j < foldOrder.length
+                             && live.length - folded.length > keep; ++j)
+                            if (live.indexOf(foldOrder[j]) >= 0)
+                                folded.push(foldOrder[j])
+                        return folded
+                    }
+
                     IconButton {
+                        id: startVoiceCallButton
                         objectName: "startVoiceCallButton"
+                        property bool folded:
+                            roomHeaderActions.foldedActions
+                                .indexOf(objectName) >= 0
+                        visible: available && !folded
                         // 1:1 DMs only: a legacy m.call.invite rings every
                         // member of the room, so a group room must never
                         // get this button. Idle/Ended only — one call at a
@@ -1158,18 +1301,20 @@ Rectangle {
                         // as the audio-only DM fallback. The button is
                         // absent when neither can carry a call, rather than
                         // present and dead.
-                        visible: app.currentRoomId !== ""
-                                 && app.canStartCall(app.currentRoomId)
-                                 // The DEPENDENCY for the call above: `canStartCall` is a
-                                 // Q_INVOKABLE, so Qt records nothing, and its answer rides
-                                 // RTC state that lands asynchronously. Without this the
-                                 // gate evaluates once at room-open and the button stays
-                                 // ABSENT until the user navigates away and back.
-                                 && app.callGateRevision >= 0
-                                 && !app.groupCall.active
-                                 && (app.calls.state === CallController.Idle
-                                     || app.calls.state
-                                        === CallController.Ended)
+                        property bool available:
+                            app.currentRoomId !== ""
+                            && app.canStartCall(app.currentRoomId)
+                            // The DEPENDENCY for the call above:
+                            // `canStartCall` is a Q_INVOKABLE, so Qt records
+                            // nothing, and its answer rides RTC state that
+                            // lands asynchronously. Without this the gate
+                            // evaluates once at room-open and the button
+                            // stays ABSENT until the user navigates away and
+                            // back.
+                            && app.callGateRevision >= 0
+                            && !app.groupCall.active
+                            && (app.calls.state === CallController.Idle
+                                || app.calls.state === CallController.Ended)
                         // 2026-08-23: enabled, and its VISIBILITY now asks
                         // AppController whether either lane can actually
                         // carry a call — so a packaged build without the
@@ -1178,7 +1323,8 @@ Rectangle {
                         // all rather than a dead one.
                         enabled: true
                         iconName: "call"
-                        Accessible.name: qsTr("Start a voice call")
+                        property string actionLabel: qsTr("Start a voice call")
+                        Accessible.name: actionLabel
                         ToolTip.text: qsTr("Start a voice call")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
@@ -1188,64 +1334,167 @@ Rectangle {
                     // actually has pins, so users reach the list in one
                     // click instead of Room Information → Pinned.
                     IconButton {
+                        id: pinnedMessagesButton
                         objectName: "pinnedMessagesButton"
-                        visible: app.currentRoomId !== ""
-                                 && app.roomInfo.supported
-                                 && app.pinned
-                                 && app.pinned.supported
-                                 && app.pinned.roomId === app.currentRoomId
-                                 && app.pinned.total > 0
+                        property bool folded:
+                            roomHeaderActions.foldedActions
+                                .indexOf(objectName) >= 0
+                        visible: available && !folded
+                        property bool available:
+                            app.currentRoomId !== ""
+                            && app.roomInfo.supported
+                            && app.pinned
+                            && app.pinned.supported
+                            && app.pinned.roomId === app.currentRoomId
+                            && app.pinned.total > 0
                         iconName: "push_pin"
                         active: root.infoOpen && infoPanel.section === "pinned"
-                        Accessible.name: qsTr("Pinned messages")
+                        property string actionLabel: qsTr("Pinned messages")
+                        Accessible.name: actionLabel
                         ToolTip.text: qsTr("Pinned messages")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: root.togglePinnedPanel()
                     }
                     IconButton {
+                        id: threadsViewButton
                         objectName: "threadsViewButton"
-                        visible: app.currentRoomId !== "" && app.thread.supported
+                        property bool folded:
+                            roomHeaderActions.foldedActions
+                                .indexOf(objectName) >= 0
+                        visible: available && !folded
+                        property bool available:
+                            app.currentRoomId !== "" && app.thread.supported
                         iconName: "forum"
                         active: root.threadSurfaceOpen
-                        Accessible.name: qsTr("Threads")
+                        property string actionLabel: qsTr("Threads")
+                        Accessible.name: actionLabel
                         ToolTip.text: qsTr("Threads in this room")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: root.toggleThreadSurface()
                     }
                     IconButton {
+                        id: timelineSearchButton
                         objectName: "timelineSearchButton"
-                        visible: app.currentRoomId !== ""
+                        property bool folded:
+                            roomHeaderActions.foldedActions
+                                .indexOf(objectName) >= 0
+                        visible: available && !folded
+                        property bool available: app.currentRoomId !== ""
                         iconName: "search"
                         active: root.searchOpen
-                        Accessible.name: qsTr("Search messages")
+                        property string actionLabel: qsTr("Search messages")
+                        Accessible.name: actionLabel
                         ToolTip.text: qsTr("Search room messages")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: root.toggleSearchPanel()
                     }
                     IconButton {
+                        id: memberPanelButton
                         objectName: "memberPanelButton"
-                        visible: app.currentRoomId !== "" && app.roomInfo.supported
+                        property bool folded:
+                            roomHeaderActions.foldedActions
+                                .indexOf(objectName) >= 0
+                        visible: available && !folded
+                        property bool available:
+                            app.currentRoomId !== "" && app.roomInfo.supported
                         iconName: "group"
                         active: root.infoOpen && infoPanel.section === "people"
-                        Accessible.name: qsTr("Members")
+                        property string actionLabel: qsTr("Members")
+                        Accessible.name: actionLabel
                         ToolTip.text: qsTr("Room members")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: root.toggleMemberPanel()
                     }
                     IconButton {
+                        id: roomInfoButton
                         objectName: "roomInfoButton"
-                        visible: app.currentRoomId !== "" && app.roomInfo.supported
+                        property bool folded:
+                            roomHeaderActions.foldedActions
+                                .indexOf(objectName) >= 0
+                        visible: available && !folded
+                        property bool available:
+                            app.currentRoomId !== "" && app.roomInfo.supported
                         iconName: "info"
                         active: root.infoOpen && infoPanel.section !== "people"
-                        Accessible.name: qsTr("Room information")
+                        property string actionLabel: qsTr("Room information")
+                        Accessible.name: actionLabel
                         ToolTip.text: qsTr("Room information")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: root.toggleRoomInfo()
+                    }
+                    // THE OVERFLOW. One icon slot carries every action that
+                    // did not fit, so this row's floor is 34px whatever the
+                    // room offers. Drawn last so the icons that stay keep
+                    // the positions they had.
+                    IconButton {
+                        id: roomHeaderOverflowButton
+                        objectName: "roomHeaderOverflowButton"
+                        visible: roomHeaderActions.foldedActions.length > 0
+                        iconName: "more_vert"
+                        active: roomHeaderOverflowMenu.opened
+                        Accessible.name: qsTr("More room actions")
+                        ToolTip.text: qsTr("More room actions")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: roomHeaderOverflowMenu.popup(
+                            roomHeaderOverflowButton, 0,
+                            roomHeaderOverflowButton.height + AppTheme.spacing4)
+                    }
+                    // A Popup is not an Item, so the layout above never sees
+                    // this and it costs the row no width. Each row is bound
+                    // to its BUTTON rather than repeating that button's
+                    // availability rule: `folded` is only ever set on an
+                    // action that is available, so one binding covers both.
+                    AppMenu {
+                        id: roomHeaderOverflowMenu
+                        objectName: "roomHeaderOverflowMenu"
+                        AppMenuItem {
+                            objectName: "overflowStartVoiceCall"
+                            visible: startVoiceCallButton.folded
+                            iconName: "call"
+                            text: startVoiceCallButton.actionLabel
+                            onTriggered: startVoiceCallButton.clicked()
+                        }
+                        AppMenuItem {
+                            objectName: "overflowPinnedMessages"
+                            visible: pinnedMessagesButton.folded
+                            iconName: "push_pin"
+                            text: pinnedMessagesButton.actionLabel
+                            onTriggered: pinnedMessagesButton.clicked()
+                        }
+                        AppMenuItem {
+                            objectName: "overflowThreads"
+                            visible: threadsViewButton.folded
+                            iconName: "forum"
+                            text: threadsViewButton.actionLabel
+                            onTriggered: threadsViewButton.clicked()
+                        }
+                        AppMenuItem {
+                            objectName: "overflowSearch"
+                            visible: timelineSearchButton.folded
+                            iconName: "search"
+                            text: timelineSearchButton.actionLabel
+                            onTriggered: timelineSearchButton.clicked()
+                        }
+                        AppMenuItem {
+                            objectName: "overflowMembers"
+                            visible: memberPanelButton.folded
+                            iconName: "group"
+                            text: memberPanelButton.actionLabel
+                            onTriggered: memberPanelButton.clicked()
+                        }
+                        AppMenuItem {
+                            objectName: "overflowRoomInfo"
+                            visible: roomInfoButton.folded
+                            iconName: "info"
+                            text: roomInfoButton.actionLabel
+                            onTriggered: roomInfoButton.clicked()
+                        }
                     }
                 }
             }
