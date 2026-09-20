@@ -36,6 +36,37 @@ Item {
     // the input row's, so hiding a child can never feed back into the test.
     readonly property bool compactInputRow: root.width > 0 && root.width < 460
 
+    // The FORMATTING row's own compact threshold, and it is NOT the input
+    // row's.
+    //
+    // Every control in that row before the mode switch is a fixed 28 px icon
+    // button that cannot shrink, and the mode switch is a WORD. AppButton
+    // centres its label in an unconstrained Row, so the label does not elide
+    // and the chip's box is its content's width — `minWidth: 0` (which the
+    // two chips above it carry) changes nothing here, because "Markdown"
+    // already needs more than the 72 px floor. A RowLayout takes each child's
+    // implicit width as its minimum, so the row simply refuses to shrink and
+    // the last chip is painted OUTSIDE the card.
+    //
+    // Measured offscreen on the production font, 2026-09-20: the row needs a
+    // bar 347 px wide in Markdown mode (implicit 299) and 400 in rich mode
+    // (implicit 352, two chips more). Below that the chip crosses the card's
+    // right edge — 19 px over at the application's own minimum client width,
+    // where the rail and the room list leave the composer about 288 px.
+    //
+    // Against this BAR's width, for the same reason the property above is:
+    // the row's own width and implicit width both move when the chip leaves
+    // it, so a threshold read from either would feed back into the test that
+    // hides it — a binding loop, and a load-time one no source scan can see.
+    //
+    // ONE number for both modes, so the chip cannot appear and disappear when
+    // the mode changes at a fixed width, with headroom over the 400 for a
+    // platform's font metrics. It is deliberately inside compactInputRow's
+    // 460: the overflow menu that carries the displaced action is on screen
+    // whenever this is true. theModeChipNeverPaintsOutsideTheCard pins both
+    // halves, so adding a chip to that row fails a test rather than shipping.
+    readonly property bool compactToolbarRow: root.width > 0 && root.width < 420
+
     // v0.7: a voice recording (or its finalization) is in progress — the
     // mic slot shows the recording pill instead of the idle button.
     //
@@ -2155,6 +2186,10 @@ Item {
                     // read, and must stay empty.
                     AppButton {
                         objectName: "composerModeToggle"
+                        // Displaced into the overflow menu below the width
+                        // its label needs — never clipped, never painted over
+                        // the timeline. See compactToolbarRow.
+                        visible: !root.compactToolbarRow
                         kind: "ghost"
                         size: "sm"
                         text: root.richMode ? qsTr("Rich text") : qsTr("Markdown")
@@ -2225,7 +2260,16 @@ Item {
                                 pickAttachmentsDialog.open()
                         }
                         ToolTip.text: qsTr("Attach")
-                        ToolTip.visible: hovered
+                        // Not while either attach menu is up. Both are
+                        // parented to the card at `y: -height - 4` and this
+                        // tip is drawn above the button, so with the toolbar
+                        // collapsed — the default — the menu's bottom edge
+                        // sits 18 px INSIDE the tip's 32 px box and the tip
+                        // reads as a sliced strip beneath its own menu
+                        // (measured 2026-09-20: menu 302..346, tip 328..360).
+                        // Same rule as the format toggle above.
+                        ToolTip.visible: hovered && !attachMenu.visible
+                                         && !legacyAttachMenu.visible
                         ToolTip.delay: 500
                     }
 
@@ -2251,7 +2295,28 @@ Item {
                         ToolTip.text: root.toolbarExpanded
                                       ? qsTr("Hide formatting")
                                       : qsTr("Show formatting")
-                        ToolTip.visible: hovered
+                        // NOT WHILE THE TOOLBAR IS OPEN — the tip would be
+                        // drawn ON the row it just raised.
+                        //
+                        // Basic's ToolTip is `y: -implicitHeight - 3`, i.e.
+                        // ABOVE its control, and this bar is anchored to the
+                        // bottom of the window, so opening the toolbar grows
+                        // the card UPWARD and the new row lands in exactly
+                        // the band the tip occupies. Measured offscreen on
+                        // the production font, 2026-09-20: the tip's
+                        // rectangle covers 13 px of the 28 px height of ALL
+                        // FOUR of B / I / S / <>; on the real GUI that is 5
+                        // of the 12 px of each glyph. Nor can a click clear
+                        // it — Basic's `CloseOnPressOutsideParent` does not
+                        // fire for a press INSIDE the control, and the
+                        // binding re-opens it while the pointer has not
+                        // moved. Same rule the emoji, media and overflow
+                        // buttons below already follow: a tooltip is not
+                        // shown while the surface its own button controls is
+                        // on screen. The expanded text stays because the
+                        // state it names is still the state this button is
+                        // in; the guard, not the text, is what hides it.
+                        ToolTip.visible: hovered && !root.toolbarExpanded
                         ToolTip.delay: 500
                         onClicked: root.toolbarExpanded = !root.toolbarExpanded
                     }
@@ -3284,6 +3349,14 @@ Item {
                     // Narrower than the send button and deliberately NOT
                     // accent-filled: two filled blocks separated by a hairline
                     // would read as two sends.
+                    //
+                    // AND ITS TOOLTIP GOES WHILE THAT MENU IS UP. The menu's
+                    // bottom edge is 4 px above the CARD and this tip is
+                    // drawn 3 px above a button in the input row, so with the
+                    // toolbar collapsed — the default — the menu covers 21 of
+                    // the tip's 32 px and the tip survives as a strip beneath
+                    // it. Identical to the attach button's, which is where
+                    // that geometry is written out in full.
                     IconButton {
                         id: sendOptionsButton
                         objectName: "composerSendOptionsButton"
@@ -3305,7 +3378,8 @@ Item {
                                       ? qsTr("Send options (%1 scheduled)")
                                             .arg(root.pendingScheduledCount)
                                       : qsTr("Send options")
-                        ToolTip.visible: hovered
+                        // See the note above this button.
+                        ToolTip.visible: hovered && !sendOptionsMenu.visible
                         ToolTip.delay: 500
                         // ABOVE THE WHOLE COMPOSER, right-aligned to this
                         // button. A bare popup() opened at the pointer, over
@@ -3367,6 +3441,26 @@ Item {
             visible: root.composerButtonShown("formatting")
             height: visible ? implicitHeight : 0
             onTriggered: root.toolbarExpanded = !root.toolbarExpanded
+        }
+        // AND SO IS THE MODE SWITCH, for the same reason and under the same
+        // contract. `code` is not a perfect glyph for it — the bundled icon
+        // font is a SUBSET (scripts/generate-icon-font.sh) and carries no
+        // markup/compose symbol — but it is constant across both states, so
+        // the row does not change its icon under the cursor. Both strings
+        // already exist on the chip itself as its Accessible.name, so no new
+        // catalog entry is introduced.
+        AppMenuItem {
+            objectName: "composerOverflowModeItem"
+            iconName: "code"
+            text: root.richMode ? qsTr("Switch to Markdown composing")
+                                : qsTr("Switch to rich-text composing")
+            visible: root.compactToolbarRow
+            height: visible ? implicitHeight : 0
+            onTriggered: {
+                if (app.settings)
+                    app.settings.composerMode =
+                        root.richMode ? "markdown" : "rich"
+            }
         }
         AppMenuItem {
             objectName: "composerOverflowEmojiItem"

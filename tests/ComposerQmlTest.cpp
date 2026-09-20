@@ -199,6 +199,88 @@ private:
         QTest::qWait(60); // let the async member snapshot arrive + rebuild
     }
 
+    // ── Tooltip probes ───────────────────────────────────────────────────
+    //
+    // A tooltip is a Popup, not an item in the visual tree, and there is ONE
+    // instance shared by every control: `ToolTip.toolTip` returns the same
+    // object whoever asks, and its x/y are expressed in the coordinates of
+    // whichever control it is currently shown FOR. So every read has to go
+    // through the control, and the rectangle is only meaningful while that
+    // control is the one showing it.
+    QObject *tipFor(QQuickItem *host) const
+    {
+        QQmlExpression expr(qmlContext(host), host,
+                            QStringLiteral("ToolTip.toolTip"));
+        const QVariant v = expr.evaluate();
+        if (expr.hasError())
+            qWarning("tipFor: %s", qPrintable(expr.error().toString()));
+        return v.value<QObject *>();
+    }
+    bool tipVisible(QQuickItem *host) const
+    {
+        QQmlExpression expr(qmlContext(host), host,
+                            QStringLiteral("ToolTip.visible"));
+        const QVariant v = expr.evaluate();
+        if (expr.hasError())
+            qWarning("tipVisible: %s", qPrintable(expr.error().toString()));
+        return v.toBool();
+    }
+    QRectF tipSceneRect(QQuickItem *host) const
+    {
+        QObject *tip = tipFor(host);
+        if (!tip || !host)
+            return {};
+        const QPointF origin = host->mapToScene(
+            QPointF(tip->property("x").toReal(), tip->property("y").toReal()));
+        return QRectF(origin, QSizeF(tip->property("width").toReal(),
+                                     tip->property("height").toReal()));
+    }
+    static QRectF sceneRect(QQuickItem *it)
+    {
+        if (!it)
+            return {};
+        return QRectF(it->mapToScene(QPointF(0, 0)),
+                      QSizeF(it->width(), it->height()));
+    }
+    // A Popup's x/y are in its `parent` item's coordinates.
+    QRectF popupSceneRect(QObject *popup) const
+    {
+        auto *host = qobject_cast<QQuickItem *>(popup->property("parent")
+                                                    .value<QObject *>());
+        if (!host)
+            return {};
+        const QPointF origin = host->mapToScene(
+            QPointF(popup->property("x").toReal(),
+                    popup->property("y").toReal()));
+        return QRectF(origin, QSizeF(popup->property("width").toReal(),
+                                     popup->property("height").toReal()));
+    }
+    void hoverOver(QQuickItem *it)
+    {
+        const QPointF centre = it->mapToScene(
+            QPointF(it->width() / 2.0, it->height() / 2.0));
+        QTest::mouseMove(m_window, centre.toPoint());
+    }
+    void hoverAway()
+    {
+        QTest::mouseMove(m_window, QPoint(2, 2));
+        QTest::qWait(80);
+    }
+    // ToolTip.delay is 500 ms everywhere in this bar; 900 clears it with
+    // room for the layout polish a state change schedules.
+    bool hoverAndWaitForTip(QQuickItem *it, int ms = 900)
+    {
+        hoverOver(it);
+        QTest::qWait(ms);
+        return tipVisible(it);
+    }
+    static QString r2s(const QRectF &r)
+    {
+        return QStringLiteral("(%1,%2 %3x%4)")
+            .arg(r.x(), 0, 'f', 1).arg(r.y(), 0, 'f', 1)
+            .arg(r.width(), 0, 'f', 1).arg(r.height(), 0, 'f', 1);
+    }
+
 private slots:
     void initTestCase()
     {
@@ -1525,6 +1607,285 @@ private slots:
         QTest::qWait(80);
         m_window->setWidth(restoreWidth);
         QTest::qWait(150);
+        m_controller->setCurrentRoomId(previousRoom);
+    }
+
+    // ── GUI sweep 2026-09-20 ────────────────────────────────────────────
+    //
+    // D-3(a) (MEDIUM). Hover the composer's format toggle and then CLICK it:
+    // the formatting toolbar expands into exactly the band the tooltip
+    // occupies and the tooltip is never dismissed. Two facts make it
+    // inevitable rather than accidental, and both are in the Basic style's
+    // own ToolTip.qml: the tip is `y: -implicitHeight - 3`, i.e. drawn ABOVE
+    // its control, and its closePolicy is `CloseOnPressOutsideParent`, which
+    // does not fire for a press INSIDE the control. The bar is anchored to
+    // the bottom of the window, so the card grows UPWARD and the new row
+    // lands under the tip. On the real GUI that hid 5 of the 12 px of each
+    // of B / I / S / <>; here it is 13 px of each button's 28.
+    //
+    // The case asserts three things in order, because the middle one is what
+    // stops the last from passing for the wrong reason: the tip EXISTS with
+    // the toolbar closed (so removing it outright fails here), the toolbar
+    // really is inside the rectangle that tip is drawn in, and it is not
+    // shown once the toolbar is open.
+    void theFormatTipIsNotDrawnOverTheToolbarItOpens()
+    {
+        const QString previousRoom = m_controller->currentRoomId();
+        const int restoreWidth = m_window->width();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        m_window->setWidth(900);
+        QTest::qWait(150);
+        auto *bar = item("composerBar");
+        auto *toggle = item("composerFormatToggleButton");
+        QVERIFY(bar && toggle);
+        bar->setProperty("toolbarExpanded", false);
+        QTest::qWait(150);
+        QVERIFY2(toggle->isVisible(),
+                 "the format toggle is not in the row at 900 px, so this "
+                 "case measures nothing");
+
+        QVERIFY2(hoverAndWaitForTip(toggle),
+                 "the format toggle shows no tooltip at all with the toolbar "
+                 "closed — this case can no longer tell a fix from a removal");
+        const QRectF band = tipSceneRect(toggle);
+        hoverAway();
+        QVERIFY2(band.width() > 0 && band.height() > 0,
+                 qPrintable(QStringLiteral("no tooltip rectangle: %1")
+                                .arg(r2s(band))));
+
+        bar->setProperty("toolbarExpanded", true);
+        QTest::qWait(200);
+        int covered = 0;
+        qreal deepest = 0;
+        QString detail;
+        for (const char *name : { "composerFormat_bold",
+                                  "composerFormat_italic",
+                                  "composerFormat_strike",
+                                  "composerFormat_code" }) {
+            auto *btn = item(name);
+            QVERIFY2(btn, name);
+            const QRectF over = sceneRect(btn).intersected(band);
+            if (over.width() > 0 && over.height() > 0) {
+                ++covered;
+                deepest = qMax(deepest, over.height());
+                detail += QStringLiteral(" %1 %2x%3;")
+                              .arg(QLatin1String(name))
+                              .arg(over.width(), 0, 'f', 1)
+                              .arg(over.height(), 0, 'f', 1);
+            }
+        }
+        QVERIFY2(covered >= 3 && deepest >= 8,
+                 qPrintable(QStringLiteral(
+                     "the tooltip band %1 does not land on the toolbar "
+                     "(covered %2 of 4, deepest %3 px):%4 — the assertion "
+                     "below would pass for free")
+                        .arg(r2s(band)).arg(covered)
+                        .arg(deepest, 0, 'f', 1).arg(detail)));
+
+        const bool shownOverTheToolbar = hoverAndWaitForTip(toggle);
+        hoverAway();
+        QVERIFY2(!shownOverTheToolbar,
+                 qPrintable(QStringLiteral(
+                     "the format toggle's tooltip is drawn over the toolbar "
+                     "it opened: the tip occupies %1 and covers%2")
+                        .arg(r2s(band)).arg(detail)));
+
+        bar->setProperty("toolbarExpanded", false);
+        m_window->setWidth(restoreWidth);
+        QTest::qWait(150);
+        m_controller->setCurrentRoomId(previousRoom);
+    }
+
+    // D-1 (LOW), and its unreported twin. Every menu this bar opens is
+    // parented to the composer CARD at `y: -height - 4`; every tooltip is
+    // drawn 3 px above its own control. With the toolbar collapsed — the
+    // default — the menu's bottom edge therefore lands INSIDE the tip of the
+    // very button that opened it, and the tip survives as a sliced strip
+    // underneath it (the sweep measured 3 px of a ~10 px cap height on the
+    // attach button). The send-options button has the identical shape and
+    // was found while fixing the attach one.
+    void aMenuThisBarOpensDoesNotCoverItsOwnButtonsTip()
+    {
+        const QString previousRoom = m_controller->currentRoomId();
+        const int restoreWidth = m_window->width();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        m_window->setWidth(900);
+        QTest::qWait(150);
+        auto *bar = item("composerBar");
+        QVERIFY(bar);
+        bar->setProperty("toolbarExpanded", false);
+        QTest::qWait(150);
+
+        struct Pair { const char *button; const char *menu; };
+        const Pair pairs[] = {
+            { "composerAttachButton", "composerAttachMenu" },
+            { "composerSendOptionsButton", "composerSendOptionsMenu" },
+        };
+        int measured = 0;
+        for (const Pair &pair : pairs) {
+            auto *button = item(pair.button);
+            QVERIFY2(button, pair.button);
+            QVERIFY2(button->isVisible(), pair.button);
+            auto *menu = m_root->findChild<QObject *>(
+                QLatin1String(pair.menu));
+            QVERIFY2(menu, pair.menu);
+
+            QVERIFY2(hoverAndWaitForTip(button),
+                     qPrintable(QStringLiteral(
+                         "%1 shows no tooltip with its menu closed — this "
+                         "case can no longer tell a fix from a removal")
+                            .arg(QLatin1String(pair.button))));
+            const QRectF band = tipSceneRect(button);
+            hoverAway();
+
+            QMetaObject::invokeMethod(menu, "open");
+            QTest::qWait(220);
+            QVERIFY2(menu->property("visible").toBool(), pair.menu);
+            const QRectF menuRect = popupSceneRect(menu);
+            QVERIFY2(menuRect.intersects(band),
+                     qPrintable(QStringLiteral(
+                         "%1's menu %2 does not reach its tooltip %3, so the "
+                         "assertion below would pass for free")
+                            .arg(QLatin1String(pair.menu))
+                            .arg(r2s(menuRect)).arg(r2s(band))));
+
+            const bool shownUnderTheMenu = hoverAndWaitForTip(button);
+            QMetaObject::invokeMethod(menu, "close");
+            hoverAway();
+            QTest::qWait(120);
+            QVERIFY2(!shownUnderTheMenu,
+                     qPrintable(QStringLiteral(
+                         "%1's tooltip %2 is still shown under its own open "
+                         "menu %3")
+                            .arg(QLatin1String(pair.button))
+                            .arg(r2s(band)).arg(r2s(menuRect))));
+            ++measured;
+        }
+        // The count, not the loop: a pair whose button resolved hidden would
+        // otherwise leave this case asserting nothing.
+        QCOMPARE(measured, 2);
+
+        m_window->setWidth(restoreWidth);
+        QTest::qWait(150);
+        m_controller->setCurrentRoomId(previousRoom);
+    }
+
+    // H4 (MEDIUM). The formatting row's chips before the mode switch are
+    // fixed 28 px icon buttons, and a RowLayout takes a child's implicit
+    // width as its minimum — so the row does not shrink, and the one chip
+    // that carries a WORD was painted outside the card: 19 px over at the
+    // application's own minimum client width, and measured here at 27 px
+    // (Markdown) and 80 px (rich) once the card is narrow enough.
+    //
+    // `minWidth: 0` — which the sweep proposed and the two chips above it
+    // carry — is NOT the fix and was measured not to be: the chip's implicit
+    // width is its content's (75 px), already above AppButton's 72 px floor,
+    // and AppButton centres its label in an unconstrained Row so the label
+    // does not elide however small the box gets.
+    //
+    // The invariant is the assertion: while the chip is shown, all of its
+    // ink is inside the card. Both outcomes are counted so neither half can
+    // go missing, and the narrow half also proves the action was DISPLACED
+    // into the overflow menu rather than dropped.
+    void theModeChipNeverPaintsOutsideTheCard()
+    {
+        const QString previousRoom = m_controller->currentRoomId();
+        const int restoreWidth = m_window->width();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *settings = m_controller->findChild<SettingsManager *>();
+        QVERIFY(settings);
+        const QString previousMode = settings->composerMode();
+        auto *bar = item("composerBar");
+        auto *card = item("composerCard");
+        auto *chip = item("composerModeToggle");
+        QVERIFY(bar && card && chip);
+        bar->setProperty("toolbarExpanded", true);
+        QTest::qWait(150);
+        QQuickItem *ink = findItem(chip, QStringLiteral("buttonLabel"));
+        QVERIFY2(ink, "the mode chip has no label to measure");
+
+        int shown = 0, displaced = 0, measured = 0;
+        for (const char *mode : { "markdown", "rich" }) {
+            settings->setComposerMode(QLatin1String(mode));
+            QTest::qWait(180);
+            for (int w : { 900, 640, 480, 440, 420, 400, 380, 360, 340, 320 }) {
+                m_window->setWidth(w);
+                QTest::qWait(150);
+                ++measured;
+                const QRectF cardRect = sceneRect(card);
+                if (!chip->isVisible()) {
+                    ++displaced;
+                    continue;
+                }
+                ++shown;
+                const QRectF chipRect = sceneRect(chip);
+                const QRectF inkRect = sceneRect(ink);
+                QVERIFY2(chipRect.right() <= cardRect.right() + 0.5,
+                         qPrintable(QStringLiteral(
+                             "%1 mode at %2 px: the mode chip %3 crosses the "
+                             "card's right edge (%4) by %5 px")
+                                .arg(QLatin1String(mode)).arg(w)
+                                .arg(r2s(chipRect))
+                                .arg(cardRect.right(), 0, 'f', 1)
+                                .arg(chipRect.right() - cardRect.right(),
+                                     0, 'f', 1)));
+                QVERIFY2(inkRect.right() <= cardRect.right() + 0.5,
+                         qPrintable(QStringLiteral(
+                             "%1 mode at %2 px: the mode chip's LABEL %3 is "
+                             "painted past the card's right edge (%4) by %5 "
+                             "px — the box fits and the ink does not")
+                                .arg(QLatin1String(mode)).arg(w)
+                                .arg(r2s(inkRect))
+                                .arg(cardRect.right(), 0, 'f', 1)
+                                .arg(inkRect.right() - cardRect.right(),
+                                     0, 'f', 1)));
+            }
+        }
+        QCOMPARE(measured, 20);
+        QVERIFY2(shown >= 8,
+                 qPrintable(QStringLiteral(
+                     "the mode chip was shown at only %1 of 20 widths — the "
+                     "fit assertion above is nearly vacuous").arg(shown)));
+        QVERIFY2(displaced >= 8,
+                 qPrintable(QStringLiteral(
+                     "the mode chip was hidden at only %1 of 20 widths, so "
+                     "the narrow half of this case measures nothing")
+                        .arg(displaced)));
+
+        // Displaced, not dropped: the overflow menu carries it and it works.
+        settings->setComposerMode(QStringLiteral("markdown"));
+        m_window->setWidth(320);
+        QTest::qWait(180);
+        QVERIFY2(!chip->isVisible(), "the chip is still in the row at 320 px");
+        auto *overflow = m_root->findChild<QObject *>(
+            QStringLiteral("composerOverflowMenu"));
+        QVERIFY(overflow);
+        QMetaObject::invokeMethod(overflow, "open");
+        QTest::qWait(200);
+        auto *row = m_root->findChild<QQuickItem *>(
+            QStringLiteral("composerOverflowModeItem"));
+        QVERIFY2(row, "the overflow menu has no composing-mode row, so the "
+                      "mode switch is unreachable at this width");
+        QVERIFY2(row->property("visible").toBool(),
+                 "the composing-mode row is in the menu but not shown");
+        QVERIFY2(row->implicitWidth() <= row->width() + 0.5,
+                 qPrintable(QStringLiteral(
+                     "the composing-mode row is elided: it needs %1 px and "
+                     "was given %2")
+                        .arg(row->implicitWidth()).arg(row->width())));
+        // Clicked on the row, not a bare `triggered`: a directly emitted
+        // signal proves the handler compiles and nothing about the row.
+        const QPointF centre = row->mapToScene(
+            QPointF(row->width() / 2.0, row->height() / 2.0));
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
+                          centre.toPoint());
+        QTest::qWait(200);
+        QCOMPARE(settings->composerMode(), QStringLiteral("rich"));
+
+        settings->setComposerMode(previousMode);
+        bar->setProperty("toolbarExpanded", false);
+        m_window->setWidth(restoreWidth);
+        QTest::qWait(180);
         m_controller->setCurrentRoomId(previousRoom);
     }
 };
