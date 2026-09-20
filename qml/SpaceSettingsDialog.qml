@@ -553,9 +553,29 @@ AppDialog {
                                         storm: true
                                         kind: "primary"
                                         text: qsTr("Save")
+                                        // SAME TEST AS `Rename` ABOVE, and
+                                        // it had none: Save rendered in the
+                                        // enabled primary accent on an
+                                        // untouched Space while its sibling
+                                        // two rows up rendered greyed, so
+                                        // two controls with one job
+                                        // disagreed about whether there was
+                                        // anything to do. Pressing it sent
+                                        // an `m.room.topic` identical to the
+                                        // current one — a redundant state
+                                        // event in every member's timeline.
+                                        //
+                                        // NO LENGTH TEST, and that asymmetry
+                                        // is deliberate rather than an
+                                        // oversight: a Space must keep a
+                                        // name, which is why `Rename` also
+                                        // requires one, and a topic may
+                                        // legitimately be cleared.
                                         enabled: root.infoIsOurs
                                                  && app.roomInfo.canEditTopic
                                                  && !app.roomInfo.editPending
+                                                 && topicField.text.trim()
+                                                    !== (root.info.topic || "")
                                         onClicked: app.roomInfo.setRoomTopic(
                                                        topicField.text.trim())
                                     }
