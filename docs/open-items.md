@@ -76,8 +76,27 @@ The wedged-send-queue state this needs is one this repo already documents:
 send error) and `:2691` ("the timeline says a local echo is still in flight
 while the server already has the event", resolved "only by a room switch").
 
-**NOT FIXED. Do not record the duplicate send as fixed by the retry change** —
-per the above, neither handler that change touches was firing automatically.
+**DEFENDED AGAINST 2026-09-20, in Lightning, not in the SDK.**
+`eventsFromItemArray` — the single choke point every snapshot passes through —
+now drops a local echo when a NON-echo item in the same snapshot carries the
+same event id. The remote row wins: it is authoritative and carries the server
+timestamp.
+
+Matched on EVENT ID and not transaction id, and that distinction is the whole
+reason this works. The obvious pairing is the transaction id, and it cannot
+fire: `EventTimelineItem::transaction_id()` is
+`as_variant!(kind, Local(local) => ...)`, i.e. `Some` for a local echo and
+`None` for every remote item, so the half we would have to match against is
+always empty. `event_id()` is `Some` on BOTH — the SDK documents that a local
+echo knows its id "from the response of the send request that created the
+event". Two items sharing an event id are the same message by definition, so
+the match cannot mis-fire, and an echo with no event id yet is a genuine
+pending row that is left alone.
+
+**This does not fix the SDK, and the underlying rebuild is still wrong** — it
+means Lightning no longer forwards the duplication verbatim. NOT LIVE-TESTED:
+reproducing it needs the wedged-send-queue state, and the regression case is
+a synthetic snapshot carrying the pair.
 
 ### Follow-up: a LOOP BREAKER on recovery reopens, never an identity guard
 

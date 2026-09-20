@@ -1,5 +1,7 @@
 #include "matrix/RustTimelineIngest.h"
 
+#include <QSet>
+
 #include "matrix/EventPreview.h"
 
 #include <QCoreApplication>
@@ -394,6 +396,52 @@ QList<TimelineEvent> eventsFromItemArray(const QJsonArray &items,
     out.reserve(items.size());
     for (const auto &value : items)
         out.append(eventFromItemJson(value.toObject(), roomId));
+
+    // A SNAPSHOT CAN CARRY THE SAME MESSAGE TWICE — ONCE AS A LOCAL ECHO AND
+    // ONCE AS THE REMOTE EVENT. Reported 2026-09-20 as "a message got
+    // duplicated on my end even though only one went out".
+    //
+    // The mechanism is in matrix-sdk-ui and it only bites on a timeline
+    // REBUILD. `TimelineBuilder` calls `init_focus()` first, which loads the
+    // remote events out of the event cache, and THEN subscribes to the send
+    // queue, whose still-queued local echoes are each fed to
+    // `handle_local_echo`. That path (`event_handler.rs`, the `Flow::Local`
+    // arm) does an unconditional `items.push_local(item)`. The dedup that
+    // would catch it, `recycle_local_or_create_item`, matches on event id or
+    // transaction id but is reachable ONLY from the `Flow::Remote` arms — and
+    // on a rebuild the order is inverted, so it never runs. The SDK's own
+    // self-heal fires on a send-state update, which a rebuild does not
+    // deliver.
+    //
+    // The queue stays owing an echo for a message the server already has
+    // because matrix-sdk disables a room's send queue after any send error
+    // (see rust/src/timeline.rs) — a state this repo already documents as
+    // "the timeline says a local echo is still in flight while the server
+    // already has the event", previously resolved "only by a room switch".
+    //
+    // MATCHED ON EVENT ID, NOT TRANSACTION ID. The obvious pairing is the
+    // transaction id, and it cannot work: `EventTimelineItem::transaction_id()`
+    // is `as_variant!(kind, Local(local) => ...)`, i.e. `Some` for a local
+    // echo and `None` for every remote item, so the field is always empty on
+    // the half we would have to match against. `event_id()` is `Some` on BOTH
+    // — the SDK documents that a local echo knows its id "from the response
+    // of the send request that created the event". Two items sharing an event
+    // id are the same message by definition, so this cannot mis-fire.
+    //
+    // The REMOTE row wins: it is authoritative, carries the server timestamp
+    // and its full state. An echo with no event id yet is a genuine pending
+    // row and is left alone.
+    QSet<QString> remoteIds;
+    for (const auto &e : std::as_const(out)) {
+        if (!e.isLocalEcho && !e.eventId.isEmpty())
+            remoteIds.insert(e.eventId);
+    }
+    if (!remoteIds.isEmpty()) {
+        out.removeIf([&remoteIds](const TimelineEvent &e) {
+            return e.isLocalEcho && !e.eventId.isEmpty()
+                   && remoteIds.contains(e.eventId);
+        });
+    }
     return out;
 }
 

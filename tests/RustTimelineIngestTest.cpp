@@ -137,6 +137,7 @@ private Q_SLOTS:
     // v0.6.5: room_members payload → per-room member cache translation
     // (the cache behind displayNameFor / avatarMxcFor).
     void membersFromPayloadBuildsCacheEntries();
+    void aSnapshotDropsALocalEchoTheRemoteEventAlreadyCovers();
 };
 
 namespace {
@@ -1428,6 +1429,81 @@ void RustTimelineIngestTest::membersFromPayloadBuildsCacheEntries()
     QVERIFY(members.contains(QStringLiteral("@ghost:example.org")));
     QVERIFY(members.value(QStringLiteral("@ghost:example.org"))
                 .displayName.isEmpty());
+}
+
+// THE DUPLICATE SEND. Reported 2026-09-20: "a message got duplicated on my
+// end even though only one went out."
+//
+// On a timeline REBUILD matrix-sdk-ui loads the remote events first
+// (`init_focus`) and only then replays the send queue's still-queued local
+// echoes, through a `Flow::Local` arm that pushes unconditionally. The dedup
+// that would catch it is reachable only from the `Flow::Remote` arms, so with
+// the order inverted it never runs, and the snapshot contains the same
+// message twice. Lightning forwarded that verbatim.
+//
+// Matched on EVENT ID, because `transaction_id()` is `Some` only for a local
+// echo — the remote half is always empty and the obvious pairing cannot fire.
+void RustTimelineIngestTest::aSnapshotDropsALocalEchoTheRemoteEventAlreadyCovers()
+{
+    const QString room = QStringLiteral("!r:example.org");
+    auto item = [](const QString &eventId, const QString &txn, bool echo,
+                   const QString &body) {
+        QJsonObject o{
+            { QStringLiteral("item_id"), QStringLiteral("i_") + eventId + txn },
+            { QStringLiteral("kind"), QStringLiteral("event") },
+            { QStringLiteral("event_id"), eventId },
+            { QStringLiteral("transaction_id"), txn },
+            { QStringLiteral("sender"), QStringLiteral("@me:example.org") },
+            { QStringLiteral("timestamp_ms"), 1700000000000LL },
+            { QStringLiteral("is_own"), true },
+            { QStringLiteral("is_local_echo"), echo },
+            { QStringLiteral("msgtype"), QStringLiteral("m.text") },
+            { QStringLiteral("body"), body },
+        };
+        return o;
+    };
+
+    // The rebuild's snapshot: an older remote message, then the duplicated
+    // pair (remote first, as init_focus loads it, then the replayed echo).
+    QJsonArray items;
+    items.append(item(QStringLiteral("$old"), QString(), false,
+                      QStringLiteral("earlier")));
+    items.append(item(QStringLiteral("$dup"), QString(), false,
+                      QStringLiteral("hello")));
+    items.append(item(QStringLiteral("$dup"), QStringLiteral("txn1"), true,
+                      QStringLiteral("hello")));
+
+    const QList<TimelineEvent> out =
+        matrix::rust_timeline::eventsFromItemArray(items, room);
+
+    QCOMPARE(out.size(), 2);
+    // The REMOTE row is the one kept — it is authoritative.
+    QCOMPARE(out.at(1).eventId, QStringLiteral("$dup"));
+    QVERIFY2(!out.at(1).isLocalEcho,
+             "the echo was kept and the remote row dropped; the remote row "
+             "carries the server timestamp and the authoritative state");
+    QCOMPARE(out.at(0).eventId, QStringLiteral("$old"));
+
+    // A PENDING echo — one the server has not acknowledged, so it has no
+    // event id yet — is a genuine row and must survive. Without this the
+    // "fix" would delete every message the moment it was typed.
+    QJsonArray pending;
+    pending.append(item(QStringLiteral("$old"), QString(), false,
+                        QStringLiteral("earlier")));
+    pending.append(item(QString(), QStringLiteral("txn2"), true,
+                        QStringLiteral("still sending")));
+    const QList<TimelineEvent> kept =
+        matrix::rust_timeline::eventsFromItemArray(pending, room);
+    QCOMPARE(kept.size(), 2);
+    QVERIFY(kept.at(1).isLocalEcho);
+
+    // And an echo whose id matches NOTHING is also a genuine row.
+    QJsonArray lone;
+    lone.append(item(QStringLiteral("$other"), QString(), false,
+                     QStringLiteral("earlier")));
+    lone.append(item(QStringLiteral("$mine"), QStringLiteral("txn3"), true,
+                     QStringLiteral("sent, not yet synced")));
+    QCOMPARE(matrix::rust_timeline::eventsFromItemArray(lone, room).size(), 2);
 }
 
 QTEST_GUILESS_MAIN(RustTimelineIngestTest)
