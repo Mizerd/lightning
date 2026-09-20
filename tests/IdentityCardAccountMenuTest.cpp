@@ -18,6 +18,9 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QTemporaryDir>
+#include <QSet>
+
+#include <cmath>
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
@@ -65,6 +68,30 @@ private:
     QHash<QString, QString> m_values;
 };
 
+double channelLinear(double c)
+{
+    return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+}
+
+double relativeLuminance(const QColor &c)
+{
+    return 0.2126 * channelLinear(c.redF()) + 0.7152 * channelLinear(c.greenF())
+        + 0.0722 * channelLinear(c.blueF());
+}
+
+double contrastRatio(const QColor &a, const QColor &b)
+{
+    const double la = relativeLuminance(a);
+    const double lb = relativeLuminance(b);
+    return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+
+int channelDelta(const QColor &a, const QColor &b)
+{
+    return qMax(qMax(qAbs(a.red() - b.red()), qAbs(a.green() - b.green())),
+                qAbs(a.blue() - b.blue()));
+}
+
 const QString kAlice = QStringLiteral("@alice:one.example");
 const QString kBob = QStringLiteral("@bob:two.example");
 
@@ -79,6 +106,19 @@ ApplicationWindow {
     height: 700
     visible: true
     color: AppTheme.background
+
+    // The palette is driven by writing AppTheme.mode on the SINGLETON.
+    // Setting `settings.theme` instead reaches nothing here: `mode` is
+    // written by a Binding in Main.qml, which no test scene loads, so a
+    // loop over eleven themes would measure ONE palette eleven times and
+    // still count to eleven (the 2026-09-19 lesson).
+    property int themeMode: 11
+    Binding { target: AppTheme; property: "mode"; value: win.themeMode }
+
+    Rectangle { objectName: "tokStormCanvas"; visible: false; color: AppTheme.stormCanvas }
+    Rectangle { objectName: "tokStormText"; visible: false; color: AppTheme.stormText }
+    Rectangle { objectName: "tokStormTextMuted"; visible: false; color: AppTheme.stormTextMuted }
+    Rectangle { objectName: "tokModalScrim"; visible: false; color: AppTheme.modalScrim }
 
     AccountMenu {
         id: menu
@@ -416,11 +456,21 @@ private slots:
             QStringLiteral("identityCardRemoveButton"));
         QVERIFY(x);
 
+        // At rest the X holds its layout slot and paints nothing; it is
+        // not clickable and not a tab stop (see the no-reflow case below).
+        QVERIFY2(qFuzzyIsNull(x->opacity()),
+                 "the X is painted on a row nobody is pointing at");
+        QVERIFY2(!x->isEnabled(),
+                 "a transparent X that still takes clicks removes an "
+                 "account nobody aimed at");
+
         // Hover the card, away from the X: the affordance reveals.
         const QPoint onCard = bobCard->mapToScene(
             QPointF(bobCard->width() * 0.3, bobCard->height() * 0.5)).toPoint();
         QTest::mouseMove(m_window, onCard);
-        QTRY_VERIFY2(x->isVisible(), "hovering the card must reveal the X");
+        QTRY_VERIFY2(x->isVisible() && !qFuzzyIsNull(x->opacity()),
+                     "hovering the card must reveal the X");
+        QVERIFY(x->isEnabled());
 
         // Onto the X itself: it must stay, or nothing can ever click it.
         // A Layout places a newly visible item in its next polish, so the
@@ -437,7 +487,7 @@ private slots:
         const QPoint onX = xCentre();
         QTest::mouseMove(m_window, onX);
         QTest::qWait(60);
-        QVERIFY2(x->isVisible(),
+        QVERIFY2(x->isVisible() && !qFuzzyIsNull(x->opacity()),
                  "the X hid the moment the pointer reached it");
         QVERIFY2(x->property("hovered").toBool(),
                  "the pointer is on the X but the X is not hovered");
@@ -714,6 +764,230 @@ Item {
                      "'@mizerd:matrix.smetonis.net' is elided at %1 px "
                      "(needs %2)").arg(label->width())
                         .arg(label->property("contentWidth").toReal())));
+    }
+
+    // ── F3: THE REVEAL MUST NOT MOVE WHAT IT IS REVEALED NEXT TO ─────────
+    //
+    // The remove (x) is a real RowLayout child. Revealing it with `visible`
+    // took 30 px plus 8 px of spacing out of the text column the moment the
+    // pointer arrived, and the id beneath the name re-elided UNDER THE
+    // CURSOR — measured on an 8-account fixture,
+    // `@dave:chat.very…ame.example.net` at rest became
+    // `@dave:chat.v….example.net` on hover. Five characters of the one
+    // string that tells two accounts sharing a display name apart, removed
+    // at exactly the moment someone is reading it.
+    //
+    // Asserted on the LABEL'S GEOMETRY, not on the button's: a width
+    // assertion on the X would pass on any implementation that keeps the
+    // button the same size while still stealing the column.
+    void revealingTheRemoveXDoesNotReElideTheIdUnderThePointer()
+    {
+        m_controller->switchToAccount(kAlice);
+        QTRY_VERIFY(!m_controller->accountSwitching());
+        openMenu();
+        auto *bobCard = qobject_cast<QQuickItem *>(findCard(kBob));
+        QVERIFY(bobCard);
+        QVERIFY(!bobCard->property("active").toBool());
+        auto *id = qvariant_cast<QQuickItem *>(
+            bobCard->property("identityLabel"));
+        QVERIFY(id);
+        QTRY_VERIFY(id->width() > 0);
+
+        QTest::mouseMove(m_window, QPoint(2, 2));
+        QTest::qWait(80);
+        const qreal restWidth = id->width();
+        const QString restText = id->property("text").toString();
+        const bool restTruncated = id->property("truncated").toBool();
+        QVERIFY(restWidth > 0);
+
+        const QPoint onCard = bobCard->mapToScene(
+            QPointF(bobCard->width() * 0.3, bobCard->height() * 0.5)).toPoint();
+        QTest::mouseMove(m_window, onCard);
+        auto *x = bobCard->findChild<QQuickItem *>(
+            QStringLiteral("identityCardRemoveButton"));
+        QVERIFY(x);
+        QTRY_VERIFY(!qFuzzyIsNull(x->opacity()));
+        QTest::qWait(80);
+
+        QVERIFY2(qFuzzyCompare(id->width(), restWidth),
+                 qPrintable(QStringLiteral(
+                     "the id column is %1 px at rest and %2 px under the "
+                     "pointer — the reveal reflowed the row")
+                        .arg(restWidth).arg(id->width())));
+        QCOMPARE(id->property("text").toString(), restText);
+        QCOMPARE(id->property("truncated").toBool(), restTruncated);
+
+        QTest::mouseMove(m_window, QPoint(2, 2));
+        QTest::qWait(60);
+        QTRY_VERIFY(qFuzzyIsNull(x->opacity()));
+        QCOMPARE(id->width(), restWidth);
+
+        auto *menu = find(QStringLiteral("menu"));
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+    }
+
+    // Holding the slot costs the text column 38 px on every inactive row,
+    // so the id that the previous rounds fought for must still fit at the
+    // popover's real content width. The ACTIVE row is covered by
+    // theIdentityLineSurvivesThePopoverWidth; this is the inactive one,
+    // which is the row that now carries the reserve.
+    void theIdentityLineStillFitsOnAnInactiveRowWithTheSlotReserved()
+    {
+        QQmlComponent c(m_engine);
+        c.setData(QByteArray(R"QML(
+import QtQuick
+import MatrixClient
+Item {
+    width: 400; height: 200
+    property alias row: row
+    IdentityCard {
+        id: row
+        rowHeight: 44
+        active: false
+        displayName: "Mizerd"
+        userId: "@mizerd:matrix.smetonis.net"
+    }
+}
+)QML"), QUrl(QStringLiteral("idwidthinactive.qml")));
+        QScopedPointer<QObject> scene(c.create());
+        QVERIFY2(scene, qPrintable(c.errorString()));
+        auto *row = qvariant_cast<QQuickItem *>(scene->property("row"));
+        QVERIFY(row);
+        row->setWidth(296); // 320 popover - 2 x 12 padding.
+        QCoreApplication::processEvents();
+        auto *label = qvariant_cast<QQuickItem *>(
+            row->property("identityLabel"));
+        QVERIFY(label);
+        QTRY_VERIFY(label->width() > 0);
+        QVERIFY2(!label->property("truncated").toBool(),
+                 qPrintable(QStringLiteral(
+                     "'@mizerd:matrix.smetonis.net' is elided at %1 px on an "
+                     "inactive row (needs %2)").arg(label->width())
+                        .arg(label->property("contentWidth").toReal())));
+    }
+
+    // ── F4: A DESTRUCTIVE CONFIRMATION MUST DIM WHAT IT IS OVER ──────────
+    //
+    // Both dialogs are `modal: true`, and on the unfixed tree that drew
+    // NOTHING: three background pixels sampled before and after "Sign out?"
+    // opened were byte-identical. The Basic style's Overlay.modal tints
+    // `palette.shadow`, a role nothing in this application sets, so the
+    // scrim has to be named. Measured as PIXELS, because the property is
+    // exactly the kind of thing that can be present and paint nothing.
+    void bothDestructiveConfirmationsPaintAModalScrim()
+    {
+        auto *menu = find(QStringLiteral("menu"));
+        QVERIFY(menu);
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+        QTest::mouseMove(m_window, QPoint(2, 2));
+        QTest::qWait(120);
+
+        const QImage before = m_window->grabWindow();
+        QVERIFY(!before.isNull());
+        // Corners, which neither dialog covers: both are centred, at most
+        // 420 px wide and a few rows tall in a 500x700 window.
+        const QPoint samples[] = {
+            QPoint(3, 3),
+            QPoint(before.width() - 4, 3),
+            QPoint(3, before.height() - 4),
+        };
+
+        const char *dialogs[] = { "removeAccountConfirmDialog",
+                                  "signOutConfirmDialog" };
+        for (const char *name : dialogs) {
+            auto *dialog = find(QLatin1String(name));
+            QVERIFY2(dialog, name);
+            QMetaObject::invokeMethod(dialog, "open");
+            QTRY_VERIFY(dialog->property("opened").toBool());
+            QTest::qWait(200);
+            const QImage after = m_window->grabWindow();
+            QVERIFY(!after.isNull());
+            QCOMPARE(after.size(), before.size());
+            for (const QPoint &p : samples) {
+                const int delta = channelDelta(before.pixelColor(p),
+                                               after.pixelColor(p));
+                QVERIFY2(delta > 2,
+                         qPrintable(QStringLiteral(
+                             "%1: background at (%2,%3) is %4 before and %5 "
+                             "after the dialog opened — nothing was dimmed")
+                                .arg(QString::fromLatin1(name))
+                                .arg(p.x()).arg(p.y())
+                                .arg(before.pixelColor(p).name(),
+                                     after.pixelColor(p).name())));
+            }
+            QMetaObject::invokeMethod(dialog, "close");
+            QTRY_VERIFY(!dialog->property("opened").toBool());
+            QTest::qWait(150);
+        }
+    }
+
+    // ── F6: A ROW'S TWO LINES MUST READ AS A HIERARCHY ───────────────────
+    //
+    // The inactive name inked `stormTextSecondary`, which in the LIGHT
+    // palettes is all but the same colour as the id's `stormTextMuted`
+    // under it — Lightning Light #4c5661 against #525c68, 5.63:1 against
+    // 5.12:1 on the popover canvas, a ratio of 1.10 where Storm reads 1.63.
+    // The name and the id stopped being a hierarchy and read as one block
+    // of grey.
+    //
+    // Eleven palettes are DEMANDED to be distinct rather than counted, for
+    // the reason in the scene's own comment.
+    void theInactiveRowsNameAndIdAreAHierarchyOnEveryPalette()
+    {
+        m_controller->switchToAccount(kAlice);
+        QTRY_VERIFY(!m_controller->accountSwitching());
+        openMenu();
+        auto *bobCard = qobject_cast<QQuickItem *>(findCard(kBob));
+        QVERIFY(bobCard);
+        QVERIFY(!bobCard->property("active").toBool());
+        auto *name = bobCard->findChild<QQuickItem *>(
+            QStringLiteral("identityCardName"));
+        auto *id = bobCard->findChild<QQuickItem *>(
+            QStringLiteral("identityCardUserId"));
+        QVERIFY(name);
+        QVERIFY(id);
+
+        const int restore = m_root->property("themeMode").toInt();
+        QSet<QRgb> canvases;
+        for (int mode = 1; mode <= 11; ++mode) {
+            m_root->setProperty("themeMode", mode);
+            auto *canvasProbe = m_root->findChild<QQuickItem *>(
+                QStringLiteral("tokStormCanvas"));
+            QVERIFY(canvasProbe);
+            QTest::qWait(20);
+            const QColor canvas =
+                canvasProbe->property("color").value<QColor>();
+            canvases.insert(canvas.rgb());
+            const QColor nameInk = name->property("color").value<QColor>();
+            const QColor idInk = id->property("color").value<QColor>();
+            const double nameRatio = contrastRatio(nameInk, canvas);
+            const double idRatio = contrastRatio(idInk, canvas);
+            // The id is the only thing telling two same-named accounts
+            // apart; it was 1.60:1 in the light palette once.
+            QVERIFY2(idRatio >= 4.5,
+                     qPrintable(QStringLiteral("theme %1: the MXID %2 is "
+                                               "%3:1 on %4")
+                                    .arg(mode).arg(idInk.name())
+                                    .arg(idRatio, 0, 'f', 2)
+                                    .arg(canvas.name())));
+            QVERIFY2(nameRatio / idRatio >= 1.6,
+                     qPrintable(QStringLiteral(
+                         "theme %1: name %2 at %3:1 over id %4 at %5:1 is a "
+                         "ratio of %6 — the two lines do not read as a "
+                         "hierarchy")
+                            .arg(mode).arg(nameInk.name())
+                            .arg(nameRatio, 0, 'f', 2).arg(idInk.name())
+                            .arg(idRatio, 0, 'f', 2)
+                            .arg(nameRatio / idRatio, 0, 'f', 2)));
+        }
+        QCOMPARE(canvases.size(), 11);
+        m_root->setProperty("themeMode", restore);
+        QTest::qWait(20);
+        auto *menu = find(QStringLiteral("menu"));
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
     }
 
     void noTokenOrPathEverBoundIntoTheUi()

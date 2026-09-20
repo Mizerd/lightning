@@ -206,12 +206,24 @@ Item {
             spacing: 0
 
             Label {
+                objectName: "identityCardName"
                 // Remote or externally chosen text: never markup.
                 textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: root.visibleName
-                color: root.active ? AppTheme.stormText
-                                   : AppTheme.stormTextSecondary
+                // MEASURED across all eleven palettes, not chosen. The
+                // inactive name used to ink `stormTextSecondary`, which in
+                // the LIGHT palettes is all but the same colour as the id's
+                // `stormTextMuted` beneath it — Lightning Light #4c5661 vs
+                // #525c68, 5.63:1 against 5.12:1 on the popover canvas, a
+                // ratio of 1.10, where Storm reads 11.00 against 6.75. The
+                // two lines stopped being a hierarchy and read as one block
+                // of grey. With `stormText` the name/id ratio is >= 1.85 on
+                // every palette (worst: Nordic 1.85) and the id is
+                // untouched. The active row is not told apart by this ink —
+                // it never was; it has the selected chip, the bolt edge,
+                // the avatar ring, the tick and the heavier weight.
+                color: AppTheme.stormText
                 font.family: AppTheme.menuFont
                 font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                 font.weight: root.active ? AppTheme.weightBold
@@ -277,10 +289,31 @@ Item {
             // Keyboard parity with hover: the affordance reveals when the
             // row OR the button itself holds focus, and the button is a
             // real tab stop while revealed.
+            readonly property bool revealed:
+                !root.active && (root.pointerWithin || root.activeFocus
+                                 || removeButton.activeFocus)
+            // THE SLOT IS HELD ON EVERY INACTIVE ROW, AND FADING IS WHY.
+            // This is a real RowLayout child, so revealing it with
+            // `visible` took 30 px + 8 px of spacing out of the text column
+            // the moment the pointer arrived, and the id beneath the name
+            // re-elided under the cursor: measured, `@dave:chat.very…
+            // ame.example.net` at rest became `@dave:chat.v….example.net`
+            // on hover. Five characters of the one string that tells two
+            // accounts sharing a display name apart, removed at exactly the
+            // moment someone is reading it. The row now reserves the slot
+            // whenever it could ever show the button, and only the paint
+            // changes — same lesson as AppMenuItem's constant content
+            // inset: nothing under the pointer may move because the pointer
+            // arrived.
             visible: !root.active
-                     && (root.pointerWithin || root.activeFocus
-                         || removeButton.activeFocus)
+            opacity: revealed ? 1 : 0
+            // Not merely invisible: a transparent button that still took
+            // clicks would remove an account nobody aimed at, and a
+            // transparent tab stop would be a focus trap with nothing on
+            // screen.
+            enabled: revealed
             activeFocusOnTab: !root.active
+            Accessible.ignored: !revealed
             Layout.alignment: Qt.AlignVCenter
             // 30 px, not 22: "make the x hitbox bigger" (2026-09-06). The
             // row is 44 px tall, so this costs no height.

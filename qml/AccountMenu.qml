@@ -538,6 +538,17 @@ Popup {
         anchors.centerIn: parent
         width: Math.max(240, Math.min(420, parent ? parent.width - 32 : 420))
         modal: true
+        // THE SCRIM IS NOT THE DEFAULT, AND `modal: true` DOES NOT DRAW ONE
+        // HERE. Measured 2026-09-20: three background pixels sampled before
+        // and after this dialog opened were byte-identical, because the
+        // Basic style's Overlay.modal is a Rectangle tinted from
+        // `palette.shadow` and nothing in this application sets that
+        // palette role — so a destructive confirmation appeared over a
+        // background that still looked live and clickable. The four other
+        // dialogs in the tree that got this right (AddWidgetDialog,
+        // EventSourceDialog, ExportRoomDialog, DiscoverJoinDialog) all
+        // name the token explicitly; these two now do too.
+        Overlay.modal: Rectangle { color: AppTheme.modalScrim }
         title: qsTr("Remove account?")
         standardButtons: Dialog.NoButton
         closePolicy: Popup.CloseOnEscape
@@ -616,6 +627,17 @@ Popup {
         // can wrap without feeding its preferred size back into the Dialog.
         width: Math.max(240, Math.min(420, parent ? parent.width - 32 : 420))
         modal: true
+        // THE SCRIM IS NOT THE DEFAULT, AND `modal: true` DOES NOT DRAW ONE
+        // HERE. Measured 2026-09-20: three background pixels sampled before
+        // and after this dialog opened were byte-identical, because the
+        // Basic style's Overlay.modal is a Rectangle tinted from
+        // `palette.shadow` and nothing in this application sets that
+        // palette role — so a destructive confirmation appeared over a
+        // background that still looked live and clickable. The four other
+        // dialogs in the tree that got this right (AddWidgetDialog,
+        // EventSourceDialog, ExportRoomDialog, DiscoverJoinDialog) all
+        // name the token explicitly; these two now do too.
+        Overlay.modal: Rectangle { color: AppTheme.modalScrim }
         title: qsTr("Sign out?")
         standardButtons: Dialog.NoButton
         closePolicy: Popup.CloseOnEscape
