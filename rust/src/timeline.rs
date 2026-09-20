@@ -4464,15 +4464,43 @@ fn downsample_waveform(raw: &[u64], max: u64) -> Vec<u64> {
         return Vec::new();
     }
     let buckets = raw.len().min(BUCKETS);
-    let mut out = Vec::with_capacity(buckets);
+    let mut vals = Vec::with_capacity(buckets);
     for i in 0..buckets {
         let start = i * raw.len() / buckets;
         let end = (((i + 1) * raw.len()) / buckets).max(start + 1);
         let slice = &raw[start..end.min(raw.len())];
         let avg: u64 = slice.iter().sum::<u64>() / slice.len() as u64;
-        out.push((avg.min(max) * 100) / max);
+        vals.push(avg.min(max));
     }
-    out
+
+    // SCALED TO THE LOUDEST BUCKET, NOT TO A FIXED 1024 — otherwise a quiet
+    // recording is crushed flat before the UI ever sees it.
+    //
+    // MSC3245 waveform values are absolute amplitudes on a 0..=1024 scale, so
+    // an ordinary indoor voice sits far below the top of that range. Dividing
+    // by a constant 1024 therefore produced tiny buckets, and
+    // `AudioPlayerCard` floors a bar at 0.12 of the strip: measured against a
+    // synthetic envelope peaking at 175/1024, **66 of 96 buckets (68%) landed
+    // under that floor with only 18 distinct values** — a flat line. A live
+    // sweep on 2026-09-20 saw the real thing, 173 of 184 bar columns at the
+    // floor, AFTER the QML side had already been corrected to divide by 100
+    // rather than clamp. That fix was necessary and not sufficient; this is
+    // the other half.
+    //
+    // Normalising to the loudest bucket is what a waveform display is for —
+    // it shows SHAPE, not absolute level, and it is what Element does. A
+    // recording that already uses the full range is unaffected: its loudest
+    // bucket is 1024 and every value is identical to before, verified in the
+    // test below against the same fixtures this function always had.
+    //
+    // The peak is taken AFTER bucketing, so the tallest bar is exactly full
+    // height rather than merely close to it, and digital silence returns all
+    // zeroes instead of dividing by one.
+    let peak = vals.iter().copied().max().unwrap_or(0);
+    if peak == 0 {
+        return vec![0; buckets];
+    }
+    vals.into_iter().map(|v| (v * 100) / peak).collect()
 }
 
 /// Build MSC3381 poll-start content through ruma constructors only (v0.7).
@@ -7021,6 +7049,60 @@ mod tests {
         assert!(super::downsample_waveform(&[5], 0).is_empty());
         // Out-of-spec amplitudes clamp instead of overflowing the scale.
         assert_eq!(super::downsample_waveform(&[9999], 1024), vec![100]);
+    }
+
+    #[test]
+    fn waveform_of_a_quiet_recording_is_not_flattened() {
+        // THE REGRESSION. A voice message recorded at ordinary indoor level
+        // sits far below the MSC3245 0..=1024 ceiling, and scaling it against
+        // that constant crushed it under AudioPlayerCard's 0.12 display floor
+        // — 173 of 184 bar columns at the floor in a live sweep, a flat line
+        // where a waveform should be.
+        //
+        // A speech-shaped envelope peaking at 175/1024, i.e. about 17% of the
+        // nominal range.
+        let raw: Vec<u64> = (0..180)
+            .map(|i| {
+                let f = i as f64;
+                let env = 0.4 + 0.6 * (f / 23.0).sin().abs();
+                (90.0 + 90.0 * (f / 7.0).sin() * env).max(0.0) as u64
+            })
+            .collect();
+        assert!(raw.iter().copied().max().unwrap() < 200, "fixture is not quiet");
+
+        let out = super::downsample_waveform(&raw, 1024);
+        assert_eq!(out.len(), 96);
+
+        // The loudest bucket reaches full height...
+        assert_eq!(out.iter().copied().max().unwrap(), 100);
+        // ...and the shape survives: most buckets clear the UI's 0.12 floor,
+        // where the old fixed-1024 scaling left 68% of them beneath it.
+        let above_floor = out.iter().filter(|v| **v >= 12).count();
+        assert!(
+            above_floor >= 70,
+            "only {above_floor} of 96 buckets clear the 0.12 display floor; \
+             a quiet recording is still being flattened"
+        );
+        // And it is a waveform, not a block: many distinct heights.
+        let distinct: std::collections::BTreeSet<u64> = out.iter().copied().collect();
+        assert!(
+            distinct.len() >= 30,
+            "only {} distinct bar heights", distinct.len()
+        );
+    }
+
+    #[test]
+    fn waveform_of_a_full_range_recording_is_unchanged() {
+        // Normalising must not alter a recording that already uses the range:
+        // its loudest bucket IS the ceiling, so every value is what the old
+        // fixed divisor produced. This is what makes the change safe for
+        // clients that scale properly.
+        let raw: Vec<u64> = (0..96).map(|i| (i * 1024) / 95).collect();
+        let out = super::downsample_waveform(&raw, 1024);
+        let expected: Vec<u64> = raw.iter().map(|v| (v.min(&1024) * 100) / 1024).collect();
+        assert_eq!(out, expected);
+        // Digital silence stays silent rather than dividing by zero.
+        assert_eq!(super::downsample_waveform(&[0, 0, 0], 1024), vec![0, 0, 0]);
     }
 
     #[test]
