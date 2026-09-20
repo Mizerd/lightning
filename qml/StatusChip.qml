@@ -70,6 +70,28 @@ Rectangle {
     // muted base, so the pill still reads neutral-grey; only its label
     // steps up to the ink a label on its own surface needs.
     readonly property bool _neutralSoft: tone === "neutral" && !solid
+    // AND IT WAS NEVER ONLY `neutral` — measured 2026-09-20 over all eleven
+    // palettes on the three surfaces a chip is really dropped on. Worst per
+    // tone, storm vocabulary: accent 3.72 (Moss Light on stormCanvas),
+    // success 4.27, warning 4.22, danger 4.20, info 4.33 (all Nordic on
+    // stormPanel). The LEGACY vocabulary is worse and it ships: the "Banned"
+    // chip in the member list (RoomInfoPanel) inks `mentionBadge`, a BADGE
+    // FILL used as text ink, and fails on ALL ELEVEN palettes — Nordic
+    // 2.02:1. The legacy accent tone fails on nine.
+    //
+    // `AppTheme.softChipInk` holds the hue AND the HSL saturation and moves
+    // LIGHTNESS ONLY until the tone clears 4.5:1 on the worst of the grounds
+    // a soft chip is dropped on, so the pill still reads as its own family —
+    // the FILL and the BORDER below are untouched and still carry the raw
+    // tone. On a palette where the tone already clears, it comes back
+    // unchanged. Worst case after: 4.52 (Warm, accent on stormCanvas).
+    //
+    // `onAccent` is excluded on purpose: its ground is an accent GRADIENT
+    // card, not a surface token, so it is not a ground this derivation
+    // knows and its `accentText` ink is already the ink for that fill.
+    readonly property bool _tintedSoft: !solid && !_neutralSoft
+                                        && tone !== "onAccent"
+                                        && !_boltChip
     readonly property color _ink: {
         if (storm)
             // Ink ON the bolt/solid fill, not the panel ink — boltInk
@@ -79,12 +101,14 @@ Rectangle {
             return _boltChip ? AppTheme.boltInk
                  : solid ? AppTheme.boltInk
                  : _neutralSoft ? AppTheme.stormText
+                 : _tintedSoft ? AppTheme.softChipInk(_base)
                  : _base
         return solid
             ? (tone === "danger" ? AppTheme.dangerText
                : tone === "accent" ? AppTheme.accentText
                : AppTheme.textPrimary)
             : _neutralSoft ? AppTheme.textPrimary
+            : _tintedSoft ? AppTheme.softChipInk(_base)
             : _base
     }
 
@@ -96,9 +120,10 @@ Rectangle {
         if (storm)
             return _boltChip ? AppTheme.bolt
                  : solid ? _base
-                 : Qt.alpha(_base, 0.14)
+                 : Qt.alpha(_base, AppTheme.softChipFillAlpha)
         return solid ? _base
-                     : Qt.alpha(_base, tone === "onAccent" ? 0.25 : 0.14)
+                     : Qt.alpha(_base, tone === "onAccent"
+                                     ? 0.25 : AppTheme.softChipFillAlpha)
     }
     border.width: _boltChip || solid || (!storm && tone === "onAccent") ? 0 : 1
     border.color: Qt.alpha(_base, 0.32)

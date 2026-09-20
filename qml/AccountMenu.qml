@@ -141,6 +141,12 @@ Popup {
     background: Item {
         Rectangle {
             id: popoverBackground
+            // Named so a test can assert that what this paints and what an
+            // IdentityCard derives its inks against are the SAME colour. The
+            // row composites its selection chip onto `hostSurface`, so a
+            // popover that changed ground without telling the rows would
+            // hand them inks derived for a surface nobody paints.
+            objectName: "accountPopoverBackground"
             anchors.fill: parent
             // Storm §4 2c: the switcher sits on the deep canvas so the
             // identity cards (stormPanel / stormInset) read as raised.

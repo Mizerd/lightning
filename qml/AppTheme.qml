@@ -1643,6 +1643,112 @@ QtObject {
     readonly property color stormBoltGlow:      Qt.alpha(bolt, 0.12)     // input focus halo
     readonly property color stormWatermark:     Qt.alpha(bolt, 0.12)     // hero-card bolt
 
+    // ── Soft-fill legibility: a tint lifts its ground TOWARDS its own ink ──
+    //
+    // A soft StatusChip is `Qt.alpha(tone, 0.14)` over whatever it was
+    // dropped on, so the pixels under the label are NOT the surface behind
+    // the chip — they are that surface pulled 14% of the way towards the very
+    // ink the label is painted in. The label therefore measures WORSE on its
+    // own pill than on the card behind it, and a tone that clears AA on the
+    // card can fail on the chip. Measured 2026-09-20 over all eleven
+    // palettes, worst per tone on `stormPanel` (what SettingsCard paints
+    // since fea70c63): accent 3.73 (Moss Light), danger 4.21, warning 4.23,
+    // success 4.25 (Nordic), info 4.31 — every one of them under 4.5:1 AA for
+    // the textMicro label. `neutral` was fixed first and separately; these are
+    // the rest of the family.
+    //
+    // The fix is a per-family ink STEP, and it is COMPUTED rather than
+    // hand-picked for two reasons. A table of eleven entries cannot cover
+    // theme 12, whose colours the user writes; and the obvious next token up
+    // is repeatedly not the answer — for the neutral chip
+    // `stormTextSecondary` measured 4.28 on Indigo Night and 4.26 on Warm and
+    // did NOT clear. `IdentityPalette.legibleChoice` holds the hue AND the
+    // HSL saturation and moves LIGHTNESS ONLY, so what comes back is the same
+    // tone a shade deeper or paler — the chip still reads as its own family,
+    // which a jump to a neutral text ink would destroy. It is the same
+    // arithmetic `userColor()` already uses for a name a stranger chose.
+    //
+    // Source-over composite of `top` at `alpha` onto opaque `bottom`. Done in
+    // sRGB component space because that is what the scene graph blends a
+    // translucent rectangle in; a linear-light composite would answer a
+    // different question than the one the screen asks.
+    function compositeOver(top, alpha, bottom) {
+        var t = _asColor(top)
+        var b = _asColor(bottom)
+        return Qt.rgba(alpha * t.r + (1.0 - alpha) * b.r,
+                       alpha * t.g + (1.0 - alpha) * b.g,
+                       alpha * t.b + (1.0 - alpha) * b.b, 1.0)
+    }
+
+    // The alpha a soft StatusChip fills at. StatusChip reads it so the ink
+    // derivation below and the fill it has to clear can never drift apart —
+    // the whole defect is that the two are one number seen from two sides.
+    readonly property real softChipFillAlpha: 0.14
+
+    // Every ground a soft chip is dropped on. `stormPanel` is the settings
+    // card, `stormCanvas` the popover/list canvas, `surface`/`cardElevated`
+    // the legacy card rungs, `stormInset` a field. The ink clears the WORST
+    // of them, so a chip stays legible wherever it is reused rather than only
+    // where it was first measured.
+    readonly property var _softChipGrounds: [
+        stormPanel, stormCanvas, surface, cardElevated, stormInset
+    ]
+
+    // The label ink for a soft chip of `base`: `base` itself where it already
+    // clears its own fill, and the same hue a step deeper/paler where it does
+    // not. The FILL and the BORDER keep the raw tone — only the label moves.
+    function softChipInk(base) {
+        var tone = _asColor(base)
+        var fills = []
+        for (var i = 0; i < _softChipGrounds.length; ++i)
+            fills.push(compositeOver(tone, softChipFillAlpha,
+                                     _softChipGrounds[i]))
+        return IdentityPalette.legibleChoice(tone, fills)
+    }
+
+    // ── A ROW IS FOUR SURFACES, NOT ONE ─────────────────────────────────
+    //
+    // A list row on `stormCanvas` paints a selection chip over itself in
+    // `hover`, `selected` or `selectedHover` depending on state, and TWO of
+    // those are themselves translucent in some palettes (Storm's hover is
+    // `Qt.alpha(_stoHover, 0.22)`). So a row's secondary ink has four grounds
+    // and an ink measured on the canvas alone answers for one of them.
+    // Measured 2026-09-20: the account switcher's MXID, inked
+    // `stormTextMuted`, is below 4.5:1 AA on the HOVERED inactive row on six
+    // palettes — Graphite 3.09, Indigo Night 3.44, Deep Teal 3.45, Nordic
+    // 3.46, Midnight 3.58, Lightning Dark 3.61 — and inked
+    // `stormTextSecondary` on the ACTIVE row it is below on four — Indigo
+    // Night 4.12, Graphite 4.16, Lightning Dark 4.33, Warm 4.40. The rest
+    // state passed, which is exactly why the previous round did not see it.
+    //
+    // `c` flattened onto `ground` using c's OWN alpha, so a translucent token
+    // is resolved the way the scene graph resolves it rather than assumed
+    // opaque.
+    function flatten(c, ground) {
+        var t = _asColor(c)
+        return compositeOver(t, t.a, ground)
+    }
+
+    // ONE INK FOR ALL FOUR GROUNDS WAS TRIED AND IS REFUTED. Deriving the
+    // muted ink against the WORST of the four — which is `selectedHover`, the
+    // loudest fill a row can paint — clears AA in every state on every
+    // palette and then destroys the name/id hierarchy the switcher's own
+    // suite pins at >= 1.6, because an ink pushed nearly to white to survive
+    // the loudest fill over-contrasts on the canvas the row RESTS on.
+    // Measured at rest, before -> with one derived ink: Graphite 2.57 -> 1.10,
+    // Purple Dusk 1.89 -> 1.06, Nordic 1.85 -> 0.93 — at which point the id
+    // is BRIGHTER than the name above it. An ink that has to clear the
+    // loudest fill a row can paint is not an ink for the row's resting state.
+    //
+    // So the ground is per STATE: a row already knows which fill it is
+    // painting, and the ink is derived against THAT. Where the token already
+    // clears that fill — every palette's resting inactive row, floor 4.59 —
+    // it comes back untouched, so the rest state and its hierarchy are
+    // bit-identical to before.
+    function legibleInkOn(base, ground) {
+        return IdentityPalette.legibleChoice(_asColor(base), [ground])
+    }
+
     // ---- The trust surface has NO tokens of its own (2026-08-26). ----
     //
     // There used to be ten `trust*` tokens here, pinned to the raw _sto*

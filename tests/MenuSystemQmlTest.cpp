@@ -16,6 +16,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QQmlContext>
+#include <QQmlProperty>
 #include <QSet>
 
 #include <cmath>
@@ -94,7 +95,7 @@ ApplicationWindow {
     // actually dropped on, and a chip measured on the background of the window
     // is a chip measured on the wrong parent.
     width: 900
-    height: 560
+    height: 700
     visible: true
     color: AppTheme.background
 
@@ -251,6 +252,76 @@ ApplicationWindow {
             tone: "neutral"; label: "Upgraded"
         }
     }
+
+    // ── The REST of the soft-chip family, on the same two real grounds ───
+    //
+    // `neutral` was fixed first and its probes are above. Every OTHER soft
+    // tone has the identical shape — a 14% tint of its own ink, so the label
+    // measures worse on its own pill than on the card behind it — and the
+    // 2026-09-20 sweep measured all five under 4.5:1 AA somewhere in the
+    // eleven palettes. One host rectangle per ground, painted in the surface
+    // its real callers paint, because a chip measured on the window
+    // background answers a question nobody asked.
+    Rectangle {
+        objectName: "toneHostPanel"
+        x: 24; y: 520; width: 620; height: 34; color: AppTheme.stormPanel
+        Row {
+            anchors.centerIn: parent
+            spacing: 8
+            StatusChip { objectName: "tonePanelAccent";  storm: true; tone: "accent";  label: "Invited" }
+            StatusChip { objectName: "tonePanelSuccess"; storm: true; tone: "success"; label: "Verified" }
+            StatusChip { objectName: "tonePanelWarning"; storm: true; tone: "warning"; label: "Pending" }
+            StatusChip { objectName: "tonePanelDanger";  storm: true; tone: "danger";  label: "Blocked" }
+            StatusChip { objectName: "tonePanelInfo";    storm: true; tone: "info";    label: "Beta" }
+        }
+    }
+    Rectangle {
+        objectName: "toneHostCanvas"
+        x: 24; y: 560; width: 620; height: 34; color: AppTheme.stormCanvas
+        Row {
+            anchors.centerIn: parent
+            spacing: 8
+            StatusChip { objectName: "toneCanvasAccent";  storm: true; tone: "accent";  label: "Invited" }
+            StatusChip { objectName: "toneCanvasSuccess"; storm: true; tone: "success"; label: "Verified" }
+            StatusChip { objectName: "toneCanvasWarning"; storm: true; tone: "warning"; label: "Pending" }
+            StatusChip { objectName: "toneCanvasDanger";  storm: true; tone: "danger";  label: "Blocked" }
+            StatusChip { objectName: "toneCanvasInfo";    storm: true; tone: "info";    label: "Beta" }
+        }
+    }
+    // The LEGACY chip vocabulary (storm: false) has the same 14% fill and a
+    // different set of tone tokens, so it is a separate question and gets its
+    // own row rather than an assumption.
+    Rectangle {
+        objectName: "toneHostSurface"
+        x: 24; y: 600; width: 620; height: 34; color: AppTheme.surface
+        Row {
+            anchors.centerIn: parent
+            spacing: 8
+            StatusChip { objectName: "toneLegacyAccent";  tone: "accent";  label: "Invited" }
+            StatusChip { objectName: "toneLegacySuccess"; tone: "success"; label: "Verified" }
+            StatusChip { objectName: "toneLegacyWarning"; tone: "warning"; label: "Pending" }
+            StatusChip { objectName: "toneLegacyDanger";  tone: "danger";  label: "Blocked" }
+            StatusChip { objectName: "toneLegacyInfo";    tone: "info";    label: "Beta" }
+        }
+    }
+
+    // The DERIVED inks, so statusChipTonesResolveToTokens can name what a
+    // soft label must now be without recomputing the derivation in C++ —
+    // which would only prove the test agrees with itself.
+    Rectangle { objectName: "candLegacySuccess"; visible: false; color: AppTheme.softChipInk(AppTheme.presenceOnline) }
+    Rectangle { objectName: "candLegacyDanger";  visible: false; color: AppTheme.softChipInk(AppTheme.mentionBadge) }
+    // The RAW tone tokens, so a case can assert that the pill still carries
+    // its own family in its fill and border while only the label steps up.
+    Rectangle { objectName: "toneStormAccent";  visible: false; color: AppTheme.stormLink }
+    Rectangle { objectName: "toneStormSuccess"; visible: false; color: AppTheme.stormSuccess }
+    Rectangle { objectName: "toneStormWarning"; visible: false; color: AppTheme.warning }
+    Rectangle { objectName: "toneStormDanger";  visible: false; color: AppTheme.stormDanger }
+    Rectangle { objectName: "toneStormInfo";    visible: false; color: AppTheme.info }
+    Rectangle { objectName: "toneLegacyAccentTok";  visible: false; color: AppTheme.accent }
+    Rectangle { objectName: "toneLegacySuccessTok"; visible: false; color: AppTheme.presenceOnline }
+    Rectangle { objectName: "toneLegacyWarningTok"; visible: false; color: AppTheme.warning }
+    Rectangle { objectName: "toneLegacyDangerTok";  visible: false; color: AppTheme.mentionBadge }
+    Rectangle { objectName: "toneLegacyInfoTok";    visible: false; color: AppTheme.info }
 }
 )QML";
 
@@ -468,19 +539,28 @@ private slots:
         QCOMPARE(picked.first().first().toString(), QStringLiteral("🔥"));
     }
 
+    // The FILL and the BORDER resolve to the tone token; the LABEL resolves
+    // to that token stepped in lightness until it clears the fill. It used to
+    // be the raw token here too, and that is what made a soft `danger` chip
+    // 2.02:1 on Nordic — `mentionBadge` is a badge FILL, and inking text in
+    // it was the defect. A solid chip is unaffected: its fill IS the token.
     void statusChipTonesResolveToTokens()
     {
         auto *verified = item("chipVerified");
         QVERIFY(verified);
+        QCOMPARE(QColor(verified->property("color").value<QColor>().rgb()),
+                 token("tokPresenceOnline"));
         QCOMPARE(rowChild(verified, "chipLabel")
                      ->property("color").value<QColor>(),
-                 token("tokPresenceOnline"));
+                 token("candLegacySuccess"));
         QVERIFY(rowChild(verified, "chipIcon")->property("visible").toBool());
         auto *loud = item("chipLoud");
         QVERIFY(loud);
+        QCOMPARE(QColor(loud->property("color").value<QColor>().rgb()),
+                 token("tokMentionBadge"));
         QCOMPARE(rowChild(loud, "chipLabel")
                      ->property("color").value<QColor>(),
-                 token("tokMentionBadge"));
+                 token("candLegacyDanger"));
         auto *unread = item("chipUnread");
         QVERIFY(unread);
         QCOMPARE(unread->property("color").value<QColor>(),
@@ -1029,6 +1109,151 @@ ApplicationWindow {
             }
         }
         QCOMPARE(distinctFills.size(), 11);
+        m_root->setProperty("themeMode", 9);
+    }
+
+    // ── F5b: AND IT WAS NEVER ONLY THE NEUTRAL TONE ──────────────────────
+    //
+    // Same defect, the rest of the family, measured 2026-09-20 on the three
+    // surfaces a chip is really dropped on. Storm vocabulary, worst per tone:
+    // accent 3.72 (Moss Light on stormCanvas), success 4.27, warning 4.22,
+    // danger 4.20, info 4.33 (all Nordic on stormPanel). The LEGACY
+    // vocabulary is far worse and it SHIPS — RoomInfoPanel paints a soft
+    // `danger` chip ("Banned") in the member list with no `storm: true`, so
+    // its ink is `mentionBadge`, a BADGE FILL used as text ink, and it fails
+    // on ALL ELEVEN palettes, worst Nordic 2.02:1. Legacy `accent` fails on
+    // nine.
+    //
+    // After: the floor across all three grounds and all eleven palettes is
+    // 4.52 (Warm, storm accent on stormCanvas). `legibleChoice` stops the
+    // moment it clears 4.5, so the tight cells are by construction.
+    //
+    // The three assertions are deliberately different questions: the label
+    // clears its own fill (the defect), the FILL and BORDER still carry the
+    // raw tone at the alpha the token declares (the chip still reads as its
+    // own family — the label is the only thing that moved), and the ink is
+    // still in that family, hue and HSL saturation, rather than having
+    // wandered off to a neutral. Measured drift of the derivation over every
+    // tone and palette: 0.79 degrees of hue and zero saturation.
+    void everySoftChipToneClearsItsOwnFillOnEveryPalette()
+    {
+        struct Probe { const char *chip; const char *host; const char *tone; };
+        const Probe probes[] = {
+            { "tonePanelAccent", "toneHostPanel", "toneStormAccent" },
+            { "tonePanelSuccess", "toneHostPanel", "toneStormSuccess" },
+            { "tonePanelWarning", "toneHostPanel", "toneStormWarning" },
+            { "tonePanelDanger", "toneHostPanel", "toneStormDanger" },
+            { "tonePanelInfo", "toneHostPanel", "toneStormInfo" },
+            { "toneCanvasAccent", "toneHostCanvas", "toneStormAccent" },
+            { "toneCanvasSuccess", "toneHostCanvas", "toneStormSuccess" },
+            { "toneCanvasWarning", "toneHostCanvas", "toneStormWarning" },
+            { "toneCanvasDanger", "toneHostCanvas", "toneStormDanger" },
+            { "toneCanvasInfo", "toneHostCanvas", "toneStormInfo" },
+            { "toneLegacyAccent", "toneHostSurface", "toneLegacyAccentTok" },
+            { "toneLegacySuccess", "toneHostSurface", "toneLegacySuccessTok" },
+            { "toneLegacyWarning", "toneHostSurface", "toneLegacyWarningTok" },
+            { "toneLegacyDanger", "toneHostSurface", "toneLegacyDangerTok" },
+            { "toneLegacyInfo", "toneHostSurface", "toneLegacyInfoTok" },
+        };
+        QSet<QRgb> distinctFills;
+        QSet<QRgb> distinctPanels;
+        int measured = 0;
+        for (int mode = 1; mode <= 11; ++mode) {
+            m_root->setProperty("themeMode", mode);
+            QTRY_COMPARE(item("toneHostPanel")->property("color").value<QColor>(),
+                         token("tokStormPanel"));
+            distinctPanels.insert(
+                item("toneHostPanel")->property("color").value<QColor>().rgb());
+            for (const Probe &p : probes) {
+                auto *chip = item(p.chip);
+                auto *host = item(p.host);
+                QVERIFY2(chip, p.chip);
+                QVERIFY2(host, p.host);
+                const QColor parent = host->property("color").value<QColor>();
+                const QColor raw = token(p.tone);
+                const QColor fillColor =
+                    chip->property("color").value<QColor>();
+                const QColor fill = over(fillColor, parent);
+                const QColor ink = rowChild(chip, "chipLabel")
+                                       ->property("color").value<QColor>();
+                const double ratio = contrastRatio(ink, fill);
+                QVERIFY2(ratio >= 4.5,
+                         qPrintable(QStringLiteral(
+                             "theme %1: %2 label %3 on its own fill %4 "
+                             "(parent %5) is %6:1, below 4.5 AA")
+                                .arg(mode)
+                                .arg(QString::fromLatin1(p.chip))
+                                .arg(ink.name(), fill.name(), parent.name())
+                                .arg(ratio, 0, 'f', 2)));
+
+                // The pill still IS its tone: only the label moved.
+                QVERIFY2(channelDelta(QColor(fillColor.rgb()), raw) <= 1,
+                         qPrintable(QStringLiteral(
+                             "theme %1: %2 fill is %3, not the raw tone %4 — "
+                             "the tone family must stay in the fill")
+                                .arg(mode)
+                                .arg(QString::fromLatin1(p.chip))
+                                .arg(fillColor.name(), raw.name())));
+                QVERIFY2(qAbs(fillColor.alphaF() - 0.14) < 0.005,
+                         qPrintable(QStringLiteral("theme %1: %2 fill alpha "
+                                                   "is %3, not 0.14")
+                                        .arg(mode)
+                                        .arg(QString::fromLatin1(p.chip))
+                                        .arg(fillColor.alphaF())));
+                const QColor borderColor =
+                    QQmlProperty::read(chip, QStringLiteral("border.color"))
+                        .value<QColor>();
+                QVERIFY2(channelDelta(QColor(borderColor.rgb()), raw) <= 1,
+                         qPrintable(QStringLiteral(
+                             "theme %1: %2 border is %3, not the raw tone %4")
+                                .arg(mode)
+                                .arg(QString::fromLatin1(p.chip))
+                                .arg(borderColor.name(), raw.name())));
+
+                // And so does the ink: same hue, same HSL saturation, a
+                // different lightness. A jump to a neutral text ink would
+                // clear AA and lose the tone, which is not the fix.
+                if (raw.hslSaturationF() >= 0.15) {
+                    double hueGap = qAbs(ink.hslHueF() - raw.hslHueF());
+                    if (hueGap > 0.5)
+                        hueGap = 1.0 - hueGap;
+                    QVERIFY2(hueGap * 360.0 <= 3.0,
+                             qPrintable(QStringLiteral(
+                                 "theme %1: %2 ink %3 is %4 degrees of hue "
+                                 "from its tone %5 — it stopped being that "
+                                 "tone")
+                                    .arg(mode)
+                                    .arg(QString::fromLatin1(p.chip))
+                                    .arg(ink.name())
+                                    .arg(hueGap * 360.0, 0, 'f', 1)
+                                    .arg(raw.name())));
+                    QVERIFY2(qAbs(ink.hslSaturationF()
+                                  - raw.hslSaturationF()) <= 0.05,
+                             qPrintable(QStringLiteral(
+                                 "theme %1: %2 ink %3 saturation %4 against "
+                                 "the tone %5 at %6")
+                                    .arg(mode)
+                                    .arg(QString::fromLatin1(p.chip))
+                                    .arg(ink.name())
+                                    .arg(ink.hslSaturationF())
+                                    .arg(raw.name())
+                                    .arg(raw.hslSaturationF())));
+                }
+                ++measured;
+                if (qstrcmp(p.host, "toneHostPanel") == 0)
+                    distinctFills.insert(fill.rgb());
+            }
+        }
+        // Eleven palettes DEMANDED to be distinct, not counted (see the
+        // neutral case above), and the number of chips actually measured
+        // asserted rather than the number of loop iterations.
+        QCOMPARE(distinctPanels.size(), 11);
+        // Five tones times eleven palettes, every one of them a different
+        // fill: the palettes really moved AND the tones are really five
+        // colours rather than one repeated. A loop that read one palette
+        // eleven times would return 5 here.
+        QCOMPARE(distinctFills.size(), 55);
+        QCOMPARE(measured, 11 * int(std::size(probes)));
         m_root->setProperty("themeMode", 9);
     }
 };

@@ -92,6 +92,18 @@ int channelDelta(const QColor &a, const QColor &b)
                 qAbs(a.blue() - b.blue()));
 }
 
+// Source-over composite of a possibly TRANSLUCENT fill onto its ground. A
+// row's selection chip is not always opaque — Storm's `hover` is
+// `Qt.alpha(_stoHover, 0.22)` — so the pixels under the MXID are the chip
+// over the popover canvas, never the chip's own colour property.
+QColor over(const QColor &fg, const QColor &bg)
+{
+    const double a = fg.alphaF();
+    return QColor::fromRgbF(a * fg.redF() + (1.0 - a) * bg.redF(),
+                            a * fg.greenF() + (1.0 - a) * bg.greenF(),
+                            a * fg.blueF() + (1.0 - a) * bg.blueF());
+}
+
 const QString kAlice = QStringLiteral("@alice:one.example");
 const QString kBob = QStringLiteral("@bob:two.example");
 
@@ -119,6 +131,14 @@ ApplicationWindow {
     Rectangle { objectName: "tokStormText"; visible: false; color: AppTheme.stormText }
     Rectangle { objectName: "tokStormTextMuted"; visible: false; color: AppTheme.stormTextMuted }
     Rectangle { objectName: "tokModalScrim"; visible: false; color: AppTheme.modalScrim }
+    // The four grounds a row paints, and the two derived inks that have to
+    // clear all four of them.
+    Rectangle { objectName: "tokHover"; visible: false; color: AppTheme.hover }
+    Rectangle { objectName: "tokSelected"; visible: false; color: AppTheme.selected }
+    Rectangle { objectName: "tokSelectedHover"; visible: false; color: AppTheme.selectedHover }
+    Rectangle { objectName: "tokStormTextSecondary"; visible: false; color: AppTheme.stormTextSecondary }
+    Rectangle { objectName: "tokRowMutedInk"; visible: false; color: AppTheme.stormTextMuted }
+    Rectangle { objectName: "tokRowSecondaryInk"; visible: false; color: AppTheme.stormTextSecondary }
 
     AccountMenu {
         id: menu
@@ -983,6 +1003,158 @@ Item {
                             .arg(nameRatio / idRatio, 0, 'f', 2)));
         }
         QCOMPARE(canvases.size(), 11);
+        m_root->setProperty("themeMode", restore);
+        QTest::qWait(20);
+        auto *menu = find(QStringLiteral("menu"));
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+    }
+
+    // ── A ROW IS FOUR SURFACES, AND ONLY ONE OF THEM HAD BEEN MEASURED ───
+    //
+    // The case above measures an inactive row AT REST on the popover canvas.
+    // A row also paints `hover`, `selected` and `selectedHover` over that
+    // canvas depending on what the pointer is doing, and two of those are
+    // translucent in some palettes, so the pixels under the MXID are the chip
+    // OVER the canvas and not the chip colour. Measured 2026-09-20 on real
+    // hovered rows, the MXID was below 4.5:1 AA on:
+    //   hovered INACTIVE row, six palettes  — Graphite 3.09, Indigo Night
+    //     3.44, Deep Teal 3.45, Nordic 3.46, Midnight 3.58, Lightning Dark
+    //     3.61;
+    //   ACTIVE row, four palettes           — Indigo Night 4.12, Graphite
+    //     4.16, Lightning Dark 4.33, Warm 4.40;
+    //   hovered ACTIVE row, NINE palettes   — worst Graphite 3.37. Nobody had
+    //     measured this state at all, and it is the worst of the four.
+    // The display NAME fails too, on one: `stormText` is 4.31:1 on Nordic
+    // hovered-active, whose `selectedHover` flattens to the mid slate
+    // #587197.
+    //
+    // The resting inactive row clears on every palette (floor 4.59), which is
+    // exactly why measuring only that state found nothing — and why the
+    // derivation leaves it bit-identical, so the hierarchy case above is
+    // unaffected.
+    //
+    // This case drives a REAL pointer onto a REAL row: `pointerWithin` has to
+    // become true and `identityCardRowChip` has to paint, because a probe
+    // that composites what it THINKS the row would paint shares none of the
+    // row.
+    void theMxidClearsEveryFillItsRowCanPaintOnEveryPalette()
+    {
+        m_controller->switchToAccount(kAlice);
+        QTRY_VERIFY(!m_controller->accountSwitching());
+        openMenu();
+        auto *aliceCard = qobject_cast<QQuickItem *>(findCard(kAlice));
+        auto *bobCard = qobject_cast<QQuickItem *>(findCard(kBob));
+        QVERIFY(aliceCard);
+        QVERIFY(bobCard);
+        QVERIFY(aliceCard->property("active").toBool());
+        QVERIFY(!bobCard->property("active").toBool());
+
+        // The ground the row derives its inks against must be the ground the
+        // popover actually paints, or every number below is about a surface
+        // nobody draws.
+        auto *popoverBg = m_root->findChild<QQuickItem *>(
+            QStringLiteral("accountPopoverBackground"));
+        QVERIFY(popoverBg);
+
+        auto tok = [this](const char *n) {
+            auto *it = m_root->findChild<QQuickItem *>(QLatin1String(n));
+            return it ? it->property("color").value<QColor>() : QColor();
+        };
+        auto aimAt = [](QQuickItem *c) {
+            return c->mapToScene(QPointF(c->width() * 0.3, c->height() * 0.5))
+                .toPoint();
+        };
+
+        struct State { QQuickItem *card; const char *what; bool hover;
+                       bool active; };
+        const State states[] = {
+            { bobCard, "inactive at rest", false, false },
+            { bobCard, "inactive hovered", true, false },
+            { aliceCard, "active at rest", false, true },
+            { aliceCard, "active hovered", true, true },
+        };
+
+        const int restore = m_root->property("themeMode").toInt();
+        QSet<QRgb> distinctFills;
+        QSet<QRgb> distinctCanvases;
+        int measured = 0;
+        int rawTokenFailures = 0;
+        for (int mode = 1; mode <= 11; ++mode) {
+            m_root->setProperty("themeMode", mode);
+            QTRY_COMPARE(popoverBg->property("color").value<QColor>(),
+                         tok("tokStormCanvas"));
+            const QColor canvas = popoverBg->property("color").value<QColor>();
+            distinctCanvases.insert(canvas.rgb());
+            for (const State &st : states) {
+                QCOMPARE(st.card->property("hostSurface").value<QColor>(),
+                         canvas);
+                QTest::mouseMove(m_window, st.hover ? aimAt(st.card)
+                                                    : QPoint(1, 1));
+                QTRY_COMPARE(st.card->property("pointerWithin").toBool(),
+                             st.hover);
+                auto *chip = st.card->findChild<QQuickItem *>(
+                    QStringLiteral("identityCardRowChip"));
+                auto *id = st.card->findChild<QQuickItem *>(
+                    QStringLiteral("identityCardUserId"));
+                auto *name = st.card->findChild<QQuickItem *>(
+                    QStringLiteral("identityCardName"));
+                QVERIFY(chip && id && name);
+                const QColor fill =
+                    over(chip->property("color").value<QColor>(), canvas);
+                QCOMPARE(QColor(st.card->property("rowFill").value<QColor>()
+                                    .rgb()),
+                         QColor(fill.rgb()));
+                distinctFills.insert(fill.rgb());
+
+                const QColor idInk = id->property("color").value<QColor>();
+                const QColor nameInk = name->property("color").value<QColor>();
+                const double idRatio = contrastRatio(idInk, fill);
+                const double nameRatio = contrastRatio(nameInk, fill);
+                QVERIFY2(idRatio >= 4.5,
+                         qPrintable(QStringLiteral(
+                             "theme %1, %2: the MXID %3 is %4:1 on the fill "
+                             "%5 this row paints")
+                                .arg(mode)
+                                .arg(QString::fromLatin1(st.what))
+                                .arg(idInk.name())
+                                .arg(idRatio, 0, 'f', 2)
+                                .arg(fill.name())));
+                QVERIFY2(nameRatio >= 4.5,
+                         qPrintable(QStringLiteral(
+                             "theme %1, %2: the display name %3 is %4:1 on "
+                             "the fill %5 this row paints")
+                                .arg(mode)
+                                .arg(QString::fromLatin1(st.what))
+                                .arg(nameInk.name())
+                                .arg(nameRatio, 0, 'f', 2)
+                                .arg(fill.name())));
+                ++measured;
+
+                // NOT VACUOUS: the raw token this ink is derived FROM fails
+                // on nineteen of these forty-four (palette, state) pairs, so
+                // a case that passed because every palette was already fine
+                // would count zero here and be caught.
+                const QColor raw = st.active ? tok("tokStormTextSecondary")
+                                             : tok("tokStormTextMuted");
+                if (contrastRatio(raw, fill) < 4.5)
+                    ++rawTokenFailures;
+            }
+        }
+        // Four states times eleven palettes, all forty-four a different
+        // fill: the palettes really moved AND the four states really are
+        // four surfaces.
+        QCOMPARE(distinctCanvases.size(), 11);
+        QCOMPARE(distinctFills.size(), 44);
+        QCOMPARE(measured, 44);
+        QVERIFY2(rawTokenFailures >= 15,
+                 qPrintable(QStringLiteral(
+                     "only %1 of 44 (palette, state) pairs still fail with "
+                     "the RAW token — this case can no longer prove the "
+                     "derivation is doing anything")
+                        .arg(rawTokenFailures)));
+
+        QTest::mouseMove(m_window, QPoint(1, 1));
         m_root->setProperty("themeMode", restore);
         QTest::qWait(20);
         auto *menu = find(QStringLiteral("menu"));

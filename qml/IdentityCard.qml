@@ -102,6 +102,18 @@ Item {
     Keys.onEnterPressed: root.activated()
     Keys.onSpacePressed: root.activated()
 
+    // The surface this row is dropped on. AccountMenu paints its popover in
+    // `stormCanvas`; it is a property rather than a constant because the row
+    // fill below is composited onto it, and a host that painted something
+    // else would silently get an ink derived for a ground it does not have.
+    property color hostSurface: AppTheme.stormCanvas
+
+    // The pixels actually under this row's text: the selection chip over the
+    // host surface, with the chip's OWN alpha — `hover` is translucent in
+    // some palettes, so the chip's colour property is not the fill.
+    readonly property color rowFill: AppTheme.flatten(rowChip.color,
+                                                      root.hostSurface)
+
     // ── Selection / hover chip — the room list's own idiom (RoomDelegate):
     // a rounded chip inset in a 4 px gutter, never a full-bleed square.
     // `selected` / `selectedHover` / `hover` are three distinct values in
@@ -223,7 +235,17 @@ Item {
                 // untouched. The active row is not told apart by this ink —
                 // it never was; it has the selected chip, the bolt edge,
                 // the avatar ring, the tick and the heavier weight.
-                color: AppTheme.stormText
+                //
+                // AND THE TOP OF THE INK LADDER IS NOT AUTOMATICALLY SAFE.
+                // Measured 2026-09-20 on real hovered rows: `stormText` on
+                // the HOVERED ACTIVE row is 4.31:1 on Nordic — below AA —
+                // because that palette's `selectedHover` flattens to
+                // #587197, a mid slate that its near-white ink does not
+                // clear. Every other palette and every other state clears
+                // with room, so the derivation returns `stormText` itself
+                // there and this line is unchanged; on Nordic it steps the
+                // same near-white a shade further and reaches 4.96.
+                color: AppTheme.legibleInkOn(AppTheme.stormText, root.rowFill)
                 font.family: AppTheme.menuFont
                 font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                 font.weight: root.active ? AppTheme.weightBold
@@ -245,8 +267,33 @@ Item {
                 // MentionPopup's own MXID inks and they measure 5.05:1
                 // light / 6.80:1 Storm inactive, and 4.81:1 / 7.14:1 on the
                 // active row's fill.
-                color: root.active ? AppTheme.stormTextSecondary
-                                   : AppTheme.stormTextMuted
+                //
+                // AND THAT MEASUREMENT WAS OF ONE STATE OUT OF FOUR. A row
+                // paints `stormCanvas`, `hover`, `selected` or
+                // `selectedHover` depending on what the pointer is doing,
+                // and the two loud ones are where this line failed:
+                // measured 2026-09-20 on real hovered rows, the HOVERED
+                // INACTIVE row is below 4.5:1 AA on six palettes (Graphite
+                // 3.09, Indigo Night 3.44, Deep Teal 3.45, Nordic 3.46,
+                // Midnight 3.58, Lightning Dark 3.61), the ACTIVE row on
+                // four (Indigo Night 4.12, Graphite 4.16, Lightning Dark
+                // 4.33, Warm 4.40) — and the HOVERED ACTIVE row, which
+                // nobody had measured at all, on NINE, worst Graphite 3.37.
+                // The resting inactive row clears everywhere (floor 4.59),
+                // which is exactly why measuring it alone found nothing.
+                //
+                // So the ink is derived against the fill THIS ROW IS
+                // PAINTING, not against a nominal canvas and not against
+                // the worst of the four: deriving one ink for all four
+                // grounds clears AA and collapses the name/id hierarchy to
+                // 0.93 on Nordic — the id brighter than the name — and is
+                // refuted in AppTheme beside `legibleInkOn`. Where the
+                // token already clears its own fill the derivation returns
+                // it unchanged, so the resting row is untouched.
+                color: AppTheme.legibleInkOn(root.active
+                                             ? AppTheme.stormTextSecondary
+                                             : AppTheme.stormTextMuted,
+                                             root.rowFill)
                 // Mono is right for a Matrix ID.
                 font.family: AppTheme.monoFont
                 font.pixelSize: AppTheme.scaled(AppTheme.fontMonoXS)
