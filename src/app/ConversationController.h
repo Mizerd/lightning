@@ -119,6 +119,12 @@ private:
     bool m_waitingForRoom = false;
     QString m_awaitedRoomId;
     QTimer m_roomWaitTimeout;
+    // And a SECOND bound, on the create call itself. The room-list wait above
+    // only starts once a create has SUCCEEDED; nothing bounded the create.
+    // `Client::create_dm` is one /createRoom carrying the invite, and the
+    // server federates that invite before answering — so a peer whose server
+    // is unreachable can hang it indefinitely.
+    QTimer m_opTimeout;
     // Whether the pending create is an m.space room. Owned here — not in
     // the dialog — so closing the dialog mid-create can never reroute a
     // Space into an ordinary room timeline.

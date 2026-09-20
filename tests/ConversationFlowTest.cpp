@@ -619,6 +619,58 @@ private Q_SLOTS:
         QCOMPARE(done.first().at(1).toInt(), 1);
         QVERIFY(!controller.busy());
     }
+
+    // SEVEN EMPTY ROOMS. Reported 2026-09-20 by a user starting a DM with
+    // someone on ANOTHER homeserver: "it just created many empty rooms on the
+    // client and never completes or send anything to the remote user."
+    //
+    // `Client::create_dm` is a single /createRoom carrying the invite, and the
+    // server federates that invite before it answers — so an unreachable peer
+    // server can hang it. The dialog spins; the user closes it; `onClosed:
+    // resetAll()` called `conversations.reset()`, which zeroed `m_pendingOp`
+    // and made `busy()` false WHILE THE CREATE WAS STILL RUNNING. Reopen,
+    // click again, and that is a second /createRoom. Every hung call still
+    // lands server-side, so each attempt leaves a room behind — and none of
+    // them gets the m.direct write that would let `existingDms` offer it for
+    // reuse, which is why they are all "Empty Room" and why the UI kept
+    // offering to create another.
+    //
+    // Closing a dialog cannot cancel a server-side room creation, so the
+    // guard must survive it.
+    void closingTheDialogDoesNotUnlockASecondCreate()
+    {
+        FakeClient client;
+        ConversationController controller;
+        controller.setClient(&client);
+
+        controller.startDirectMessage(QStringLiteral("@remote:other.example"));
+        QCOMPARE(client.createDmCalls, 1);
+        QVERIFY(controller.busy());
+
+        // The create has not answered — the peer's server is not responding.
+        // The user gives up on the dialog and closes it.
+        controller.reset();
+
+        QVERIFY2(controller.busy(),
+                 "closing the dialog cleared the in-flight guard; the create "
+                 "is still running server-side and a second one would leave a "
+                 "second empty room");
+        controller.startDirectMessage(QStringLiteral("@remote:other.example"));
+        QCOMPARE(client.createDmCalls, 1);
+
+        // Reopening and trying a THIRD time is refused too.
+        controller.reset();
+        controller.startDirectMessage(QStringLiteral("@remote:other.example"));
+        QCOMPARE(client.createDmCalls, 1);
+
+        // And the guard is not permanent: the late answer releases it.
+        Q_EMIT client.dmCreateFinished(client.lastOpId, false, QString(),
+                                       QStringLiteral("network"));
+        QVERIFY2(!controller.busy(),
+                 "the guard outlived the operation it was guarding");
+        controller.startDirectMessage(QStringLiteral("@remote:other.example"));
+        QCOMPARE(client.createDmCalls, 2);
+    }
 };
 
 QTEST_GUILESS_MAIN(ConversationFlowTest)

@@ -13,6 +13,11 @@ namespace {
 // created room. If sync has not delivered it by then, open by id anyway —
 // the room exists server-side; the list entry follows.
 constexpr int kRoomWaitTimeoutMs = 10000;
+
+// A federated invite is genuinely slow — the server contacts the peer's
+// homeserver before answering /createRoom — so this is deliberately generous.
+// It exists to stop a hang being PERMANENT, not to cut a slow success short.
+constexpr int kCreateOpTimeoutMs = 60000;
 } // namespace
 
 ConversationController::ConversationController(QObject *parent)
@@ -24,6 +29,21 @@ ConversationController::ConversationController(QObject *parent)
     connect(&m_roomWaitTimeout, &QTimer::timeout, this, [this]() {
         if (m_waitingForRoom)
             finishWaitForRoom();
+    });
+    m_opTimeout.setSingleShot(true);
+    m_opTimeout.setInterval(kCreateOpTimeoutMs);
+    connect(&m_opTimeout, &QTimer::timeout, this, [this]() {
+        if (m_pendingOp == 0)
+            return;
+        m_pendingOp = 0;
+        // Honest about what we do and do not know. We cannot cancel a
+        // /createRoom that the server is already processing, so a room may
+        // yet appear — saying "failed" would be a lie and saying nothing
+        // leaves the reader pressing the button again.
+        setError(tr("This is taking longer than expected. The other person's "
+                    "server may be slow to respond. If a room appears in your "
+                    "list, use that one rather than starting another."));
+        Q_EMIT busyChanged();
     });
 }
 
@@ -103,6 +123,8 @@ void ConversationController::startDirectMessage(const QString &userId)
     }
     m_pendingIsSpace = false;
     m_pendingOp = opId;
+    m_opTimeout.start();
+    m_opTimeout.start();
     Q_EMIT busyChanged();
 }
 
@@ -131,6 +153,7 @@ void ConversationController::createRoom(const QVariantMap &options)
                                                   : rawAvatar;
     m_pendingIsSpace = options.value(QStringLiteral("isSpace")).toBool();
     m_pendingOp = opId;
+    m_opTimeout.start();
     Q_EMIT busyChanged();
 }
 
@@ -151,6 +174,7 @@ void ConversationController::inviteUsers(const QString &roomId,
         return;
     }
     m_pendingOp = opId;
+    m_opTimeout.start();
     m_inviteResults.clear();
     for (const QString &user : unique) {
         QVariantMap row;
@@ -173,7 +197,22 @@ void ConversationController::clearError()
 
 void ConversationController::reset()
 {
-    m_pendingOp = 0;
+    // CLOSING A DIALOG DOES NOT CANCEL A SERVER-SIDE ROOM CREATION, so this
+    // must not clear `m_pendingOp`. It used to, and that is how one user got
+    // SEVEN empty rooms in three minutes (reported 2026-09-20, starting a DM
+    // with someone on another homeserver):
+    //
+    //   create_dm spawns with no timeout -> the server federates the invite
+    //   and does not answer -> the dialog spins -> the user closes it ->
+    //   `onClosed: resetAll()` -> reset() -> `busy()` goes false while the
+    //   create is STILL RUNNING -> reopen, click again -> a second
+    //   /createRoom. Every hung call still lands server-side eventually, so
+    //   each attempt leaves a room, and none of them gets the m.direct write
+    //   that would let `existingDms` offer it for reuse. Hence "Empty Room",
+    //   over and over.
+    //
+    // The op is bounded by `m_opTimeout` instead, so keeping the guard cannot
+    // lock room creation for the session.
     m_waitingForRoom = false;
     m_awaitedRoomId.clear();
     m_pendingIsSpace = false;
@@ -193,7 +232,8 @@ void ConversationController::onDmCreateFinished(quint64 opId, bool ok,
                                                 const QString &category)
 {
     if (opId != m_pendingOp || m_pendingOp == 0)
-        return; // stale or foreign completion
+        return;
+    m_opTimeout.stop();
     m_pendingOp = 0;
     if (!ok || roomId.isEmpty()) {
         setError(describeCategory(category));
@@ -211,6 +251,7 @@ void ConversationController::onRoomCreateFinished(quint64 opId, bool ok,
 {
     if (opId != m_pendingOp || m_pendingOp == 0)
         return;
+    m_opTimeout.stop();
     m_pendingOp = 0;
     if (!ok || roomId.isEmpty()) {
         m_pendingAvatarPath.clear();
@@ -242,6 +283,7 @@ void ConversationController::onInviteUserFinished(quint64 opId,
     Q_UNUSED(roomId);
     if (opId != m_pendingOp || m_pendingOp == 0)
         return;
+    m_opTimeout.stop();
     for (QVariant &value : m_inviteResults) {
         QVariantMap row = value.toMap();
         if (row.value(QStringLiteral("userId")).toString() != userId)
@@ -262,6 +304,7 @@ void ConversationController::onInviteBatchFinished(quint64 opId,
     Q_UNUSED(roomId);
     if (opId != m_pendingOp || m_pendingOp == 0)
         return;
+    m_opTimeout.stop();
     m_pendingOp = 0;
     Q_EMIT busyChanged();
     Q_EMIT inviteBatchCompleted(okCount, failCount);
@@ -325,7 +368,13 @@ void ConversationController::finishWaitForRoom()
 
 void ConversationController::onLoggedOut()
 {
-    // A signed-out session must never open rooms or surface late errors.
+    // A signed-out session must never open rooms or surface late errors — and
+    // unlike closing a dialog, this DOES abandon the pending operation. The
+    // session it belonged to is gone, so it can never complete meaningfully
+    // and the next account must start clean. `reset()` deliberately keeps the
+    // op (see its comment); this is the one caller that must not.
+    m_pendingOp = 0;
+    m_opTimeout.stop();
     reset();
 }
 
