@@ -559,6 +559,54 @@ private Q_SLOTS:
             "enabled: model.membership === \"joined\"")));
         QVERIFY(delegate.contains(QStringLiteral("onTapped: roomMenu.popup()")));
     }
+
+    // THE DESTRUCTIVE CONFIRMATION USES THE APP'S OWN BUTTONS AND CAN BE
+    // DISMISSED BY CLICKING AWAY.
+    //
+    // Reported from a screenshot: the Delete/Cancel pair were bare
+    // `Button {}`, so they rendered as Qt Basic's square flat grey — two
+    // identical controls, the irreversible one indistinguishable from the
+    // safe one, inside a dialog whose every sibling uses the AppTheme
+    // ladder. AppButton's own header names `dangerPrimary` as the kind
+    // "for the confirm button of a destructive dialog", so the component
+    // existed for this and the call site simply never used it.
+    //
+    // And the dialog closed on Escape only, so the reflex every other modal
+    // here honours — press outside to back out — did nothing. That is safe
+    // to allow precisely because the only committing path is an explicit
+    // press on the destructive button.
+    //
+    // Asserted against the scanned extent of the dialog, so a bare Button
+    // somewhere else in this very large file cannot pass or fail it.
+    void theDestructiveConfirmUsesAppButtonsAndClosesOnPressOutside()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(!delegate.isEmpty());
+
+        const int start = delegate.indexOf(
+            QStringLiteral("objectName: \"messageDestructiveConfirmDialog\""));
+        QVERIFY2(start > 0, "the destructive confirm dialog was not found");
+        const int end = delegate.indexOf(
+            QStringLiteral("messageDestructiveConfirmAccept"), start);
+        QVERIFY2(end > start, "the accept button was not found after the dialog");
+        // Take the whole block including the accept button's own body.
+        const QString block = delegate.mid(start, (end - start) + 400);
+        QVERIFY2(block.contains(QStringLiteral("messageDestructiveConfirmCancel")),
+                 "the scanned extent is missing the cancel button");
+
+        QVERIFY2(block.contains(QStringLiteral("Popup.CloseOnPressOutside")),
+                 "the destructive confirm cannot be dismissed by clicking away");
+        QVERIFY2(block.contains(QStringLiteral("kind: \"dangerPrimary\"")),
+                 "the committing button must be dangerPrimary, not a bare Button");
+        QVERIFY2(block.contains(QStringLiteral("kind: \"secondary\"")),
+                 "the cancel button must be a secondary AppButton");
+        // The thing that regressed: a plain Button anywhere in this block.
+        // Written as a search for the declaration, so `AppButton {` does not
+        // match it.
+        QVERIFY2(!block.contains(QStringLiteral("\n                    Button {")),
+                 "a bare Button is back in the destructive confirm; it renders "
+                 "as the Qt Basic default and ignores the AppTheme ladder");
+    }
 };
 
 QTEST_GUILESS_MAIN(ContextMenuContractTest)

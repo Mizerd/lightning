@@ -4199,7 +4199,13 @@ Item {
             modal: true
             storm: false
             standardButtons: Dialog.NoButton
-            closePolicy: Popup.CloseOnEscape
+            // CLICKING OUTSIDE CANCELS, and that is safe here precisely
+            // because this dialog's only committing path is an explicit
+            // press on the destructive button. Escape alone left the one
+            // reflex every other modal in this app honours — press the
+            // scrim to back out — doing nothing at all, so the only way out
+            // was to find Cancel.
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
             width: Math.min(420, parent ? parent.width - 32 : 420)
             property string heading: ""
             property string body: ""
@@ -4218,13 +4224,27 @@ Item {
                     Layout.fillWidth: true
                     spacing: AppTheme.spacing8
                     Item { Layout.fillWidth: true }
-                    Button {
+                    // AppButton, NOT a bare Button. These two were the
+                    // Qt Basic default — square corners, flat grey, both
+                    // identical — sitting in a dialog whose every sibling
+                    // uses the app's own ladder, and the destructive action
+                    // was indistinguishable from the safe one. AppButton's
+                    // own header names `dangerPrimary` as the kind "for the
+                    // confirm button of a destructive dialog, where quiet is
+                    // wrong": the component existed for this exact case and
+                    // this call site never used it. Geometry (height,
+                    // radius, padding) comes from the AppTheme ladder, which
+                    // is what stops the next button here being a different
+                    // size from these.
+                    AppButton {
                         objectName: "messageDestructiveConfirmCancel"
+                        kind: "secondary"
                         text: qsTr("Cancel")
                         onClicked: destructiveConfirm.close()
                     }
-                    Button {
+                    AppButton {
                         objectName: "messageDestructiveConfirmAccept"
+                        kind: "dangerPrimary"
                         text: destructiveConfirm.acceptText
                         onClicked: {
                             destructiveConfirm.close()
