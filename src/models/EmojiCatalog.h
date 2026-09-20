@@ -90,6 +90,11 @@ private:
 
     void load();
     void rebuild();
+    // Whether the persisted MRU holds at least one emoji this catalogue can
+    // actually resolve — the same validity test rebuild() applies, so
+    // "there are recents" and "the Recently Used grid has rows" cannot
+    // disagree.
+    bool hasResolvableRecents() const;
     int indexOf(const QString &emoji) const;
     bool isKnownEmojiCluster(const QString &cluster) const;
 

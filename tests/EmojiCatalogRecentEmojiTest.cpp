@@ -74,6 +74,53 @@ private Q_SLOTS:
         QCOMPARE(catalog.recentEmoji(), QStringList({ QStringLiteral("😀") }));
     }
 
+    // 2026-09-20 composer/picker GUI audit, finding 9. The default category
+    // is "Recently Used" and rebuild() has no fallback, so the FIRST emoji
+    // picker a fresh account opens drew an empty grid under "No recently
+    // used emoji" with the whole catalogue one click away.
+    void afreshCatalogueDoesNotOpenOnAnEmptyRecentlyUsed()
+    {
+        SettingsManager settings;
+        EmojiCatalog catalog(&settings);
+        QVERIFY(catalog.recentEmoji().isEmpty());
+        QVERIFY2(catalog.category() != QStringLiteral("Recently Used"),
+                 "a catalogue with no recents still starts on Recently Used");
+        QCOMPARE(catalog.category(), QStringLiteral("Smileys & Emotion"));
+        QVERIFY2(catalog.rowCount() > 0,
+                 qPrintable(QStringLiteral(
+                     "the picker opens on '%1' and it is EMPTY")
+                        .arg(catalog.category())));
+        // The tab is not gone: it is still first in the rail and still the
+        // place an empty state belongs.
+        QCOMPARE(catalog.categories().constFirst(),
+                 QStringLiteral("Recently Used"));
+    }
+
+    // …and the moment there IS something to show, that is where it opens.
+    void acatalogueWithRecentsStillStartsOnRecentlyUsed()
+    {
+        SettingsManager settings;
+        settings.recordRecentEmoji(QStringLiteral("😀"));
+        EmojiCatalog catalog(&settings);
+        QCOMPARE(catalog.recentEmoji(), QStringList({ QStringLiteral("😀") }));
+        QCOMPARE(catalog.category(), QStringLiteral("Recently Used"));
+        QCOMPARE(catalog.rowCount(), 1);
+    }
+
+    // A settings entry the catalogue cannot resolve is NOT a recent. It is
+    // dropped by rebuild(), so counting it would hand the user the empty
+    // grid this fallback exists to prevent — the same filter both halves
+    // must apply or "there are recents" and "the grid has rows" disagree.
+    void astaleRecentEntryDoesNotCountAsARecent()
+    {
+        SettingsManager settings;
+        settings.recordRecentEmoji(QStringLiteral("not-an-emoji"));
+        EmojiCatalog catalog(&settings);
+        QVERIFY(catalog.recentEmoji().isEmpty());
+        QCOMPARE(catalog.category(), QStringLiteral("Smileys & Emotion"));
+        QVERIFY(catalog.rowCount() > 0);
+    }
+
     void emitsChangedSignalOnRecordAndClear()
     {
         SettingsManager settings;

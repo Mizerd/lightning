@@ -29,7 +29,43 @@ EmojiCatalog::EmojiCatalog(SettingsManager *settings, QObject *parent)
     : QAbstractListModel(parent), m_settings(settings)
 {
     load();
+    // AN EMPTY "RECENTLY USED" IS NOT A PLACE TO OPEN A PICKER.
+    //
+    // The default category is kCategories[0], "Recently Used", and rebuild()
+    // has no fallback — so on a fresh account the first press of the emoji
+    // button drew an EMPTY grid under "No recently used emoji", with the
+    // whole catalogue one click away and none of it on screen. Every
+    // comparable client falls back to Smileys.
+    //
+    // Decided ONCE here, not in rebuild(): a rebuild()-level fallback would
+    // put Smileys under the "Recently Used" heading, which is the same lie
+    // the other way round — the tab would become indistinguishable from the
+    // Smileys tab and "No recently used emoji" would be unreachable. The tab
+    // keeps its place in the rail, keeps its empty state, and is still the
+    // category the catalogue starts on the moment there is one recent emoji
+    // to show.
+    //
+    // Tested against the RESOLVED recents, not the raw settings list:
+    // rebuild() drops any entry that is not in the catalogue, so a stale or
+    // corrupted settings value would otherwise count as a recent and hand
+    // the user the empty grid this exists to prevent.
+    if (m_category == kCategories.constFirst() && !hasResolvableRecents()
+        && kCategories.size() > 1) {
+        m_category = kCategories.at(1);
+    }
     rebuild();
+}
+
+bool EmojiCatalog::hasResolvableRecents() const
+{
+    if (!m_settings)
+        return false;
+    const QStringList recents = m_settings->recentEmoji();
+    for (const QString &emoji : recents) {
+        if (indexOf(emoji) >= 0)
+            return true;
+    }
+    return false;
 }
 
 void EmojiCatalog::load()
