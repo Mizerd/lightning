@@ -1061,6 +1061,71 @@ private Q_SLOTS:
                                            "measured").arg(checked)));
     }
 
+    // ── FOUR FILES DRAW THE SETTINGS CARD, AND THEY MUST DRAW ONE PLANE ──
+    //
+    // The settings content pane stacks cards from four declarations in three
+    // files: SettingsScreen.qml's SettingsCard and the one card that
+    // overrides its background for the danger edge, UpdatesSettingsSection's
+    // UpdateCard, and TrustCard's own surface. They have drifted apart
+    // before — the trust card was pinned to the raw Storm literals until
+    // 2026-08-26 and read as the one foreign surface on the Sessions page —
+    // and the live suites cannot catch it, because each of them asserts its
+    // own file against a token NAME.
+    //
+    // SettingsShellQmlTest::theSettingsCardIsVisibleAgainstThePageOnEveryTheme
+    // is what pins the plane itself to something visible; this case is what
+    // stops one of the four from being left behind when it moves.
+    //
+    // UNFIXED TREE: all four named stormCanvas, so this fails four times.
+    void everySettingsCardSurfaceNamesTheSameRaisedPlane()
+    {
+        struct Probe {
+            const char *path;
+            const char *what;
+            const char *pattern;
+        };
+        // (?<![.\w])color: so `border.color:` is never mistaken for the fill.
+        const Probe probes[] = {
+            { QML_DIR "/SettingsScreen.qml", "SettingsCard",
+              "component\\s+SettingsCard\\s*:\\s*Pane\\s*\\{"
+              ".*?(?<![.\\w])color:\\s*AppTheme\\.(\\w+)" },
+            { QML_DIR "/SettingsScreen.qml", "the danger-zone card",
+              "(?<![.\\w])color:\\s*AppTheme\\.(\\w+)\\s*"
+              "border\\.color:\\s*dangerZone\\.expanded" },
+            { QML_DIR "/UpdatesSettingsSection.qml", "UpdateCard",
+              "component\\s+UpdateCard\\s*:\\s*Pane\\s*\\{"
+              ".*?(?<![.\\w])color:\\s*AppTheme\\.(\\w+)" },
+            { QML_DIR "/TrustCard.qml", "the trust card",
+              "objectName:\\s*\"trustCardSurface\""
+              ".*?(?<![.\\w])color:\\s*AppTheme\\.(\\w+)" },
+        };
+        int checked = 0;
+        for (const Probe &probe : probes) {
+            const QString src =
+                stripComments(readAll(QString::fromLatin1(probe.path)));
+            QVERIFY2(!src.isEmpty(),
+                     qPrintable(QStringLiteral("%1 not readable")
+                                    .arg(QLatin1String(probe.path))));
+            const QRegularExpression re(
+                QString::fromLatin1(probe.pattern),
+                QRegularExpression::DotMatchesEverythingOption);
+            QVERIFY2(re.isValid(), probe.pattern);
+            const auto m = re.match(src);
+            QVERIFY2(m.hasMatch(),
+                     qPrintable(QStringLiteral(
+                         "could not find the fill of %1 in %2 — the probe is "
+                         "broken, which is not the same as the code being "
+                         "right")
+                             .arg(QLatin1String(probe.what),
+                                  QLatin1String(probe.path))));
+            QCOMPARE(m.captured(1), QStringLiteral("stormPanel"));
+            ++checked;
+        }
+        // Assert the COUNT of what actually matched, never the number of
+        // probes written down.
+        QCOMPARE(checked, 4);
+    }
+
     void yellowSignalsStayClearOfTheBrandAccent()
     {
         const QString bolt = m_colors.value(QStringLiteral("_stoBolt"));

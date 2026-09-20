@@ -9,7 +9,8 @@ import MatrixClient
 // theme, through ten AppTheme.trust* tokens pinned to the raw Storm
 // literals. That was deliberate ("the trust moment is the brand moment")
 // and it became wrong when its neighbourhood moved: the card sits between
-// SettingsCards painted stormCanvas/stormBorder, above a sessions list
+// SettingsCards painted stormPanel/stormBorder (stormCanvas/stormBorder
+// until 2026-09-20 — see below), above a sessions list
 // painted stormTextFaint/stormLink, so on any theme but Storm it was the
 // one surface on the page that ignored the user's choice. Reported as "the
 // blue lightning session status should match the rest of the theme".
@@ -59,7 +60,16 @@ Item {
         // Deliberately the SettingsCard pair (SettingsScreen.qml's
         // SettingsCard paints exactly these two), so the card reads as one
         // of the page's cards rather than as something pasted onto it.
-        color: AppTheme.stormCanvas
+        //
+        // 2026-09-20: that pair is stormPanel/stormBorder now, and this line
+        // has to follow it or the Sessions page has one card that is still
+        // the colour of the page. stormCanvas routes to the palette's
+        // `background` on every theme but Storm, exactly as stormDeep (the
+        // page) does, so every settings card was invisible on ten of eleven
+        // themes; the measurements are in SettingsScreen.qml's SettingsCard
+        // comment. Under Storm this moves _stoCanvas #121655 -> _stoPanel
+        // #202473 in lockstep with the cards around it.
+        color: AppTheme.stormPanel
         border.width: 1
         border.color: AppTheme.stormBorder
     }

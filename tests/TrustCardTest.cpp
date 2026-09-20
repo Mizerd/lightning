@@ -23,8 +23,16 @@
 //   stormKeepsTheBrandLiterals              — under Storm the old card fill
 //                                             was #202473 and the complete
 //                                             node ink was #202473 too; the
-//                                             expected values are #121655 and
+//                                             expected values were #121655 and
 //                                             #0A0F24.
+//
+// 2026-09-20: the SettingsCard plane those two cases track moved
+// stormCanvas -> stormPanel, because stormCanvas and stormDeep both route to
+// the palette's `background` outside Storm and every settings card was
+// therefore EXACTLY the colour of the page behind it on ten of eleven themes
+// (measured on screen: 1.00:1). The trust card follows the plane, so the
+// Storm literal asserted below is #202473 again — the sibling rule is
+// unchanged, the siblings moved.
 
 #include <QtTest/QtTest>
 
@@ -64,7 +72,7 @@ ApplicationWindow {
     Rectangle { objectName: "tokBolt"; visible: false; color: AppTheme.bolt }
     Rectangle { objectName: "tokBoltInk"; visible: false; color: AppTheme.boltInk }
     Rectangle { objectName: "tokPending"; visible: false; color: AppTheme.stormBorderStrong }
-    Rectangle { objectName: "tokCanvas"; visible: false; color: AppTheme.stormCanvas }
+    Rectangle { objectName: "tokPanel"; visible: false; color: AppTheme.stormPanel }
     Rectangle { objectName: "tokBorder"; visible: false; color: AppTheme.stormBorder }
     Rectangle { objectName: "tokInset"; visible: false; color: AppTheme.stormInset }
     Rectangle { objectName: "tokText"; visible: false; color: AppTheme.stormText }
@@ -445,13 +453,22 @@ private slots:
     void cardPaintsTheSettingsCardPairOnEveryTheme()
     {
         // "Doesn't match the theme" is really "doesn't match its siblings":
-        // SettingsScreen.qml's SettingsCard paints stormCanvas with a
+        // SettingsScreen.qml's SettingsCard paints the card plane with a
         // stormBorder edge, and the trust card sits in the same column. So
         // assert the same pair on all eleven modes rather than one.
         //
-        // Unfixed tree: the card was _stoPanel/_stoBorder, so this fails on
-        // the ten legacy themes AND on Storm, where stormCanvas is _stoCanvas
-        // (#121655) and the pinned fill was _stoPanel (#202473).
+        // 2026-09-20: that plane moved stormCanvas -> stormPanel. stormCanvas
+        // and stormDeep BOTH route to the palette's `background` outside
+        // Storm, so every settings card was measured at exactly 1.00:1
+        // against the page behind it on ten of eleven themes; the card plane
+        // is now the palette's own `surface`. This case follows the siblings
+        // by construction — it reads whatever token the probe names — so what
+        // keeps it honest is that the probe and SettingsCard must name the
+        // same one.
+        //
+        // Unfixed tree (2026-08-26): the card was _stoPanel/_stoBorder while
+        // the SettingsCards were stormCanvas, so this failed on the ten
+        // legacy themes AND on Storm.
         auto *surface = find(QStringLiteral("trustCardSurface"));
         auto *chain = find(QStringLiteral("trustChainPanel"));
         QVERIFY(surface);
@@ -459,7 +476,7 @@ private slots:
         for (int mode = 1; mode <= 11; ++mode) {
             setTheme(mode);
             QCOMPARE(surface->property("color").value<QColor>(),
-                     token(QStringLiteral("tokCanvas")));
+                     token(QStringLiteral("tokPanel")));
             QCOMPARE(borderColor(surface), token(QStringLiteral("tokBorder")));
             // The inner module rides the input-fill rung on every theme, so
             // it stays a distinct surface from the card ground. The
@@ -486,7 +503,14 @@ private slots:
         // Two values under Storm DID move, deliberately, and are asserted at
         // their new values rather than hidden:
         //   * the card fill, _stoPanel #202473 -> _stoCanvas #121655, so the
-        //     card matches the SettingsCards beside it on Storm too;
+        //     card matches the SettingsCards beside it on Storm too. 2026-09-20
+        //     moved it BACK to _stoPanel #202473 — not a revert of that
+        //     decision but the same one applied again, because the whole
+        //     SettingsCard plane moved: stormCanvas is the palette's
+        //     `background` outside Storm and so is the page, so the cards had
+        //     no fill at all on ten themes. On Storm the ladder gains a rung
+        //     it was designed with (deep page / canvas nav / panel cards) and
+        //     the card-vs-page separation rises 1.22:1 -> 1.50:1;
         //   * the watermark, a 10%-opacity bolt -> AppTheme.stormWatermark
         //     (12% alpha), the token IdentityCard and MemberProfilePopover
         //     already use for the same hero-card glyph. Not asserted here —
@@ -498,7 +522,7 @@ private slots:
         auto *chain = find(QStringLiteral("trustChainPanel"));
         QVERIFY(surface);
         QVERIFY(chain);
-        QCOMPARE(surface->property("color").value<QColor>(), QColor("#121655"));
+        QCOMPARE(surface->property("color").value<QColor>(), QColor("#202473"));
         QCOMPARE(borderColor(surface), QColor("#303C80"));
         QCOMPARE(chain->property("color").value<QColor>(), QColor("#0A112E"));
         QCOMPARE(token(QStringLiteral("tokBolt")), QColor("#FFD447"));

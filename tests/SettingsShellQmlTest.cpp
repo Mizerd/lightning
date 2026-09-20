@@ -88,6 +88,17 @@ double contrastRatio(const QColor &a, const QColor &b)
     return (qMax(la, lb) + 0.05) / (qMin(la, lb) + 0.05);
 }
 
+// CIE L* of a rendered colour. The right measure for two FILLS, where a
+// contrast RATIO flatters a pair that the eye reads as one slab: #2E3440 on
+// #3B4252 is 1.24:1 and clearly two surfaces, while #D2E5D6 on #D4E6D8 is
+// 1.01:1 and is not. ThemeTokensTest carries the same helper over the
+// literals; this one works on the colour a live item actually resolved.
+double lstarOf(const QColor &c)
+{
+    const double y = relativeLuminance(c);
+    return y <= 0.008856 ? y * 903.3 : 116.0 * std::cbrt(y) - 16.0;
+}
+
 } // namespace
 
 class SettingsShellQmlTest : public QObject
@@ -544,6 +555,160 @@ private slots:
         // against the previous one eleven times over.
         QCOMPARE(checked, 11);
         qInfo("theme-card radio ring: worst %.2f:1 (%s)",
+              worst, qPrintable(worstWhere));
+
+        m_controller->settings()->setTheme(
+            static_cast<SettingsManager::Theme>(restore));
+        QCoreApplication::processEvents();
+    }
+
+    // ── A CARD THE COLOUR OF THE PAGE IS NOT A CARD ─────────────────────
+    //
+    // SettingsCard painted stormCanvas over a page painted stormDeep. Under
+    // Storm those are two literals (_stoCanvas #121655 on _stoDeep #02051D);
+    // under every other theme BOTH route to the palette's `background`, so
+    // the card was the page and only its 1px border was left. Measured on a
+    // real rendered window before the fix, card against page: Storm 1.22:1
+    // and the other ten 1.00:1 EXACTLY. On Moss Light the border is #D2E2D6
+    // on #D2E5D6 (1.02:1) as well, so the whole Privacy page read as one
+    // flat green slab.
+    //
+    // Both fills are read off LIVE items — the card's own background
+    // Rectangle and the screen's ground Rectangle — never off token names,
+    // which would pass on the unfixed tree because the tokens themselves
+    // were fine; what was wrong was which of them the card asked for.
+    //
+    // 5.0 dL* is a floor, not a target: measured after the fix the worst
+    // real palette is Nordic at 6.3 and the rest run 8.8 to 17.4, so this
+    // catches a NEW palette (or a re-routed token) that flattens the plane
+    // without relitigating the existing ones. A lightness separation rather
+    // than a contrast ratio, for the reason lstarOf() gives.
+    //
+    // UNFIXED TREE: fails on the first non-Storm theme at 0.0 dL*.
+    void theSettingsCardIsVisibleAgainstThePageOnEveryTheme()
+    {
+        const int restore = m_controller->settings()->theme();
+        // Appearance, not Privacy: every SettingsCard in the file is built
+        // whatever the section, so the section does not change what is
+        // measured — but the cases after this one click Appearance controls,
+        // and leaving the screen somewhere else makes their clicks land on a
+        // hidden item. A test must hand the next one the state it found.
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+
+        auto *card = item("settingsCardSurface");
+        auto *ground = item("settingsPageGround");
+        QVERIFY2(card, "no live SettingsCard background in the settings screen");
+        QVERIFY2(ground, "no live settings page ground rectangle");
+
+        const int themes[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+        double worst = 1000.0;
+        QString worstWhere;
+        int checked = 0;
+        for (int id : themes) {
+            m_controller->settings()->setTheme(
+                static_cast<SettingsManager::Theme>(id));
+            QCoreApplication::processEvents();
+            const QColor fill = card->property("color").value<QColor>();
+            const QColor page = ground->property("color").value<QColor>();
+            QVERIFY(fill.isValid() && page.isValid());
+            const double sep = qAbs(lstarOf(fill) - lstarOf(page));
+            if (sep < worst) {
+                worst = sep;
+                worstWhere = QStringLiteral("theme %1: %2 on %3")
+                                 .arg(id).arg(fill.name(), page.name());
+            }
+            ++checked;
+            QVERIFY2(sep >= 5.0,
+                     qPrintable(QStringLiteral(
+                         "theme %1: the settings card is %2 on a page of %3 "
+                         "— only %4 dL* (%5:1) apart. A card that is the "
+                         "colour of the page behind it is not a card, and "
+                         "card grouping is the information architecture of "
+                         "these pages")
+                             .arg(id)
+                             .arg(fill.name(), page.name())
+                             .arg(sep, 0, 'f', 1)
+                             .arg(contrastRatio(fill, page), 0, 'f', 2)));
+        }
+        // Assert the COUNT of what actually varied, never the count of loop
+        // iterations.
+        QCOMPARE(checked, 11);
+        qInfo("settings card vs page: worst %.1f dL* (%s)",
+              worst, qPrintable(worstWhere));
+
+        m_controller->settings()->setTheme(
+            static_cast<SettingsManager::Theme>(restore));
+        QCoreApplication::processEvents();
+    }
+
+    // ── AND NEITHER IS A SELECTION PILL THAT IS NEVER DRAWN ─────────────
+    //
+    // Same family, same root: the selected nav row filled stormSelection,
+    // which is _stoSelection under Storm and the palette's `hover` under
+    // every other theme — a tint designed to sit on `surface`, not on the
+    // page the nav column paints. Measured on screen before the fix, fill
+    // against the column: Lightning Light 1.01:1 (0.4 dL*), Moss Light
+    // 1.01:1 (0.4), Warm 1.03:1 (1.0). The selected section was signalled by
+    // the bolt caret and a bold label alone.
+    //
+    // 4.0 dL* is the floor because Moss Light is genuinely the hardest case
+    // even after the fix — `selectedHover` puts it at 5.5 where the next
+    // worst is Lightning Light at 10.5 and the dark themes run 18.7 to 37.0.
+    // Moss Light's `selected` would have been 3.4 and `hover` 0.4, so the
+    // floor is set where it separates the fix from both of the tokens that
+    // do not work rather than where it flatters the result.
+    //
+    // UNFIXED TREE: fails on Lightning Light at 0.4 dL*.
+    void theSelectedNavRowHasAVisibleFillOnEveryTheme()
+    {
+        const int restore = m_controller->settings()->theme();
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+
+        auto *row = item("settingsNavRow_appearance");
+        auto *fill = item("settingsNavRowFill_appearance");
+        auto *column = item("settingsNavColumn");
+        QVERIFY2(row && fill && column, "the appearance nav row is not live");
+        // Guard the premise: an unhighlighted row paints "transparent", and
+        // a transparent sample would read as pure black and PASS on every
+        // light theme while testing nothing at all.
+        QVERIFY2(row->property("highlighted").toBool(),
+                 "the appearance nav row is not the highlighted one");
+
+        const int themes[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+        double worst = 1000.0;
+        QString worstWhere;
+        int checked = 0;
+        for (int id : themes) {
+            m_controller->settings()->setTheme(
+                static_cast<SettingsManager::Theme>(id));
+            QCoreApplication::processEvents();
+            const QColor pill = fill->property("color").value<QColor>();
+            const QColor nav = column->property("color").value<QColor>();
+            QVERIFY(pill.isValid() && nav.isValid());
+            QVERIFY2(pill.alpha() == 255,
+                     "the selected pill must be opaque; a translucent sample "
+                     "is not the colour the reader sees");
+            const double sep = qAbs(lstarOf(pill) - lstarOf(nav));
+            if (sep < worst) {
+                worst = sep;
+                worstWhere = QStringLiteral("theme %1: %2 on %3")
+                                 .arg(id).arg(pill.name(), nav.name());
+            }
+            ++checked;
+            QVERIFY2(sep >= 4.0,
+                     qPrintable(QStringLiteral(
+                         "theme %1: the selected settings nav row fills %2 "
+                         "on a column of %3 — only %4 dL* (%5:1) apart, so "
+                         "the selection pill is not drawn at all")
+                             .arg(id)
+                             .arg(pill.name(), nav.name())
+                             .arg(sep, 0, 'f', 1)
+                             .arg(contrastRatio(pill, nav), 0, 'f', 2)));
+        }
+        QCOMPARE(checked, 11);
+        qInfo("selected nav row vs column: worst %.1f dL* (%s)",
               worst, qPrintable(worstWhere));
 
         m_controller->settings()->setTheme(

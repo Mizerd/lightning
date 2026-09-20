@@ -122,10 +122,17 @@ ColumnLayout {
     // GREY on a hairline, square-ended, directly under a text-size slider
     // that fills bolt on stormInset. Same geometry as that slider's track:
     // 4px, pill ends, stormInset behind, bolt in front.
+    // This is SettingsScreen.qml's SettingsCard by another name — the Updates
+    // page is rendered inside the settings content pane and its cards must be
+    // the same plane as the cards on every other page. That pair moved
+    // stormCanvas -> stormPanel on 2026-09-20 because stormCanvas and stormDeep
+    // both route to the palette's `background` outside Storm, so these cards
+    // were exactly the colour of the page behind them on ten of eleven themes.
+    // See the SettingsCard comment for the measurements.
     component UpdateCard: Pane {
         Layout.fillWidth: true
         background: Rectangle {
-            color: AppTheme.stormCanvas
+            color: AppTheme.stormPanel
             border.color: AppTheme.stormBorder
             radius: AppTheme.radiusMd
         }

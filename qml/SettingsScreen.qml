@@ -518,10 +518,40 @@ Item {
     }
 
     // Reusable settings card (grouped-controls surface).
+    //
+    // ── THE CARD HAS TO BE A DIFFERENT COLOUR FROM THE PAGE, AND ON TEN
+    // THEMES IT WAS NOT ────────────────────────────────────────────────
+    //
+    // This painted stormCanvas over a page painted stormDeep. Under Storm
+    // those are two different literals (_stoCanvas #121655 on _stoDeep
+    // #02051D); under EVERY other theme both route to the palette's
+    // `background`, so the card was the page and the only thing left of it
+    // was its 1px border. Measured on a real screen, card-vs-page, all
+    // eleven themes: Storm 1.22:1 and the other ten 1.00:1 exactly. On Moss
+    // Light the border is #D2E2D6 on #D2E5D6 (1.02:1) too, so the whole
+    // Privacy page rendered as one flat green slab with text floating on
+    // it. Card grouping IS the information architecture of these pages.
+    //
+    // stormPanel is the raised plane every palette already defines
+    // (`surface` — the tone every other card in the app uses), and it sits
+    // 1.24-1.55 above `background`. It is NOT a regression for Storm, which
+    // was the reason this went unfixed: _stoPanel #202473 on _stoDeep
+    // #02051D is 1.50:1 / 17.4 dL* against the 1.22:1 / 9.8 dL* it had, so
+    // the flagship's cards get MORE separation, not less, and Storm gains
+    // the three-plane ladder it was always designed around — deep page,
+    // canvas nav column, panel cards — which until now only the nav column
+    // half of had survived the routing.
+    //
+    // Consequence worth knowing rather than discovering: anything nested in
+    // a card that used to paint stormPanel would now be invisible against
+    // it, and both such places (the empty name-colour swatch and the
+    // verification status strip) moved to stormInset in the same change.
+    // theSettingsCardIsVisibleAgainstThePageOnEveryTheme holds the floor.
     component SettingsCard: Pane {
         Layout.fillWidth: true
         background: Rectangle {
-            color: AppTheme.stormCanvas
+            objectName: "settingsCardSurface"
+            color: AppTheme.stormPanel
             border.color: AppTheme.stormBorder
             radius: AppTheme.radiusMd
         }
@@ -573,7 +603,8 @@ Item {
     }
 
     // Storm §4 2f nav row: 32px, radiusTile; the active row fills
-    // stormSelection, brightens icon (bolt) and label (stormText), and
+    // selectedHover (see the background below — it was stormSelection, which
+    // is invisible outside Storm), brightens icon (bolt) and label (stormText), and
     // carries the signature edge-bolt caret overhanging its left edge.
     component SettingsNavRow: ItemDelegate {
         id: navRow
@@ -685,9 +716,42 @@ Item {
             }
         }
         background: Rectangle {
+            objectName: "settingsNavRowFill_" + navRow.sectionKey
             radius: AppTheme.radiusTile
-            color: navRow.highlighted ? AppTheme.stormSelection
-                 : navRow.hovered ? Qt.alpha(AppTheme.stormSelection, 0.55)
+            // ── THE SELECTED ROW HAD NO FILL IN THE THREE LIGHT PALETTES ──
+            //
+            // stormSelection is _stoSelection under Storm and the palette's
+            // `hover` under every other theme, and `hover` is a tint designed
+            // to sit on `surface`, not on the page. Measured on screen
+            // against this column: Lightning Light 1.01:1 (0.4 dL*), Moss
+            // Light 1.01:1 (0.4), Warm 1.03:1 (1.0) — the pill was simply not
+            // drawn, and the only signal left was the bolt caret and the bold
+            // label. The dark themes sat at 1.69-2.24 and hid it.
+            //
+            // `selectedHover` is the same token e2d25293 landed for the text
+            // selection this morning, for the identical trap and after the
+            // identical check: `selected` is the obvious answer and does NOT
+            // fix it, because on Moss Light `selected` IS `accentSoft`
+            // (#D1F1E5 both) and lands at 1.09:1 / 3.4 dL* here. A selected
+            // nav row is a firmer affordance than a hovered one, so the
+            // stronger tone is also the semantically right one, and there is
+            // no hovered-while-selected state on this row to collide with.
+            //
+            // Under Storm this is _stoSelectedHover #3037AD in place of
+            // _stoSelection #283097 — still a Storm literal, and 1.79:1
+            // against the column where the old one was 1.54:1.
+            //
+            // This is the one place on this surface that names a SEMANTIC
+            // token instead of a storm* one, and deliberately: the storm
+            // namespace has exactly one selection role and it is the broken
+            // one. Routing stormSelection itself would move every menu,
+            // popover and segmented control in the app, which is a far wider
+            // change than this defect justifies — a `stormSelectionStrong`
+            // role in AppTheme.qml is the tidy version and is left as a
+            // follow-up. AppTextField already paints selectedHover inside
+            // this very screen (e2d25293), so the tone is not new here.
+            color: navRow.highlighted ? AppTheme.selectedHover
+                 : navRow.hovered ? Qt.alpha(AppTheme.selectedHover, 0.55)
                  : "transparent"
             Icon {
                 objectName: "settingsNavCaret"
@@ -986,7 +1050,11 @@ Item {
         onAccepted: app.clearOwnDisplayName()
     }
 
-    Rectangle { anchors.fill: parent; color: AppTheme.stormDeep }
+    Rectangle {
+        objectName: "settingsPageGround"
+        anchors.fill: parent
+        color: AppTheme.stormDeep
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -1050,6 +1118,7 @@ Item {
             // ── Left navigation (design 1d: 260 px, Settings title, icon
             // rows, About pinned at the bottom) ──────────────────────────
             Rectangle {
+                objectName: "settingsNavColumn"
                 Layout.fillHeight: true
                 Layout.preferredWidth: 260
                 Layout.minimumWidth: 200
@@ -5352,7 +5421,14 @@ Item {
                                                         return false
                                                 return true
                                             }
-                                            color: ownIsCustom ? app.nameColors.ownColor : AppTheme.stormPanel
+                                            // stormInset, not stormPanel: the
+                                            // empty "+" slot sits ON a
+                                            // SettingsCard, and the card IS
+                                            // stormPanel now — a raised disc on
+                                            // a raised card is no disc at all.
+                                            // A recessed well is also the right
+                                            // reading for an unfilled slot.
+                                            color: ownIsCustom ? app.nameColors.ownColor : AppTheme.stormInset
                                             border.width: ownIsCustom ? 3 : 1
                                             border.color: ownIsCustom ? AppTheme.stormText : AppTheme.stormBorderStrong
                                             Icon {
@@ -7360,8 +7436,15 @@ Item {
                                              && app.cryptoHealth.cryptoSupported
                                              && !app.verificationActive
                                              && app.verificationState === ""
+                                    // stormInset for the same reason as the
+                                    // name-colour "+" slot: this strip is
+                                    // nested INSIDE a SettingsCard, which now
+                                    // paints stormPanel, so a stormPanel strip
+                                    // would be flat against its own card. The
+                                    // other status strips on this page are
+                                    // already stormInset.
                                     background: Rectangle {
-                                        color: AppTheme.stormPanel
+                                        color: AppTheme.stormInset
                                         border.color:
                                             app.sessionVerificationNeeded
                                             ? AppTheme.stormDanger
@@ -7773,8 +7856,13 @@ Item {
                         // Danger Zone — collapsed by default, clearly apart.
                         SettingsCard {
                             visible: app.backendName === "rust"
+                            // Overrides the background only to swap the BORDER
+                            // for the expanded danger edge; the fill must stay
+                            // the SettingsCard plane (stormPanel), or the one
+                            // card on the page that matters most is the one
+                            // that disappears into it.
                             background: Rectangle {
-                                color: AppTheme.stormCanvas
+                                color: AppTheme.stormPanel
                                 border.color: dangerZone.expanded ? AppTheme.stormDanger
                                                                   : AppTheme.stormBorder
                                 radius: AppTheme.radiusMd
