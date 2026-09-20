@@ -1997,6 +1997,57 @@ anything is fixed, written by the one person least able to see the problem.
 
 Full account in `docs/round-history.md`, 2026-09-20 (afternoon).
 
+**A REDACTION THAT KEEPS THE LAST N CHARACTERS OF A MATRIX ID KEEPS THE
+HOMESERVER AND THROWS AWAY THE ROOM.** `timeline open room=` logged
+`roomId.right(12)`, and the last twelve characters of any room id on
+`smetonis.net` ARE `smetonis.net` — every room on the account logged
+identically. A capture of four consecutive opens was read as one room
+reopening four times and produced a confident wrong diagnosis; the log could
+not have told the difference. `matrix::e2ee::redactId()` already existed for
+this (sigil + 8 hex of SHA-256, stable for correlation, not reversible) and
+these lines simply did not use it. **Before diagnosing from a log line, check
+that it can distinguish the things you are about to compare.**
+
+**A GUARD A DIALOG CAN SWITCH OFF IS NOT A GUARD.** `ConversationController::
+reset()` — called from `onClosed: resetAll()` — zeroed the pending-op id, so
+closing the New Conversation dialog made `busy()` false while a
+`/createRoom` was still running server-side. A user starting a DM with someone
+on another homeserver got SEVEN empty rooms in three minutes: the federated
+invite hangs (`spawn_room_action` has no timeout), the dialog spins, they
+close it, reopen, click again. **Closing a dialog cannot cancel a server-side
+operation.** The guard is kept across `reset()` now and bounded instead —
+keeping it WITHOUT a bound only trades room-spam for a session-long lockout,
+so neither half works alone. Sign-out stays the one caller that must abandon
+the op, a distinction an existing test caught being collapsed.
+
+**AND A FAILED `create_dm` LEAVES A ROOM THAT IS NOT A DM.** `Client::create_dm`
+is one `/createRoom` carrying the invite; the `m.direct` write happens only
+after it SUCCEEDS, and `get_dm_rooms` filters on `direct_targets()`. So the
+orphan is invisible to "is there already a DM with this user?", which is why
+the UI kept offering to create another. It cannot be reused either: the rooms
+render as "Empty Room" because `heroes()` is empty, i.e. the server has no
+record of the intended peer at all.
+
+**A FAILED ARCHIVE LEAVES THE PREVIOUS BINARY, AND IT RUNS.** A concurrent
+`ar` corrupted `liblightning-app-testlib.a` five times in one day, and once
+produced a stale test binary that executed and reported plausible results.
+**A pass from a build whose link step failed is not evidence** — same family
+as the QML mutation check that loads a stale compiled module. Nor is a full
+`ctest` over a tree other agents are editing: three sweeps that day showed
+failures belonging entirely to uncommitted work, twice as `BAD_COMMAND`.
+
+**CARGO NEVER GARBAGE-COLLECTS ITS TARGET DIR.** `/home` reached 1.5 GB free —
+below what one link needs here, and it produced a real `ld: Bus error` that
+read as a toolchain fault. **91 GB** of a 133 GB build tree was stale
+intermediates under `build-rust/rust/debug/{deps,incremental}`. Removing them
+did not even force a rebuild: the final linked staticlib survives and ninja
+reports no work to do.
+
+Full account in `docs/round-history.md`, 2026-09-20 (evening) — also the login
+card that could put a password in the clear-text homeserver field, Windows
+subpixel AA making the readability tables optimistic by ~10%, and the
+duplicate send whose SDK mechanism is named there.
+
 **A THEME-DEPENDENT CLAIM MEASURED IN ONE THEME IS A CLAIM ABOUT THAT THEME.**
 "Ctrl+A doesn't work in the text fields" was reported, and I measured it
 WORKING and said NOT REPRODUCED — in Storm, the one theme where the token

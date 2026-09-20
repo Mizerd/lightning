@@ -1,5 +1,40 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-20 — OPEN: a DM to another homeserver leaves orphan rooms that cannot be reused
+
+Reported by a user (Zorin 18, flatpak 0.9.5): starting a DM with someone on
+ANOTHER homeserver "created many empty rooms on the client and never completes
+or send anything to the remote user" — seven in three minutes, all "Empty
+Room".
+
+**PARTLY FIXED.** The multiplication is fixed (`faccb471`): `reset()` no
+longer lets closing the dialog unlock a second create while the first is still
+running, and every create path is bounded at 60 s so the guard cannot lock the
+session. That stops seven rooms becoming eight.
+
+**STILL OPEN, and none of it is in Lightning's gift alone:**
+
+1. **The hang itself.** `Client::create_dm` is one `/createRoom` carrying the
+   invite, and the server federates that invite before answering. matrix-sdk
+   applies no timeout and neither does `spawn_room_action`. Our 60 s bound
+   releases the UI; it does not cancel the request, which cannot be cancelled.
+2. **The orphan room stays.** The server created it before the invite failed.
+   We cannot tell whether it landed, so we cannot clean it up.
+3. **It cannot be offered for reuse.** `m.direct` is written only after a
+   SUCCESSFUL create, so `get_dm_rooms` (which filters on `direct_targets()`)
+   never sees it. A membership-based fallback was drafted and REVERTED: the
+   rooms render as "Empty Room", which means `heroes()` is empty, which means
+   the server holds no record of the intended peer. There is nothing to match.
+4. **A pre-flight probe is the untried idea.** Resolving the peer's `/profile`
+   before creating would turn "unreachable server" into a clean error with no
+   room created. NOT attempted — it adds a request to every DM start and its
+   failure modes (a server that answers `/profile` but refuses the invite)
+   were not thought through.
+
+**What to tell a reporter today:** 0.9.8 does not contain the fix, and even
+with it the underlying hang and the orphan rooms remain. The rooms are safe to
+leave; they are not DMs and will not be reused.
+
 ## 2026-09-20 — OPEN: the room-rebuild report is NOT diagnosed, and the duplicate send has a named SDK mechanism
 
 Reported against the published 0.9.8 AppImage: rooms loading badly, content

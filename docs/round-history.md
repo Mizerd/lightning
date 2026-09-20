@@ -1,5 +1,130 @@
 # Round history
 
+## 2026-09-20 (evening) — two GUI sweeps, and two user reports that were both mis-diagnosed first
+
+Four agents fixing, two sweeping (Windows on the published package, Linux on a
+build), and two reports from real users. The theme is the one the afternoon
+already paid for, twice more: **the first explanation was wrong both times,
+and in both cases the thing that settled it was reading what the code actually
+does rather than what the symptom suggested.**
+
+### The room-rebuild report, and a log that could not identify a room
+
+Reported against the published 0.9.8 AppImage: rooms loading badly, content
+loading then reloading, "it loaded one image, then the rest of the room, then
+again", plus a message appearing sent twice.
+
+The first diagnosis blamed automatic key-recovery reloads and cited four
+`timeline open room= "smetonis.net"` lines as proof of one room reopening.
+**Both halves were wrong.** `keyBackupResult` is emitted only from
+`key_backup_status`, which Rust enqueues only inside
+`mx_rust_recover_from_backup`, whose sole caller is the Settings button that
+consumes a typed recovery key — it cannot fire on sync. And the log could not
+have supported ANY such reading: it printed `roomId.right(12)`, and the last
+twelve characters of a room id on that homeserver are **the domain**. Every
+room on the account logged identically; four opens of four different rooms are
+indistinguishable from four of one, and `items=` 2 -> 2 -> 13 -> 21 reads more
+naturally as four rooms.
+
+Seven room-identifying log lines now go through `matrix::e2ee::redactId()` —
+sigil plus 8 hex of SHA-256, stable for correlation, not reversible. That
+helper already existed in this tree and these lines simply did not use it.
+
+**The reported defect is still NOT diagnosed.** The reopen sources that can
+actually repeat are `queue_overflow` and `DiffOutcome::Invalid`, both of which
+reopen DELIBERATELY to recover from detected damage. A guard there was
+proposed and withdrawn: for `Invalid` the mirror is KNOWN wrong, so an
+identity guard would turn the recovery into a permanent desync. What is wanted
+is a loop breaker — a bound per room per interval with an escalation log.
+
+### The duplicate send: a mechanism in the SDK, defended against here
+
+Not the mechanism first proposed (that one was refuted — the C++ mirror and
+`TimelineModel` both replace wholesale, so nothing merges). The real one is in
+matrix-sdk-ui on every timeline REBUILD: `init_focus()` loads the remote
+events first, then `send_queue().subscribe()` replays still-queued local
+echoes into a `Flow::Local` arm that pushes unconditionally, while the dedup
+that would catch it is reachable only from the `Flow::Remote` arms. Order
+inverted, so it never runs.
+
+`eventsFromItemArray` — the one choke point every snapshot passes through —
+now drops a local echo when a non-echo item in the same snapshot carries the
+same event id.
+
+**MATCHED ON EVENT ID, AND CHECKING THAT IS WHAT SAVED IT.** The obvious
+pairing is the transaction id, and it cannot fire:
+`EventTimelineItem::transaction_id()` is
+`as_variant!(kind, Local(local) => ...)`, i.e. `Some` for an echo and `None`
+for every remote item — the half to match against is always empty, and the
+dedup would have been dead code that read correctly and never ran once.
+`event_id()` is `Some` on both; the SDK documents that a local echo learns its
+id "from the response of the send request that created the event".
+
+### Seven empty rooms, and a guard a dialog could switch off
+
+A user on Zorin, flatpak 0.9.5, starting a DM with someone on another
+homeserver: "it just created many empty rooms on the client and never
+completes." Seven in three minutes, all named "Empty Room".
+
+`Client::create_dm` is a single `/createRoom` carrying the invite; the server
+federates that invite before answering, and `spawn_room_action` has no
+timeout, so an unreachable peer server hangs it indefinitely. The dialog
+spins, the user closes it, and `onClosed: resetAll()` -> `reset()` zeroed
+`m_pendingOp` and made `busy()` false **while the create was still running**.
+Closing a dialog cannot cancel a server-side room creation. Reopen, click,
+second `/createRoom`.
+
+Every hung call still lands, and none gets the `m.direct` write that only
+happens after a SUCCESSFUL create — so `get_dm_rooms`, which filters on
+`direct_targets()`, never sees them and `existingDms` stays empty. The UI asks
+whether a DM already exists, is told no, and offers to create. Again. It is
+also why they are "Empty Room": no name, no other joined member, not
+recognised as a DM, so no peer name to fall back to.
+
+`reset()` keeps the op now, bounded at 60 s. **Neither half works alone** —
+the guard without the bound trades room-spam for a session-long lockout.
+Sign-out remains the one caller that must abandon the op, and the existing
+`staleDmCompletionIsIgnored` caught that distinction being collapsed.
+
+A reuse-by-membership fix was drafted and **reverted**: the rooms render as
+"Empty Room", which means `heroes()` is empty, which means a federated invite
+that never landed left the server with no record of the intended peer. There
+is nothing to match against.
+
+### What the sweeps found that nobody had asked about
+
+* **A password could land in a clear-text field.** The login card was centred
+  on its CURRENT height, so when the async probe drops the SSO sections it
+  slides down 126 px — and the fields are at the TOP. Type the homeserver,
+  click where "User" was, and the password goes into the Homeserver URL box.
+  This trap had bitten the lead twice the same day and been filed both times
+  as a harness annoyance rather than the user-facing defect it is.
+* **Windows subpixel AA makes the readability tables optimistic.** Declared
+  pairs measure ~90% on screen (4.27-4.47:1 where the token pair is 4.82), so
+  anything near 4.5:1 passes on paper and fails in reality. A methodology gap,
+  not one defect.
+* A theme card invisible against the page on **ten of eleven** palettes; a
+  slash-command row whose worst ink was not the reported one but the command
+  NAME at 1.61:1 on ten palettes; `Escape` structurally inert on the account
+  switcher because `QQuickPopup` gates it on `hasActiveFocus()` and `focus`
+  defaults to false — press-outside kept working because the overlay handles
+  that with the mouse, and that asymmetry hid it.
+
+### Harness lessons from the round
+
+* **A failed archive leaves the previous binary, and it runs.** Concurrent
+  `ar` corrupted `liblightning-app-testlib.a` at least five times across the
+  day; once it produced a stale binary that ran and reported plausible
+  results. A pass from a build whose link step failed is not evidence.
+* **A test run over a tree three agents are editing is not evidence either.**
+  Three separate full sweeps showed failures that were entirely other agents'
+  uncommitted work, twice as `BAD_COMMAND` (never built).
+* **`/home` hit 1.5 GB free**, below what one link needs here, and produced a
+  real `ld: Bus error`. 91 GB of it was stale cargo intermediates in
+  `build-rust/rust/debug/{deps,incremental}` — cargo never garbage-collects a
+  target dir. Reclaiming it did not even force a rebuild: the final linked
+  staticlib survives and ninja reported no work to do.
+
 ## 2026-09-20 (afternoon) — a predicate I read correctly and a value I never checked
 
 I shipped a false trust badge to the highest-stakes surface in the app, a
