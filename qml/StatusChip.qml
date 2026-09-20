@@ -51,6 +51,25 @@ Rectangle {
              : tone === "onAccent" ? AppTheme.accentText
              : AppTheme.textMuted
     }
+    // A SOFT CHIP'S INK MUST CLEAR THE CHIP, NOT THE CARD, AND FOR THE
+    // NEUTRAL TONE IT DID NOT. The soft fill is 14% of the tone's own
+    // colour, which lifts the background TOWARDS the ink — so the label
+    // measures worse on its own pill than it does on the surface behind it,
+    // and `neutral` starts from the MUTED text ink, the dimmest one there
+    // is. Measured 2026-09-20 over all eleven palettes, ink on the
+    // composited fill: on `stormPanel` (what SettingsCard paints since
+    // fea70c63) eight of eleven fail 4.5:1 AA for the textMicro label —
+    // Deep Teal 3.65, Nordic 3.68, Indigo Night 3.77, Warm 3.88, Midnight
+    // 3.96, Purple Dusk 4.13, Lightning Dark 4.12, Graphite 4.24, Storm
+    // 4.36 — and on `stormCanvas` three more do.
+    //
+    // `stormTextSecondary` is the obvious next step up and it is NOT the
+    // fix: on Indigo Night it is #a4a6b8 against a muted #9e9ba6 and lands
+    // at 4.28, on Warm at 4.26. `stormText` clears on every palette with
+    // room to spare (worst: Nordic 6.80). The FILL and the BORDER keep the
+    // muted base, so the pill still reads neutral-grey; only its label
+    // steps up to the ink a label on its own surface needs.
+    readonly property bool _neutralSoft: tone === "neutral" && !solid
     readonly property color _ink: {
         if (storm)
             // Ink ON the bolt/solid fill, not the panel ink — boltInk
@@ -59,11 +78,13 @@ Rectangle {
             // accent.
             return _boltChip ? AppTheme.boltInk
                  : solid ? AppTheme.boltInk
+                 : _neutralSoft ? AppTheme.stormText
                  : _base
         return solid
             ? (tone === "danger" ? AppTheme.dangerText
                : tone === "accent" ? AppTheme.accentText
                : AppTheme.textPrimary)
+            : _neutralSoft ? AppTheme.textPrimary
             : _base
     }
 

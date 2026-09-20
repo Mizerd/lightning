@@ -151,6 +151,27 @@ AppMenu {
         }
         Label {
             objectName: "roomNotificationDisclaimer"
+            // THE WIDTH IS THE WHOLE POINT OF THIS LINE. A Label is not a
+            // MenuItem, so nothing sizes it in time, and `wrapMode` on an
+            // unsized Text wraps at its own implicitWidth, which is the
+            // whole sentence. Three configurations of the RUNNING app,
+            // measured 2026-09-20 on the notifications flyout:
+            //
+            //   as shipped          one line, no wrap, cut mid-word at the
+            //                       panel border ("Local setting: it does
+            //                       not chang") — a wrapping Text does not
+            //                       elide, so there was not even an ellipsis
+            //   menu fit, no width  wraps to two lines at 199 px, but the
+            //                       panel's height was already decided, so
+            //                       the SECOND line falls outside it
+            //   both               w=199, 2 lines, panel 168 px, all inside
+            //
+            // Bound to the MENU, so it follows the fit in AppMenu rather
+            // than a literal — and set at creation, which is what gets the
+            // wrapped height into the menu's own content height. It is not
+            // a row, so it does not vote on that fit and there is no loop.
+            width: notificationsFlyout.width - notificationsFlyout.leftPadding
+                   - notificationsFlyout.rightPadding
             leftPadding: AppTheme.menuItemPadding
             rightPadding: AppTheme.menuItemPadding
             topPadding: AppTheme.spacing4

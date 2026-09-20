@@ -15,6 +15,10 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QQmlContext>
+#include <QSet>
+
+#include <cmath>
 
 namespace {
 
@@ -33,6 +37,37 @@ QColor sampleAvg(const QImage &img, const QRect &r)
     return n ? QColor(int(red / n), int(green / n), int(blue / n)) : QColor();
 }
 
+// WCAG 2.x relative luminance / contrast, and the SOURCE-OVER composite a
+// translucent chip fill performs against its parent. A soft StatusChip is
+// `Qt.alpha(ink, 0.14)` — the pixel under the label is not the chip's colour
+// property, it is that colour over whatever the chip was dropped on, which
+// is why the parent is read out of the scene too.
+double channelLinear(double c)
+{
+    return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+}
+
+double relativeLuminance(const QColor &c)
+{
+    return 0.2126 * channelLinear(c.redF()) + 0.7152 * channelLinear(c.greenF())
+        + 0.0722 * channelLinear(c.blueF());
+}
+
+double contrastRatio(const QColor &a, const QColor &b)
+{
+    const double la = relativeLuminance(a);
+    const double lb = relativeLuminance(b);
+    return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+
+QColor over(const QColor &fg, const QColor &bg)
+{
+    const double a = fg.alphaF();
+    return QColor::fromRgbF(a * fg.redF() + (1.0 - a) * bg.redF(),
+                            a * fg.greenF() + (1.0 - a) * bg.greenF(),
+                            a * fg.blueF() + (1.0 - a) * bg.blueF());
+}
+
 int channelDelta(const QColor &a, const QColor &b)
 {
     return qMax(qMax(qAbs(a.red() - b.red()), qAbs(a.green() - b.green())),
@@ -41,6 +76,12 @@ int channelDelta(const QColor &a, const QColor &b)
 
 constexpr int kTolerance = 8;
 
+// NO APOSTROPHE MAY APPEAR INSIDE THIS RAW STRING. moc lexes a bare `'`
+// as the start of a character literal even inside R"QML(...)QML", runs off
+// the end of the file, reports "No relevant classes found", generates an
+// EMPTY .moc — and the only symptom is `undefined reference to vtable for
+// MenuSystemQmlTest` at link time, which names nothing. Measured
+// 2026-09-20 on moc 6.11.1.
 const char *kScene = R"QML(
 import QtQuick
 import QtQuick.Controls
@@ -48,8 +89,12 @@ import MatrixClient
 
 ApplicationWindow {
     id: win
-    width: 640
-    height: 480
+    // 900x560, not 640x480: the neutral-chip probes below need a host
+    // rectangle of their own painted in the two surfaces a storm chip is
+    // actually dropped on, and a chip measured on the background of the window
+    // is a chip measured on the wrong parent.
+    width: 900
+    height: 560
     visible: true
     color: AppTheme.background
 
@@ -110,6 +155,49 @@ ApplicationWindow {
                 radioSelected: !win.allMessagesSelected
             }
         }
+        // A SECOND flyout, at the same 150 px design width, carrying the row
+        // the report was about and a non-MenuItem Label beside it. Separate
+        // from the one above on purpose: the cases that assert the flyout
+        // opens at its design width must keep measuring a menu whose rows
+        // fit inside it.
+        AppMenu {
+            id: fitFlyout
+            objectName: "fitFlyout"
+            title: "Notify mode"
+            submenuIconName: "notifications"
+            menuWidth: AppTheme.menuWidthFlyout
+            contextLabel: "Notify mode"
+            contextBolt: false
+            AppMenuItem { objectName: "fitShortRow"; text: "Muted"; radio: true }
+            AppMenuItem {
+                objectName: "fitLongRow"
+                text: "Mentions & keywords"
+                radio: true
+            }
+            Label {
+                objectName: "fitDisclaimer"
+                width: fitFlyout.width - fitFlyout.leftPadding
+                       - fitFlyout.rightPadding
+                leftPadding: AppTheme.menuItemPadding
+                rightPadding: AppTheme.menuItemPadding
+                text: "Local setting: it does not change the server "
+                      + "push rules."
+                color: AppTheme.stormTextFaint
+                font.pixelSize: AppTheme.fontMicro
+                wrapMode: Text.WordWrap
+            }
+        }
+        AppMenu {
+            id: ceilingFlyout
+            objectName: "ceilingFlyout"
+            title: "Ceiling"
+            menuWidth: AppTheme.menuWidthFlyout
+            AppMenuItem {
+                objectName: "ceilingRow"
+                text: "A room whose name is very much longer than any menu "
+                      + "this product is ever going to draw for it"
+            }
+        }
         AppMenuSeparator {}
         AppMenuItem { objectName: "deleteItem"; text: "Delete message"; iconName: "delete"; danger: true }
     }
@@ -129,6 +217,40 @@ ApplicationWindow {
     StatusChip { objectName: "chipActive"; label: "ACTIVE"; tone: "onAccent"; x: 340; y: 416 }
     StatusChip { objectName: "chipLoud"; label: "LOUD"; tone: "danger"; x: 430; y: 416 }
     StatusChip { objectName: "chipUnread"; label: "3"; tone: "danger"; solid: true; x: 500; y: 416 }
+
+    // Neutral-chip probes, each on the surface its real hosts paint: the
+    // member profile popover homeserver chip sits on a card, and since
+    // fea70c63 a SettingsCard is stormPanel. A soft chip fill is a
+    // percentage of its own ink OVER ITS PARENT, so the parent is part of
+    // the measurement and a probe floating on the window background would
+    // answer a question nobody asked.
+    Rectangle {
+        objectName: "chipHostPanel"
+        x: 24; y: 476; width: 200; height: 34; color: AppTheme.stormPanel
+        StatusChip {
+            objectName: "chipNeutralPanel"
+            anchors.centerIn: parent
+            storm: true; tone: "neutral"; label: "matrix.example.org"
+        }
+    }
+    Rectangle {
+        objectName: "chipHostCanvas"
+        x: 240; y: 476; width: 200; height: 34; color: AppTheme.stormCanvas
+        StatusChip {
+            objectName: "chipNeutralCanvas"
+            anchors.centerIn: parent
+            storm: true; tone: "neutral"; label: "matrix.example.org"
+        }
+    }
+    Rectangle {
+        objectName: "chipHostLegacy"
+        x: 456; y: 476; width: 200; height: 34; color: AppTheme.surface
+        StatusChip {
+            objectName: "chipNeutralLegacy"
+            anchors.centerIn: parent
+            tone: "neutral"; label: "Upgraded"
+        }
+    }
 }
 )QML";
 
@@ -198,6 +320,37 @@ private:
                 return child;
         }
         return nullptr;
+    }
+
+    // Open a nested AppMenu THE WAY THE APPLICATION DOES: by activating the
+    // row its parent menu generated for it. Calling `open()` on the submenu
+    // directly is not the same path — QQuickMenu's cascade sizes and places
+    // a submenu itself, and a flyout opened by hand sized its own content
+    // items where the real one did not. Measured 2026-09-20: a disclaimer
+    // that was visibly cut mid-word in the running app came out correctly
+    // wrapped in a test that opened the flyout by hand. A probe is only
+    // evidence if it shares the path under test.
+    void openViaParentRow(QObject *menu, QObject *flyout,
+                          QQuickWindow *window) const
+    {
+        QQuickItem *parentRow = nullptr;
+        const int count = menu->property("count").toInt();
+        for (int i = 0; i < count; ++i) {
+            QQuickItem *row = nullptr;
+            QMetaObject::invokeMethod(menu, "itemAt",
+                                      Q_RETURN_ARG(QQuickItem *, row),
+                                      Q_ARG(int, i));
+            if (row && row->property("subMenu").value<QObject *>() == flyout) {
+                parentRow = row;
+                break;
+            }
+        }
+        QVERIFY(parentRow);
+        const QPointF centre = parentRow->mapToScene(
+            QPointF(parentRow->width() / 2, parentRow->height() / 2));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          centre.toPoint());
+        QTRY_VERIFY(flyout->property("opened").toBool());
     }
 
     void openMenu()
@@ -570,6 +723,312 @@ private slots:
                      ->property("color").value<QColor>(),
                  stormBorderStrong);
 
+        m_root->setProperty("themeMode", 9);
+    }
+
+    // ── F2: THE MENU WIDTH PROMISE ───────────────────────────────────────
+    //
+    // AppMenu has always carried a comment saying its design width is "a
+    // floor, not a clamp… menus widen to fit rather than eliding at a fixed
+    // pin". Until 2026-09-20 that was false and had never been true: the
+    // binding under it read `implicitContentWidth`, and a Menu's contentItem
+    // is the Basic style's ListView, which declares implicitHeight and no
+    // implicitWidth — so the expression was `Math.max(menuWidth, 12)`.
+    // On screen, "Mentions & keywords" rendered as "Mentions & …" in the
+    // 150 px notifications flyout.
+    //
+    // Asserted as the USER'S condition, not as a width: the row must not be
+    // truncated. A width assertion would pass on a menu that widened by two
+    // pixels and still elided.
+    void theFlyoutWidensToItsWidestRowInsteadOfEliding()
+    {
+        openMenu();
+        auto *flyout = m_root->findChild<QObject *>(QStringLiteral("fitFlyout"));
+        QVERIFY(flyout);
+        // Unopened, it is still exactly its design width: the fit is a
+        // measurement of rows, and a closed popup has no measurable rows
+        // (a Layout skips items that are not effectively visible, so every
+        // row of a closed menu reports its padding alone).
+        QCOMPARE(flyout->property("width").toInt(),
+                 flyout->property("menuWidth").toInt());
+
+        openViaParentRow(m_root->findChild<QObject *>(QStringLiteral("menu")),
+                         flyout, m_window);
+
+        auto *longRow = item("fitLongRow");
+        QVERIFY(longRow);
+        auto *longLabel = label(longRow);
+        QVERIFY(longLabel);
+        QTRY_VERIFY(longLabel->width() > 0);
+        // QTRY, not QVERIFY: the menu resizes at `opened` and QQuickMenu
+        // hands the new width down to its rows on the next polish, so the
+        // row is one pass behind the panel. Both happen before a frame is
+        // drawn; a test that reads the row in the same instruction does
+        // not.
+        QTRY_VERIFY2(!longLabel->property("truncated").toBool(),
+                 qPrintable(QStringLiteral(
+                     "'%1' is elided at %2 px inside a %3 px menu (it needs "
+                     "%4 px)")
+                        .arg(longRow->property("text").toString())
+                        .arg(longLabel->width())
+                        .arg(flyout->property("width").toInt())
+                        .arg(longLabel->property("contentWidth").toReal())));
+        QTRY_VERIFY2(flyout->property("width").toInt()
+                         > flyout->property("menuWidth").toInt(),
+                     "the flyout did not widen past its design width at all");
+
+        // And the short row is NOT what decided the width — the widest row
+        // is, which is the whole contract.
+        auto *shortRow = item("fitShortRow");
+        QVERIFY(shortRow);
+        QVERIFY(longRow->implicitWidth() > shortRow->implicitWidth());
+
+        QMetaObject::invokeMethod(flyout, "close");
+        QTRY_VERIFY(!flyout->property("opened").toBool());
+        closeMenu();
+    }
+
+    // The other half of the same contract: menu rows carry REMOTE text, so
+    // "widen to fit" without a stop is a menu as wide as whatever someone
+    // called their room. Past the ceiling the row elides exactly as it used
+    // to, which is the correct behaviour there.
+    void theMenuFitStopsAtItsCeilingAndTheRowElidesThere()
+    {
+        openMenu();
+        auto *flyout =
+            m_root->findChild<QObject *>(QStringLiteral("ceilingFlyout"));
+        QVERIFY(flyout);
+        openViaParentRow(m_root->findChild<QObject *>(QStringLiteral("menu")),
+                         flyout, m_window);
+
+        const int ceiling = flyout->property("menuWidthMax").toInt();
+        QVERIFY(ceiling > 0);
+        QTRY_COMPARE(flyout->property("width").toInt(), ceiling);
+        auto *row = item("ceilingRow");
+        QVERIFY(row);
+        QVERIFY2(label(row)->property("truncated").toBool(),
+                 "a row wider than the ceiling must still elide");
+
+        QMetaObject::invokeMethod(flyout, "close");
+        QTRY_VERIFY(!flyout->property("opened").toBool());
+        closeMenu();
+    }
+
+    // A non-MenuItem child of a menu sizes ITSELF. `wrapMode` alone wraps
+    // nothing — measured, the room menu's notifications disclaimer kept its
+    // implicitWidth (the whole unwrapped sentence) and painted straight
+    // through the panel, so it read "Local setting: it does not chang", cut
+    // mid-word with no ellipsis because a wrapping Text does not elide.
+    void aWrappedLabelInAMenuStaysInsideItsPanel()
+    {
+        openMenu();
+        auto *flyout = m_root->findChild<QObject *>(QStringLiteral("fitFlyout"));
+        QVERIFY(flyout);
+        openViaParentRow(m_root->findChild<QObject *>(QStringLiteral("menu")),
+                         flyout, m_window);
+
+        auto *disclaimer = item("fitDisclaimer");
+        QVERIFY(disclaimer);
+        QTRY_VERIFY(disclaimer->width() > 0);
+        // It WRAPPED rather than being cut: more than one line, and the
+        // painted text no wider than the item carrying it. A wrapping Text
+        // does not elide, so the unfixed version simply painted past the
+        // panel and was scissored mid-word.
+        QTRY_VERIFY2(disclaimer->property("lineCount").toInt() > 1,
+                     qPrintable(QStringLiteral(
+                         "disclaimer drew %1 line(s) at %2 px — it is not "
+                         "wrapping")
+                            .arg(disclaimer->property("lineCount").toInt())
+                            .arg(disclaimer->width())));
+        const int panel = flyout->property("width").toInt();
+        const int padding = flyout->property("leftPadding").toInt()
+                            + flyout->property("rightPadding").toInt();
+        QVERIFY2(disclaimer->width() <= panel - padding,
+                 qPrintable(QStringLiteral("disclaimer is %1 px wide inside a "
+                                           "%2 px panel (%3 of padding)")
+                                .arg(disclaimer->width()).arg(panel)
+                                .arg(padding)));
+        QVERIFY(disclaimer->property("contentWidth").toReal()
+                <= disclaimer->width() + 0.5);
+        // And VERTICALLY inside it: in the running app the wrapped second
+        // line fell below the panel's own edge, which is the same defect
+        // one axis over.
+        const qreal bottom = disclaimer->y() + disclaimer->height();
+        const qreal room = flyout->property("height").toReal()
+                           - flyout->property("topPadding").toReal()
+                           - flyout->property("bottomPadding").toReal();
+        QVERIFY2(bottom <= room + 0.5,
+                 qPrintable(QStringLiteral("disclaimer ends at y %1 in a "
+                                           "%2 px content area")
+                                .arg(bottom).arg(room)));
+
+        QMetaObject::invokeMethod(flyout, "close");
+        QTRY_VERIFY(!flyout->property("opened").toBool());
+        closeMenu();
+    }
+
+    // The same two properties on the REAL RoomActionsMenu, because the two
+    // cases above prove AppMenu's contract and not that the application's
+    // own flyout honours it. The component is the compiled production file;
+    // only the four data points it reads off `app` are stood in for.
+    void theRealRoomNotificationsFlyoutFitsItsOwnText()
+    {
+        QQmlComponent fakeComponent(&m_engine);
+        fakeComponent.setData(QByteArray(R"QML(
+import QtQuick
+QtObject {
+    property QtObject roomList: QtObject {
+        property bool roomFavouritesSupported: true
+    }
+    property bool serverRoomNotificationModes: false
+    property QtObject settings: QtObject {
+        signal roomNotificationModeChanged(string roomId)
+        function roomNotificationMode(roomId) { return 1 }
+    }
+    signal roomNotificationModeSyncStateChanged(string roomId)
+    function roomNotificationModeSyncFailed(roomId) { return false }
+    function requestRoomNotificationMode(roomId) {}
+}
+)QML"), QUrl(QStringLiteral("menufakeapp.qml")));
+        QScopedPointer<QObject> fake(fakeComponent.create());
+        QVERIFY2(fake, qPrintable(fakeComponent.errorString()));
+
+        QQmlContext ctx(m_engine.rootContext());
+        ctx.setContextProperty(QStringLiteral("app"), fake.data());
+        QQmlComponent sceneComponent(&m_engine);
+        sceneComponent.setData(QByteArray(R"QML(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    id: w
+    width: 900
+    height: 560
+    visible: true
+    color: AppTheme.background
+    property alias menu: roomMenu
+    RoomActionsMenu {
+        id: roomMenu
+        objectName: "realRoomMenu"
+        roomId: "!room:example.org"
+        roomName: "General"
+    }
+    function openIt() { roomMenu.popup(w.contentItem, 40, 40) }
+}
+)QML"), QUrl(QStringLiteral("realroommenuscene.qml")));
+        QScopedPointer<QObject> scene(sceneComponent.create(&ctx));
+        QVERIFY2(scene, qPrintable(sceneComponent.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(scene.data());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+
+        auto *menu = scene->findChild<QObject *>(QStringLiteral("realRoomMenu"));
+        QVERIFY(menu);
+        QMetaObject::invokeMethod(scene.data(), "openIt");
+        QTRY_VERIFY(menu->property("opened").toBool());
+
+        auto *flyout =
+            scene->findChild<QObject *>(QStringLiteral("roomNotificationsFlyout"));
+        QVERIFY(flyout);
+        // Opened directly: a click into this second window does not reach
+        // it under the offscreen platform. That is fine for the row below,
+        // which is a property of the MENU's width; the disclaimer's own
+        // proof is the source contract in ContextMenuContractTest plus the
+        // captures named in this round's notes.
+        QMetaObject::invokeMethod(flyout, "open");
+        QTRY_VERIFY(flyout->property("opened").toBool());
+
+        // The reported row.
+        QQuickItem *mentionsRow = nullptr;
+        const int count = flyout->property("count").toInt();
+        for (int i = 0; i < count; ++i) {
+            QQuickItem *row = nullptr;
+            QMetaObject::invokeMethod(flyout, "itemAt",
+                                      Q_RETURN_ARG(QQuickItem *, row),
+                                      Q_ARG(int, i));
+            if (row && row->property("text").toString().contains(
+                           QStringLiteral("Mentions")))
+                mentionsRow = row;
+        }
+        QVERIFY2(mentionsRow, "the flyout has no Mentions row");
+        auto *mentionsLabel = label(mentionsRow);
+        QVERIFY(mentionsLabel);
+        QTRY_VERIFY(mentionsLabel->width() > 0);
+        QTRY_VERIFY2(!mentionsLabel->property("truncated").toBool(),
+                 qPrintable(QStringLiteral("'%1' is elided at %2 px (needs %3)")
+                                .arg(mentionsRow->property("text").toString())
+                                .arg(mentionsLabel->width())
+                                .arg(mentionsLabel->property("contentWidth")
+                                         .toReal())));
+
+        // The reported disclaimer.
+        auto *disclaimer = scene->findChild<QQuickItem *>(
+            QStringLiteral("roomNotificationDisclaimer"));
+        QVERIFY(disclaimer);
+        QTRY_VERIFY(disclaimer->width() > 0);
+        QTRY_VERIFY2(disclaimer->property("lineCount").toInt() > 1,
+                     "the disclaimer is still one clipped line");
+        const int panel = flyout->property("width").toInt();
+        const int padding = flyout->property("leftPadding").toInt()
+                            + flyout->property("rightPadding").toInt();
+        QVERIFY2(disclaimer->width() <= panel - padding,
+                 qPrintable(QStringLiteral("disclaimer %1 px inside a %2 px "
+                                           "panel").arg(disclaimer->width())
+                                .arg(panel)));
+        QVERIFY(disclaimer->property("contentWidth").toReal()
+                <= disclaimer->width() + 0.5);
+    }
+
+    // ── F5: A SOFT CHIP'S INK MUST CLEAR THE CHIP ────────────────────────
+    //
+    // The soft fill is 14% of the tone's own colour over the parent, so it
+    // lifts the background TOWARDS the ink and the label measures WORSE on
+    // its own pill than on the surface behind it. `neutral` starts from the
+    // muted text ink, the dimmest there is, and on the unfixed tree it
+    // failed 4.5:1 AA on eight of eleven palettes over `stormPanel` — the
+    // surface a SettingsCard has painted since fea70c63.
+    //
+    // Eleven palettes are DEMANDED to be distinct, not counted: a loop that
+    // writes `settings.theme` without `AppTheme.mode` reaching the singleton
+    // measures one palette eleven times and passes (the 2026-09-19 lesson).
+    void theNeutralChipInkClearsItsOwnFillOnEveryPalette()
+    {
+        struct Probe { const char *chip; const char *host; };
+        const Probe probes[] = {
+            { "chipNeutralPanel", "chipHostPanel" },
+            { "chipNeutralCanvas", "chipHostCanvas" },
+            { "chipNeutralLegacy", "chipHostLegacy" },
+        };
+        QSet<QRgb> distinctFills;
+        for (int mode = 1; mode <= 11; ++mode) {
+            m_root->setProperty("themeMode", mode);
+            QTRY_COMPARE(item("chipHostPanel")->property("color").value<QColor>(),
+                         token("tokStormPanel"));
+            for (const Probe &p : probes) {
+                auto *chip = item(p.chip);
+                auto *host = item(p.host);
+                QVERIFY(chip);
+                QVERIFY(host);
+                const QColor parent = host->property("color").value<QColor>();
+                const QColor fill =
+                    over(chip->property("color").value<QColor>(), parent);
+                const QColor ink = rowChild(chip, "chipLabel")
+                                       ->property("color").value<QColor>();
+                const double ratio = contrastRatio(ink, fill);
+                QVERIFY2(ratio >= 4.5,
+                         qPrintable(QStringLiteral(
+                             "theme %1: %2 label %3 on its own fill %4 "
+                             "(parent %5) is %6:1, below 4.5 AA")
+                                .arg(mode)
+                                .arg(QString::fromLatin1(p.chip))
+                                .arg(ink.name(), fill.name(), parent.name())
+                                .arg(ratio, 0, 'f', 2)));
+                if (qstrcmp(p.chip, "chipNeutralPanel") == 0)
+                    distinctFills.insert(fill.rgb());
+            }
+        }
+        QCOMPARE(distinctFills.size(), 11);
         m_root->setProperty("themeMode", 9);
     }
 };

@@ -343,6 +343,33 @@ private Q_SLOTS:
     // Information; the Settings → Notifications caption carries the same
     // conditional, with its push-registration sentence unconditional
     // (that stays true on every backend).
+    // A non-MenuItem child of an AppMenu sizes ITSELF, and if it does not,
+    // it wraps at its own implicitWidth and paints outside the panel.
+    // Measured 2026-09-20 in the running app: the notifications disclaimer
+    // rendered as ONE line cut mid-word at the panel border ("Local
+    // setting: it does not chang"), with no ellipsis, because a wrapping
+    // Text does not elide. A source contract, not a geometric one, because
+    // the offscreen QQuickMenu sizes this item where the running one does
+    // not — the running app is where the defect lives and where its
+    // captures were taken.
+    void theNotificationDisclaimerBindsItsWidthToTheFlyout()
+    {
+        const QString menu = read(QStringLiteral("RoomActionsMenu.qml"));
+        QVERIFY2(!menu.isEmpty(), "RoomActionsMenu.qml not readable");
+        const int label =
+            menu.indexOf(QStringLiteral("objectName: \"roomNotificationDisclaimer\""));
+        QVERIFY2(label >= 0, "the disclaimer Label has been renamed");
+        const int end = menu.indexOf(QStringLiteral("wrapMode:"), label);
+        QVERIFY2(end > label, "the disclaimer no longer declares a wrapMode");
+        const QString block = menu.mid(label, end - label);
+        QVERIFY2(block.contains(QStringLiteral("width: notificationsFlyout.width")),
+                 "the disclaimer does not bind its width to the flyout, so "
+                 "its wrapMode wraps at its own implicitWidth and the text "
+                 "paints through the panel border");
+        QVERIFY(block.contains(QStringLiteral("notificationsFlyout.leftPadding")));
+        QVERIFY(block.contains(QStringLiteral("notificationsFlyout.rightPadding")));
+    }
+
     void notificationDisclaimersAreBackendHonest()
     {
         const QString delegate = read(QStringLiteral("RoomDelegate.qml"));
