@@ -266,3 +266,137 @@ improvement, a follow-up cap made the app FREEZE, and its
 width-invalidation injected anchor calls on every resize into the
 machinery three fixes were reverted from). Incremental unfilling while
 scrolling remains deliberately NOT done.
+
+## The history fill, pagination and the row window
+
+**MOVED OUT OF CLAUDE.md §16 on 2026-09-20** at 139,505 characters — the
+seventh move, for the reason all seven happened. These blocks were already
+about this file's subject; they were simply never here. Nothing was changed
+in them.
+
+**A ROOM OPEN COSTS THE HISTORY FILL'S PAGE COUNT TIMES ~400 MS, AND
+`maxInvisibleFillRetries` IS THAT COUNT'S CEILING (measured 2026-09-05).**
+`a5e64a6` raised the no-progress budget 8 -> 60; in a call room whose tail is
+RTC membership churn that meant 9 fill pages on a first open (4.2 s) and 18 on
+a re-open (11 s) — each page ~70 ms dispatch + network + 100-250 ms of ingest
+and the fill's own timers. Reported as "ten seconds to load a room". It is 12
+now, and a wheel towards older history on content too short to scroll asks for
+the next page, so the reader is never stuck behind a collapsed group either.
+The fill also decides how many rows a room holds after open, which IS the
+scroll frame cost (~14 ms at 900 rows): a bigger budget makes scrolling worse
+too. Detail in `docs/round-history.md`.
+
+**PAGE DOUBLING WAS TRIED THE SAME DAY AND REFUTED BY THE SAME LOG.** Asking
+for 100 events after an invisible page: Synapse answered a 100-event
+/messages in 1.5-1.8 s (17 ms per event) against 110 ms for 20 (5.5 ms
+per event), the fill overshot to ~600 rows, and the re-open went from 4 s
+to 11 s. Do not re-propose bigger pages as the answer to the fill; fewer
+pages is.
+
+**MATRIXRTC MEMBERSHIP STATE IS FILTERED OUT OF EVERY TIMELINE AT THE SDK
+(`lightning_event_filter`, rust/src/timeline.rs).** A call re-publishes one
+`m.call.member` (msc3401 / msc4143 / stable) state event per participant per
+MINUTE, so a room that hosts calls carries thousands; every one was a timeline
+item — paginated twenty at a time, ingested as a hidden activity row,
+instantiated as a delegate, counted by the fill. The maintainer's key
+observation (2026-09-05): ONE room lagged and every other opened instantly.
+Nothing on screen needs them (the "started a call" row is the notification
+event; the call UI reads membership from room STATE). The controller's
+no-progress budget is 12 empty pages (was 2) so the fill can walk a churn
+run; the pane's row cap bounds what is inserted.
+
+**THE FILL IS BOUNDED BY ROWS, NOT ONLY BY INVISIBLE PAGES
+(`maxViewportFillRows`, 240).** The invisible-page budget cannot bound a room
+whose every page adds a little height — a collapsed activity run growing by a
+line per page, one visible message per twenty hidden ones — because each such
+page counts as progress and resets it. Measured 2026-09-05: a re-open ran 32
+pages and 600+ rows in 6.4 s with the page budget never tripping. Every row
+is a delegate in the un-virtualized Column: that instantiation is the
+"freezes for five seconds", and the same 600 rows are the one-second stall
+when the row window releases them all at the live edge. 0.8.3 stopped at
+eight pages, ~160 rows; the cap restores that scale and the reader's scroll
+loads the rest a page at a time.
+
+**THE FILL LOOP MUST FOLLOW THE CONTROLLER, NOT ITS RETRY TIMER.** Rows
+land before `PaginationController` finishes a batch, so the fill check they
+trigger finds `busy` true and waits on the 250 ms retry timer — once per
+page. With every page served from the event cache in ~1 ms, that timer WAS
+the room-open time (14 pages, 4.4 s, timestamped log 2026-09-05). The pane
+re-checks the fill on the controller's `stateChanged` when it is idle.
+
+**THE MEDIA BAND IS AN INDEX RANGE THE ROW LOADER ASSIGNS, exactly like
+`rowOnScreen`, AND IT NEVER CLOSES ON THE NEWEST SIDE.** A picture loading
+late in a row between the reader and the live edge grows below the reader
+and moves them; rows older than the reader grow away from them. Only history
+beyond 2.5 viewports waits. Its first cut compared the delegate's own `y` against
+content-coordinate bounds — and inside the per-row Loader a delegate's y is
+always 0, so every row was "in band" at the newest end (no saving) and no row
+was deep in history (no picture ever loaded there). The pane computes
+`mediaBandFirstRow/LastRow` with `viewRowAtContentY` at discrete moments and
+the Loader sets `mediaInBand` on the delegate; the delegate's own default is
+permissive for hosts without a band.
+
+**A LOG LINE THAT CANNOT TELL "NOTHING HAPPENED" FROM "WE THREW EVERYTHING
+AWAY" IS NOT A LOG LINE.** A room open made fourteen back-paginations that each
+reported `added= 0`, and nothing anywhere could say whether the server returned
+nothing or the timeline filter had discarded a full page — `paginate_backwards`
+returns a bare `bool` and matrix-sdk-ui drops `BackPaginationOutcome.events` on
+the line that tests it. Lightning's own filter is the only place that sees
+every raw event AND knows why it said no; it counts now, and one instrumented
+run answered it outright (`filterOffered= 240 droppedRtc= 240` — twelve pages,
+100% MatrixRTC churn). **Four handling defects hid behind that silence**: a
+room asserted its own emptiness after ONE empty page
+(`m_initialHistoryHasSucceeded` had no `inserted > 0` test, so
+`timelineEmptyState` rendered "No messages here yet" over full history); the
+fill gave up at 8 because a page that adds NO rows spends
+`maxViewportFillRetries`, never the `maxInvisibleFillRetries` the 2026-09-05
+round raised for exactly this case; every empty page paid a 250 ms settle for
+rows that could not arrive; and `requestNearTop()`'s redirect swallowed the
+user's gesture once the fill had stopped. Detail in `docs/round-history.md`,
+2026-09-15 (afternoon).
+
+**AND A PAGE-SIZE ESCALATION IS NEARLY INERT — do not record it as the fix.**
+`matrix-sdk`'s `load_more_events_backwards` returns ONE STORED CHUNK at a time
+and never consults `batch_size`; that parameter only reaches the wire when the
+walk hits a network gap. A filtered run is therefore local disk reads, which is
+why the 250 ms settle dominated and not the fetch. (It is also NOT the page
+doubling §16 refutes: that measured unconditional 100-event pages on rooms
+whose pages ADD ROWS, and both harms it found need rows.) Related: the
+sliding-sync room list runs at `DEFAULT_LIST_TIMELINE_LIMIT = 1` and any
+`limited` response shrinks a room's cache to its last chunk, so `items= 0`
+versus a healthy room's `items= 2` (one event plus its date divider) is that
+residue, not an empty room.
+
+**AND THE BOUND THAT REPLACED THAT SILENCE WAS WRONG BY EXACTLY ONE MESSAGE
+(2026-09-16).** The fix above keyed "keep walking a filtered run" on
+`eventCount() == 0`. That is a PROXY for the reader's actual condition — *is
+the viewport full?* — and the maintainer's next report was the same room one
+message later: "in this room only a single image loads and I have to scroll up
+for anything else to appear." One loaded image made `eventCount()` non-zero, so
+the room got the ordinary twelve. **A bound keyed on a proxy for the user's
+condition is wrong by exactly the difference between them**; when the honest
+criterion cannot be read where the decision is made, derive it and say so
+rather than taking the nearest readable thing.
+
+**The terminator was in QML, and no previous round had it in frame.** The log
+showed NINE dispatches and stopped; neither controller bound can produce a nine
+(both are twelve), and `TimelinePane.qml`'s `maxViewportFillRetries` is EIGHT,
+plus one from `requestNearTop()`'s redirect, which does not spend the pane's
+counter. That counter's real subject is "the dispatch went nowhere" — and a
+page the filter emptied looks identical to it from QML (zero rows, zero pixels)
+while meaning the opposite: the cursor walked twenty real events towards the
+first message beyond the churn. **Two observations that are identical at the
+point of measurement are not one event.** Filtered pages now spend their own
+budget (`viewportFillEmptyPages` / 60, matching `kMaxFilteredRunStrikes`),
+which is affordable precisely because a page that inserts nothing instantiates
+no delegates; `maxViewportFillRows` (240) still bounds everything the fill puts
+on screen.
+
+**AND THE MOCK COULD NOT EXPRESS A FILTERED PAGE AT ALL, WHICH IS WHY IT
+SHIPPED TWICE.** `setPaginationChunkForTest({})` falls through to three
+synthetic events (`if (!m_paginationChunkOverride.isEmpty())`), so EVERY mock
+page had always added rows — the one pagination shape that matters most here
+had no reachable fixture at the QML layer. `setFilteredPaginationPagesForTest`
+is that fixture now. GENERALISE: before concluding a defect is untestable,
+check whether the harness can even REPRESENT the input. Detail in
+`docs/round-history.md`, 2026-09-16.
