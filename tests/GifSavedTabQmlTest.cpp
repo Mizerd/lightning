@@ -55,6 +55,7 @@
 #include "gif/GifSavedModel.h"
 #include "gif/GifSearchController.h"
 #include "gif/GifStarredStore.h"
+#include "gif/GifTransport.h"
 
 namespace {
 constexpr int kSignalTimeoutMs = 3000;
@@ -97,6 +98,25 @@ gif::GifResult safeResult(const QString &provider, const QString &id)
     r.gifHeight = 100;
     return r;
 }
+
+// A transport that hands out op ids and never answers unless told to, so the
+// controller can be parked in Loading (and then pushed into a provider error)
+// with no network and no timer. Mirrors GifSearchControllerTest's fake.
+class FakeGifTransport : public GifTransport
+{
+    Q_OBJECT
+public:
+    bool available() const override { return true; }
+    quint64 get(const QString &) override { return ++m_next; }
+    void fail(quint64 op, const QString &category)
+    {
+        Q_EMIT finished(op, false, 0, QByteArray(), category);
+    }
+    quint64 lastOp() const { return m_next; }
+
+private:
+    quint64 m_next = 100;
+};
 
 // GifPicker.qml reads app.gif and app.settings.gifAutoplay and nothing else.
 class FakeGifSettings : public QObject
@@ -416,6 +436,87 @@ private Q_SLOTS:
         QVERIFY2(overlay->isVisible(),
                  "the empty-state overlay is not visible on an empty Saved tab");
         QVERIFY(overlay->width() > 0 && overlay->height() > 0);
+
+        delete root;
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // 2026-09-20 composer/picker GUI audit, finding 1 (HIGH).
+    //
+    // The state overlay draws a spinner and a sentence AT THE SAME CENTRE.
+    // The spinner is an AppBusyIndicator, which documents in its own header
+    // that it does NOT bind visibility to `running` — "Hosts own visibility;
+    // this owns the animation" — and this host never set any. So a STOPPED
+    // ring of eight accent dots was painted on top of every empty and every
+    // error string the picker has: measured on the Saved tab as the dots
+    // covering the word "on" in "No saved GIFs yet. Press the star on any
+    // GIF…", and on a failed provider search as "No GI(dots)s found."
+    //
+    // Both halves are asserted, because either one alone can be passed by a
+    // wrong fix: hiding the spinner outright passes the error/empty half and
+    // fails the loading half, and leaving it as it was fails the other way.
+    void theOverlaySpinnerShowsOnlyWhileSomethingIsActuallyLoading()
+    {
+        GifSearchController gif;
+        FakeGifTransport transport;
+        gif.setTransport(&transport);
+        gif.setApiKey(QStringLiteral("giphy"), QStringLiteral("k"));
+        gif.favorites()->clearAll();
+
+        FakeGifApp fakeApp(&gif);
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        QQuickWindow *window = nullptr;
+        QObject *picker = nullptr;
+        QObject *root = openPicker(engine, fakeApp, warnings, &window, &picker);
+        QVERIFY(root != nullptr);
+        QTRY_VERIFY(picker->property("opened").toBool());
+
+        auto *busy =
+            picker->findChild<QQuickItem *>(QStringLiteral("gifStateOverlayBusy"));
+        QVERIFY2(busy != nullptr, "the state overlay has no reachable spinner");
+        auto *overlayText =
+            picker->findChild<QQuickItem *>(QStringLiteral("gifStateOverlayText"));
+        QVERIFY(overlayText != nullptr);
+
+        // (a) A REAL load on a provider tab with no results yet: the spinner
+        // is the whole point of the overlay and must be on screen.
+        QQmlProperty::write(picker, QStringLiteral("tab"),
+                            QStringLiteral("giphy"));
+        gif.searchNow(QStringLiteral("cats"));
+        QTRY_COMPARE(gif.state(),
+                     static_cast<int>(GifSearchController::Loading));
+        QCoreApplication::processEvents();
+        QVERIFY2(QQmlProperty::read(busy, QStringLiteral("running")).toBool(),
+                 "the spinner is not running during a real load");
+        QVERIFY2(busy->isVisible(),
+                 "the spinner is hidden while the picker is loading");
+        QCOMPARE(QQmlProperty::read(overlayText, QStringLiteral("text"))
+                     .toString(),
+                 QString());
+
+        // (b) That same request fails. The overlay now has something to SAY,
+        // and a stopped spinner on top of the sentence says the opposite.
+        transport.fail(transport.lastOp(), QStringLiteral("provider_error"));
+        QTRY_VERIFY(!QQmlProperty::read(overlayText, QStringLiteral("text"))
+                         .toString().isEmpty());
+        QVERIFY(!QQmlProperty::read(busy, QStringLiteral("running")).toBool());
+        QVERIFY2(!busy->isVisible(),
+                 qPrintable(QStringLiteral(
+                     "the dead spinner is still painted over the error text: '%1'")
+                        .arg(QQmlProperty::read(overlayText,
+                                                QStringLiteral("text")).toString())));
+
+        // (c) And on a LOCAL tab, which never issues a request at all, so
+        // the spinner can never have anything to report there.
+        QQmlProperty::write(picker, QStringLiteral("tab"),
+                            QStringLiteral("saved"));
+        QCoreApplication::processEvents();
+        const QString saved =
+            QQmlProperty::read(overlayText, QStringLiteral("text")).toString();
+        QVERIFY(saved.contains(QStringLiteral("No saved GIFs yet")));
+        QVERIFY2(!busy->isVisible(),
+                 "the dead spinner is still painted over the empty Saved tab");
 
         delete root;
         QCOMPARE(warnings, QStringList{});

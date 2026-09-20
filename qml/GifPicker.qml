@@ -1159,11 +1159,27 @@ AnchoredPopup {
         // punctuation on the navy panel rather than as an active state.
         AppBusyIndicator {
             id: busy
+            objectName: "gifStateOverlayBusy"
             anchors.centerIn: parent
             color: AppTheme.bolt
             running: picker.providerTab
                      && picker.gif.state === GifSearchController.Loading
                      && picker.gif.results.count === 0
+            // AppBusyIndicator deliberately does NOT bind its own visibility
+            // to `running` (its header says why: the stock host idiom is
+            // `running: visible`, and the pair latches dead). "Hosts own
+            // visibility" — and this host never set any, so the ring of dots
+            // was painted, STOPPED, dead-centre on top of every empty and
+            // error string this overlay has: "No saved GI(dots)s found."
+            // A stopped spinner over the sentence explaining why there is
+            // nothing to show says the opposite of that sentence.
+            //
+            // No cycle: `running` is bound to controller state, never to
+            // `visible`. The two states are mutually exclusive by
+            // construction — `running` needs the Loading state on a provider
+            // tab, and every string below needs a non-Loading state or a
+            // local tab — so nothing is lost by hiding it.
+            visible: busy.running
         }
         Label {
             id: overlayText
