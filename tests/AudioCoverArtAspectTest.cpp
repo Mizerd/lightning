@@ -19,6 +19,8 @@
 
 #include <QtTest/QtTest>
 
+#include <QSet>
+
 #include <QElapsedTimer>
 #include <QImage>
 #include <QQmlApplicationEngine>
@@ -211,6 +213,84 @@ private Q_SLOTS:
         QCOMPARE(call("formatPosition", 60000), QStringLiteral("1:00"));
         QCOMPARE(call("formatDuration", 0), QStringLiteral("0:00"));
         QCOMPARE(call("formatPosition", 0), QStringLiteral("0:00"));
+    }
+
+    // A RECEIVED VOICE MESSAGE'S WAVEFORM WAS A SOLID BLOCK, and every test
+    // over this card passed while it was.
+    //
+    // The delegate read `Math.min(1, wf[at])` against buckets that
+    // rust/src/timeline.rs normalises to 0..=100 (downsample_waveform) and
+    // RustTimelineIngest.cpp preserves by dropping anything outside that
+    // range. So every bucket of amplitude >= 1 clamped to full height and
+    // only a literal zero showed the 0.12 floor: the "real MSC3245
+    // waveform" this card advertises could not draw a waveform at all.
+    //
+    // Asserted as SHAPE, not as specific heights: bars must DIFFER from one
+    // another, the loud one must beat the quiet one, and none may fill the
+    // strip. A test pinning exact pixels would pass on a block of any
+    // uniform height.
+    void theWaveformDrawsItsBucketsInsteadOfClampingThemToABlock()
+    {
+        Card card = makeCard(QUrl(), 360);
+        QVERIFY(card.item != nullptr);
+
+        // Ascending buckets across the 0..=100 range the ingest produces.
+        QVariantList wf;
+        for (int amp : { 0, 5, 12, 25, 40, 55, 70, 85, 100 })
+            wf.append(amp);
+        card.item->setProperty("isVoice", true);
+        card.item->setProperty("waveform", wf);
+
+        QQuickItem *row = card.item->findChild<QQuickItem *>(
+            QStringLiteral("audioWaveRow"));
+        QVERIFY2(row != nullptr, "the waveform row was not created");
+        QTRY_VERIFY(row->isVisible() && row->width() > 1);
+
+        // findChild cannot reach Repeater delegates; walk the Row's own
+        // children instead.
+        QList<qreal> heights;
+        const auto kids = row->childItems();
+        for (QQuickItem *kid : kids) {
+            if (kid->height() > 0 && kid->width() > 0 && kid->width() <= 4)
+                heights.append(kid->height());
+        }
+        QVERIFY2(heights.size() >= 4,
+                 qPrintable(QStringLiteral("only %1 waveform bars were built")
+                                .arg(heights.size())));
+
+        qreal lo = heights.first();
+        qreal hi = heights.first();
+        for (qreal h : heights) {
+            lo = qMin(lo, h);
+            hi = qMax(hi, h);
+        }
+        const qreal strip = row->height();
+
+        // COUNT THE DISTINCT HEIGHTS, and do not merely check that the bars
+        // differ. Under the clamp they DO differ: bucket 0 still lands on
+        // the 0.12 floor while every other bucket saturates to 1.0, so a
+        // min-versus-max assertion passes on the broken code. It did, on the
+        // first version of this case. Nine ascending buckets must produce a
+        // spread of heights, not two.
+        QSet<int> distinct;
+        for (qreal h : heights)
+            distinct.insert(qRound(h * 4.0));  // quarter-pixel buckets
+        QVERIFY2(distinct.size() >= 5,
+                 qPrintable(QStringLiteral(
+                     "nine ascending buckets drew only %1 distinct bar "
+                     "heights on a %2px strip (%3..%4) — the 0..=100 values "
+                     "were clamped to 1 instead of divided by 100")
+                                .arg(distinct.size()).arg(strip)
+                                .arg(lo).arg(hi)));
+        QVERIFY2(hi <= strip + 0.5,
+                 qPrintable(QStringLiteral("a bar is %1px on a %2px strip")
+                                .arg(hi).arg(strip)));
+        // The loudest bucket is 100, which IS the full strip; the quietest
+        // must sit on the 0.12 floor and nowhere near it.
+        QVERIFY2(lo < strip * 0.3,
+                 qPrintable(QStringLiteral(
+                     "the quietest bar is %1px of a %2px strip")
+                                .arg(lo).arg(strip)));
     }
 };
 

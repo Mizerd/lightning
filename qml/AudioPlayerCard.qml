@@ -461,6 +461,7 @@ Rectangle {
 
                 Row {
                     id: waveRow
+                    objectName: "audioWaveRow"
                     anchors.fill: parent
                     visible: root.isVoice && root.waveform
                              && root.waveform.length > 0
@@ -472,11 +473,26 @@ Rectangle {
                         model: waveRow.visible ? waveRow.barCount : 0
                         delegate: Rectangle {
                             required property int index
+                            // THE BUCKETS ARE 0..=100, NOT 0..1, AND
+                            // CLAMPING THEM DREW A SOLID BLOCK. `Math.min(1,
+                            // wf[at])` took every bucket of amplitude 1 or
+                            // more to full height, so every received voice
+                            // message rendered as a filled rectangle and only
+                            // a literal zero showed the 0.12 floor — the one
+                            // thing a "real MSC3245 waveform" is for was the
+                            // one thing it could not show. The range is set
+                            // in rust/src/timeline.rs by downsample_waveform,
+                            // which normalises the wire's 0..1024 into at
+                            // most 96 buckets of 0..=100, and
+                            // RustTimelineIngest.cpp keeps that range by
+                            // dropping anything outside it. Divide; the
+                            // min() still guards a malformed bucket.
                             readonly property real amp: {
                                 var wf = root.waveform
                                 var at = Math.floor(
                                     index * wf.length / waveRow.barCount)
-                                return Math.max(0.12, Math.min(1, wf[at]))
+                                return Math.max(0.12,
+                                                Math.min(1, wf[at] / 100))
                             }
                             readonly property real progress:
                                 root.player && root.player.duration > 0
