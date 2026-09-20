@@ -32,6 +32,7 @@
 #include "app/PinnedMessagesController.h"
 #include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
+#include "app/ShortcutRegistry.h"
 #include "matrix/MockMatrixClient.h"
 #include "auth/AuthManager.h"
 #include "gif/GifSearchController.h"
@@ -1784,6 +1785,605 @@ private slots:
         m_controller->showMain();
         QTRY_VERIFY_WITH_TIMEOUT(
             item("spacesRail") && item("spacesRail")->isVisible(), 3000);
+    }
+
+    // ── THE PAGE NAMED THE WRONG DEFAULT, AND THE WRONG ONE WAS THE
+    // PRIVATE ONE ───────────────────────────────────────────────────────
+    //
+    // The help text under the notification-preview combo read "Sender only
+    // (the default) never shows message text in notifications", while
+    // SettingsManager::notificationPreview() has returned 0 = Sender and
+    // message since 8e4977d1 (2026-08-22). So the app told a reader that
+    // their desktop was NOT showing message bodies at a moment when it was:
+    // a promise about disclosure that it did not keep.
+    //
+    // The default is read from a SCRATCH SettingsManager with its own empty
+    // store, not from the live one this suite has been writing to, and the
+    // mode NAMES are read off the live combo's own model — so the case
+    // asserts the page against the code rather than against a string a
+    // future round can move out from under it. The negative half matters as
+    // much as the positive one: the old sentence named a mode that was not
+    // the default, and only "does not claim the wrong one" catches that.
+    //
+    // UNFIXED TREE: fails with `"Sender only" is described as the default,
+    // but the default is 0 = "Sender and message"`.
+    void theNotificationHelpNamesTheModeThatIsActuallyTheDefault()
+    {
+        m_controller->showSettingsSection(QStringLiteral("notifications"));
+        QCoreApplication::processEvents();
+
+        auto *combo = item("notificationPreviewCombo");
+        auto *help = item("notificationPreviewHelp");
+        QVERIFY2(combo && help, "the notification preview row is not live");
+        const QVariantList modes = combo->property("model").toList();
+        QCOMPARE(modes.size(), 3);
+
+        // A store nothing has ever written, so the getter answers with its
+        // own documented default rather than with this suite's history.
+        const QString appName = QCoreApplication::applicationName();
+        QCoreApplication::setApplicationName(
+            QStringLiteral("settings-shell-qml-default-probe"));
+        int defaultMode = -1;
+        {
+            SettingsManager probe;
+            defaultMode = probe.notificationPreview();
+        }
+        QCoreApplication::setApplicationName(appName);
+        QVERIFY(defaultMode >= 0 && defaultMode < modes.size());
+
+        const QString text = help->property("text").toString();
+        QVERIFY2(!text.isEmpty(), "the preview help text is empty");
+        int claimed = 0;
+        for (int i = 0; i < modes.size(); ++i) {
+            const QString name = modes.at(i).toString();
+            const bool claims =
+                text.contains(name + QStringLiteral(" is the default"))
+                || text.contains(name + QStringLiteral(" (the default)"));
+            if (claims)
+                ++claimed;
+            if (i == defaultMode)
+                continue;
+            QVERIFY2(!claims,
+                     qPrintable(QStringLiteral(
+                         "\"%1\" is described as the default, but the "
+                         "default is %2 = \"%3\" — the page is telling the "
+                         "reader it discloses less than it does")
+                             .arg(name).arg(defaultMode)
+                             .arg(modes.at(defaultMode).toString())));
+        }
+        QVERIFY2(claimed == 1,
+                 qPrintable(QStringLiteral(
+                     "%1 of the three preview modes are named as the "
+                     "default; exactly one must be, and it must be %2")
+                         .arg(claimed)
+                         .arg(modes.at(defaultMode).toString())));
+    }
+
+    // ── EVERY SEARCH ENTRY MUST POINT AT SOMETHING THAT EXISTS ──────────
+    //
+    // The anchors are what makes a result click go anywhere, and a typo in
+    // one is invisible: the row still highlights, still reads as a button,
+    // and silently does nothing — which is the defect they were added to
+    // fix. So the whole index is resolved against the LIVE pane, all
+    // seventy, and the COUNT is asserted rather than "no failures seen"
+    // (a loop over an index that failed to load passes vacuously).
+    //
+    // UNFIXED TREE: there are no anchors at all, so this fails on the first
+    // entry.
+    void everySearchIndexEntryResolvesItsAnchorToALiveControl()
+    {
+        auto *screen = item("settingsScreenRoot");
+        auto *flick = item("settingsContentFlick");
+        QVERIFY2(screen && flick, "the settings screen root is not live");
+        auto *pane = flick->property("contentItem").value<QQuickItem *>();
+        QVERIFY(pane);
+
+        const QVariantList index = screen->property("searchIndex").toList();
+        QVERIFY2(index.size() >= 60,
+                 qPrintable(QStringLiteral("only %1 index entries were read")
+                                .arg(index.size())));
+        QStringList bad;
+        int resolved = 0;
+        for (const QVariant &v : index) {
+            const QVariantMap e = v.toMap();
+            const QString title = e.value(QStringLiteral("title")).toString();
+            const QString anchor = e.value(QStringLiteral("anchor")).toString();
+            if (anchor.isEmpty()) {
+                bad.append(title + QStringLiteral(" -> (none)"));
+                continue;
+            }
+            QQuickItem *hit = findItem(m_window->contentItem(), anchor);
+            if (!hit) {
+                bad.append(title + QStringLiteral(" -> \"") + anchor
+                           + QStringLiteral("\" (no such item)"));
+                continue;
+            }
+            // And it must live in the CONTENT PANE. An anchor that resolved
+            // to something in the nav column or a dialog would scroll the
+            // page to a position that means nothing.
+            bool inPane = false;
+            for (QQuickItem *p = hit; p; p = p->parentItem()) {
+                if (p == pane) {
+                    inPane = true;
+                    break;
+                }
+            }
+            if (!inPane) {
+                bad.append(title + QStringLiteral(" -> \"") + anchor
+                           + QStringLiteral("\" (outside the content pane)"));
+                continue;
+            }
+            ++resolved;
+        }
+        QVERIFY2(bad.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "search entries whose anchor names no live control in "
+                     "the settings content pane: %1")
+                         .arg(bad.join(QStringLiteral("; ")))));
+        // Assert the COUNT of what actually resolved, never the count of
+        // loop iterations.
+        QCOMPARE(resolved, index.size());
+    }
+
+    // ── CLICKING A RESULT FOR THE SECTION YOU ARE ON DID NOTHING ────────
+    //
+    // The tap did `root.section = entry.section`, and when that IS the
+    // current section Qt emits no change, so nothing happened at all.
+    // Measured on a real window: searched "rail depth" from Appearance,
+    // clicked the result, and the 1440x1280 content region came back
+    // BYTE-IDENTICAL — 0 differing pixels. It is the common case, not the
+    // corner one: Appearance is the landing section and supplies 26 of the
+    // 70 entries.
+    //
+    // Asserted on the SCROLL and on the halo, not on "the section is still
+    // appearance", which was already true on the broken tree. The click is
+    // a real mouse press on the result's TITLE — not on the row centre,
+    // where the rail-depth entry's own inline segmented control lives.
+    //
+    // UNFIXED TREE: fails on `contentY moved`, at 0.
+    void aSearchResultInTheSectionYouAreAlreadyOnStillTakesYouToTheControl()
+    {
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        auto *search = item("settingsSearchField");
+        auto *flick = item("settingsContentFlick");
+        QVERIFY(search && flick);
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(flick->property("contentY").toReal(), 0.0);
+
+        search->setProperty("text", QStringLiteral("rail depth"));
+        QCoreApplication::processEvents();
+        auto *title = item("settingsSearchResultTitle_0");
+        QVERIFY2(title, "no first search result for \"rail depth\"");
+
+        auto *control = item("spacesRailDepthControl");
+        QVERIFY(control);
+        const qreal target =
+            control->mapToItem(
+                flick->property("contentItem").value<QQuickItem *>(),
+                QPointF(0, 0)).y();
+        QVERIFY2(target > flick->height(),
+                 qPrintable(QStringLiteral(
+                     "the fixture is not exercising the defect: the rail "
+                     "depth control is already on screen at y=%1 in a %2 "
+                     "tall viewport")
+                         .arg(target).arg(flick->height())));
+
+        auto *halo = item("settingsSearchRevealHalo");
+        QVERIFY(halo);
+        clickItem(title);
+        for (int i = 0; i < 100; ++i) {
+            if (flick->property("contentY").toReal() > 0.0
+                && halo->opacity() > 0.5)
+                break;
+            QTest::qWait(10);
+        }
+        // Read everything, THEN put the query back, THEN assert: a case
+        // that fails here must not hand the next one a filtered nav.
+        const qreal contentY = flick->property("contentY").toReal();
+        const qreal haloOpacity = halo->opacity();
+        const qreal haloY = halo->y();
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+
+        QVERIFY2(contentY > 0.0,
+                 "clicking a result for the section you are already on left "
+                 "the page exactly where it was");
+        QVERIFY2(target >= contentY && target <= contentY + flick->height(),
+                 qPrintable(QStringLiteral(
+                     "the control is at %1 and the viewport shows %2..%3")
+                         .arg(target).arg(contentY)
+                         .arg(contentY + flick->height())));
+        // And the click is acknowledged even when it had nowhere to scroll:
+        // the halo rings the control it named.
+        QVERIFY2(haloOpacity > 0.5,
+                 "the reveal halo never lit, so a click on a control already "
+                 "on screen still has no feedback");
+        QVERIFY2(qAbs(haloY - target) < 12.0,
+                 qPrintable(QStringLiteral(
+                     "the halo is at y=%1 and the control it names at y=%2")
+                         .arg(haloY).arg(target)));
+    }
+
+    // ── AND A RESULT IN ANOTHER SECTION LANDED AT THE TOP OF IT ─────────
+    //
+    // `onSectionChanged` sets contentY = 0, so a breadcrumb naming a
+    // sub-group dropped the reader at the top of a very long page and left
+    // them to find the control themselves.
+    //
+    // UNFIXED TREE: fails with contentY 0 and the control far below the
+    // viewport.
+    void aSearchResultInAnotherSectionLandsOnTheControlNotTheTopOfThePage()
+    {
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        auto *search = item("settingsSearchField");
+        auto *flick = item("settingsContentFlick");
+        QVERIFY(search && flick);
+        search->setProperty("text", QStringLiteral("ignored users"));
+        QCoreApplication::processEvents();
+        auto *title = item("settingsSearchResultTitle_0");
+        QVERIFY2(title, "no first search result for \"ignored users\"");
+
+        auto *screen = item("settingsScreenRoot");
+        auto *card = item("ignoredUsersCard");
+        auto *content = flick->property("contentItem").value<QQuickItem *>();
+        QVERIFY(screen && card && content);
+
+        clickItem(title);
+        for (int i = 0; i < 100; ++i) {
+            if (screen->property("section").toString()
+                    == QLatin1String("privacy")
+                && flick->property("contentY").toReal() > 0.0)
+                break;
+            QTest::qWait(10);
+        }
+        const QString section = screen->property("section").toString();
+        const qreal contentY = flick->property("contentY").toReal();
+        const qreal top = card->mapToItem(content, QPointF(0, 0)).y();
+        const qreal viewH = flick->height();
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+
+        QCOMPARE(section, QStringLiteral("privacy"));
+        QVERIFY2(contentY > 0.0,
+                 "a cross-section result still landed at contentY 0");
+        QVERIFY2(top >= contentY && top <= contentY + viewH,
+                 qPrintable(QStringLiteral(
+                     "the ignored-users card is at %1 and the viewport shows "
+                     "%2..%3").arg(top).arg(contentY).arg(contentY + viewH)));
+    }
+
+    // ── AND THE HOVER ON THOSE ROWS IS fea70c63's DEFECT, ONE SCREEN
+    // AWAY ──────────────────────────────────────────────────────────────
+    //
+    // A search result sits in the same nav column as the section rows, over
+    // the same ground, and painted its hover in the same stormSelection —
+    // the palette's `hover`, a tint designed to sit on `surface` and not on
+    // a page. Measured against that column before the fix: Lightning Light
+    // 0.40 dL*, Moss Light 0.45, Warm 0.99. There is no bolt caret and no
+    // bold label on a result row, so on the three light themes the row had
+    // NO hover state at all.
+    //
+    // The fill is read off the live Rectangle with a real pointer over it,
+    // never off a token name — the tokens were fine, the question is which
+    // one the row asks for. 4.0 dL* is the floor the nav pill uses, and the
+    // worst real palette after the fix is Moss Light at 5.49; `selected`
+    // would be 3.4 there and `hover` 0.45, so the floor separates the fix
+    // from both tokens that do not work.
+    //
+    // UNFIXED TREE: fails on Lightning Light at 0.40 dL*.
+    void theSearchResultHoverIsVisibleOnEveryTheme()
+    {
+        const int restore = m_controller->settings()->theme();
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        auto *search = item("settingsSearchField");
+        QVERIFY(search);
+        search->setProperty("text", QStringLiteral("room activity"));
+        QCoreApplication::processEvents();
+
+        auto *row = item("settingsSearchResult_0");
+        auto *column = item("settingsNavColumn");
+        QVERIFY2(row && column, "the first search result is not live");
+
+        // Away first, then on: an unconditional move event, whatever the
+        // previous case left the pointer sitting on.
+        QTest::mouseMove(m_window, QPoint(m_window->width() - 4, 4));
+        QCoreApplication::processEvents();
+        const QPointF centre = row->mapToScene(
+            QPointF(row->width() / 2, row->height() / 2));
+        QTest::mouseMove(m_window, centre.toPoint());
+        QCoreApplication::processEvents();
+        // Guard the premise the way the nav case does: an unhovered row
+        // paints "transparent", which samples as pure black and would PASS
+        // on every light theme while testing nothing.
+        QTRY_VERIFY2(
+            row->property("color").value<QColor>().alpha() == 255,
+            "the pointer never reached the result row, so its resting "
+            "transparent fill is what would have been measured");
+
+        const int themes[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+        double worst = 1000.0;
+        QString worstWhere;
+        QStringList flat;
+        int checked = 0;
+        for (int id : themes) {
+            m_controller->settings()->setTheme(
+                static_cast<SettingsManager::Theme>(id));
+            QCoreApplication::processEvents();
+            const QColor fill = row->property("color").value<QColor>();
+            const QColor nav = column->property("color").value<QColor>();
+            QVERIFY(fill.isValid() && nav.isValid());
+            const double sep = qAbs(lstarOf(fill) - lstarOf(nav));
+            if (sep < worst) {
+                worst = sep;
+                worstWhere = QStringLiteral("theme %1: %2 on %3")
+                                 .arg(id).arg(fill.name(), nav.name());
+            }
+            ++checked;
+            if (sep < 4.0)
+                flat.append(QStringLiteral(
+                    "theme %1: a hovered settings-search result is %2 on a "
+                    "column of %3 — only %4 dL* (%5:1) apart, so the row "
+                    "gives no feedback that it is the one under the pointer")
+                        .arg(id)
+                        .arg(fill.name(), nav.name())
+                        .arg(sep, 0, 'f', 2)
+                        .arg(contrastRatio(fill, nav), 0, 'f', 2));
+        }
+        // Put the shell back BEFORE asserting: a case that fails mid-loop
+        // must not hand the next one a stray theme, a live query and a
+        // pointer parked on a row.
+        m_controller->settings()->setTheme(
+            static_cast<SettingsManager::Theme>(restore));
+        search->setProperty("text", QString());
+        QTest::mouseMove(m_window, QPoint(m_window->width() - 4, 4));
+        QCoreApplication::processEvents();
+
+        QVERIFY2(flat.isEmpty(),
+                 qPrintable(flat.join(QStringLiteral("\n  "))));
+        QCOMPARE(checked, 11);
+        qInfo("search result hover vs nav: worst %.2f dL* (%s)",
+              worst, qPrintable(worstWhere));
+    }
+
+    // ── THE ACCOUNT PAGE DID NOT FIT THE WINDOW THE APP ITSELF ALLOWS ───
+    //
+    // Main.qml declares minimumWidth 640. At 640x420 the Account page was
+    // clipped with no horizontal scrollbar — `contentFlick` sets no
+    // contentWidth and clips — so the "+" custom swatch, "Use theme
+    // colour" (the ONLY way to clear a custom name colour) and the
+    // display-name "Edit" button were off-screen and unreachable, and the
+    // name-colour help paragraph was cut mid-word at the window edge.
+    //
+    // One cause, three symptoms: a RowLayout of nine swatches, the custom
+    // slot, a spacer and a button has an unshrinkable ~470 px minimum, and
+    // that minimum propagates up through the ColumnLayout the wrapping help
+    // Label sizes itself to. The whole column, not just the row, was wider
+    // than the card.
+    //
+    // Geometric, on real delegates, in x — a source scan cannot see this
+    // and neither can a screenshot at the default size. Everything is
+    // measured against the CARD, not the window, because a control inside
+    // the window but hanging out of its own card is still wrong.
+    //
+    // UNFIXED TREE: fails on the swatch row, ~470 px wide inside a ~330 px
+    // card.
+    void theAccountPageFitsTheApplicationsOwnMinimumWindow()
+    {
+        const int w = m_window->width();
+        const int h = m_window->height();
+        m_controller->showSettingsSection(QStringLiteral("account"));
+        QCoreApplication::processEvents();
+        m_window->setWidth(640);
+        m_window->setHeight(420);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(m_window->width(), 640);
+
+        auto *card = item("accountIdentityCard");
+        QVERIFY2(card, "the account identity card is not live");
+        QTRY_VERIFY(card->width() > 0 && card->width() < 640);
+
+        struct Probe { const char *name; const char *what; };
+        const Probe probes[] = {
+            { "nameColorSwatchFlow", "the nine name-colour swatches" },
+            { "nameColorCustomSwatch", "the custom-colour \"+\" slot" },
+            { "clearNameColorButton", "\"Use theme colour\"" },
+            { "editDisplayNameButton", "the display-name Edit button" },
+            { "nameColorHelpText", "the name-colour help paragraph" },
+        };
+        const qreal cardRight =
+            card->mapToScene(QPointF(card->width(), 0)).x();
+        QStringList clipped;
+        int checked = 0;
+        for (const Probe &p : probes) {
+            auto *probe = item(p.name);
+            QVERIFY2(probe, p.name);
+            if (!probe->isVisible())
+                continue;   // hidden by a backend capability, not clipped
+            const qreal right =
+                probe->mapToScene(QPointF(probe->width(), 0)).x();
+            const qreal left = probe->mapToScene(QPointF(0, 0)).x();
+            ++checked;
+            if (right > cardRight + 1.0)
+                clipped.append(QStringLiteral(
+                    "at 640x420 %1 runs to x=%2, past its own card's right "
+                    "edge at %3 — and the page has no horizontal scrollbar, "
+                    "so it cannot be reached")
+                        .arg(QLatin1String(p.what)).arg(right).arg(cardRight));
+            if (right > m_window->width() + 1.0 || left < -1.0)
+                clipped.append(QStringLiteral(
+                    "at 640x420 %1 spans x=%2..%3 in a 640 px window")
+                        .arg(QLatin1String(p.what)).arg(left).arg(right));
+        }
+
+        // Restore before asserting — a failure here must not leave the next
+        // case running in a 640x420 window.
+        m_window->setWidth(w);
+        m_window->setHeight(h);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(m_window->width(), w);
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+
+        QVERIFY2(clipped.isEmpty(),
+                 qPrintable(clipped.join(QStringLiteral("\n  "))));
+        QVERIFY2(checked >= 4,
+                 qPrintable(QStringLiteral(
+                     "only %1 of the five Account controls were on screen to "
+                     "measure").arg(checked)));
+    }
+
+    // ── TWO SHORTCUTS THAT RENDER AS THE SAME STRING ────────────────────
+    //
+    // The action-name column was the only cell with fillWidth, so it took
+    // the entire shortfall while the 132 px keycap and the Change button
+    // kept theirs, and it ELIDED. At 640x520 "Open the quick switcher" and
+    // "Open the quick switcher in command mode" both read "Open the …", so
+    // there was no way to tell which shortcut the Change button beside them
+    // was about to rebind.
+    //
+    // Asserted as "nothing is shortened", not as "these two differ": four
+    // rows begin "Show or hide", three "Mark the", four "Open the", and a
+    // case that pins one pair would pass while the other nine collide. The
+    // second half proves the first is not vacuous — if `truncated` ever
+    // stops reporting, the distinctness check still bites.
+    //
+    // UNFIXED TREE: fails with `"Open the quick switcher" is shortened`.
+    void noShortcutNameIsShortenedIntoAnotherShortcutsName()
+    {
+        const int w = m_window->width();
+        const int h = m_window->height();
+        m_controller->showSettingsSection(QStringLiteral("shortcuts"));
+        QCoreApplication::processEvents();
+        m_window->setWidth(640);
+        m_window->setHeight(520);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(m_window->width(), 640);
+
+        auto *registry = m_controller->shortcuts();
+        QVERIFY(registry);
+        const int rows = registry->rowCount();
+        QVERIFY(rows > 10);
+
+        QSet<QString> seen;
+        QStringList cut;
+        int checked = 0;
+        for (int r = 0; r < rows; ++r) {
+            const QString id =
+                registry->data(registry->index(r, 0),
+                               ShortcutRegistry::IdRole).toString();
+            QVERIFY(!id.isEmpty());
+            auto *label = item(qPrintable(QStringLiteral("shortcutName_%1")
+                                              .arg(id)));
+            if (!label)
+                continue;
+            ++checked;
+            const QString text = label->property("text").toString();
+            if (label->property("truncated").toBool())
+                cut.append(QStringLiteral(
+                    "at 640x520 the name of \"%1\" is shortened to fit a "
+                    "%2 px column, and a shortened action name is not an "
+                    "action name — it is what made \"Open the quick "
+                    "switcher\" and \"…in command mode\" the same row")
+                        .arg(text).arg(label->width()));
+            if (seen.contains(text))
+                cut.append(QStringLiteral(
+                    "two shortcut rows both render as \"%1\"").arg(text));
+            seen.insert(text);
+        }
+
+        m_window->setWidth(w);
+        m_window->setHeight(h);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(m_window->width(), w);
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+
+        QVERIFY2(cut.isEmpty(), qPrintable(cut.join(QStringLiteral("\n  "))));
+        QVERIFY2(checked >= rows,
+                 qPrintable(QStringLiteral(
+                     "only %1 of %2 registry rows have a live name label")
+                         .arg(checked).arg(rows)));
+    }
+
+    // ── PLACE THE INK, NOT THE BOX ──────────────────────────────────────
+    //
+    // The rail-depth segmented control sat about 8 px right of the label it
+    // belongs to: every Label in that card starts its ink at spacing4 from
+    // the card's content edge, while a SegmentedControl segment is
+    // `text + 24`, so its first glyph is 12 px inside its own left edge.
+    // Measured in Lightning Dark: label x=300, help paragraph x=301, the
+    // checkbox above x=303, the control x=309.
+    //
+    // The comparison is between real INK positions on live delegates, so it
+    // keeps holding if SegmentedControl's padding ever changes — which is
+    // the whole reason not to assert the 12 in the QML.
+    //
+    // UNFIXED TREE: fails at ~8 px out.
+    void theRailDepthControlLinesUpWithItsOwnLabel()
+    {
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        auto *label = item("spacesRailDepthLabel");
+        auto *segment = item("spacesRailDepthControl_0");
+        QVERIFY2(label && segment, "the rail-depth row is not live");
+        ensureVisible(segment);
+        auto *ink = segment->property("contentItem").value<QQuickItem *>();
+        QVERIFY2(ink, "the segment has no content item to measure");
+        QTRY_VERIFY(ink->width() > 0 && label->width() > 0);
+
+        const qreal labelInk = label->mapToScene(QPointF(0, 0)).x();
+        // The segment centres its label, so its first glyph is half the
+        // slack in from the content item's own left edge.
+        const qreal segInk =
+            ink->mapToScene(QPointF(0, 0)).x()
+            + (ink->width() - ink->implicitWidth()) / 2.0;
+        QVERIFY2(qAbs(segInk - labelInk) <= 1.0,
+                 qPrintable(QStringLiteral(
+                     "\"Spaces rail depth\" starts its ink at x=%1 and its "
+                     "own control starts at x=%2 — %3 px out of line with "
+                     "the label it belongs to")
+                         .arg(labelInk).arg(segInk)
+                         .arg(qAbs(segInk - labelInk), 0, 'f', 1)));
+    }
+
+    // ── ONE PARAGRAPH SET SOLID AMONG PARAGRAPHS THAT ARE NOT ───────────
+    //
+    // The "Message search index" description omitted lineHeight, so twelve
+    // lines of body copy rendered at Qt's default 17 px leading against
+    // 25-26 px for every other paragraph on the same page. Measured
+    // baseline-to-baseline on a real window.
+    //
+    // Compared against a NEIGHBOUR rather than against a constant: what was
+    // wrong is that it disagreed with the page around it.
+    //
+    // UNFIXED TREE: fails with the index paragraph at lineHeight 1.0.
+    void theSearchIndexHelpParagraphLeadsLikeItsNeighbours()
+    {
+        m_controller->showSettingsSection(QStringLiteral("privacy"));
+        QCoreApplication::processEvents();
+        auto *odd = item("searchIndexHelpText");
+        auto *neighbour = item("collapseEmbedsHint");
+        QVERIFY2(odd, "the message-search-index help text is not live");
+        if (!neighbour)
+            neighbour = item("nameColorHelpText");
+        QVERIFY2(neighbour, "no neighbouring help paragraph to compare with");
+        const int mode = odd->property("lineHeightMode").toInt();
+        const int wantMode = neighbour->property("lineHeightMode").toInt();
+        const qreal lead = odd->property("lineHeight").toReal();
+        const qreal wantLead = neighbour->property("lineHeight").toReal();
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        QCOMPARE(mode, wantMode);
+        QVERIFY2(qFuzzyCompare(lead, wantLead),
+                 qPrintable(QStringLiteral(
+                     "the message-search-index paragraph leads at %1 where "
+                     "its neighbours lead at %2").arg(lead).arg(wantLead)));
     }
 
     void noQmlWarnings()

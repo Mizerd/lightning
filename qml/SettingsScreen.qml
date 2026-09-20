@@ -21,6 +21,9 @@ import MatrixClient
 // verification/import state survives switching categories.
 Item {
     id: root
+    // The whole screen, so a suite can reach its searchIndex and its
+    // reveal helpers rather than re-deriving them.
+    objectName: "settingsScreenRoot"
     // A minted recovery key is shown until the user leaves; it must not
     // sit in memory behind a closed Settings screen.
     //
@@ -90,22 +93,28 @@ Item {
     property string settingsSearchQuery: ""
     readonly property var searchIndex: [
         { title: qsTr("Account"), keywords: qsTr("account profile"),
-          section: "account", breadcrumb: qsTr("Account") },
+          section: "account", breadcrumb: qsTr("Account"),
+          anchor: "accountIdentityCard" },
         { title: qsTr("Homeserver"), keywords: qsTr("homeserver server url"),
-          section: "account", breadcrumb: qsTr("Account") },
+          section: "account", breadcrumb: qsTr("Account"),
+          anchor: "homeserverField" },
         { title: qsTr("Start minimized"), keywords: qsTr("startup minimized"),
-          section: "account", breadcrumb: qsTr("Account · Startup") },
+          section: "account", breadcrumb: qsTr("Account · Startup"),
+          anchor: "startMinimizedCheck" },
 
         { title: qsTr("Theme"),
           keywords: qsTr("theme moss indigo teal light dark graphite midnight nordic purple warm"),
-          section: "appearance", breadcrumb: qsTr("Appearance") },
+          section: "appearance", breadcrumb: qsTr("Appearance"),
+          anchor: "featuredThemeFlow" },
         { title: qsTr("Match system light/dark"),
           keywords: qsTr("match system auto theme"), section: "appearance",
-          breadcrumb: qsTr("Appearance · Theme"), control: "matchSystem" },
+          breadcrumb: qsTr("Appearance · Theme"), control: "matchSystem",
+          anchor: "matchSystemSwitch" },
         { title: qsTr("Message layout"),
           keywords: qsTr("message layout modern bubbles compact"),
           section: "appearance", breadcrumb: qsTr("Appearance"),
-          control: "messageLayout" },
+          control: "messageLayout",
+          anchor: "messageLayoutControl" },
         // Indexed under the words someone would actually type after
         // deciding the rail looks wrong — "space bar" included, because that
         // is what the maintainer calls it and it is what a report says.
@@ -113,241 +122,305 @@ Item {
           keywords: qsTr("spaces rail depth space bar sidebar nesting regions "
                          + "classic old style flat tint indent"),
           section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
-          control: "spacesRailDepth" },
+          control: "spacesRailDepth",
+          anchor: "spacesRailDepthControl" },
         { title: qsTr("Text size"), keywords: qsTr("text size font scale"),
-          section: "appearance", breadcrumb: qsTr("Appearance") },
+          section: "appearance", breadcrumb: qsTr("Appearance"),
+          anchor: "textScaleSlider" },
         { title: qsTr("Interface zoom"),
           keywords: qsTr("interface zoom scale bigger ui size"),
-          section: "appearance", breadcrumb: qsTr("Appearance") },
+          section: "appearance", breadcrumb: qsTr("Appearance"),
+          anchor: "interfaceZoomSlider" },
         { title: qsTr("Font"), keywords: qsTr("font family typeface"),
-          section: "appearance", breadcrumb: qsTr("Appearance") },
+          section: "appearance", breadcrumb: qsTr("Appearance"),
+          anchor: "uiFontSelector" },
         { title: qsTr("Code font"),
           keywords: qsTr("code font monospace mono fixed width typeface"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Font") },
+          section: "appearance", breadcrumb: qsTr("Appearance · Font"),
+          anchor: "monoFontCombo" },
         { title: qsTr("Your own fonts"),
           keywords: qsTr("import font file ttf otf install custom typeface"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Font") },
+          section: "appearance", breadcrumb: qsTr("Appearance · Font"),
+          anchor: "importedFontCard" },
         { title: qsTr("Language"), keywords: qsTr("language locale"),
-          section: "appearance", breadcrumb: qsTr("Appearance") },
+          section: "appearance", breadcrumb: qsTr("Appearance"),
+          anchor: "languageCombo" },
         { title: qsTr("Show room activity"),
           keywords: qsTr("room activity membership joins leaves profile"),
           section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
-          control: "showRoomActivity" },
+          control: "showRoomActivity",
+          anchor: "showRoomActivityCheck" },
         { title: qsTr("Mouse-wheel speed"),
           keywords: qsTr("wheel speed scroll timeline"), section: "appearance",
-          breadcrumb: qsTr("Appearance · Timeline") },
+          breadcrumb: qsTr("Appearance · Timeline"),
+          anchor: "timelineWheelSpeedCombo" },
         { title: qsTr("Joins, leaves and invites"),
           keywords: qsTr("membership join leave invite kick ban activity hide"),
           section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
-          control: "showMembershipEvents" },
+          control: "showMembershipEvents",
+          anchor: "showMembershipEventsCheck" },
         { title: qsTr("Display name and avatar changes"),
           keywords: qsTr("profile change display name avatar activity hide"),
           section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
-          control: "showProfileChangeEvents" },
+          control: "showProfileChangeEvents",
+          anchor: "showProfileChangeEventsCheck" },
         { title: qsTr("Collapse media and link embeds"),
           keywords: qsTr("embed embeds collapse collapsed compact single line "
                          + "clutter declutter media image picture gif sticker "
                          + "video audio voice file attachment link preview "
                          + "expand arrow"),
           section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
-          control: "collapseEmbeds" },
+          control: "collapseEmbeds",
+          anchor: "collapseEmbedsCheck" },
         { title: qsTr("Reduce motion"),
           keywords: qsTr("reduced motion animation accessibility vestibular"),
           section: "appearance",
           breadcrumb: qsTr("Appearance · Motion and time"),
-          control: "reducedMotion" },
+          control: "reducedMotion",
+          anchor: "reducedMotionCheck" },
         { title: qsTr("Smooth scrolling"),
           keywords: qsTr("smooth scrolling scroll wheel glide animation instant jumpy mouse"),
           section: "appearance",
           breadcrumb: qsTr("Appearance · Motion and time"),
-          control: "smoothScrolling" },
+          control: "smoothScrolling",
+          anchor: "smoothScrollingCheck" },
         { title: qsTr("Clock"),
           keywords: qsTr("clock 24 hour time format am pm timestamp"),
           section: "appearance",
-          breadcrumb: qsTr("Appearance · Motion and time") },
+          breadcrumb: qsTr("Appearance · Motion and time"),
+          anchor: "clockFormatCombo" },
         { title: qsTr("Show Space banners"),
           keywords: qsTr("space banner header image hide show"),
           section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
-          control: "spaceBannersVisible" },
+          control: "spaceBannersVisible",
+          anchor: "spaceBannersVisibleCheck" },
         { title: qsTr("Conversation list width"),
           keywords: qsTr("room list width panel size sidebar"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Panels") },
+          section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
+          anchor: "roomListWidthSlider" },
         { title: qsTr("Side panel width"),
           keywords: qsTr("side panel width members threads size"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Panels") },
+          section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
+          anchor: "sidePanelWidthSlider" },
         { title: qsTr("Enter starts a new line"),
           keywords: qsTr("enter newline send composer message box return"),
           section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
-          control: "enterInsertsNewline" },
+          control: "enterInsertsNewline",
+          anchor: "enterInsertsNewlineCheck" },
         { title: qsTr("Send text with an attachment as its caption"),
           keywords: qsTr("caption attachment upload text description"),
           section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
-          control: "sendTextAsCaption" },
+          control: "sendTextAsCaption",
+          anchor: "sendTextAsCaptionCheck" },
         { title: qsTr("Message box buttons"),
           keywords: qsTr("composer buttons hide show emoji gif sticker stickers "
                          + "voice microphone formatting schedule send later "
                          + "declutter simplify"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Message box") },
+          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          anchor: "composerButtonsHeading" },
         { title: qsTr("Check spelling as you type"),
           keywords: qsTr("spell spelling checker dictionary typo underline language"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Message box") },
+          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          anchor: "spellCheckEnabledCheck" },
         { title: qsTr("Spelling language"),
           keywords: qsTr("spell spelling language dictionary automatic system"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Message box") },
+          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          anchor: "spellLanguageCombo" },
 
         { title: qsTr("Keyboard shortcuts"),
           keywords: qsTr("keyboard shortcut shortcuts key keys binding rebind hotkey"),
-          section: "shortcuts", breadcrumb: qsTr("Keyboard shortcuts") },
+          section: "shortcuts", breadcrumb: qsTr("Keyboard shortcuts"),
+          anchor: "shortcutsHeading" },
         { title: qsTr("Reset all shortcuts"),
           keywords: qsTr("reset shortcuts default keys"),
-          section: "shortcuts", breadcrumb: qsTr("Keyboard shortcuts") },
+          section: "shortcuts", breadcrumb: qsTr("Keyboard shortcuts"),
+          anchor: "shortcutResetAllButton" },
         { title: qsTr("Bold, italic and code keys"),
           keywords: qsTr("bold italic strikethrough code quote list formatting keys"),
           section: "shortcuts",
-          breadcrumb: qsTr("Keyboard shortcuts · Message formatting") },
+          breadcrumb: qsTr("Keyboard shortcuts · Message formatting"),
+          anchor: "shortcutRow_composer.bold" },
 
         { title: qsTr("Microphone"),
           keywords: qsTr("microphone mic input device voice call audio sound"),
           section: "sound",
           breadcrumb: qsTr("Sound & video · Microphone"),
-          control: "callDevice_microphone" },
+          control: "callDevice_microphone",
+          anchor: "callDevice_microphone" },
         { title: qsTr("Microphone volume"),
           keywords: qsTr("microphone volume gain mic input level loud quiet boost amplify sound"),
           section: "sound",
-          breadcrumb: qsTr("Sound & video · Microphone") },
+          breadcrumb: qsTr("Sound & video · Microphone"),
+          anchor: "microphoneGainSlider" },
         { title: qsTr("Output device"),
           keywords: qsTr("speaker output headphones headset device voice call audio sound"),
           section: "sound",
           breadcrumb: qsTr("Sound & video · Output"),
-          control: "callDevice_speaker" },
+          control: "callDevice_speaker",
+          anchor: "callDevice_speaker" },
         { title: qsTr("Media playback volume"),
           keywords: qsTr("volume sound audio video voice message playback level media loud"),
           section: "sound",
-          breadcrumb: qsTr("Sound & video · Media") },
+          breadcrumb: qsTr("Sound & video · Media"),
+          anchor: "mediaVolumeSettingSlider" },
         { title: qsTr("Camera"),
           keywords: qsTr("camera webcam video device call"),
           section: "sound",
           breadcrumb: qsTr("Sound & video · Camera"),
-          control: "callDevice_camera" },
+          control: "callDevice_camera",
+          anchor: "callDevice_camera" },
         { title: qsTr("Float the call when Lightning is minimised"),
           keywords: qsTr("float picture in picture pip call window minimised"),
           section: "sound",
-          breadcrumb: qsTr("Sound & video · Calls") },
+          breadcrumb: qsTr("Sound & video · Calls"),
+          anchor: "callPictureInPictureCheck" },
         { title: qsTr("Ring for incoming voice calls"),
           keywords: qsTr("ring ringer ringtone sound incoming call alert"),
-          section: "notifications", breadcrumb: qsTr("Notifications") },
+          section: "notifications", breadcrumb: qsTr("Notifications"),
+          anchor: "ringForCallsCheck" },
         { title: qsTr("Desktop notifications"),
           keywords: qsTr("notifications desktop enable"),
           section: "notifications", breadcrumb: qsTr("Notifications"),
-          control: "notificationsEnabled" },
+          control: "notificationsEnabled",
+          anchor: "notificationsEnabledCheck" },
         { title: qsTr("Notification preview"),
           keywords: qsTr("notification preview privacy sender message"),
-          section: "notifications", breadcrumb: qsTr("Notifications") },
+          section: "notifications", breadcrumb: qsTr("Notifications"),
+          anchor: "notificationPreviewCombo" },
 
         { title: qsTr("Notification preview in encrypted rooms"),
           keywords: qsTr("notification preview encrypted body privacy hide message text"),
           section: "notifications",
-          breadcrumb: qsTr("Notifications") },
+          breadcrumb: qsTr("Notifications"),
+          anchor: "notificationPreviewEncryptedCombo" },
         { title: qsTr("Notification sound"),
           keywords: qsTr("notification sound mute"), section: "notifications",
-          breadcrumb: qsTr("Notifications") },
+          breadcrumb: qsTr("Notifications"),
+          anchor: "notificationSoundCombo" },
 
         { title: qsTr("Only exchange messages with verified devices"),
           keywords: qsTr("invisible crypto msc4153 cross-signed verified "
                          + "device trust insecure exclude encryption"),
           section: "privacy",
-          breadcrumb: qsTr("Privacy & security · Device trust") },
+          breadcrumb: qsTr("Privacy & security · Device trust"),
+          anchor: "strictDeviceTrustCheck" },
 
         { title: qsTr("Read receipts"),
           keywords: qsTr("read receipt receipts private seen ticks blue "
                          + "m.read.private privacy"),
           section: "privacy",
-          breadcrumb: qsTr("Privacy & security · Reading and typing") },
+          breadcrumb: qsTr("Privacy & security · Reading and typing"),
+          anchor: "readReceiptModeCombo" },
 
         { title: qsTr("Let others see when I am typing"),
           keywords: qsTr("typing notice notification composing indicator "
                          + "privacy"),
           section: "privacy",
-          breadcrumb: qsTr("Privacy & security · Reading and typing") },
+          breadcrumb: qsTr("Privacy & security · Reading and typing"),
+          anchor: "sendTypingCheck" },
 
         { title: qsTr("Share my online status"),
           keywords: qsTr("presence online idle offline status share"),
-          section: "privacy", breadcrumb: qsTr("Privacy & security · Presence") },
+          section: "privacy", breadcrumb: qsTr("Privacy & security · Presence"),
+          anchor: "sharePresenceCheck" },
 
         { title: qsTr("Ignored users"),
           keywords: qsTr("ignore ignored block user mute person hide"),
           section: "privacy",
-          breadcrumb: qsTr("Privacy & security · Ignored users") },
+          breadcrumb: qsTr("Privacy & security · Ignored users"),
+          anchor: "ignoredUsersCard" },
         { title: qsTr("Sign out other sessions"),
           keywords: qsTr("sessions devices sign out remove device delete"),
           section: "sessions",
-          breadcrumb: qsTr("Sessions") },
+          breadcrumb: qsTr("Sessions"),
+          anchor: "signOutOtherSessionsButton" },
 
         { title: qsTr("Automatically load previews in unencrypted rooms"),
           keywords: qsTr("link preview privacy"), section: "privacy",
           breadcrumb: qsTr("Privacy & security · Link previews"),
-          control: "autoLoadLinkPreviews" },
+          control: "autoLoadLinkPreviews",
+          anchor: "autoPreviewCheck" },
         { title: qsTr("Load previews in encrypted rooms"),
           keywords: qsTr("link preview encrypted"), section: "privacy",
-          breadcrumb: qsTr("Privacy & security · Link previews") },
+          breadcrumb: qsTr("Privacy & security · Link previews"),
+          anchor: "encryptedPreviewCheck" },
         { title: qsTr("Autoplay and prefetch media"),
           keywords: qsTr("gif autoplay prefetch video audio media"),
-          section: "privacy", breadcrumb: qsTr("Privacy & security · Media") },
+          section: "privacy", breadcrumb: qsTr("Privacy & security · Media"),
+          anchor: "gifAutoplayCombo" },
         { title: qsTr("GIF safe search"),
           keywords: qsTr("gif safe search rating"), section: "privacy",
-          breadcrumb: qsTr("Privacy & security · GIFs") },
+          breadcrumb: qsTr("Privacy & security · GIFs"),
+          anchor: "gifRatingCombo" },
         { title: qsTr("Preferred GIF provider"),
           keywords: qsTr("gif provider giphy klipy"), section: "privacy",
-          breadcrumb: qsTr("Privacy & security · GIFs") },
+          breadcrumb: qsTr("Privacy & security · GIFs"),
+          anchor: "gifProviderCombo" },
         { title: qsTr("Store recently used GIFs"),
           keywords: qsTr("gif recents store"), section: "privacy",
-          breadcrumb: qsTr("Privacy & security · GIFs") },
+          breadcrumb: qsTr("Privacy & security · GIFs"),
+          anchor: "starredGifsSummaryLabel" },
         { title: qsTr("Security status"),
           keywords: qsTr("e2ee encryption status cross-signing backup"),
-          section: "privacy", breadcrumb: qsTr("Privacy & security") },
+          section: "privacy", breadcrumb: qsTr("Privacy & security"),
+          anchor: "cryptoHealthSummary" },
         { title: qsTr("Recovery key or passphrase"),
           keywords: qsTr("recovery key passphrase backup restore"),
-          section: "privacy", breadcrumb: qsTr("Privacy & security · Recovery") },
+          section: "privacy", breadcrumb: qsTr("Privacy & security · Recovery"),
+          anchor: "recoveryInputField" },
         { title: qsTr("Import room keys"),
           keywords: qsTr("import room keys export"), section: "privacy",
-          breadcrumb: qsTr("Privacy & security · Recovery") },
+          breadcrumb: qsTr("Privacy & security · Recovery"),
+          anchor: "importRoomKeysHeading" },
         { title: qsTr("Danger Zone"),
           keywords: qsTr("reset danger local session"), section: "privacy",
-          breadcrumb: qsTr("Privacy & security · Recovery") },
+          breadcrumb: qsTr("Privacy & security · Recovery"),
+          anchor: "dangerZone" },
 
         { title: qsTr("Sessions"), keywords: qsTr("sessions devices"),
-          section: "sessions", breadcrumb: qsTr("Sessions") },
+          section: "sessions", breadcrumb: qsTr("Sessions"),
+          anchor: "sessionsHeading" },
         { title: qsTr("Current session"),
           keywords: qsTr("device id session status"), section: "sessions",
-          breadcrumb: qsTr("Sessions") },
+          breadcrumb: qsTr("Sessions"),
+          anchor: "currentSessionHeading" },
         { title: qsTr("Sign in another device"),
           keywords: qsTr("qr code scan sign in another device phone link "
                          + "msc4108 login"),
-          section: "sessions", breadcrumb: qsTr("Sessions") },
+          section: "sessions", breadcrumb: qsTr("Sessions"),
+          anchor: "qrLoginOpenButton" },
 
         { title: qsTr("Verify this session"),
           keywords: qsTr("verify verification sas cross-signing"),
-          section: "sessions", breadcrumb: qsTr("Sessions") },
+          section: "sessions", breadcrumb: qsTr("Sessions"),
+          anchor: "verificationStatusCard" },
 
         { title: qsTr("Backend"), keywords: qsTr("backend rust http mock"),
-          section: "labs", breadcrumb: qsTr("Labs") },
+          section: "labs", breadcrumb: qsTr("Labs"),
+          anchor: "labsBackendLine" },
         { title: qsTr("Sync mode"), keywords: qsTr("sync sliding"),
-          section: "labs", breadcrumb: qsTr("Labs") },
+          section: "labs", breadcrumb: qsTr("Labs"),
+          anchor: "labsSyncModeLine" },
         { title: qsTr("Connection"), keywords: qsTr("connection status"),
-          section: "labs", breadcrumb: qsTr("Labs") },
+          section: "labs", breadcrumb: qsTr("Labs"),
+          anchor: "labsConnectionLine" },
         { title: qsTr("Refresh current room"),
           keywords: qsTr("refresh reload timeline"), section: "labs",
-          breadcrumb: qsTr("Labs") },
+          breadcrumb: qsTr("Labs"),
+          anchor: "labsRefreshRoomButton" },
 
         { title: qsTr("About"), keywords: qsTr("about version license"),
-          section: "about", breadcrumb: qsTr("About") },
+          section: "about", breadcrumb: qsTr("About"),
+          anchor: "aboutAppLogo" },
 
         { title: qsTr("Updates"),
           keywords: qsTr("update version upgrade check download install"),
-          section: "updates", breadcrumb: qsTr("Updates") },
+          section: "updates", breadcrumb: qsTr("Updates"),
+          anchor: "updatesSection" },
         { title: qsTr("Automatically check for updates"),
           keywords: qsTr("update automatic check background"),
-          section: "updates", breadcrumb: qsTr("Updates · Automatic checks") },
+          section: "updates", breadcrumb: qsTr("Updates · Automatic checks"),
+          anchor: "updatesSection" },
     ]
     readonly property var matchedSearchResults: {
         var q = root.settingsSearchQuery.trim().toLowerCase()
@@ -378,6 +451,119 @@ Item {
         return safe.slice(0, idx) + "<font color=\"" + AppTheme.bolt + "\">"
              + safe.slice(idx, idx + lowerQ.length) + "</font>"
              + safe.slice(idx + lowerQ.length)
+    }
+
+    // ── A SEARCH RESULT HAS TO GO SOMEWHERE ─────────────────────────────
+    //
+    // A result row is `Accessible.role: Accessible.Button` and highlights on
+    // hover, and all its tap did was `root.section = entry.section`. When
+    // that IS the current section Qt emits no change and NOTHING happened —
+    // no scroll, no flash, no feedback of any kind. Measured on a real
+    // window 2026-09-19: searched "rail depth" from Appearance, clicked the
+    // result, and the 1440x1280 content region came back BYTE-IDENTICAL, 0
+    // differing pixels. That is the common case rather than the corner one:
+    // Appearance is the landing section and supplies 26 of the 70 index
+    // entries.
+    //
+    // The other half is the same defect wearing the opposite symptom. When
+    // the section DID change, `onSectionChanged` put the reader at contentY
+    // 0, so a breadcrumb naming a sub-group ("Appearance · Panels", "Privacy
+    // & security · Recovery") dropped them at the top of a very long page.
+    // "Spaces rail depth" sits about nine wheel notches — ~4,800 px — below
+    // the top of Appearance.
+    //
+    // So every entry now carries an `anchor`, the objectName of the control
+    // it names, and a click SCROLLS TO IT and flashes a halo round it. Both
+    // halves fall out of that: the scroll does not care whether the section
+    // changed, and the flash means the click is answered even when the
+    // control was already under the reader's eye.
+    //
+    // The anchors are explicit rather than derived from the title or the
+    // breadcrumb, because a derived one fails SILENTLY and in the reader's
+    // language — matching a Label's text would break on the first
+    // translation and leave the row doing nothing again, which is the defect
+    // this is fixing. `everySearchIndexEntryResolvesItsAnchor` walks the live
+    // pane for all 70 so a typo cannot ship as a dead row.
+    property string searchRevealAnchor: ""
+
+    function findInPane(node, name) {
+        if (!node)
+            return null
+        if (node.objectName === name)
+            return node
+        var kids = node.children
+        for (var i = 0; i < kids.length; ++i) {
+            var hit = root.findInPane(kids[i], name)
+            if (hit)
+                return hit
+        }
+        return null
+    }
+
+    function revealSearchResult(entry) {
+        if (!entry)
+            return
+        root.section = entry.section
+        root.searchRevealAnchor = entry.anchor || ""
+        root.applySearchReveal(true)
+        // AND THEN AGAIN UNTIL THE PANE HOLDS STILL. A section change
+        // relayouts the pane that was hidden a moment ago, and Qt Quick
+        // Layouts do that in the POLISH pass before the next frame — so the
+        // y read above can be a stale one, and a zero-interval timer is no
+        // help because it fires as often as the event loop spins WITHOUT a
+        // frame in between. Measured on a real window: the scroll landed on
+        // the privacy pane's old geometry and the halo sat 105 px above the
+        // card it was naming.
+        //
+        // One frame apart, re-reading the target's position each time and
+        // stopping as soon as two passes agree — so the same-section case
+        // (the common one) costs two ticks and a cross-section one costs
+        // however many frames the relayout takes, bounded at twelve.
+        searchRevealSettle.ticks = 0
+        searchRevealSettle.lastTop = -1
+        searchRevealSettle.restart()
+    }
+
+    // Returns the target's y in content coordinates, or -1 when there is
+    // nothing to reveal — the settle timer uses that to know it has stopped
+    // moving.
+    function applySearchReveal(flash) {
+        if (root.searchRevealAnchor.length === 0)
+            return -1
+        var target = root.findInPane(contentColumn, root.searchRevealAnchor)
+        if (!target)
+            return -1
+        var top = target.mapToItem(contentFlick.contentItem, 0, 0).y
+        var maxY = Math.max(0, contentFlick.contentHeight - contentFlick.height)
+        // Land the control a little below the viewport's top edge so its own
+        // heading stays on screen with it.
+        settingsWheelArea.stopGlide()
+        contentFlick.contentY =
+            Math.max(0, Math.min(top - AppTheme.spacing24 * 2, maxY))
+        if (flash)
+            searchRevealHalo.flashOver(target)
+        else
+            searchRevealHalo.placeOver(target)
+        return top
+    }
+
+    Timer {
+        id: searchRevealSettle
+        interval: 16
+        repeat: true
+        property int ticks: 0
+        property real lastTop: -1
+        onTriggered: {
+            var top = root.applySearchReveal(false)
+            if (top < 0 || (lastTop >= 0 && Math.abs(top - lastTop) < 0.5)
+                || ++ticks >= 12) {
+                running = false
+                ticks = 0
+                lastTop = -1
+                return
+            }
+            lastTop = top
+        }
     }
 
     // Indeterminate spinner.
@@ -1183,9 +1369,13 @@ Item {
                             placeholderText: qsTr("Search settings…")
                             Accessible.name: qsTr("Search settings")
                             onTextChanged: root.settingsSearchQuery = text
+                            // Enter takes the first match, and takes it
+                            // the same way a click does — to the control,
+                            // not merely to the section.
                             onAccepted: {
                                 if (root.matchedSearchResults.length > 0)
-                                    root.section = root.matchedSearchResults[0].section
+                                    root.revealSearchResult(
+                                        root.matchedSearchResults[0])
                             }
                         }
                         // FROM THE REGISTRY, not a literal. The row is
@@ -1229,7 +1419,53 @@ Item {
                                 objectName: "settingsSearchResult_" + index
                                 Layout.fillWidth: true
                                 radius: AppTheme.radiusLg
-                                color: resultHover.hovered ? AppTheme.stormSelection : "transparent"
+                                // ── THE SAME DEFECT fea70c63 FIXED, ONE
+                                // SCREEN AWAY ──────────────────────────────
+                                //
+                                // A search result sits in the SAME nav
+                                // column the selected section row does, over
+                                // the same stormDeep ground, and it painted
+                                // its hover in the same stormSelection —
+                                // which is _stoSelection under Storm and the
+                                // palette's `hover` under every other theme,
+                                // a tint designed to sit on `surface` rather
+                                // than on a page. Measured on screen:
+                                // Lightning Light 0.4 dL*, Moss Light 0.4,
+                                // Warm 1.0. There is no bolt caret and no
+                                // bold label to carry the state here, so on
+                                // the three light themes a search result had
+                                // NO hover feedback at all.
+                                //
+                                // `selectedHover` at FULL strength, which is
+                                // the same one-token swap fea70c63 made and
+                                // keeps the tone relationship this row
+                                // already had: it painted the nav pill's own
+                                // tone undiluted, because hover is a search
+                                // result's ONLY state — there is no selected
+                                // result to out-rank it, and no caret or bold
+                                // label to carry the affordance if the fill
+                                // does not. Measured against this column on
+                                // all eleven, dL*: Moss Light 0.45 -> 5.49,
+                                // Lightning Light 0.40 -> 10.52, Warm 0.99 ->
+                                // 10.57, worst of the eight dark themes 18.7
+                                // (Storm). The nav row's 0.55 dilution, which
+                                // is right for a hover that must stay under a
+                                // selection, would leave Moss Light at 3.02.
+                                //
+                                // The obvious token is still the broken one:
+                                // on Moss Light `AppTheme.selected` IS
+                                // `accentSoft` (#D1F1E5 both), which is why
+                                // fea70c63 rejected it for the nav pill and
+                                // why it is rejected here.
+                                //
+                                // The quick-filter chips below keep
+                                // stormSelection deliberately: they hover
+                                // against stormInset, not against the page,
+                                // and `hover` is a tint designed for exactly
+                                // that ground — measured worst 4.34 dL*
+                                // (Warm), so they do not have this defect.
+                                color: resultHover.hovered
+                                       ? AppTheme.selectedHover : "transparent"
                                 implicitHeight: resultContent.implicitHeight
                                                 + AppTheme.spacing8
 
@@ -1245,6 +1481,8 @@ Item {
                                         Layout.fillWidth: true
                                         spacing: 0
                                         Label {
+                                            objectName: "settingsSearchResultTitle_"
+                                                        + resultRow.index
                                             Layout.fillWidth: true
                                             textFormat: Text.StyledText
                                             text: root.highlightedTitle(
@@ -1267,7 +1505,8 @@ Item {
                                         // from the inline controls below so
                                         // the two never fight for the tap.
                                         TapHandler {
-                                            onTapped: root.section = resultRow.modelData.section
+                                            onTapped: root.revealSearchResult(
+                                                resultRow.modelData)
                                         }
 
                                         // The three-segment layout control is
@@ -1593,6 +1832,7 @@ Item {
                 Layout.fillHeight: true
             Flickable {
                 id: contentFlick
+                objectName: "settingsContentFlick"
                 anchors.fill: parent
                 contentHeight: contentColumn.implicitHeight + AppTheme.spacing24 * 2
                 clip: true
@@ -1610,6 +1850,52 @@ Item {
                     function onSectionChanged() {
                         settingsWheelArea.stopGlide()
                         contentFlick.contentY = 0
+                    }
+                }
+
+                // The answer to "I clicked a search result and nothing
+                // happened". It rings whatever the result named, for about a
+                // second, in the accent — so the click is acknowledged even
+                // when the control was already on screen and the scroll had
+                // nothing to do. ONE item for all seventy anchors, drawn on
+                // top and `enabled: false`, so it can never take a press
+                // from the control it is pointing at.
+                Rectangle {
+                    id: searchRevealHalo
+                    objectName: "settingsSearchRevealHalo"
+                    z: 5
+                    opacity: 0
+                    enabled: false
+                    visible: opacity > 0
+                    color: "transparent"
+                    radius: AppTheme.radiusMd
+                    border.width: 2
+                    border.color: AppTheme.bolt
+                    function placeOver(target) {
+                        var p = target.mapToItem(contentFlick.contentItem, 0, 0)
+                        searchRevealHalo.x = p.x - AppTheme.spacing6
+                        searchRevealHalo.y = p.y - AppTheme.spacing6
+                        searchRevealHalo.width = target.width + AppTheme.spacing6 * 2
+                        searchRevealHalo.height = target.height + AppTheme.spacing6 * 2
+                    }
+                    function flashOver(target) {
+                        searchRevealHalo.placeOver(target)
+                        haloFlash.restart()
+                    }
+                    SequentialAnimation {
+                        id: haloFlash
+                        PropertyAction {
+                            target: searchRevealHalo
+                            property: "opacity"
+                            value: 1.0
+                        }
+                        PauseAnimation { duration: 400 }
+                        NumberAnimation {
+                            target: searchRevealHalo
+                            property: "opacity"
+                            to: 0.0
+                            duration: 650
+                        }
                     }
                 }
 
@@ -2984,6 +3270,7 @@ Item {
                                 // this one sits directly under the checkbox
                                 // that hides it.
                                 Label {
+                                    objectName: "spacesRailDepthLabel"
                                     Layout.topMargin: AppTheme.spacing4
                                     Layout.leftMargin: AppTheme.spacing4
                                     text: qsTr("Spaces rail depth")
@@ -2995,6 +3282,31 @@ Item {
                                 SegmentedControl {
                                     storm: true
                                     objectName: "spacesRailDepthControl"
+                                    // PLACE THE INK, NOT THE BOX. Every
+                                    // other row in this card starts its ink
+                                    // at spacing4 from the card's content
+                                    // edge; a SegmentedControl's segment is
+                                    // `segText.implicitWidth + 24`, so its
+                                    // first glyph sits 12 px inside its own
+                                    // left edge and a box flush at spacing4
+                                    // puts the ink 12 px further right than
+                                    // the label above it. Measured on screen
+                                    // in Lightning Dark: label x=300, help
+                                    // paragraph x=301, the checkbox above
+                                    // x=303, this control x=309.
+                                    //
+                                    // Pulling the BOX back by that padding
+                                    // lines the ink up; the selected chip's
+                                    // rounded fill then hangs the same 8 px
+                                    // left of the text column, which is how
+                                    // a chip row is normally set. The 12 is
+                                    // SegmentedControl's literal and is
+                                    // pinned by
+                                    // theRailDepthControlLinesUpWithItsOwnLabel,
+                                    // which compares real ink positions on
+                                    // live delegates rather than trusting
+                                    // this arithmetic.
+                                    Layout.leftMargin: AppTheme.spacing4 - 12
                                     enabled: app.settings.spacesRailVisible
                                     opacity: enabled ? 1.0 : 0.5
                                     model: [
@@ -3718,6 +4030,7 @@ Item {
                                 // its menu, so hiding it could stand between
                                 // the user and an action they had not hidden.
                                 Label {
+                                    objectName: "composerButtonsHeading"
                                     Layout.topMargin: AppTheme.spacing16
                                     Layout.leftMargin: AppTheme.spacing4
                                     text: qsTr("Message box buttons")
@@ -3801,6 +4114,7 @@ Item {
                         spacing: AppTheme.spacing12
 
                         Label {
+                            objectName: "shortcutsHeading"
                             text: qsTr("Keyboard shortcuts")
                             color: AppTheme.stormText
                             font.pixelSize: AppTheme.textTitle
@@ -3898,6 +4212,21 @@ Item {
                                             visible: model.shortcutCategory
                                                      === shortcutCategoryCard.modelData
                                             Layout.fillWidth: true
+                                            // Stack the name above its
+                                            // keycap once the pane is too
+                                            // narrow to hold both without
+                                            // shortening the name. The
+                                            // threshold is the pane's, not
+                                            // the row's — see ShortcutRow's
+                                            // header for why the row must
+                                            // not read its own width. 560
+                                            // is where the name column stops
+                                            // fitting the longest
+                                            // description ("Show or hide the
+                                            // people in this conversation")
+                                            // beside a 132 px keycap and two
+                                            // buttons.
+                                            compact: contentColumn.width < 560
                                         }
                                     }
                                 }
@@ -4135,6 +4464,7 @@ Item {
 
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
+                                    objectName: "sharePresenceCheck"
                                     text: qsTr("Share my online status")
                                     checked: app.settings.sharePresence
                                     onToggled: app.settings.sharePresence = checked
@@ -4301,8 +4631,21 @@ Item {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
                                 Label {
+                                    objectName: "searchIndexHelpText"
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
+                                    // Twelve lines of body copy at Qt's
+                                    // default leading read as a solid block
+                                    // beside every other paragraph on this
+                                    // page: measured baseline-to-baseline on
+                                    // a real window, 17 px here against
+                                    // 25-26 px everywhere else. 86 of the
+                                    // file's 112 wrapping Labels already set
+                                    // this pair; this is the one that
+                                    // visibly differed from its immediate
+                                    // neighbours.
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     textFormat: Text.PlainText
                                     text: qsTr("Lightning keeps its own index "
                                         + "of the messages it has seen, so "
@@ -4360,12 +4703,14 @@ Item {
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
                                     id: autoPreviewCheck
+                                    objectName: "autoPreviewCheck"
                                     text: qsTr("Automatically load previews in unencrypted rooms")
                                     checked: app.settings.autoLoadLinkPreviews
                                     onToggled: app.settings.autoLoadLinkPreviews = checked
                                 }
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
+                                    objectName: "encryptedPreviewCheck"
                                     text: qsTr("Load previews in encrypted rooms")
                                     checked: app.settings.loadPreviewsInEncryptedRooms
                                     onToggled: app.settings.loadPreviewsInEncryptedRooms = checked
@@ -4705,6 +5050,7 @@ Item {
                                 spacing: AppTheme.spacing8
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
+                                    objectName: "notificationsEnabledCheck"
                                     text: qsTr("Desktop notifications")
                                     checked: app.settings.notificationsEnabled
                                     onToggled: app.settings.notificationsEnabled = checked
@@ -4731,14 +5077,45 @@ Item {
                                         app.settings.notificationPreview = index
                                 }
                                 Label {
+                                    objectName: "notificationPreviewHelp"
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    text: qsTr("Sender only (the default) never shows "
-                                               + "message text in notifications. "
+                                    // ── THIS NAMED THE WRONG DEFAULT, AND
+                                    // THE WRONG ONE WAS THE PRIVATE ONE ──
+                                    //
+                                    // It read "Sender only (the default)
+                                    // never shows message text", while
+                                    // SettingsManager::notificationPreview()
+                                    // has returned 0 = Sender and message
+                                    // since 8e4977d1 (2026-08-22). So the
+                                    // page told a reader that their desktop
+                                    // was not showing message bodies at a
+                                    // moment when it was — a promise about
+                                    // disclosure that the app did not keep.
+                                    //
+                                    // THE LABEL IS THE STALE HALF, NOT THE
+                                    // DEFAULT. The default was moved 1 -> 0
+                                    // deliberately, on a tester report, with
+                                    // the reasoning written at the getter;
+                                    // this sentence was written on
+                                    // 2026-07-17 when 1 was true and was
+                                    // simply never revisited. Changing the
+                                    // DEFAULT back would silently reverse a
+                                    // product decision to make a sentence
+                                    // true, which is the wrong way round.
+                                    // So the sentence now states what each
+                                    // mode does and which one is in force
+                                    // out of the box.
+                                    text: qsTr("Sender and message is the default: "
+                                               + "a notification carries the message "
+                                               + "text. Sender only shows who wrote "
+                                               + "and never what they wrote, and "
+                                               + "Private withholds the sender and "
+                                               + "the room as well. "
                                                + "Encrypted messages that cannot be "
                                                + "decrypted always show a generic "
                                                + "notification. Notifications are "
@@ -5006,6 +5383,7 @@ Item {
                         // trust card.
                         SettingsCard {
                             id: accountIdentityCard
+                            objectName: "accountIdentityCard"
                             // Invokable results do not re-evaluate on
                             // signals; refresh the record whenever the
                             // registry or selection changes (the SpacesRail
@@ -5362,8 +5740,11 @@ Item {
                                         font.weight: AppTheme.weightStrong
                                     }
                                     Label {
+                                        objectName: "nameColorHelpText"
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
                                         textFormat: Text.PlainText
                                         text: qsTr("Other Lightning users see "
                                             + "this colour on your name. It is "
@@ -5372,7 +5753,55 @@ Item {
                                         color: AppTheme.stormTextSecondary
                                         font.pixelSize: AppTheme.textMeta
                                     }
-                                    RowLayout {
+                                    // ── A ROW THAT CANNOT SHRINK MAKES THE
+                                    // WHOLE PAGE WIDER THAN THE WINDOW ────
+                                    //
+                                    // This was a RowLayout of nine swatches,
+                                    // the custom slot, a fillWidth spacer and
+                                    // the "Use theme colour" button. A
+                                    // RowLayout's minimum width is the sum of
+                                    // its children's minimums, and none of
+                                    // these can shrink: 10x30 + 11 gaps + the
+                                    // button is ~470 px that the layout
+                                    // refuses to go below. That minimum
+                                    // propagates up through the enclosing
+                                    // ColumnLayout, so the COLUMN — and with
+                                    // it the wrapping help paragraph above,
+                                    // which sizes itself to the column — grew
+                                    // wider than the card.
+                                    //
+                                    // Measured at the app's own declared
+                                    // minimum window (Main.qml: 640x420):
+                                    // the help text was cut mid-word at the
+                                    // window edge (card border at x=615, ink
+                                    // running to x=639), the "+" slot, "Use
+                                    // theme colour" and the display-name
+                                    // "Edit" button were entirely off-screen,
+                                    // and `contentFlick` sets no
+                                    // `contentWidth` and clips, so there was
+                                    // no horizontal scrollbar and no way to
+                                    // reach any of it. The page needed ~860 px
+                                    // against a declared minimum of 640.
+                                    //
+                                    // A Flow's minimum is its WIDEST CHILD,
+                                    // so the column can now follow the card
+                                    // down to any width the window allows and
+                                    // the swatches wrap onto a second line
+                                    // instead. Raising Main.qml's minimum to
+                                    // 860 was the alternative and is the
+                                    // worse trade: it is a global constraint
+                                    // on every screen, imposed because of one
+                                    // card, and 860 is a lot to ask of a
+                                    // tiled window manager or a small laptop.
+                                    //
+                                    // The button joins the flow rather than
+                                    // sitting in a right-aligned cell of its
+                                    // own: it is a reset for this swatch
+                                    // group, it reads as the group's last
+                                    // item, and a Flow has no fillWidth
+                                    // spacer to push it anywhere.
+                                    Flow {
+                                        objectName: "nameColorSwatchFlow"
                                         Layout.fillWidth: true
                                         spacing: AppTheme.spacing8
                                         Repeater {
@@ -5454,15 +5883,26 @@ Item {
                                                 }
                                             }
                                         }
-                                        Item { Layout.fillWidth: true }
-                                        AppButton {
-                                            objectName: "clearNameColorButton"
-                                            storm: true
-                                            kind: "ghost"
-                                            text: qsTr("Use theme colour")
-                                            enabled: !app.nameColors.busy
-                                                     && app.nameColors.ownColor.length > 0
-                                            onClicked: app.nameColors.setOwnColor("")
+                                        // A Flow top-aligns what shares a
+                                        // line, and this button is 32 px
+                                        // against the discs' 30. One
+                                        // wrapper of the discs' own height
+                                        // centres it on them instead of
+                                        // leaving a 2 px step in the row.
+                                        Item {
+                                            implicitWidth: clearNameColorButton.implicitWidth
+                                            implicitHeight: 30
+                                            AppButton {
+                                                id: clearNameColorButton
+                                                objectName: "clearNameColorButton"
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                storm: true
+                                                kind: "ghost"
+                                                text: qsTr("Use theme colour")
+                                                enabled: !app.nameColors.busy
+                                                         && app.nameColors.ownColor.length > 0
+                                                onClicked: app.nameColors.setOwnColor("")
+                                            }
                                         }
                                     }
                                     // The custom picker, inline like the theme editor's, hidden until the
@@ -6018,6 +6458,7 @@ Item {
                                 }
                                 AppTextField {
                                     storm: true
+                                    objectName: "homeserverField"
                                     Layout.fillWidth: true
                                     text: app.settings.homeserverUrl
                                     placeholderText: "https://matrix.org"
@@ -6047,6 +6488,7 @@ Item {
                                 }
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
+                                    objectName: "startMinimizedCheck"
                                     text: qsTr("Start minimized")
                                     checked: app.settings.startMinimized
                                     onToggled: app.settings.startMinimized = checked
@@ -6494,6 +6936,7 @@ Item {
                             font.weight: AppTheme.weightBold
                         }
                         Label {
+                            objectName: "sessionsHeading"
                             Layout.fillWidth: true
                             text: qsTr("This account's Matrix sessions and device "
                                        + "verification.")
@@ -7332,7 +7775,10 @@ Item {
                                         size: 13
                                         color: AppTheme.stormTextFaint
                                     }
-                                    MenuSectionLabel { text: qsTr("Current session") }
+                                    MenuSectionLabel {
+                                        objectName: "currentSessionHeading"
+                                        text: qsTr("Current session")
+                                    }
                                     Item { Layout.fillWidth: true }
                                     StatusChip {
                                         storm: true
@@ -7645,6 +8091,7 @@ Item {
                                 }
 
                                 Label {
+                                    objectName: "importRoomKeysHeading"
                                     text: qsTr("Import room keys")
                                     font.weight: AppTheme.weightStrong
                                     color: AppTheme.stormText
@@ -7869,6 +8316,7 @@ Item {
                             }
                             ColumnLayout {
                                 id: dangerZone
+                                objectName: "dangerZone"
                                 property bool expanded: false
                                 width: parent.width
                                 spacing: AppTheme.spacing8
@@ -7992,6 +8440,7 @@ Item {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
                                 Label {
+                                    objectName: "labsBackendLine"
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
                                     lineHeight: AppTheme.lineHeightBody
@@ -8004,6 +8453,7 @@ Item {
                                     wrapMode: Text.WordWrap
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
+                                    objectName: "labsSyncModeLine"
                                     visible: app.syncModeLabel !== ""
                                     color: AppTheme.stormTextMuted
                                     text: qsTr("Sync mode: %1").arg(app.syncModeLabel)
@@ -8013,10 +8463,12 @@ Item {
                                     wrapMode: Text.WordWrap
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
+                                    objectName: "labsConnectionLine"
                                     color: AppTheme.stormTextMuted
                                     text: qsTr("Connection: %1").arg(app.connectionStatus)
                                 }
                                 AppButton {
+                                    objectName: "labsRefreshRoomButton"
                                     storm: true
                                     text: qsTr("Refresh current room")
                                     enabled: app.currentRoomId !== ""
@@ -8045,6 +8497,7 @@ Item {
                     // dismissal) survives switching to another category and
                     // back.
                     UpdatesSettingsSection {
+                        objectName: "updatesSection"
                         visible: root.section === "updates"
                         Layout.fillWidth: true
                     }
