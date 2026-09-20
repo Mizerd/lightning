@@ -1,5 +1,38 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-20 — OPEN DECISION: what an unrecognised notification-preview mode should resolve to
+
+`SettingsManager::notificationPreview()` falls back to **0 (sender and
+message)** for a stored value outside 0..2; `setNotificationPreview()` falls
+back to **1 (sender only)** for an argument outside the same range
+(`src/app/SettingsManager.cpp:1433` and `:1438`). Flagged during the
+2026-09-20 settings round and deliberately NOT changed.
+
+**It is not a round-trip bug.** The setter normalises before storing, so a
+write of 7 stores 1 and reads back 1. The getter's invalid branch is only
+reachable for a value written by a DIFFERENT build or by hand-editing the
+config — which is precisely the case that matters, because `8e4977d1` already
+moved this default once and a future build may add a fourth mode.
+
+**The decision is which direction is right for a PRIVACY setting**, and the
+obvious answer and the consistent answer point opposite ways:
+
+* *Consistency* says the setter should match the getter and fall back to 0 —
+  the documented default, per §16's "an enum needs a fallback, not a clamp".
+* *Privacy* says an unrecognised value most likely means the user chose a mode
+  a newer build offered, and since we cannot honour it we should err toward
+  LESS disclosure — which would mean changing the **getter** to 1, not the
+  setter to 0.
+
+Falling back to 0 turns "a setting this build does not understand" into
+"show the message text", which is the outcome the modes exist to let a user
+avoid. `notificationPreviewEncrypted()` has no such split — both halves use 3
+— so this is the only inconsistent pair.
+
+Nobody is harmed today: QML writes only 0..2 from the combo, and the getter's
+absent-key default of 0 is correct and unaffected either way. This needs a
+product call from Rokas, not an implementation round picking one.
+
 ## 2026-09-19 — presence: the reported "Offline for 29m" is NOT the rate limiting, and the leading hypothesis is now SILENCE
 
 **OPEN. Do not read the retry fix as a fix for the report.** The retry
