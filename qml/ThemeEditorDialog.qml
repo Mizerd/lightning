@@ -1767,10 +1767,49 @@ Popup {
             // the relationship between a colour and its readability visible
             // at the moment the user can act on it.
             ColumnLayout {
+                id: roleReadability
                 objectName: "themeRoleReadability"
                 Layout.fillWidth: true
                 visible: root.editingRole.length > 0 && roleChecks.count > 0
                 spacing: 2
+
+                // TWO LINES, AT A HEIGHT NO WIDTH CAN REACH.
+                //
+                // Every row put a whole sentence and a numeric column on ONE
+                // line, and this panel is 304 px at any window 1380 or wider.
+                // Measured on real delegates at that width: the description
+                // column is 181-195 px here and 218 px in the report below,
+                // against a longest phrase of 45 characters — so nine rows
+                // read "The Spaces rail against the …", "Main text on the
+                // conversation …". The number survived and the pair it was
+                // about did not, which is this panel's entire job.
+                //
+                // The row stays a CONSTANT, for the reason the report row's
+                // own comment gives: a wrapping Label whose implicitHeight
+                // feeds its own row's height is the shape a Qt layout loop
+                // comes in, and a binding loop is a LOAD-TIME fact no source
+                // scan can see. FontMetrics is the way to have both — it is
+                // derived from the FONT and never from a width, so it adapts
+                // to the UI-font picker while the layout still cannot fold
+                // back on itself. `maximumLineCount` bounds the Label and
+                // `Layout.preferredHeight` pins the row; nothing here asks a
+                // width how tall it is.
+                FontMetrics {
+                    id: checkMetrics
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.textMeta
+                }
+                // THE CEILING IS PER LINE, AND THAT IS NOT A DETAIL. Qt lays
+                // each line out at an integral height, so two 16.5 px lines
+                // occupy 34 px and not 33 — and a Label given 33 px with
+                // `elide` set shows ONE line and elides it. Measured exactly
+                // that way on the first cut of this fix: `h=33 contentH=17
+                // lines=1` on every row, i.e. a fix that changed the row
+                // height and nothing a reader could see. `lineSpacing`, not
+                // `height`, because it is the advance from one baseline to
+                // the next, which is what the second line actually costs.
+                readonly property int checkRowHeight:
+                    2 * Math.ceil(checkMetrics.lineSpacing)
 
                 Label {
                     Layout.fillWidth: true
@@ -1808,6 +1847,7 @@ Popup {
                         readonly property bool graded:
                             modelData.passes !== undefined
                         Layout.fillWidth: true
+                        Layout.preferredHeight: roleReadability.checkRowHeight
                         spacing: AppTheme.spacing6
                         Rectangle {
                             implicitWidth: 6
@@ -1819,7 +1859,17 @@ Popup {
                                    : AppTheme.editorDanger
                         }
                         Label {
+                            objectName: "themeRoleCheckLabel"
                             Layout.fillWidth: true
+                            // Pinned to the row's own constant rather than
+                            // grown from the text, and centred inside it, so
+                            // a one-line check and a two-line check make the
+                            // same row and the list still reads as a list.
+                            Layout.preferredHeight:
+                                roleReadability.checkRowHeight
+                            verticalAlignment: Text.AlignVCenter
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 2
                             textFormat: Text.PlainText
                             // The check's own written sentence. Composing it
                             // from the two role names gave "Text on accent on
@@ -2010,6 +2060,7 @@ Popup {
                     // ones moved focus, and the focus ring with it, off
                     // screen: the reader this whole surface exists for.
                     id: problemScroll
+                    objectName: "themeReadabilityScroll"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     visible: root.readabilityProblems > 0
@@ -2032,6 +2083,27 @@ Popup {
                         width: parent.width
                         spacing: 2
 
+                        // THREE LINES NOW, AND STILL A CONSTANT. See the
+                        // live readout above: at the reported 304 px column
+                        // this list gives its description 218 px, where
+                        // "Secondary text on the conversation background"
+                        // read "Secondary text on the conversation …".
+                        // FontMetrics is font-derived and width-independent,
+                        // so the row grew by exactly one line without any
+                        // height here deriving from a width.
+                        FontMetrics {
+                            id: reportMetrics
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                        }
+                        // Ceiling PER LINE, for the reason recorded beside
+                        // `checkRowHeight` above: ceiling the product loses a
+                        // pixel and costs the second line outright.
+                        readonly property int rowTextHeight:
+                            2 * Math.ceil(reportMetrics.lineSpacing)
+                        readonly property int rowHeight:
+                            44 + Math.ceil(reportMetrics.lineSpacing)
+
                         Repeater {
                             model: root.readabilityReport
                             delegate: Rectangle {
@@ -2039,14 +2111,25 @@ Popup {
                                 required property var modelData
                                 objectName: "themeReadabilityRow"
                                 Layout.fillWidth: true
-                                // FIXED, and the label elides rather than
-                                // wraps. A wrapping Label whose implicitHeight
-                                // feeds its own row's height is the shape a
-                                // Qt layout loop comes in, and a binding loop
-                                // is a LOAD-TIME fact no source scan can see
+                                // STILL FIXED, and for the same reason: a
+                                // wrapping Label whose implicitHeight feeds
+                                // its own row's height is the shape a Qt
+                                // layout loop comes in, and a binding loop is
+                                // a LOAD-TIME fact no source scan can see
                                 // (§16). Uniform rows also read as a list
                                 // rather than as a ragged stack.
-                                implicitHeight: 44
+                                //
+                                // What changed is the CONSTANT, not the
+                                // principle: 44 held one line of description
+                                // and one of ratio, and one line could not
+                                // hold the sentence. It is one line taller,
+                                // the description gets two of them, and the
+                                // height still comes from FontMetrics rather
+                                // than from any text's own layout. Cost:
+                                // about a quarter of the findings visible at
+                                // once — measured in the suite, which logs
+                                // the viewport and the row height.
+                                implicitHeight: problemColumn.rowHeight
                                 radius: AppTheme.radiusSm
                                 color: problemHover.containsMouse
                                        ? AppTheme.editorInset : "transparent"
@@ -2152,7 +2235,17 @@ Popup {
                                         spacing: 0
                                         Label {
                                             id: problemText
+                                            objectName: "themeReadabilityRowLabel"
                                             Layout.fillWidth: true
+                                            // Pinned to two lines whether it
+                                            // needs them or not, so the ratio
+                                            // beneath it sits at the same
+                                            // height in every row.
+                                            Layout.preferredHeight:
+                                                problemColumn.rowTextHeight
+                                            verticalAlignment: Text.AlignVCenter
+                                            wrapMode: Text.WordWrap
+                                            maximumLineCount: 2
                                             textFormat: Text.PlainText
                                             text: problemRow.modelData.label
                                             color: AppTheme.editorText

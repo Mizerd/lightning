@@ -14,6 +14,8 @@
 
 #include <QColor>
 #include <QFile>
+#include <QFont>
+#include <QHash>
 #include <QRegularExpression>
 #include <QSet>
 #include <QStringList>
@@ -27,6 +29,7 @@
 #include <QSignalSpy>
 
 #include "app/AppController.h"
+#include "app/CustomThemeStore.h"
 #include "app/ModerationController.h"
 #include "profile/ProfileBioManager.h"
 #include "app/PinnedMessagesController.h"
@@ -133,6 +136,36 @@ private:
         if (auto *hit = m_window->findChild<QQuickItem *>(QLatin1String(name)))
             return hit;
         return findItem(m_window->contentItem(), QLatin1String(name));
+    }
+
+    // EVERY item of that name, not the first. Repeater delegates all share
+    // one objectName, and `findChild` stops at the first hit -- which is how
+    // a sweep over a list silently becomes a check on its first row.
+    static void collectItems(QQuickItem *parent, const QString &name,
+                             QList<QQuickItem *> &out)
+    {
+        if (!parent)
+            return;
+        if (parent->objectName() == name)
+            out.append(parent);
+        const auto children = parent->childItems();
+        for (QQuickItem *child : children)
+            collectItems(child, name, out);
+    }
+
+    QList<QQuickItem *> items(const char *name) const
+    {
+        QList<QQuickItem *> out;
+        collectItems(m_window->contentItem(), QLatin1String(name), out);
+        return out;
+    }
+
+    // A Popup is a QObject, NOT a QQuickItem, so neither findChild<QQuickItem*>
+    // nor a childItems() walk can ever reach one by name -- its popupItem is
+    // reparented onto the overlay and carries no objectName of its own.
+    QObject *popup(const char *name) const
+    {
+        return m_window->findChild<QObject *>(QLatin1String(name));
     }
 
     QColor themeColor(const char *token) const
@@ -2384,6 +2417,379 @@ private slots:
                  qPrintable(QStringLiteral(
                      "the message-search-index paragraph leads at %1 where "
                      "its neighbours lead at %2").arg(lead).arg(wantLead)));
+    }
+
+    // ── EVERY PARAGRAPH ON THE PAGE LEADS THE SAME, AND THE COUNT SAYS SO ─
+    //
+    // The case above fixed ONE paragraph. An audit then found twenty-four
+    // more wrapping Labels in this file with no `lineHeight` at all, set
+    // solid at Qt's default ~17 px among paragraphs leading at 25-26. Fixing
+    // them one at a time is how the next one gets missed, so this is a
+    // SWEEP — and it asserts the COUNT it swept, because §16's standing
+    // lesson is that a check which can come back silently short is itself
+    // the defect, not its symptom. A pattern that stops matching would
+    // otherwise pass over an empty set.
+    //
+    // THE INCLUSION RULE, which the sweep implements literally:
+    //
+    //   A Label in SettingsScreen.qml is BODY COPY when it sets `wrapMode`
+    //   — i.e. it can produce more than one line — UNLESS it opts out by
+    //   being (a) clamped to one line with `maximumLineCount: 1`, (b) a
+    //   monospace value readout (`font.family: AppTheme.monoFont`), or
+    //   (c) marked `// not-body-copy:` with a reason.
+    //
+    // `wrapMode` is not an arbitrary choice of criterion: AppTheme's own
+    // token comment beside `lineHeightBody` already defines the contract as
+    // "every WRAPPING text item; single-line chrome keeps the default". The
+    // three carve-outs are the categories that are NOT body copy — a chip
+    // or badge is a single line, a monospace value must not be re-led, and
+    // anything else has to say so out loud instead of drifting off quietly.
+    //
+    // Source text, not live items, and deliberately: two thirds of these
+    // paragraphs are behind a `visible:` binding, another section, or a
+    // backend capability the mock does not report, so a runtime sweep could
+    // only ever reach a subset — and a subset cannot support a count. The
+    // live half of the evidence is the case below, which measures a
+    // newly-swept Label's real rendered leading on a real delegate.
+    //
+    // UNFIXED TREE: fails listing 24 paragraphs set solid.
+    void everyWrappingParagraphInSettingsSetsBodyLeading()
+    {
+        QFile file(QStringLiteral(QML_DIR) + QStringLiteral("/SettingsScreen.qml"));
+        QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "SettingsScreen.qml is not readable");
+        const QStringList lines =
+            QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
+
+        // Braces, with string literals and line comments removed first: a
+        // `//` inside a sentence and a `{` inside a translated string both
+        // shift the depth otherwise.
+        static const QRegularExpression dq(QStringLiteral("\"(\\\\.|[^\"\\\\])*\""));
+        static const QRegularExpression sq(QStringLiteral("'(\\\\.|[^'\\\\])*'"));
+        static const QRegularExpression lc(QStringLiteral("//.*$"));
+        QStringList bare;
+        bare.reserve(lines.size());
+        for (const QString &raw : lines) {
+            QString s = raw;
+            s.remove(dq);
+            s.remove(sq);
+            s.remove(lc);
+            bare.append(s);
+        }
+
+        static const QRegularExpression labelOpen(
+            QStringLiteral("^\\s*Label\\s*\\{\\s*$"));
+        static const QRegularExpression prop(
+            QStringLiteral("^\\s*([A-Za-z_][A-Za-z0-9_.]*)\\s*:\\s*(.*)$"));
+
+        int wrapping = 0;
+        int excluded = 0;
+        int bodyCopy = 0;
+        QStringList solid;
+
+        for (int i = 0; i < lines.size(); ++i) {
+            if (!labelOpen.match(lines.at(i)).hasMatch())
+                continue;
+            // The block's own properties are the ones at depth 1; anything
+            // deeper belongs to a nested MouseArea, ToolTip or Rectangle.
+            QHash<QString, QString> own;
+            bool optOut = false;
+            int depth = 0;
+            int end = i;
+            for (int j = i; j < lines.size(); ++j) {
+                if (depth == 1) {
+                    const auto m = prop.match(lines.at(j));
+                    if (m.hasMatch())
+                        own.insert(m.captured(1), m.captured(2).trimmed());
+                    if (lines.at(j).contains(QLatin1String("// not-body-copy:")))
+                        optOut = true;
+                }
+                const QString &b = bare.at(j);
+                depth += b.count(QLatin1Char('{')) - b.count(QLatin1Char('}'));
+                if (depth == 0 && j > i) {
+                    end = j;
+                    break;
+                }
+            }
+            QVERIFY2(end > i, qPrintable(QStringLiteral(
+                "unterminated Label block at SettingsScreen.qml:%1")
+                    .arg(i + 1)));
+
+            const QString wrap = own.value(QStringLiteral("wrapMode"));
+            if (wrap.isEmpty() || wrap == QLatin1String("Text.NoWrap"))
+                continue;
+            ++wrapping;
+
+            if (optOut
+                || own.value(QStringLiteral("maximumLineCount")) == QLatin1String("1")
+                || own.value(QStringLiteral("font.family"))
+                       == QLatin1String("AppTheme.monoFont")) {
+                ++excluded;
+                continue;
+            }
+            ++bodyCopy;
+
+            if (own.value(QStringLiteral("lineHeight"))
+                    != QLatin1String("AppTheme.lineHeightBody")
+                || own.value(QStringLiteral("lineHeightMode"))
+                       != QLatin1String("Text.ProportionalHeight")) {
+                solid.append(QStringLiteral(
+                    "SettingsScreen.qml:%1 wraps but does not set body "
+                    "leading (lineHeight=%2 lineHeightMode=%3)")
+                        .arg(i + 1)
+                        .arg(own.value(QStringLiteral("lineHeight"),
+                                       QStringLiteral("<absent>")))
+                        .arg(own.value(QStringLiteral("lineHeightMode"),
+                                       QStringLiteral("<absent>"))));
+            }
+        }
+
+        // THE COUNT, BEFORE THE VERDICT. A sweep whose pattern rots reports
+        // "nothing wrong" with a straight face; these three numbers are what
+        // make that impossible. The floors are floors, not the current
+        // values, so ordinary editing does not make this case red — but
+        // losing two thirds of the file to a parser change does.
+        QVERIFY2(wrapping >= 110,
+                 qPrintable(QStringLiteral(
+                     "the sweep found only %1 wrapping Labels in a file that "
+                     "has had 112 since 2026-09-20 — the parser has stopped "
+                     "matching and every verdict below it is vacuous")
+                         .arg(wrapping)));
+        QCOMPARE(bodyCopy + excluded, wrapping);
+        QVERIFY2(bodyCopy >= 109,
+                 qPrintable(QStringLiteral(
+                     "only %1 of %2 wrapping Labels were graded as body copy; "
+                     "%3 opted out, which is more carve-outs than this file "
+                     "has ever needed").arg(bodyCopy).arg(wrapping)
+                         .arg(excluded)));
+        QVERIFY2(solid.isEmpty(),
+                 qPrintable(QStringLiteral("%1 of %2 body paragraphs are set "
+                                           "solid:\n  %3")
+                                .arg(solid.size()).arg(bodyCopy)
+                                .arg(solid.join(QStringLiteral("\n  ")))));
+    }
+
+    // ── AND ONE OF THEM, MEASURED WHERE IT IS ACTUALLY DRAWN ────────────
+    //
+    // The sweep above is source text. This is the other half: a Label the
+    // sweep just fixed, on a live delegate, measured in PIXELS. The number
+    // compared is `contentHeight / lineCount / font.pixelSize` — the
+    // rendered line box as a multiple of the type size — because the two
+    // Labels in this card are at DIFFERENT sizes (textBody 14 and textMeta
+    // 12), so their absolute line boxes must differ while their leading
+    // must not. It fails on the unfixed tree for the reason the page looked
+    // wrong, not because a property is spelled differently.
+    //
+    // The numbers are ratios of the TYPE SIZE, not multipliers of
+    // `lineHeightBody`: a 12 px line's natural box is ~17 px, so solid text
+    // measures ~1.42x and body leading measures 1.5 x 1.42 = ~2.13x. The
+    // non-vacuity floor is 1.8 because it has to fall BETWEEN those two —
+    // 1.35 would have been cleared by a reference that was itself solid.
+    //
+    // UNFIXED TREE: fails at 1.4286x against 2.125x (measured 2026-09-20).
+    void theIndexedMessageCountLeadsLikeTheParagraphInItsOwnCard()
+    {
+        m_controller->showSettingsSection(QStringLiteral("privacy"));
+        QCoreApplication::processEvents();
+        auto *swept = item("searchIndexStatsLabel");
+        auto *reference = item("searchIndexHelpText");
+        QVERIFY2(swept, "the indexed-message count is not live");
+        QVERIFY2(reference, "the search-index help paragraph is not live");
+        QTRY_VERIFY(swept->width() > 0 && reference->width() > 0);
+        QTRY_VERIFY(swept->property("lineCount").toInt() > 0
+                    && reference->property("lineCount").toInt() > 0);
+
+        auto leading = [](QQuickItem *label) {
+            const int lines = label->property("lineCount").toInt();
+            const int size = label->property("font").value<QFont>().pixelSize();
+            if (lines <= 0 || size <= 0)
+                return 0.0;
+            return label->property("contentHeight").toReal() / lines / size;
+        };
+        const qreal sweptLead = leading(swept);
+        const qreal wantLead = leading(reference);
+
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+
+        // Not vacuous: the reference must itself be at body leading, or two
+        // solid paragraphs would agree with each other and pass.
+        QVERIFY2(wantLead >= 1.8,
+                 qPrintable(QStringLiteral(
+                     "the reference paragraph draws at %1x its type size, so "
+                     "it is not at body leading and cannot be a reference")
+                         .arg(wantLead)));
+        QVERIFY2(qAbs(sweptLead - wantLead) <= 0.06,
+                 qPrintable(QStringLiteral(
+                     "the indexed-message count draws at %1x its type size "
+                     "where the paragraph above it draws %2x — the same "
+                     "defect the case above swept out of this file")
+                         .arg(sweptLead).arg(wantLead)));
+    }
+
+    // ── A GRADE WITH NO PAIR ON IT IS NOT A GRADE ───────────────────────
+    //
+    // The theme editor's readability column is pinned at 304 px on any
+    // window 1380 or wider, and every row put a whole sentence and a
+    // numeric column on ONE line. So the numbers were intact and the thing
+    // they were about was not: "The Spaces rail against the room list" read
+    // "The Spaces rail against the …", "Main text on the conversation …",
+    // and a reader could not tell which pair was being graded — which is
+    // the panel's entire job.
+    //
+    // BOTH FAMILIES, on real delegates, at the width the report came from:
+    // the picker's live readout (a role is open) and the findings list
+    // (nothing is open, and three inks are forced onto the background so
+    // the list has rows at all). `truncated` is Qt's own answer to "did
+    // this elide" — not a guess from a string length — so it measures the
+    // laid-out text rather than the source.
+    //
+    // The rows are still a CONSTANT height, which is what the report row's
+    // own comment demands: `noQmlWarnings` below and `qml-component-load`
+    // are what hold the no-layout-loop half of that.
+    //
+    // UNFIXED TREE: fails naming every row that is shortened.
+    void everyReadabilityRowSaysWhichPairItIsGrading()
+    {
+        const int w = m_window->width();
+        const int h = m_window->height();
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        m_window->setWidth(1920);
+        m_window->setHeight(1000);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(m_window->width(), 1920);
+
+        auto *loader = item("themeEditorLoader");
+        QVERIFY2(loader, "the theme editor loader is not live");
+        loader->setProperty("active", true);
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(popup("themeEditorDialog"));
+        QObject *dialog = popup("themeEditorDialog");
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+
+        QStringList cut;
+        QSet<QString> phrases;
+        int checkedPicker = 0;
+        int checkedReport = 0;
+
+        auto sweep = [&](const char *objectName, const char *where) {
+            const auto labels = items(objectName);
+            int seen = 0;
+            for (QQuickItem *label : labels) {
+                if (!label->isVisible() || label->width() <= 0.0)
+                    continue;
+                ++seen;
+                const QString text = label->property("text").toString();
+                phrases.insert(text);
+                if (label->property("truncated").toBool())
+                    cut.append(QStringLiteral(
+                        "in a %1x%2 px box the %3 row reads \"%4\" — the "
+                        "sentence naming the pair being graded is cut, so "
+                        "the number beside it is about nothing the reader "
+                        "can see (it laid out %5 line(s) in %6 px, and a "
+                        "box one pixel short of two lines shows one)")
+                            .arg(label->width())
+                            .arg(label->height())
+                            .arg(QLatin1String(where))
+                            .arg(text)
+                            .arg(label->property("lineCount").toInt())
+                            .arg(label->property("contentHeight").toReal()));
+            }
+            return seen;
+        };
+
+        // 1) The live readout, one role at a time. `rail` carries the row
+        //    the report named — "The Spaces rail against the room list" —
+        //    and the three ink roles carry the longest sentences there are.
+        const char *roles[] = { "rail", "textPrimary", "textSecondary",
+                                "textMuted" };
+        for (const char *role : roles) {
+            QMetaObject::invokeMethod(
+                dialog, "beginEdit",
+                Q_ARG(QVariant, QVariant(QLatin1String(role))),
+                Q_ARG(QVariant, QVariant(QLatin1String(role))));
+            QCoreApplication::processEvents();
+            QTRY_VERIFY(!items("themeRoleCheckLabel").isEmpty());
+            checkedPicker += sweep("themeRoleCheckLabel", "live readout");
+        }
+
+        // 2) The findings list. It is empty on a clean palette by design
+        //    (`everyReadabilityCheckPassesOnEveryShippedPreset`), so three
+        //    inks are painted onto the background colour: ratio 1.0, which
+        //    fails the three longest ink checks in the table.
+        dialog->setProperty("editingRole", QString());
+        dialog->setProperty("reportOpen", true);
+        QCoreApplication::processEvents();
+        for (const char *role : { "background", "textPrimary", "textSecondary",
+                                  "textMuted" })
+            store->setColor(QLatin1String(role), QStringLiteral("#808080"));
+        QTRY_VERIFY(dialog->property("readabilityProblems").toInt() >= 3);
+        QCoreApplication::processEvents();
+        checkedReport = sweep("themeReadabilityRowLabel", "findings list");
+
+        // WHAT THE TALLER ROW COSTS, recorded rather than asserted: the
+        // number of findings visible at once is a judgement Rokas owns, and
+        // pinning it here would make an ordinary copy edit red. The rows
+        // being IDENTICAL is the part that is a contract -- that is what
+        // "still a constant" means, and a row that grew from its own text
+        // would break it.
+        QList<qreal> rowHeights;
+        for (QQuickItem *row : items("themeReadabilityRow")) {
+            if (row->isVisible())
+                rowHeights.append(row->height());
+        }
+        if (auto *scroll = item("themeReadabilityScroll");
+            scroll && !rowHeights.isEmpty()) {
+            qInfo("readability findings: %.0f px viewport, %.0f px rows -> "
+                  "%d visible at once",
+                  scroll->height(), rowHeights.first(),
+                  int(scroll->height() / (rowHeights.first() + 2.0)));
+        }
+        QStringList ragged;
+        for (qreal height : rowHeights) {
+            if (!qFuzzyCompare(height, rowHeights.first()))
+                ragged.append(QStringLiteral("%1 px among %2 px rows")
+                                  .arg(height).arg(rowHeights.first()));
+        }
+
+        // Restore before asserting: a failure must not leave the editor
+        // open, the window at 1920, or a grey palette on disk.
+        store->resetAll();
+        loader->setProperty("active", false);
+        QCoreApplication::processEvents();
+        m_window->setWidth(w);
+        m_window->setHeight(h);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(m_window->width(), w);
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+
+        QVERIFY2(checkedPicker >= 8,
+                 qPrintable(QStringLiteral(
+                     "only %1 live-readout rows were on screen to measure "
+                     "across four roles").arg(checkedPicker)));
+        QVERIFY2(checkedReport >= 3,
+                 qPrintable(QStringLiteral(
+                     "only %1 findings rows were on screen to measure")
+                         .arg(checkedReport)));
+        // The sweep is only as good as the sentences it saw: the two
+        // longest phrases in the table are the ones that were cut, and a
+        // pass that never rendered them would prove nothing.
+        QVERIFY2(phrases.contains(QStringLiteral(
+                     "The Spaces rail against the room list")),
+                 "the row the report named was never rendered");
+        QVERIFY2(phrases.contains(QStringLiteral(
+                     "Secondary text on the conversation background")),
+                 "the longest sentence in the table was never rendered");
+        QVERIFY2(ragged.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "the findings rows are no longer one height, so a row "
+                     "has started deriving its height from its own text: %1")
+                         .arg(ragged.join(QStringLiteral(", ")))));
+        QVERIFY2(cut.isEmpty(), qPrintable(cut.join(QStringLiteral("\n  "))));
     }
 
     void noQmlWarnings()

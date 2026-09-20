@@ -2406,6 +2406,8 @@ Item {
                                     Label {
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
                                         text: !app.customTheme.exists
                                               ? qsTr("Pick a colour for any part of the window and watch a sample room repaint.")
                                               : app.customTheme.themes.length > 1
@@ -3669,6 +3671,8 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     // Three different truths, never conflated:
                                     // a build with no catalogs at all, a
                                     // "System default" that resolved to
@@ -3735,6 +3739,8 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: AppTheme.spacing4
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
                                     // Deliberately does NOT claim "no
@@ -3888,6 +3894,8 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: AppTheme.spacing4
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
                                     // States BOTH keys in both states, so
@@ -3955,6 +3963,8 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: AppTheme.spacing4
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     color: app.spell && app.spell.available
                                            ? AppTheme.stormTextMuted : AppTheme.stormText
                                     font.pixelSize: AppTheme.textMeta
@@ -4003,6 +4013,8 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: AppTheme.spacing4
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
                                     // Honest about the interop cost: a
@@ -4045,6 +4057,8 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: AppTheme.spacing4
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
                                     text: qsTr("Turn off what you do not use. "
@@ -4124,6 +4138,8 @@ Item {
                             Layout.fillWidth: true
                             Layout.topMargin: -AppTheme.spacing8
                             wrapMode: Text.WordWrap
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
                             text: qsTr("Per account, like your theme. Press Change "
                                        + "and then the combination you want.")
                             color: AppTheme.stormTextMuted
@@ -4159,6 +4175,8 @@ Item {
                                     anchors.fill: parent
                                     anchors.margins: AppTheme.spacing12
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormText
                                     font.pixelSize: AppTheme.textMeta
                                     text: qsTr("Some shortcuts share a key. Qt fires "
@@ -4240,6 +4258,8 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
                                     // The two things a user will otherwise
@@ -4342,6 +4362,8 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
                                     font.weight: AppTheme.weightStrong
@@ -4670,6 +4692,8 @@ Item {
                                         objectName: "searchIndexStatsLabel"
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
                                         textFormat: Text.PlainText
                                         text: qsTr("%n message(s) indexed",
                                                    "",
@@ -5971,6 +5995,8 @@ Item {
                                         objectName: "nameColorError"
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
                                         textFormat: Text.PlainText
                                         visible: app.nameColors.lastError.length > 0
                                         color: AppTheme.stormDanger
@@ -6058,6 +6084,8 @@ Item {
                                             Label {
                                                 Layout.fillWidth: true
                                                 wrapMode: Text.WordWrap
+                                                lineHeight: AppTheme.lineHeightBody
+                                                lineHeightMode: Text.ProportionalHeight
                                                 text: qsTr("You choose which part of the image to use.")
                                                 color: AppTheme.stormTextMuted
                                                 font.pixelSize: AppTheme.textMeta
@@ -6068,6 +6096,8 @@ Item {
                                         objectName: "ownAvatarError"
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
                                         visible: app.ownAvatarError.length > 0
                                         text: app.ownAvatarError
                                         color: AppTheme.stormDanger
@@ -6120,6 +6150,8 @@ Item {
                                     Label {
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
                                         text: qsTr("A short note about yourself. Anyone who opens your profile can read it.")
                                         color: AppTheme.stormTextMuted
                                         font.pixelSize: AppTheme.textMeta
@@ -6204,6 +6236,8 @@ Item {
                                         objectName: "ownBioUnsupportedNote"
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
                                         // DISCLOSED rather than hidden: the
                                         // field is a server capability, and
                                         // silently disabling the box would
@@ -6217,6 +6251,8 @@ Item {
                                         objectName: "ownBioError"
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
+                                        lineHeight: AppTheme.lineHeightBody
+                                        lineHeightMode: Text.ProportionalHeight
                                         visible: !!(app.bio && app.bio.lastError.length > 0)
                                         text: app.bio ? app.bio.lastError : ""
                                         color: AppTheme.stormDanger
@@ -6362,6 +6398,8 @@ Item {
                                     Layout.fillWidth: true
                                     visible: text.length > 0
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
                                     font.pixelSize: AppTheme.textMeta
                                     // Named causes get a sentence a person
@@ -7080,6 +7118,8 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormText
                                     font.pixelSize: AppTheme.textBody
                                     text: {
@@ -7115,6 +7155,8 @@ Item {
                                     Layout.fillWidth: true
                                     visible: app.backup.error.length > 0
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
                                     font.pixelSize: AppTheme.textBody
                                     text: app.backup.error
@@ -7137,6 +7179,8 @@ Item {
                                         Label {
                                             Layout.fillWidth: true
                                             wrapMode: Text.WordWrap
+                                            lineHeight: AppTheme.lineHeightBody
+                                            lineHeightMode: Text.ProportionalHeight
                                             color: AppTheme.stormText
                                             font.pixelSize: AppTheme.textBody
                                             font.weight: AppTheme.weightStrong
@@ -7172,6 +7216,8 @@ Item {
                                     Layout.fillWidth: true
                                     visible: backupCard.pendingConfirm.length > 0
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
                                     font.pixelSize: AppTheme.textBody
                                     text: backupCard.pendingConfirm === "reset_key"
@@ -7535,6 +7581,8 @@ Item {
                                     visible: app.sessionDeviceRenameError.length > 0
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormDanger
                                     font.pixelSize: AppTheme.textBody
                                     text: app.sessionDeviceRenameError
