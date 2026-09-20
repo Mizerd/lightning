@@ -203,6 +203,40 @@ Rectangle {
     /// `railSideMargin` — it was briefly written in three, two of them
     /// already stale by the time they were read.
     readonly property int tileRingOutset: AppTheme.scaled(2)
+
+    /// ── THE ANCHOR MUST BE AS WIDE AS THE TIP IT CARRIES ────────────────
+    ///
+    /// Every tooltip in this file hangs off an invisible anchor at the
+    /// rail's right edge, because Qt's Basic style places an attached
+    /// tooltip with `x: (parent.width - implicitWidth) / 2` — CENTRED on
+    /// its attachee. Centring is only harmless while the tip is NARROWER
+    /// than the anchor: past that the surplus spills LEFT, back over the
+    /// rail, and the anchor's whole purpose is undone.
+    ///
+    /// The anchors were a flat `AppTheme.scaled(150)`, so the account
+    /// tile — whose text is the Matrix user id, the widest string the rail
+    /// shows — drew a 258px slab at x 17..274 on a 78px rail, covering the
+    /// avatar it describes and 61px of the column (measured 2026-09-19,
+    /// both depth styles). It is not an account-tile defect: the same
+    /// literal is on all seven anchors, so any Space or room whose name
+    /// runs long does it too.
+    ///
+    /// `railTipFloor` keeps the old 150 as a FLOOR — it is what gives a
+    /// short tip its air off the rail edge, and every tip already measured
+    /// against that floor keeps the position it was verified at.
+    /// `railTipWidth` is the live width of the ONE shared instance
+    /// Main.qml hardens (there is no per-row ToolTip here, deliberately, so
+    /// every anchor reads the same object; only the anchor whose tip is
+    /// actually showing has a pointer over it). Read as a PROPERTY, not
+    /// through a function: a binding that reaches state through a call is
+    /// not bound to it.
+    ///
+    /// This cannot loop. The tip's `implicitWidth` is a function of its
+    /// text and font alone, and its `x` is a function of that and of the
+    /// anchor's width — nothing downstream feeds back into the text.
+    readonly property int railTipFloor: AppTheme.scaled(150)
+    readonly property real railTipWidth:
+        ToolTip.toolTip ? ToolTip.toolTip.implicitWidth : 0
     /// THE LEFT WALL OF THE CHEVRON'S SLOT: the deepest region inset any row
     /// can carry. Pulling the glyph in to clear the ring pushed it OUT of the
     /// innermost region at the minimum width — the same "a shape left its
@@ -406,10 +440,40 @@ Rectangle {
     /// on an even rail, so the nested rung centred on x=38.5 where every
     /// other tile in the column centres on 38.0. Half a pixel, on the one
     /// rule this rail has: every tile shares one axis. 0.833 gives 40.
-    readonly property int railNestedTileSize: Math.round(railTileSize * 0.833)
+    ///
+    /// ── AND THE RATIO ALONE CANNOT KEEP THAT PROMISE ────────────────────
+    ///
+    /// That reasoning was done at the 48px tile and holds only there. A
+    /// derived tile is placed at `tileColumnX + round((railTileSize -
+    /// rowTileSize) / 2)`, which is exact only when the derived size has
+    /// the SAME PARITY as `railTileSize` — otherwise the halved difference
+    /// is a .5 and `Math.round` takes it away from the centre. At the 40px
+    /// tile, which is the rail's minimum AND its shipped default, 0.833
+    /// gives 33 against an even 40: measured live 2026-09-19, the full tile
+    /// spanned x 19..59 (centre 39.0) while the nested tile spanned 23..56
+    /// (centre 39.5), with 4px of air on the left and 3px on the right.
+    /// Five of the rail's nine widths were off on one tier or both.
+    ///
+    /// So parity is enforced rather than hoped for: round the HALF
+    /// difference and double it. That moves the rendered size by at most
+    /// one pixel (33 -> 34 and 37 -> 36 on the two tiers that were wrong)
+    /// and makes the placement exact at every width the rail can take.
+    ///
+    /// Written out at both tiers rather than shared through a helper: a
+    /// binding that reaches its state through a FUNCTION CALL is not bound
+    /// to that state, so a `pairedTileSize(ratio)` call here would freeze
+    /// at whatever `railTileSize` was on first evaluation and stop
+    /// following the interface size — the defect this rail was audited for
+    /// twice already.
+    readonly property int railNestedTileSize:
+        railTileSize - 2 * Math.round((railTileSize
+                                       - railTileSize * 0.833) / 2)
     /// A REVEALED ROOM'S tile. 0.7 of the Space tile, which is what the
-    /// literal 28 was at the size it was written at.
-    readonly property int railRoomTileSize: Math.round(railTileSize * 0.7)
+    /// literal 28 was at the size it was written at — and paired to the
+    /// Space tile for the reason written above it.
+    readonly property int railRoomTileSize:
+        railTileSize - 2 * Math.round((railTileSize
+                                       - railTileSize * 0.7) / 2)
     /// Air above and below a tile inside a run, and the extra a run adds
     /// after its last row so the next group reads as a separate thing.
     readonly property int rowPad: AppTheme.scaled(4)
@@ -1895,12 +1959,11 @@ Rectangle {
                            : spaceItem.isFolder ? AppTheme.cardElevated
                            : spaceItem.pseudo ? AppTheme.cardElevated
                                               : "transparent"
-                    // The GROUP target wears the rail's own "you are here"
-                    // colour, thicker: a release here merges the two into a
-                    // folder, and the accent is the one ink this column uses
-                    // to say "this tile is the one that matters".
-                    border.width: spaceItem.dropTarget ? 3 : 0
-                    border.color: AppTheme.accent
+                    // NO BORDER HERE — see `railSpaceDropRing` at the bottom
+                    // of this tile. The group ring used to be
+                    // `border.width: dropTarget ? 3 : 0` on this very
+                    // Rectangle, and a Qt Rectangle paints its border INSIDE
+                    // its own bounds, under every child that fills it.
                     // Full opacity, always. The tile keeps its normal image
                     // while it is dragged; dimming it made the one thing the
                     // user is looking at the hardest thing to see.
@@ -2013,6 +2076,65 @@ Rectangle {
                             color: spaceItem.highlightTotal > 0
                                    ? AppTheme.dangerText : AppTheme.accentText
                         }
+                    }
+
+                    // ── THE GROUP RING, AND IT IS DRAWN OUTSIDE ───────────
+                    //
+                    // The rail's whole grouping affordance is "a ring on the
+                    // Space or folder a release would file into". On a real
+                    // Space it was never once drawn: it was
+                    // `border.width: dropTarget ? 3 : 0` on the tile itself,
+                    // and `Avatar { anchors.fill: parent }` paints over a
+                    // Rectangle's border because a Qt border is INSIDE the
+                    // bounds. Measured mid-drag 2026-09-19 with the drag
+                    // parked on a target tile: the row read the avatar's own
+                    // purple from edge to edge, not one accent pixel, while
+                    // the tile WAS 43px against an unhovered 40 — so the
+                    // property was set, the ring was painted, and the avatar
+                    // covered it. The `accentSoft` wash the same branch asks
+                    // for is hidden by the same child. All that survived was
+                    // the 8% scale-up, which on a 40px tile is 1.6px a side.
+                    //
+                    // A CHILD OF THE TILE, not a sibling like the active
+                    // ring, and that is the whole reason this is not two
+                    // lines. A drop target ALSO scales to 1.08, and `scale`
+                    // is a transform: it does not move the tile's x/y/w/h, so
+                    // a sibling anchored to those bounds keeps its unscaled
+                    // geometry while the tile grows THROUGH it — 2px of
+                    // outset against 1.6px of growth leaves 0.4px of ring. A
+                    // child rides the same transform, so the outset holds at
+                    // every tile size, every interface scale and both depth
+                    // styles.
+                    //
+                    // WHOLLY OUTSIDE, outset by its own stroke: a border is
+                    // painted inside the item's bounds, so a ring outset by
+                    // exactly its own width puts every one of its pixels
+                    // past the tile's edge and there is nothing left for a
+                    // child to cover. Thicker than the active ring, at 3
+                    // against 2, which is the distinction the retired border
+                    // was reaching for — "you are here" and "a release here
+                    // merges these two" must not be the same stroke.
+                    //
+                    // It may exceed `tileRingOutset` by a pixel because the
+                    // chevron's gutter, which is what that budget protects,
+                    // is `visible: … && !root.dragging` — and a tile can
+                    // only be a drop target DURING a drag. The two are never
+                    // on screen together.
+                    Rectangle {
+                        id: spaceDropRing
+                        objectName: "railSpaceDropRing"
+                        readonly property int stroke: AppTheme.scaled(3)
+                        anchors.fill: parent
+                        anchors.margins: -stroke
+                        // CONCENTRIC with the tile it rings: a rounded rect
+                        // outset by N matches only when its radius is larger
+                        // by exactly N, and it reads THIS row's radius
+                        // because a nested tile is rounded for its own size.
+                        radius: spaceTile.radius + stroke
+                        color: "transparent"
+                        border.color: AppTheme.accent
+                        border.width: stroke
+                        visible: spaceItem.dropTarget
                     }
                 }
 
@@ -2191,7 +2313,7 @@ Rectangle {
                     objectName: "railSpaceTipAnchor"
                     x: spaceItem.width
                     y: spaceItem.contentTop + spaceItem.tileBandHeight
-                    width: AppTheme.scaled(150)
+                    width: Math.max(root.railTipFloor, root.railTipWidth)
                     height: 1
                     ToolTip.visible: spaceHover.hovered && !root.dragging
                     ToolTip.text: spaceItem.Accessible.name
@@ -2384,7 +2506,8 @@ Rectangle {
                                 x: expansionRoomRow.width
                                    - expansionRoomRow.x
                                 y: expansionRoomRow.height
-                                width: AppTheme.scaled(150)
+                                width: Math.max(root.railTipFloor,
+                                                root.railTipWidth)
                                 height: 1
                                 ToolTip.visible: roomHover.hovered
                                 ToolTip.text: expansionRoomRow.modelData.name
@@ -2444,7 +2567,8 @@ Rectangle {
                         Item {
                             x: root.width
                             y: morePill.y + morePill.height
-                            width: AppTheme.scaled(150)
+                            width: Math.max(root.railTipFloor,
+                                            root.railTipWidth)
                             height: 1
                             ToolTip.visible: moreHover.hovered
                             ToolTip.text: qsTr("Show more rooms")
@@ -2509,7 +2633,7 @@ Rectangle {
                 Item {
                     x: root.width
                     y: railAddSpaceButton.y + railAddSpaceButton.height
-                    width: AppTheme.scaled(150)
+                    width: Math.max(root.railTipFloor, root.railTipWidth)
                     height: 1
                     ToolTip.visible: railAddSpaceButton.hovered
                     ToolTip.text: qsTr("Create a Space")
@@ -2594,7 +2718,7 @@ Rectangle {
             Item {
                 x: root.width - railSettingsButton.x
                 y: railSettingsButton.height
-                width: AppTheme.scaled(150)
+                width: Math.max(root.railTipFloor, root.railTipWidth)
                 height: 1
                 ToolTip.visible: railSettingsButton.hovered
                 ToolTip.text: railSettingsButton._attentionText
@@ -2769,7 +2893,7 @@ Rectangle {
             Item {
                 x: root.width - railAccount.x
                 y: railAccount.height
-                width: AppTheme.scaled(150)
+                width: Math.max(root.railTipFloor, root.railTipWidth)
                 height: 1
                 ToolTip.visible: accountHover.hovered
                 ToolTip.text: app.accounts

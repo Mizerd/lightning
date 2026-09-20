@@ -2467,6 +2467,299 @@ private slots:
         QCoreApplication::processEvents();
     }
 
+    // ── 2026-09-20: an anchor NARROWER than the tip it carries ───────────
+    //
+    // `everyRailTooltipSitsBesideTheRowThePointerIsOn` above proves the
+    // anchors are at the rail's right edge. It cannot see this one, and it
+    // passed on the broken tree for a reason worth stating: Qt's Basic
+    // style places an attached tooltip with
+    // `x: (parent.width - implicitWidth) / 2` — CENTRED on the anchor — and
+    // centring is harmless only while the tip is NARROWER than the anchor.
+    // Every string that case points at is, on this fixture.
+    //
+    // Past the anchor's width the surplus spills LEFT, back over the rail,
+    // and the anchor's whole purpose is undone. Measured live 2026-09-19 on
+    // a 78px rail in BOTH depth styles: the account tile's tip — the Matrix
+    // user id, the widest string the rail shows — drew a 258px slab at
+    // x 17..274, covering the avatar it describes and 61px of the tile
+    // column. The anchors all carried the same flat `AppTheme.scaled(150)`,
+    // so it is not an account-tile defect: a long Space or room name does
+    // it too, which is the form this case can reach.
+    void aTooltipWiderThanItsAnchorStillHangsOffTheRail()
+    {
+        const qreal railWidth = m_rail->width();
+        const QSize windowSize = m_window->size();
+        const auto restore = qScopeGuard([&] {
+            moveTo(QPoint(int(railWidth) + 40, 8));
+            QTest::qWait(60);
+            m_window->resize(windowSize);
+            m_rail->setWidth(railWidth);
+            entries()->setSources(m_spaces, store());
+            QCoreApplication::processEvents();
+        });
+        // Wide enough that Qt's own popup positioner never has to pull the
+        // tip back inside the window: a clamp at the right edge would hide
+        // the defect by fixing it for a reason that is not the anchor.
+        m_window->resize(900, windowSize.height());
+        m_rail->setWidth(railWidth);
+        QCoreApplication::processEvents();
+
+        RailFakeClient wide;
+        wide.roomList = {
+            joinedSpace(QStringLiteral("!wide:example.org"),
+                        QStringLiteral("A Space whose name is longer than "
+                                       "any anchor floor")),
+        };
+        SpaceManager wideSpaces;
+        wideSpaces.setClient(&wide);
+        entries()->setSources(&wideSpaces, store());
+        QCoreApplication::processEvents();
+        QTest::qWait(80);
+
+        QQuickItem *row = delegateFor(QStringLiteral("!wide:example.org"));
+        QVERIFY2(row, "the long-name fixture built no rail row");
+        QQuickItem *tile =
+            descendantNamed(row, QStringLiteral("railSpaceTile"));
+        QVERIFY2(tile, "the long-name Space draws no tile to point at");
+
+        const QRectF hovered = tile->mapRectToScene(
+            QRectF(0, 0, tile->width(), tile->height()));
+        moveTo(QPoint(int(railWidth) + 300, 8));
+        QTest::qWait(120);
+        moveTo(hovered.center().toPoint());
+        QTRY_VERIFY_WITH_TIMEOUT(
+            visiblePopupItem(m_window->contentItem()) != nullptr, 3000);
+        QQuickItem *tip = visiblePopupItem(m_window->contentItem());
+        QVERIFY(tip);
+        const QRectF tipRect =
+            tip->mapRectToScene(QRectF(0, 0, tip->width(), tip->height()));
+
+        // NON-VACUITY FIRST, and it is the whole reason this case exists
+        // beside the one above: if the tip fits inside the anchor's floor
+        // then centring cannot spill and the assertion below is satisfied
+        // by arithmetic rather than by the fix. Read from the rail so it
+        // follows the interface size; 150 is the pre-fix literal, used only
+        // when the property is absent, i.e. when running against the
+        // unfixed tree.
+        const QVariant floorProperty = m_rail->property("railTipFloor");
+        const qreal floor =
+            floorProperty.isValid() ? floorProperty.toReal() : 150.0;
+        QVERIFY2(tipRect.width() > floor + 1.0,
+                 qPrintable(QStringLiteral(
+                     "the fixture's tooltip is only %1px wide against an "
+                     "anchor floor of %2 — it cannot spill, so this case "
+                     "proves nothing. Lengthen the Space name.")
+                     .arg(tipRect.width()).arg(floor)));
+
+        QVERIFY2(tipRect.left() >= railWidth - 0.5,
+                 qPrintable(QStringLiteral(
+                     "a %1px tooltip on a %2px anchor starts at x=%3 on a "
+                     "rail %4 wide: Qt centres an attached tip on its "
+                     "anchor, so everything past the anchor's width is "
+                     "painted back over the tile column — over the very "
+                     "tile the tip is naming")
+                     .arg(tipRect.width()).arg(floor)
+                     .arg(tipRect.left()).arg(railWidth)));
+    }
+
+    // ── 2026-09-20: the group ring was painted UNDER the avatar ──────────
+    //
+    // The rail's whole grouping affordance is "a ring on the Space or
+    // folder a release would file into", and on a real Space it had never
+    // once been drawn. It was `border.width: dropTarget ? 3 : 0` on the
+    // tile Rectangle itself, and a Qt Rectangle paints its border INSIDE
+    // its bounds, under `Avatar { anchors.fill: parent }`.
+    //
+    // Measured mid-drag 2026-09-19 with the drag parked on a target tile:
+    // the row read the avatar's own purple edge to edge with no accent
+    // pixel anywhere, while the tile was 43px against an unhovered 40 — so
+    // `dropTarget` WAS true, the border WAS set, and the avatar covered it.
+    // All the user ever got was the 8% scale-up.
+    //
+    // GEOMETRY, not a grab: this suite never samples a pixel (a grab holds
+    // each item's creation-time colour because its Behavior has not
+    // advanced — four rounds of false readings). The property that makes
+    // the ring visible is that it lies OUTSIDE the bounds every full-bleed
+    // child of the tile fills, and that is measurable.
+    void theGroupRingIsDrawnOutsideTheAvatarThatFillsTheTile()
+    {
+        // Driven through the model rather than through a pointer: the
+        // cases at the top of this file already prove a real drag reaches
+        // hoverGroup(), and what is under test here is where the ring is
+        // DRAWN once it does.
+        const int bravoRow = entries()->rowForEntry(m_spaceIds.at(1));
+        QVERIFY(bravoRow >= 0);
+        QVERIFY(entries()->beginDrag(m_spaceIds.at(0)));
+        const auto restore = qScopeGuard([&] {
+            entries()->endDrag(false);
+            QCoreApplication::processEvents();
+        });
+        entries()->hoverGroup(bravoRow);
+        QCoreApplication::processEvents();
+        // Past the tile's own 90 ms scale Behavior, so the transform this
+        // reads is the settled one and not a frame of the animation.
+        QTest::qWait(200);
+        QVERIFY2(entries()->grouping(),
+                 "the model refused to offer a group, so no tile is a drop "
+                 "target and there is nothing to measure");
+
+        QQuickItem *row = delegateFor(m_spaceIds.at(1));
+        QVERIFY(row);
+        QVERIFY2(row->property("dropTarget").toBool(),
+                 "the delegate does not know it is the drop target");
+        QQuickItem *tile =
+            descendantNamed(row, QStringLiteral("railSpaceTile"));
+        QVERIFY(tile);
+        QQuickItem *ring =
+            descendantNamed(row, QStringLiteral("railSpaceDropRing"));
+        QVERIFY2(ring,
+                 "the drop target draws no group ring at all — the only "
+                 "feedback a release-here-to-merge gesture has is the 8% "
+                 "scale-up");
+        QVERIFY2(ring->isVisible(),
+                 "the group ring exists but is not visible on the tile a "
+                 "release would file into");
+
+        // Scene rects, so the tile's 1.08 drop-target SCALE is included on
+        // both sides. That scale is exactly what a ring anchored to the
+        // tile's unscaled bounds loses to: `scale` is a transform and does
+        // not move x/y/width/height, so a sibling ring keeps its old
+        // geometry while the tile grows through it.
+        const QRectF tileRect =
+            tile->mapRectToScene(QRectF(0, 0, tile->width(), tile->height()));
+        const QRectF ringRect =
+            ring->mapRectToScene(QRectF(0, 0, ring->width(), ring->height()));
+        QVERIFY(tileRect.width() > 0 && ringRect.width() > 0);
+
+        const qreal stroke = ring->property("border").value<QObject *>()
+                                 ? ring->property("border")
+                                       .value<QObject *>()
+                                       ->property("width").toReal()
+                                 : 0.0;
+        QVERIFY2(stroke >= 1.0,
+                 qPrintable(QStringLiteral(
+                     "the group ring's stroke is %1px wide").arg(stroke)));
+
+        struct Side
+        {
+            const char *name;
+            qreal outside;
+        };
+        const QList<Side> sides = {
+            { "left", tileRect.left() - ringRect.left() },
+            { "top", tileRect.top() - ringRect.top() },
+            { "right", ringRect.right() - tileRect.right() },
+            { "bottom", ringRect.bottom() - tileRect.bottom() },
+        };
+        int measured = 0;
+        for (const Side &side : sides) {
+            QVERIFY2(side.outside >= stroke - 0.5,
+                     qPrintable(QStringLiteral(
+                         "the group ring's %1 edge is only %2px outside the "
+                         "tile against a %3px stroke, so that much of it is "
+                         "painted inside the bounds `Avatar { anchors.fill: "
+                         "parent }` covers — which is the whole defect: a "
+                         "ring that is set, drawn, and never seen")
+                         .arg(QString::fromLatin1(side.name))
+                         .arg(side.outside).arg(stroke)));
+            ++measured;
+        }
+        // The COUNT of sides actually compared, never the loop's length.
+        QCOMPARE(measured, 4);
+    }
+
+    // ── 2026-09-20: "every tile shares one axis" was false at the DEFAULT ─
+    //
+    // `SpacesRail.qml` states the rail's one rule — "ONE x for every tile,
+    // CENTRED" — and `railNestedTileSize`'s own comment records 0.833 being
+    // chosen over 0.85 specifically so the nested tile would not land half
+    // a pixel off. That reasoning was done at the 48px tile and holds only
+    // there.
+    //
+    // A derived tile is placed at
+    // `tileColumnX + round((railTileSize - rowTileSize) / 2)`, which is
+    // exact only when the derived size has the SAME PARITY as
+    // `railTileSize`; otherwise the halved difference is a .5 and
+    // `Math.round` takes it away from the centre. Measured live
+    // 2026-09-19 at the 40px tile — the rail's minimum AND its shipped
+    // default — the full tile spanned x 19..59 (centre 39.0) while the
+    // nested tile spanned 23..56 (centre 39.5), 4px of air on the left
+    // against 3 on the right. Five of the rail's nine widths were off on
+    // one tier or both.
+    //
+    // PARITY IS THE PROPERTY, and it is asserted as the reader's
+    // statement — the derived tile's centre falls exactly on the column's
+    // centre — over every width the rail can actually be dragged to, with
+    // the count of widths measured asserted so a loop that silently ran
+    // once cannot pass.
+    void everyDerivedTileCentresOnTheSameAxisAtEveryRailWidth()
+    {
+        const qreal railWidth = m_rail->width();
+        const auto restore = qScopeGuard([&] {
+            m_rail->setWidth(railWidth);
+            QCoreApplication::processEvents();
+        });
+
+        const int minWidth = m_rail->property("minRailWidth").toInt();
+        const int maxWidth = m_rail->property("maxRailWidth").toInt();
+        QVERIFY2(minWidth > 0 && maxWidth >= minWidth,
+                 qPrintable(QStringLiteral(
+                     "the rail reports a width range of %1..%2")
+                     .arg(minWidth).arg(maxWidth)));
+
+        int measured = 0;
+        QStringList offenders;
+        for (int w = minWidth; w <= maxWidth; ++w) {
+            m_rail->setWidth(w);
+            QCoreApplication::processEvents();
+
+            const int tile = m_rail->property("railTileSize").toInt();
+            const int columnX = m_rail->property("tileColumnX").toInt();
+            const QList<QPair<QString, int>> tiers = {
+                { QStringLiteral("the nested Space tile"),
+                  m_rail->property("railNestedTileSize").toInt() },
+                { QStringLiteral("a revealed room's tile"),
+                  m_rail->property("railRoomTileSize").toInt() },
+            };
+            for (const auto &tier : tiers) {
+                // The placement the delegate performs, restated: this is
+                // `x: tileColumnX + Math.round((railTileSize - rowTileSize)
+                // / 2)` from SpacesRail.qml, and the centre it produces.
+                const qreal derivedX =
+                    columnX + qRound((tile - tier.second) / 2.0);
+                const qreal derivedCentre = derivedX + tier.second / 2.0;
+                const qreal columnCentre = columnX + tile / 2.0;
+                if (!qFuzzyCompare(derivedCentre, columnCentre)) {
+                    offenders << QStringLiteral(
+                        "rail %1 (tile %2): %3 is %4px at x=%5, centre %6 "
+                        "against the column's %7")
+                        .arg(w).arg(tile).arg(tier.first).arg(tier.second)
+                        .arg(derivedX).arg(derivedCentre).arg(columnCentre);
+                }
+                ++measured;
+            }
+        }
+        QVERIFY2(offenders.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "%1 of %2 tier/width pairs put a derived tile off the "
+                     "column's axis — the rail's one stated rule is that "
+                     "every tile shares one x. A derived size must have the "
+                     "SAME PARITY as the Space tile or the halved difference "
+                     "rounds away from centre. %3")
+                     .arg(offenders.size()).arg(measured)
+                     .arg(offenders.join(QStringLiteral("; ")))));
+        // THE COUNT OF PAIRS ACTUALLY MEASURED, never the loop bound: a
+        // rail that reported a degenerate width range would otherwise pass
+        // this case having compared nothing. Nine widths, two derived
+        // tiers.
+        QCOMPARE(measured, (maxWidth - minWidth + 1) * 2);
+        QVERIFY2(measured >= 18,
+                 qPrintable(QStringLiteral(
+                     "only %1 tier/width pairs exist, so this case says "
+                     "almost nothing about the range a reader can drag to")
+                     .arg(measured)));
+    }
+
 };
 
 int main(int argc, char *argv[])
