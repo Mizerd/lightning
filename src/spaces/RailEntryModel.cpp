@@ -678,23 +678,64 @@ int RailEntryModel::legalGap(int gap) const
     }
     if (g < firstMovable)
         return firstMovable;
+
+    // ── THE NEARER BOUNDARY OF THE RUN, NEVER ALWAYS ITS TOP ────────────
+    //
+    // Both clamps below refuse the same thing — a top-level entry landing
+    // INSIDE a run it does not belong to — and both used to answer that
+    // refusal by walking UP, to the one fixed slot in front of the run's
+    // owner, however far below that the pointer actually was.
+    //
+    // `where the tile currently sits IS where it will land` is this
+    // gesture's stated contract, and that breaks it by as much as a whole
+    // subtree. Measured 2026-09-19: a top-level Space released at y=560,
+    // in a gap between two nested rows deep inside an open folder's block,
+    // was offered the 65px slot at y 169..234 — seven rows and ~360px
+    // ABOVE the release point — and the release confirmed it, the Space
+    // becoming the folder's first member. The refusal is correct;
+    // answering every refusal with the same slot is not.
+    //
+    // So walk BOTH ways out of the run and take the boundary the pointer
+    // is nearer to. Ties keep the old answer, upwards.
+    //
+    // THIS CANNOT OSCILLATE under a live drag, which is what killed two
+    // earlier readings of this gesture (see the header of
+    // tests/RailDragQmlTest.cpp). hoverGap() MOVES the block to the slot
+    // it resolves, so after a downward snap the block sits immediately
+    // past the run — and a dragged top-level row is neither a
+    // `hierarchyChild` nor a folder member, so the block itself terminates
+    // the downward walk on the next sample — while after an upward snap it
+    // sits immediately in front of the owner and terminates the upward
+    // one. Either way the same pointer position then resolves into
+    // hoverGap()'s own no-op window (`g >= dragRow && g <= dragRow +
+    // length`), which is what makes the gesture settle.
+    const auto nearerBoundary = [this](int g, int lo, auto inRun) -> int {
+        const int hi = int(m_rows.size());
+        if (g <= lo || g >= hi || !inRun(g))
+            return g;
+        int up = g;
+        while (up > lo && inRun(up))
+            --up;
+        int down = g;
+        while (down < hi && inRun(down))
+            ++down;
+        return (g - up) <= (down - g) ? up : down;
+    };
+
     // A TOP-LEVEL entry may not land inside a subspace run: that would put a
-    // user-arranged entry between a parent and its children. Snap back to the
-    // gap in front of the run's owner.
-    while (g > firstMovable && g < m_rows.size()
-           && m_rows.at(g).value(QStringLiteral("hierarchyChild")).toBool()) {
-        --g;
-    }
+    // user-arranged entry between a parent and its children.
+    g = nearerBoundary(g, firstMovable, [this](int row) {
+        return m_rows.at(row).value(QStringLiteral("hierarchyChild")).toBool();
+    });
     if (!rowIsFolder(dragRow))
         return g;
     // Dragging a FOLDER: its destination is a top-level boundary, never inside
     // another folder's member run.
-    while (g > firstMovable && g < m_rows.size()
-           && !m_rows.at(g).value(QStringLiteral("folderId")).toString()
-                   .isEmpty()
-           && !rowIsFolder(g)) {
-        --g;
-    }
+    g = nearerBoundary(g, firstMovable, [this](int row) {
+        return !m_rows.at(row).value(QStringLiteral("folderId")).toString()
+                    .isEmpty()
+               && !rowIsFolder(row);
+    });
     return g;
 }
 

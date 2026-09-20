@@ -1231,6 +1231,122 @@ private Q_SLOTS:
         model.endDrag(false);
     }
 
+    // ── 2026-09-20: a refusal answered with the SAME slot every time ─────
+    //
+    // A top-level entry may not land between a parent and its children —
+    // that refusal is right and this case keeps it. What was wrong is that
+    // `legalGap()` answered it by walking UP, always, to the one gap in
+    // front of the run's owner, however far below that the pointer was.
+    //
+    // Measured live 2026-09-19 (Regions, dark, rail 78): a top-level Space
+    // dragged from y=150 and released at y=560 — in a gap between two
+    // nested rows deep inside an open folder's block — was offered the
+    // 65px slot at y 169..234, seven rows and ~360px ABOVE the release
+    // point, and the release confirmed it by making the Space that
+    // folder's first member. `where the tile currently sits IS where it
+    // will land` is this gesture's stated contract; a drop landing
+    // somewhere other than where the user aimed is the exact failure two
+    // earlier readings of this rail were withdrawn for.
+    //
+    // WHAT IS ASSERTED IS THE READER'S PROPERTY, not the arithmetic: a
+    // release in the TOP half of a run still lands above it, a release in
+    // the BOTTOM half now lands below it, and no release is answered with
+    // a slot further away than the run's other end. The old code fails
+    // the middle one at every gap past the run's midpoint.
+    void aTopLevelDropInsideASubspaceRunTakesTheNearerBoundary()
+    {
+        FakeClient client;
+        client.roomList = {
+            spaceRoom(QStringLiteral("!drag:x"), QStringLiteral("Drag me")),
+            spaceRoom(QStringLiteral("!owner:x"), QStringLiteral("Owner"),
+                      { QStringLiteral("!c1:x"), QStringLiteral("!c2:x"),
+                        QStringLiteral("!c3:x"), QStringLiteral("!c4:x") }),
+            spaceRoom(QStringLiteral("!c1:x"), QStringLiteral("C1"), {},
+                      { QStringLiteral("!owner:x") }),
+            spaceRoom(QStringLiteral("!c2:x"), QStringLiteral("C2"), {},
+                      { QStringLiteral("!owner:x") }),
+            spaceRoom(QStringLiteral("!c3:x"), QStringLiteral("C3"), {},
+                      { QStringLiteral("!owner:x") }),
+            spaceRoom(QStringLiteral("!c4:x"), QStringLiteral("C4"), {},
+                      { QStringLiteral("!owner:x") }),
+        };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        store.setSpaceExpanded(QStringLiteral("!owner:x"), true);
+        RailEntryModel model;
+        model.setSources(&spaces, &store);
+
+        // Real row indices, never fabricated ones: the pseudo rows at the
+        // top of the rail are what `firstMovable` is counting and a literal
+        // here would silently test a different run.
+        const int ownerRow = model.rowForEntry(QStringLiteral("!owner:x"));
+        const int runStart = ownerRow + 1;
+        QVERIFY(ownerRow > 0);
+        QCOMPARE(model.rowForEntry(QStringLiteral("!c1:x")), runStart);
+        QCOMPARE(model.rowForEntry(QStringLiteral("!c4:x")), runStart + 3);
+        const int runEnd = runStart + 4;   // the gap PAST the whole run
+        QCOMPARE(model.rowCount(), runEnd);
+
+        QVERIFY(model.beginDrag(QStringLiteral("!drag:x")));
+
+        int landedBelow = 0;
+        int landedAbove = 0;
+        for (int gap = runStart; gap < runEnd; ++gap) {
+            const int legal = model.legalGapForTest(gap);
+            // (1) THE REFUSAL STILL HOLDS. Nothing may resolve to a slot
+            // strictly inside the run — that is a top-level entry between a
+            // parent and its children.
+            QVERIFY2(legal == ownerRow || legal == runEnd,
+                     qPrintable(QStringLiteral(
+                         "a gap at %1 resolves to %2, which is inside the "
+                         "subspace run %3..%4 — a top-level entry would land "
+                         "between a parent and its own children")
+                         .arg(gap).arg(legal).arg(runStart).arg(runEnd)));
+            // (2) AND IT IS THE NEARER END. This is the half the old clamp
+            // failed: it walked up unconditionally, so a release one row
+            // above the end of a four-row run was answered four rows above
+            // the pointer instead of one below it.
+            const int other = legal == ownerRow ? runEnd : ownerRow;
+            QVERIFY2(qAbs(legal - gap) <= qAbs(other - gap),
+                     qPrintable(QStringLiteral(
+                         "a gap at %1 resolves to %2 (%3 rows away) when the "
+                         "run's other boundary %4 is only %5 rows away — the "
+                         "drop lands further from the pointer than it needs "
+                         "to, which is what 'where the tile sits is where it "
+                         "will land' forbids")
+                         .arg(gap).arg(legal).arg(qAbs(legal - gap))
+                         .arg(other).arg(qAbs(other - gap))));
+            if (legal == runEnd)
+                ++landedBelow;
+            else
+                ++landedAbove;
+        }
+        // THE COUNTS, not just the loop: a rule that answered `runEnd` for
+        // everything would satisfy (1) and (2) at the bottom of the run and
+        // would be a different bug. Four gaps, split 2/2 about the midpoint.
+        QCOMPARE(landedAbove, 2);
+        QCOMPARE(landedBelow, 2);
+
+        // AND WHAT THE RELEASE ACTUALLY WRITES. The clamp is only half of
+        // it — hoverGap() converts the slot into a move, and a gesture that
+        // resolves correctly and then moves the block somewhere else is the
+        // same defect one layer down.
+        model.hoverGap(runEnd - 1);   // the last gap inside the run
+        const QStringList ids = modelIds(model);
+        const int draggedNow = ids.indexOf(QStringLiteral("!drag:x"));
+        const int c4Now = ids.indexOf(QStringLiteral("!c4:x"));
+        QVERIFY2(draggedNow > c4Now,
+                 qPrintable(QStringLiteral(
+                     "released below the run, the dragged Space sits at %1 "
+                     "and the run's last child at %2 — it jumped back above "
+                     "the whole subtree. Rail: %3")
+                     .arg(draggedNow).arg(c4Now)
+                     .arg(ids.join(QLatin1Char(',')))));
+        model.endDrag(false);
+    }
+
     // ── Matrix subspaces in the rail ─────────────────────────────────────
 
     void onlyRootSpacesSitAtTheTopLevelAndSubspacesNestWhenExpanded()
