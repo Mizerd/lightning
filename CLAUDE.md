@@ -2208,6 +2208,24 @@ Rules:
   two more flakes. Check for a live build (`pgrep -af "ninja|cmake"`) before
   starting one, and serialize build → test strictly.
 
+  **AND `.ninja_deps` IS NOT THE ONLY ARTEFACT WITH THIS EXPOSURE: a
+  concurrent `ar` corrupts `liblightning-app-testlib.a`.** Three agents hit it
+  independently on 2026-09-20, on a QUIET tree, in two distinct shapes — an
+  archive listing all 304 members with a bad index, and one silently missing
+  its `qrc_*.cpp.o` members while ninja still considered it up to date. It
+  presents as `undefined reference to typeinfo for MatrixClient` or to
+  `qInitResources_*`, which names nothing and reads like a source error.
+  `ninja -C <tree> -t clean lightning-app-testlib` (or `rm` the archive) then
+  rebuild. **A `pgrep -x ninja` wait does NOT prevent it** — another agent can
+  start between the check and the build; only one builder at a time does.
+
+  Refuted in the same round, recorded so nobody re-derives it: that an odd
+  number of apostrophes inside a `R"QML(...)QML"` literal makes moc emit an
+  empty `.moc`. Tested directly against moc 6.11.1, single-line and
+  multi-line, control and subject — the class and its slots register in every
+  case. The empty-moc symptom was real; that attribution for it was not, and
+  the archive corruption above is the likelier face of it.
+
 - **Cap CPU-heavy work at 18 threads.** Rokas directed this on 2026-08-07:
   pass `-j18` explicitly to every `cmake --build`, `ctest`, and `cargo`
   invocation. The defaults use all 20 cores; he wants two left.
