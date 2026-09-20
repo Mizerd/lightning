@@ -36,12 +36,6 @@ class MentionHighlighter : public QSyntaxHighlighter
                    NOTIFY rangesChanged)
     Q_PROPERTY(QColor accentColor READ accentColor WRITE setAccentColor
                    NOTIFY styleChanged)
-    // Vestigial: the former chip surface. Retained because removing a
-    // property a .qml file still assigns is a hard component-load error, and
-    // the composers are not this class's to edit. Assigning it is harmless
-    // and changes nothing.
-    Q_PROPERTY(QColor softColor READ softColor WRITE setSoftColor
-                   NOTIFY styleChanged)
     // THE EMOJI FACE FOR TYPED TEXT, and the composer is why it has to be here.
     //
     // Qt's automatic per-character fallback is version-dependent (Qt 6.8 picks
@@ -66,8 +60,6 @@ public:
 
     QColor accentColor() const { return m_accent; }
     void setAccentColor(const QColor &color);
-    QColor softColor() const { return m_soft; }
-    void setSoftColor(const QColor &color);
     QString emojiFontFamily() const { return m_emojiFamily; }
     void setEmojiFontFamily(const QString &family);
 
@@ -84,5 +76,4 @@ private:
     QVariantList m_ranges;
     QString m_emojiFamily;
     QColor m_accent;
-    QColor m_soft;
 };

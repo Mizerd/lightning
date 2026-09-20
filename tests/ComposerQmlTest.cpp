@@ -8,8 +8,11 @@
 
 #include <QtTest/QtTest>
 
+#include <QBuffer>
+#include <QFile>
 #include <QFontDatabase>
 #include <QGuiApplication>
+#include <QTemporaryDir>
 #include <QQuickStyle>
 #include <QInputMethodEvent>
 #include <QImage>
@@ -49,6 +52,31 @@ int channelDelta(const QColor &a, const QColor &b)
 }
 
 constexpr int kTolerance = 8;
+
+// A real, decodable 2x2 PNG: the chip's Image actually loads this one, so
+// the preview tile is exercised rather than the broken-image fallback.
+QByteArray tinyPng()
+{
+    QImage image(2, 2, QImage::Format_RGB32);
+    image.fill(Qt::red);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    image.save(&buffer, "PNG");
+    return bytes;
+}
+
+QString writeFile(const QTemporaryDir &dir, const QString &name,
+                  const QByteArray &content)
+{
+    const QString path = dir.filePath(name);
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly))
+        return {};
+    file.write(content);
+    file.close();
+    return path;
+}
 
 const char *kScene = R"QML(
 import QtQuick
@@ -103,6 +131,20 @@ private:
                 return hit;
         }
         return nullptr;
+    }
+
+    // Every match, not the first: a Repeater's delegates all carry the same
+    // objectName and the defect under test is a DISAGREEMENT between them.
+    static void collectItems(QQuickItem *parent, const QString &name,
+                             QList<QQuickItem *> &out)
+    {
+        if (!parent)
+            return;
+        if (parent->objectName() == name)
+            out.append(parent);
+        const auto children = parent->childItems();
+        for (QQuickItem *child : children)
+            collectItems(child, name, out);
     }
 
     // Repeater-created delegates live only in the visual item tree (no
@@ -1075,6 +1117,414 @@ private slots:
                 m_root->findChild<QObject *>(QStringLiteral("composerEmojiPicker")))
             QMetaObject::invokeMethod(p, "close");
         QTest::qWait(60);
+        m_controller->setCurrentRoomId(previousRoom);
+    }
+
+    // ── 2026-09-20 composer GUI audit ───────────────────────────────────
+
+    // FINDING 2 (MEDIUM). The mention / slash-command / emoji-shortcode
+    // popups were placed at the TEXT FIELD's scene top, which is INSIDE the
+    // composer card whenever anything sits above the input row. With the
+    // formatting toolbar open that covered 38 px of the 43 px toolbar row
+    // (measured at 1920x1400: toolbar 1266..1308, popup 1271..1316) and the
+    // popup crossed the toolbar/input divider — B, I, S, code, link, list,
+    // quote and the mode toggle all hidden behind the suggestion list while
+    // you type. The reply/thread context banner sits in the same card.
+    //
+    // Asserted against the CARD, not against the toolbar, because the card
+    // is what the popup has to clear for every one of its rows.
+    void aCompletionPopupClearsTheWholeComposerCard()
+    {
+        const int restoreHeight = m_window->height();
+        const QString previousRoom = m_controller->currentRoomId();
+        // A short window makes the popup's own bottom clamp
+        // (Math.max(spacing4, …)) the binding constraint rather than the
+        // anchor under test, and then the case would measure the clamp.
+        m_window->setHeight(820);
+        QTest::qWait(120);
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *bar = item("composerBar");
+        QVERIFY(bar);
+        bar->setProperty("toolbarExpanded", true);
+        QTest::qWait(80);
+
+        auto *card = item("composerCard");
+        auto *toolbar = item("composerToolbarRow");
+        QVERIFY(card && toolbar);
+        QVERIFY2(toolbar->isVisible(), "the toolbar row did not open");
+
+        auto *input = item("composerInput");
+        QVERIFY(input);
+        openMention(input, QString());
+        QVERIFY2(popupVisible(), "the mention popup should open on '@'");
+
+        QObject *popup = mentionPopup();
+        QVERIFY(popup);
+        const qreal popupTop = popup->property("y").toReal();
+        const qreal popupBottom = popupTop + popup->property("height").toReal();
+        const qreal cardTop = card->mapToScene(QPointF(0, 0)).y();
+        const qreal toolbarTop = toolbar->mapToScene(QPointF(0, 0)).y();
+        // The popup's parent is Overlay.overlay, which fills the window, so
+        // its y is already in scene coordinates.
+        QVERIFY2(popupBottom <= toolbarTop + 0.5,
+                 qPrintable(QStringLiteral(
+                     "the popup (%1..%2) overlaps the formatting toolbar "
+                     "(top %3) by %4 px")
+                        .arg(popupTop).arg(popupBottom).arg(toolbarTop)
+                        .arg(popupBottom - toolbarTop)));
+        QVERIFY2(popupBottom <= cardTop + 0.5,
+                 qPrintable(QStringLiteral(
+                     "the popup (%1..%2) reaches into the composer card "
+                     "(top %3)").arg(popupTop).arg(popupBottom).arg(cardTop)));
+        // …and it is still ATTACHED to the card rather than floating: the
+        // gap is the 4 px the popups place themselves with.
+        QVERIFY2(cardTop - popupBottom <= 8.0,
+                 qPrintable(QStringLiteral("the popup detached from the card "
+                                           "by %1 px").arg(cardTop - popupBottom)));
+
+        input->setProperty("text", QString());
+        QTest::qWait(30);
+        bar->setProperty("toolbarExpanded", false);
+        m_controller->setCurrentRoomId(previousRoom);
+        m_window->setHeight(restoreHeight);
+        QTest::qWait(120);
+    }
+
+    // FINDING 3 (MEDIUM-LOW). The `+` button's menu used a bare popup(),
+    // which opens AT THE POINTER and downward, over the composer it belongs
+    // to: measured at 1920x1380 the menu spanned y 1304..1379 with the input
+    // row at 1310..1362 and no clearance at all below it. Its two siblings
+    // in the same file are anchored above the card for exactly this reason.
+    //
+    // Driven with a REAL click, because the two halves of the defect live in
+    // two places: the missing parent/x/y on the menu, and the popup() call
+    // at the button. An imperative popup() also DESTROYS the y binding, so
+    // asserting y is still the declared -height-4 after the click is what
+    // catches that half.
+    void theAttachMenuOpensAboveTheCardNotOverIt()
+    {
+        const int restoreWidth = m_window->width();
+        const QString previousRoom = m_controller->currentRoomId();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        // Narrow, so the button opens the MENU: with polls unsupported on the
+        // mock backend a wide row goes straight to the file dialog instead,
+        // and a native file dialog is not something a test may open.
+        m_window->setWidth(360);
+        QTest::qWait(150);
+
+        auto *button = item("composerAttachButton");
+        QVERIFY(button && button->isVisible()
+                && button->property("enabled").toBool());
+        auto *menu = m_root->findChild<QObject *>(
+            QStringLiteral("composerAttachMenu"));
+        QVERIFY(menu);
+
+        const QPointF centre = button->mapToScene(
+            QPointF(button->width() / 2.0, button->height() / 2.0));
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
+                          centre.toPoint());
+        QTest::qWait(150);
+        QVERIFY2(menu->property("visible").toBool(),
+                 "the attach button did not open the attach menu");
+
+        auto *card = item("composerCard");
+        QVERIFY(card);
+        QCOMPARE(menu->property("parent").value<QQuickItem *>(), card);
+        const qreal y = menu->property("y").toReal();
+        const qreal h = menu->property("height").toReal();
+        QVERIFY(h > 0);
+        QVERIFY2(qAbs(y - (-h - 4.0)) < 0.5,
+                 qPrintable(QStringLiteral(
+                     "the attach menu is not anchored above the card: "
+                     "y=%1 height=%2 (expected y=%3). A popup() call at the "
+                     "button overwrites this binding.")
+                        .arg(y).arg(h).arg(-h - 4.0)));
+        QVERIFY2(y + h <= 0.0,
+                 "the attach menu still hangs down over the composer card");
+        // …and the anchor is a LIVE BINDING, not a value that happened to be
+        // right once. popup() assigns x/y imperatively, which destroys the
+        // binding for the life of the object — the one-way door this project
+        // has paid for five times — and under the offscreen platform a
+        // cursor-placed menu can land close enough to the declared position
+        // to pass a static check. Move the height and the y must follow.
+        menu->setProperty("height", h + 24.0);
+        QTest::qWait(60);
+        QVERIFY2(qAbs(menu->property("y").toReal() - (-(h + 24.0) - 4.0)) < 0.5,
+                 qPrintable(QStringLiteral(
+                     "the attach menu's y is no longer bound to its height "
+                     "(y=%1 after height %2): something assigned it, and a "
+                     "popup() at the button is what does that")
+                        .arg(menu->property("y").toReal()).arg(h + 24.0)));
+        // And it clears the bottom of the window, which the pointer-placed
+        // menu did not.
+        const qreal sceneBottom = card->mapToScene(QPointF(0, y + h)).y();
+        QVERIFY2(sceneBottom <= m_window->height(),
+                 "the attach menu runs off the bottom of the window");
+
+        QMetaObject::invokeMethod(menu, "close");
+        QTest::qWait(80);
+        m_window->setWidth(restoreWidth);
+        QTest::qWait(150);
+        m_controller->setCurrentRoomId(previousRoom);
+    }
+
+    // FINDING 4 (LOW-MEDIUM). The attachment tray is a Flow with no
+    // alignment, so chips are top-aligned and each was sized by its own
+    // content: an image chip by its 64x48 preview tile, a plain file chip by
+    // the two-label column. Measured with four files attached at once, the
+    // image chips spanned 56 px and the .txt chip 42 — a ragged bottom edge.
+    void everyAttachmentChipIsTheSameHeight()
+    {
+        const QString previousRoom = m_controller->currentRoomId();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(30);
+        auto *composer =
+            m_controller->property("composer").value<QObject *>();
+        QVERIFY(composer);
+        QVERIFY(composer->property("attachmentsSupported").toBool());
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString png = writeFile(dir, QStringLiteral("photo.png"),
+                                      tinyPng());
+        const QString txt = writeFile(dir, QStringLiteral("notes.txt"),
+                                      QByteArrayLiteral("hello there"));
+        QVERIFY(!png.isEmpty() && !txt.isEmpty());
+        QMetaObject::invokeMethod(composer, "addAttachment",
+                                  Q_ARG(QUrl, QUrl::fromLocalFile(png)));
+        QMetaObject::invokeMethod(composer, "addAttachment",
+                                  Q_ARG(QUrl, QUrl::fromLocalFile(txt)));
+        QTest::qWait(200);
+
+        QList<QQuickItem *> chips;
+        collectItems(m_window->contentItem(),
+                     QStringLiteral("composerAttachmentChip"), chips);
+        QCOMPARE(chips.size(), 2);
+        QVERIFY(chips[0]->height() > 0);
+        QVERIFY2(qAbs(chips[0]->height() - chips[1]->height()) < 0.5,
+                 qPrintable(QStringLiteral(
+                     "the attachment chips disagree by %1 px (%2 vs %3): a "
+                     "file chip floats above the image chip beside it")
+                        .arg(qAbs(chips[0]->height() - chips[1]->height()))
+                        .arg(chips[0]->height()).arg(chips[1]->height())));
+        // Bottom edges, which is what the eye actually reads in a Flow.
+        QVERIFY2(qAbs(chips[0]->mapToScene(QPointF(0, chips[0]->height())).y()
+                      - chips[1]->mapToScene(QPointF(0, chips[1]->height())).y())
+                     < 0.5,
+                 "the attachment tray has a ragged bottom edge");
+
+        auto *queue = composer->property("attachments").value<QObject *>();
+        QVERIFY(queue);
+        QMetaObject::invokeMethod(queue, "clearAll");
+        QTest::qWait(80);
+        m_controller->setCurrentRoomId(previousRoom);
+    }
+
+    // FINDING 5 (LOW-MEDIUM). composerFormatToggleButton is
+    // `visible: !compactInputRow`, but the toolbar row it controls is not —
+    // so opening the toolbar in a wide window and then narrowing it left the
+    // toolbar drawn with no way to put it away. Every other control the
+    // narrow row hides is offered from a menu; this one was dropped, which
+    // is the opposite of what that row's own comments commit to.
+    void aNarrowRowStillOffersTheFormattingToggle()
+    {
+        const int restoreWidth = m_window->width();
+        const QString previousRoom = m_controller->currentRoomId();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *bar = item("composerBar");
+        QVERIFY(bar);
+        bar->setProperty("toolbarExpanded", true);
+        QTest::qWait(60);
+
+        m_window->setWidth(360);
+        QTest::qWait(150);
+        QVERIFY2(bar->property("compactInputRow").toBool(),
+                 "360 px is not a compact row; the case measures nothing");
+        auto *toggle = item("composerFormatToggleButton");
+        QVERIFY2(!toggle || !toggle->isVisible(),
+                 "the format toggle is still in the row, so nothing is lost "
+                 "and this case measures nothing");
+        QVERIFY2(bar->property("toolbarExpanded").toBool(),
+                 "narrowing the window closed the toolbar on its own");
+        auto *toolbarRow = item("composerToolbarRow");
+        QVERIFY2(toolbarRow && toolbarRow->isVisible(),
+                 "the toolbar row is hidden in a compact row, so there is "
+                 "nothing to close");
+
+        auto *formatting = m_root->findChild<QObject *>(
+            QStringLiteral("composerOverflowFormattingItem"));
+        QVERIFY2(formatting != nullptr,
+                 "the compact overflow menu offers no Formatting item, so an "
+                 "open toolbar cannot be closed at this width");
+        // A menu's rows report effective visibility, so the menu has to be
+        // open before `visible` means anything about the row.
+        auto *overflow = m_root->findChild<QObject *>(
+            QStringLiteral("composerOverflowMenu"));
+        QVERIFY(overflow);
+        QMetaObject::invokeMethod(overflow, "open");
+        QTest::qWait(150);
+        QVERIFY2(formatting->property("visible").toBool(),
+                 "the Formatting item is in the menu but not shown");
+        QVERIFY2(formatting->property("text").toString()
+                     .contains(QStringLiteral("formatting"), Qt::CaseInsensitive),
+                 "the Formatting item does not name what it does");
+        // Clicked for real, on the row, with the menu open: a directly
+        // emitted `triggered` would prove the handler compiles and nothing
+        // about the row being reachable.
+        auto clickTheRow = [this, formatting, overflow]() {
+            auto *row = qobject_cast<QQuickItem *>(formatting);
+            QVERIFY(row);
+            QVERIFY(row->width() > 0 && row->height() > 0);
+            const QPointF centre = row->mapToScene(
+                QPointF(row->width() / 2.0, row->height() / 2.0));
+            QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
+                              centre.toPoint());
+            QTest::qWait(120);
+            QVERIFY(!overflow->property("visible").toBool());
+        };
+        clickTheRow();
+        QVERIFY2(!bar->property("toolbarExpanded").toBool(),
+                 "the overflow menu's Formatting item did not close the "
+                 "toolbar");
+        // And it opens it again — a toggle, not a one-way close.
+        QMetaObject::invokeMethod(overflow, "open");
+        QTest::qWait(150);
+        clickTheRow();
+        QVERIFY2(bar->property("toolbarExpanded").toBool(),
+                 "the Formatting item closes the toolbar but cannot reopen it");
+
+        bar->setProperty("toolbarExpanded", false);
+        m_window->setWidth(restoreWidth);
+        QTest::qWait(150);
+        m_controller->setCurrentRoomId(previousRoom);
+    }
+
+    // FINDING 7 (LOW). `VoicePreviewBar.waveform` was declared, bound by
+    // both hosts with the recorder's real MSC3245 buckets, and read by
+    // nothing — `grep waveform VoicePreviewBar.qml` returned the
+    // declaration alone. The preview showed play / time / discard / send and
+    // no waveform at all.
+    //
+    // The heights are what this case is really about. The buckets are
+    // 0..=100, and the renderer this was modelled on clamps with
+    // `Math.min(1, wf[at])` — against 0..=100 data that makes EVERY bar
+    // full height, which is a solid block, not a waveform. So the assertion
+    // is that the bars DIFFER and that a loud bucket is drawn taller than a
+    // quiet one, not merely that something was drawn.
+    void theVoicePreviewDrawsTheWaveformItIsHanded()
+    {
+        const QString previousRoom = m_controller->currentRoomId();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *bar = item("composerBar");
+        QVERIFY(bar);
+
+        QVariantList wave;
+        for (int i = 0; i < 18; ++i)
+            wave << (i % 2 == 0 ? 100 : 10);
+        QVariantMap pending;
+        // No filePath: the MediaPlayer stays sourceless, so nothing decodes
+        // and nothing plays in a headless run. The strip is drawn from the
+        // buckets alone.
+        pending.insert(QStringLiteral("filePath"), QString());
+        pending.insert(QStringLiteral("mime"), QStringLiteral("audio/ogg"));
+        pending.insert(QStringLiteral("durationMs"), 29000);
+        pending.insert(QStringLiteral("waveform"), wave);
+        bar->setProperty("pendingVoice", pending);
+        QTest::qWait(120);
+
+        auto *preview = item("composerVoicePreview");
+        QVERIFY2(preview && preview->isVisible(),
+                 "the voice preview bar did not appear");
+        auto *strip = item("voicePreviewWave");
+        QVERIFY2(strip != nullptr,
+                 "the voice preview has no waveform at all");
+        QVERIFY2(strip->isVisible(),
+                 "the voice preview was handed a waveform and drew none");
+        auto *row = item("voicePreviewWaveRow");
+        QVERIFY(row);
+
+        QList<QQuickItem *> bars;
+        const auto children = row->childItems();
+        for (QQuickItem *child : children) {
+            if (child->width() > 0 && child->height() > 0)
+                bars.append(child);
+        }
+        QVERIFY2(bars.size() >= 8,
+                 qPrintable(QStringLiteral("only %1 waveform bars were drawn")
+                                .arg(bars.size())));
+        qreal minH = bars.first()->height();
+        qreal maxH = minH;
+        for (QQuickItem *b : bars) {
+            minH = qMin(minH, b->height());
+            maxH = qMax(maxH, b->height());
+        }
+        QVERIFY2(maxH - minH > 1.0,
+                 qPrintable(QStringLiteral(
+                     "every waveform bar is %1 px tall — the 0..=100 buckets "
+                     "were clamped to 1 instead of divided by 100, so this is "
+                     "a solid block, not a waveform").arg(maxH)));
+        QVERIFY2(maxH <= strip->height() + 0.5,
+                 "a waveform bar is taller than the strip containing it");
+
+        // Cleared through the composer's own path: the file path is empty,
+        // so AppController::discardPreparedVoice refuses it before it can
+        // touch the recorder, and the slot goes back to null.
+        QMetaObject::invokeMethod(bar, "discardPendingVoice");
+        QTest::qWait(60);
+        QVERIFY(!preview->isVisible());
+        m_controller->setCurrentRoomId(previousRoom);
+    }
+
+    // FINDING 6 (LOW). The compact "…" menu rendered at exactly 220 px —
+    // AppTheme.menuWidthDefault — and elided its own longest row to "Record
+    // a voice messa…", although AppMenu's own comment promises the design
+    // width is "a floor, not a clamp". Asserted as the elision condition
+    // itself (a row's implicit width against the width it was given), so a
+    // translation that outgrows the new width fails here rather than on a
+    // user's screen.
+    void theCompactOverflowMenuDoesNotElideItsOwnRows()
+    {
+        const int restoreWidth = m_window->width();
+        const QString previousRoom = m_controller->currentRoomId();
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        m_window->setWidth(360);
+        QTest::qWait(150);
+
+        auto *menu = m_root->findChild<QObject *>(
+            QStringLiteral("composerOverflowMenu"));
+        QVERIFY(menu);
+        QMetaObject::invokeMethod(menu, "open");
+        QTest::qWait(150);
+        QVERIFY(menu->property("visible").toBool());
+
+        int measured = 0;
+        for (const char *name : { "composerOverflowFormattingItem",
+                                  "composerOverflowEmojiItem",
+                                  "composerOverflowMediaItem",
+                                  "composerOverflowVoiceItem" }) {
+            auto *row = m_root->findChild<QQuickItem *>(QLatin1String(name));
+            QVERIFY2(row != nullptr, name);
+            // Measured whether or not it is currently visible: the mock
+            // backend has no GIF or sticker provider, so "GIFs and
+            // stickers" is hidden here — and a row that is hidden on this
+            // harness and shown on a real account must still fit.
+            ++measured;
+            QVERIFY2(row->implicitWidth() <= row->width() + 0.5,
+                     qPrintable(QStringLiteral(
+                         "%1 is elided: it needs %2 px and was given %3 "
+                         "(menu width %4)")
+                            .arg(QLatin1String(name))
+                            .arg(row->implicitWidth()).arg(row->width())
+                            .arg(menu->property("width").toReal())));
+        }
+        // Assert the COUNT that was actually measured: a loop whose rows all
+        // resolved invisible would otherwise pass having checked nothing.
+        QCOMPARE(measured, 4);
+
+        QMetaObject::invokeMethod(menu, "close");
+        QTest::qWait(80);
+        m_window->setWidth(restoreWidth);
+        QTest::qWait(150);
         m_controller->setCurrentRoomId(previousRoom);
     }
 };

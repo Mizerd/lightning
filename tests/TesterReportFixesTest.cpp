@@ -349,8 +349,46 @@ private Q_SLOTS:
                  "the overflow button exists only in a compact row");
         const int menu = bar.indexOf(QStringLiteral("id: composerOverflowMenu"));
         QVERIFY(menu > 0);
-        const QString decl = bar.mid(menu, 2200);
-        for (const char *item : { "composerOverflowEmojiItem", "composerOverflowMediaItem",
+        // THE BLOCK, NOT A BYTE WINDOW.
+        //
+        // This used to be `bar.mid(menu, 2200)`, and on 2026-09-20 a fourth
+        // row (Formatting, displaced out of the narrow input row) pushed the
+        // LAST item past 2200 and turned a correct menu into a red test. A
+        // literal window is wrong in both directions: too small and it
+        // reports a defect that is not there, too large and it reads the
+        // NEXT declaration and passes on a row this menu does not have. So
+        // it is derived — from the `AppMenu {` line's own indent to the
+        // first line that closes at exactly that indent — and the extent it
+        // found is asserted before anything is read out of it, because a
+        // scan that silently comes back short is the defect here, not its
+        // symptom.
+        const int declLine = bar.lastIndexOf(QStringLiteral("\n"), menu) + 1;
+        const int openLine = bar.lastIndexOf(QStringLiteral("\n"), declLine - 2) + 1;
+        QVERIFY2(bar.mid(openLine, declLine - openLine)
+                     .contains(QStringLiteral("AppMenu {")),
+                 "composerOverflowMenu is no longer the first line of an "
+                 "AppMenu block; this scan cannot find its extent");
+        QString indent;
+        for (int i = openLine; i < bar.size() && bar.at(i).isSpace()
+                               && bar.at(i) != QLatin1Char('\n'); ++i)
+            indent.append(bar.at(i));
+        QVERIFY(!indent.isEmpty());
+        const int close = bar.indexOf(QStringLiteral("\n") + indent
+                                          + QStringLiteral("}"), menu);
+        QVERIFY2(close > menu,
+                 "the composerOverflowMenu block has no closing brace at its "
+                 "own indent");
+        const QString decl = bar.mid(menu, close - menu);
+        // The extent is real: long enough to hold a menu, and stopping
+        // before the next top-level declaration in the file.
+        QVERIFY2(decl.size() > 400,
+                 qPrintable(QStringLiteral("the menu block scanned to only %1 "
+                                           "characters").arg(decl.size())));
+        QVERIFY2(!decl.contains(QStringLiteral("id: sendOptionsMenu")),
+                 "the scan ran past composerOverflowMenu into its sibling");
+        for (const char *item : { "composerOverflowFormattingItem",
+                                  "composerOverflowEmojiItem",
+                                  "composerOverflowMediaItem",
                                   "composerOverflowVoiceItem" }) {
             QVERIFY2(decl.contains(QLatin1String(item)), item);
         }

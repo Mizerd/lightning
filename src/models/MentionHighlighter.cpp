@@ -36,16 +36,6 @@ void MentionHighlighter::setAccentColor(const QColor &color)
     rehighlight();
 }
 
-void MentionHighlighter::setSoftColor(const QColor &color)
-{
-    if (m_soft == color)
-        return;
-    m_soft = color;
-    Q_EMIT styleChanged();
-    rehighlight();
-}
-
-
 // WHAT COUNTS AS AN EMOJI HERE, and why this is a codepoint test rather than a
 // catalogue lookup. The catalogue lives in EmojiCatalog, which is linked
 // against Qt6::Core alone by its own test target and knows nothing about fonts;
@@ -109,9 +99,15 @@ void MentionHighlighter::highlightBlock(const QString &text)
         }
     }
 
-    // The soft colour is no longer consulted at all — it used to gate this
-    // early return as well, so a theme that pushed only an ink silently lost
-    // mention styling in the composer.
+    // GONE, 2026-09-20: `softColor` used to be declared here, stored, and
+    // consulted by nothing — it was the mention CHIP's surface, which this
+    // product retired (TimelineModel says the same of its own vestigial
+    // parameter), and it had also gated this early return, so a theme that
+    // pushed only an ink silently lost mention styling in the composer. It
+    // outlived that fix only because a QML file assigning a property the
+    // type does not have is a hard component-load error and the two
+    // composers were "not this class's to edit"; both assignments are
+    // removed in the same change, which is what makes the deletion safe.
     if (m_ranges.isEmpty() || !m_accent.isValid())
         return;
     const int blockStart = currentBlock().position();

@@ -24,7 +24,15 @@ Rectangle {
     property string filePath: ""
     property string mime: ""
     property real durationMs: 0
+    // The recorder's own amplitude buckets, 0..=100 (VoiceRecorder.h), the
+    // SAME list that goes on the wire as MSC3245 `waveform` — so what the
+    // preview draws is what the recipient will see. Empty when the clip
+    // could not be decoded, which is a real case the recorder documents;
+    // the strip simply does not appear then.
     property var waveform: []
+    readonly property bool hasWaveform:
+        root.waveform !== undefined && root.waveform !== null
+        && root.waveform.length > 0
     // Smaller chrome for the thread composer, exactly like the pill.
     property bool compact: false
 
@@ -117,6 +125,92 @@ Rectangle {
                 else
                     preview.play()
             }
+        }
+        // THE WAVEFORM, WHICH THIS BAR TOOK AND NEVER DREW.
+        //
+        // `waveform` has been declared here and bound by both hosts since
+        // the preview shipped, and `grep waveform VoicePreviewBar.qml`
+        // returned the declaration and nothing else — the same shape as
+        // refreshIndexStats() with no caller. Drawn now, from the recorder's
+        // own buckets, with the played part inked like AudioPlayerCard's
+        // received-voice strip and the same tap-to-seek, because a review
+        // step whose whole job is "listen to this before you send it" is
+        // exactly where a scrub surface belongs.
+        Item {
+            objectName: "voicePreviewWave"
+            visible: root.hasWaveform
+            Layout.alignment: Qt.AlignVCenter
+            implicitWidth: root.compact ? 44 : 56
+            implicitHeight: root.compact ? 12 : 14
+
+            Row {
+                id: waveRow
+                objectName: "voicePreviewWaveRow"
+                anchors.fill: parent
+                spacing: 1
+                // One bar per 3 px, never more than the buckets we have.
+                readonly property int barCount: Math.max(
+                    1, Math.min(root.hasWaveform ? root.waveform.length : 1,
+                                Math.floor(width / 3)))
+                readonly property real progress:
+                    preview.duration > 0
+                    ? preview.position / preview.duration : 0
+                Repeater {
+                    model: waveRow.barCount
+                    delegate: Rectangle {
+                        required property int index
+                        // The buckets are 0..=100, NOT 0..1. Dividing is the
+                        // whole difference between a waveform and a solid
+                        // block of full-height bars.
+                        readonly property real amp: {
+                            var wf = root.waveform
+                            if (!wf || wf.length === 0)
+                                return 0.12
+                            var at = Math.floor(
+                                index * wf.length / waveRow.barCount)
+                            return Math.max(0.12,
+                                            Math.min(1, wf[at] / 100))
+                        }
+                        width: 2
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: Math.max(1, parent.height * amp)
+                        radius: 1
+                        // THE PILL'S OWN INKS, NOT THE CARD'S.
+                        //
+                        // AudioPlayerCard draws its received-voice strip
+                        // `accent` over `borderStrong` — correct there,
+                        // because that strip sits on a CARD. This one sits
+                        // on the preview pill, whose fill is `accentSoft`,
+                        // and measured against that fill across all seven
+                        // palettes that define their own accent the card's
+                        // pair collapses: borderStrong reaches 1.04:1 on
+                        // Nordic and 1.06:1 on Graphite (invisible), and
+                        // accent itself only 1.52:1 on Graphite. The pill's
+                        // own label inks clear it everywhere — text 5.4 to
+                        // 14.3:1, textMuted 2.5 to 5.5:1, and 19 to 33 dL*
+                        // apart from each other, which is what makes played
+                        // and unplayed tell each other apart.
+                        // theVoicePreviewWaveformReadsOnEveryTheme holds
+                        // those floors.
+                        color: (index / waveRow.barCount) <= waveRow.progress
+                               ? AppTheme.text : AppTheme.textMuted
+                    }
+                }
+            }
+            TapHandler {
+                // WithinBounds, so a tap on the strip seeks and does not
+                // also reach whatever sits under the pill (the composer's
+                // own handlers) — the recorded TapHandler rule.
+                gesturePolicy: TapHandler.WithinBounds
+                enabled: preview.seekable && preview.duration > 0
+                onTapped: (eventPoint) => {
+                    preview.position = preview.duration
+                        * Math.max(0, Math.min(1, eventPoint.position.x
+                                                  / waveRow.width))
+                }
+            }
+            Accessible.role: Accessible.Graphic
+            Accessible.name: qsTr("Recording waveform")
         }
         Label {
             objectName: "voicePreviewTime"

@@ -1061,6 +1061,72 @@ private Q_SLOTS:
                                            "measured").arg(checked)));
     }
 
+    // ── A WAVEFORM ON AN ACCENT PILL NEEDS THE PILL'S INKS ──────────────
+    //
+    // VoicePreviewBar's fill is `accentSoft` and it now draws the recording's
+    // waveform inside itself. The obvious inks are the ones AudioPlayerCard
+    // already uses for the received-voice strip — `accent` for the played
+    // part, `borderStrong` for the rest — and they are wrong HERE, because
+    // that strip sits on a card and this one sits on the accent fill itself.
+    // Measured against accentSoft before choosing: borderStrong is 1.04:1 on
+    // Nordic and 1.06:1 on Graphite, which is not a dim bar but no bar at
+    // all, and accent is only 1.52:1 on Graphite.
+    //
+    // The pill's own label inks clear it on every palette, so the played
+    // part is `text` and the rest `textMuted`. Three floors, because three
+    // different things can break: each ink against the fill it sits on, and
+    // the two inks against EACH OTHER — a strip whose halves read the same
+    // shows no progress at all, and a contrast ratio against the background
+    // cannot see that.
+    //
+    // Same shape as theTextSelectionIsVisibleOnEveryTheme above: derived
+    // from the token names, and asserting the count it measured.
+    void theVoicePreviewWaveformReadsOnEveryTheme()
+    {
+        QStringList prefixes;
+        for (auto it = m_colors.cbegin(); it != m_colors.cend(); ++it) {
+            if (it.key().endsWith(QStringLiteral("Accent")))
+                prefixes << it.key().chopped(6);
+        }
+        int checked = 0;
+        for (const QString &prefix : prefixes) {
+            // accentSoft falls through to `selected` on the palettes that
+            // do not define one, exactly as AppTheme resolves it.
+            QString fill = m_colors.value(prefix + QStringLiteral("AccentSoft"));
+            if (fill.isEmpty())
+                fill = m_colors.value(prefix + QStringLiteral("Selected"));
+            const QString played = m_colors.value(prefix + QStringLiteral("TextPrimary"));
+            const QString rest = m_colors.value(prefix + QStringLiteral("TextMuted"));
+            if (fill.isEmpty() || played.isEmpty() || rest.isEmpty())
+                continue;
+            ++checked;
+            QVERIFY2(contrast(played, fill) >= 3.0,
+                     qPrintable(QStringLiteral(
+                         "%1: the played waveform ink %2 is only %3:1 on the "
+                         "preview pill %4")
+                                    .arg(prefix, played)
+                                    .arg(contrast(played, fill), 0, 'f', 2)
+                                    .arg(fill)));
+            QVERIFY2(contrast(rest, fill) >= 2.0,
+                     qPrintable(QStringLiteral(
+                         "%1: the unplayed waveform ink %2 is only %3:1 on "
+                         "the preview pill %4 — bars nobody can see")
+                                    .arg(prefix, rest)
+                                    .arg(contrast(rest, fill), 0, 'f', 2)
+                                    .arg(fill)));
+            const double d = qAbs(lstarOf(played) - lstarOf(rest));
+            QVERIFY2(d >= 12.0,
+                     qPrintable(QStringLiteral(
+                         "%1: played %2 and unplayed %3 are %4 dL* apart — "
+                         "the strip shows no progress")
+                                    .arg(prefix, played, rest)
+                                    .arg(d, 0, 'f', 1)));
+        }
+        QVERIFY2(checked >= 7,
+                 qPrintable(QStringLiteral("only %1 palettes were actually "
+                                           "measured").arg(checked)));
+    }
+
     // ── FOUR FILES DRAW THE SETTINGS CARD, AND THEY MUST DRAW ONE PLANE ──
     //
     // The settings content pane stacks cards from four declarations in three

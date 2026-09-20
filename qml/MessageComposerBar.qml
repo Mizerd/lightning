@@ -288,6 +288,34 @@ Item {
         // single character, so nothing else would refresh this.
         root.refreshRichBlank()
     }
+    // THE COMPLETION POPUPS CLEAR THE CARD, NOT THE TEXT FIELD.
+    //
+    // All three popups (mention, slash command, emoji shortcode) place
+    // themselves at `anchorInputTop.y - height - spacing4`. Every call site
+    // used to hand them the FLICKABLE's scene top — the text field's — which
+    // is inside the composer card whenever anything sits above the input
+    // row. With the formatting toolbar open that is 38 px of a 43 px toolbar
+    // row covered (measured at 1920x1400: toolbar 1266..1308, popup
+    // 1271..1316), so B / I / S / code / link / list / quote and the mode
+    // toggle all disappear behind the suggestion list while you type. A
+    // reply or thread context banner and the slash-command refusal strip sit
+    // in the same card and were covered the same way.
+    //
+    // The x still comes from the flickable, because the popup must stay
+    // aligned with the TEXT it is completing; only the y moves out to the
+    // card. This is exactly what composerOverflowMenu and sendOptionsMenu
+    // already do through `parent: composerCard; y: -height - 4` — a fix the
+    // comment there records as having been reported twice, with screenshots,
+    // because the first attempt cleared the button instead of the bar.
+    //
+    // A point, not two bindings: `anchorInputTop` is a plain property the
+    // call sites assign, so this is re-read on every keystroke that moves
+    // the popup — which is also when the card can have grown or shrunk.
+    function composerPopupAnchor(flick) {
+        var p = flick.mapToItem(Overlay.overlay, 0, 0)
+        var card = composerCard.mapToItem(Overlay.overlay, 0, 0)
+        return Qt.point(p.x, card.y)
+    }
     // Rich-mode @-mentions: the same token scan as markdown mode, over the
     // editor's PLAIN text, whose offsets are the document's cursor offsets.
     // Insertion writes a matrix.to anchor, which the serializer turns into
@@ -316,8 +344,8 @@ Item {
             app.mentionSuggestions.roomId = app.currentRoomId
             app.mentionSuggestions.query = tok.query
             mentionPopup.query = tok.query
-            var p = richFlick.mapToItem(Overlay.overlay, 0, 0)
-            mentionPopup.anchorInputTop = Qt.point(p.x, p.y)
+            mentionPopup.anchorInputTop =
+                root.composerPopupAnchor(richFlick)
             mentionPopup.anchorWidth = richFlick.width
             if (!mentionPopup.visible)
                 mentionPopup.open()
@@ -505,8 +533,7 @@ Item {
         var flick = root.richMode ? richFlick : inputFlick
         if (comps.length > 0 && !root.commandPopupDismissed
                 && root.activeInput().activeFocus && app.currentRoomId !== "") {
-            var p = flick.mapToItem(Overlay.overlay, 0, 0)
-            commandPopup.anchorInputTop = Qt.point(p.x, p.y)
+            commandPopup.anchorInputTop = root.composerPopupAnchor(flick)
             commandPopup.anchorWidth = flick.width
             if (!commandPopup.visible)
                 commandPopup.open()
@@ -549,8 +576,7 @@ Item {
         if (comps.length > 0 && !root.emojiPopupDismissed) {
             emojiPopup.completions = comps
             var flick = root.richMode ? richFlick : inputFlick
-            var p = flick.mapToItem(Overlay.overlay, 0, 0)
-            emojiPopup.anchorInputTop = Qt.point(p.x, p.y)
+            emojiPopup.anchorInputTop = root.composerPopupAnchor(flick)
             emojiPopup.anchorWidth = flick.width
             if (!emojiPopup.visible)
                 emojiPopup.open()
@@ -701,9 +727,11 @@ Item {
             // field is reparented into the flickable's content item, so
             // once a long draft has scrolled (contentY > 0) the
             // TextArea's scene top sits above the visible composer and
-            // the popup would detach (review M1).
-            var p = inputFlick.mapToItem(Overlay.overlay, 0, 0)
-            mentionPopup.anchorInputTop = Qt.point(p.x, p.y)
+            // the popup would detach (review M1). The x still comes from
+            // that viewport; the y comes from the card (see
+            // composerPopupAnchor).
+            mentionPopup.anchorInputTop =
+                root.composerPopupAnchor(inputFlick)
             mentionPopup.anchorWidth = inputFlick.width
             if (!mentionPopup.visible)
                 mentionPopup.open()
@@ -1187,6 +1215,21 @@ Item {
     }
     AppMenu {
         id: legacyAttachMenu
+        // ANCHORED ABOVE THE CARD, like every other menu this bar owns.
+        //
+        // Both attach menus used a bare popup(), which opens AT THE POINTER
+        // and downward — so the `+` button's own menu covered the composer it
+        // belongs to and, at the bottom of the window, ran out of screen:
+        // measured at 1920x1380, the menu spanned y 1304..1379 with the input
+        // row at 1310..1362 and ZERO pixels of clearance below it. Its two
+        // siblings in this file (composerOverflowMenu, sendOptionsMenu) were
+        // already fixed this way; see the note on sendOptionsMenu for why the
+        // position is a binding on the card's own observable width rather
+        // than a mapped coordinate. Left-aligned to the card because the
+        // attach button is the leftmost control in the input row.
+        parent: composerCard
+        x: 0
+        y: -height - 4
         AppMenuItem {
             iconName: "image"
             text: qsTr("Send image…")
@@ -1222,6 +1265,10 @@ Item {
     AppMenu {
         id: attachMenu
         objectName: "composerAttachMenu"
+        // Same anchoring as legacyAttachMenu above — see the note there.
+        parent: composerCard
+        x: 0
+        y: -height - 4
         AppMenuItem {
             iconName: "attach_file"
             text: qsTr("Attach files…")
@@ -1465,13 +1512,32 @@ Item {
             Repeater {
                 model: app.composer.attachments
                 Rectangle {
+                    id: attachmentChip
+                    objectName: "composerAttachmentChip"
+                    // EVERY CHIP IN THE TRAY IS THE SAME HEIGHT.
+                    //
+                    // The tray is a Flow with no alignment, so chips are
+                    // top-aligned and each one used to be sized by its own
+                    // content alone: an IMAGE chip by its 64x48 preview tile
+                    // (48 + spacingS), a plain FILE chip by the two-label
+                    // column (~34 + spacingS). Measured with four files
+                    // attached at once, the image chips spanned 56 px and
+                    // the .txt chip 42 — its bottom edge floating 14 px
+                    // above its neighbours', which is what made the row read
+                    // as ragged. The preview tile is the tallest thing a
+                    // chip can hold, so it is the floor, derived from the
+                    // tile's own height rather than from a 56 nobody would
+                    // think to update.
+                    readonly property int previewTileHeight: 48
                     radius: AppTheme.radiusSm
                     color: AppTheme.cardElevated
                     border.color: model.state === "failed" ? AppTheme.danger
                                                            : AppTheme.border
                     border.width: 1
                     implicitWidth: Math.min(chipLayout.implicitWidth + AppTheme.spacingS * 2, 280)
-                    implicitHeight: chipLayout.implicitHeight + AppTheme.spacingS
+                    implicitHeight: Math.max(
+                        chipLayout.implicitHeight,
+                        attachmentChip.previewTileHeight) + AppTheme.spacingS
 
                     RowLayout {
                         id: chipLayout
@@ -1504,7 +1570,8 @@ Item {
                         Rectangle {
                             visible: chipLayout.hasPreview
                                      && (model.isImage || chipLayout.isVideoChip)
-                            width: 64; height: 48
+                            width: 64
+                            height: attachmentChip.previewTileHeight
                             radius: AppTheme.radiusSm
                             color: AppTheme.surface
                             clip: true
@@ -2141,7 +2208,7 @@ Item {
                         Accessible.name: qsTr("Attach files or create a poll")
                         onClicked: {
                             if (!app.composer.attachmentsSupported) {
-                                legacyAttachMenu.popup()
+                                legacyAttachMenu.open()
                                 return
                             }
                             // Polls available → offer the menu; otherwise
@@ -2153,7 +2220,7 @@ Item {
                             // that has no polls.
                             if (app.composer.pollsSupported()
                                     || root.compactInputRow)
-                                attachMenu.popup()
+                                attachMenu.open()
                             else
                                 pickAttachmentsDialog.open()
                         }
@@ -2897,7 +2964,6 @@ Item {
                             document: input.textDocument
                             ranges: root.mentionHighlightRanges
                             accentColor: AppTheme.accent
-                            softColor: AppTheme.accentSoft
                             // Named, because Qt 6.8 picks a monochrome face for emoji
                             // where 6.11 picks the colour one. Per-range, so the words
                             // around them keep the UI face.
@@ -3270,6 +3336,38 @@ Item {
         parent: composerCard
         x: Math.max(0, composerCard.width - width)
         y: -height - 4
+        // WIDTH: nothing is set here on purpose.
+        //
+        // This menu used to render at exactly 220 (AppTheme.menuWidthDefault)
+        // and elide its own longest row to "Record a voice messa…", because
+        // AppMenu's "the design width is a floor, not a clamp" was a comment
+        // over a binding that could not deliver it — a Menu's
+        // implicitContentWidth is its contentItem's, and the Basic style's
+        // contentItem is a ListView, which declares none. Measured on this
+        // menu on Qt 6.11.1: implicitContentWidth 0 AND contentWidth 0.
+        // AppMenu now refits itself from its rows on `opened`, so a local
+        // width here would only be a second, staler answer to the same
+        // question; theCompactOverflowMenuDoesNotElideItsOwnRows asserts the
+        // result on this menu's own rows.
+        // FORMATTING IS DISPLACED HERE, NOT REMOVED.
+        //
+        // composerFormatToggleButton is `visible: !root.compactInputRow`,
+        // but toolbarRow is NOT — so opening the toolbar in a wide window
+        // and then narrowing it left the toolbar drawn with its only toggle
+        // gone and no way to put it away (measured at 760x900). Every other
+        // control this row hides is offered from a menu; this one was simply
+        // dropped, which is the opposite of what the row's own comments
+        // commit to. Same visibility gate as the button, so a user who
+        // switched formatting off in Settings does not get it back here.
+        AppMenuItem {
+            objectName: "composerOverflowFormattingItem"
+            iconName: "edit_square"
+            text: root.toolbarExpanded ? qsTr("Hide formatting")
+                                       : qsTr("Show formatting")
+            visible: root.composerButtonShown("formatting")
+            height: visible ? implicitHeight : 0
+            onTriggered: root.toolbarExpanded = !root.toolbarExpanded
+        }
         AppMenuItem {
             objectName: "composerOverflowEmojiItem"
             iconName: "mood"
