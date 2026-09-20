@@ -1106,9 +1106,24 @@ public:
     Q_INVOKABLE QString sessionDiagnosticsText() const;
     Q_INVOKABLE void copySessionDiagnostics();
 
-    // v0.5.0-prep+11. Manually reload the current room's recent
-    // timeline via matrix-sdk's Room::messages. Safe to call at any
-    // time — the wrapper dedupes by event_id. No-op on non-Rust.
+    // Automatic "a key arrived, try again" — IN PLACE. Keeps the
+    // subscription, the loaded history, the media and the reader's open
+    // thread panel; retries the thread timeline too. Every automatic trigger
+    // uses this.
+    void retryDecryptionInCurrentRoom();
+
+    // v0.5.0-prep+11, corrected 2026-09-20. REBUILDS the room's timeline —
+    // new subscription generation, fresh snapshot, re-pagination,
+    // `clear_media()` and `close_thread()`. This is the explicit user
+    // Refresh (Settings → Labs) and nothing should call it automatically.
+    // No-op on non-Rust.
+    //
+    // The description this comment carried until 2026-09-20 — "reload via
+    // matrix-sdk's Room::messages, safe to call at any time, the wrapper
+    // dedupes by event_id" — had been stale since v0.5.7, which moved it to
+    // openRoomTimeline(). It was also, briefly, sitting above the WRONG
+    // declaration, because a new comment was spliced in beneath it. §16
+    // carries that exact failure from 2026-09-19; this is it recurring.
     Q_INVOKABLE void reloadCurrentRoomTimeline(int limit = 30);
 
     // 2026-08-19 jump-to-live history trim. Releases the paginated backlog

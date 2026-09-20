@@ -4373,7 +4373,10 @@ if(BUILD_TESTING)
     )
     lightning_configure_qml_test(tester-report-fixes-test)
     target_compile_definitions(tester-report-fixes-test PRIVATE
-        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+        # Some reported defects live in C++ lifecycle rather than in QML —
+        # the 2026-09-20 room-rebuild storm was one.
+        LIGHTNING_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(tester-report-fixes-test PRIVATE Qt6::Test)
     add_test(NAME tester-report-fixes COMMAND tester-report-fixes-test)
     set_tests_properties(tester-report-fixes PROPERTIES

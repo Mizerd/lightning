@@ -1,5 +1,114 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-20 — OPEN: the room-rebuild report is NOT diagnosed, and the duplicate send has a named SDK mechanism
+
+Reported against the published 0.9.8 AppImage: rooms loading badly, content
+loading then reloading ("it loaded one image, then the rest of the room, then
+again"), and **a message appearing sent twice on the sender's side while only
+one reached the room**. A full `-j18` build was running on the reporter's
+machine, so "UI dying" is partly load; the rest is not.
+
+### The first diagnosis was WRONG, and the log is why
+
+It was read as the same room reopening four times, from four
+`timeline open room= "smetonis.net"` lines. **That log could not have said
+so.** It printed `roomId.right(12)`, and the last twelve characters of any
+room id on that homeserver are the DOMAIN — `!AbCdEf:smetonis.net` and
+`!ZzZzZz:smetonis.net` both render as `smetonis.net`. Four opens of four
+DIFFERENT rooms look identical to four opens of one, and `items=` going
+2 -> 2 -> 13 -> 21 fits four rooms better than one.
+
+**FIXED in this round**: every room the timeline logs now goes through
+`matrix::e2ee::redactId()` — sigil + 8 hex of SHA-256, stable for correlation,
+not reversible, and it actually distinguishes rooms. That helper already
+existed in this tree and these lines simply did not use it. **A new capture is
+needed before anything here can be diagnosed.**
+
+Also refuted by review: the claim that the `keyBackupResult` handler fires on
+ordinary sync. `key_backup_status` is enqueued only inside
+`mx_rust_recover_from_backup`, whose sole caller is the Settings button that
+consumes a typed recovery key. The `auto key recovery` lines in the report are
+a DIFFERENT event (`crypto_bootstrap`, kind `auto_key_recovery`) that returns
+without touching that path.
+
+### What can still reopen a room repeatedly
+
+Two automatic `openRoomTimeline()` callers, neither guarded and neither
+touched by this round, because both reopen DELIBERATELY to recover from
+detected damage:
+* `queue_overflow` — `RustSdkMatrixClient.cpp:5285`
+* `DiffOutcome::Invalid` — `RustSdkMatrixClient.cpp:5919`
+
+Both log a distinctive warning, so the next capture settles it with one grep.
+**Uncomfortable corollary:** `Invalid` comes from a `set` diff whose index is
+outside the C++ mirror, and `retry_decryption` PRODUCES `Set` diffs — so the
+in-place retry that replaced the reopen could in principle feed that path. Not
+established; watch for it.
+
+### The duplicate send — mechanism NAMED, verified against pinned SDK sources
+
+Not the mechanism first proposed (that one was refuted: `handleTimelineReset`
+replaces the C++ mirror wholesale, and `TimelineModel::reload()` replaces
+`m_events` wholesale, so nothing merges). The real one is inside
+matrix-sdk-ui, on every timeline REBUILD:
+
+* `builder.rs:183` — `init_focus()` loads the REMOTE events from the event
+  cache first.
+* `builder.rs:~211` — then `send_queue().subscribe()` returns the still-queued
+  local echoes ("Handles existing local echoes first"), each fed to
+  `handle_local_echo`.
+* `event_handler.rs:1030` — the `Flow::Local` arm does `items.push_local(item)`
+  with **no check against an already-present remote item**.
+* `event_handler.rs:1208` — the dedup that would catch it,
+  `recycle_local_or_create_item`, matches on event id OR transaction id but is
+  reachable only from the `Flow::Remote` arms. On a rebuild the order is
+  inverted, so it never fires.
+
+So a rebuild while the send queue still owes an echo for a message the event
+cache already holds remotely yields BOTH. Lightning forwards that verbatim —
+the C++ mirror's only dedup is a linear event-id scan and `TimelineModel`
+has none. The SDK's self-heal (`controller/mod.rs:794`, "Message echo got
+duplicated, removing the local one") runs only on a send-state update, which a
+rebuild does not deliver.
+
+The wedged-send-queue state this needs is one this repo already documents:
+`rust/src/timeline.rs:207` (matrix-sdk disables a room's send queue after any
+send error) and `:2691` ("the timeline says a local echo is still in flight
+while the server already has the event", resolved "only by a room switch").
+
+**NOT FIXED. Do not record the duplicate send as fixed by the retry change** —
+per the above, neither handler that change touches was firing automatically.
+
+### Follow-up: a LOOP BREAKER on recovery reopens, never an identity guard
+
+An `alreadyOpen`-style guard on `openRoomTimeline()` was proposed in review and
+then withdrawn by the reviewer, correctly. Both remaining automatic callers
+reopen the SAME room deliberately: for `DiffOutcome::Invalid` the C++ mirror is
+*known* to be wrong, so an identity guard would turn the recovery into a no-op
+and leave the mirror permanently desynchronised — strictly worse than the
+reopen it prevents.
+
+What is wanted instead is a **bound**: cap recovery reopens per room per
+interval and log an escalation when the cap trips. A pathological repeat then
+becomes bounded and *visible* rather than silent and unbounded, and the next
+capture gets a named signal to grep for. Not done.
+
+Related thing to grep for in the next capture, now that rooms are
+distinguishable: `timeline invalid diff rejected` immediately following
+`decryption retry dispatched`. `retry_decryption` produces `Set` diffs and
+`DiffOutcome::Invalid` comes from a `set` whose index is outside the mirror —
+though note this exposure is NOT new and must not be over-weighted: the manual
+Retry button and `retry_decryption_after_import` (uncoalesced, on ordinary key
+arrival) already drive that same path continuously.
+
+### Latent, follow-up, not blocking
+
+`m_pendingSends` is never cleared on open/close/reset, only on sign-out, while
+the mirror it indexes into is replaced wholesale. After a reset `handleSendOk`
+finds nothing and silently returns, so a C++-side echo can vanish with no
+status update and no error. A disappearance rather than a duplication, and
+only reachable when no live timeline is active.
+
 ## 2026-09-20 — WITHDRAWN: the "expected, not a regression" note was written about a regression
 
 **This entry replaces one that said the opposite and told you not to

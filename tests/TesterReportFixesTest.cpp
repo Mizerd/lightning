@@ -8,6 +8,8 @@
 
 #include <QtTest/QtTest>
 
+#include <QDirIterator>
+
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
@@ -783,6 +785,128 @@ private Q_SLOTS:
                  "verification emoji must name the colour face (Qt 6.8 fallback is monochrome)");
         const QString icon = read(QStringLiteral("Icon.qml"));
         QVERIFY(icon.contains(QStringLiteral("renderType: Text.NativeRendering")));
+    }
+
+    // A REOPEN IS THE WRONG TOOL FOR "A KEY ARRIVED, TRY AGAIN".
+    //
+    // `reloadCurrentRoomTimeline()` goes to `openRoomTimeline()`, which
+    // rebuilds the room: new subscription generation, fresh snapshot, full
+    // re-pagination, `clear_media()` so every image re-fetches, and
+    // `close_thread()` — so a successful key recovery CLOSED the reader's
+    // open thread panel. `retryDecryption()` keeps the subscription, retries
+    // the open thread timeline too, and its backup-download loop is uncapped
+    // where the reopen's fresh pass caps at MAX_SESSIONS_PER_PASS. None of
+    // that depends on how often either trigger fires.
+    //
+    // WHAT THIS CASE DOES NOT CLAIM, and why the distinction is load-bearing.
+    // An earlier version of this comment said key recovery "fires on ordinary
+    // sync" and read a user-reported room-rebuild loop as proof. BOTH HALVES
+    // WERE WRONG. `keyBackupResult` is emitted only from `key_backup_status`,
+    // which Rust enqueues only inside `mx_rust_recover_from_backup`, whose
+    // sole caller is the Settings button that consumes a typed recovery key —
+    // at most once per explicit user recovery. And the log that "proved" the
+    // loop could not have: `timeline open room=` printed `roomId.right(12)`,
+    // and the last twelve characters of any room id on that homeserver are
+    // the DOMAIN, so every room on the account logged identically. Four opens
+    // of four different rooms are indistinguishable from four of one. That
+    // log now goes through `redactId()`.
+    //
+    // The reported defect is NOT diagnosed and this case does not fix it —
+    // see `docs/open-items.md`, 2026-09-20. The reopen sources that can
+    // actually repeat are `queue_overflow` and `DiffOutcome::Invalid`, which
+    // reopen DELIBERATELY to recover from detected damage and are untouched.
+    //
+    // What this case pins is only this: no automatic C++ caller of
+    // `reloadCurrentRoomTimeline`, and both automatic triggers wired to the
+    // in-place retry.
+    //
+    // Asserted as COUNTS, not as the presence of the replacement. The first
+    // version checked `code.contains("retryDecryptionInCurrentRoom()")`,
+    // which the DEFINITION satisfies — review measured that deleting both
+    // call sites left the case green, i.e. a tree with §9's automatic retry
+    // silently gone passed the test written to prevent exactly that.
+    void aKeyArrivingRetriesInPlaceInsteadOfRebuildingTheRoom()
+    {
+        QString src;
+        int filesRead = 0;
+        QDirIterator it(QStringLiteral(LIGHTNING_SRC_DIR),
+                        { QStringLiteral("*.cpp"), QStringLiteral("*.h") },
+                        QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            QFile f(it.next());
+            if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+                continue;
+            src += QString::fromUtf8(f.readAll()) + QLatin1Char('\n');
+            ++filesRead;
+        }
+        // The extent must be real before anything is concluded from it.
+        QVERIFY2(filesRead > 50,
+                 qPrintable(QStringLiteral("only %1 source files were scanned")
+                                .arg(filesRead)));
+
+        // Comments explain the hazard by naming it; strip them or the counts
+        // below count the explanation.
+        QString code;
+        const auto lines = src.split(QLatin1Char('\n'));
+        for (const QString &line : lines) {
+            if (!line.trimmed().startsWith(QLatin1String("//")))
+                code += line + QLatin1Char('\n');
+        }
+
+        // The definition, and nothing else, may name it in C++. QML's
+        // Settings "Refresh" button is the one legitimate caller and lives
+        // outside C++ entirely.
+        //
+        // SCANNED ACROSS ALL OF src/, not just this file: the guarantee is
+        // "no automatic C++ caller anywhere", and reloadCurrentRoomTimeline
+        // is a public Q_INVOKABLE, so a future caller in another translation
+        // unit would be invisible to a one-file scan.
+        const int defs = code.count(
+            QStringLiteral("void AppController::reloadCurrentRoomTimeline"));
+        QCOMPARE(defs, 1);
+        // The header DECLARATION is a mention and not a call. Scanning all of
+        // src/ found it immediately, which the earlier one-file scan could
+        // not have — keep both subtractions or the count is off by one for a
+        // reason that has nothing to do with the defect.
+        const int decls = code.count(
+            QStringLiteral("void reloadCurrentRoomTimeline"));
+        QCOMPARE(decls, 1);
+        const int mentions =
+            code.count(QStringLiteral("reloadCurrentRoomTimeline"));
+        // Everything that is neither the definition nor the declaration is a
+        // CALL, and there must be none anywhere in C++: the QML Refresh
+        // button is the only legitimate caller.
+        QVERIFY2(mentions - decls == defs,
+                 qPrintable(QStringLiteral(
+                     "reloadCurrentRoomTimeline is called %1 time(s) from C++; "
+                     "rebuilding the room to retry decryption throws away the "
+                     "reader's history and every delegate with it — use "
+                     "retryDecryptionInCurrentRoom()")
+                         .arg(mentions - decls - defs)));
+
+        // AND THE REPLACEMENT IS ACTUALLY CALLED — count the CALLS, not the
+        // mentions. The first version of this assertion was
+        // `code.contains("retryDecryptionInCurrentRoom()")`, which the
+        // DEFINITION satisfies: `void AppController::retryDecryptionInCurrentRoom()`
+        // contains that substring. Review measured it — deleting BOTH call
+        // sites left the case green — so a tree where the reload was removed
+        // and the replacement forgotten, i.e. §9's automatic retry silently
+        // gone, passed the test written to prevent exactly that.
+        const int retryDefs = code.count(
+            QStringLiteral("void AppController::retryDecryptionInCurrentRoom"));
+        QCOMPARE(retryDefs, 1);
+        const int retryDecls = code.count(
+            QStringLiteral("void retryDecryptionInCurrentRoom"));
+        QCOMPARE(retryDecls, 1);
+        const int retryCalls =
+            code.count(QStringLiteral("retryDecryptionInCurrentRoom()"))
+            - retryDefs - retryDecls;
+        QVERIFY2(retryCalls == 2,
+                 qPrintable(QStringLiteral(
+                     "the in-place decryption retry is called %1 time(s); both "
+                     "the key-backup-recovery and the verification-done "
+                     "handlers must use it")
+                         .arg(retryCalls)));
     }
 };
 

@@ -3435,7 +3435,16 @@ void RustSdkMatrixClient::openRoomTimeline(const QString &roomId)
     retireRoomTimelineMirror(leavingRequested);
     retireRoomTimelineMirror(leavingActive);
     m_pagination.insert(roomId, PaginationState{});
-    qCInfo(lcRust) << "timeline open room=" << roomId.right(12);
+    // `.right(12)` KEPT THE HOMESERVER AND THREW AWAY THE ROOM. Every room
+    // on one server ends in the same domain, so `!AbCdEf:smetonis.net` and
+    // `!ZzZzZz:smetonis.net` both logged as "smetonis.net" — identical for
+    // every room on the account. A 2026-09-20 capture of four consecutive
+    // opens was read as one room reopening four times and produced a
+    // confident wrong diagnosis; the log could not have told the difference.
+    // `redactId()` is sigil + 8 hex of SHA-256: stable for correlation
+    // across lines, not reversible, and it actually distinguishes rooms.
+    qCInfo(lcRust) << "timeline open room="
+                   << matrix::e2ee::redactId(roomId);
     const QByteArray roomBytes = roomId.toUtf8();
     const QString result = takeRustString(
         mx_rust_timeline_open(m_rustHandle, roomBytes.constData()));
@@ -3467,7 +3476,8 @@ bool RustSdkMatrixClient::reloadRoomTimelineAtLive(const QString &roomId)
     retireRoomTimelineMirror(leavingRequested);
     retireRoomTimelineMirror(leavingActive);
     m_pagination.insert(roomId, PaginationState{});
-    qCInfo(lcRust) << "timeline reload at live room=" << roomId.right(12);
+    qCInfo(lcRust) << "timeline reload at live room="
+                   << matrix::e2ee::redactId(roomId);
     const QByteArray roomBytes = roomId.toUtf8();
     const QString result = takeRustString(
         mx_rust_timeline_reload_at_live(m_rustHandle, roomBytes.constData()));
@@ -3605,16 +3615,32 @@ void RustSdkMatrixClient::retryDecryption(const QString &roomId)
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const qint64 last = m_lastDecryptionRetryMs.value(targetRoom, 0);
     if (now - last < 2000) {
-        qCDebug(lcE2ee) << "manual-retry coalesced" << "room="
+        qCDebug(lcE2ee) << "retry coalesced" << "room="
                         << matrix::e2ee::redactId(targetRoom);
         return;   // bounded: coalesce rapid repeat requests
     }
-    m_lastDecryptionRetryMs.insert(targetRoom, now);
     const QByteArray roomBytes = targetRoom.toUtf8();
-    takeRustString(mx_rust_timeline_retry_decryption(
+    const QString result = takeRustString(mx_rust_timeline_retry_decryption(
         m_rustHandle, roomBytes.constData()));
-    qCInfo(lcRust) << "manual decryption retry dispatched";
-    qCDebug(lcE2ee) << "manual-retry dispatched" << "room="
+    // A FAILED DISPATCH MUST NOT BURN THE COALESCING WINDOW. This used to
+    // stamp the window BEFORE the call and discard the result. Rust returns
+    // "No live timeline is open for that room." for the whole in-flight
+    // window of a room open — so a retry fired then did nothing AND silently
+    // suppressed the user's own Retry button, which shares this map, for the
+    // next two seconds. Stamp only what actually dispatched.
+    if (!result.isEmpty()) {
+        qCInfo(lcRust) << "decryption retry NOT dispatched";
+        qCDebug(lcE2ee) << "retry refused" << "room="
+                        << matrix::e2ee::redactId(targetRoom)
+                        << "reason=" << result;
+        return;
+    }
+    m_lastDecryptionRetryMs.insert(targetRoom, now);
+    // Provenance, because this path serves the user's Retry button AND the
+    // automatic triggers. Logging every one of them as "manual" made a
+    // tester capture unable to tell a button press from a verification.
+    qCInfo(lcRust) << "decryption retry dispatched";
+    qCDebug(lcE2ee) << "retry dispatched" << "room="
                     << matrix::e2ee::redactId(targetRoom);
 }
 
@@ -3809,7 +3835,8 @@ void RustSdkMatrixClient::retireRoomTimelineMirror(const QString &roomId)
         return;
     const qsizetype before = it->size();
     if (matrix::rust_timeline::trimToBackgroundBound(*it) > 0) {
-        qCDebug(lcRust) << "timeline mirror retired room=" << roomId.right(12)
+        qCDebug(lcRust) << "timeline mirror retired room="
+                        << matrix::e2ee::redactId(roomId)
                         << "rows=" << before << "->" << it->size();
     }
 }
@@ -3973,7 +4000,8 @@ void RustSdkMatrixClient::closeRoomTimeline()
     const QString closingActive = m_timelineTracker.activeRoom();
     if (m_rustHandle && m_timelineTracker.hasActiveTimeline()) {
         takeRustString(mx_rust_timeline_close(m_rustHandle));
-        qCInfo(lcRust) << "timeline close room=" << closingActive.right(12);
+        qCInfo(lcRust) << "timeline close room="
+                       << matrix::e2ee::redactId(closingActive);
     }
     // AFTER reset(), not before: retireRoomTimelineMirror() refuses the room
     // the tracker still names, which is exactly the room being closed.
@@ -5660,7 +5688,8 @@ void RustSdkMatrixClient::handleTimelineReset(const QJsonObject &event)
             event.value(QStringLiteral("trimmed_from")).toInt(0);
         const bool shrunk =
             event.value(QStringLiteral("trim_shrunk")).toBool(false);
-        qCInfo(lcRust) << "timeline live-trim room=" << roomId.right(12)
+        qCInfo(lcRust) << "timeline live-trim room="
+                       << matrix::e2ee::redactId(roomId)
                        << "cachedBefore=" << before
                        << "released=" << shrunk
                        << "reloadedItems=" << items.size();
@@ -6116,7 +6145,8 @@ void RustSdkMatrixClient::reloadRoomTimeline(const QString &roomId, int limit)
     const unsigned int clamped =
         limit <= 0 ? 30u
                    : static_cast<unsigned int>(std::min(limit, 200));
-    qCInfo(lcRust) << "reload_timeline start room=" << roomId.right(12)
+    qCInfo(lcRust) << "reload_timeline start room="
+                   << matrix::e2ee::redactId(roomId)
                    << "limit=" << clamped;
     const QString result = takeRustString(mx_rust_reload_room_timeline(
         m_rustHandle, idBytes.constData(), clamped));

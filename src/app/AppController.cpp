@@ -6,6 +6,7 @@
 
 #include "app/RichComposerBridge.h"
 #include "crypto/BackupController.h"
+#include "crypto/E2eeDiagnostics.h"
 #include "models/ScheduledSendController.h"
 #include "models/ActivityModel.h"
 #include "models/MediaHistoryModel.h"
@@ -1925,12 +1926,34 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         connect(rust, &RustSdkMatrixClient::keyBackupResult,
                 this, [this](const QString &state, const QString &message) {
             Q_EMIT recoveryStateChanged(state, message);
-            // v0.5.0-prep+11: on successful key backup recovery, ask
-            // the SDK to reload the current room so previously
-            // undecryptable events get another chance.
-            if (state == QLatin1String("ok") && !m_currentRoomId.isEmpty()) {
-                reloadCurrentRoomTimeline(30);
-            }
+            // RETRY DECRYPTION IN PLACE — DO NOT REBUILD THE ROOM.
+            //
+            // This used to call reloadCurrentRoomTimeline(30), which goes to
+            // openRoomTimeline() and rebuilds the room: new generation, fresh
+            // snapshot, full re-pagination, `clear_media()` so every image
+            // re-fetches, and `close_thread()` — so a successful recovery
+            // CLOSED the reader's open thread panel. A reopen is simply the
+            // wrong tool for "a key arrived, try again"; retryDecryption()
+            // keeps the subscription, retries the open thread timeline too,
+            // and its backup-download loop is uncapped where the reopen's
+            // fresh pass is capped at MAX_SESSIONS_PER_PASS.
+            //
+            // WHAT THIS IS *NOT*. An earlier version of this comment claimed
+            // the handler fired repeatedly on ordinary sync and caused a
+            // user-reported room-rebuild storm. THAT IS FALSE and review
+            // caught it: `keyBackupResult` is emitted only from
+            // `key_backup_status`, which Rust enqueues only inside
+            // `mx_rust_recover_from_backup`, whose sole caller in the tree is
+            // the Settings button that consumes a typed recovery key. It
+            // fires at most once per explicit user recovery. The
+            // `auto key recovery` lines in the report are a DIFFERENT event
+            // (`crypto_bootstrap`, kind `auto_key_recovery`) which returns
+            // without touching this path at all. The reopen sources that can
+            // repeat are `queue_overflow` and `DiffOutcome::Invalid` in
+            // RustSdkMatrixClient, and this change does not touch them —
+            // they reopen deliberately, to recover from detected damage.
+            if (state == QLatin1String("ok") && !m_currentRoomId.isEmpty())
+                retryDecryptionInCurrentRoom();
         });
         // The device id becomes available once login/restore
         // completes; propagate on both. Also snapshot the SDK trust
@@ -2233,9 +2256,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             // keys since we first saw the events, decryption succeeds
             // this time. Idempotent by event_id.
             if (!m_currentRoomId.isEmpty()) {
-                qCInfo(lcApp) << "verification=done; reloading current room"
-                              << m_currentRoomId.right(12);
-                reloadCurrentRoomTimeline(50);
+                qCInfo(lcApp) << "verification=done; retrying decryption in"
+                              << matrix::e2ee::redactId(m_currentRoomId);
+                // In place, for the reason at the keyBackupResult handler
+                // above: a reopen clears media, closes the reader's thread
+                // panel and re-paginates, none of which retrying decryption
+                // needs. Fires once per verification flow.
+                retryDecryptionInCurrentRoom();
             }
             // v0.7: the security pane's backup/recovery snapshot must
             // reflect the just-verified state without a manual refresh —
@@ -4055,6 +4082,22 @@ bool AppController::trimHistoryAndJumpToLive()
     return rust->reloadRoomTimelineAtLive(m_currentRoomId);
 #else
     return false;
+#endif
+}
+
+// The surgical half of "a key arrived, try again". Unlike
+// reloadCurrentRoomTimeline() below it does NOT reopen the timeline, so the
+// subscription, the loaded history and every instantiated delegate survive —
+// the SDK updates the events that decrypt, in place. Every AUTOMATIC retry
+// trigger uses this; reloadCurrentRoomTimeline() is now only the explicit
+// user-invoked Refresh.
+void AppController::retryDecryptionInCurrentRoom()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client || m_currentRoomId.isEmpty())
+        return;
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        rust->retryDecryption(m_currentRoomId);
 #endif
 }
 
