@@ -24,7 +24,35 @@ TextField {
     font.pixelSize: AppTheme.textBody
     color: storm ? AppTheme.stormText : AppTheme.textPrimary
     placeholderTextColor: storm ? AppTheme.stormTextMuted : AppTheme.textMuted
-    selectionColor: storm ? AppTheme.stormSelection : AppTheme.accentSoft
+    // ── THE SELECTION HAS TO BE VISIBLE, WHICH IT WAS NOT ──────────────
+    //
+    // Reported as "Ctrl+A doesn't work in the text fields, Ctrl+V was
+    // fine". Ctrl+A works everywhere; the HIGHLIGHT was invisible, and that
+    // is what select-all looks like from outside — paste has a visible
+    // result, select-all's only feedback is the selection.
+    //
+    // MEASURED against the field, on screen and not from the literals:
+    // Indigo Night (the system DARK default) 1.06:1, dL* 2.3; Moss Light
+    // (the system LIGHT default) 1.05:1, dL* 2.0. 2442 px of selection
+    // block at 1.03:1 in one capture.
+    //
+    // Both former branches were wrong outside Storm. `accentSoft` is
+    // designed as a TILE FILL and sits a couple of L* from the surface it
+    // fills — fine for a tile, fatal when the couple of L* IS the signal —
+    // and it is defined by exactly three palettes, which are exactly the
+    // three worst. `stormSelection` falls through to `hover` outside the
+    // Storm theme, which is the same 1.01:1 defect the settings audit found
+    // on selected nav rows.
+    //
+    // `selectedHover` is the stronger selection tone, which is what a text
+    // selection IS — a firmer affordance than a hovered row — and it clears
+    // a floor on every palette: worst Moss Light 10.9 dL*, the rest 15.9 to
+    // 36.9. Note `selected` alone does NOT fix this: on Moss Light it is
+    // the same value as accentSoft.
+    //
+    // `theTextSelectionIsVisibleOnEveryTheme` holds the floor so a future
+    // palette cannot reintroduce it silently.
+    selectionColor: AppTheme.selectedHover
     selectedTextColor: storm ? AppTheme.stormText : AppTheme.textPrimary
     verticalAlignment: TextInput.AlignVCenter
 

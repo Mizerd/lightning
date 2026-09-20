@@ -55,6 +55,15 @@ double contrast(const QString &fg, const QString &bg)
 // background"; it says nothing about whether two INKS are telling each other
 // apart, and identity colouring needs exactly that. dE below ~10 reads as the
 // same colour to a viewer.
+/// CIE L* of a hex colour. The suite already has a contrast RATIO and a
+/// deltaE; a lightness separation is the third thing, and it is the right
+/// one for two FILLS — see theTextSelectionIsVisibleOnEveryTheme.
+double lstarOf(const QString &hex)
+{
+    const double y = luminance(hex);
+    return y <= 0.008856 ? y * 903.3 : 116.0 * std::cbrt(y) - 16.0;
+}
+
 double deltaE(const QString &a, const QString &b)
 {
     auto toLab = [](const QString &hex) {
@@ -990,6 +999,68 @@ private Q_SLOTS:
     // away contact, a warning chip and the accent were three yellows a
     // reader could not separate — the exact rule the identity round wrote
     // for the gold name-ink slot, never applied to these two.
+    // ── A TEXT SELECTION YOU CANNOT SEE IS A FEATURE THAT DOES NOT WORK ──
+    //
+    // Reported as "Ctrl+A doesn't work in the text fields, Ctrl+V was
+    // fine". Ctrl+A worked the whole time — the HIGHLIGHT was invisible,
+    // and that is precisely what select-all looks like from outside,
+    // because paste has a visible result and select-all's only feedback is
+    // the selection itself.
+    //
+    // Measured before the fix, against the field's own background: Indigo
+    // Night (the system DARK default) dL* 2.3, Moss Light (the system LIGHT
+    // default) dL* 2.0. `accentSoft` is designed as a TILE FILL and sits a
+    // couple of L* from the surface it fills — correct for a tile, fatal
+    // when that couple of L* IS the signal — and only three palettes define
+    // it, which were exactly the three worst. The other branch,
+    // `stormSelection`, falls through to `hover` outside the Storm theme,
+    // which is the same defect the settings audit measured at 1.01:1 on
+    // selected nav rows.
+    //
+    // 8.0 dL* is a floor, not a target: the worst real palette after the
+    // fix is Moss Light at 10.9 and the rest run 15.9 to 36.9, so this
+    // catches a NEW palette that reintroduces the defect without arguing
+    // about the existing ones. It is a lightness separation and not a
+    // contrast RATIO on purpose — two fills of similar luminance can carry
+    // a fine ratio and still be one flat block to the eye.
+    void theTextSelectionIsVisibleOnEveryTheme()
+    {
+        // Every palette that defines its own field background, plus the two
+        // base ones. Derived from the token names rather than listed, so a
+        // palette added tomorrow is covered without editing this case.
+        QStringList prefixes;
+        for (auto it = m_colors.cbegin(); it != m_colors.cend(); ++it) {
+            if (it.key().endsWith(QStringLiteral("InputBg")))
+                prefixes << it.key().chopped(7);
+        }
+        QVERIFY2(prefixes.size() >= 8,
+                 qPrintable(QStringLiteral("only %1 palettes define an input "
+                                           "background; the scan is broken")
+                                .arg(prefixes.size())));
+        int checked = 0;
+        for (const QString &prefix : prefixes) {
+            const QString field = m_colors.value(prefix + QStringLiteral("InputBg"));
+            const QString sel = m_colors.value(prefix + QStringLiteral("SelectedHover"));
+            if (field.isEmpty() || sel.isEmpty())
+                continue;
+            ++checked;
+            const double d = qAbs(lstarOf(sel) - lstarOf(field));
+            QVERIFY2(d >= 8.0,
+                     qPrintable(QStringLiteral(
+                         "%1: the text selection %2 is only %3 dL* from the "
+                         "field %4 — a selection nobody can see reads as "
+                         "\"select all does not work\"")
+                                    .arg(prefix, sel)
+                                    .arg(d, 0, 'f', 1)
+                                    .arg(field)));
+        }
+        // ASSERT THE COUNT, not just the items: a scan that silently matched
+        // nothing would pass every assertion above it.
+        QVERIFY2(checked >= 8,
+                 qPrintable(QStringLiteral("only %1 palettes were actually "
+                                           "measured").arg(checked)));
+    }
+
     void yellowSignalsStayClearOfTheBrandAccent()
     {
         const QString bolt = m_colors.value(QStringLiteral("_stoBolt"));
