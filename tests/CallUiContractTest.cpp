@@ -1688,31 +1688,36 @@ ApplicationWindow {
                          "no hang-up button at a %1 px stage").arg(width)));
             const QPointF hangRight = hangUp->mapToItem(
                 nullptr, QPointF(hangUp->width(), 0));
-            // ── AN UNFIXED DEFECT, KEPT AS AN ASSERTION ────────────────
+            // ── AND ITS CONTENTS, WHICH IS WHERE THE 49 PX LIVED ──────
             //
-            // The ROW is inside the stage now (asserted above) and its
-            // CONTENTS still are not: at 1100 px the hang-up ends 49 px
-            // past the stage. Adding `Layout.fillWidth` let the row shrink,
-            // which is what made `reassessControlRoom()`'s
-            // `width < implicitWidth` test reachable at all — but the
-            // controls themselves do not yield, so they overflow the row
-            // rather than compacting inside it.
+            // The row went inside the stage when `Layout.fillWidth` let the
+            // cell shrink; its CONTENTS did not, and the hang-up ended a
+            // CONSTANT 49 px past the stage at every width from 1100 down
+            // to 480. Constant was the whole clue — not a squeeze running
+            // out of room but a fixed offset — and this is what it was made
+            // of, measured on the tree rather than reasoned about:
             //
-            // Which control gives way first at a narrow width is a design
-            // decision and not an auditor's to make, so the fix is open:
-            // see docs/open-items.md, 2026-09-20. QEXPECT_FAIL rather than
-            // a deleted assertion, because this is the control whose
-            // absence traps somebody in a call — and because an XPASS will
-            // turn this suite red the moment it is fixed, which is the
-            // notification the next person wants.
-            // CONSTANT 49 px AT EVERY WIDTH — 1149 at a 1100 stage, 949 at
-            // 900 — which is the useful clue: this is not a squeeze that
-            // runs out of room, it is a fixed offset. Whatever positions
-            // this button is 49 px right of where the stage ends,
-            // independent of how much space there is.
-            QEXPECT_FAIL("", "the hang-up sits a constant 49 px past the "
-                             "stage's right edge at every width; see "
-                             "open-items 2026-09-20", Continue);
+            //   stage 1100 | host cell x=1050..1050 w=0 iw=0
+            //              | control row x=950..1149 w=199 -> OVER 49
+            //
+            // No call is live in this case, so CallHeaderBar is
+            // `visible: false` and reports `implicitWidth: 0` on purpose —
+            // the header row must not reserve a band for an absent dock.
+            // CallStage caps the cell at `Layout.maximumWidth: implicitWidth`,
+            // so the cell is ZERO WIDE. But a QQuickLayout decides to ignore
+            // a child by that child's OWN `visible`, never by its ancestors'
+            // — so the RowLayout inside the bar went on laying itself out at
+            // 199 px behind an invisible root, and `anchors.centerIn: parent`
+            // hung 99 px of it off each side of a zero-width point. The cell
+            // sits 50 px inside the stage (12 px of ColumnLayout margin, 8 px
+            // of row spacing, the 30 px collapse button), and 99 - 50 = 49 at
+            // every panel width, which is exactly why it never moved.
+            //
+            // Fixed in CallHeaderBar.qml by clamping that centring so the
+            // bar's right edge can never pass its host's: identity while the
+            // host is wide enough, and an overflow to the LEFT when it is
+            // not, so the control that leaves the panel first is the camera
+            // button and never Leave.
             QVERIFY2(hangRight.x() <= stageRight.x() + 0.5,
                      qPrintable(QStringLiteral(
                          "at a %1 px stage the hang-up button ends at x=%2, "
@@ -1771,6 +1776,147 @@ ApplicationWindow {
                      "panel; it asks for %2 and must never be given more")
                                 .arg(host->width())
                                 .arg(host->implicitWidth())));
+    }
+
+    // COMPACTION MUST BE A DOOR, NOT A TRAPDOOR.
+    //
+    // The cap that keeps the dock from stretching on a wide panel is the
+    // same cap that hid the way back: `Layout.maximumWidth: implicitWidth`
+    // pins the cell to what the bar CURRENTLY asks for, and compact that is
+    // 219 px against an expanded 651 — so `width >= expandedNeed`, the old
+    // release test, could never be true again once it had fired. Measured on
+    // a live resize of the real stage, 1400 px down to 320 and back up: the
+    // dock compacted at 740 and was STILL compact at 1400, with the camera,
+    // Share, Raise hand, React, Participants, PiP buttons and all three
+    // device chevrons gone for the rest of the call. One narrow moment cost
+    // them permanently, and nothing in the UI said why.
+    //
+    // A cell cannot answer "could I have more room?" by reading its own
+    // width, because the cap is the thing being asked about. The row can:
+    // everything the other cells need is `row.implicitWidth` minus ours, and
+    // that difference is 73 px in BOTH shapes, which is what makes it safe
+    // to ask in both directions.
+    //
+    // UNFIXED TREE: reaches the final assertion with `cramped` still true
+    // and the dock still 219 px wide in a 1100 px panel.
+    //
+    // Live, unlike the case above: the latch only moves when `implicitWidth`
+    // differs between the two shapes, and an invisible dock reports 0 in
+    // both. The call state is set BEFORE the component loads so the bar's
+    // own `visible` binding is true on its first evaluation — set afterwards
+    // it would need a `stateChanged` this seam deliberately does not emit.
+    void theControlDockComesBackWhenThePanelIsWidenedAgain()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(),
+                            &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        auto *call = controller.groupCall();
+        QVERIFY(call != nullptr);
+        call->setCallStateForTest(SfuCallController::State::Connected);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine,
+                              &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("CallStage"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(5000));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY2(root != nullptr, "CallStage must instantiate");
+
+        // SHOWN, unlike the case above, and that is load-bearing rather
+        // than tidy. A QQuickLayout whose SIZE HINTS change schedules a
+        // polish and refuses to rearrange on a plain geometry change until
+        // that polish has run (`QQuickLayout::geometryChange` returns early
+        // while invalidated) — and polish only runs from a window's render
+        // pass. Compaction changes the dock's implicit width, so on an
+        // unshown window the entire header row froze at the width it had
+        // when the latch fired: measured rowW=576 and hostW=510 at every
+        // subsequent size including 1100. That is the HARNESS, not the
+        // defect, and a case that could not tell them apart would have
+        // "proved" the fix was absent.
+        QQuickWindow window;
+        window.resize(1100, 620);
+        root->setParentItem(window.contentItem());
+        root->setHeight(620);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window, 5000));
+
+        auto *bar = root->findChild<QQuickItem *>(
+            QStringLiteral("callStageControls"));
+        QVERIFY2(bar != nullptr, "the stage has no control bar");
+        auto *host = qobject_cast<QQuickItem *>(bar->parentItem());
+        QVERIFY(host != nullptr);
+        auto *hangUp = root->findChild<QQuickItem *>(
+            QStringLiteral("callBarHangUpButton"));
+        QVERIFY(hangUp != nullptr);
+
+        const auto resize = [&](int w) {
+            root->setWidth(w);
+            root->setHeight(window.height());
+            settle(4);
+            QTest::qWait(80);
+            settle(4);
+        };
+
+        // The whole case rests on the dock actually being drawn. Assert it
+        // rather than assume it: with the bar invisible every width below
+        // reads 0 and the case would pass without testing anything.
+        resize(1100);
+        QVERIFY2(bar->property("visible").toBool(),
+                 "the dock is not visible, so this case is measuring an "
+                 "empty bar and proves nothing about the latch");
+        QVERIFY2(!host->property("cramped").toBool(),
+                 "the dock is already compact in an 1100 px panel");
+        const qreal expanded = host->width();
+        QVERIFY2(expanded > 400,
+                 qPrintable(QStringLiteral("the expanded dock is only %1 px "
+                                           "wide; the control set is gone")
+                                .arg(expanded)));
+
+        // Down, past the point where the full set stops fitting.
+        resize(600);
+        QVERIFY2(host->property("cramped").toBool(),
+                 "a 600 px panel did not compact the dock, so the rest of "
+                 "this case cannot test the way back");
+        QVERIFY2(host->width() + 0.5 < expanded,
+                 "the dock did not actually shrink");
+
+        // ...and back up. This is the assertion the defect fails.
+        resize(1100);
+        QVERIFY2(!host->property("cramped").toBool(),
+                 qPrintable(QStringLiteral(
+                     "the dock is still compact at %1 px after one narrow "
+                     "moment: cramped latched and nothing can clear it, so "
+                     "camera, Share, Raise hand, React, Participants, PiP "
+                     "and every device chevron are gone for the rest of the "
+                     "call")
+                                .arg(host->width())));
+        QCOMPARE(host->width(), expanded);
+
+        // And the containment invariant holds all the way through, on a
+        // dock that is really on screen rather than an invisible one.
+        for (const int width : { 1100, 900, 760, 740, 700, 640, 560, 480,
+                                 560, 640, 700, 740, 760, 900, 1100 }) {
+            resize(width);
+            const qreal stageRight =
+                root->mapToItem(nullptr, QPointF(root->width(), 0)).x();
+            const qreal hangRight =
+                hangUp->mapToItem(nullptr, QPointF(hangUp->width(), 0)).x();
+            QVERIFY2(hangRight <= stageRight + 0.5,
+                     qPrintable(QStringLiteral(
+                         "at a %1 px stage the hang-up ends at x=%2, past "
+                         "the stage's right edge at x=%3")
+                                    .arg(width).arg(hangRight)
+                                    .arg(stageRight)));
+        }
     }
 
     // The full-screen idle timer MUST NEVER BE STOPPED.

@@ -603,6 +603,11 @@ Rectangle {
 
         // ── Header: who, where, and the layout affordances ───────────────
         RowLayout {
+            // NAMED because the dock's compaction latch has to ask it a
+            // question no cell can answer about itself: how much room would
+            // there be for the dock if the dock asked for more? See
+            // `reassessControlRoom()` below.
+            id: callHeaderRow
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
 
@@ -829,6 +834,58 @@ Rectangle {
                 // constants, and nothing to drift.
                 property bool cramped: false
                 property real expandedNeed: 0
+
+                // HOW MUCH ROOM THIS CELL COULD HAVE, which is NOT its own
+                // width — and asking its own width is what made the latch a
+                // ONE-WAY DOOR.
+                //
+                // `Layout.maximumWidth: implicitWidth` caps the cell at what
+                // the bar currently asks for. Compact, that is 219 px. So
+                // `width >= expandedNeed` (651) could never be true again,
+                // and MEASURED on a live resize — 1400 down to 320 and back
+                // up — the dock went compact at 740 and was STILL compact at
+                // 1400 px, with camera, share, raise-hand, react,
+                // participants, PiP and all three device chevrons gone for
+                // the rest of the call. One narrow moment cost them
+                // permanently. A cap and the test that must see past it are
+                // two numbers that have to move together.
+                //
+                // The row knows what the cell cannot: everything the OTHER
+                // cells need is `row.implicitWidth - our own implicitWidth`,
+                // and that difference does NOT depend on which shape we are
+                // in — measured 73 px both compact and expanded — which is
+                // what makes this safe to ask in both directions.
+                //
+                // A FUNCTION AND NOT A PROPERTY, and that is not a style
+                // choice. As a declarative binding it read the row's
+                // implicitWidth, which is computed FROM ours — so it drove
+                // `cramped`, `compact`, our implicitWidth and the row's
+                // implicitWidth straight back into itself:
+                // `QML Loader: Binding loop detected for property
+                // "roomAvailable"` on every load, and Qt abandons a looping
+                // evaluation, so the latch simply stopped firing (measured:
+                // a 600 px panel no longer compacted at all). A function
+                // reads the same values and records no dependency.
+                //
+                // Which is why the row's own width has to be listened for
+                // below: while cramped our width is pinned at 219 by the
+                // cap, so widening the panel changes the ROW's width and
+                // never ours, and nothing else would ever ask again.
+                function roomAvailable() {
+                    return callHeaderRow.width
+                           - (callHeaderRow.implicitWidth - implicitWidth);
+                }
+
+                Connections {
+                    target: callHeaderRow
+                    function onWidthChanged() {
+                        controlsHost.reassessControlRoom();
+                    }
+                    function onImplicitWidthChanged() {
+                        controlsHost.reassessControlRoom();
+                    }
+                }
+
                 function reassessControlRoom() {
                     if (!item)
                         return;
@@ -843,11 +900,27 @@ Rectangle {
                         // name says at every moment, not eventually.
                         if (!root.collapsed)
                             expandedNeed = implicitWidth;
+                        // BOTH DIRECTIONS ASK THE SAME QUESTION, and that is
+                        // the whole of why this does not oscillate. The first
+                        // attempt at the release above kept the old
+                        // `width + 0.5 < implicitWidth` entry test, and the
+                        // two measured different things: releasing raised
+                        // implicitWidth to 651 in the same pass, while `width`
+                        // was still the 219 the layout had given us, so the
+                        // entry test fired again immediately. Measured, it
+                        // settled with `cramped` false and the bar still
+                        // compact — worse than the one-way door, because now
+                        // the two disagreed. `roomAvailable` is stale-proof in
+                        // the way `width` is not: if the row's implicitWidth
+                        // has not caught up with ours yet the answer errs
+                        // towards "stay as you are" in BOTH branches.
+                        //
                         // Sub-pixel slack: a fractional layout width must not
                         // read as a shortfall.
-                        if (width + 0.5 < implicitWidth)
+                        if (roomAvailable() + 0.5 < implicitWidth)
                             cramped = true;
-                    } else if (expandedNeed > 0 && width >= expandedNeed) {
+                    } else if (expandedNeed > 0
+                               && roomAvailable() + 0.5 >= expandedNeed) {
                         cramped = false;
                     }
                 }

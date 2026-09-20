@@ -176,7 +176,44 @@ Rectangle {
 
     RowLayout {
         id: bar
-        anchors.centerIn: parent
+        // CENTRED WHILE IT FITS, AND NEVER PAST THE RIGHT EDGE WHEN IT
+        // DOES NOT. `anchors.centerIn: parent` was the whole of this, and
+        // it is only correct while the parent is at least as wide as the
+        // content — which stopped being guaranteed the moment the stage's
+        // dock cell was allowed to shrink.
+        //
+        // MEASURED, on the real stage, at every width from 1100 down to
+        // 480: the hang-up button ended a CONSTANT 49 px past the stage's
+        // own right edge. Constant is the tell — it is not a squeeze
+        // running out of room, it is a fixed offset, and here is what it
+        // was made of. With no live call this bar is `visible: false`, so
+        // `implicitWidth` above reports 0 (deliberately: the header row
+        // must not reserve a band for an absent dock). The stage caps the
+        // Loader cell at `Layout.maximumWidth: implicitWidth`, so the cell
+        // is ZERO WIDE. A QQuickLayout ignores a child by its OWN
+        // `visible`, not by its ancestors' — so this RowLayout went on
+        // laying itself out at 199 px behind an invisible root, and
+        // `centerIn` hung 99 px of it off each side of a zero-width point.
+        // The cell's right edge sits 50 px inside the stage (a 12 px
+        // ColumnLayout margin, 8 px of row spacing, the 30 px collapse
+        // button), so 99 - 50 = 49, whatever the panel width.
+        //
+        // The same shape is recorded at `implicitWidth` above for the
+        // COLLAPSED strip, which is the second time this bar has been
+        // centred on a point rather than inside a box. Anchoring cannot
+        // express "centre me, but keep my right edge in" — the clamp is
+        // arithmetic, and it is identity whenever the parent is wide
+        // enough: at a 651 px host with a 619 px bar it still gives 16.
+        //
+        // AND THE DIRECTION IS A DECISION, not an accident. When the
+        // content genuinely does not fit, this spills to the LEFT, so what
+        // leaves the panel first is the camera button — never Leave.
+        // CallStage.qml says the same thing where it chooses compaction
+        // over overflow: Share and Raise hand have other routes, and
+        // leaving a call does not.
+        anchors.verticalCenter: parent.verticalCenter
+        x: Math.min(Math.round((parent.width - width) / 2),
+                    parent.width - width)
         spacing: AppTheme.spacing8
 
         // State, on the leading side so the controls stay optically centred.
