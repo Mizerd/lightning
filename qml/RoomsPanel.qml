@@ -258,11 +258,46 @@ Rectangle {
 
         // ── Search bar + new-conversation button ─────────────────────────
         Rectangle {
+            id: searchHeader
             Layout.fillWidth: true
             color: AppTheme.sidebar
             implicitHeight: searchRow.implicitHeight + AppTheme.spacing8 * 2
 
-            RowLayout {
+            // ── THE HEADER WRAPS RATHER THAN LEAVING THE PANEL ───────────
+            //
+            // This row could not fit inside its own column and did not
+            // compact. The search card has a 120px floor (added for an
+            // earlier overlap defect) and the three actions are fixed at
+            // 30px each, so below a certain width a RowLayout simply drew
+            // past its anchored right edge — layouts do not clip, so the
+            // surplus left the panel instead of being hidden.
+            //
+            // Measured 2026-09-19 against this column's own
+            // `SplitView.minimumWidth: 200`, which is a width the user can
+            // drag to: at 245 the Discover compass was 6px past the right
+            // margin, and at 200 it was entirely off the panel. In the
+            // Classic room-list layout there is NO other route to
+            // Discover/Join, so a reachable drag silently removed the only
+            // way to join a room by address.
+            //
+            // TWO ROWS, not a smaller control and not a dropped one.
+            // Shrinking the card past its floor is what the floor exists to
+            // prevent, and hiding an action is worse than moving it. The
+            // actions keep their right edge in both arrangements, so
+            // nothing slides sideways as the split crosses the threshold.
+            //
+            // The threshold is DERIVED, never a literal: the card's own
+            // floor, the actions' own implicit width, and the margins this
+            // row already carries. Neither term depends on the width this
+            // row is GIVEN — a constant and a RowLayout's own content sum —
+            // so there is no loop, and the number cannot go stale when a
+            // fourth action lands or a button's size changes.
+            readonly property real headerOneRowFloor:
+                AppTheme.spacing12 * 2 + AppTheme.spacing8
+                + searchCard.Layout.minimumWidth + headerActions.implicitWidth
+            readonly property bool headerStacked: width < headerOneRowFloor
+
+            GridLayout {
                 id: searchRow
                 anchors {
                     left: parent.left; right: parent.right
@@ -270,7 +305,9 @@ Rectangle {
                     leftMargin: AppTheme.spacing12
                     rightMargin: AppTheme.spacing12
                 }
-                spacing: AppTheme.spacing8
+                columns: searchHeader.headerStacked ? 1 : 2
+                columnSpacing: AppTheme.spacing8
+                rowSpacing: AppTheme.spacing8
 
                 // The search card — same component family as the composer
                 // card: surface fill, 1px border, rounded, with the field
@@ -366,79 +403,91 @@ Rectangle {
                     }
                 }
 
-                // v0.5.9: start a DM or create a room (Rust backend only —
-                // the controller reports unsupported backends itself).
-                IconButton {
-                    id: newConversationBtn
-                    visible: app.loggedIn && app.conversations.supported
-                    implicitWidth: 30; implicitHeight: 30
-                    radius: AppTheme.radiusMd
-                    iconName: "add"
-                    iconSize: 18
-                    Accessible.name: qsTr("Start a new conversation")
-                    ToolTip.text: qsTr("New conversation")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                    onClicked: newConversationDialog.openDialog()
-                }
-                // v0.9 (phase 2): the Activity Center — one list of what was
-                // addressed to you, across every room. Both layouts share
-                // this header, so both get it.
-                IconButton {
-                    id: activityBtn
-                    objectName: "activityCenterButton"
-                    visible: app.loggedIn && !!app.activity
-                    implicitWidth: 30; implicitHeight: 30
-                    radius: AppTheme.radiusMd
-                    iconName: "notifications"
-                    iconSize: 18
-                    active: !!app.activity && app.activity.unseenCount > 0
-                    Accessible.name: (!!app.activity && app.activity.unseenCount > 0)
-                                     ? qsTr("Activity, %n unseen", "", app.activity.unseenCount)
-                                     : qsTr("Activity")
-                    ToolTip.text: qsTr("Activity")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                    onClicked: activityPanel.openPanel()
-                    Rectangle {
-                        objectName: "activityCenterBadge"
-                        visible: !!app.activity && app.activity.unseenCount > 0
-                        anchors.top: parent.top
-                        anchors.right: parent.right
-                        anchors.topMargin: -3
-                        anchors.rightMargin: -5
-                        height: 14
-                        width: Math.max(14, activityBadgeLabel.implicitWidth + 6)
-                        radius: 7
-                        color: AppTheme.bolt
-                        Label {
-                            id: activityBadgeLabel
-                            anchors.centerIn: parent
-                            text: !!app.activity
-                                  ? (app.activity.unseenCount > 99
-                                     ? "99+" : String(app.activity.unseenCount))
-                                  : ""
-                            color: AppTheme.stormDeep
-                            font.pixelSize: 9
-                            font.weight: AppTheme.weightBold
+                // THE ACTIONS ARE ONE ITEM, so the header can move them to a
+                // second row as a group. They were three siblings of the
+                // search card, which is why this row's only way to be too
+                // narrow was to overflow. `implicitWidth` here is also what
+                // `headerOneRowFloor` above measures, so the threshold and
+                // the thing it measures are the same object.
+                RowLayout {
+                    id: headerActions
+                    spacing: AppTheme.spacing8
+                    Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+
+                    // v0.5.9: start a DM or create a room (Rust backend only —
+                    // the controller reports unsupported backends itself).
+                    IconButton {
+                        id: newConversationBtn
+                        visible: app.loggedIn && app.conversations.supported
+                        implicitWidth: 30; implicitHeight: 30
+                        radius: AppTheme.radiusMd
+                        iconName: "add"
+                        iconSize: 18
+                        Accessible.name: qsTr("Start a new conversation")
+                        ToolTip.text: qsTr("New conversation")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: newConversationDialog.openDialog()
+                    }
+                    // v0.9 (phase 2): the Activity Center — one list of what was
+                    // addressed to you, across every room. Both layouts share
+                    // this header, so both get it.
+                    IconButton {
+                        id: activityBtn
+                        objectName: "activityCenterButton"
+                        visible: app.loggedIn && !!app.activity
+                        implicitWidth: 30; implicitHeight: 30
+                        radius: AppTheme.radiusMd
+                        iconName: "notifications"
+                        iconSize: 18
+                        active: !!app.activity && app.activity.unseenCount > 0
+                        Accessible.name: (!!app.activity && app.activity.unseenCount > 0)
+                                         ? qsTr("Activity, %n unseen", "", app.activity.unseenCount)
+                                         : qsTr("Activity")
+                        ToolTip.text: qsTr("Activity")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: activityPanel.openPanel()
+                        Rectangle {
+                            objectName: "activityCenterBadge"
+                            visible: !!app.activity && app.activity.unseenCount > 0
+                            anchors.top: parent.top
+                            anchors.right: parent.right
+                            anchors.topMargin: -3
+                            anchors.rightMargin: -5
+                            height: 14
+                            width: Math.max(14, activityBadgeLabel.implicitWidth + 6)
+                            radius: 7
+                            color: AppTheme.bolt
+                            Label {
+                                id: activityBadgeLabel
+                                anchors.centerIn: parent
+                                text: !!app.activity
+                                      ? (app.activity.unseenCount > 99
+                                         ? "99+" : String(app.activity.unseenCount))
+                                      : ""
+                                color: AppTheme.stormDeep
+                                font.pixelSize: 9
+                                font.weight: AppTheme.weightBold
+                            }
                         }
                     }
-                }
-                // v0.7.x Discover / Join: browse the public directory or
-                // join by address/link.
-                IconButton {
-                    id: discoverBtn
-                    objectName: "discoverJoinButton"
-                    visible: app.loggedIn && app.discovery.supported
-                    implicitWidth: 30; implicitHeight: 30
-                    radius: AppTheme.radiusMd
-                    iconName: "explore"
-                    iconSize: 18
-                    Accessible.name: qsTr("Discover rooms")
-                    ToolTip.text: qsTr("Discover rooms")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                    onClicked: discoverJoinDialog.openDialog()
+                    // v0.7.x Discover / Join: browse the public directory or
+                    // join by address/link.
+                    IconButton {
+                        id: discoverBtn
+                        objectName: "discoverJoinButton"
+                        visible: app.loggedIn && app.discovery.supported
+                        implicitWidth: 30; implicitHeight: 30
+                        radius: AppTheme.radiusMd
+                        iconName: "explore"
+                        iconSize: 18
+                        Accessible.name: qsTr("Discover rooms")
+                        ToolTip.text: qsTr("Discover rooms")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: discoverJoinDialog.openDialog()
+                    }
                 }
             }
         }
