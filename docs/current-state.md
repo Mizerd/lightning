@@ -139,7 +139,7 @@ SDK's request machinery; the 0.6.0 additions are:
 `CryptoHealthModel` (`app.cryptoHealth`) is a single READ-ONLY model
 mirroring sanitized `crypto_health` snapshots from the Rust bridge
 (`mx_rust_query_crypto_health`), which reads only official SDK state:
-own-device trust (`is_verified` / `is_cross_signed_by_owner`), own
+own-device trust (`is_cross_signed_by_owner`), own
 identity, `CrossSigningStatus`, `BackupState` + `exists_on_server`,
 `RecoveryState`, and secret-storage enablement. Snapshots carry booleans,
 enum names, and the public device id — never keys, signatures, secrets,

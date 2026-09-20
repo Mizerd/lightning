@@ -1,42 +1,55 @@
 # Open items and the NOT TESTED inventory
 
-## 2026-09-20 — EXPECTED, NOT A REGRESSION: an unverified session now shows every device as "Not verified"
+## 2026-09-20 — WITHDRAWN: the "expected, not a regression" note was written about a regression
 
-If a tester reports that the Sessions list "went from all green to all grey"
-after this round, that is the fix working. Do not chase it.
+**This entry replaces one that said the opposite and told you not to
+investigate.** The withdrawn text claimed that an unverified session showing
+every device as "Not verified" was `fb9081b0` working as intended, said "that
+is the fix working. Do not chase it.", and asserted "No healthy state
+regresses". All of that was wrong, and CLAUDE.md sends agents to this file
+before claiming anything is fixed — so it was the most dangerous thing in the
+tree.
 
-Four trust surfaces read `cross_signed` — `is_cross_signed_by_owner()`, which
-asks only whether the owner's self-signing key signed the device and does
-**not** require that we have verified that owner identity. They now read
-`verified` — `Device::is_verified()` =
-`is_locally_trusted() || is_cross_signing_trusted()`, and the second of those
-does check the owner identity (matrix-sdk-crypto 0.18.0,
-`identities/device.rs:757` and `:765`).
+It was also wrong about the symptom. The signature was not "all green to all
+grey"; it was **the current session's row green while every other row was
+grey**, because the flag involved is a constant for the current device only.
 
-**The consequence, confirmed in review against the vendored SDK.** From a
-session that has not verified itself, `own_identity.is_verified()` is false,
-so `is_cross_signing_trusted()` is false for **every** device of that user.
-So on a fresh unverified login the whole list flips from green "Verified" to
-"Not verified" and the all-devices rollup goes incomplete. That is correct —
-it is exactly the false green being removed, and Element behaves the same way
-— but it is a dramatic visible change on the most-looked-at security screen.
+**What actually happened.** `fb9081b0` bound four trust surfaces to
+`Device::is_verified()`. For OUR OWN device that predicate is
+unconditionally true: matrix-sdk-crypto sets `LocalTrust::Verified` when it
+creates the device from our own Olm account (`machine/mod.rs:352`, "since we
+are the owners of the private keys of this device we can safely mark the
+device as verified"), and re-establishes it from the server on every
+`/keys/query` that returns our own keys unchanged (`identities/manager.rs:251`).
+So it survives restores and says nothing about whether anyone verified us.
 
-**No healthy state regresses.** Old and new differ on exactly one input,
-`cross_signed && !verified`; everywhere else the old expression already fell
-through to the verified flag. Traced in review for the own current device:
-fresh login before self-verification (both No), after interactive
-verification (both Yes), after recovery-key login (both Yes — importing
-matching private cross-signing keys marks the public identity verified), and
-cross-signing not set up (both false). The only "less green than before"
-window constructible is transient — the SSK signature landing before our own
-identity is marked verified — and in that window the SDK itself says not
-verified, which is what §6 and §9 require the label to report.
+Measured on `@lightningtest:matrix.smetonis.net`, fresh profile: the current
+session badged green "✓ Verified" with Master/Self-signing/User-signing all
+Missing, the server reporting 28 of 28 devices unsigned, and the app's own log
+saying `bootstrap phase idle -> unverified`. `sessionVerificationNeeded()`
+went false with it, so the prompt was suppressed at the same moment the app
+stopped reporting the problem.
 
-**Information the UI no longer exposes.** A `verified=false, cross_signed=true`
-device collapses into "Not verified" and nothing says the signature exists. A
-third label ("Signed, not trusted") was considered and deliberately deferred:
-it adds a state to a security surface, and "Not verified" is never wrong for
-it. Accepted follow-up, not a defect.
+**The authority for the corrected behaviour is upstream, not our reasoning.**
+matrix-sdk's own `Encryption::verification_state()` answers "is this session
+verified" by calling `is_cross_signed_by_owner()` on the own device and
+deliberately not `is_verified()` (`encryption/mod.rs:2063`), and
+`VerificationState::Verified` is documented as "it has been signed by its user
+identity". The correction is byte-for-byte what upstream does.
+
+**Still open, deliberately deferred.** For rows that are NOT the current
+session, `is_verified()` IS the better flag — it also catches a device
+verified by SAS without cross-signing — which needs
+`isCurrent ? crossSigned : verified`. Upstream gives no precedent for the
+non-current case, so it needs its own matrix (current/other x cross-signed /
+locally-trusted / neither x own-identity verified or not) rather than
+first-principles reasoning, which is what went wrong twice here.
+
+**Also open:** Lightning recomputes the current session's verification state
+instead of consuming `client.encryption().verification_state()`, which is a
+`Subscriber` that pushes on every relevant `/keys/query` rather than needing
+`refreshOwnDeviceStatus()` poked, and which has a real `Unknown` arm that
+Lightning approximates with `own_identity_available`.
 
 ## 2026-09-20 — OPEN DECISION: what an unrecognised notification-preview mode should resolve to
 

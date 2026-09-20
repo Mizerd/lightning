@@ -7338,11 +7338,14 @@ Item {
                                 || app.sessionDevicesLoading
                                 ? false
                                 : app.sessionDevices.length > 0
-                                  // NOT `|| d.crossSigned`: a signature from an
-                                  // identity we have not verified must not make
-                                  // the whole account read as trusted.
+                                  // NOT `d.verified`: is_verified() is a constant
+                                  // true for our OWN device (matrix-sdk marks it
+                                  // locally trusted at creation), so an `every`
+                                  // over it would pass on the one device that can
+                                  // never fail it and report a wholly unverified
+                                  // account as trusted.
                                   ? app.sessionDevices.every(
-                                        d => d.verified === true)
+                                        d => d.crossSigned === true)
                                   : app.cryptoHealth.currentDeviceVerified
                                     === CryptoHealthModel.Yes
                             readonly property var chainSteps: [
@@ -7549,11 +7552,11 @@ Item {
                                                 out.push(d)
                                             // Same fact as the chip above, or the
                                             // filter disagrees with the badge it filters.
-                                            else if (f === "verified" && d.verified === true)
+                                            else if (f === "verified" && d.crossSigned === true)
                                                 out.push(d)
                                             else if (f === "unverified"
                                                      && d.hasCryptoIdentity === true
-                                                     && d.verified !== true)
+                                                     && d.crossSigned !== true)
                                                 out.push(d)
                                         }
                                         return out
@@ -7621,29 +7624,33 @@ Item {
                                                     }
                                                     StatusChip {
                                                         storm: true
-                                                        // THE STRONGEST WORD WAS BOUND TO THE
-                                                        // WEAKEST FACT. This read `crossSigned`,
-                                                        // i.e. is_cross_signed_by_owner() — merely
-                                                        // SIGNED by the owner's key, with no
-                                                        // requirement that we trust that identity —
-                                                        // and labelled it "Verified". Wrong both
-                                                        // ways: a locally verified device that is
-                                                        // not cross-signed read "Not verified"
-                                                        // while the Cross-signing card above called
-                                                        // it verified, and a device signed by an
-                                                        // identity this session has never verified
-                                                        // could read a green "Verified".
-                                                        // `verified` is is_verified() — the SDK's
-                                                        // own verdict — and was carried in this
-                                                        // same map, read by one line of the file.
-                                                        label: modelData.verified === true
+                                                        // `crossSigned`, NOT `verified`, AND THE
+                                                        // ROUND THAT SWAPPED THEM WAS WRONG.
+                                                        // `verified` is Device::is_verified(), and
+                                                        // matrix-sdk marks OUR OWN device locally
+                                                        // trusted the moment it creates it
+                                                        // (machine/mod.rs:350), so for the row
+                                                        // badged "This session" it is a constant
+                                                        // true — measured live on 2026-09-20, a
+                                                        // fresh unverified login was badged green
+                                                        // "Verified" with every cross-signing key
+                                                        // Missing. `crossSigned` says our identity
+                                                        // vouched for the device, which is what the
+                                                        // word has to mean here.
+                                                        // Follow-up, deliberately not done: for the
+                                                        // rows that are NOT this session,
+                                                        // is_verified() is the better flag because
+                                                        // it also catches a device verified by SAS
+                                                        // without cross-signing. That needs
+                                                        // `isCurrent ? crossSigned : verified`.
+                                                        label: modelData.crossSigned === true
                                                               ? qsTr("Verified")
                                                               : modelData.hasCryptoIdentity === true
                                                                 ? qsTr("Not verified")
                                                                 : qsTr("No encryption")
-                                                        iconName: modelData.verified === true
+                                                        iconName: modelData.crossSigned === true
                                                                   ? "verified_user" : ""
-                                                        tone: modelData.verified === true
+                                                        tone: modelData.crossSigned === true
                                                               ? "success" : "neutral"
                                                     }
                                                 }

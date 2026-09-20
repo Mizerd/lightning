@@ -1,5 +1,105 @@
 # Round history
 
+## 2026-09-20 (afternoon) — a predicate I read correctly and a value I never checked
+
+I shipped a false trust badge to the highest-stakes surface in the app, a
+non-author review approved it, and the only thing that found it was running
+the build against a real account.
+
+### What went wrong
+
+`fb9081b0` rebound four trust surfaces from `is_cross_signed_by_owner()` to
+`Device::is_verified()`, on the reasoning that the first is merely "signed by
+the owner's key" while the second is the SDK's own verdict. Both halves of
+that sentence are true. The conclusion was wrong, because for OUR OWN device
+`is_verified()` is a **constant**.
+
+```rust
+// matrix-sdk-crypto machine/mod.rs:352, creating the device from our Account
+// We just created this device from our own Olm `Account`. Since we are the
+// owners of the private keys of this device we can safely mark
+// the device as verified.
+device.set_trust_state(LocalTrust::Verified);
+```
+
+`is_verified()` is `is_locally_trusted() || is_cross_signing_trusted()`, and
+the first term is set unconditionally at creation — and re-established from
+the server on every `/keys/query` that returns our own keys unchanged
+(`identities/manager.rs:251`), so it survives restores too. The flag is true
+on every session, forever, and says nothing about whether anyone verified us.
+
+Measured on `@lightningtest:matrix.smetonis.net`, fresh profile, a build of
+the shipped commit: the current session badged green **"✓ Verified"** with
+Master, Self-signing, User-signing and Secrets all **Missing**, the server
+reporting **28 of 28 devices unsigned**, and the app's own log saying
+`bootstrap phase idle -> unverified`. Every other device correctly read "Not
+verified" — the constant pins the current row only, which is why the symptom
+looked like one odd row rather than a systemic failure. And
+`sessionVerificationNeeded()` keys on that same string, so the app **stopped
+offering verification at the same moment it stopped reporting the problem**.
+
+### The premise was inverted
+
+The original report was "card green, list grey, same device". The cause was
+the CARD — `cross_signed || verified`, whose second arm is the constant — so
+it was permanently green. The list's `cross_signed` had been right all along.
+Exactly one of five surfaces was wrong, and I changed the other four to the
+broken flag.
+
+### The authority was upstream the whole time
+
+matrix-sdk answers this exact question for itself in
+`encryption/mod.rs:2063`: `Encryption::verification_state()` calls
+`is_cross_signed_by_owner()` on the own device and deliberately NOT
+`is_verified()`, and `VerificationState::Verified` is documented "it has been
+signed by its user identity". The correction is byte-for-byte what upstream
+does. **There was a published answer and neither of us looked for it.**
+
+### THE LESSON
+
+**Reading a predicate's definition is not knowing its value. Grep for every
+writer of every term.** Two of us read `is_verified()`'s definition correctly
+and neither searched for `set_trust_state`. A flag that is a constant for the
+subject you are asking about looks exactly like a working flag in every unit
+test, in source review, and in an SDK-source trace — the reviewer even wrote
+that the old expression "already fell through to `device_verified`", calling
+the constant a fallback while holding it.
+
+Sibling of the three occurrences §16 already carries of "grep for the CALLER,
+not just the definition". This is the same failure one level down: grep for
+the WRITER, not just the declaration.
+
+Corollary that cost the extra round: **when the change is to a label, ask what
+the label reads on a machine, not what the predicate means in the abstract.**
+Every automated test passed at every stage. A single launch against a real
+account answered it in one screenshot.
+
+### Also fixed in the correction, and not an over-revert
+
+The all-devices rollup loses `|| d.verified`, which existed BEFORE the bad
+round. For the current session that disjunct came from the same object as
+`get_own_device()`, so it was constant-true and the "N DEVICES" chain step
+could never be failed by the session you are sitting in.
+
+### Left open deliberately
+
+For rows that are NOT the current session, `is_verified()` genuinely is the
+better flag — it also catches a device verified by SAS without cross-signing —
+which needs `isCurrent ? crossSigned : verified`. Upstream gives no precedent
+for the non-current case, and first-principles reasoning about it is exactly
+what failed twice here, so it needs its own matrix first. Recorded in
+`docs/open-items.md`, along with consuming
+`client.encryption().verification_state()` instead of recomputing it.
+
+### And a doc that told the next agent not to look
+
+`fb9081b0` also committed an open-items entry asserting the regression's
+symptom was "the fix working. **Do not chase it.**" CLAUDE.md sends agents to
+that file before claiming anything is fixed. The correction withdraws it in
+place rather than deleting it, because the withdrawal is the useful artefact.
+**A confident "not a bug" note is worse than no note**, and it is written by
+exactly the person least able to see the problem.
+
 ## 2026-09-20 — "Ctrl+A doesn't work" was the highlight, and a word bound to the wrong fact
 
 Twelve commits across five surfaces, all from one GUI audit round plus two

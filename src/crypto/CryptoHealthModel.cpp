@@ -50,20 +50,29 @@ void CryptoHealthModel::applySnapshot(const QVariantMap &snapshot,
     m_hasSnapshot = true;
     m_error = false;
     m_deviceId = snapshot.value(QStringLiteral("device_id")).toString();
-    // "Verified" IS `Device::is_verified()` AND NOTHING WIDER. This used to
-    // read `device_cross_signed ? Yes : device_verified`, and the extra arm
-    // is a FALSE GREEN: matrix-sdk's `is_cross_signed_by_owner()` asks only
-    // whether the owner's self-signing key signed the device, and does NOT
-    // require that we have verified that owner identity. So a session that
-    // has not verified itself could report its own device as verified on a
-    // signature it has no reason to trust.
+    // `device_verified` IS A CONSTANT FOR OUR OWN DEVICE AND MUST NEVER
+    // REACH THIS LABEL. It is `Device::is_verified()` =
+    // `is_locally_trusted() || is_cross_signing_trusted()`, and
+    // matrix-sdk-crypto sets the own device's local trust unconditionally
+    // when it creates it (machine/mod.rs:350) — "since we are the owners of
+    // the private keys of this device we can safely mark the device as
+    // verified". So it is TRUE on every session from the moment the store
+    // exists, carries no information, and any label bound to it is a
+    // permanent green badge.
     //
-    // `is_verified()` is `is_locally_trusted() || is_cross_signing_trusted()`
-    // (matrix-sdk-crypto 0.18.0, identities/device.rs:757), and
-    // is_cross_signing_trusted DOES check the owner identity. It therefore
-    // already covers every case the dropped arm covered that was true, and
-    // none that was not. §6: trust labels come from SDK state.
-    m_deviceVerified = triState(QStringLiteral("device_verified"));
+    // This line used to read `device_cross_signed ? Yes : device_verified`,
+    // and that second arm was the defect: a brand-new unverified session
+    // showed "This session verified: Available" while the device list beside
+    // it correctly said "Not verified" — the contradiction that was
+    // reported. The list was right; this was wrong.
+    //
+    // What "verified" MEANS for our own session is that our own identity has
+    // cross-signed it, i.e. some session of ours vouched for this one.
+    // That is `is_cross_signed_by_owner()`, sent as `device_cross_signed`.
+    // MEASURED on a real account 2026-09-20: fresh login, every cross-signing
+    // key Missing, server reporting 28 of 28 devices unsigned — this reads
+    // No, and reading `device_verified` instead read Yes.
+    m_deviceVerified = triState(QStringLiteral("device_cross_signed"));
     const bool hasMaster =
         snapshot.value(QStringLiteral("has_master")).toBool();
     const bool hasSelf =

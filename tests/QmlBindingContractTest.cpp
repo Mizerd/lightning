@@ -1308,31 +1308,33 @@ private Q_SLOTS:
         QVERIFY(settings.contains(QStringLiteral("var all = app.sessionDevices")));
         QVERIFY(settings.contains(QStringLiteral("var f = sessionFilter.current")));
         for (const char *branch : { "f === \"current\" && d.isCurrent === true",
-                                    "f === \"verified\" && d.verified === true",
+                                    "f === \"verified\" && d.crossSigned === true",
                                     "f === \"unverified\"" })
             QVERIFY2(settings.contains(QLatin1String(branch)), branch);
         QVERIFY(settings.contains(QStringLiteral("This session")));
         QVERIFY(settings.contains(QStringLiteral("Not verified")));
 
-        // TRUST IS READ FROM `verified` AND FROM NOTHING ELSE, and this is
-        // asserted as the ABSENCE of the other flag rather than only as the
-        // presence of this one — the defect it guards was a binding that
-        // existed and read the wrong field, which a presence check cannot
-        // see. `crossSigned` is is_cross_signed_by_owner(): merely SIGNED by
-        // the owner's key, with no requirement that we trust that identity,
-        // so binding a label or a filter to it can paint a green "Verified"
-        // on a device matrix-sdk does not trust. It may still appear in a
-        // COMMENT (this file's own explanation of why), so strip those
-        // before looking.
+        // NO TRUST BINDING MAY READ `verified`, and this is asserted as an
+        // ABSENCE because the defect it guards was a binding that existed and
+        // read the wrong field, which a presence check cannot see.
         //
-        // The stripper drops WHOLE-LINE `//` only. A trailing comment on a
-        // code line, or a `/* */` block, would fail this case and accuse its
-        // author of a trust bug they did not commit. Both surviving mentions
-        // in SettingsScreen.qml are whole-line; if you add one that is not,
-        // widen the stripper rather than deleting the assertion — a false
-        // FAIL here is cheap and a false PASS ships a green badge.
-        QVERIFY2(!withoutComments(settings).contains(QStringLiteral("crossSigned")),
-                 "a trust binding reads crossSigned; it must read verified");
+        // `verified` is `Device::is_verified()`, and matrix-sdk marks our own
+        // device locally trusted the moment it creates it
+        // (machine/mod.rs:350), so for the row badged "This session" it is a
+        // CONSTANT TRUE. A round on 2026-09-20 bound the chip, both filters
+        // and the rollup to it; measured live, a fresh login with every
+        // cross-signing key Missing was badged green "Verified".
+        //
+        // Follow-up, deliberately not done and why this assertion will need
+        // relaxing when it is: for rows that are NOT the current session,
+        // is_verified() IS the better flag, because it also catches a device
+        // verified by SAS without cross-signing. Doing that properly means
+        // `isCurrent ? crossSigned : verified`, at which point this becomes
+        // "no UNCONDITIONAL read of verified".
+        QVERIFY2(!withoutComments(settings).contains(QStringLiteral("modelData.verified"))
+                 && !withoutComments(settings).contains(QStringLiteral("d.verified")),
+                 "a trust binding reads verified, which is a constant true "
+                 "for our own device; it must read crossSigned");
         QVERIFY(!settings.contains(QStringLiteral("is not supported yet")));
         QVERIFY(settings.contains(
             QStringLiteral("signOutOtherSessionsButton")));
@@ -1359,7 +1361,7 @@ private Q_SLOTS:
     // mention of the flag elsewhere in AppController cannot make this pass or
     // fail by accident — and asserts the extent is real before concluding
     // anything from it.
-    void theSessionTrustChipIsNotPromotedByCrossSigningAlone()
+    void theSessionTrustChipReadsCrossSigningNotTheAlwaysTrueFlag()
     {
         QFile file(QStringLiteral(LIGHTNING_SRC_DIR "/app/AppController.cpp"));
         QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
@@ -1387,18 +1389,15 @@ private Q_SLOTS:
                  "the scanned extent is missing the chain's LAST arm");
 
         const QString body = withoutComments(handler);
-        QVERIFY2(body.contains(QStringLiteral("deviceVerified")),
-                 "the session trust label must read Device::is_verified()");
-        // The BARE identifier, not `(deviceCrossSigned)`. The parenthesised
-        // form catches only the exact original and would sail past
-        // `else if (deviceCrossSigned || deviceVerified)` or a bool assigned
-        // from it — each of which restores the false green. Commented OUT in
-        // the parameter list is fine and is what the fix leaves behind, which
+        QVERIFY2(body.contains(QStringLiteral("deviceCrossSigned")),
+                 "the session trust label must read is_cross_signed_by_owner()");
+        // The BARE identifier, so that `deviceCrossSigned || deviceVerified`
+        // or a bool assigned from it is caught too — each would restore the
+        // permanent green. Commented out in the parameter list is fine, which
         // is why the stripper has to handle `/* */`.
-        QVERIFY2(!body.contains(QStringLiteral("deviceCrossSigned")),
-                 "the session trust label is reached from "
-                 "is_cross_signed_by_owner(), which does not require that we "
-                 "have verified the owner identity");
+        QVERIFY2(!body.contains(QStringLiteral("deviceVerified")),
+                 "the session trust label is reached from Device::is_verified(), "
+                 "which matrix-sdk makes a constant true for our own device");
     }
 
     // v0.6.0 checkpoint 10: the recovery input is masked, accepts key or

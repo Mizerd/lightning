@@ -1962,6 +1962,36 @@ it, so it waits on itself forever; two background shells deadlocked this way in
 one session. Use `pgrep -x ninja`. Same family as the recorded
 `$(pgrep -c x || echo 0)` trap.
 
+**READING A PREDICATE'S DEFINITION IS NOT KNOWING ITS VALUE — GREP FOR EVERY
+WRITER OF EVERY TERM.** A false "Verified" badge shipped to the Sessions page
+and a non-author review APPROVED it. `Device::is_verified()` is
+`is_locally_trusted() || is_cross_signing_trusted()`; both of us read that
+correctly and neither searched for `set_trust_state`. matrix-sdk-crypto marks
+our OWN device `LocalTrust::Verified` when it creates it (`machine/mod.rs:352`
+— "since we are the owners of the private keys of this device we can safely
+mark the device as verified") and re-establishes it on every `/keys/query`
+returning our own keys unchanged (`identities/manager.rs:251`). **So for the
+current session the flag is a CONSTANT TRUE**, and a label bound to it is
+permanently green — measured live: every cross-signing key Missing, 28 of 28
+devices unsigned server-side, `bootstrap phase idle -> unverified` in our own
+log, and the row badged green. `sessionVerificationNeeded()` reads the same
+string, so the app stopped OFFERING verification at the moment it stopped
+REPORTING the problem. Sibling of the three "grep for the CALLER, not just the
+definition" entries above, one level down.
+
+**AND UPSTREAM HAD ALREADY ANSWERED IT.** `Encryption::verification_state()`
+(`encryption/mod.rs:2063`) asks the own-device question with
+`is_cross_signed_by_owner()` and deliberately not `is_verified()`. Before
+reasoning from first principles about an SDK predicate, look for the SDK
+answering the same question.
+
+**A CONFIDENT "NOT A BUG" NOTE IS WORSE THAN NO NOTE.** The same commit added
+a `docs/open-items.md` entry calling the regression's own symptom "the fix
+working. Do not chase it." — in the file §16 sends agents to before claiming
+anything is fixed, written by the one person least able to see the problem.
+
+Full account in `docs/round-history.md`, 2026-09-20 (afternoon).
+
 **A THEME-DEPENDENT CLAIM MEASURED IN ONE THEME IS A CLAIM ABOUT THAT THEME.**
 "Ctrl+A doesn't work in the text fields" was reported, and I measured it
 WORKING and said NOT REPRODUCED — in Storm, the one theme where the token

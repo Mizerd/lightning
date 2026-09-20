@@ -5355,13 +5355,13 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
 /// non-secret metadata crosses the FFI — device keys and signatures never
 /// do.
 ///
-/// `device_verified` is `Device::is_verified()` and IS the source of truth
-/// for the "Verified" label. This comment used to name `device_cross_signed`
-/// instead, and that field was not even emitted here — which is how
-/// `AppController`'s session trust chip came to be driven by
-/// `is_cross_signed_by_owner()`, a signature by the owner's key that does NOT
-/// require us to have verified that owner identity. Emit both: the narrower
-/// flag still describes HOW a device is trusted.
+/// `device_cross_signed` is the source of truth for the "Verified" label of
+/// THIS session, and `Device::is_verified()` deliberately is NOT reported
+/// here. For our own device `is_verified()` is a constant true — matrix-sdk
+/// sets its local trust when it creates it (machine/mod.rs:350) — so a label
+/// bound to it is permanently green. A round on 2026-09-20 added it and had
+/// to be undone after a live run showed a wholly unverified session badged
+/// "Verified".
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_query_own_device_status(
     ptr: *mut c_void,
@@ -5384,7 +5384,6 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
             let device_id_opt = client.device_id().map(|d| d.to_string());
             let mut own_identity_available = false;
             let mut own_identity_verified = false;
-            let mut device_verified = false;
             let mut device_cross_signed = false;
             let mut has_master = false;
             let mut has_self_signing = false;
@@ -5396,7 +5395,6 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
                 }
             }
             if let Ok(Some(device)) = client.encryption().get_own_device().await {
-                device_verified = device.is_verified();
                 device_cross_signed = device.is_cross_signed_by_owner();
             }
             // The identity-key check that names a permanently undecryptable
@@ -5414,7 +5412,6 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
                 "device_id": device_id_opt.unwrap_or_default(),
                 "own_identity_available": own_identity_available,
                 "own_identity_verified": own_identity_verified,
-                "device_verified": device_verified,
                 "device_cross_signed": device_cross_signed,
                 "has_master": has_master,
                 "has_self_signing": has_self_signing,
@@ -5565,7 +5562,7 @@ pub unsafe extern "C" fn mx_rust_check_own_identity_key(
 
 /// v0.6.0 checkpoint 7: one async E2EE health snapshot, entirely from
 /// official SDK state APIs. Emits `crypto_health` on the poll queue:
-///   { device_id, device_verified, device_cross_signed,
+///   { device_id, device_cross_signed,
 ///     own_identity_available, own_identity_verified,
 ///     has_master, has_self_signing, has_user_signing,
 ///     backup_exists_on_server, backup_state, recovery_state,
@@ -5595,10 +5592,8 @@ pub unsafe extern "C" fn mx_rust_query_crypto_health(ptr: *mut c_void) -> *mut c
                     own_identity_verified = identity.is_verified();
                 }
             }
-            let mut device_verified = false;
             let mut device_cross_signed = false;
             if let Ok(Some(device)) = client.encryption().get_own_device().await {
-                device_verified = device.is_verified();
                 device_cross_signed = device.is_cross_signed_by_owner();
             }
             let (mut has_master, mut has_self_signing, mut has_user_signing) =
@@ -5651,7 +5646,6 @@ pub unsafe extern "C" fn mx_rust_query_crypto_health(ptr: *mut c_void) -> *mut c
                 "type": "crypto_health",
                 "lifecycle": lifecycle,
                 "device_id": device_id,
-                "device_verified": device_verified,
                 "device_cross_signed": device_cross_signed,
                 "own_identity_available": own_identity_available,
                 "own_identity_verified": own_identity_verified,

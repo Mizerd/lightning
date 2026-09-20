@@ -78,8 +78,8 @@ private Q_SLOTS:
         QVERIFY(model.cryptoReady());
     }
 
-    // "Verified" IS `Device::is_verified()`, which Rust sends as
-    // `device_verified` — never inferred, and never widened.
+    // "Verified" for OUR OWN session means our own identity has cross-signed
+    // it — `is_cross_signed_by_owner()`, sent as `device_cross_signed`.
     void deviceTrustMapsToTriState()
     {
         CryptoHealthModel model;
@@ -89,9 +89,9 @@ private Q_SLOTS:
         model.applySnapshot(unverified, model.generation());
         QCOMPARE(model.currentDeviceVerified(), CryptoHealthModel::No);
 
-        QVariantMap verified = baseSnapshot();
-        verified.insert(QStringLiteral("device_verified"), true);
-        model.applySnapshot(verified, model.generation());
+        QVariantMap crossSigned = baseSnapshot();
+        crossSigned.insert(QStringLiteral("device_cross_signed"), true);
+        model.applySnapshot(crossSigned, model.generation());
         QCOMPARE(model.currentDeviceVerified(), CryptoHealthModel::Yes);
 
         QVariantMap identityVerified = baseSnapshot();
@@ -110,37 +110,48 @@ private Q_SLOTS:
         QVERIFY(!model.crossSigningReady());
     }
 
-    // A SIGNATURE FROM AN IDENTITY WE HAVE NOT VERIFIED IS NOT VERIFICATION.
+    // `device_verified` IS A CONSTANT FOR OUR OWN DEVICE AND MUST NEVER
+    // PROMOTE THIS LABEL — the regression this case exists to stop.
     //
-    // This used to read `device_cross_signed ? Yes : device_verified`, so a
-    // snapshot carrying cross_signed alone reported the device as verified.
-    // matrix-sdk's `is_cross_signed_by_owner()` — which is what fills that
-    // field — asks only whether the owner's self-signing key signed the
-    // device and does NOT require that we trust the owner identity, so a
-    // session that has not verified itself could call its own device
-    // verified on a signature it has no reason to trust.
+    // matrix-sdk-crypto marks the own device `LocalTrust::Verified` the
+    // moment it creates it (machine/mod.rs:350: "since we are the owners of
+    // the private keys of this device we can safely mark the device as
+    // verified"), and `is_verified()` is
+    // `is_locally_trusted() || is_cross_signing_trusted()`. So the flag is
+    // TRUE on every session from the moment the store exists and says
+    // nothing at all about whether anyone has verified us.
     //
-    // `is_verified()` (sent as `device_verified`) is
-    // `is_locally_trusted() || is_cross_signing_trusted()`, and the second
-    // of those DOES check the owner identity. So every cross-signed device
-    // we actually trust still reports Yes — through the right field.
-    void crossSigningAloneIsNotVerification()
+    // A round on 2026-09-20 bound the label to it and shipped (fb9081b0).
+    // Measured on a real account: a fresh login with every cross-signing key
+    // Missing, and the server reporting 28 of 28 devices unsigned, was badged
+    // green "Verified" — and `sessionVerificationNeeded()` went false with
+    // it, so the app stopped offering the remedy at the same moment it
+    // stopped reporting the problem.
+    //
+    // Rust no longer emits the field at all, so this case is a GUARD AGAINST
+    // RE-INTRODUCTION: it feeds a snapshot that carries it and requires the
+    // model to ignore it. matrix-sdk's own `Encryption::verification_state()`
+    // answers this question with `is_cross_signed_by_owner()` and not
+    // `is_verified()` (encryption/mod.rs:2063), which is the authority here.
+    void isVerifiedAloneMustNotPromoteTheOwnSessionsLabel()
     {
         CryptoHealthModel model;
         model.setSupported(true);
 
-        QVariantMap signedNotTrusted = baseSnapshot();
-        signedNotTrusted.insert(QStringLiteral("device_cross_signed"), true);
-        signedNotTrusted.insert(QStringLiteral("device_verified"), false);
-        model.applySnapshot(signedNotTrusted, model.generation());
+        // Exactly the live state: is_verified() true because it is always
+        // true for us, nothing cross-signed, no keys.
+        QVariantMap freshSession = baseSnapshot();
+        freshSession.insert(QStringLiteral("device_verified"), true);
+        freshSession.insert(QStringLiteral("device_cross_signed"), false);
+        model.applySnapshot(freshSession, model.generation());
         QCOMPARE(model.currentDeviceVerified(), CryptoHealthModel::No);
 
-        // And the ordinary case is unaffected: a cross-signed device whose
-        // owner identity we DO trust arrives with is_verified() already true.
-        QVariantMap trusted = baseSnapshot();
-        trusted.insert(QStringLiteral("device_cross_signed"), true);
-        trusted.insert(QStringLiteral("device_verified"), true);
-        model.applySnapshot(trusted, model.generation());
+        // And once a session of ours HAS vouched for this one, it is Yes —
+        // whatever the constant says.
+        QVariantMap vouchedFor = baseSnapshot();
+        vouchedFor.insert(QStringLiteral("device_verified"), true);
+        vouchedFor.insert(QStringLiteral("device_cross_signed"), true);
+        model.applySnapshot(vouchedFor, model.generation());
         QCOMPARE(model.currentDeviceVerified(), CryptoHealthModel::Yes);
     }
 
