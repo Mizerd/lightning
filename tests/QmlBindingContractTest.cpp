@@ -1554,8 +1554,29 @@ private Q_SLOTS:
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
-        QVERIFY(delegate.contains(QStringLiteral("bubble.width > 8")));
-        QVERIFY(delegate.contains(QStringLiteral(": 560")));
+        // ── THE CAP IS DERIVED FROM `bubbleRow`, NOT FROM `bubble` ──────
+        //
+        // This used to assert `bubble.width > 8`, and that mechanism is now
+        // known-wrong rather than merely changed, so the contract asserts
+        // its replacement instead of being deleted.
+        //
+        // `bubble.width` is the column's OUTER width. `bubbleContent` insets
+        // every child by `bubblePad` — 0 in Modern/Compact, 10 in Bubbles —
+        // so a cap written against it is exactly right where the padding is
+        // zero and 20 px too generous where it is not. Measured on a real
+        // 640 px row: a long body laid out 12 px past the bubble's inner
+        // edge and 2 px past the ROW, and media cards 10 px past both.
+        //
+        // And it is a LOOP in Bubbles: the bubble is SIZED FROM
+        // `bubbleContent`'s implicit width, so a child clamped against
+        // `bubble.width` feeds its own input. `bubbleRow` is `fillWidth` and
+        // reports no implicit width, so that end of the chain is inert.
+        QVERIFY2(delegate.contains(QStringLiteral("readonly property real contentInnerCap")),
+                 "MessageDelegate lost contentInnerCap — the one cap every "
+                 "width-bounded child is supposed to share");
+        QVERIFY2(delegate.contains(QStringLiteral("bubbleRow.width - root.avatarGutterWidth")),
+                 "contentInnerCap no longer derives from bubbleRow, which is "
+                 "the only end of the chain that cannot feed its own input");
         QVERIFY(pane.contains(QStringLiteral("available > 0 ? available : 640")));
         QVERIFY(delegate.contains(QStringLiteral("objectName: \"messageBody\"")));
     }
@@ -1595,8 +1616,12 @@ private Q_SLOTS:
 
         QVERIFY(mediaBlock.contains(QStringLiteral(
             "Layout.alignment: Qt.AlignLeft")));
-        QVERIFY(mediaBlock.contains(QStringLiteral(
-            "Layout.maximumWidth: bubble.width")));
+        // `contentInnerCap`, not `bubble.width` — see the note in
+        // wrappedBodiesHaveStableIncubationWidths. The outer width overshot
+        // every media card by the bubble's own 10 px padding on each side.
+        QVERIFY2(mediaBlock.contains(QStringLiteral(
+                     "Layout.maximumWidth: root.contentInnerCap")),
+                 "the media column is not bounded by contentInnerCap");
         QVERIFY(!mediaBlock.contains(QStringLiteral("Layout.fillWidth: true")));
         QVERIFY(!mediaBlock.contains(QStringLiteral("anchors.right: parent.right")));
         QVERIFY(previewBlock.contains(QStringLiteral(
@@ -1608,12 +1633,11 @@ private Q_SLOTS:
         // Video cards: responsive 72% column cap with hard bounds and the
         // control-surface floor (the old flat 360/320 caps clipped portrait
         // controls); file cards keep a bounded width.
-        QVERIFY(delegate.contains(QStringLiteral(
-            "var cap = Math.min(560, Math.max(280, bubble.width * 0.72))")));
-        QVERIFY(delegate.contains(QStringLiteral(
-            "readonly property real minControlW: Math.min(260, bubble.width)")));
-        QVERIFY(delegate.contains(QStringLiteral(
-            "implicitWidth: Math.min(340, bubble.width)")));
+        QVERIFY(delegate.contains(// The EXPRESSION again, wrapped in the source. `bubble.width`
+        // became `contentInnerCap` for the reason the note above gives.
+        QStringLiteral("560, Math.max(280, root.contentInnerCap * 0.72)")));
+        QVERIFY(delegate.contains(QStringLiteral("Math.min(260, root.contentInnerCap)")));
+        QVERIFY(delegate.contains(QStringLiteral("Math.min(340, root.contentInnerCap)")));
     }
 
     void directGifUsesInlineMediaRenderer()
@@ -1634,8 +1658,11 @@ private Q_SLOTS:
 
         QVERIFY(directBlock.contains(QStringLiteral(
             "objectName: \"directMediaPreview\"")));
-        QVERIFY(directBlock.contains(QStringLiteral(
-            "readonly property real maxWidth: Math.min(360, bubble.width - 8)")));
+        QVERIFY(directBlock.contains(// The EXPRESSION, not the whole declaration line: the source wraps
+        // it across two lines, and a contract that pins formatting breaks on
+        // a reflow rather than on a behaviour change. That is how all three
+        // assertions in this suite went stale at once.
+        QStringLiteral("Math.min(360, root.contentInnerCap)")));
         QVERIFY(directBlock.contains(QStringLiteral("AnimatedImage {")));
         QVERIFY(directBlock.contains(QStringLiteral(
             "onClicked: app.media.openWebUrl(directMedia.p.url)")));
