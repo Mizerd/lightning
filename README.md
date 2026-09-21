@@ -7,7 +7,7 @@
 **A native desktop Matrix client — Qt 6 on top of the official Rust Matrix SDK.**
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.9.8-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Latest release](https://img.shields.io/badge/release-v0.9.9-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
 [![Platform: Linux | Windows | macOS](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-4c8fdc.svg)](#install)
 
 </div>
@@ -51,8 +51,9 @@ macOS packages bundle GStreamer.
 
 **Spaces and navigation.** Two layouts per account: Classic, one
 activity-ordered list; or Channels, a Spaces rail with Home, Direct Messages
-and one view per Space, with nested subspaces, drag-to-reorder and local
-folders. A Space's front page lists its rooms and subspaces with in-place
+and one view per Space, with nested subspaces drawn as a tinted tree — or, if
+you prefer, turned back into a plain activity-ordered list — drag-to-reorder
+and local folders. A Space's front page lists its rooms and subspaces with in-place
 editing. Directory browsing, joining by address or `matrix:` URI, knocking,
 and role changes, all gated by what Matrix permits.
 
@@ -62,7 +63,8 @@ decryption. Sign in with a password or the homeserver's browser flow
 (OAuth 2.0 / OIDC), and sign your other devices in from this one with a code
 (MSC4108), arriving verified. Optionally refuse unverified devices (MSC4153),
 off by default. Per-room display name and avatar. Several accounts on
-different homeservers at once, each with an isolated store; only the active
+different homeservers at once, each with an isolated store and its last known
+avatar kept on disk so it shows before it syncs; only the active
 one syncs.
 
 **Media and the composer.** Images, video and audio with inline playback,
@@ -70,7 +72,9 @@ posters and waveforms; encrypted attachments throughout; voice messages
 (MSC3245); a two-provider GIF browser (GIPHY and KLIPY) that sends only your
 search term; emoji picker; MSC2545 sticker packs with editing; custom emoji
 with `:shortcode` completion; a media browser that walks a room's full history
-and reports how much it has read; JPEG XL; drag-and-drop. Link previews are
+and reports how much it has read; JPEG XL; drag-and-drop. Images open in a
+viewer with click-to-zoom, wheel-pan and wrapping navigation, and long media
+or link embeds can collapse to a single line. Link previews are
 off by default, because Lightning fetches them itself rather than through your
 homeserver.
 
@@ -79,7 +83,8 @@ ban rules, publish your own where permitted, and follow lists others maintain.
 Following a list never blocks anyone by itself. Lightning tells you when
 someone is covered by a list you follow, and you decide.
 
-**Desktop.** Eleven WCAG-AA themes plus an editor for your own. Eleven
+**Desktop.** Eleven WCAG-AA themes plus an editor for your own that grades its
+own contrast as you work. Eleven
 languages, switchable without a restart, including right-to-left Arabic.
 Native notifications with per-room modes written to your account's server push
 rules, with reply and mark-as-read from the notification where supported.
@@ -135,7 +140,7 @@ package is code-signed yet:
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
-Replace `0.9.8` below with the version you downloaded.
+Replace `0.9.9` below with the version you downloaded.
 
 ### Linux
 
@@ -154,9 +159,9 @@ inferred from the packaging. openSUSE and RHEL are **untested**; the rpm's Qt
 6.11 floor makes any current RHEL unlikely to satisfy it.
 
 ```sh
-sudo apt install ./lightning_0.9.8_amd64.deb            # Debian 13+
-sudo dnf install ./lightning-0.9.8-1.x86_64.rpm         # Fedora 44+
-sudo zypper install ./lightning-0.9.8-1.x86_64.rpm      # openSUSE (untested)
+sudo apt install ./lightning_0.9.9_amd64.deb            # Debian 13+
+sudo dnf install ./lightning-0.9.9-1.x86_64.rpm         # Fedora 44+
+sudo zypper install ./lightning-0.9.9-1.x86_64.rpm      # openSUSE (untested)
 
 # The VERSION stays in the pattern; only the suffix is globbed, because some
 # browsers and download managers lower-case .AppImage on the way in. Do not
@@ -164,14 +169,14 @@ sudo zypper install ./lightning-0.9.8-1.x86_64.rpm      # openSUSE (untested)
 # expands to both, and the OLDER one becomes the command while the newer
 # becomes its argument — so you would silently run the build you just
 # replaced.
-chmod +x Lightning-0.9.8-x86_64.*pp[Ii]mage && ./Lightning-0.9.8-x86_64.*pp[Ii]mage
+chmod +x Lightning-0.9.9-x86_64.*pp[Ii]mage && ./Lightning-0.9.9-x86_64.*pp[Ii]mage
 
 flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak install --user flathub org.kde.Platform//6.9     # the runtime, once
-flatpak install --user ./lightning_0.9.8_amd64.flatpak
+flatpak install --user ./lightning_0.9.9_amd64.flatpak
 flatpak run org.lightning_matrix.Lightning
 
-sudo snap install --dangerous ./lightning_0.9.8_amd64.snap
+sudo snap install --dangerous ./lightning_0.9.9_amd64.snap
 ```
 
 The leading `./` matters for `apt` and `dnf`, or they look for a package by that
@@ -199,7 +204,7 @@ Add lightning-matrix-client as an input:
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
     lightning-matrix-client = {
       url = "github:Mizerd/lightning";
-      #url = "github:Mizerd/lightning/v0.9.8"; # Use this if you want a specific version
+      #url = "github:Mizerd/lightning/v0.9.9"; # Use this if you want a specific version
     };
   };
   . . . # Your outputs config
@@ -242,7 +247,7 @@ deleting the folder removes it.
 
 Windows packages are **not code-signed**, so Windows shows an "unknown publisher"
 SmartScreen warning. Check the hash first
-(`Get-FileHash .\Lightning-0.9.8-<sha>-windows-x86_64.msi -Algorithm SHA256`),
+(`Get-FileHash .\Lightning-0.9.9-<sha>-windows-x86_64.msi -Algorithm SHA256`),
 then choose *More info → Run anyway*. Signing through
 [SignPath Foundation](https://signpath.org/) is planned but has not been applied
 for or granted — see the [code signing policy](docs/code-signing-policy.md).

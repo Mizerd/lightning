@@ -80,19 +80,19 @@
       is sent anywhere.
     -->
     <screenshot type="default">
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.8/docs/screenshots/flathub/01-conversation.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/01-conversation.png</image>
       <caption>A room conversation with replies, reactions and a shared picture</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.8/docs/screenshots/flathub/02-threads.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/02-threads.png</image>
       <caption>A thread open beside the conversation it came from</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.8/docs/screenshots/flathub/03-call.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/03-call.png</image>
       <caption>A four-person call running above the room it belongs to</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.8/docs/screenshots/flathub/04-themes.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/04-themes.png</image>
       <caption>Building a colour theme against a live sample of the interface</caption>
     </screenshot>
   </screenshots>
@@ -168,6 +168,20 @@
   </content_rating>
 
   <releases>
+    <release version="0.9.9" date="2026-09-21" type="stable">
+      <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.9</url>
+      <description>
+        <p>
+          A release made mostly of the interface: a sustained accessibility and
+          layout pass that turned dozens of "needs looking at" observations into
+          fixed defects, a Spaces rail you can now shape to taste, and a first-
+          class NixOS package contributed from outside the project. Nothing in
+          the messaging, calling or encryption contracts changed; this is the
+          release that makes what was already there legible, reachable and
+          correctly drawn.
+        </p>
+      </description>
+    </release>
     <release version="0.9.8" date="2026-09-17" type="stable">
       <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.8</url>
       <description>

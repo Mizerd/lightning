@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(lightning
-    VERSION 0.9.8
+    VERSION 0.9.9
     DESCRIPTION "Lightning — native C++/Qt Matrix desktop client"
     LANGUAGES CXX
 )
@@ -8,7 +8,7 @@ project(lightning
 include(CTest)
 
 # Human-facing release label. Keep in sync with project() and rust/Cargo.toml.
-set(APP_VERSION_LABEL "0.9.8")
+set(APP_VERSION_LABEL "0.9.9")
 
 # Build metadata surfaced by `lightning-matrix --build-info` (booleans/strings
 # only; never secrets). The source SHA is resolved from git at configure time
@@ -5176,20 +5176,55 @@ install(TARGETS lightning-matrix lightning-updater
 # name "lightning" matches the desktop file's Icon= key; the generated sizes
 # come from scripts/generate-icons.sh (source artwork in data/icons/).
 include(GNUInstallDirs)
-install(FILES data/lightning.desktop
-    DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
-foreach(_icon_size 16 32 48 64 128 192 256 512)
-    install(FILES
-        "data/icons/hicolor/${_icon_size}x${_icon_size}/apps/lightning.png"
-        DESTINATION
-        "${CMAKE_INSTALL_DATADIR}/icons/hicolor/${_icon_size}x${_icon_size}/apps")
-endforeach()
-# The scalable slot: launchers and docks that support SVG prefer it over
-# any raster size, so the mark stays crisp at every zoom/DPI. Same "thick"
-# artwork the raster sizes are generated from.
-install(FILES data/icons/lightning.svg
-    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps"
-    RENAME lightning.svg)
+if(LIGHTNING_INSTALL_TYPE STREQUAL "linux-flatpak")
+    set(_lightning_appid "org.lightning_matrix.Lightning")
+
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/data/lightning.desktop" _lightning_desktop)
+    string(REPLACE "Icon=lightning" "Icon=${_lightning_appid}"
+        _lightning_desktop "${_lightning_desktop}")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/flatpak/${_lightning_appid}.desktop"
+        "${_lightning_desktop}")
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/flatpak/${_lightning_appid}.desktop"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+
+    foreach(_icon_size 16 32 48 64 128 192 256 512)
+        install(FILES
+            "data/icons/hicolor/${_icon_size}x${_icon_size}/apps/lightning.png"
+            DESTINATION
+            "${CMAKE_INSTALL_DATADIR}/icons/hicolor/${_icon_size}x${_icon_size}/apps"
+            RENAME "${_lightning_appid}.png")
+    endforeach()
+    install(FILES data/icons/lightning.svg
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps"
+        RENAME "${_lightning_appid}.svg")
+
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/packaging-ci/packaging/common/lightning.metainfo.xml"
+        _lightning_metainfo)
+    string(REPLACE ">lightning.desktop<" ">${_lightning_appid}.desktop<"
+        _lightning_metainfo "${_lightning_metainfo}")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/flatpak/${_lightning_appid}.metainfo.xml"
+        "${_lightning_metainfo}")
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/flatpak/${_lightning_appid}.metainfo.xml"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo")
+
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/${_lightning_appid}")
+else()
+    install(FILES data/lightning.desktop
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+    foreach(_icon_size 16 32 48 64 128 192 256 512)
+        install(FILES
+            "data/icons/hicolor/${_icon_size}x${_icon_size}/apps/lightning.png"
+            DESTINATION
+            "${CMAKE_INSTALL_DATADIR}/icons/hicolor/${_icon_size}x${_icon_size}/apps")
+    endforeach()
+    # The scalable slot: launchers and docks that support SVG prefer it over
+    # any raster size, so the mark stays crisp at every zoom/DPI. Same "thick"
+    # artwork the raster sizes are generated from.
+    install(FILES data/icons/lightning.svg
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps"
+        RENAME lightning.svg)
+endif()
 
 # Dismissing a link preview: per-(room,event) keying so one click can never
 # collapse a card above the reader, the dismissal checked before the auto-load
