@@ -11,6 +11,7 @@
   cargo,
   rustPlatform,
   qt6,
+  kdePackages,
   pipewire,
   libsecret,
   glib,
@@ -72,6 +73,9 @@ stdenv.mkDerivation {
     libsecret
     glib
     xkeyboard_config
+    # image format support, test using `lightning-matrix --image-format-status`
+    qt6.qtimageformats # webp
+    kdePackages.kimageformats # jxl
   ]
   ++ gst;
 
