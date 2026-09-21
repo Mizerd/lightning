@@ -84,6 +84,13 @@ stdenv.mkDerivation {
   ];
 
   qtWrapperArgs = [
+    "--prefix LD_LIBRARY_PATH : ${
+      lib.makeLibraryPath [
+        # Fix qt.multimedia.symbolsresolver not loading pipewire library
+        # from https://github.com/NixOS/nixpkgs/issues/409850#issuecomment-3795701197
+        pipewire
+      ]
+    }"
     "--prefix GST_PLUGIN_PATH : ${lib.makeSearchPathOutput "lib" "lib/gstreamer-1.0" gst}"
   ];
 
