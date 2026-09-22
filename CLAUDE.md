@@ -26,16 +26,29 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.9.8** (`v0.9.8` -> `c04ea54`), tagged
-2026-09-17 by **project 6** pipeline **240, 25/25 — fully green, every job,
-first attempt**. Notes in `docs/releases/v0.9.8.md`. The tree and the published
-release are the same thing again; "latest published" and "what the tree says"
-are different facts and this sentence has stated the wrong one before.
-`tests/VersionConsistencyTest.cpp` compares five locations so a bump cannot
-half-land — **and there is a SIXTH it does NOT compare, the AppStream
+Latest published release: **Lightning 0.9.9** (`v0.9.9` -> `54d1bdb1`), tagged
+2026-09-22 by **project 6** pipeline **252, 25/25 — fully green, every job,
+first attempt**, with the macOS asset attached. Notes in
+`docs/releases/v0.9.9.md`. **The anonymous verification bar has NOT been run
+against it yet** (§14); 11 package links and 4 source archives are attached
+and nothing beyond that is verified. Previous release: 0.9.8. The tree and the
+published release are the same thing again; "latest published" and "what the
+tree says" are different facts and this sentence has stated the wrong one
+before. `tests/VersionConsistencyTest.cpp` compares five locations so a bump
+cannot half-land — **and there is a SIXTH it does NOT compare, the AppStream
 metainfo; see §14.** The root Flathub manifest is a SEVENTH and is re-pinned
-to `v0.9.8` / `c04ea54f…`, which is the post-release step
+to `v0.9.9` / `54d1bdb18656…`, which is the post-release step
 `test-flathub-manifest-pin.py` deliberately waits for.
+
+**AND IT TOOK SIX ATTEMPTS TO GET THERE — five of them lost to ONE MISSING
+DEBIAN PACKAGE.** Pipelines 246-250 all died in `build-flatpak` on
+`E: file-read-error` / `E: filters-but-no-output`, two hints that name no
+file, and two hypotheses were built and shipped on them before the cause was
+found: the metainfo's `<screenshots>` block and a runner-specific toolchain.
+**Both are refuted** (§16, `docs/packaging-traps.md`). It was gdk-pixbuf's SVG
+LOADER MODULE, absent because the release commit taught CMake to rename the
+scalable icon to the app id and `--no-install-recommends` never pulls a
+loader. Settled in four minutes in a container, not in a pipeline.
 
 **THE ANONYMOUS VERIFICATION BAR PASSED IN FULL for 0.9.8** on 2026-09-17: all
 **eleven** package links 200 with the count asserted, the signed manifest
@@ -150,7 +163,7 @@ the metainfo (§14's sixth location) and 224 on `build-windows`, where a
 plugin was added to the REQUIRED list before the hand-built image carried it
 (§16). Cancel a doomed pipeline immediately — it holds the runners.
 
-Previous release: **Lightning 0.9.7** (`v0.9.7` -> `bc5dcd5`), tagged
+Before those: **Lightning 0.9.7** (`v0.9.7` -> `bc5dcd5`), tagged
 2026-09-16 by pipeline **225, 25/25**; notes in `docs/releases/v0.9.7.md`. Its
 own bar passed in full on 2026-09-16 and its result is in
 `docs/release-operations.md`. It is the release whose three headline
