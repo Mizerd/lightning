@@ -145,26 +145,9 @@ modules:
         path: "@METAINFO_PATH@"
         dest-filename: lightning.metainfo.xml
     post-install:
-      # Flatpak exports require app-id-named desktop, icon, and metainfo
-      # files. The source installs them under the plain "lightning" name.
+      # The app-id-named desktop, icon and metainfo files (and LICENSE) are
+      # installed by CMake for the linux-flatpak install type, so nothing has
+      # to be renamed here. This wrapper is the one thing CMake does not do:
+      # command: lightning launches the Rust backend without a flag.
       - printf '#!/bin/sh\nexec /app/bin/lightning-matrix --backend=rust "$@"\n'
         > /app/bin/lightning && chmod 0755 /app/bin/lightning
-      - mkdir -p /app/share/applications
-      - sed -e 's/^Icon=lightning$/Icon=org.lightning_matrix.Lightning/'
-        -e 's/^Exec=lightning-matrix --backend=rust$/Exec=lightning/'
-        /app/share/applications/lightning.desktop
-        > /app/share/applications/org.lightning_matrix.Lightning.desktop
-      - rm /app/share/applications/lightning.desktop
-      - for size in 16 32 48 64 128 192; do
-        if [ -f "/app/share/icons/hicolor/${size}x${size}/apps/lightning.png" ]; then
-        mv "/app/share/icons/hicolor/${size}x${size}/apps/lightning.png"
-        "/app/share/icons/hicolor/${size}x${size}/apps/org.lightning_matrix.Lightning.png";
-        fi; done
-      - install -Dm0644 lightning.metainfo.xml
-        /app/share/metainfo/org.lightning_matrix.Lightning.metainfo.xml
-      # The shared metainfo's launchable points at the plain desktop-id used
-      # by deb/rpm; inside the flatpak the desktop file is app-id-named, and
-      # appstream compose drops the component (gui-app-without-icon) if the
-      # launchable cannot be resolved.
-      - sed -i 's|>lightning.desktop<|>org.lightning_matrix.Lightning.desktop<|'
-        /app/share/metainfo/org.lightning_matrix.Lightning.metainfo.xml

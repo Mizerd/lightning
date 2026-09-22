@@ -949,6 +949,12 @@ is_our_own() {
     for o in "${OUR_OWN_OBJECTS[@]}"; do [ "$n" = "$o" ] && return 0; done
     return 1
 }
+# The GNU build-id of an ELF object. strip and patchelf both preserve the
+# SHF_ALLOC .note.gnu.build-id section, so this is stable across everything
+# linuxdeploy does to a deployed library, where a byte compare is not.
+build_id() {
+    readelf -n "$1" 2>/dev/null | awk '/Build ID:/ { print $NF; exit }'
+}
 
 harvest_total=0
 harvest_attributed=0
@@ -972,11 +978,16 @@ while IFS= read -r -d '' object; do
     # ship the wrong licence the first time two packages with different
     # terms collide, which is exactly what this harvest exists to prevent.
     #
-    # Resolved by the bytes, because the candidate files are all still on
-    # disk in this image: compare the payload object against each candidate's
-    # real path and take the one it IS. Ambiguity that survives that is a
-    # hard error rather than a guess — an unattributed object stops the build
-    # and so must a misattributed one.
+    # Resolved by identity, because the candidate files are all still on disk
+    # in this image. An exact byte compare settles a file linuxdeploy left
+    # untouched; but linuxdeploy STRIPS and rpath-patches what it deploys, so a
+    # deployed object never byte-matches its pristine package copy — which is
+    # why the nine Qt 6 plugins above landed as "ambiguous" the first time this
+    # ran for real. The GNU build-id survives both operations, and a Qt 6
+    # plugin carries libqt6gui6's build-id, not libqt5gui5t64's, so it is the
+    # identity that actually resolves the collision. Ambiguity that survives
+    # BOTH is a hard error, not a guess — a misattributed object must stop the
+    # build exactly as an unattributed one does.
     mapfile -t cands < <(awk -v n="$base" -F'\t' '$1 == n { print }' "$LICENSE_INDEX")
     hit=""
     if [ "${#cands[@]}" -eq 1 ]; then
@@ -989,6 +1000,18 @@ while IFS= read -r -d '' object; do
                 break
             fi
         done
+        if [ -z "$hit" ]; then
+            obj_bid="$(build_id "$object")"
+            if [ -n "$obj_bid" ]; then
+                for cand in "${cands[@]}"; do
+                    src="${cand##*$'\t'}"
+                    if [ -f "$src" ] && [ "$(build_id "$src")" = "$obj_bid" ]; then
+                        hit="$cand"
+                        break
+                    fi
+                done
+            fi
+        fi
         if [ -z "$hit" ]; then
             harvest_ambiguous+=("${object#$APPDIR/} -> $(printf '%s\n' "${cands[@]}" | cut -f2 | sort -u | tr '\n' ' ')")
             continue
