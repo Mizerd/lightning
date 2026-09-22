@@ -80,17 +80,18 @@ command -v dbus-run-session >/dev/null 2>&1 || die "dbus-run-session is not inst
 flatpak info org.flatpak.Builder >/dev/null 2>&1 \
     || die "org.flatpak.Builder is not installed: flatpak install -y flathub org.flatpak.Builder"
 
-# The submission set is three files at the repository ROOT, deliberately, so
-# the Flathub repository is a straight copy of them.
-for f in org.lightning_matrix.Lightning.yaml cargo-sources.json flathub.json; do
+# The submission set is two files at the repository ROOT, deliberately, so
+# the Flathub repository is a straight copy of them. There is no flathub.json:
+# it existed only to restrict the build to x86_64, and once aarch64 built
+# green on Flathub (2026-09-22) an empty one meant the same as none.
+for f in org.lightning_matrix.Lightning.yaml cargo-sources.json; do
     [ -f "$REPO_ROOT/$f" ] || die "missing submission file: $REPO_ROOT/$f"
 done
 
 rm -rf -- "$WORKDIR"
 mkdir -p -- "$WORKDIR"
 cp -- "$REPO_ROOT/org.lightning_matrix.Lightning.yaml" \
-      "$REPO_ROOT/cargo-sources.json" \
-      "$REPO_ROOT/flathub.json" "$WORKDIR/"
+      "$REPO_ROOT/cargo-sources.json" "$WORKDIR/"
 # 0777, not 0755: the sandbox runs as a different uid (trap 2).
 chmod -R 0777 -- "$WORKDIR"
 
