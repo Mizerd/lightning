@@ -88,9 +88,9 @@ grep -q "GNU LESSER GENERAL PUBLIC LICENSE" "$snap_good_license" \
 snap_third_party="$audit/prime/usr/share/licenses/third-party"
 test -d "$snap_third_party" \
     || die "the snap carries ~240 third-party libraries and no licence directory: usr/share/licenses/third-party is missing"
-snap_tp_# `-size +0`: a harvest that produced empty files would satisfy a bare count,
+# `-size +0`: a harvest that produced empty files would satisfy a bare count,
 # and the count is what this claims to assert.
-count=$(find "$snap_third_party" -maxdepth 1 -name '*.copyright' -type f -size +0 | wc -l)
+snap_tp_count=$(find "$snap_third_party" -maxdepth 1 -name '*.copyright' -type f -size +0 | wc -l)
 test "$snap_tp_count" -ge 100 \
     || die "only $snap_tp_count third-party licence files are in the snap payload; the AppImage harvest came back short"
 echo "third-party licences in the snap payload: $snap_tp_count"

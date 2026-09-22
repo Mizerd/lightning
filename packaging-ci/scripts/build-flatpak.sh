@@ -98,9 +98,18 @@ flatpak install --user --noninteractive --or-update flathub \
     "org.kde.Sdk//$RUNTIME_VERSION" \
     org.freedesktop.Sdk.Extension.rust-stable//24.08
 
+# CMake installs the metainfo during the build now (linux-flatpak install
+# type), so flatpak-builder runs appstreamcli compose on it. The metainfo's
+# screenshot URLs are pinned to the release tag, which does not exist yet while
+# this create-release build runs, so compose hard-fails trying to fetch them.
+# --mirror-screenshots-url makes flatpak-builder rewrite rather than fetch them
+# (measured on flatpak-builder 1.4.4, the version this Debian image ships): the
+# unreachable screenshots stop being a fatal file-read-error. This package
+# flatpak is not a Flathub catalogue entry, so the screenshots need not embed.
 flatpak-builder --user --force-clean --disable-rofiles-fuse \
     --state-dir="$STATE_DIR" \
     --jobs="${BUILD_JOBS:-4}" \
+    --mirror-screenshots-url=https://dl.flathub.org/media \
     "${BUILDER_CACHE_ARGS[@]}" \
     --repo="$REPO_DIR" "$BUILD_DIR" "$MANIFEST"
 
