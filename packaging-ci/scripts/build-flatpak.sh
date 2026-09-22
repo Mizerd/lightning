@@ -101,15 +101,19 @@ flatpak install --user --noninteractive --or-update flathub \
 # CMake installs the metainfo during the build now (linux-flatpak install
 # type), so flatpak-builder runs appstreamcli compose on it. The metainfo's
 # screenshot URLs are pinned to the release tag, which does not exist yet while
-# this create-release build runs, so compose hard-fails trying to fetch them.
-# --mirror-screenshots-url makes flatpak-builder rewrite rather than fetch them
-# (measured on flatpak-builder 1.4.4, the version this Debian image ships): the
-# unreachable screenshots stop being a fatal file-read-error. This package
-# flatpak is not a Flathub catalogue entry, so the screenshots need not embed.
+# this create-release build runs, so compose died with file-read-error trying
+# to fetch them (flatpak-builder 1.4.4, this Debian image's version; and
+# --mirror-screenshots-url does NOT help — it still fetches them to mirror).
+# This package flatpak is a downloadable artifact, not a Flathub catalogue
+# entry, so it does not need embedded screenshots: drop the block from the
+# metainfo this build installs. The Flathub submission manifest is a separate
+# artifact built by Flathub after the tag exists, and keeps its screenshots.
+sed -i '/<screenshots>/,/<\/screenshots>/d' \
+    "$SOURCE_DIR/packaging-ci/packaging/common/lightning.metainfo.xml"
+
 flatpak-builder --user --force-clean --disable-rofiles-fuse \
     --state-dir="$STATE_DIR" \
     --jobs="${BUILD_JOBS:-4}" \
-    --mirror-screenshots-url=https://dl.flathub.org/media \
     "${BUILDER_CACHE_ARGS[@]}" \
     --repo="$REPO_DIR" "$BUILD_DIR" "$MANIFEST"
 
