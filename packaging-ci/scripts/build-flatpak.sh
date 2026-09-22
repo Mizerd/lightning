@@ -108,8 +108,14 @@ flatpak install --user --noninteractive --or-update flathub \
 # entry, so it does not need embedded screenshots: drop the block from the
 # metainfo this build installs. The Flathub submission manifest is a separate
 # artifact built by Flathub after the tag exists, and keeps its screenshots.
-sed -i '/<screenshots>/,/<\/screenshots>/d' \
-    "$SOURCE_DIR/packaging-ci/packaging/common/lightning.metainfo.xml"
+echo "=== DEBUG: metainfo copies before strip (path: screenshots-blocks) ==="
+find "$SOURCE_DIR" "$ROOT" -name 'lightning.metainfo.xml' 2>/dev/null \
+    -exec sh -c 'echo "  $1: $(grep -c "<screenshots>" "$1")"' _ {} \;
+find "$SOURCE_DIR" "$ROOT" -name 'lightning.metainfo.xml' 2>/dev/null \
+    -exec sed -i '/<screenshots>/,/<\/screenshots>/d' {} \;
+echo "=== DEBUG: metainfo copies after strip ==="
+find "$SOURCE_DIR" "$ROOT" -name 'lightning.metainfo.xml' 2>/dev/null \
+    -exec sh -c 'echo "  $1: $(grep -c "<screenshots>" "$1")"' _ {} \;
 
 flatpak-builder --user --force-clean --disable-rofiles-fuse \
     --state-dir="$STATE_DIR" \
