@@ -1130,7 +1130,20 @@ broken probe that said all 31 were gone; a download with no timeout, and why a
 SLOW one looks identical to a stall; and the 0.9.0 AppImage that shipped
 without Qt's TLS backend and without the Wayland shell integration, which
 nothing could have caught because graceful fallback and silent absence are the
-same observable.
+same observable. **AND, added 2026-09-22, the five dead 0.9.9 pipelines: a
+LIBRARY IS NOT ITS LOADABLE MODULE.** `appstreamcli compose` rasterises the
+component's icon inside flatpak-builder's cleanup phase, the release commit
+made CMake rename `lightning.svg` to the app id so the SCALABLE icon became
+the one it picks, and gdk-pixbuf reads SVG through a loader MODULE —
+`librsvg2-common` on Debian, which `--no-install-recommends` leaves out while
+`librsvg2-2` arrives through somebody's Depends. Five pipelines died on
+`E: file-read-error` / `E: filters-but-no-output`, two hints that NAME NO
+FILE; `--hints-dir` names it in one line and the job never passed it. Fourth
+costume of `libgstsctp.dll`, the AppImage's Qt plugins and NSS's
+`libsoftokn3`. REFUTED there and not to be re-proposed: the metainfo's
+`<screenshots>` block (compose fetches nothing without a mirror flag) and a
+runner-specific toolchain (the pinned image IS the rig's versions). The method
+that settled it without a pipeline is written there too.
 
 **The history fill, pagination and the row window — MOVED: the full text is
 `docs/timeline-scrolling.md`, beside the scrolling and anchoring lessons it

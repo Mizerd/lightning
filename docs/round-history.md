@@ -1,5 +1,120 @@
 # Round history
 
+## 2026-09-22 — five dead release pipelines, one missing gdk-pixbuf loader module
+
+0.9.9's release was blocked for a day. `build-flatpak` failed in pipelines
+246, 247, 248, 249 and 250, always with the same two lines and never with a
+filename:
+
+```
+general
+  E: filters-but-no-output
+org.lightning_matrix.Lightning
+  E: file-read-error
+```
+
+Two hypotheses were built on that and both were wrong. The first blamed the
+metainfo's `<screenshots>` block — its URLs are pinned to the release tag,
+which does not exist while the release build runs — and produced three
+commits: `--mirror-screenshots-url` (`ad2d235d`), a single-path strip
+(`1d067658`), and a strip over every metainfo copy in the workspace with a
+debug block to prove it (`c2676cdc`). The debug block proved the strip worked:
+zero `<screenshots>` in all three copies, and the compose failed exactly as
+before. The second hypothesis was that the failure was RUNNER-SPECIFIC,
+because the same source composed cleanly in a Debian container on the laptop
+rig — so the next step written into the handoff was to compare the runner's
+tool versions against the rig's.
+
+### What it actually was
+
+`appstreamcli compose` runs inside flatpak-builder's cleanup phase and
+RASTERISES the component's icon. `bcf26f57` — the release commit — moved the
+flatpak file renames out of the manifest's `post-install` and into CMake, and
+the new CMake block renames `data/icons/lightning.svg` to
+`org.lightning_matrix.Lightning.svg`. **That is the whole regression.** Before
+it, the scalable icon was named `lightning.svg`, did not match the component's
+icon name, and compose never looked at it; 0.9.8 built green for that reason
+and nothing else. After it, compose picks the scalable icon first and renders
+it through gdk-pixbuf — and gdk-pixbuf reads SVG through a LOADER MODULE that
+is a separate Debian package. The job installs `flatpak-builder` with
+`--no-install-recommends`, so `librsvg2-2` arrives through somebody's Depends
+and `librsvg2-common` does not.
+
+The hints report, which the job never printed, names it in two lines:
+
+```
+- tag: file-read-error
+  variables:
+    fname: //share/icons/hicolor/scalable/apps/org.lightning_matrix.Lightning.svg
+    msg: Unrecognized image file format
+```
+
+### How it was settled, and why the rig could not have
+
+Reproduced in `docker run debian@sha256:d7e12182…` — the image the job pins by
+digest — with the job's exact apt line, against a hand-staged copy of the tree
+CMake installs for `LIGHTNING_INSTALL_TYPE=linux-flatpak`. That container
+reports flatpak-builder 1.4.4, appstream 1.0.5 and flatpak 1.16.6, which are
+the rig's versions to the digit: **the version hypothesis was refuted before
+a single pipeline was spent on it.** The same container then reproduced the
+runner's two hint lines byte for byte, and three one-variable changes isolated
+the cause:
+
+| variant | result |
+|---|---|
+| staged tree as CMake installs it | `file-read-error` / `filters-but-no-output` |
+| same tree, scalable SVG deleted | `Success!` |
+| same tree, `librsvg2-common` installed | `Success!`, and five icon-cache sizes appear |
+| same tree, `librsvg2-common` AND `<screenshots>` restored | `Success!` |
+
+The last row is the one that closes the original hypothesis for good:
+flatpak-builder passes no mirror flag, so compose never fetches a screenshot
+and the tag not existing was never relevant. Both screenshot commits are
+reverted in this round; the flatpak keeps its screenshots, which is what a
+user installing the bundle should see once the tag is live.
+
+The rig passed because it is `org.flatpak.Builder` plus the KDE SDK plus
+whatever else a working flatpak toolchain drags in — it has the loader. It
+shared the versions under test and not the property under test, which is the
+[[a-probe-source-must-share-the-defect]] rule arriving
+from the other direction: the probe has to be able to FAIL.
+
+### The fix, and the two guards
+
+`librsvg2-common` is pinned by name in `.gitlab-ci.yml`, with the reason, in
+the same shape as the GStreamer, `xkb-data`, `fontconfig-config` and `libnss3`
+pins above it: name the package, never rely on another package's Depends.
+
+Pinning alone would leave the next image change costing another sixteen-minute
+round trip, so `build-flatpak.sh` now asks the question first.
+`appstream_can_read_scalable_icon` composes a synthetic one-component unit
+built around the REAL `data/icons/lightning.svg`, in about a second, and dies
+naming the package if compose cannot read it. Proven both ways in the pinned
+image: it fails with `file-read-error` when the module is absent and passes
+when it is present. Its first draft failed in BOTH environments — the
+synthetic desktop entry had no `Categories`, and compose rejects a desktop
+application without one, so the probe would have blocked every flatpak build
+for a reason that is not the one it asks about. Making a fixture fail on
+purpose is what found that, before it shipped.
+
+`test-pipeline-config.py` asserts the package is in the job and that the
+preflight is CALLED — counted as calls, with the definition line and comment
+lines excluded, because a substring test for a function name is satisfied by
+the function's own definition and that has passed over unreachable code three
+times in this project. Both assertions were mutation-checked against copies of
+the two files and both go red.
+
+### The lesson
+
+**A tool's LIBRARY is not its loadable MODULE, and only the module does the
+work.** This is the fourth costume of one failure in this repository:
+`libgstsctp.dll` that webrtcbin loads for itself; the AppImage's Qt TLS and
+Wayland plugins; NSS's `libsoftokn3`, dlopened from a path derived at runtime;
+and now gdk-pixbuf's SVG loader. In every one the library was present, every
+ELF walk and `ldd` was clean, and the feature was silently gone. And the cost
+here was not the missing package — it was that the error named no file while
+the hint report that DID name it was written to a directory nobody asked for.
+
 ## 2026-09-20 (evening) — two GUI sweeps, and two user reports that were both mis-diagnosed first
 
 Four agents fixing, two sweeping (Windows on the published package, Linux on a

@@ -14,6 +14,54 @@ packaging needs all of them at once.
 **READ THIS BEFORE** rebuilding a builder image, changing a required-plugin
 list, pinning a toolchain version, or diagnosing a packaging job that hangs.
 
+**A LIBRARY IS NOT ITS LOADABLE MODULE, AND `appstreamcli compose` NEEDS THE
+MODULE.** 0.9.9 lost FIVE pipelines in a row (246-250) to `build-flatpak`,
+each reporting the same two hints and no filename:
+`E: filters-but-no-output` and `E: file-read-error`. flatpak-builder runs
+`appstreamcli compose` in its cleanup phase and that RASTERISES the
+component's icon; the release commit moved the flatpak renames from the
+manifest's `post-install` into CMake, and the new block renames
+`data/icons/lightning.svg` to the app id — so compose began picking the
+SCALABLE icon, which gdk-pixbuf reads through a loader MODULE. On Debian that
+module is `librsvg2-common`; `librsvg2-2`, the library, was present all along
+through somebody's Depends, and `--no-install-recommends` is why the module
+was not. The hint report, which the job never printed, names it exactly:
+`fname: //share/icons/hicolor/scalable/apps/org.lightning_matrix.Lightning.svg`,
+`msg: Unrecognized image file format`.
+
+Two hypotheses were spent on it first and both are refuted here, so that
+nobody re-derives them: it is NOT the metainfo's `<screenshots>` block
+(flatpak-builder passes no mirror flag, so compose never fetches a screenshot
+— compose succeeds with the block intact and the tag absent), and it is NOT
+runner-specific (the pinned CI image carries flatpak-builder 1.4.4, appstream
+1.0.5 and flatpak 1.16.6, which are the laptop rig's versions to the digit).
+The rig passed because `org.flatpak.Builder` plus the KDE SDK bring the loader
+in: it shared the versions under test and not the property under test.
+
+**The method that settled it in one session is worth copying.** Stage the
+tree CMake installs (`share/applications`, `share/metainfo`, `share/icons`)
+by hand, run `docker run <the image the job pins BY DIGEST>` with the job's
+exact apt line, and run `appstreamcli compose` with `--hints-dir` — which is
+what turns two nameless hints into a filename and a message. Then change one
+variable at a time: delete the SVG (Success), install `librsvg2-common`
+(Success, and five icon-cache sizes appear), restore the screenshots
+(Success). No pipeline, about four minutes.
+
+`build-flatpak.sh` now runs `appstream_can_read_scalable_icon` before the
+build: it composes a synthetic one-component unit around the REAL
+`data/icons/lightning.svg` and dies naming the package, in about a second
+instead of sixteen minutes. Note for anyone editing it — the synthetic
+desktop entry MUST carry a `Categories` key, because compose rejects a
+desktop application without one and the probe then fails in every
+environment, healthy or not. `test-pipeline-config.py` pins the package by
+name and asserts the preflight is CALLED.
+
+This is the fourth costume of one failure here — `libgstsctp.dll` that
+webrtcbin loads for itself, the AppImage's Qt TLS and Wayland plugins, NSS's
+runtime-path `libsoftokn3`, now gdk-pixbuf's SVG loader. In every one the
+library was present, every ELF walk was clean, and the feature was silently
+gone. Full account in `docs/round-history.md`, 2026-09-22.
+
 **THE WINDOWS BUILDER IMAGE IS BUILT BY HAND UNDER A FIXED TAG, AND A
 DOCKERFILE CHANGE ALONE CHANGES NOTHING.** Pipeline 172 compiled and linked
 Windows and then died in `stage-windows-runtime.py` on "required GStreamer
