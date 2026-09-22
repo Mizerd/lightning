@@ -494,10 +494,24 @@ build-flatpak:
     - apt-get update
     # elfutils: flatpak-builder invokes eu-strip/eu-elfcompress for the
     # post-build debuginfo split.
+    #
+    # librsvg2-common is the gdk-pixbuf SVG LOADER MODULE, and it is
+    # load-bearing rather than cosmetic. flatpak-builder's cleanup phase runs
+    # `appstreamcli compose`, which rasterises the component's icon -- and
+    # since the release commit taught CMake to install the scalable icon
+    # under the app id, the SVG is the one it picks. librsvg2-2 (the library)
+    # arrives through another package's Depends; the LOADER does not, and
+    # --no-install-recommends is why. Without it compose answers
+    # `Unrecognized image file format`, drops the component, and fails the
+    # build on `file-read-error` / `filters-but-no-output`, two hints that
+    # name no file at all -- sixteen minutes in, five pipelines in a row on
+    # 2026-09-22. build-flatpak.sh now asks the same question in a second,
+    # before the build, so a future image that loses the module says so
+    # plainly; this line is what keeps the module here.
     - >-
       apt-get install -y --no-install-recommends
       ca-certificates curl elfutils flatpak flatpak-builder git jq
-      python3 zstd
+      librsvg2-common python3 zstd
   script:
     - ./packaging-ci/scripts/prepare-pinned-source.sh
     - ./packaging-ci/scripts/build-flatpak.sh

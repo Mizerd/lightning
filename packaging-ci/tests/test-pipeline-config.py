@@ -1047,6 +1047,40 @@ check("libnss3" in _appimage_before,
       "stages beside libnss3.so -- without them libsrtp cannot initialise and "
       "every call is silent in both directions")
 
+# THE gdk-pixbuf SVG LOADER, WHICH IS A MODULE AND NOT A LIBRARY.
+#
+# flatpak-builder's cleanup phase runs `appstreamcli compose`, which rasterises
+# the component's icon; CMake installs data/icons/lightning.svg under the app
+# id for the linux-flatpak install type, so the SCALABLE icon is the one
+# compose picks. Rendering it needs gdk-pixbuf's SVG loader MODULE. On Debian
+# librsvg2-2 (the library) arrives through another package's Depends and
+# librsvg2-common (the loader) does not, which --no-install-recommends makes
+# absolute. Without it compose says `Unrecognized image file format`, drops the
+# component and fails the build on `file-read-error` / `filters-but-no-output`
+# -- two hints that name no file. Five pipelines died on that on 2026-09-22
+# before the cause was found in a container. Same shape as the pins above:
+# name the package, never rely on another package's Depends.
+_flatpak_before = " ".join(resolve_extends("build-flatpak").get("before_script", []))
+check("librsvg2-common" in _flatpak_before,
+      "build-flatpak installs librsvg2-common, the gdk-pixbuf SVG loader "
+      "module appstreamcli compose needs to read the scalable icon")
+
+# And the build script asks the same question before it spends sixteen minutes
+# compiling, so a future image that loses the module names it in one line.
+_flatpak_src = _read("scripts", "build-flatpak.sh")
+# Counted as CALLS, never as occurrences: a substring test for a function
+# name is satisfied by the function's own definition, which is how three
+# assertions in this project passed over code that was never reached.
+_preflight_calls = [
+    line for line in _flatpak_src.splitlines()
+    if "appstream_can_read_scalable_icon" in line
+    and "() {" not in line
+    and not line.lstrip().startswith("#")
+]
+check(_preflight_calls,
+      "build-flatpak.sh CALLS its scalable-icon preflight, not merely "
+      "defines it")
+
 # --- 2. the build refuses to produce an engine-less binary ------------------
 configure_src = _strip_shell_comments(_read("scripts", "configure-build.sh"))
 check("-DLIGHTNING_ENABLE_WEBRTC=ON" in configure_src,

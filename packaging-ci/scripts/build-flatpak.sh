@@ -98,24 +98,58 @@ flatpak install --user --noninteractive --or-update flathub \
     "org.kde.Sdk//$RUNTIME_VERSION" \
     org.freedesktop.Sdk.Extension.rust-stable//24.08
 
-# CMake installs the metainfo during the build now (linux-flatpak install
-# type), so flatpak-builder runs appstreamcli compose on it. The metainfo's
-# screenshot URLs are pinned to the release tag, which does not exist yet while
-# this create-release build runs, so compose died with file-read-error trying
-# to fetch them (flatpak-builder 1.4.4, this Debian image's version; and
-# --mirror-screenshots-url does NOT help — it still fetches them to mirror).
-# This package flatpak is a downloadable artifact, not a Flathub catalogue
-# entry, so it does not need embedded screenshots: drop the block from the
-# metainfo this build installs. The Flathub submission manifest is a separate
-# artifact built by Flathub after the tag exists, and keeps its screenshots.
-echo "=== DEBUG: metainfo copies before strip (path: screenshots-blocks) ==="
-find "$SOURCE_DIR" "$ROOT" -name 'lightning.metainfo.xml' 2>/dev/null \
-    -exec sh -c 'echo "  $1: $(grep -c "<screenshots>" "$1")"' _ {} \;
-find "$SOURCE_DIR" "$ROOT" -name 'lightning.metainfo.xml' 2>/dev/null \
-    -exec sed -i '/<screenshots>/,/<\/screenshots>/d' {} \;
-echo "=== DEBUG: metainfo copies after strip ==="
-find "$SOURCE_DIR" "$ROOT" -name 'lightning.metainfo.xml' 2>/dev/null \
-    -exec sh -c 'echo "  $1: $(grep -c "<screenshots>" "$1")"' _ {} \;
+# THE SCALABLE ICON IS READ BY appstreamcli compose, AND ITS LOADER IS A
+# SEPARATE PACKAGE. flatpak-builder's cleanup phase runs `appstreamcli
+# compose`, which rasterises the component's icon. Since the release commit
+# taught CMake to install data/icons/lightning.svg under the APP ID, the
+# scalable icon is now the one compose picks -- before that it was named
+# lightning.svg, did not match the component's icon name, and was never
+# read. Rendering an SVG goes through gdk-pixbuf's loader MODULE, which on
+# Debian is librsvg2-common and arrives with no other package's Depends.
+# Without it compose reports `Unrecognized image file format`, drops the
+# component, and fails the build with two hints that name no file at all:
+#   E: file-read-error / E: filters-but-no-output
+# -- sixteen minutes in. Five pipelines were lost to that on 2026-09-22.
+# Ask the question here instead, in about a second, against the very icon
+# this build is going to install.
+appstream_can_read_scalable_icon() {
+    local probe cid rc
+    probe=$(mktemp -d)
+    cid=org.lightning_matrix.IconProbe
+    mkdir -p "$probe/unit/share/metainfo" "$probe/unit/share/applications" \
+        "$probe/unit/share/icons/hicolor/scalable/apps"
+    cp "$SOURCE_DIR/data/icons/lightning.svg" \
+        "$probe/unit/share/icons/hicolor/scalable/apps/$cid.svg"
+    # Categories is not decoration here: compose rejects a desktop
+    # application with no valid category (no-valid-category), which would
+    # make this probe fail for a reason that is not the one it asks about.
+    printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Icon probe' \
+        'Exec=true' "Icon=$cid" 'Categories=Network;' \
+        > "$probe/unit/share/applications/$cid.desktop"
+    printf '%s\n' \
+        '<?xml version="1.0" encoding="UTF-8"?>' \
+        '<component type="desktop-application">' \
+        "  <id>$cid</id>" \
+        '  <name>Icon probe</name>' \
+        '  <summary>Probe for the scalable icon loader</summary>' \
+        '  <metadata_license>CC0-1.0</metadata_license>' \
+        '  <project_license>GPL-3.0-or-later</project_license>' \
+        '  <description><p>Probe.</p></description>' \
+        "  <launchable type=\"desktop-id\">$cid.desktop</launchable>" \
+        '</component>' \
+        > "$probe/unit/share/metainfo/$cid.metainfo.xml"
+    rc=0
+    appstreamcli compose --components="$cid" --prefix=/ --origin=probe \
+        --result-root="$probe/out" --data-dir="$probe/out/xmls" \
+        --icons-dir="$probe/out/icons" "$probe/unit" \
+        > "$probe/log" 2>&1 || rc=$?
+    [ "$rc" -eq 0 ] || sed 's/^/  /' "$probe/log"
+    rm -rf "$probe"
+    return "$rc"
+}
+appstream_can_read_scalable_icon || die \
+    "appstreamcli compose cannot read the scalable application icon --\
+ on Debian the gdk-pixbuf SVG loader module is the librsvg2-common package"
 
 flatpak-builder --user --force-clean --disable-rofiles-fuse \
     --state-dir="$STATE_DIR" \
