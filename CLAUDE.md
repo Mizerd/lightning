@@ -29,9 +29,8 @@ frontend.
 Latest published release: **Lightning 0.9.9** (`v0.9.9` -> `54d1bdb1`), tagged
 2026-09-22 by **project 6** pipeline **252, 25/25 — fully green, every job,
 first attempt**, with the macOS asset attached. Notes in
-`docs/releases/v0.9.9.md`. **The anonymous verification bar has NOT been run
-against it yet** (§14); 11 package links and 4 source archives are attached
-and nothing beyond that is verified. Previous release: 0.9.8. The tree and the
+`docs/releases/v0.9.9.md`. **Its anonymous verification bar PASSED IN FULL on
+2026-09-23** (§14; result in `docs/release-operations.md`). Previous release: 0.9.8. The tree and the
 published release are the same thing again; "latest published" and "what the
 tree says" are different facts and this sentence has stated the wrong one
 before. `tests/VersionConsistencyTest.cpp` compares five locations so a bump
