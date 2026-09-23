@@ -4948,6 +4948,19 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     // checked rather than discarded. It used to be thrown away, and a failed
     // link produced an offer with no media section instead of an error.
     GstPad *srcPad = gst_element_get_static_pad(bin, "src");
+    // The same "last point we own" counter the microphone has. Without it a
+    // video publish could only show `frames encrypted`, which sits on the
+    // ENCODER's src pad and says what was PRODUCED, never what reached
+    // webrtcbin (§16) — noticed 2026-09-23 while proving the Flatpak camera:
+    // 500 encrypted frames and no line saying one packet had left the bin.
+    if (srcPad) {
+        auto packets = std::make_shared<std::atomic<quint64>>(0);
+        auto *rtpCtx = new RtpOutCtx{packets, true};
+        gst_pad_add_probe(srcPad,
+                          GstPadProbeType(GST_PAD_PROBE_TYPE_BUFFER
+                                          | GST_PAD_PROBE_TYPE_BUFFER_LIST),
+                          countRtpOut, rtpCtx, rtpOutCtxFree);
+    }
     GstPad *sinkPad = gst_element_request_pad_simple(m_publisher.webrtc,
                                                      "sink_%u");
     applyPublisherMsid(sinkPad, cid);
