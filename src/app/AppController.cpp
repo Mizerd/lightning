@@ -39,6 +39,7 @@
 #include "app/ScreenshotDemoController.h"
 #endif
 #include "calls/CallController.h"
+#include "calls/CallSoundPlayer.h"
 #ifdef HAVE_LIGHTNING_WEBRTC
 #include "calls/CameraPortal.h"
 #include "calls/GstCallMediaBackend.h"
@@ -328,6 +329,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_rtc          = std::make_unique<RtcController>(this);
     m_groupCall    = std::make_unique<SfuCallController>(this);
     m_callDevices  = std::make_unique<CallDeviceController>(this);
+    m_callSounds   = std::make_unique<CallSoundController>(this);
     // Application updates. Constructed once and never rebuilt: it holds no
     // Matrix state, is not account-scoped, and signing in, signing out or
     // switching account must not disturb an update check or download.
@@ -1008,6 +1010,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     m_calls->noteAnsweredByOtherLane(m_groupCall->roomId());
             });
     m_callDevices->setSettings(m_settings.get());
+    // Call sounds watch both lanes and read their switches; the player is
+    // installed separately (enableCallSounds) so tests never open audio.
+    m_callSounds->setSettings(m_settings.get());
+    m_callSounds->setGroupCall(m_groupCall.get());
+    m_callSounds->setLegacyCalls(m_calls.get());
     // ── Voice-call ring policy, wired to its real owners (round 2) ──
     // State truth stays in CallController; these close the policy gates
     // shouldRing() consults. The functors capture `this` and read live
@@ -1112,6 +1119,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 const bool sound = m_settings->ringForCalls()
                     && m_settings->notificationSound()
                         != 0 /* SoundOff */;
+                // THE RINGER IS LIGHTNING'S OWN when it has loaded, and the
+                // desktop's themed call sound only when it has not. The
+                // themed sound was the whole ringer until 2026-09-23: one
+                // blip per 5 s re-post of the card, at the desktop's event
+                // volume, and on Windows and macOS nothing at all. Never
+                // both at once — the card goes silent when ours rings.
+                const bool ownRinger =
+                    sound && m_callSounds->ringerAvailable();
                 m_announcedCallId = callId;
                 // Whether the card offers an answer is decided HERE, from the
                 // same sources IncomingCallPrompt reads, and passed down —
@@ -1131,10 +1146,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     m_rtc->refresh(roomId);
                 const bool acceptOffered = callAcceptOffered(roomId, rtcLane);
                 m_notifications->showIncomingCall(
-                    roomId, callId, tr("Incoming call"), body, sound,
+                    roomId, callId, tr("Incoming call"), body,
+                    sound && !ownRinger,
                     static_cast<int>(qBound<qint64>(
                         qint64(5), remainingMs / 1000, qint64(300))),
                     acceptOffered, rtcLane);
+                if (ownRinger)
+                    m_callSounds->startIncomingRing(callId);
             });
     connect(m_calls.get(), &CallController::incomingCallEnded, this,
             [this](const QString &roomId, const QString &callId,
@@ -3101,6 +3119,23 @@ SfuCallController *AppController::groupCall() const
 CallDeviceController *AppController::callDevices() const
 {
     return m_callDevices.get();
+}
+
+CallSoundController *AppController::callSounds() const
+{
+    return m_callSounds.get();
+}
+
+void AppController::enableCallSounds()
+{
+    if (m_callSounds->sink())
+        return;
+    // The in-call cues follow the call's chosen speaker; read live, so a
+    // device picked mid-call is honoured on the next cue.
+    QPointer<SettingsManager> settings = m_settings.get();
+    m_callSounds->setSink(std::make_unique<CallSoundPlayer>([settings] {
+        return settings ? settings->preferredSpeakerId() : QString();
+    }));
 }
 
 void AppController::enableCallMediaEngine()

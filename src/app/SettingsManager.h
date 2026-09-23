@@ -145,6 +145,27 @@ class SettingsManager : public QObject
     // are governed by notificationsEnabled; this only silences the ring.
     Q_PROPERTY(bool ringForCalls READ ringForCalls WRITE setRingForCalls
                    NOTIFY ringForCallsChanged)
+    // 2026-09-23: Lightning's OWN call sounds (src/calls/CallSoundPolicy.h).
+    // Device-scoped like the ring switch: a speaker belongs to the machine.
+    // The master switch covers every in-call cue and the outgoing ringback;
+    // the three below it split the cues by meaning (people arriving and
+    // leaving, your own mute/deafen controls, screen shares and raised
+    // hands). The INCOMING ring stays on `ringForCalls` above, which is the
+    // switch users already know. Volumes are 0-100 on a perceptual scale.
+    // One NOTIFY for the whole group: the one reader re-reads all of it.
+    Q_PROPERTY(bool callSoundsEnabled READ callSoundsEnabled
+                   WRITE setCallSoundsEnabled NOTIFY callSoundSettingsChanged)
+    Q_PROPERTY(bool callSoundsPresence READ callSoundsPresence
+                   WRITE setCallSoundsPresence NOTIFY callSoundSettingsChanged)
+    Q_PROPERTY(bool callSoundsControls READ callSoundsControls
+                   WRITE setCallSoundsControls NOTIFY callSoundSettingsChanged)
+    Q_PROPERTY(bool callSoundsShareAndHand READ callSoundsShareAndHand
+                   WRITE setCallSoundsShareAndHand
+                   NOTIFY callSoundSettingsChanged)
+    Q_PROPERTY(int callSoundVolume READ callSoundVolume
+                   WRITE setCallSoundVolume NOTIFY callSoundSettingsChanged)
+    Q_PROPERTY(int ringerVolume READ ringerVolume WRITE setRingerVolume
+                   NOTIFY callSoundSettingsChanged)
     // Call device preferences. DEVICE-scoped, not account-scoped: a
     // microphone belongs to the machine, and two accounts on one desktop
     // share the same hardware. Stored as the PipeWire/Pulse node name; an
@@ -589,6 +610,21 @@ public:
     int notificationSound() const;
     void setNotificationSound(int mode);
     bool ringForCalls() const;
+    // Call sounds (see the Q_PROPERTY block). Volumes clamp to 0..100.
+    static constexpr int kDefaultCallSoundVolume = 70;
+    static constexpr int kDefaultRingerVolume = 80;
+    bool callSoundsEnabled() const;
+    void setCallSoundsEnabled(bool v);
+    bool callSoundsPresence() const;
+    void setCallSoundsPresence(bool v);
+    bool callSoundsControls() const;
+    void setCallSoundsControls(bool v);
+    bool callSoundsShareAndHand() const;
+    void setCallSoundsShareAndHand(bool v);
+    int callSoundVolume() const;
+    void setCallSoundVolume(int percent);
+    int ringerVolume() const;
+    void setRingerVolume(int percent);
     QString preferredMicrophoneId() const;
     void setPreferredMicrophoneId(const QString &id);
     QString preferredSpeakerId() const;
@@ -1128,6 +1164,7 @@ Q_SIGNALS:
     void sendTypingNotificationsChanged();
     void notificationSoundChanged();
     void ringForCallsChanged();
+    void callSoundSettingsChanged();
     void callDevicePreferenceChanged();
     void roomNotificationModeChanged(const QString &roomId);
     void autoLoadLinkPreviewsChanged();

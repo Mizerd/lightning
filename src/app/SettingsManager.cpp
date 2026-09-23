@@ -1577,6 +1577,118 @@ void SettingsManager::setRingForCalls(bool enabled)
     Q_EMIT ringForCallsChanged();
 }
 
+// ── Call sounds ────────────────────────────────────────────────────────────
+// All default ON, as in every client surveyed when these were designed
+// (Discord, Element Call, Slack, Signal): a call that confirms nothing
+// audibly is the outlier. Every one of them is a LOCAL cue — none is mixed
+// into what the other participants hear.
+namespace {
+constexpr auto kCallSoundsEnabled = "calls/sounds/enabled";
+constexpr auto kCallSoundsPresence = "calls/sounds/presence";
+constexpr auto kCallSoundsControls = "calls/sounds/controls";
+constexpr auto kCallSoundsShareAndHand = "calls/sounds/shareAndHand";
+constexpr auto kCallSoundVolume = "calls/sounds/volume";
+constexpr auto kRingerVolume = "calls/sounds/ringerVolume";
+} // namespace
+
+bool SettingsManager::callSoundsEnabled() const
+{
+    return m_store->value(QLatin1String(kCallSoundsEnabled), true).toBool();
+}
+
+void SettingsManager::setCallSoundsEnabled(bool v)
+{
+    if (callSoundsEnabled() == v)
+        return;
+    m_store->setValue(QLatin1String(kCallSoundsEnabled), v);
+    Q_EMIT callSoundSettingsChanged();
+}
+
+bool SettingsManager::callSoundsPresence() const
+{
+    return m_store->value(QLatin1String(kCallSoundsPresence), true).toBool();
+}
+
+void SettingsManager::setCallSoundsPresence(bool v)
+{
+    if (callSoundsPresence() == v)
+        return;
+    m_store->setValue(QLatin1String(kCallSoundsPresence), v);
+    Q_EMIT callSoundSettingsChanged();
+}
+
+bool SettingsManager::callSoundsControls() const
+{
+    return m_store->value(QLatin1String(kCallSoundsControls), true).toBool();
+}
+
+void SettingsManager::setCallSoundsControls(bool v)
+{
+    if (callSoundsControls() == v)
+        return;
+    m_store->setValue(QLatin1String(kCallSoundsControls), v);
+    Q_EMIT callSoundSettingsChanged();
+}
+
+bool SettingsManager::callSoundsShareAndHand() const
+{
+    return m_store->value(QLatin1String(kCallSoundsShareAndHand), true)
+        .toBool();
+}
+
+void SettingsManager::setCallSoundsShareAndHand(bool v)
+{
+    if (callSoundsShareAndHand() == v)
+        return;
+    m_store->setValue(QLatin1String(kCallSoundsShareAndHand), v);
+    Q_EMIT callSoundSettingsChanged();
+}
+
+namespace {
+// A stored volume that is not a number, or is out of range, reads as the
+// default — never as silence and never as a value past full scale.
+int readPercent(const QVariant &stored, int fallback)
+{
+    bool ok = false;
+    const int v = stored.toInt(&ok);
+    if (!ok || v < 0 || v > 100)
+        return fallback;
+    return v;
+}
+} // namespace
+
+int SettingsManager::callSoundVolume() const
+{
+    return readPercent(m_store->value(QLatin1String(kCallSoundVolume),
+                                      kDefaultCallSoundVolume),
+                       kDefaultCallSoundVolume);
+}
+
+void SettingsManager::setCallSoundVolume(int percent)
+{
+    const int clamped = std::clamp(percent, 0, 100);
+    if (callSoundVolume() == clamped)
+        return;
+    m_store->setValue(QLatin1String(kCallSoundVolume), clamped);
+    Q_EMIT callSoundSettingsChanged();
+}
+
+int SettingsManager::ringerVolume() const
+{
+    return readPercent(m_store->value(QLatin1String(kRingerVolume),
+                                      kDefaultRingerVolume),
+                       kDefaultRingerVolume);
+}
+
+void SettingsManager::setRingerVolume(int percent)
+{
+    const int clamped = std::clamp(percent, 0, 100);
+    if (ringerVolume() == clamped)
+        return;
+    m_store->setValue(QLatin1String(kRingerVolume), clamped);
+    Q_EMIT callSoundSettingsChanged();
+}
+
 // Call device preferences. Device-scoped on purpose (see the header): the
 // hardware belongs to the machine, not the account.
 //

@@ -269,6 +269,16 @@ Item {
           breadcrumb: qsTr("Sound & video · Camera"),
           control: "callDevice_camera",
           anchor: "callDevice_camera" },
+        { title: qsTr("Call sounds"),
+          keywords: qsTr("call sounds join leave mute deafen unmute screen share hand chime beep effects"),
+          section: "sound",
+          breadcrumb: qsTr("Sound & video · Call sounds"),
+          anchor: "callSoundsEnabledCheck" },
+        { title: qsTr("Ringer volume"),
+          keywords: qsTr("ringer ringtone ring volume incoming call loud"),
+          section: "sound",
+          breadcrumb: qsTr("Sound & video · Call sounds"),
+          anchor: "ringerVolumeSlider" },
         { title: qsTr("Float the call when Lightning is minimised"),
           keywords: qsTr("float picture in picture pip call window minimised"),
           section: "sound",
@@ -5478,6 +5488,162 @@ Item {
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
                                     text: qsTr("The level voice messages, audio files and videos start at. Changing the volume on a player remembers it here too.")
+                                }
+                            }
+                        }
+
+                        // 2026-09-23: Lightning's own call sounds. The policy
+                        // (which event, when, and what deafen silences) is
+                        // C++ — CallSoundPolicy; this is only the switches
+                        // and the two volumes, bound two-way to
+                        // SettingsManager like every control on this page.
+                        Label {
+                            text: qsTr("Call sounds")
+                            color: AppTheme.stormText
+                            font.pixelSize: AppTheme.textBody
+                            font.weight: AppTheme.weightBold
+                        }
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: 4
+
+                                CheckBox {
+                                    objectName: "callSoundsEnabledCheck"
+                                    palette.windowText: AppTheme.stormText
+                                    text: qsTr("Play sounds during calls")
+                                    checked: app.settings.callSoundsEnabled
+                                    onToggled:
+                                        app.settings.callSoundsEnabled = checked
+                                    Accessible.description:
+                                        qsTr("Short sounds when you join or "
+                                             + "leave a call, when others "
+                                             + "do, and when you mute or "
+                                             + "share your screen.")
+                                }
+                                CheckBox {
+                                    objectName: "callSoundsPresenceCheck"
+                                    Layout.leftMargin: AppTheme.spacing24
+                                    palette.windowText: AppTheme.stormText
+                                    text: qsTr("People joining and leaving")
+                                    enabled: app.settings.callSoundsEnabled
+                                    checked: app.settings.callSoundsPresence
+                                    onToggled:
+                                        app.settings.callSoundsPresence = checked
+                                }
+                                CheckBox {
+                                    objectName: "callSoundsControlsCheck"
+                                    Layout.leftMargin: AppTheme.spacing24
+                                    palette.windowText: AppTheme.stormText
+                                    text: qsTr("Muting and deafening")
+                                    enabled: app.settings.callSoundsEnabled
+                                    checked: app.settings.callSoundsControls
+                                    onToggled:
+                                        app.settings.callSoundsControls = checked
+                                }
+                                CheckBox {
+                                    objectName: "callSoundsShareAndHandCheck"
+                                    Layout.leftMargin: AppTheme.spacing24
+                                    palette.windowText: AppTheme.stormText
+                                    text: qsTr("Screen shares and raised hands")
+                                    enabled: app.settings.callSoundsEnabled
+                                    checked: app.settings.callSoundsShareAndHand
+                                    onToggled:
+                                        app.settings.callSoundsShareAndHand = checked
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: AppTheme.spacing8
+                                    spacing: AppTheme.spacing8
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: qsTr("Call sound volume")
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightMedium
+                                    }
+                                    Label {
+                                        text: Math.round(
+                                            callSoundVolumeSlider.value) + "%"
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightMedium
+                                    }
+                                    AppButton {
+                                        objectName: "callSoundPreviewButton"
+                                        storm: true
+                                        kind: "ghost"
+                                        size: "sm"
+                                        text: qsTr("Test")
+                                        Accessible.name:
+                                            qsTr("Play a call sound")
+                                        onClicked: app.callSounds.preview("connected")
+                                    }
+                                }
+                                SettingsSlider {
+                                    id: callSoundVolumeSlider
+                                    objectName: "callSoundVolumeSlider"
+                                    Layout.fillWidth: true
+                                    from: 0
+                                    to: 100
+                                    stepSize: 5
+                                    enabled: app.settings.callSoundsEnabled
+                                    value: app.settings.callSoundVolume
+                                    Accessible.name: qsTr("Call sound volume")
+                                    onMoved: app.settings.callSoundVolume =
+                                             Math.round(value)
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: AppTheme.spacing8
+                                    spacing: AppTheme.spacing8
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: qsTr("Ringer volume")
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightMedium
+                                    }
+                                    Label {
+                                        text: Math.round(
+                                            ringerVolumeSlider.value) + "%"
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightMedium
+                                    }
+                                    AppButton {
+                                        objectName: "ringerPreviewButton"
+                                        storm: true
+                                        kind: "ghost"
+                                        size: "sm"
+                                        text: qsTr("Test")
+                                        Accessible.name:
+                                            qsTr("Play the ringer")
+                                        onClicked: app.callSounds.preview("ring")
+                                    }
+                                }
+                                SettingsSlider {
+                                    id: ringerVolumeSlider
+                                    objectName: "ringerVolumeSlider"
+                                    Layout.fillWidth: true
+                                    from: 0
+                                    to: 100
+                                    stepSize: 5
+                                    value: app.settings.ringerVolume
+                                    Accessible.name: qsTr("Ringer volume")
+                                    onMoved: app.settings.ringerVolume =
+                                             Math.round(value)
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("These sounds play only on this computer; nobody else in the call hears them. While you are deafened, only your own actions make a sound. Whether a call rings at all is set under Notifications.")
                                 }
                             }
                         }

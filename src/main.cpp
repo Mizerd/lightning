@@ -1,5 +1,6 @@
 #include "app/AppController.h"
 #include "app/DesktopEntryQuoting.h"
+#include "calls/CallSoundPlayer.h"
 #ifdef HAVE_LIGHTNING_WEBRTC
 #include "calls/GstBootstrap.h"
 #include "calls/ShareSourceImageProvider.h"
@@ -33,6 +34,10 @@
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QCoreApplication>
+#include <QAudioDevice>
+#include <QElapsedTimer>
+#include <QMediaDevices>
+#include <QThread>
 #include <QDir>
 #include <QSet>
 #include <QFileInfo>
@@ -431,6 +436,8 @@ struct PreflightResult {
         RunGifSelfTest, // --gif-selftest: bounded live provider request
         RunCallMediaStatus, // --call-media-status: probe the media engines
         RunCallQueueSelfTest, // --call-queue-selftest: the voice-delay check
+        RunCallSoundsStatus, // --call-sounds-status: are the sounds loadable
+        RunCallSoundsDemo,   // --call-sounds-demo: play every call sound once
         RunImageFormatStatus, // --image-format-status: probe the image decoders
         RunSpellStatus, // --spell-status: probe the platform spell checker
         RunDesktopStatus, // --desktop-status: launcher entry + icon association
@@ -584,6 +591,13 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "                       no sound card. Exit 0 when none of the shipped\n"
                 "                       queues kept a backlog its consumer had caught\n"
                 "                       up from. Takes about half a minute.\n"
+                "  --call-sounds-status Load every bundled call sound through the same\n"
+                "                       player a call uses and print which loaded, then\n"
+                "                       exit. Exit 0 only when all of them did. Plays\n"
+                "                       nothing. No network, no GUI, no account.\n"
+                "  --call-sounds-demo   Play every call sound once, in order, on the\n"
+                "                       default output, naming each as it plays, then\n"
+                "                       exit. For hearing the set; takes ~30 seconds.\n"
                 "  --image-format-status\n"
                 "                       Print which image formats this build can decode\n"
                 "                       and whether that covers what Lightning accepts,\n"
@@ -746,6 +760,14 @@ PreflightResult preflightParse(int argc, char *argv[])
 #endif
         if (a == QLatin1String("--call-queue-selftest")) {
             r.action = PreflightResult::RunCallQueueSelfTest;
+            return r;
+        }
+        if (a == QLatin1String("--call-sounds-status")) {
+            r.action = PreflightResult::RunCallSoundsStatus;
+            return r;
+        }
+        if (a == QLatin1String("--call-sounds-demo")) {
+            r.action = PreflightResult::RunCallSoundsDemo;
             return r;
         }
         if (a == QLatin1String("--call-media-status")) {
@@ -2020,6 +2042,63 @@ int main(int argc, char *argv[])
         return 2;
 #endif
     }
+    if (pf.action == PreflightResult::RunCallSoundsStatus
+        || pf.action == PreflightResult::RunCallSoundsDemo) {
+        // ASK THE ARTIFACT, NOT THE SOURCE. The sounds are a resource of the
+        // application binary and they reach the speaker through Qt
+        // Multimedia's audio backend, which is a plugin — so whether a
+        // package can make them at all is a property of the PACKAGE, and
+        // the ring falls back to the desktop's sound in silence when it
+        // cannot. This loads each one through the real CallSoundPlayer, on
+        // its real thread, and says which reached QSoundEffect::Ready.
+        QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
+        QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
+        QCoreApplication probeApp(argc, argv);
+        DiagnosticStream out(stdout);
+        const QAudioDevice output = QMediaDevices::defaultAudioOutput();
+        out << "default audio output: "
+            << (output.isNull() ? QStringLiteral("none")
+                                : output.description())
+            << "\n";
+        CallSoundPlayer player([] { return QString(); });
+        const QStringList &sounds = CallSoundPlayer::knownSounds();
+        const auto loadedCount = [&] {
+            int n = 0;
+            for (const QString &sound : sounds)
+                n += player.canPlay(sound) ? 1 : 0;
+            return n;
+        };
+        const auto pump = [](int ms) {
+            QElapsedTimer waited;
+            waited.start();
+            while (waited.elapsed() < ms) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                QThread::msleep(10);
+            }
+        };
+        QElapsedTimer loading;
+        loading.start();
+        while (loadedCount() < sounds.size() && loading.elapsed() < 5000)
+            pump(50);
+        for (const QString &sound : sounds) {
+            out << "  " << sound << ": "
+                << (player.canPlay(sound) ? "loaded" : "NOT LOADED") << "\n";
+        }
+        const int loaded = loadedCount();
+        out << "\nRESULT: " << loaded << " of " << sounds.size()
+            << " call sounds loaded\n";
+        if (pf.action == PreflightResult::RunCallSoundsDemo) {
+            for (const QString &sound : sounds) {
+                out << "playing " << sound << "\n";
+                player.play(sound, 0.7, /*inCall=*/false);
+                const bool bar = sound == QLatin1String("ring")
+                    || sound == QLatin1String("call-waiting")
+                    || sound == QLatin1String("ringback");
+                pump(bar ? 3600 : 1500);
+            }
+        }
+        return loaded == sounds.size() ? 0 : 1;
+    }
     if (pf.action == PreflightResult::RunImageFormatStatus) {
         // A QCoreApplication is enough and is what makes this askable of EVERY
         // packaged artifact. QImageReader resolves its plugins through
@@ -2581,6 +2660,7 @@ int main(int argc, char *argv[])
     // AppController constructor: the offscreen test fleet must not
     // gst_init or register a media engine it never asked for.
     controller.enableCallMediaEngine();
+    controller.enableCallSounds();
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
     // Development screenshot mode: enrich the mock scene and auto-login into the

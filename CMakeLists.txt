@@ -472,6 +472,12 @@ set(APP_SOURCES
     src/calls/CallShareModel.cpp
     src/calls/CallStageState.h
     src/calls/CallStageState.cpp
+    src/calls/CallSoundPolicy.h
+    src/calls/CallSoundPolicy.cpp
+    src/calls/CallSoundController.h
+    src/calls/CallSoundController.cpp
+    src/calls/CallSoundPlayer.h
+    src/calls/CallSoundPlayer.cpp
     src/calls/CallDeviceController.h
     src/calls/CallDeviceController.cpp
     src/calls/CameraPortal.h
@@ -1346,6 +1352,22 @@ endif()
 # stable literal in src/main.cpp and does not follow this name.
 qt_add_executable(lightning-matrix ${APP_MAIN_SOURCES})
 lightning_configure_qml_app(lightning-matrix)
+
+# Call sounds, rendered by scripts/generate-call-sounds.py (GPL-3.0-or-later).
+# Played by CallSoundPlayer from qrc:/sounds/<name>.wav. App target ONLY, not
+# the QML module: every test target re-registers that, and the WAVs are ~2.4 MB.
+qt_add_resources(lightning-matrix "lightning_call_sounds"
+    PREFIX "/sounds"
+    BASE "data/sounds"
+    FILES
+        data/sounds/join.wav data/sounds/leave.wav
+        data/sounds/connected.wav data/sounds/ended.wav
+        data/sounds/disconnected.wav data/sounds/mute.wav
+        data/sounds/unmute.wav data/sounds/deafen.wav
+        data/sounds/undeafen.wav data/sounds/share-start.wav
+        data/sounds/share-stop.wav data/sounds/hand-raised.wav
+        data/sounds/ring.wav data/sounds/call-waiting.wav
+        data/sounds/ringback.wav)
 # Per-target (never on the shared mock-based test targets): drive the C++
 # #ifdef guards in AppController and the --build-info self-report.
 if(LIGHTNING_RUST_ONLY)
@@ -3320,6 +3342,28 @@ if(BUILD_TESTING)
     lightning_configure_qml_test(call-ring-policy-test)
     target_link_libraries(call-ring-policy-test PRIVATE Qt6::Test)
     add_test(NAME call-ring-policy COMMAND call-ring-policy-test)
+
+    # Call sounds, policy only: which cue plays when (no audio).
+    qt_add_executable(call-sound-policy-test
+        tests/CallSoundPolicyTest.cpp
+        src/calls/CallSoundPolicy.h
+        src/calls/CallSoundPolicy.cpp
+    )
+    target_include_directories(call-sound-policy-test PRIVATE src)
+    target_link_libraries(call-sound-policy-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME call-sound-policy COMMAND call-sound-policy-test)
+
+    # Call sounds wired to AppController / SfuCallController / CallController
+    # through a recording sink; never opens an audio device.
+    qt_add_executable(call-sounds-wiring-test
+        tests/CallSoundsWiringTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(call-sounds-wiring-test)
+    target_link_libraries(call-sounds-wiring-test PRIVATE Qt6::Test)
+    add_test(NAME call-sounds-wiring COMMAND call-sounds-wiring-test)
+    set_tests_properties(call-sounds-wiring PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     set_tests_properties(call-ring-policy PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 

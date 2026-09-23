@@ -468,6 +468,22 @@ EXISTS, so nobody rebuilds it:
   with `--call-media-status`; Linux packages declare no runtime dependency and
   a distro without GStreamer keeps the honest refusal.
 
+- **Call sounds (2026-09-23).** Lightning's own synthesised set
+  (`scripts/generate-call-sounds.py` renders `data/sounds/*.wav`,
+  GPL-3.0-or-later; nothing sampled from another product). The RULES are
+  `src/calls/CallSoundPolicy.*` and are binding: every cue is LOCAL; the room
+  already present at connect (and after a reconnect) is a silent baseline for
+  2 s; join/leave throttled to one per 500 ms and silent above 8 people;
+  deafened, nothing OTHER people do makes a sound while your own actions still
+  confirm; a join that never connected and an unanswered ring end silently;
+  no cue plays while a share captures the whole output mix. The incoming ring
+  is Lightning's own looping ringer once it has loaded (the notification card
+  then goes silent) and the desktop's themed call sound only as the fallback;
+  it plays on the system default output, in-call sounds on the call's chosen
+  speaker. `--call-sounds-status` asks a package whether the sounds load.
+  Live: loading and playback measured on the laptop; in-call triggering in a
+  real call and audibility are NOT TESTED.
+
 Live status, and do not inflate it: **audio, camera and screen share are
 live-confirmed** — against Element on Linux, and on a packaged Windows build
 (2026-08-27). Group-call behaviour on macOS, an ANSWERED legacy 1:1 call, and

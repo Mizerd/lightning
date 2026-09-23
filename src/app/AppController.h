@@ -67,6 +67,7 @@
 #include "calls/RtcController.h"
 #include "calls/CallDeviceController.h"
 #include "calls/SfuCallController.h"
+#include "calls/CallSoundController.h"
 #include "presence/PresenceManager.h"
 #include "update/UpdateManager.h"
 #include "threads/ThreadManager.h"
@@ -419,6 +420,9 @@ class AppController : public QObject
     Q_PROPERTY(SfuCallController* groupCall READ groupCall CONSTANT)
     // Microphone/speaker/camera selection for calls.
     Q_PROPERTY(CallDeviceController* callDevices READ callDevices CONSTANT)
+    // Lightning's own call sounds: ringer, ringback and in-call cues. QML
+    // only uses it for the Settings preview buttons; the policy is C++.
+    Q_PROPERTY(CallSoundController* callSounds READ callSounds CONSTANT)
     // v0.7.x pinned messages for the ACTIVE room (not the Room Information
     // panel's room): the message-action menu asks it whether the message
     // under the cursor is pinned.
@@ -739,6 +743,11 @@ public:
     RtcController *rtc() const;
     SfuCallController *groupCall() const;
     CallDeviceController *callDevices() const;
+    CallSoundController *callSounds() const;
+    // Installs the audio player behind the call sounds. main.cpp only, like
+    // enableCallMediaEngine: the offscreen test fleet decides every sound
+    // and never opens an audio device.
+    void enableCallSounds();
     // Registers the real WebRTC media engine (webrtcbin) when the build
     // carries it and its runtime elements resolve. Called by main.cpp for
     // the real application only; tests opt in explicitly.
@@ -1643,6 +1652,7 @@ private:
     std::unique_ptr<RtcController> m_rtc;
     std::unique_ptr<SfuCallController> m_groupCall;
     std::unique_ptr<CallDeviceController> m_callDevices;
+    std::unique_ptr<CallSoundController> m_callSounds;
     // The one call whose ring was actually announced (notification shown):
     // the missed-call notice requires it, so suppressed rings never
     // resurface as "missed". Bounded per-sender ring cooldown alongside.
