@@ -78,6 +78,18 @@ queue_selftest_status=$?
 set -e
 assert_queue_selftest Flatpak dist/flatpak-queue-selftest.txt "$queue_selftest_status"
 
+# THE CALL SOUNDS, asked of the same shipped artifact. WARN-ONLY: this
+# container has no sound server, and QSoundEffect cannot reach Ready without an
+# output device, so here the answer is normally UNMEASURED. The transcript is
+# kept regardless. See assert_call_sounds_status in lib.sh.
+set +e
+timeout 60s flatpak run --user --command=sh "$APP_ID" -c \
+    "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/lightning-matrix --call-sounds-status" \
+    > dist/flatpak-call-sounds-status.txt 2>&1
+call_sounds_status=$?
+set -e
+assert_call_sounds_status Flatpak dist/flatpak-call-sounds-status.txt "$call_sounds_status"
+
 # The image DECODERS, asked of the RUNTIME. The Flatpak is the one Linux
 # format that was never broken here: org.kde.Platform//6.11 ships libqwebp.so
 # and kimg_jxl.so (and 27 more), so this pins a property the runtime provides

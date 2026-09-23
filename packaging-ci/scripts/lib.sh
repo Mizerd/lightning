@@ -207,6 +207,54 @@ _queue_selftest_soft_complain() {
     printf '  FAIL: %s\n' "$1" >&2
 }
 
+# --- the call sounds ---------------------------------------------------------
+#
+# Judges a `--call-sounds-status` transcript for every format. Warn-only for
+# now: QSoundEffect needs an output device to reach Ready, and CI containers
+# have none (measured: no sound server -> 0 of 15; a PulseAudio null sink ->
+# 15 of 15), so a transcript with output `none` is UNMEASURED, not a failure.
+# To promote: give the validators a null sink, then make the MEASURED SHORT
+# branch below call $complain once every format reports 15 of 15.
+# The count is derived from data/sounds/*.wav by test-pipeline-config.py.
+CALL_SOUNDS_EXPECTED=15
+
+# $1 format label, $2 captured output, $3 exit status
+assert_call_sounds_status() {
+    local label="$1" log="$2" status="$3"
+    if [[ ! -s "$log" ]]; then
+        echo "WARNING: $label: --call-sounds-status produced no output at all (crashed, hung, or an older source without the flag). Not yet a hard gate -- see assert_call_sounds_status in lib.sh." >&2
+        return 0
+    fi
+    cat "$log"
+    # Wine writes CRLF.
+    local clean result loaded total output
+    clean="$(tr -d '\r' <"$log")"
+    result="$(grep -m1 -E '^RESULT: [0-9]+ of [0-9]+ call sounds loaded$' <<<"$clean" || true)"
+    output="$(grep -m1 '^default audio output: ' <<<"$clean" | sed 's/^default audio output: //' || true)"
+    if [[ -z "$result" ]]; then
+        echo "WARNING: $label: --call-sounds-status printed no RESULT line -- it crashed, hung, or is an older build without the flag. The transcript is above. Not yet a hard gate." >&2
+        return 0
+    fi
+    loaded="$(awk '{print $2}' <<<"$result")"
+    total="$(awk '{print $4}' <<<"$result")"
+    if [[ "$total" != "$CALL_SOUNDS_EXPECTED" ]]; then
+        echo "WARNING: $label: the build knows $total call sounds and this check expects $CALL_SOUNDS_EXPECTED. A list that changed size must move CALL_SOUNDS_EXPECTED with it." >&2
+    fi
+    if [[ "$loaded" == "$total" && "$total" == "$CALL_SOUNDS_EXPECTED" ]]; then
+        echo "$label: call sounds: $loaded of $total loaded on output '$output' (exit $status)"
+        [[ "$status" == 0 ]] || echo "WARNING: $label: every sound loaded but --call-sounds-status exited $status; one of the two is lying." >&2
+        return 0
+    fi
+    if [[ -z "$output" || "$output" == "none" ]]; then
+        echo "WARNING: $label: call sounds UNMEASURED: $loaded of $total loaded with NO audio output device in this environment (exit $status)." >&2
+        echo "WARNING: QSoundEffect cannot reach Ready without an output device, so this says nothing about the package. See assert_call_sounds_status in lib.sh." >&2
+        return 0
+    fi
+    echo "WARNING: $label: call sounds MEASURED SHORT: only $loaded of $total loaded on output '$output' (exit $status)." >&2
+    echo "WARNING: a device was present, so the package's audio backend is the suspect. This is NOT yet a hard gate -- see assert_call_sounds_status in lib.sh." >&2
+    return 0
+}
+
 # --- image format decoders ---------------------------------------------------
 #
 # ONE judgement of an `--image-format-status` transcript, shared by every

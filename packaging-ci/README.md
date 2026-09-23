@@ -724,7 +724,7 @@ three.
 libgstreamer-plugins-bad1.0-dev` on Debian/Ubuntu (deb, AppImage) and
 `gstreamer1-devel gstreamer1-plugins-base-devel
 gstreamer1-plugins-bad-free-devel` on Fedora (rpm). The Flatpak compiles inside
-`org.kde.Sdk//6.9`, which supplies all six modules; the snap compiles nothing —
+`org.kde.Sdk//6.11`, which supplies all six modules; the snap compiles nothing —
 it repacks the AppImage job's AppDir.
 
 **Assert.** `configure-build.sh` passes `-DLIGHTNING_ENABLE_WEBRTC=ON` and then
@@ -745,7 +745,7 @@ which is why it also proves each format's plugin story:
 |---|---|
 | deb | `Depends:` — `gstreamer1.0-plugins-{base,good,bad}`, `gstreamer1.0-nice`, `gstreamer1.0-pipewire`, `gstreamer1.0-alsa` (`CALL_DEPENDS` in `build-deb.sh`) |
 | rpm | `Requires:` — `gstreamer1-plugins-{base,good,bad-free}`, `libnice-gstreamer1`, `pipewire-gstreamer` (`packaging/rpm/lightning.spec`) |
-| flatpak | the `org.kde.Platform//6.9` runtime, which carries all of them |
+| flatpak | the `org.kde.Platform//6.11` runtime, which carries all of them |
 | AppImage | **bundled** into `usr/lib/gstreamer-1.0` plus an AppRun hook setting `GST_PLUGIN_SYSTEM_PATH_1_0` — an AppImage has nobody to depend on |
 | snap | inherits the AppImage's AppDir; `bin/lightning-launch` sets the same variables, because the snap takes only `usr/` and linuxdeploy's AppRun stays behind |
 

@@ -1320,6 +1320,90 @@ _macos_src = _strip_shell_comments(_read("scripts", "validate-macos-artifacts.sh
 check("--call-queue-selftest" in _macos_src,
       "the macOS bundle is asked the voice-delay question too")
 
+# --- the call sounds (af10c156), asked of every shipped artifact ------------
+#
+# WARN-ONLY, deliberately, and this pins BOTH halves: the wiring must not
+# silently disappear from any lane, and the helper must keep telling a
+# MEASURED shortfall apart from an UNMEASURED run. Measured 2026-09-23: with no
+# audio output device QSoundEffect errors on every sound (0 of 15) however
+# healthy the package is, and a PulseAudio null sink alone is enough for 15 of
+# 15 -- so in a headless validator "0 of 15" says nothing about the package.
+for fmt in sorted(FORMAT_SELECTOR):
+    validator = _strip_shell_comments(_read("scripts", f"validate-{fmt}.sh"))
+    check("--call-sounds-status" in validator,
+          f"validate-{fmt} asks the shipped artifact whether its call sounds load")
+    check("assert_call_sounds_status" in validator,
+          f"validate-{fmt} judges the call-sounds transcript through the shared helper")
+# The Windows lane (smoke-windows-wine.sh) is NOT wired yet: that script is
+# owned by the per-machine-install work (issue #14) while it is in flight, and
+# the hunk that wires it waits for that. Add it to this tuple when it lands.
+for script in ("validate-macos-artifacts.sh",):
+    src = _strip_shell_comments(_read("scripts", script))
+    check("--call-sounds-status" in src,
+          f"{script} asks the shipped artifact whether its call sounds load")
+    check("assert_call_sounds_status" in src,
+          f"{script} judges the call-sounds transcript through the shared helper")
+check("run_bounded 60 \"$CONTENTS/MacOS/$APP_NAME\" --call-sounds-status" in _macos_src,
+      "the macOS call-sounds probe is bounded without GNU timeout")
+check("assert_call_sounds_status()" in lib_src,
+      "lib.sh defines the shared call-sounds assertion")
+# THE COUNT, derived from the tree rather than written out: a sound added to
+# data/sounds/ must move the helper's expectation with it, or "14 of 14" from a
+# build that lost one would read as complete.
+_sounds_dir = os.path.join(HERE, "..", "..", "data", "sounds")
+_wavs = sorted(n for n in os.listdir(_sounds_dir) if n.endswith(".wav"))
+_expected = re.search(r"^CALL_SOUNDS_EXPECTED=(\d+)$", _read("scripts", "lib.sh"), re.M)
+check(_expected is not None and int(_expected.group(1)) == len(_wavs),
+      f"CALL_SOUNDS_EXPECTED matches the {len(_wavs)} sounds in data/sounds/")
+# The helper parses the app's own words; pin that the app still says them.
+check('"\\nRESULT: " << loaded << " of " << sounds.size()' in _main_cpp
+      and '" call sounds loaded\\n"' in _main_cpp,
+      "--call-sounds-status still prints the RESULT line the helper parses")
+check('"default audio output: "' in _main_cpp,
+      "--call-sounds-status still names the output device the helper keys on")
+
+
+# AND IT CLASSIFIES CORRECTLY: run the real helper over the three transcript
+# shapes measured on 2026-09-23, plus a missing line. A text scan of the helper
+# cannot tell "UNMEASURED" from "MEASURED SHORT"; only running it can.
+def _run_sounds_helper(transcript, status):
+    import subprocess
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as fh:
+        fh.write(transcript)
+        path = fh.name
+    try:
+        proc = subprocess.run(
+            ["bash", "-c",
+             'source "$1"; assert_call_sounds_status TEST "$2" "$3"; echo "rc=$?"',
+             "_", os.path.join(HERE, "..", "scripts", "lib.sh"), path, str(status)],
+            capture_output=True, text=True, timeout=30)
+        return proc.returncode, proc.stdout + proc.stderr
+    finally:
+        os.unlink(path)
+
+
+_names = [n[:-4] for n in _wavs]
+_all = "".join(f"  {n}: loaded\n" for n in _names)
+_none = "".join(f"  {n}: NOT LOADED\n" for n in _names)
+_n = len(_names)
+_cases = [
+    ("all loaded on a device",
+     f"default audio output: Null Output\n{_all}\nRESULT: {_n} of {_n} call sounds loaded\n",
+     0, f"TEST: call sounds: {_n} of {_n} loaded"),
+    ("no output device at all",
+     f"default audio output: none\n{_none}\nRESULT: 0 of {_n} call sounds loaded\n",
+     1, "call sounds UNMEASURED"),
+    ("a device, and a shortfall",
+     f"default audio output: Speakers\r\n{_none}\r\nRESULT: 3 of {_n} call sounds loaded\r\n",
+     1, "call sounds MEASURED SHORT"),
+    ("no RESULT line", "Segmentation fault\n", 139, "printed no RESULT line"),
+]
+for _label, _text, _status, _want in _cases:
+    _rc, _out = _run_sounds_helper(_text, _status)
+    check(_rc == 0 and "rc=0" in _out and _want in _out,
+          f"call-sounds helper, {_label}: warns only and says '{_want}'")
+
 # --- the AppImage/snap bundle, which has nobody to depend on ----------------
 appimage_build = _read("scripts", "build-appimage.sh")
 # Staging used to be wrapped in `if [ -d "$GST_PLUGIN_SRC" ]`, and the job

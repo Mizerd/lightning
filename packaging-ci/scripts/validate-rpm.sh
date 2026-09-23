@@ -128,6 +128,17 @@ queue_selftest_status=$?
 set -e
 assert_queue_selftest RPM "$ROOT/dist/rpm-queue-selftest.txt" "$queue_selftest_status"
 
+# THE CALL SOUNDS, asked of the same shipped artifact. WARN-ONLY: this
+# container has no sound server, and QSoundEffect cannot reach Ready without an
+# output device, so here the answer is normally UNMEASURED. The transcript is
+# kept regardless. See assert_call_sounds_status in lib.sh.
+set +e
+(cd /tmp && timeout 60s /usr/bin/lightning-matrix --call-sounds-status) \
+    >"$ROOT/dist/rpm-call-sounds-status.txt" 2>&1
+call_sounds_status=$?
+set -e
+assert_call_sounds_status RPM "$ROOT/dist/rpm-call-sounds-status.txt" "$call_sounds_status"
+
 # The image DECODERS, proving the spec's image-format Requires/Recommends
 # resolved. rpm's automatic dependency generator cannot see a dlopen'd Qt
 # plugin any more than it can see a GStreamer one, and Fedora's qt6-qtbase-gui

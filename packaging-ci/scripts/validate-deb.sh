@@ -100,6 +100,17 @@ queue_selftest_status=$?
 set -e
 assert_queue_selftest DEB "$ROOT/dist/deb-queue-selftest.txt" "$queue_selftest_status"
 
+# THE CALL SOUNDS, asked of the same shipped artifact. WARN-ONLY: this
+# container has no sound server, and QSoundEffect cannot reach Ready without an
+# output device, so here the answer is normally UNMEASURED. The transcript is
+# kept regardless. See assert_call_sounds_status in lib.sh.
+set +e
+(cd /tmp && timeout 60s /usr/bin/lightning-matrix --call-sounds-status) \
+    >"$ROOT/dist/deb-call-sounds-status.txt" 2>&1
+call_sounds_status=$?
+set -e
+assert_call_sounds_status DEB "$ROOT/dist/deb-call-sounds-status.txt" "$call_sounds_status"
+
 # The image DECODERS, proving the Depends/Recommends this package declares
 # actually resolved. A Qt image format is a dlopen'd plugin, so dpkg-shlibdeps
 # can see none of it -- the same blind spot as the QML modules and the

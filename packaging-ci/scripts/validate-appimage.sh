@@ -82,6 +82,18 @@ queue_selftest_status=$?
 set -e
 assert_queue_selftest AppImage dist/appimage-queue-selftest.txt \
     "$queue_selftest_status"
+
+# THE CALL SOUNDS, asked of the same shipped artifact. WARN-ONLY: this
+# container has no sound server, and QSoundEffect cannot reach Ready without an
+# output device, so here the answer is normally UNMEASURED. The transcript is
+# kept regardless. See assert_call_sounds_status in lib.sh.
+set +e
+( cd /tmp && timeout 60s env QT_QPA_PLATFORM=offscreen "$ROOT/$app" --call-sounds-status ) \
+    > dist/appimage-call-sounds-status.txt 2>&1
+call_sounds_status=$?
+set -e
+assert_call_sounds_status AppImage dist/appimage-call-sounds-status.txt \
+    "$call_sounds_status"
 # AND THAT IT IS THE BUNDLE'S OWN GSTREAMER, not the host's. The AppImage is
 # the one Linux package that ships GStreamer, its plugins live in
 # usr/lib/gstreamer-1.0 (not beside the binary), and the AppRun hook points at

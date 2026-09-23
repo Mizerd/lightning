@@ -66,8 +66,24 @@ reading 0.9.7 / `v0.9.7` with six artifacts all carrying `mirror_url` and
 macOS correctly ABSENT, the Ed25519 signature VERIFIED against the key
 extracted from the shipped `.deb` with a one-field-changed copy REJECTED,
 the GitHub tag peeling to `bc5dcd5`, 11 mirror assets, and the `.deb`
-fetched FROM GITHUB matching the GitLab-signed SHA-256. 0.9.8's own run,
-which is the current one, is recorded in CLAUDE.md §2.
+fetched FROM GITHUB matching the GitLab-signed SHA-256. 0.9.8's own run is
+recorded in CLAUDE.md §2.
+
+0.9.9's anonymous verification bar was run on 2026-09-23 and PASSED IN
+FULL, with the vault's `verify-release.sh` under
+`nix shell nixpkgs#openssl nixpkgs#xxd nixpkgs#binutils`: the GitLab release
+`v0.9.9` at `54d1bdb18656c0bff622049310c8e47621873fa5`; all **eleven**
+package links 200 with the count asserted (ten packages plus `SHA256SUMS`,
+`Lightning-0.9.9-54d1bdb-macos-arm64.zip` among them); the four source
+archives (zip, tar.gz, tar.bz2, tar) 200 anonymously; the signed manifest
+reading 0.9.9 / `v0.9.9` (released 2026-09-22T16:45:54Z, expires
+2027-01-20T16:45:54Z) with six artifacts all carrying `mirror_url` and
+macOS correctly ABSENT; the `.deb` fetched from GitLab matching the manifest
+SHA-256; the Ed25519 signature VERIFIED against the key extracted from the
+shipped `.deb` (`pnNX0yQ…`, key id `lightning-release-2026a`) with a
+one-field-changed copy REJECTED; the GitHub tag (annotated) peeling to
+`54d1bdb1`; 11 mirror assets; and the `.deb` fetched FROM GITHUB matching the
+GitLab-signed SHA-256. It is the current run.
 
 Releases are package-first: the tag and GitLab Release are created by
 the lightning-deploy pipeline only after packages publish and verify

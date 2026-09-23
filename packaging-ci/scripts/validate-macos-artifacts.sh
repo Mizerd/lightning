@@ -575,6 +575,17 @@ if ! assert_queue_selftest macOS "$REPORT_DIR/queue-selftest.txt" \
         "$queue_selftest_status" soft; then
     failures=$((failures + 1))
 fi
+# THE CALL SOUNDS, asked of the same bundle. WARN-ONLY like every other
+# format (see assert_call_sounds_status in lib.sh); it never adds to
+# `failures`. This is the one lane that may actually MEASURE it, because the
+# runner is a real Mac and CoreAudio normally presents an output device even
+# with nothing plugged in -- the transcript names the one it found. Bounded
+# with run_bounded, not GNU timeout, which macOS has not got.
+call_sounds_status=0
+run_bounded 60 "$CONTENTS/MacOS/$APP_NAME" --call-sounds-status \
+    >"$REPORT_DIR/call-sounds-status.txt" 2>&1 || call_sounds_status=$?
+assert_call_sounds_status macOS "$REPORT_DIR/call-sounds-status.txt" \
+    "$call_sounds_status"
 # THE IMAGE DECODERS, asked of the bundle the same way. macdeployqt copies
 # every plugin in its default categories, so this bundle gets Homebrew
 # qtimageformats' set (webp, tiff, icns, jp2, mng, tga, wbmp) plus qmacheif,

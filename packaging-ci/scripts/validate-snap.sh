@@ -136,6 +136,18 @@ queue_selftest_status=$?
 set -e
 assert_queue_selftest snap dist/snap-queue-selftest.txt "$queue_selftest_status"
 
+# THE CALL SOUNDS, asked of the same shipped artifact. WARN-ONLY: this
+# container has no sound server, and QSoundEffect cannot reach Ready without an
+# output device, so here the answer is normally UNMEASURED. The transcript is
+# kept regardless. See assert_call_sounds_status in lib.sh.
+set +e
+( cd /tmp && timeout 60s env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
+    "$audit/prime/bin/lightning-launch" --call-sounds-status ) \
+    > dist/snap-call-sounds-status.txt 2>&1
+call_sounds_status=$?
+set -e
+assert_call_sounds_status snap dist/snap-call-sounds-status.txt "$call_sounds_status"
+
 # The image DECODERS, through the same launcher: it is what sets QT_PLUGIN_PATH
 # to the snap's own usr/plugins, so running the binary directly would test the
 # payload and silently skip the wiring. The snap takes usr/ from the AppImage's
