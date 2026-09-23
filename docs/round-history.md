@@ -1,5 +1,82 @@
 # Round history
 
+## 2026-09-23 — the first live test of the Flatpak camera, and a grant lost in 0.4 ms
+
+Lightning went live on Flathub and Rokas installed it on a Fedora 44 / KDE
+laptop: screen share worked, the camera and the microphone did not. Tested on
+that laptop, over SSH, against the PUBLISHED Flathub 0.9.9.
+
+### The camera: a real defect, in code that had never run
+
+`CameraPortal` (since `21f4a1a4`, 2026-09-11) takes the camera from the
+xdg-desktop-portal Camera interface, because a Flatpak has no `/dev/video*`.
+It had shipped NOT TESTED and this was its first live run. The log said
+`camera route= portal … portal_usable= true` and then NOTHING — no grant, no
+failure, no timeout — while the portal's permission store said
+`devices camera org.lightning_matrix.Lightning yes`.
+
+Measured with `dbus-monitor`, calling `AccessCamera` from inside the Flathub
+sandbox: reply at +1.0 ms, `Response` (0 = granted) **0.4 ms after the reply**.
+With the permission already stored there is no dialog, so the portal answers
+at once. `CameraPortal` subscribed to `Response` only in the reply's handler —
+a trip through Qt's event loop, while QtDBus's own thread had already read the
+signal and dropped it for want of a receiver. The camera waited for an answer
+that had passed; only the 120 s timeout could end it, and the user left the
+call 0.3 s before it would have fired. The prompt never appeared because an
+earlier local build with the same app id had already stored the grant.
+
+**ScreenCast carried the identical pattern in all three steps** and worked
+only because its answers go through KDE's portal backend and arrive later —
+the same probe on `CreateSession` saw no `Response` inside the probe's
+lifetime. Nothing guaranteed that; a Start that restores a previous selection
+answers without a picker.
+
+The fix is the one the portal spec prescribes: the Request path is
+predictable (`…/request/SENDER/TOKEN`), so subscribe to it BEFORE calling, and
+follow the returned path only if a pre-0.9 portal used another. One header,
+`src/calls/PortalRequest.h`, serves both portals so they cannot drift again.
+The predicted-path subscription has to be remembered separately from the step
+object, because a step deletes itself when it answers — the first draft of
+the helper re-subscribed to a finished request for exactly that reason.
+
+`camera-portal-test` runs a FAKE portal on a PRIVATE `dbus-daemon` that
+replies and emits `Response` back to back, as measured. **Its first version
+proved nothing**: a virtual object receives the raw message, so the `a{sv}`
+arrives as a `QDBusArgument`, `toMap()` returned an empty map, the token was
+lost, and the fake replied with an invalid path — every case failed on old and
+new code alike, which read as "the test catches the bug". `QDBUS_DEBUG=1`
+showed it. Fixed with `qdbus_cast`, plus a counter that fails the case if the
+FAKE errs. Then: original code FAILS the instant-grant and instant-decline
+cases; fixed code passes all; the late-answer-on-another-path case passes on
+BOTH, which is the control proving reply and fd passing work.
+
+Live validation of the FIX: **NOT TESTED** yet — it needs a Flatpak built
+from it on the laptop.
+
+### The microphone: not Lightning
+
+Recorded 3 s from the laptop's default source OUTSIDE the app: peak 0, digital
+silence. The default source was the Dell dock's S/PDIF input
+(`…iec958-stereo`), and the laptop's real microphone was MUTED in PipeWire. In
+the call Lightning's meter read about -80 dBFS on the dock input and exactly
+-350 dBFS (the `level` element's floor for digital zeros) after switching to
+the muted internal mic, and `THE MICROPHONE IS CAPTURING NOTHING` fired twice
+— the diagnostics did their job. A possible improvement, not made: say that
+the source is muted in system settings, which PulseAudio reports.
+
+### Also found
+
+* The CI Flatpak manifest's comment claimed the camera could not work in a
+  Flatpak without a client change. False since `21f4a1a4`; corrected.
+* Incoming audio from the other participant did not decrypt:
+  `reason= bad-iv-length keyIndex= 82`. A key index of 82 means the trailer
+  did not parse — the sender may not have been encrypting. Not investigated.
+* Both local build trees are configured against qtbase 6.11.1 while the dev
+  shell, after flake update `a246ec2b`, supplies 6.11.2 plugins. Qt refuses
+  them, so `sfu-video-router` and `sfu-media-engine` abort (no platform
+  plugin) or fail (no multimedia backend). Environment, not code; a clean
+  reconfigure of both trees fixes it.
+
 ## 2026-09-22 — five dead release pipelines, one missing gdk-pixbuf loader module
 
 0.9.9's release was blocked for a day. `build-flatpak` failed in pipelines
