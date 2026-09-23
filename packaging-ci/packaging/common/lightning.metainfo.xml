@@ -75,9 +75,17 @@
 
   <screenshots>
     <!--
-      Flathub requires an immutable ref, never a branch. These point at the tag
-      v0.9.4; RE-POINT THEM AT THE TAG ACTUALLY SUBMITTED before the manifest
-      is sent anywhere.
+      Flathub requires an immutable ref, never a branch. These point at a
+      release TAG; RE-POINT THEM AT THE TAG BEING RELEASED in the release
+      commit (CLAUDE.md section 14).
+
+      Flathub's quality guidelines, which is why the images look the way they
+      do: a real window captured on Linux with the compositor's own window
+      screenshot (title bar, shadow and rounded corners kept, nothing cropped
+      or edited), a window no larger than 1000x700 logical (2000x1400 HiDPI),
+      default settings, real content rather than an empty state. Captions are
+      one sentence with no full stop. English images carry NO language
+      attribute: the guidelines forbid it on English values.
     -->
     <screenshot type="default">
       <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/01-conversation.png</image>
@@ -85,7 +93,7 @@
     </screenshot>
     <screenshot>
       <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/02-threads.png</image>
-      <caption>A thread open beside the conversation it came from</caption>
+      <caption>A thread and its replies, opened from the conversation it started in</caption>
     </screenshot>
     <screenshot>
       <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/03-call.png</image>
@@ -174,11 +182,11 @@
         <p>
           A release made mostly of the interface: a sustained accessibility and
           layout pass that turned dozens of "needs looking at" observations into
-          fixed defects, a Spaces rail you can now shape to taste, and a first-
-          class NixOS package contributed from outside the project. Nothing in
-          the messaging, calling or encryption contracts changed; this is the
-          release that makes what was already there legible, reachable and
-          correctly drawn.
+          fixed defects, a Spaces rail you can now shape to taste, and a
+          first-class NixOS package contributed from outside the project.
+          Nothing in the messaging, calling or encryption contracts changed;
+          this is the release that makes what was already there legible,
+          reachable and correctly drawn.
         </p>
       </description>
     </release>

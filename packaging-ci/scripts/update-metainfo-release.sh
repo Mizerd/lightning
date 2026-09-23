@@ -151,7 +151,11 @@ text = re.sub(r"\*\*(.+?)\*\*", r"<em>\1</em>", text)      # AppStream has no <s
 text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
 text = re.sub(r"\s+", " ", text).strip()
 
-body = "\n".join("          " + l for l in textwrap.wrap(text, 70))
+# NEVER break on a hyphen or inside a word. textwrap's defaults do both, and
+# AppStream collapses the newline to a SPACE: 0.9.9's "first-class" wrapped as
+# "first-" / "class" and the Flathub store page read "first- class".
+body = "\n".join("          " + l for l in textwrap.wrap(
+    text, 70, break_on_hyphens=False, break_long_words=False))
 entry = (
     f'    <release version="{version}" date="{date}" type="stable">\n'
     f'      <url type="details">{url_prefix}{version}</url>\n'
