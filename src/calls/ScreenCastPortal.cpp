@@ -1,4 +1,5 @@
 #include "calls/ScreenCastPortal.h"
+#include "calls/PortalRequest.h"
 
 #include <QGuiApplication>
 #include <QLoggingCategory>
@@ -241,48 +242,58 @@ void ScreenCastPortal::requestShare(int types)
     // ── Step 1: CreateSession ──
     QDBusMessage create = QDBusMessage::createMethodCall(
         kService, kPath, kScreenCast, QStringLiteral("CreateSession"));
+    const QString token = freshToken();
     QVariantMap createOptions;
-    createOptions.insert(QStringLiteral("handle_token"), freshToken());
+    createOptions.insert(QStringLiteral("handle_token"), token);
     createOptions.insert(QStringLiteral("session_handle_token"),
                          freshToken());
     create << createOptions;
 
+    const auto onAnswer = [this, types, stale](uint response,
+                                               const QVariantMap &results) {
+        if (stale())
+            return;
+        if (response != 0) {
+            reset();
+            Q_EMIT cancelled();
+            return;
+        }
+        m_sessionHandle =
+            results.value(QStringLiteral("session_handle")).toString();
+        if (m_sessionHandle.isEmpty()) {
+            reset();
+            Q_EMIT failed(QStringLiteral("no_session"));
+            return;
+        }
+        selectSources(types);
+    };
+    // Subscribed BEFORE the call, for the reason in PortalRequest.h. CreateSession
+    // shows no dialog, so only the desktop backend's own latency has ever stood
+    // between its reply and its Response.
+    auto subscription = portal::subscribeBeforeCall<PortalStep>(
+        this, QDBusConnection::sessionBus().baseService(), token, onAnswer);
+
     auto *createWatcher = new QDBusPendingCallWatcher(
         QDBusConnection::sessionBus().asyncCall(create), this);
     connect(createWatcher, &QDBusPendingCallWatcher::finished, this,
-            [this, types, stale](QDBusPendingCallWatcher *watcher) {
+            [this, stale, subscription, onAnswer](
+                QDBusPendingCallWatcher *watcher) mutable {
                 watcher->deleteLater();
                 QDBusPendingReply<QDBusObjectPath> reply = *watcher;
-                if (stale())
+                if (stale()) {
+                    portal::dropSubscription(subscription);
                     return;
+                }
                 if (reply.isError()) {
                     // The error text can name the desktop and paths; only a
                     // category leaves this scope.
+                    portal::dropSubscription(subscription);
                     reset();
                     Q_EMIT failed(QStringLiteral("no_portal"));
                     return;
                 }
-                auto *step = new PortalStep(this, reply.value().path());
-                connect(step, &PortalStep::answered, this,
-                        [this, types, stale](uint response,
-                                             const QVariantMap &results) {
-                            if (stale())
-                                return;
-                            if (response != 0) {
-                                reset();
-                                Q_EMIT cancelled();
-                                return;
-                            }
-                            m_sessionHandle =
-                                results.value(QStringLiteral("session_handle"))
-                                    .toString();
-                            if (m_sessionHandle.isEmpty()) {
-                                reset();
-                                Q_EMIT failed(QStringLiteral("no_session"));
-                                return;
-                            }
-                            selectSources(types);
-                        });
+                portal::reconcileRequestPath(this, subscription,
+                                             reply.value().path(), onAnswer);
             });
 }
 
@@ -298,8 +309,9 @@ void ScreenCastPortal::selectSources(int types)
     // mapping from a picked source to a published track unambiguous.
     QDBusMessage select = QDBusMessage::createMethodCall(
         kService, kPath, kScreenCast, QStringLiteral("SelectSources"));
+    const QString token = freshToken();
     QVariantMap options;
-    options.insert(QStringLiteral("handle_token"), freshToken());
+    options.insert(QStringLiteral("handle_token"), token);
     options.insert(QStringLiteral("types"), static_cast<uint>(types));
     options.insert(QStringLiteral("multiple"), false);
     // 1 = hidden, 2 = embedded, 4 = metadata. Embedded draws the cursor into
@@ -308,31 +320,38 @@ void ScreenCastPortal::selectSources(int types)
     options.insert(QStringLiteral("cursor_mode"), 2u);
     select << QVariant::fromValue(QDBusObjectPath(m_sessionHandle)) << options;
 
+    const auto onAnswer = [this, stale](uint response, const QVariantMap &) {
+        if (stale())
+            return;
+        if (response != 0) {
+            cancel();
+            Q_EMIT cancelled();
+            return;
+        }
+        startSession();
+    };
+    auto subscription = portal::subscribeBeforeCall<PortalStep>(
+        this, QDBusConnection::sessionBus().baseService(), token, onAnswer);
+
     auto *watcher = new QDBusPendingCallWatcher(
         QDBusConnection::sessionBus().asyncCall(select), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
-            [this, stale](QDBusPendingCallWatcher *w) {
+            [this, stale, subscription, onAnswer](
+                QDBusPendingCallWatcher *w) mutable {
                 w->deleteLater();
                 QDBusPendingReply<QDBusObjectPath> reply = *w;
-                if (stale())
+                if (stale()) {
+                    portal::dropSubscription(subscription);
                     return;
+                }
                 if (reply.isError()) {
+                    portal::dropSubscription(subscription);
                     cancel();
                     Q_EMIT failed(QStringLiteral("select_failed"));
                     return;
                 }
-                auto *step = new PortalStep(this, reply.value().path());
-                connect(step, &PortalStep::answered, this,
-                        [this, stale](uint response, const QVariantMap &) {
-                            if (stale())
-                                return;
-                            if (response != 0) {
-                                cancel();
-                                Q_EMIT cancelled();
-                                return;
-                            }
-                            startSession();
-                        });
+                portal::reconcileRequestPath(this, subscription,
+                                             reply.value().path(), onAnswer);
             });
 }
 
@@ -346,40 +365,50 @@ void ScreenCastPortal::startSession()
     // ── Step 3: Start — this is where the portal shows its picker ──
     QDBusMessage start = QDBusMessage::createMethodCall(
         kService, kPath, kScreenCast, QStringLiteral("Start"));
+    const QString token = freshToken();
     QVariantMap options;
-    options.insert(QStringLiteral("handle_token"), freshToken());
+    options.insert(QStringLiteral("handle_token"), token);
     // Empty parent window: Qt has no portable handle to hand over here, and
     // the portal then presents its dialog unparented rather than not at all.
     start << QVariant::fromValue(QDBusObjectPath(m_sessionHandle))
           << QString() << options;
 
+    const auto onAnswer = [this, stale](uint response,
+                                        const QVariantMap &results) {
+        if (stale())
+            return;
+        if (response != 0) {
+            // The user pressed Cancel in the picker.
+            cancel();
+            Q_EMIT cancelled();
+            return;
+        }
+        handleStreams(results);
+    };
+    // A picker normally stands in front of this answer — but a portal that
+    // RESTORES a previous selection answers without one.
+    auto subscription = portal::subscribeBeforeCall<PortalStep>(
+        this, QDBusConnection::sessionBus().baseService(), token, onAnswer);
+
     auto *watcher = new QDBusPendingCallWatcher(
         QDBusConnection::sessionBus().asyncCall(start), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
-            [this, stale](QDBusPendingCallWatcher *w) {
+            [this, stale, subscription, onAnswer](
+                QDBusPendingCallWatcher *w) mutable {
                 w->deleteLater();
                 QDBusPendingReply<QDBusObjectPath> reply = *w;
-                if (stale())
+                if (stale()) {
+                    portal::dropSubscription(subscription);
                     return;
+                }
                 if (reply.isError()) {
+                    portal::dropSubscription(subscription);
                     cancel();
                     Q_EMIT failed(QStringLiteral("start_failed"));
                     return;
                 }
-                auto *step = new PortalStep(this, reply.value().path());
-                connect(step, &PortalStep::answered, this,
-                        [this, stale](uint response,
-                                      const QVariantMap &results) {
-                            if (stale())
-                                return;
-                            if (response != 0) {
-                                // The user pressed Cancel in the picker.
-                                cancel();
-                                Q_EMIT cancelled();
-                                return;
-                            }
-                            handleStreams(results);
-                        });
+                portal::reconcileRequestPath(this, subscription,
+                                             reply.value().path(), onAnswer);
             });
 }
 

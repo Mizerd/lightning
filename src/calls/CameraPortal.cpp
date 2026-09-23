@@ -1,4 +1,5 @@
 #include "calls/CameraPortal.h"
+#include "calls/PortalRequest.h"
 
 #include <QLoggingCategory>
 #include <QRandomGenerator>
@@ -200,41 +201,54 @@ void CameraPortal::requestAccess()
     };
 
     // ── Step 1: AccessCamera — this is where the portal asks the user ──
+    const QString token = freshToken();
+    const auto onAnswer = [this, stale](uint response, const QVariantMap &) {
+        if (stale())
+            return;
+        if (response != 0) {
+            // Declined. Not an error.
+            cancel();
+            Q_EMIT cancelled();
+            return;
+        }
+        openRemote();
+    };
+    // SUBSCRIBED BEFORE THE CALL, never after its reply. With the permission
+    // already stored there is no dialog, and the portal sends the grant 0.4 ms
+    // behind the reply — gone before a subscription made on the reply could
+    // exist. That kept the camera dark in the published Flathub build; see
+    // PortalRequest.h.
+    auto subscription = portal::subscribeBeforeCall<CameraPortalStep>(
+        this, QDBusConnection::sessionBus().baseService(), token, onAnswer);
+
     QDBusMessage access = QDBusMessage::createMethodCall(
         kService, kPath, kCamera, QStringLiteral("AccessCamera"));
     QVariantMap options;
-    options.insert(QStringLiteral("handle_token"), freshToken());
+    options.insert(QStringLiteral("handle_token"), token);
     access << options;
 
     auto *watcher = new QDBusPendingCallWatcher(
         QDBusConnection::sessionBus().asyncCall(access), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
-            [this, stale](QDBusPendingCallWatcher *w) {
+            [this, stale, subscription, onAnswer](
+                QDBusPendingCallWatcher *w) mutable {
                 w->deleteLater();
                 QDBusPendingReply<QDBusObjectPath> reply = *w;
-                if (stale())
+                if (stale()) {
+                    portal::dropSubscription(subscription);
                     return;
+                }
                 if (reply.isError()) {
                     // The error text can name the desktop and paths; only a
                     // category leaves this scope.
+                    portal::dropSubscription(subscription);
                     reset();
                     m_requestTimeout.stop();
                     Q_EMIT failed(QStringLiteral("no_portal"));
                     return;
                 }
-                auto *step = new CameraPortalStep(this, reply.value().path());
-                connect(step, &CameraPortalStep::answered, this,
-                        [this, stale](uint response, const QVariantMap &) {
-                            if (stale())
-                                return;
-                            if (response != 0) {
-                                // Declined. Not an error.
-                                cancel();
-                                Q_EMIT cancelled();
-                                return;
-                            }
-                            openRemote();
-                        });
+                portal::reconcileRequestPath(this, subscription,
+                                             reply.value().path(), onAnswer);
             });
 }
 

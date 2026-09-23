@@ -5327,3 +5327,22 @@ if(BUILD_TESTING)
     set_tests_properties(composer-spell-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+# CameraPortal against a fake xdg-desktop-portal on a PRIVATE session bus: the
+# grant a portal sends in the same breath as its reply (a stored permission,
+# no dialog) must not be lost. That race kept the camera dark in the published
+# Flathub build. Needs QtDBus and a `dbus-daemon` on PATH; the suite skips
+# itself without the daemon rather than failing.
+if(BUILD_TESTING AND TARGET Qt6::DBus AND NOT WIN32 AND NOT APPLE)
+    qt_add_executable(camera-portal-test
+        tests/CameraPortalTest.cpp
+        src/calls/CameraPortal.h
+        src/calls/CameraPortal.cpp
+        src/calls/PortalRequest.h
+    )
+    target_include_directories(camera-portal-test PRIVATE src)
+    target_link_libraries(camera-portal-test PRIVATE
+        Qt6::Core Qt6::DBus Qt6::Test)
+    target_compile_definitions(camera-portal-test PRIVATE HAVE_QT_DBUS=1)
+    add_test(NAME camera-portal COMMAND camera-portal-test)
+endif()
