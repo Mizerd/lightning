@@ -3948,7 +3948,7 @@ fn event_item_to_json(
                     // AFTER fill_message_content, which is what sets
                     // `formatted_body` — running this before it meant the
                     // guard always saw no formatted body and returned.
-                    restore_raw_formatted_body(&mut out, event);
+                    restore_raw_formatted_body(&mut out, event, message.is_edited());
                 }
                 MsgLikeKind::Redacted => {
                     out["msgtype"] = "redacted".into();
@@ -4222,27 +4222,70 @@ fn set_formatted_body(out: &mut serde_json::Value, formatted: Option<&FormattedB
 /// `org.matrix.custom.html` formatted body, only when a formatted body was
 /// already going to be sent, and bounded so a hostile event cannot make the
 /// payload unbounded. Anything unexpected leaves the SDK's version in place.
-fn restore_raw_formatted_body(out: &mut serde_json::Value, event: &EventTimelineItem) {
-    /// Longer than any real message and far shorter than a memory problem.
-    const MAX_FORMATTED_BYTES: usize = 64 * 1024;
+///
+/// **THE RAW BODY MUST BE THE ONE THE SDK IS DISPLAYING.** This used to read
+/// `original_json()` unconditionally, and `original_json` NEVER changes when
+/// a message is edited (matrix-sdk-ui `RemoteEventTimelineItem`: "If the
+/// event is edited, this *won't* change, instead `latest_edit_json` will").
+/// So every edited message whose ORIGINAL carried HTML — any markdown at all
+/// — had the SDK's correctly edited formatted body overwritten with the
+/// pre-edit one: the plain `body` moved, the rendered row did not, for our
+/// own edits and received ones alike, and a restart re-derived the same stale
+/// HTML from the event cache. Reported 2026-09-21 ("editing a message doesn't
+/// update it in the UI … only when there is markdown in the message").
+fn restore_raw_formatted_body(
+    out: &mut serde_json::Value,
+    event: &EventTimelineItem,
+    is_edited: bool,
+) {
     if !out.get("formatted_body").map(|v| v.is_string()).unwrap_or(false) {
         return;
     }
-    let Some(raw) = event.original_json() else { return };
-    let Ok(value) = raw.deserialize_as::<serde_json::Value>() else { return };
-    let Some(content) = value.get("content") else { return };
-    if content.get("format").and_then(|v| v.as_str())
-        != Some("org.matrix.custom.html")
-    {
-        return;
-    }
-    let Some(body) = content.get("formatted_body").and_then(|v| v.as_str()) else {
-        return;
+    let parse = |raw: &matrix_sdk::ruma::serde::Raw<AnySyncTimelineEvent>| {
+        raw.deserialize_as::<serde_json::Value>().ok()
     };
-    if body.is_empty() || body.len() > MAX_FORMATTED_BYTES {
-        return;
+    let original = event.original_json().and_then(parse);
+    let latest_edit = event.latest_edit_json().and_then(parse);
+    if let Some(body) = raw_displayed_formatted_body(
+        is_edited,
+        original.as_ref(),
+        latest_edit.as_ref(),
+    ) {
+        out["formatted_body"] = body.into();
     }
-    out["formatted_body"] = body.into();
+}
+
+/// The wire `formatted_body` of the content the SDK is actually displaying,
+/// or `None` to keep the SDK's own (sanitised) version.
+///
+/// Unedited: the original event's `content`. Edited: the latest replacement's
+/// `content["m.new_content"]` — the only place an `m.replace` carries its new
+/// HTML (its top-level `content` is the `* fallback` for clients that do not
+/// understand edits). An edited message with NO edit JSON is a LOCAL ECHO of
+/// our own edit: matrix-sdk-ui applies it with `edit_json: None` and clears
+/// `latest_edit_json`, so there is no wire copy of the new HTML yet and
+/// falling back to the original would put the pre-edit text back on screen.
+/// Pure over JSON so it can be tested without constructing a timeline item.
+fn raw_displayed_formatted_body(
+    is_edited: bool,
+    original: Option<&serde_json::Value>,
+    latest_edit: Option<&serde_json::Value>,
+) -> Option<String> {
+    /// Longer than any real message and far shorter than a memory problem.
+    const MAX_FORMATTED_BYTES: usize = 64 * 1024;
+    let content = if is_edited {
+        latest_edit?.get("content")?.get("m.new_content")?
+    } else {
+        original?.get("content")?
+    };
+    if content.get("format").and_then(|v| v.as_str()) != Some("org.matrix.custom.html") {
+        return None;
+    }
+    let body = content.get("formatted_body").and_then(|v| v.as_str())?;
+    if body.is_empty() || body.len() > MAX_FORMATTED_BYTES {
+        return None;
+    }
+    Some(body.to_owned())
 }
 
 fn fill_message_content(
@@ -5639,11 +5682,110 @@ pub fn sessions_by_room_from_import(
 mod tests {
     use super::{
         backup_attempt_allowed, backup_attempt_backoff, find_img_tag,
-        is_rtc_membership_event, sessions_by_room_from_import, state_row_text,
-        substitute_emoticons, TimelineRegistry, MAX_BACKUP_ATTEMPTS,
+        is_rtc_membership_event, raw_displayed_formatted_body,
+        sessions_by_room_from_import, state_row_text, substitute_emoticons,
+        TimelineRegistry, MAX_BACKUP_ATTEMPTS,
     };
     use matrix_sdk::ruma::events::AnySyncTimelineEvent;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+    /// AN EDITED MESSAGE MUST RENDER ITS EDITED HTML, NOT ITS ORIGINAL'S.
+    ///
+    /// The raw-HTML restore (which exists to keep MSC2545's
+    /// `data-mx-emoticon`, stripped by matrix-sdk-ui's Compat sanitizer) read
+    /// `original_json()` for every message, and the SDK never updates that on
+    /// an edit. So an edit of any message whose original had markdown showed
+    /// the new plain body and the OLD rendered HTML, forever. The shapes below
+    /// are the real wire shapes: an `m.replace` carries its new HTML in
+    /// `m.new_content`, and its top-level content is the `* ` fallback.
+    #[test]
+    fn an_edited_message_renders_the_edits_html_not_the_originals() {
+        let original = serde_json::json!({
+            "type": "m.room.message",
+            "content": {
+                "msgtype": "m.text",
+                "body": "**old**",
+                "format": "org.matrix.custom.html",
+                "formatted_body": "<strong>old</strong>",
+            },
+        });
+        let edit = serde_json::json!({
+            "type": "m.room.message",
+            "content": {
+                "msgtype": "m.text",
+                "body": "* **new**",
+                "format": "org.matrix.custom.html",
+                "formatted_body": "* <strong>new</strong>",
+                "m.new_content": {
+                    "msgtype": "m.text",
+                    "body": "**new**",
+                    "format": "org.matrix.custom.html",
+                    "formatted_body": "<strong>new</strong>",
+                },
+                "m.relates_to": { "rel_type": "m.replace", "event_id": "$orig" },
+            },
+        });
+
+        // Unedited: the original's wire HTML, as before.
+        assert_eq!(
+            raw_displayed_formatted_body(false, Some(&original), None).as_deref(),
+            Some("<strong>old</strong>"),
+        );
+        // Edited and echoed by the server: the replacement's m.new_content —
+        // never the original's, and never the `* ` fallback.
+        assert_eq!(
+            raw_displayed_formatted_body(true, Some(&original), Some(&edit)).as_deref(),
+            Some("<strong>new</strong>"),
+            "an edited message rendered pre-edit HTML",
+        );
+        // Our own edit as a LOCAL ECHO: the SDK clears latest_edit_json, so
+        // there is no wire copy yet. Keep the SDK's (already edited) HTML
+        // rather than falling back to the original.
+        assert_eq!(
+            raw_displayed_formatted_body(true, Some(&original), None),
+            None,
+            "a local-echo edit fell back to the original's HTML",
+        );
+        // An edit that REMOVED the markdown: m.new_content has no HTML, so
+        // nothing is restored and the original's HTML cannot come back.
+        let plain_edit = serde_json::json!({
+            "content": {
+                "msgtype": "m.text",
+                "body": "* plain",
+                "m.new_content": { "msgtype": "m.text", "body": "plain" },
+                "m.relates_to": { "rel_type": "m.replace", "event_id": "$orig" },
+            },
+        });
+        assert_eq!(
+            raw_displayed_formatted_body(true, Some(&original), Some(&plain_edit)),
+            None,
+        );
+        // DEFENSIVE, not an encrypted-room case: in matrix-sdk 0.18 an
+        // `m.room.encrypted` edit is never applied (edit validation rejects
+        // the event-type mismatch, and bundled edits are decrypted in place
+        // by OlmMachine::decrypt_unsigned_events). The helper must still not
+        // guess from an edit JSON that carries no m.new_content.
+        let opaque = serde_json::json!({ "content": { "algorithm": "m.megolm.v1.aes-sha2" } });
+        assert_eq!(
+            raw_displayed_formatted_body(true, Some(&original), Some(&opaque)),
+            None
+        );
+        // The emoticon marker this restore exists for survives an edit too.
+        let emoji_edit = serde_json::json!({
+            "content": {
+                "m.new_content": {
+                    "msgtype": "m.text",
+                    "body": ":blob:",
+                    "format": "org.matrix.custom.html",
+                    "formatted_body": "<img data-mx-emoticon src=\"mxc://e.org/blob\" alt=\":blob:\">",
+                },
+            },
+        });
+        assert!(
+            raw_displayed_formatted_body(true, Some(&original), Some(&emoji_edit))
+                .is_some_and(|html| html.contains("data-mx-emoticon"))
+        );
+    }
 
     /// THE AUTOMATIC KEY-RECOVERY BUDGET IS WHAT KEEPS IT FROM POLLING, SO
     /// ITS SCHEDULE IS PINNED HERE RATHER THAN DESCRIBED IN A COMMENT.
