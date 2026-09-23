@@ -337,35 +337,30 @@ directory at an **immutable tag**, never a branch — Flathub requires that — 
 whoever cuts the submitted release must re-point the four URLs at the tag
 being submitted.
 
-### How the current four were produced, and why they must be redone
+### How the current four were produced (2026-09-23)
 
-They are **downscaled copies** of the README captures
-(`magick <src> -resize 2000x1400`), not fresh captures, because regenerating
-needs a `LIGHTNING_ENABLE_SCREENSHOT_DEMO` build tree and none existed. They
-are inside the size cap and they validate, but they do **not** meet Flathub's
-quality bar: the source windows are ~3834 logical pixels wide, so at 2000px
-the interface text renders at roughly half the size it was drawn at, and
-Flathub's guidance is that the text should read 1:1 in the listing.
+They are REAL window captures, not demo-mode renders: the Flathub stable
+build of Lightning signed in to a throwaway test account on an isolated
+profile, in a fixture Space ("Open Studio") whose rooms hold only the
+maintainer's throwaway test accounts under fictional per-room names. The
+recipe, the seeding scripts and the call helpers live in the maintainer's
+local notes (`Tasks/flathub-screenshot-fixture/`), never in this repository,
+because they read test-account credentials.
 
-Re-shoot them at a window size that is already inside the cap — the window
-itself must be <= 1000x700, or <= 2000x1400 captured at 2x:
-
-```sh
-scripts/run-screenshot-demo.sh --scenario main-chat    --size 1000x700 --hide-controls
-scripts/run-screenshot-demo.sh --scenario thread-view  --size 1000x700 --hide-controls
-scripts/run-screenshot-demo.sh --scenario settings-themes --size 1000x700
-```
-
-Two things to fix while re-shooting:
-
-- The `channels-space` capture is mostly empty canvas, and Flathub explicitly
-  refuses empty states. It is not in the AppStream set for that reason; give
-  the Space a populated lobby if you want it back.
-- The Lightning Development room's topic reads "Native Qt/QML + Rust Matrix
-  SDK". Flathub asks that a listing not advertise the toolkit, and a reviewer
-  reads the screenshots too.
+- KDE Plasma on Wayland, desktop colour scheme **Breeze Light**, so Lightning
+  follows it into its default light theme (Moss Light). Flathub wants
+  default-settings screenshots and accepts dark ones only beside light ones.
+- Window 1000x700 logical at scale 1.5, captured with the compositor's own
+  window screenshot (`spectacle -b -n -a`, title bar and shadow kept), then
+  `magick -strip`. Result: 1695x1245 RGBA, inside the 2000x1400 HiDPI cap.
+- `03-call.png` is a real MatrixRTC call on the project's own LiveKit SFU:
+  the viewer (camera off, microphone muted) plus three helper participants
+  publishing still photographs as their camera (KDE wallpapers "Mountain",
+  "Evening Glow" and "Fallen Leaf"). No real person appears.
+- `04-themes.png` is the custom-theme editor with a dark palette loaded, so
+  the set still shows a dark appearance.
 
 Keep the filenames (`01-conversation.png`, `02-threads.png`, `03-call.png`,
-`04-themes.png`) so the metainfo URLs do not have to change, and keep the data
-fictional — every capture here is the demo mode's `*.example` accounts, which
-is the only reason they are publishable at all.
+`04-themes.png`): the metainfo URLs name a TAG, so a new filename 404s until
+the next tag exists, and a replaced file only reaches the listing once the
+refs are re-pointed at a tag that contains it. Keep the data fictional.

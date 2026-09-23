@@ -86,10 +86,21 @@
       default settings, real content rather than an empty state. Captions are
       one sentence with no full stop. English images carry NO language
       attribute: the guidelines forbid it on English values.
+
+      Default settings includes the default LIGHT appearance: all four are
+      taken with the desktop in Breeze Light and Lightning following it
+      (Moss Light), because Flathub accepts dark screenshots only beside
+      light ones. The theme editor in the fourth shows a dark palette being
+      built, so dark mode is still represented.
+
+      The files are named after these four URLs and must keep those names:
+      the URLs name a TAG, so a new filename would 404 until the next tag
+      exists (test-metainfo-consistency.py checks it). New images therefore
+      reach the listing only when these refs are re-pointed at a later tag.
     -->
     <screenshot type="default">
       <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/01-conversation.png</image>
-      <caption>A room conversation with replies, reactions and a shared picture</caption>
+      <caption>A room conversation with replies, reactions and a thread</caption>
     </screenshot>
     <screenshot>
       <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/02-threads.png</image>
@@ -97,7 +108,7 @@
     </screenshot>
     <screenshot>
       <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/03-call.png</image>
-      <caption>A four-person call running above the room it belongs to</caption>
+      <caption>A four-person video call inside a room</caption>
     </screenshot>
     <screenshot>
       <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/04-themes.png</image>

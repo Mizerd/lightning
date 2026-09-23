@@ -3,12 +3,17 @@
 #
 # Usage: scripts/generate-icons.sh
 #
-# The source of truth is data/icons/lightning-source.png — since 2026-08-12
-# this is the maintainer's RAW transparent "thick" mark (1254×1254 RGBA),
-# deliberately NOT circular-masked: the speech-bubble tail crosses the
-# inscribed circle, and the full-bleed mask of generate-logo-source.sh was
-# what amputated it on every icon surface. That script remains for opaque
-# square originals that want the disk treatment. Standard hicolor sizes plus 256/512 for high-DPI
+# The source of truth is data/icons/lightning-source.png (1254×1254 RGBA).
+# Since 2026-09-23 it is a render of data/icons/lightning.svg — the
+# maintainer's "thick" mark (its three paths copied verbatim) scaled onto a
+# light circular plate that fills Flathub's icon-grid circle, so the dark end
+# of the ring keeps its contrast on a dark background. Regenerate it with
+#     rsvg-convert -w 1254 -h 1254 data/icons/lightning.svg -o tmp.png
+#     magick tmp.png -strip PNG32:data/icons/lightning-source.png
+# and then run this script. It is still NOT circular-masked:
+# generate-logo-source.sh's full-bleed mask is what once amputated the
+# speech-bubble tail, and it remains only for opaque square originals.
+# Standard hicolor sizes plus 256/512 for high-DPI
 # displays (taskbars, window switchers, the Windows .ico) are produced with
 # deterministic Lanczos downscaling — every size is a real downscale of the
 # high-resolution source, so nothing is upscaled or pixelated. The generated
