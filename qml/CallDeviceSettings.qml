@@ -306,7 +306,12 @@ ColumnLayout {
             var _ = root.refreshTick;
             return app.callDevices.activeCameraId;
         }
-        emptyText: qsTr("No camera was found.")
+        // Inside a Flatpak nothing can be listed, and nothing needs to be:
+        // the desktop's camera portal hands the call a camera when it is
+        // turned on. Saying "No camera was found." there was false.
+        emptyText: app.callDevices.camerasChosenByDesktop
+                   ? qsTr("Your desktop chooses the camera when you turn it on in a call.")
+                   : qsTr("No camera was found.")
     }
 
     // v0.9.0: the floating call window.

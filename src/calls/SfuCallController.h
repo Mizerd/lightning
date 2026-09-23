@@ -458,7 +458,17 @@ public:
     /// sharing isn't available on this desktop" names no cause and offers no
     /// action; the Wayland refusal has exactly one useful thing to say and
     /// must keep saying it.
-    static QString linuxShareRefusal(LinuxShareRoute route);
+    ///
+    /// `sandboxed` changes the MISSING-ELEMENT advice and nothing else. A
+    /// Flatpak or Snap loads GStreamer plugins from its runtime or its own
+    /// bundle, never from the host, so "install gst-plugins-good" sends the
+    /// user to install a distribution package the app cannot see — reported
+    /// from a Debian 12 Flatpak that had the package installed. The KDE 6.11
+    /// runtime ships no `ximagesrc` (measured: `gst-inspect-1.0 ximagesrc`
+    /// inside the Flathub build finds nothing), so there the portal is the
+    /// only route and the advice has to name it.
+    static QString linuxShareRefusal(LinuxShareRoute route,
+                                     bool sandboxed = false);
 
     /// WHERE A LINUX CAMERA GETS ITS PIXELS.
     ///

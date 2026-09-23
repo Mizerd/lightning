@@ -39,6 +39,16 @@ class CallDeviceController : public QObject
     Q_PROPERTY(QVariantList microphones READ microphones NOTIFY devicesChanged)
     Q_PROPERTY(QVariantList speakers READ speakers NOTIFY devicesChanged)
     Q_PROPERTY(QVariantList cameras READ cameras NOTIFY devicesChanged)
+    /// True inside a Flatpak, where the sandbox has no /dev/video* and Qt
+    /// can list no camera at all — yet the camera WORKS, through the xdg
+    /// Camera portal, which picks the device itself. Without this the
+    /// Settings page told every Flatpak user "No camera was found." while a
+    /// call could still turn their camera on (reported from Debian 12,
+    /// 2026-09-23; measured on Fedora 44: videoInputs() is empty inside the
+    /// sandbox with /dev/video0-3 present on the host). Flatpak only: the
+    /// Snap's camera plug exposes the real device, so Qt can list it there.
+    Q_PROPERTY(bool camerasChosenByDesktop READ camerasChosenByDesktop
+                   CONSTANT)
     /// The device actually in use. Falls back to the system default when the
     /// preferred one is absent.
     Q_PROPERTY(QString activeMicrophoneId READ activeMicrophoneId
@@ -64,6 +74,7 @@ public:
     QVariantList microphones() const;
     QVariantList speakers() const;
     QVariantList cameras() const;
+    bool camerasChosenByDesktop() const;
 
     QString activeMicrophoneId() const;
     QString activeSpeakerId() const;

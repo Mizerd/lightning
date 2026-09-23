@@ -4180,6 +4180,50 @@ private Q_SLOTS:
                                            "missing element: %1")
                                 .arg(message)));
 
+        // A SANDBOX IS NOT FIXED BY THE HOST'S PACKAGE MANAGER. Reported from
+        // a Debian 12 Flatpak whose user HAD gst-plugins-good installed: the
+        // Flatpak loads plugins from org.kde.Platform and /app only, and the
+        // KDE 6.11 runtime carries no ximagesrc (measured with gst-inspect
+        // inside the Flathub build). The advice must not send that user to
+        // apt, and must name the thing that does work there — the portal.
+        const QString sandboxed = SfuCallController::linuxShareRefusal(
+            Route::RefuseNoCaptureElement, /*sandboxed=*/true);
+        QVERIFY2(!sandboxed.contains(QStringLiteral("gst-plugins-good")),
+                 qPrintable(QStringLiteral("a sandboxed build is told to "
+                                           "install a host package: %1")
+                                .arg(sandboxed)));
+        QVERIFY2(sandboxed.contains(QStringLiteral("xdg-desktop-portal")),
+                 qPrintable(QStringLiteral("the sandboxed refusal does not "
+                                           "name the portal: %1")
+                                .arg(sandboxed)));
+        // ...BUT THE PORTAL IS NOT THE REMEDY THAT USUALLY WORKS. This route
+        // is reached only on X11, where almost no portal backend offers
+        // ScreenCast, so the text must name the routes that DO work — a
+        // build that captures X11 itself, or a Wayland session — and must
+        // not send, say, a KDE-on-X11 user to install a GNOME package.
+        QVERIFY2(sandboxed.contains(QStringLiteral("AppImage"))
+                     && sandboxed.contains(QStringLiteral(
+                         "distribution package")),
+                 qPrintable(QStringLiteral("the sandboxed refusal no longer "
+                                           "names the builds that capture "
+                                           "X11 directly: %1")
+                                .arg(sandboxed)));
+        QVERIFY2(sandboxed.contains(QStringLiteral("Wayland session")),
+                 qPrintable(QStringLiteral("the sandboxed refusal no longer "
+                                           "names the Wayland route: %1")
+                                .arg(sandboxed)));
+        QVERIFY2(!sandboxed.contains(QStringLiteral("xdg-desktop-portal-gnome")),
+                 qPrintable(QStringLiteral("the sandboxed refusal names one "
+                                           "desktop's portal package: %1")
+                                .arg(sandboxed)));
+        // ...and an unsandboxed build keeps the advice that IS right for it.
+        QVERIFY(message.contains(QStringLiteral("gst-plugins-good")));
+        // The other refusals do not depend on the sandbox.
+        QCOMPARE(SfuCallController::linuxShareRefusal(
+                     Route::RefuseWaylandNeedsPortal, true),
+                 SfuCallController::linuxShareRefusal(
+                     Route::RefuseWaylandNeedsPortal, false));
+
         // No display server at all is its own answer, and it outranks the
         // element probe: there is nothing to capture whether or not the
         // plugin is installed.

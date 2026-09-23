@@ -4651,6 +4651,32 @@ ApplicationWindow {
                  "no QML surface may touch QSettings");
     }
 
+    void aFlatpakIsNotToldItHasNoCamera()
+    {
+        // Inside a Flatpak Qt can list no camera (no /dev/video* in the
+        // sandbox), yet the camera works through the xdg Camera portal. The
+        // Settings page told every Flatpak user "No camera was found." —
+        // reported from Debian 12, 2026-09-23. The empty text must branch on
+        // the controller's answer, and the controller must actually ask the
+        // sandbox, not return a constant.
+        //
+        // UNFIXED TREE: fails — the empty text was the bare string.
+        const QString qml =
+            read(QStringLiteral(QML_DIR "/CallDeviceSettings.qml"));
+        const int empty = qml.indexOf(QStringLiteral("emptyText: app.callDevices.camerasChosenByDesktop"));
+        QVERIFY2(empty >= 0, "the camera list's empty text does not ask "
+                             "whether the desktop chooses the camera");
+        const QString cpp =
+            read(QStringLiteral(SRC_DIR "/calls/CallDeviceController.cpp"));
+        const int fn = cpp.indexOf(QStringLiteral(
+            "bool CallDeviceController::camerasChosenByDesktop() const"));
+        QVERIFY(fn >= 0);
+        const QString body = cpp.mid(fn, cpp.indexOf(QLatin1Char('}'), fn) - fn);
+        QVERIFY2(body.contains(QStringLiteral("FLATPAK_ID"))
+                     && body.contains(QStringLiteral("/.flatpak-info")),
+                 "the answer must come from the sandbox, not a constant");
+    }
+
     void microphoneGainIsOfferedWithItsMicrophoneAndSaysWhatItCosts()
     {
         // The other direction: what OTHERS hear. It lives with the microphone
@@ -5697,8 +5723,11 @@ Item {
         QVERIFY2(body.contains(QStringLiteral("linuxShareRoute(")),
                  "requestScreenShare() does not consult the route policy, so "
                  "every case that tests the policy tests nothing reachable");
-        QVERIFY2(body.contains(QStringLiteral("linuxShareRefusal(route)")),
-                 "the Linux refusals do not come from the policy");
+        QVERIFY2(body.contains(QStringLiteral(
+                     "linuxShareRefusal(route, runningSandboxed())")),
+                 "the Linux refusals do not come from the policy, or no "
+                 "longer tell it whether the build is sandboxed — a Flatpak "
+                 "would be told to install a host package it cannot load");
         // The fallback reaches the SAME picker Windows and macOS use — one
         // picker, one contract, and no second implementation to drift.
         QVERIFY2(body.contains(QStringLiteral("populateLinuxDisplaySources()")),

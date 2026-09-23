@@ -1,5 +1,6 @@
 #include "calls/CallDeviceController.h"
 
+#include <QFileInfo>
 #include <QAudioDevice>
 #include <QCameraDevice>
 #include <QMediaDevices>
@@ -181,6 +182,16 @@ bool CallDeviceController::hasMicrophone() const
 {
     ensureBackend();
     return !QMediaDevices::audioInputs().isEmpty();
+}
+
+bool CallDeviceController::camerasChosenByDesktop() const
+{
+#if defined(Q_OS_LINUX)
+    return !qEnvironmentVariableIsEmpty("FLATPAK_ID")
+        || QFileInfo::exists(QStringLiteral("/.flatpak-info"));
+#else
+    return false;
+#endif
 }
 
 bool CallDeviceController::hasCamera() const

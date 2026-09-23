@@ -92,8 +92,9 @@ void closePortalFd(int fd)
 }
 
 #ifdef HAVE_LIGHTNING_WEBRTC
-// BOTH OF THESE ARE CAMERA-ROUTE INPUTS and nothing else reads them, so they
-// are compiled only where a camera can be published. An unused static in a
+// BOTH OF THESE ARE ROUTE INPUTS — the camera route, and (runningSandboxed
+// only) the screen-share refusal's wording — so they are compiled only where
+// the media engine is. An unused static in a
 // build with no media engine is exactly the noise that hides a real warning
 // (the same reason main.cpp's AppImage helpers are Linux-only).
 
@@ -720,7 +721,8 @@ SfuCallController::LinuxShareRoute SfuCallController::linuxShareRoute(
     return LinuxShareRoute::FallbackDisplays;
 }
 
-QString SfuCallController::linuxShareRefusal(LinuxShareRoute route)
+QString SfuCallController::linuxShareRefusal(LinuxShareRoute route,
+                                             bool sandboxed)
 {
     switch (route) {
     case LinuxShareRoute::Portal:
@@ -736,6 +738,35 @@ QString SfuCallController::linuxShareRefusal(LinuxShareRoute route)
                   "desktop — for example xdg-desktop-portal-kde or "
                   "xdg-desktop-portal-gnome — then try again.");
     case LinuxShareRoute::RefuseNoCaptureElement:
+        // A SANDBOX CANNOT BE FIXED FROM THE HOST'S PACKAGE MANAGER. The
+        // Flatpak's GStreamer comes from its runtime (org.kde.Platform, whose
+        // freedesktop-sdk GStreamer carries no ximagesrc) plus /app, so a
+        // host gst-plugins-good is invisible to it and telling the user to
+        // install one is advice that cannot work. What CAN work there is the
+        // desktop's ScreenCast portal, which this route is only reached
+        // without. And this route is only reached ON X11, where almost no
+        // portal backend offers ScreenCast at all (xdg-desktop-portal-kde
+        // needs KWin's Wayland protocol, -wlr/-hyprland are Wayland-only,
+        // -xapp has none, and a GNOME with Mutter's ScreenCast API would
+        // already have routed to Portal). So "install a portal backend" is
+        // advice that usually cannot work either: LEAD with the two remedies
+        // that do — a build that captures X11 itself, or a Wayland session —
+        // and keep the portal only as a conditional, naming no one desktop's
+        // package.
+        if (sandboxed) {
+            return tr("Screen sharing isn't available in this sandboxed "
+                      "(Flatpak or Snap) build on an X11 session: it can "
+                      "only share through the desktop's screen-sharing "
+                      "portal, and none is available, and GStreamer plugins "
+                      "installed on your system cannot be used from the "
+                      "sandbox. To share your screen, use the AppImage or a "
+                      "distribution package of Lightning, which capture an "
+                      "X11 screen directly, or log into a Wayland session, "
+                      "where your desktop's portal provides screen sharing. "
+                      "If your desktop's xdg-desktop-portal supports screen "
+                      "casting on X11, make sure it is installed and "
+                      "running.");
+        }
         // The element is NAMED FROM ITS ONE DEFINITION, never spelled here.
         // A refusal that names a different element from the one the probe
         // asked about, or the pipeline uses, sends the user to install the
@@ -1051,7 +1082,7 @@ void SfuCallController::requestScreenShare()
         // would be offering a capture that cannot exist — on Wayland
         // especially, where an X11 fallback would run flawlessly and send a
         // black rectangle.
-        Q_EMIT callFailed(linuxShareRefusal(route));
+        Q_EMIT callFailed(linuxShareRefusal(route, runningSandboxed()));
         return;
     }
 #endif
