@@ -22,6 +22,7 @@
 #include <QDBusObjectPath>
 #include <QDBusUnixFileDescriptor>
 #include <QDBusVirtualObject>
+#include <QFileInfo>
 #include <QProcess>
 #include <QSignalSpy>
 #include <QStandardPaths>
@@ -148,9 +149,20 @@ void CameraPortalTest::initTestCase()
     if (daemon.isEmpty())
         QSKIP("dbus-daemon not found; this suite needs a private bus");
 
-    m_daemon.start(daemon, {QStringLiteral("--session"),
-                            QStringLiteral("--nofork"),
-                            QStringLiteral("--print-address=1")});
+    // The daemon's OWN session.conf, not `--session`: that reads
+    // /etc/dbus-1/session.conf, which NixOS provides and Fedora (dbus-broker)
+    // does not — there the daemon exits at once with "Configuration file
+    // needs one or more <listen> elements". Measured on the Fedora 44 laptop.
+    QStringList args{QStringLiteral("--nofork"),
+                     QStringLiteral("--print-address=1")};
+    const QString packaged = QFileInfo(daemon).absolutePath()
+        + QStringLiteral("/../share/dbus-1/session.conf");
+    if (QFileInfo::exists(packaged))
+        args << QStringLiteral("--config-file=%1")
+                    .arg(QFileInfo(packaged).canonicalFilePath());
+    else
+        args << QStringLiteral("--session");
+    m_daemon.start(daemon, args);
     QVERIFY(m_daemon.waitForStarted(5000));
     QVERIFY(m_daemon.waitForReadyRead(5000));
     const QByteArray address = m_daemon.readLine().trimmed();

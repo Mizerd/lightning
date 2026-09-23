@@ -1013,6 +1013,62 @@ private slots:
     // MJPG beside raw — that is the measured justification for the chain
     // existing. What a portal camera node offers is not known and is not
     // testable from this machine, so it gets the raw entry.
+
+    // THE PORTAL CAMERA MUST NEVER SEE A FIXED FRAME RATE.
+    //
+    // Measured 2026-09-23 on Fedora 44 inside the published Flathub build
+    // (runtime pipewiresrc 1.4.9, host PipeWire 1.6.9, USB 2.0 camera): the
+    // old chain pinned `framerate=30/1` in the camera limits; it propagated
+    // up through videoscale/videorate into pipewiresrc, which asked PipeWire
+    // for a mode the camera lacks, and PipeWire refused with
+    // `error set output format: -22` — no capture buffer, camera_failed, on
+    // every Flathub install. Removing ONLY the fixed rate made the same chain
+    // negotiate (YUY2 640x480 at 30 on that camera, GRAY8 640x360 on its IR
+    // sensor). A caps list was measured too and is refused below: this
+    // element does not move past a first alternative the device cannot meet.
+    //
+    // The whole DESCRIPTION is checked, not the helpers alone, because a
+    // fixed rate anywhere in it reaches the source.
+    void thePortalCameraNeverPinsAFrameRateOnPipeWire()
+    {
+        const QString portalDescription =
+            SfuMediaEngine::videoPipelineDescription(
+                SfuMediaEngine::cameraSource(11),
+                SfuMediaEngine::cameraRateStage(true),
+                SfuMediaEngine::cameraLimitsCaps(true),
+                QStringLiteral("vp8enc"), QString(), 1234,
+                QStringLiteral("videoconvert ! videoscale"),
+                SfuMediaEngine::portalCameraEntry());
+        QVERIFY2(!portalDescription.contains(QStringLiteral("framerate")),
+                 qPrintable(QStringLiteral(
+                     "a fixed frame rate reaches pipewiresrc and PipeWire "
+                     "refuses the camera (-22): %1").arg(portalDescription)));
+
+        // ONE structure: a list dies on a camera that cannot meet its first
+        // alternative.
+        const QString entry = SfuMediaEngine::portalCameraEntry();
+        QVERIFY2(!entry.contains(QLatin1Char(';')),
+                 qPrintable(QStringLiteral("a caps list in front of "
+                                           "pipewiresrc: %1").arg(entry)));
+        QVERIFY(entry.contains(QStringLiteral("video/x-raw")));
+        // A RANGE with a floor: PipeWire fixates a range to its smallest
+        // mode, and without the floor that was 160x120.
+        QVERIFY(entry.contains(QStringLiteral("width=(int)[640,")));
+
+        // The rate is still bounded, just not pinned — and it is still the
+        // element other code finds by name.
+        const QString rate = SfuMediaEngine::cameraRateStage(true);
+        QVERIFY(rate.contains(QStringLiteral("max-rate=30")));
+        QVERIFY(rate.contains(QStringLiteral("name=vidrate")));
+        QVERIFY(rate.contains(QStringLiteral("skip-to-first=true")));
+
+        // THE DIRECT ROUTE IS UNCHANGED: v4l2src negotiates per mode itself
+        // and is the live-validated path.
+        QCOMPARE(SfuMediaEngine::cameraRateStage(false),
+                 SfuMediaEngine::videoRateStage(false));
+        QVERIFY(SfuMediaEngine::cameraLimitsCaps(false)
+                    .contains(QStringLiteral("framerate=(fraction)30/1")));
+    }
     void thePortalCameraIsNotOfferedTheMjpgChain()
     {
         const QByteArray source = SOURCE_UNDER_TEST;

@@ -3505,6 +3505,41 @@ QString SfuMediaEngine::videoRateStage(bool screenShare)
     return QStringLiteral("videorate name=vidrate skip-to-first=true");
 }
 
+QString SfuMediaEngine::portalCameraEntry()
+{
+    // ONE structure, never a list — see the header. [640,1920]x[360,1080]:
+    // the smallest mode inside it is what PipeWire picks, so the lower bound
+    // is the floor on quality (measured: a USB 2.0 camera lands on YUY2
+    // 640x480 at 30 fps where the old chain asked for 1280x720 at 30 and got
+    // nothing; a raw-only GRAY8 sensor lands on 640x360), and the upper bound
+    // still admits a camera whose only mode is 1080p.
+    return QStringLiteral(
+        "capsfilter caps=\"video/x-raw,width=(int)[640,1920],"
+        "height=(int)[360,1080],pixel-aspect-ratio=(fraction)1/1\"");
+}
+
+QString SfuMediaEngine::cameraLimitsCaps(bool portal)
+{
+    return portal
+        ? QStringLiteral("video/x-raw,width=(int)[1,1280],"
+                         "height=(int)[1,720],"
+                         "pixel-aspect-ratio=(fraction)1/1")
+        : QStringLiteral("video/x-raw,width=(int)[1,1280],"
+                         "height=(int)[1,720],"
+                         "framerate=(fraction)30/1,"
+                         "pixel-aspect-ratio=(fraction)1/1");
+}
+
+QString SfuMediaEngine::cameraRateStage(bool portal)
+{
+    // Same element, same name (other code finds it as `vidrate`), and the
+    // same skip-to-first — only the pinned rate becomes a ceiling.
+    return portal
+        ? QStringLiteral("videorate name=vidrate skip-to-first=true "
+                         "max-rate=30")
+        : videoRateStage(false);
+}
+
 namespace {
 
 /// One queue under test, and what the run measured.
@@ -4435,12 +4470,11 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     // follows the height at 16:9 and both remain RANGES, so the "never
     // upscaled" property above is unchanged: a 1280x800 window still
     // publishes at its own size under a 1440 ceiling.
+    // The camera on the xdg Camera portal's route: see portalCameraEntry().
+    const bool portalCamera = !screenShare && pipewireFd >= 0;
     const QString limits = screenShare
         ? shareLimitsCaps(m_shareMaxHeight, m_shareFps)
-        : QStringLiteral("video/x-raw,width=(int)[1,1280],"
-                         "height=(int)[1,720],"
-                         "framerate=(fraction)30/1,"
-                         "pixel-aspect-ratio=(fraction)1/1");
+        : cameraLimitsCaps(portalCamera);
     const QString encoder = screenShare
         ? shareEncoderStage(m_shareMaxHeight, m_shareFps)
         : QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=4 "
@@ -4538,12 +4572,21 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     // this machine: PipeWire's own camera source negotiates the device mode
     // on our behalf, so the bandwidth argument that justifies MJPG may not
     // even apply. Offering a chain on reasoning alone is how this lane lost
-    // two rounds to `min-buffers=8` and `keepalive-time=100`; the raw entry
-    // is what the portal path takes until somebody measures a real one.
+    // two rounds to `min-buffers=8` and `keepalive-time=100`.
+    //
+    // MEASURED SINCE (2026-09-23, Fedora 44, published Flathub build, USB 2.0
+    // camera): the portal node DOES offer MJPG beside YUY2 — but a caps LIST
+    // that puts MJPG first kills a raw-only camera (this pipewiresrc does not
+    // move past an alternative the device cannot satisfy), and the old raw
+    // entry died too, on the pinned frame rate. So the portal route stays on
+    // raw, as a single size RANGE with the rate capped rather than pinned:
+    // portalCameraEntry(). MJPG there needs the device's modes enumerated
+    // first (the pipewire device provider takes the portal fd) — not done.
     const bool tryJpeg =
         !screenShare && pipewireFd < 0 && jpegCameraChainAvailable();
-    QString entryInUse =
-        tryJpeg ? cameraJpegEntry() : captureEntryFilter(useGpu);
+    QString entryInUse = tryJpeg      ? cameraJpegEntry()
+                         : portalCamera ? portalCameraEntry()
+                                        : captureEntryFilter(useGpu);
     if (!screenShare) {
         // WHICH CHAIN THE CAMERA IS ON, said once, before anything can fail.
         //
@@ -4554,14 +4597,17 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         // better mode produce the same caps line, and telling them apart
         // cost a round trip with a tester. This says which chain was built.
         qCInfo(lcSfuMedia) << "camera chain="
-                           << (tryJpeg ? "mjpg" : "raw")
+                           << (tryJpeg        ? "mjpg"
+                               : portalCamera ? "portal-raw-range"
+                                              : "raw")
                            << "(jpeg elements"
                            << (jpegCameraChainAvailable() ? "present"
                                                           : "absent")
                            << ")";
     }
     QString description = videoPipelineDescription(
-        source, videoRateStage(screenShare), limits, encoder, selfView,
+        source, screenShare ? videoRateStage(true) : cameraRateStage(portalCamera),
+            limits, encoder, selfView,
         nextPublishSsrc(), scaleStageInUse, entryInUse);
 
     GError *error = nullptr;
@@ -4581,7 +4627,8 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         }
         entryInUse = captureEntryFilter(useGpu);
         description = videoPipelineDescription(
-            source, videoRateStage(screenShare), limits, encoder, selfView,
+            source, screenShare ? videoRateStage(true) : cameraRateStage(portalCamera),
+            limits, encoder, selfView,
             nextPublishSsrc(), scaleStageInUse, entryInUse);
         bin = gst_parse_bin_from_description(description.toUtf8().constData(),
                                              TRUE, &error);
@@ -4602,7 +4649,8 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         useGpu = false;
         scaleStageInUse = cpuScaleStage;
         description = videoPipelineDescription(
-            source, videoRateStage(screenShare), limits, encoder, selfView,
+            source, screenShare ? videoRateStage(true) : cameraRateStage(portalCamera),
+            limits, encoder, selfView,
             nextPublishSsrc(), scaleStageInUse, captureEntryFilter(false));
         bin = gst_parse_bin_from_description(description.toUtf8().constData(),
                                              TRUE, &error);

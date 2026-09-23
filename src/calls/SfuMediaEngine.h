@@ -402,6 +402,34 @@ public:
     /// arrived — which, on a screen nobody is touching, is however long the
     /// user waits.
     static QString videoRateStage(bool screenShare);
+    /// THE CAMERA ON THE xdg CAMERA PORTAL'S ROUTE (a Flatpak), whose source
+    /// is `pipewiresrc fd=` and whose capture must be negotiated WITHOUT a
+    /// fixed frame rate reaching that element.
+    ///
+    /// Measured 2026-09-23 on Fedora 44 inside the published Flathub build
+    /// (runtime gst-plugin-pipewire 1.4.9, host PipeWire 1.6.9), against a
+    /// USB 2.0 camera: any downstream `framerate=30/1` propagates up through
+    /// videoscale/videorate to `pipewiresrc`, which then asks PipeWire for a
+    /// mode the camera does not have (YUY2 1280x720 is 10 fps on it), and
+    /// PipeWire refuses: `error set output format: -22 (Invalid argument)`,
+    /// no capture buffer, camera_failed. The same chain WITHOUT the fixed
+    /// rate negotiated. A caps LIST ("MJPG 720p, else raw") is no cure: this
+    /// element does not move past a first alternative the camera cannot
+    /// satisfy, measured with the laptop's IR sensor (GRAY8 only).
+    ///
+    /// So the portal route gets ONE raw structure with a size RANGE —
+    /// PipeWire fixates a range to its smallest supported mode, and the
+    /// lower bound is what keeps that from being a thumbnail — the rate
+    /// capped by `videorate max-rate` instead of pinned, and limits with no
+    /// frame rate. The direct `v4l2src` route is unchanged: it negotiates
+    /// per mode itself and is the live-validated one.
+    static QString portalCameraEntry();
+    /// The camera's size ceiling. `portal` drops the pinned frame rate (see
+    /// portalCameraEntry()); the direct route keeps `framerate=30/1`.
+    static QString cameraLimitsCaps(bool portal);
+    /// The camera's rate stage. `portal` caps the rate (`max-rate=30`)
+    /// rather than pinning it; the direct route is videoRateStage(false).
+    static QString cameraRateStage(bool portal);
     /// The name of the `volume` element in the receive bin carrying one
     /// stream. Public and static so the bin that CREATES it and the lookup
     /// that FINDS it share one derivation — they did not, and per-participant
