@@ -368,6 +368,77 @@ Flickable {
         QCOMPARE(wheel->property("glideDirection").toInt(), 0);
     }
 
+    // A TOUCHPAD FRAME WITH NO WHOLE PIXEL IS NOT A WHEEL NOTCH.
+    //
+    // Qt Wayland rounds each finger-scroll frame to whole pixels, carries the
+    // remainder, and ALSO sends angleDelta on every frame — so a slow swipe
+    // arrives as mostly `pixelDelta 0, angleDelta ±1` frames WITH a scroll
+    // phase. Measured on the Fedora 44 laptop, 2026-09-23. This component
+    // sent those to the notch glide, so a slow swipe travelled ~20x the
+    // finger, in jerks. The phase is what tells a touchpad from a wheel (a
+    // wheel is always NoScrollPhase, on every platform).
+    //
+    // UNFIXED TREE: fails — the phased zero-pixel frames start a glide.
+    void aPhasedTouchpadFrameWithNoWholePixelNeverGlides()
+    {
+        QQmlEngine engine;
+        SettingsManager settings;
+        // SET it, never assume the default: the case above turns smooth
+        // scrolling OFF through QSettings, which persists across cases.
+        settings.setSmoothScrolling(true); // the glide path is the one at risk
+        TimelineScrollController scroll;
+        AppStub app(&settings, &scroll);
+        engine.rootContext()->setContextProperty(QStringLiteral("app"), &app);
+
+        QQmlComponent component(&engine);
+        component.setData(R"(
+import QtQuick
+import MatrixClient
+Flickable {
+    width: 200; height: 100
+    contentWidth: 200; contentHeight: 4000
+    SmoothWheelArea { objectName: "wheel" }
+}
+)", QUrl(QStringLiteral("qrc:/inlinePhased.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY(root != nullptr);
+        auto *view = qobject_cast<QQuickItem *>(root.get());
+        QVERIFY(view != nullptr);
+        QQuickWindow window;
+        window.resize(200, 100);
+        view->setParentItem(window.contentItem());
+        window.show();
+        QCoreApplication::processEvents();
+        QObject *wheel = root->findChild<QObject *>(QStringLiteral("wheel"));
+        QVERIFY(wheel != nullptr);
+
+        const QPointF pos(100.0, 50.0);
+        for (int i = 0; i < 8; ++i) {
+            QWheelEvent frame(pos, window.mapToGlobal(pos.toPoint()),
+                              QPoint(0, 0), QPoint(0, -1), Qt::NoButton,
+                              Qt::NoModifier,
+                              i == 0 ? Qt::ScrollBegin : Qt::ScrollUpdate,
+                              false);
+            QCoreApplication::sendEvent(&window, &frame);
+        }
+        QCoreApplication::processEvents();
+        QCOMPARE(wheel->property("glideDirection").toInt(), 0);
+        QTest::qWait(150); // long enough for any glide to have moved
+        QCOMPARE(root->property("contentY").toReal(), 0.0);
+
+        // CONTROL: the same component still glides for a real wheel notch,
+        // so the assertions above cannot pass by scrolling being disabled.
+        QWheelEvent notch(pos, window.mapToGlobal(pos.toPoint()), QPoint(0, 0),
+                          QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
+                          Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(&window, &notch);
+        QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(root->property("contentY").toReal() > 0.0,
+                                 2000);
+    }
+
     void aVerticalWheelEventScrollsAHorizontalStrip()
     {
         QQmlEngine engine;

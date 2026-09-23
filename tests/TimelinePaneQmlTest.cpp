@@ -3218,6 +3218,96 @@ private Q_SLOTS:
         QVERIFY2(left, "an upward touchpad delta must leave follow-latest");
     }
 
+    // Regression (2026-09-23, laptop): a SLOW touchpad swipe on Wayland is
+    // mostly frames of `pixelDelta 0, angleDelta ±1, phase ScrollUpdate` —
+    // Qt Wayland rounds each finger frame to whole pixels, carries the
+    // remainder, and still sends angleDelta = delta * 12. Measured through a
+    // WheelHandler on Qt 6.11.2 / KWin 6.7: an 8 mm, 1 s swipe is 0.12 px per
+    // frame on the wire. Those frames used to take the NOTCH branch, each one
+    // a glide of 1/120 of a notch that the next px!=0 frame cancelled. A
+    // zero-pixel frame of a phased gesture must move nothing and must never
+    // reach the notch path, while a phase-less wheel notch (a real mouse
+    // wheel, which Wayland ALSO labels TouchPad) keeps its glide.
+    //
+    // The branch is read from the trace counters (diagNoteEvent(true) is the
+    // pixel branch, (false) the notch branch), and the phase-less control
+    // proves the fixture can reach the notch branch at all.
+    void touchpadZeroPixelFramesNeverEngageTheNotchGlide()
+    {
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+        struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
+
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QObject *timeline = root->findChild<QObject *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 480);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+
+        const QPointF pos(320, 300);
+        auto send = [&](QPoint pixel, QPoint angle, Qt::ScrollPhase phase) {
+            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()), pixel,
+                              angle, Qt::NoButton, Qt::NoModifier, phase,
+                              /*inverted=*/false);
+            QCoreApplication::sendEvent(&window, &wheel);
+            QCoreApplication::processEvents();
+        };
+        auto counter = [&](const char *name) {
+            return timeline->property(name).toInt();
+        };
+
+        // Zero-pixel frames of a phased (continuous) gesture, both directions.
+        const double before = timeline->property("contentY").toDouble();
+        for (int attempt = 0; attempt < 50 && counter("diagEvents") < 6;
+             ++attempt) {
+            send(QPoint(0, 0), QPoint(0, 1), Qt::ScrollUpdate);
+            send(QPoint(0, 0), QPoint(0, -1), Qt::ScrollUpdate);
+            if (counter("diagEvents") < 6)
+                QTest::qWait(10);
+        }
+        QVERIFY2(counter("diagEvents") >= 6,
+                 "the fixture never delivered a wheel event to the handler");
+        QCOMPARE(counter("diagAngleEvents"), 0);
+        QCOMPARE(counter("diagPixelEvents"), counter("diagEvents"));
+        QCOMPARE(controller.timelineScroll()->motionActive(), false);
+        QCOMPARE(timeline->property("contentY").toDouble(), before);
+
+        // Control: a phase-less notch (a mouse wheel) still takes the notch
+        // branch — otherwise the assertions above could pass on a handler
+        // that never reaches it for any input.
+        const int anglesBefore = counter("diagAngleEvents");
+        for (int attempt = 0;
+             attempt < 50 && counter("diagAngleEvents") == anglesBefore;
+             ++attempt) {
+            send(QPoint(0, 0), QPoint(0, 120), Qt::NoScrollPhase);
+            if (counter("diagAngleEvents") == anglesBefore)
+                QTest::qWait(10);
+        }
+        QVERIFY2(counter("diagAngleEvents") > anglesBefore,
+                 "a phase-less wheel notch must still take the notch branch");
+    }
+
     // Native-touchpad architecture pass: a high-resolution touchpad gesture
     // must open a scroll SESSION (userScrollActive) that gates every deferred
     // position correction, and that session must CLEAR once input stops so

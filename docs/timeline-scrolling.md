@@ -400,3 +400,47 @@ had no reachable fixture at the QML layer. `setFilteredPaginationPagesForTest`
 is that fixture now. GENERALISE: before concluding a defect is untestable,
 check whether the harness can even REPRESENT the input. Detail in
 `docs/round-history.md`, 2026-09-16.
+
+## Touchpad input: a zero-pixel frame is not a notch (2026-09-23)
+
+**Reported:** scrolling "feels quite bad" on the laptop (Flathub 0.9.9, KDE
+Plasma 6.7 Wayland, Lunar Lake iGPU, touchpad with KDE `ScrollFactor=0.1`).
+
+**Refuted first, with measurements on that laptop.** Software rendering:
+`scene graph backend=opengl`, `Mesa Intel(R) Graphics (LNL)`, threaded render
+loop. Frame cost: `QSG_RENDER_TIMING` during wheel motion 59.7 fps, frame
+interval p50 16 / p99 18 ms, polish <= 6 ms, render thread <= 17 ms (the vsync
+swap). Package format: the AppImage (Qt 6.8.2) shows the identical signature
+to the Flatpak (Qt 6.11.2). Neither is the cause. Large-room frame cost was NOT
+measured there (no long room on the test accounts).
+
+**The cause is the input mapping.** Qt Wayland (identical code in 6.8.2 and
+6.11.2, read from source) turns each finger-scroll frame into
+`pixelDelta = round(delta + carried remainder)` AND `angleDelta = delta * 12`.
+A slow finger, or any ScrollFactor below 1, sends sub-pixel frames: an 8 mm/1 s
+swipe on this machine is `wl_pointer.axis` 0.121 px per frame, so most frames
+arrive as `px=0 ang=±1`. The WheelHandler routed every `pixelDelta == 0` frame
+to the NOTCH glide, i.e. `|ang|/120` of a notch (a third of the viewport),
+animated — and the next `px=±1` frame cancelled it. Captured with
+`LIGHTNING_SCROLL_TRACE=1` on the shipped Flatpak, gestures replayed through a
+uinput clone of the touchpad (same bus/vendor/product/name, so KWin applies the
+same ScrollFactor):
+
+| Gesture | trace line | moved |
+|---|---|---|
+| brisk 20 mm / 300 ms | `events=34 pixel=34 angle=0` | 33 px |
+| slow 8 mm / 1000 ms | `events=105 pixel=13 angle=92` | 312-342 px |
+
+A slower, shorter swipe travelled ten times farther, in glide-stop-glide jerks.
+**`angle > 0` beside `pixel > 0` in ONE gesture is the signature** to look for
+in any future trace.
+
+**Fix:** a frame with a scroll `phase` (continuous source) is pixel input even
+when its pixelDelta is 0 — it moves nothing, and Qt's remainder carries it.
+**`phase` is the discriminator, NOT `event.device.type`**: on a seat with
+pointer gestures Qt Wayland labels a plain mouse WHEEL `PointerDevice.TouchPad`
+as well (measured: a ydotool wheel arrives `dev=4 phase=0`). A wheel is always
+`NoScrollPhase`, and so are X11 and Windows touchpads, which keep their path.
+Also, Qt drops a finger frame outright when `angleDelta` rounds to 0
+(`|delta| < 1/24 px`) — upstream behaviour, nothing here can recover it.
+`ThreadPanel.qml` and `SmoothWheelArea.qml` carry the same routing.

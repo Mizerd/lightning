@@ -213,7 +213,14 @@ WheelHandler {
             ? event.angleDelta.y
             : (root.horizontal ? event.angleDelta.x : 0)
 
-        if (pixels !== 0) {
+        // A phased frame is a TOUCHPAD frame even at 0 whole pixels (Qt
+        // Wayland rounds per frame, carries the remainder, and still sends
+        // angleDelta). Sending those px=0 frames down the notch glide below
+        // made a slow swipe travel ~20x the finger (measured 2026-09-23; see
+        // TimelinePane.qml and docs/timeline-scrolling.md). A wheel never has
+        // a phase on any platform, so it keeps the notch path.
+        var continuousSource = event.phase !== Qt.NoScrollPhase
+        if (pixels !== 0 || (continuousSource && angle !== 0)) {
             // High-resolution touchpad / precision wheel: apply the
             // platform's own delta directly, exactly like
             // TimelineScrollController::pixelTargetY — no coalesced glide

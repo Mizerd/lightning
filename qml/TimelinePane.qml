@@ -5139,13 +5139,43 @@ Rectangle {
                         if (towardsOlder && !canMove && maxY <= minY + 0.5
                                 && app.pagination && !app.pagination.reachedStart)
                             app.pagination.requestNearTop(true)
-                        if (event.pixelDelta.y !== 0) {
+                        // A CONTINUOUS source (a touchpad on Wayland, any
+                        // phased scroll on macOS) is pixel input for its WHOLE
+                        // gesture, including the events whose pixelDelta is 0.
+                        //
+                        // Qt Wayland rounds each finger-scroll frame to whole
+                        // pixels and carries the remainder to the next frame,
+                        // but ALSO sends angleDelta = delta * 12 on every
+                        // frame. A slow finger (or a KDE touchpad ScrollFactor
+                        // below 1) therefore produces mostly `px=0 ang=±1`
+                        // frames with a `px=±1` frame every few — measured on
+                        // the laptop 2026-09-23 (Qt 6.11.2, KWin 6.7): an
+                        // 8 mm/1 s swipe is 0.12 px per frame on the wire.
+                        // Routing the px=0 frames to the NOTCH glide below
+                        // turned each into |ang|/120 of a notch (~2-3 px,
+                        // animated, ~20x the finger's travel) which the next
+                        // px!=0 frame then cancelled: a slow swipe scrolled
+                        // farther than a brisk one, in glide-stop-glide jerks.
+                        // A zero-pixel continuous frame is "no whole pixel yet"
+                        // — Qt's remainder already carries it into the next
+                        // frame — so it moves nothing and is never a notch.
+                        //
+                        // `phase` is the discriminator, NOT event.device.type:
+                        // on a seat with pointer gestures Qt Wayland reports a
+                        // plain mouse WHEEL as PointerDevice.TouchPad too
+                        // (measured: ydotool wheel -> dev=4, phase=0). A wheel
+                        // (discrete axis source) is always NoScrollPhase; X11
+                        // and Windows touchpads are NoScrollPhase as well, so
+                        // they keep exactly the path they had.
+                        var continuousSource = event.phase !== Qt.NoScrollPhase
+                        if (event.pixelDelta.y !== 0
+                                || (continuousSource && event.angleDelta.y !== 0)) {
                             timeline.cancelWheelMotion()
                             timeline.contentY = app.timelineScroll.pixelTargetY(
                                 -event.pixelDelta.y, timeline.contentY,
                                 minY, maxY)
                             timeline.updateStickAndPaginate(canMove)
-                            if (event.pixelDelta.y > 0 && canMove)
+                            if (towardsOlder && canMove)
                                 timeline.stickToBottom = false
                             timeline.diagNoteEvent(true)
                             scrollSettleTimer.restart()

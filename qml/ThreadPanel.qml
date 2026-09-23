@@ -884,7 +884,18 @@ Rectangle {
                     onWheel: (event) => {
                         var minY = replyList.wheelMinY()
                         var maxY = replyList.wheelMaxY()
-                        if (event.pixelDelta.y !== 0) {
+                        // A phased frame is a TOUCHPAD frame even when it
+                        // carries 0 whole pixels: Qt Wayland rounds each frame
+                        // to pixels, carries the remainder, and still sends
+                        // angleDelta. Treating those px=0 frames as wheel
+                        // notches made a slow swipe glide ~20x farther than
+                        // the finger moved (measured on the laptop,
+                        // 2026-09-23; see TimelinePane.qml's wheel handler and
+                        // docs/timeline-scrolling.md). A wheel never has a
+                        // phase, on any platform, so it keeps the notch path.
+                        var continuousSource = event.phase !== Qt.NoScrollPhase
+                        if (event.pixelDelta.y !== 0
+                                || (continuousSource && event.angleDelta.y !== 0)) {
                             app.threadScroll.cancel()
                             replyList.contentY = app.threadScroll.pixelTargetY(
                                 event.pixelDelta.y, replyList.contentY,
@@ -893,7 +904,8 @@ Rectangle {
                             // Upward touchpad intent leaves follow-latest, as
                             // in the mouse branch — otherwise a near-bottom
                             // up-scroll could not disengage.
-                            if (event.pixelDelta.y > 0)
+                            if (event.pixelDelta.y > 0
+                                    || (continuousSource && event.angleDelta.y > 0))
                                 replyList.followLatest = false
                         } else if (event.angleDelta.y !== 0) {
                             app.threadScroll.wheelNotch(
