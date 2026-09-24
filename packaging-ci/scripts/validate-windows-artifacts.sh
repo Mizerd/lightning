@@ -410,8 +410,8 @@ word_count="$(sed -n 's/^Source: \([0-9][0-9]*\).*/\1/p' "$REPORTS/msi-summary.t
 for table in CustomAction InstallExecuteSequence InstallUISequence Component; do
     msiinfo export "$msi" "$table" >"$REPORTS/msi-${table}.idt"
 done
-grep -Fxq $'LightningPerMachineProgramsDir\t51\tProgramsDir\t[ProgramFiles64Folder]\t' \
-    "$REPORTS/msi-CustomAction.idt" || \
+tr -d '\r' <"$REPORTS/msi-CustomAction.idt" | \
+    grep -Fxq $'LightningPerMachineProgramsDir\t51\tProgramsDir\t[ProgramFiles64Folder]\t' || \
     die "MSI has no per-machine directory action; ALLUSERS=1 would install per-machine into a per-user path"
 for table in InstallExecuteSequence InstallUISequence; do
     grep -Eq $'^LightningPerMachineProgramsDir\tALLUSERS=1\t' "$REPORTS/msi-${table}.idt" || \
@@ -423,14 +423,14 @@ done
 for pair in 'InstallScopeMarker_user:NOT ALLUSERS=1' 'InstallScopeMarker_machine:ALLUSERS=1' \
             'StartMenuShortcutComponent:NOT ALLUSERS=1' 'StartMenuShortcutMachineComponent:ALLUSERS=1'; do
     component="${pair%%:*}"; condition="${pair#*:}"
-    awk -F'\t' -v c="$component" -v k="$condition" '$1 == c && $5 == k {found=1} END {exit !found}' \
+    awk -F'\t' -v c="$component" -v k="$condition" '{sub(/\r$/, "")} $1 == c && $5 == k {found=1} END {exit !found}' \
         "$REPORTS/msi-Component.idt" || die "MSI component $component is missing or not conditioned on '$condition'"
 done
 [[ "$(grep -c $'\t.lightning-install-scope\t' "$REPORTS/msi-File.idt" || true)" -eq 2 ]] || \
     die "MSI must carry exactly two .lightning-install-scope files (one per scope)"
 # The updater believes a "machine" marker only when HKLM names the directory
 # (the marker is user-writable in a per-user install). Root 2 = HKLM.
-awk -F'\t' '$2 == 2 && $4 == "MsiInstallDir" && $5 == "[INSTALLFOLDER]" && $6 == "StartMenuShortcutMachineComponent" {found=1} END {exit !found}' \
+awk -F'\t' '{sub(/\r$/, "")} $2 == 2 && $4 == "MsiInstallDir" && $5 == "[INSTALLFOLDER]" && $6 == "StartMenuShortcutMachineComponent" {found=1} END {exit !found}' \
     "$REPORTS/msi-Registry.idt" || die "MSI does not record its per-machine directory as HKLM MsiInstallDir"
 upgrade_code="$(jq -er '.upgrade_code' "$REPORTS/msi-identity.json")"
 grep -Fq "$upgrade_code" "$REPORTS/msi-Upgrade.idt" || die "MSI UpgradeCode mismatch"
