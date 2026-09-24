@@ -66,8 +66,10 @@ modules:
       - type: archive
         url: https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-1.26.11.tar.xz
         sha256: 001deb0876d5d743cd3448abf74a27adec3fd850012fcb1b00994861bd6c1145
-    # Not /share: flatpak-builder installs the module's LGPL licence text to
-    # /app/share/licenses, and it must ship with the binary.
+    # The LGPL licence text ships with the binary. Installed explicitly:
+    # flatpak-builder only does it on its own from a later version than CI's.
+    post-install:
+      - install -Dm644 ${FLATPAK_BUILDER_BUILDDIR}/COPYING /app/share/licenses/${FLATPAK_ID}/gst-ximagesrc/COPYING
     cleanup:
       - /include
       - /lib/pkgconfig
