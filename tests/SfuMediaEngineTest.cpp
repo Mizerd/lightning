@@ -210,6 +210,118 @@ private:
     LogCapture *m_outer = nullptr;
 };
 
+/// THE REAL DECRYPT PROBE, fed hand-built frames: appsrc -> fakesink with
+/// SfuMediaEngine's own receive probe installed on the appsrc's src pad
+/// (installDecryptProbeForTest, which calls the production installer).
+///
+/// Exists because a server-injected frame is something only an SFU writes:
+/// a two-engine loopback never produces one, and a test of a classification
+/// FUNCTION alone proves nothing about whether the probe reaches it (§16's
+/// row-window lesson). Everything asserted through this goes through the
+/// same branch a live call does.
+class DecryptProbeRig
+{
+public:
+    DecryptProbeRig(SfuMediaEngine &engine, const QString &streamId,
+                    bool video = false)
+    {
+        m_pipeline = gst_pipeline_new(nullptr);
+        m_src = gst_element_factory_make("appsrc", nullptr);
+        GstElement *sink = gst_element_factory_make("fakesink", nullptr);
+        if (!m_pipeline || !m_src || !sink)
+            return;
+        g_object_set(m_src, "format", GST_FORMAT_TIME, nullptr);
+        g_object_set(sink, "sync", FALSE, "async", FALSE, nullptr);
+        gst_bin_add_many(GST_BIN(m_pipeline), m_src, sink, nullptr);
+        if (!gst_element_link(m_src, sink))
+            return;
+        GstPad *srcPad = gst_element_get_static_pad(m_src, "src");
+        engine.installDecryptProbeForTest(srcPad, video, streamId);
+        // Counts what the probe let THROUGH, downstream of it.
+        GstPad *sinkPad = gst_element_get_static_pad(sink, "sink");
+        m_passed = new std::atomic<int>(0);
+        gst_pad_add_probe(
+            sinkPad, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                static_cast<std::atomic<int> *>(data)->fetch_add(1);
+                return GST_PAD_PROBE_OK;
+            },
+            m_passed,
+            [](gpointer data) { delete static_cast<std::atomic<int> *>(data); });
+        m_passedView = m_passed;
+        gst_object_unref(sinkPad);
+        gst_object_unref(srcPad);
+        m_ok = gst_element_set_state(m_pipeline, GST_STATE_PLAYING)
+            != GST_STATE_CHANGE_FAILURE;
+    }
+    ~DecryptProbeRig() { finish(); }
+
+    bool ok() const { return m_ok; }
+    void push(const QByteArray &frame)
+    {
+        GstBuffer *buffer = gst_buffer_new_allocate(
+            nullptr, static_cast<gsize>(frame.size()), nullptr);
+        gst_buffer_fill(buffer, 0, frame.constData(),
+                        static_cast<gsize>(frame.size()));
+        GST_BUFFER_PTS(buffer) = m_pts;
+        GST_BUFFER_DURATION(buffer) = 20 * GST_MSECOND;
+        m_pts += 20 * GST_MSECOND;
+        gst_app_src_push_buffer(GST_APP_SRC(m_src), buffer); // takes it
+    }
+    /// Push EOS and wait for it at the sink: every frame pushed before it
+    /// has then been through the probe, on appsrc's own streaming thread.
+    bool drain()
+    {
+        gst_app_src_end_of_stream(GST_APP_SRC(m_src));
+        GstBus *bus = gst_element_get_bus(m_pipeline);
+        GstMessage *msg = gst_bus_timed_pop_filtered(
+            bus, 10 * GST_SECOND,
+            static_cast<GstMessageType>(GST_MESSAGE_EOS | GST_MESSAGE_ERROR));
+        const bool eos = msg && GST_MESSAGE_TYPE(msg) == GST_MESSAGE_EOS;
+        if (msg)
+            gst_message_unref(msg);
+        gst_object_unref(bus);
+        return eos;
+    }
+    int passed() const { return m_passedView ? m_passedView->load() : -1; }
+    /// Tear down, which frees the probe context (its final summary line).
+    void finish()
+    {
+        if (!m_pipeline)
+            return;
+        gst_element_set_state(m_pipeline, GST_STATE_NULL);
+        gst_object_unref(m_pipeline);
+        m_pipeline = nullptr;
+        m_passedView = nullptr;
+    }
+
+private:
+    GstElement *m_pipeline = nullptr;
+    GstElement *m_src = nullptr;
+    std::atomic<int> *m_passed = nullptr;       // owned by the probe
+    std::atomic<int> *m_passedView = nullptr;   // null once torn down
+    GstClockTime m_pts = 0;
+    bool m_ok = false;
+};
+
+/// livekit-server's `OpusSilenceFrame` (pkg/sfu/downtrack.go): f8 ff fe and
+/// 77 zeros -- what the SFU injects into an audio track on a mute.
+QByteArray opusSilenceFrame()
+{
+    QByteArray silence(80, '\0');
+    silence[0] = char(0xf8);
+    silence[1] = char(0xff);
+    silence[2] = char(0xfe);
+    return silence;
+}
+
+/// A livekit-shaped room trailer (base62, 43 bytes) whose last byte is 'R',
+/// 82 -- the `keyIndex= 82` of the 2026-09-23 Firefox report.
+QByteArray roomTrailer()
+{
+    return QByteArray("k3P9dQ2mZ7xW4vB8nT1cY6hJ0fL5sG2aE9rU3oKqXiR");
+}
+
 class SfuMediaEngineTest : public QObject
 {
     Q_OBJECT
@@ -317,6 +429,32 @@ private slots:
         }
         QCOMPARE(spy.count(), 0);
         QVERIFY(!engine.microphoneSilentForTest());
+    }
+
+    // Muting clears a raised notice at once. `level` sits after the valve,
+    // so a muted capture posts no levels and the muted branch of
+    // handleMicLevelAt() is never reached (seen live: the badge stayed up
+    // for over a minute after muting). FAIL-ON-OLD: no clear on mute.
+    void mutingClearsARaisedSilenceNoticeWithoutAnotherLevelReport()
+    {
+        SfuMediaEngine engine;
+        QSignalSpy spy(&engine, &SfuMediaEngine::localAudioSilent);
+        for (qint64 t = 0; t <= SfuMediaEngine::kMicSilenceWindowMs; t += 200)
+            engine.handleMicLevelAt(-350.0, t);
+        QVERIFY(engine.microphoneSilentForTest());
+        QCOMPARE(spy.count(), 1);
+
+        engine.setMicrophoneMuted(true);
+        QVERIFY(!engine.microphoneSilentForTest());
+        QCOMPARE(spy.count(), 2);
+        QCOMPARE(spy.takeLast().at(0).toBool(), false);
+
+        // Unmuting starts a fresh window: one silent report is not a verdict.
+        engine.setMicrophoneMuted(false);
+        engine.handleMicLevelAt(-350.0,
+                                SfuMediaEngine::kMicSilenceWindowMs + 5000);
+        QVERIFY(!engine.microphoneSilentForTest());
+        QCOMPARE(spy.count(), 1);
     }
 
     // The threshold, stated as a boundary rather than as a number in prose.
@@ -707,7 +845,9 @@ private slots:
         engine.setTestSourceMode(true);
         engine.start();
         engine.setOutboundKey(-1, QByteArray(32, 'k'));
-        engine.setOutboundKey(99, QByteArray(32, 'k'));
+        // 256, not 99: the ring is 256 indices since 2026-09-23 (element-call
+        // rotates modulo 256), so 99 is a legal index now.
+        engine.setOutboundKey(256, QByteArray(32, 'k'));
         QVERIFY(!engine.encryptionActive());
         engine.stop();
     }
@@ -5064,6 +5204,263 @@ private slots:
         // And once a distribution really reaches someone, we move.
         engine.setOutboundKey(3, QByteArray(32, 'c'), /*adopt=*/true);
         QCOMPARE(engine.adoptedOutboundKeyIndexForTest(), 3);
+    }
+
+    // 2026-09-23 — THE SFU'S OWN FRAMES ARE NOT A DECRYPTION FAILURE.
+    //
+    // livekit-server injects 50 unencrypted Opus silence frames into an
+    // encrypted track when its publisher mutes, each ending in the room's
+    // `sif_trailer`. This probe used to fail every one as `bad-iv-length`
+    // (keyIndex = the trailer's last byte), spend the stream's diagnosis line
+    // on it, and count all 50 toward the "cannot be decrypted" badge -- which
+    // a DTX-sparse stream then tips over 90%: five real frames and a mute is
+    // 50 of 55. Driven through the REAL probe.
+    //
+    // MUTATION-PROVEN (2026-09-23): with the classification in cryptoProbe()
+    // disabled this fails at framesServerInjected (0); with injected frames
+    // counted but still fed to the badge window it fails at the badge
+    // assertion ("raised the badge: undecryptable").
+    void aServerInjectedBurstIsDroppedApartAndNeverBadges()
+    {
+        SfuMediaEngine engine;
+        const QString stream = QStringLiteral("PA_sif");
+        const QByteArray key(16, 'e');
+        engine.setEncryptionRequired(true);
+        engine.setInboundKey(stream, 82, key);
+        engine.setServerInjectedTrailer(roomTrailer());
+        QCOMPARE(engine.serverInjectedTrailer(), roomTrailer());
+
+        // A sender under the SAME key at index 82, so every real frame ends
+        // in 'R' exactly as the trailer does: only an exact match separates
+        // them.
+        CallFrameCryptor sender;
+        QVERIFY(sender.setKey(82, key));
+        sender.setCurrentKeyIndex(82);
+
+        QSignalSpy blocked(&engine, &SfuMediaEngine::remoteMediaBlocked);
+        LogCapture log;
+        DecryptProbeRig rig(engine, stream);
+        QVERIFY(rig.ok());
+        for (int i = 0; i < 5; ++i) {
+            rig.push(sender.encryptFrame(
+                QByteArray("\x01") + QByteArray(40, char('a' + i)),
+                CallFrameCryptor::FrameKind::Audio, 9,
+                static_cast<quint32>(960 * i)));
+        }
+        for (int i = 0; i < 50; ++i)
+            rig.push(opusSilenceFrame() + roomTrailer());
+        QVERIFY(rig.drain());
+
+        QCOMPARE(engine.framesServerInjected(), quint64(50));
+        QCOMPARE(engine.framesDecrypted(), quint64(5));
+        QVERIFY2(engine.framesDropped() == 0,
+                 qPrintable(QStringLiteral("server-injected frames were "
+                                           "counted as drops: %1\n%2")
+                                .arg(engine.framesDropped())
+                                .arg(log.text())));
+        // Dropped, NOT handed to the decoder: the SFU is outside the trust
+        // boundary and nothing here whitelists its payloads.
+        QCOMPARE(rig.passed(), 5);
+        QVERIFY2(!log.contains("will not DECRYPT"),
+                 qPrintable(log.text()));
+        QVERIFY(log.contains("SERVER-INJECTED"));
+        // The badge verdict is queued to the engine's thread.
+        QTest::qWait(100);
+        for (const QList<QVariant> &call : blocked) {
+            QVERIFY2(call.at(1).toString().isEmpty(),
+                     qPrintable(QStringLiteral(
+                         "a mute's injected frames raised the badge: %1")
+                                    .arg(call.at(1).toString())));
+        }
+        // Positive control: the same harness DOES see a raise when frames
+        // really fail, so the silence above is not a dead signal path.
+        {
+            QSignalSpy control(&engine, &SfuMediaEngine::remoteMediaBlocked);
+            DecryptProbeRig failing(engine, stream);
+            QVERIFY(failing.ok());
+            for (int i = 0; i < 60; ++i)
+                failing.push(QByteArray(60, char('a' + i % 20)));
+            QVERIFY(failing.drain());
+            QTRY_VERIFY_WITH_TIMEOUT(control.count() > 0, 2000);
+            QCOMPARE(control.first().at(1).toString(),
+                     QStringLiteral("undecryptable"));
+        }
+
+        // The burst length and the histogram reach the log when the stream
+        // ends -- a muted sender sends nothing after the burst, so no later
+        // frame would ever write them.
+        rig.finish();
+        QVERIFY2(log.contains("server-injected burst")
+                     && log.text().contains(QRegularExpression(
+                         QStringLiteral("frames= 50\\b"))),
+                 qPrintable(log.text()));
+        QVERIFY2(log.text().contains(QRegularExpression(
+                     QStringLiteral("decrypt histogram final.*sif= 50"))),
+                 qPrintable(log.text()));
+    }
+
+    // CONTROL: the SAME frames with NO trailer armed still fail exactly as
+    // the 2026-09-23 report did. Without this the case above could pass on a
+    // probe that simply stopped looking at failures.
+    void withoutATrailerTheSameFramesStillFailAsBadIvLength()
+    {
+        SfuMediaEngine engine;
+        const QString stream = QStringLiteral("PA_nosif");
+        engine.setEncryptionRequired(true);
+        engine.setInboundKey(stream, 0, QByteArray(16, 'e'));
+        QVERIFY(engine.serverInjectedTrailer().isEmpty());
+
+        LogCapture log;
+        DecryptProbeRig rig(engine, stream);
+        QVERIFY(rig.ok());
+        for (int i = 0; i < 50; ++i)
+            rig.push(opusSilenceFrame() + roomTrailer());
+        QVERIFY(rig.drain());
+
+        QCOMPARE(engine.framesServerInjected(), quint64(0));
+        QCOMPARE(engine.framesDropped(), quint64(50));
+        QCOMPARE(rig.passed(), 0);
+        QVERIFY2(log.contains("will not DECRYPT: reason= bad-iv-length "
+                              "keyIndex= 82"),
+                 qPrintable(log.text()));
+        // The new detail line names the shape a capture needs: the LiveKit
+        // silence payload, a base62 tail, and a trailer that was not armed.
+        QVERIFY2(log.text().contains(QRegularExpression(QStringLiteral(
+                     "decrypt failed detail .*reason= bad-iv-length size= 123 "
+                     "ivLenByte= \\d+ keyIndexByte= 82 .*silenceShape= true "
+                     "tailBase62= true sifArmed= false"))),
+                 qPrintable(log.text()));
+        // Bounded: five detail lines for fifty failures of one reason, plus
+        // the shouldReport() count at 10.
+        QCOMPARE(log.count("decrypt failed detail"), 6);
+    }
+
+    // AN OVERSIZED OR ABSENT TRAILER DISARMS; A CALL'S TRAILER DIES WITH IT.
+    void theTrailerIsBoundedAndClearedWithTheKeys()
+    {
+        SfuMediaEngine engine;
+        engine.setServerInjectedTrailer(roomTrailer());
+        QCOMPARE(engine.serverInjectedTrailer(), roomTrailer());
+        engine.setServerInjectedTrailer(
+            QByteArray(CallFrameCryptor::kMaxServerTrailerBytes + 1, 'A'));
+        QVERIFY2(engine.serverInjectedTrailer().isEmpty(),
+                 "an oversized trailer was armed (or kept the old one)");
+        // Only LiveKit's shape arms: >= 16 base62 bytes.
+        const QByteArray notArming[] = {
+            QByteArray("R"), QByteArray("\x0c\x52", 2),
+            QByteArray(CallFrameCryptor::kMinServerTrailerBytes - 1, 'A'),
+            QByteArray("k3P9dQ2mZ7xW4vB8+T1cY6hJ0fL5sG2aE9rU3oKqXiR"),
+        };
+        for (const QByteArray &bad : notArming) {
+            engine.setServerInjectedTrailer(roomTrailer());
+            engine.setServerInjectedTrailer(bad);
+            QVERIFY2(engine.serverInjectedTrailer().isEmpty(),
+                     qPrintable(QStringLiteral("armed with %1 bytes: %2")
+                                    .arg(bad.size())
+                                    .arg(QString::fromLatin1(bad.toHex()))));
+        }
+        engine.setServerInjectedTrailer(
+            QByteArray(CallFrameCryptor::kMinServerTrailerBytes, 'A'));
+        QCOMPARE(engine.serverInjectedTrailer().size(),
+                 CallFrameCryptor::kMinServerTrailerBytes);
+        engine.setServerInjectedTrailer(roomTrailer());
+        engine.clearKeys();
+        QVERIFY2(engine.serverInjectedTrailer().isEmpty(),
+                 "a trailer outlived the keys of the call that armed it");
+        engine.setServerInjectedTrailer(roomTrailer());
+        engine.stop();
+        QVERIFY(engine.serverInjectedTrailer().isEmpty());
+    }
+
+    // ONE DIAGNOSIS LINE PER FAILURE REASON, not one per stream. The first
+    // failure used to spend the only line, so a later failure of a DIFFERENT
+    // kind -- which sends a reader somewhere else entirely -- was never
+    // named. FAIL-ON-OLD: the `no-key-for-index` line is missing.
+    void eachFailureReasonGetsItsOwnDiagnosisLine()
+    {
+        SfuMediaEngine engine;
+        const QString stream = QStringLiteral("PA_reasons");
+        engine.setEncryptionRequired(true);
+        engine.setInboundKey(stream, 0, QByteArray(16, 'e'));
+
+        CallFrameCryptor otherIndex;
+        QVERIFY(otherIndex.setKey(5, QByteArray(16, 'e')));
+        otherIndex.setCurrentKeyIndex(5);
+
+        LogCapture log;
+        DecryptProbeRig rig(engine, stream);
+        QVERIFY(rig.ok());
+        // bad-iv-length first (a frame with no crypto trailer at all)...
+        rig.push(QByteArray(60, 'z'));
+        rig.push(QByteArray(60, 'y'));
+        // ...then a well-formed frame under an index this ring never got.
+        rig.push(otherIndex.encryptFrame(QByteArray("\x01") + QByteArray(30, 'q'),
+                                         CallFrameCryptor::FrameKind::Audio,
+                                         3, 960));
+        QVERIFY(rig.drain());
+
+        QCOMPARE(log.count("will not DECRYPT: reason= bad-iv-length"), 1);
+        QVERIFY2(log.contains("will not DECRYPT: reason= no-key-for-index "
+                              "keyIndex= 5"),
+                 qPrintable(log.text()));
+    }
+
+    // Key arrivals have their own bounded log and do not use up the shared
+    // once-per-subject diagnosis set (512 entries). FAIL-ON-OLD: 600
+    // arrivals filled it and the bind diagnosis below was never logged.
+    void keyArrivalsDoNotSilenceOtherDiagnoses()
+    {
+        LogCapture log;
+        SfuMediaEngine engine;
+        for (int ring = 0; ring < 3; ++ring) {
+            for (int index = 0; index < 200; ++index) {
+                engine.setInboundKey(QStringLiteral("@r%1:x/DEV").arg(ring),
+                                     index, QByteArray(16, char('a' + ring)));
+            }
+        }
+        // Bounded: the first 8 per ring, then every 16th.
+        const int arrived = log.count("media key ARRIVED");
+        QVERIFY2(arrived >= 3 && arrived <= 3 * (8 + 200 / 16),
+                 qPrintable(QString::number(arrived)));
+        engine.noteParticipantIdentity(QString(),
+                                       QStringLiteral("@a:example.org:DEV"));
+        QVERIFY2(log.contains("could NOT be bound to a sending stream"),
+                 "key arrivals used up the diagnosis set");
+    }
+
+    // AN ELEMENT PEER'S KEY AT INDEX 200 DECRYPTS ITS FRAMES, END TO END
+    // through the engine's ring and the real probe. FAIL-ON-OLD: the ring
+    // refused index 200 ("REFUSED by the cryptor") and every frame dropped.
+    void aSenderKeyedAtIndex200IsDecryptedThroughTheProbe()
+    {
+        SfuMediaEngine engine;
+        const QString stream = QStringLiteral("PA_rotated");
+        const QByteArray key(16, 'r');
+        engine.setEncryptionRequired(true);
+        LogCapture log;
+        engine.setInboundKey(stream, 200, key);
+        QVERIFY2(!log.contains("REFUSED by the cryptor"),
+                 qPrintable(log.text()));
+        QVERIFY(engine.recvCryptorFor(stream)->hasKey(200));
+
+        CallFrameCryptor sender;
+        QVERIFY(sender.setKey(200, key));
+        sender.setCurrentKeyIndex(200);
+        DecryptProbeRig rig(engine, stream);
+        QVERIFY(rig.ok());
+        for (int i = 0; i < 10; ++i) {
+            rig.push(sender.encryptFrame(
+                QByteArray("\x01") + QByteArray(30, char('0' + i)),
+                CallFrameCryptor::FrameKind::Audio, 4,
+                static_cast<quint32>(960 * i)));
+        }
+        QVERIFY(rig.drain());
+        QCOMPARE(engine.framesDecrypted(), quint64(10));
+        QCOMPARE(engine.framesDropped(), quint64(0));
+        QCOMPARE(rig.passed(), 10);
+        // An index past the ring is still refused.
+        engine.setInboundKey(stream, 256, key);
+        QVERIFY(log.contains("REFUSED by the cryptor"));
     }
 
 };

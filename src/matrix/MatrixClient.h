@@ -2173,8 +2173,13 @@ Q_SIGNALS:
     /// Closed-set lifecycle: authorized / signalling / ended / closed /
     /// failed. `category` explains a failure and is safe to log.
     void sfuStateChanged(const QString &state, const QString &category);
+    /// `sifTrailer` is LiveKit's per-room server-injected-frame trailer
+    /// (`JoinResponse.sif_trailer`): raw bytes, at most 64, empty when the
+    /// SFU sent none. It marks the unencrypted blank frames the SFU writes
+    /// into encrypted tracks; see SfuMediaEngine::framesServerInjected().
     void sfuJoined(const QString &identity, const QVariantList &participants,
-                   const QVariantList &iceServers);
+                   const QVariantList &iceServers,
+                   const QByteArray &sifTrailer);
     void sfuParticipantsChanged(const QVariantList &participants);
     void sfuTrackPublished(const QString &cid, const QString &sid);
     void sfuSpeakersChanged(const QVariantList &speakers);

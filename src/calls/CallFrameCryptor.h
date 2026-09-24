@@ -55,6 +55,7 @@
 #include <QByteArray>
 #include <QRecursiveMutex>
 #include <QHash>
+#include <QList>
 
 class CallFrameCryptor
 {
@@ -77,9 +78,36 @@ public:
 
     CallFrameCryptor();
 
-    /// Install a derived key at one of the 16 ring slots. `index` is what
-    /// travels in the frame trailer, so a receiver can still decrypt frames
-    /// that were in flight when the key rotated.
+    /// HOW MANY KEY INDICES A RING ADDRESSES: 256, the whole trailer byte.
+    ///
+    /// It was 16, on the belief that 16 was "LiveKit's key ring size". It is
+    /// livekit-client's DEFAULT, and MatrixRTC does not use the default:
+    /// matrix-js-sdk rotates a sender's key id as `(keyId + 1) % 256`
+    /// (`RTCEncryptionManager.nextKeyIndex`) and element-call builds its
+    /// ring with `keyringSize: 256` (`matrixKeyProvider.ts`). So an Element
+    /// sender that had rotated sixteen times in one call -- it rotates when
+    /// a member leaves -- sent index 16, which this ring refused, and every
+    /// frame of theirs failed `no-key-for-index` for the rest of the call.
+    ///
+    /// The ring is SPARSE (a hash keyed by index), not 256 fixed slots: a
+    /// ring exists per remote sender and per alias, up to the engine's cap,
+    /// and a real call installs a handful of keys in each. The index bound
+    /// is what keeps it bounded -- at most 256 entries however many keys a
+    /// sender pushes, because a re-sent index REPLACES.
+    ///
+    /// OUR OWN SENDER still wraps at 16 (SfuCallController allocates
+    /// `(m_keyIndex + 1) % 16`). That is legal for every receiver with a
+    /// ring of at least 16, which Element's 256 and this one both are.
+    static constexpr int kKeyRingSize = 256;
+    /// At most this many keys are held per ring; the oldest is evicted.
+    /// A sender only ever encrypts under its newest key, so 32 covers any
+    /// frames in flight across rotations while bounding what a peer that
+    /// sprays indices can make us hold.
+    static constexpr int kMaxKeysPerRing = 32;
+
+    /// Install a derived key at ring index `index` (0..kKeyRingSize-1).
+    /// `index` is what travels in the frame trailer, so a receiver can still
+    /// decrypt frames that were in flight when the key rotated.
     bool setKey(int index, const QByteArray &rawKey);
     /// Which index newly encrypted frames are stamped with.
     void setCurrentKeyIndex(int index);
@@ -154,8 +182,9 @@ public:
     /// same constants as the writer so the two cannot drift.
     ///
     /// IT IS NOT A DECRYPTION AND IT MUST NEVER BE READ AS ONE. A cleartext
-    /// frame whose last two bytes happen to be 12 and a value under 16
-    /// passes — roughly 1 frame in 4096 for uniformly distributed bytes, and
+    /// frame whose second-last byte happens to be 12 passes — every index
+    /// byte is inside a 256-entry ring, so that is roughly 1 frame in 256 for
+    /// uniformly distributed bytes (it was 1 in 4096 with 16 slots), and
     /// VP8/Opus payloads are not uniform, so the real rate is unknown and
     /// could be much higher for a given encoder. The ONLY sound use is a
     /// WINDOWED verdict over many frames: a peer that is encrypting produces
@@ -165,6 +194,52 @@ public:
                                FrameKind kind);
     static bool looksEncrypted(const QByteArray &wire, FrameKind kind)
     { return looksEncrypted(wire.constData(), wire.size(), kind); }
+
+    /// The longest SERVER-INJECTED-FRAME trailer this client will arm.
+    ///
+    /// livekit-server's trailer is `base62(32 random bytes)`, ~43 bytes. The
+    /// value arrives from the SFU in `JoinResponse.sif_trailer`, so it is
+    /// bounded like every other wire field; a longer one is refused
+    /// outright (rust/src/sfu.rs and SfuMediaEngine both enforce it).
+    static constexpr int kMaxServerTrailerBytes = 64;
+    /// The shortest trailer that arms. A short one could match real frames.
+    static constexpr int kMinServerTrailerBytes = 16;
+    /// A trailer of LiveKit's shape: kMin..kMax bytes, all [0-9A-Za-z].
+    static bool isUsableServerTrailer(const QByteArray &trailer);
+
+    /// DOES THIS FRAME END WITH THE SFU'S SERVER-INJECTED-FRAME TRAILER?
+    ///
+    /// livekit-server writes its OWN unencrypted blank frames into an
+    /// encrypted track -- 50 Opus silence frames when a publisher mutes, 10
+    /// when a track closes, a VP8 8x8 keyframe for video -- and marks each
+    /// by appending a per-room trailer it hands every participant at join
+    /// (`JoinResponse.sif_trailer`). livekit-client recognises them before
+    /// it reads the crypto trailer (`FrameCryptor.ts`,
+    /// `isFrameServerInjected`). This client did not, so every one of them
+    /// failed as `bad-iv-length` with `keyIndex` = the trailer's last byte,
+    /// spent the stream's one diagnosis line, and fed the "cannot be
+    /// decrypted" badge's window.
+    ///
+    /// AN EXACT MATCH OF THE WHOLE TRAILER, never a shape test. `trailer`
+    /// empty means "not armed" and nothing matches. A real LiveKit-encrypted
+    /// frame cannot match a base62 trailer: its second-last byte is the IV
+    /// length 12, which is not a base62 character.
+    ///
+    /// WHAT A MATCH IS ALLOWED TO MEAN: "the SFU says it wrote this", and the
+    /// SFU is OUTSIDE the end-to-end trust boundary. So a match is a reason
+    /// to DROP the frame without calling it a decryption failure -- never a
+    /// reason to hand its bytes to a decoder. See SfuMediaEngine's probe.
+    static bool endsWithServerTrailer(const char *wire, qsizetype size,
+                                      const QByteArray &trailer);
+    static bool endsWithServerTrailer(const QByteArray &wire,
+                                      const QByteArray &trailer)
+    { return endsWithServerTrailer(wire.constData(), wire.size(), trailer); }
+
+    /// DIAGNOSTIC ONLY: is this LiveKit's fixed 80-byte Opus silence frame
+    /// (`f8 ff fe` then 77 zeros) at the START of `wire`? Used to label a
+    /// failed frame in a log line so a capture can tell an unrecognised
+    /// server-injected frame from a clear or foreign one. Never a decision.
+    static bool startsWithOpusSilenceFrame(const char *wire, qsizetype size);
 
     /// Test seam: pin the per-SSRC counter so a known-answer test can assert
     /// an exact IV. Production seeds it randomly.
@@ -190,8 +265,11 @@ private:
     /// on itself; the sections are a few hundred bytes of AES and never
     /// block.
     mutable QRecursiveMutex m_mutex;
-    /// 16 slots, matching LiveKit's key ring size.
-    QByteArray m_keys[16];
+    /// Index -> derived key. Sparse; at most kKeyRingSize entries because
+    /// every writer validates the index first. See kKeyRingSize.
+    QHash<int, QByteArray> m_keys;
+    /// m_keys' indices, oldest first, for the kMaxKeysPerRing eviction.
+    QList<int> m_keyOrder;
     int m_currentIndex = 0;
     QHash<quint32, quint32> m_sendCounts;
 };

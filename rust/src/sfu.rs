@@ -113,6 +113,37 @@ fn sane(value: &str, max: usize) -> Option<&str> {
     Some(value)
 }
 
+/// The shortest trailer the bridge will forward. LiveKit's is ~43 bytes; a
+/// short one could match real frames by chance.
+const MIN_SIF_TRAILER: usize = 16;
+
+/// The longest server-injected-frame trailer the bridge will forward.
+///
+/// livekit-server's is `base62(32 random bytes)`, about 43 bytes. The value
+/// is SFU input, so it is bounded like every other wire field. Mirrors
+/// `CallFrameCryptor::kMaxServerTrailerBytes` on the C++ side, which
+/// re-checks it.
+const MAX_SIF_TRAILER: usize = 64;
+
+/// `JoinResponse.sif_trailer`, base64-encoded for the JSON bridge, or "" when
+/// absent or unusable.
+///
+/// The trailer marks the UNENCRYPTED blank frames the SFU writes into an
+/// encrypted track itself (a sender's mute, unpublish or leave). Without it
+/// every such frame read as a decryption failure on our side. An oversized
+/// value is DROPPED rather than truncated: a truncated trailer would match
+/// frames the SFU never marked. Not a secret -- every participant receives
+/// the same one -- but it is never logged in full.
+fn sif_trailer_b64(trailer: &[u8]) -> String {
+    if trailer.len() < MIN_SIF_TRAILER || trailer.len() > MAX_SIF_TRAILER
+        || !trailer.iter().all(u8::is_ascii_alphanumeric)
+    {
+        return String::new();
+    }
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(trailer)
+}
+
 /// Which peer connection a description or candidate belongs to.
 ///
 /// LiveKit runs TWO: the client offers on PUBLISHER (its own tracks), the
@@ -1047,6 +1078,7 @@ async fn run_session(
                             "subscriber_primary": join.subscriber_primary,
                             "participants": participants,
                             "ice_servers": ice,
+                            "sif_trailer": sif_trailer_b64(&join.sif_trailer),
                         }));
                     }
                     lkp::signal_response::Message::Offer(sdp) => {
@@ -1305,6 +1337,45 @@ pub(crate) fn disconnect(bridge: &RustClient) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // THE SERVER-INJECTED-FRAME TRAILER CROSSES THE BRIDGE, BOUNDED.
+    //
+    // It was never read at all: `Message::Join` ignored `sif_trailer`, so the
+    // C++ probe could not recognise the SFU's own blank frames and failed
+    // every one as `bad-iv-length`. Round-trips a real JoinResponse through
+    // prost so the FIELD is what is exercised, not a hand-built struct.
+    #[test]
+    fn sif_trailer_is_forwarded_base64_and_bounded() {
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD;
+
+        // A livekit-shaped trailer: ~43 base62 characters.
+        let trailer = b"6N9Qc1wR2vXz8KkLmP0aBcDeFgHiJkLmNoPqRsTuVwX".to_vec();
+        let join = lkp::JoinResponse {
+            sif_trailer: trailer.clone(),
+            ..Default::default()
+        };
+        let decoded = lkp::JoinResponse::decode(&join.encode_to_vec()[..])
+            .expect("a JoinResponse round-trips");
+        let wire = sif_trailer_b64(&decoded.sif_trailer);
+        assert_eq!(b64.decode(&wire).expect("valid base64"), trailer);
+
+        // Absent: nothing armed.
+        assert_eq!(sif_trailer_b64(&[]), "");
+        // Exactly at the bound: forwarded whole.
+        let at_bound = vec![b'A'; MAX_SIF_TRAILER];
+        assert_eq!(b64.decode(sif_trailer_b64(&at_bound)).unwrap(), at_bound);
+        // One over: DROPPED, never truncated -- a truncated trailer would
+        // match frames the SFU never marked.
+        assert_eq!(sif_trailer_b64(&vec![b'A'; MAX_SIF_TRAILER + 1]), "");
+        // Too short, or not base62: dropped.
+        assert_eq!(sif_trailer_b64(b"R"), "");
+        assert_eq!(sif_trailer_b64(b"\x0cR"), "");
+        assert_eq!(sif_trailer_b64(&vec![b'A'; MIN_SIF_TRAILER - 1]), "");
+        let mut not_base62 = trailer.clone();
+        not_base62[3] = b'+';
+        assert_eq!(sif_trailer_b64(&not_base62), "");
+    }
 
     // ONE WORD FOR SEVEN FAILURES WAS THE DEFECT; THIS PINS THE SPLIT.
     //

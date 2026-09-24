@@ -794,6 +794,35 @@ public:
     /// is the raw material and the seam a test can assert on.
     quint64 framesArrivingEncryptedOnAClearCall() const
     { return m_framesClearButCiphertextShaped.load(); }
+    /// FRAMES THE SFU INJECTED ITSELF, recognised by the room's trailer and
+    /// dropped WITHOUT being counted as a decryption failure.
+    ///
+    /// livekit-server writes unencrypted blank frames into an encrypted
+    /// track when a sender mutes (50 Opus silence frames), when a track
+    /// closes (10) and on a subscriber-side mute, each ending in the per-room
+    /// trailer `JoinResponse.sif_trailer`. Before this counter existed each
+    /// one failed as `bad-iv-length`, took the stream's diagnosis line and
+    /// counted toward the "cannot be decrypted" badge. Deliberately NOT part
+    /// of framesDropped(): these are not a failure of ours or the sender's.
+    quint64 framesServerInjected() const
+    { return m_framesServerInjected.load(); }
+    /// Arm recognition of server-injected frames with the SFU's trailer, or
+    /// disarm it with an empty array. Set from the join; cleared with the
+    /// keys (clearKeys(), which stop() and start() both run), so a trailer
+    /// never outlives the SFU session that issued it.
+    ///
+    /// Only a trailer passing CallFrameCryptor::isUsableServerTrailer() arms;
+    /// anything else disarms, and is never truncated.
+    ///
+    /// Thread-safe: the decrypt probe reads it on streaming threads.
+    void setServerInjectedTrailer(const QByteArray &trailer);
+    QByteArray serverInjectedTrailer() const;
+    /// Test-only: install the REAL decrypt probe on an arbitrary pad, so a
+    /// test can push hand-built frames through production code (an appsrc
+    /// into a fakesink) instead of asserting a policy function in isolation.
+    void installDecryptProbeForTest(GstPad *pad, bool video,
+                                    const QString &streamId)
+    { installDecryptProbe(pad, video, streamId); }
     /// Require encryption. With this set and no key installed, frames are
     /// DROPPED rather than sent in the clear — the whole point of the gate.
     void setEncryptionRequired(bool required);
@@ -1199,6 +1228,14 @@ private:
     QSet<QString> m_diagnosedOnce;
     mutable QMutex m_diagnosedMutex;
     bool noteDiagnosisOnce(const QString &subject);
+    /// Per-ring record of key arrivals for the "key ARRIVED" line. Guarded
+    /// by m_diagnosedMutex, at most 256 rings, cleared with the session.
+    struct KeyArrivalLog {
+        int lastIndex = -1;
+        quint32 arrivals = 0;
+    };
+    QHash<QString, KeyArrivalLog> m_keyArrivals;
+    bool noteKeyArrival(const QString &ring, int index);
     /// Media-section index -> LiveKit stream id, from the subscriber offer's
     /// `msid`. webrtcbin names a received pad `src_<index>`, so the index is
     /// how a pad is attributed to the sender that produced it.
@@ -1236,6 +1273,14 @@ private:
     /// See framesArrivingEncryptedOnAClearCall(). Reset per session in
     /// start().
     std::atomic<quint64> m_framesClearButCiphertextShaped{0};
+    /// See framesServerInjected(). Reset per session in start().
+    std::atomic<quint64> m_framesServerInjected{0};
+    /// See setServerInjectedTrailer(). Its own mutex: the probe takes it for
+    /// one implicitly-shared copy per frame, and it nests inside nothing.
+    QByteArray m_sifTrailer;
+    mutable QMutex m_sifMutex;
+    /// A refused trailer is warned about once per engine.
+    std::atomic<bool> m_sifRefusedWarned{false};
     /// A distinct IV stream id per encrypting track.
     ///
     /// The cryptor keeps its send counter PER SSRC, so two tracks sharing

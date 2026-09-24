@@ -667,6 +667,10 @@ public:
     void ingestConnectionQualityForTest(const QVariantList &updates);
     /// Name the local device's SFU identity, as onSfuJoined would.
     void setOwnIdentityForTest(const QString &identity);
+    /// Does joining with these room participants (RtcController::
+    /// participants rows) START the call, so it must be announced? True
+    /// when nobody but this device's own stale membership is present.
+    static bool startsCallForAnnouncement(const QVariantList &participants);
     /// How many times the refresh tick has reconciled the key lane. The
     /// reconciliation itself is inside HAVE_LIGHTNING_WEBRTC and so compiles
     /// out of this test target; the COUNTER does not, which is what lets a
@@ -829,9 +833,12 @@ private Q_SLOTS:
                                const QString &eventId, const QString &delayId,
                                const QString &delayedCategory);
     void onSfuState(const QString &state, const QString &category);
+    /// `sifTrailer` is LiveKit's `JoinResponse.sif_trailer`, already bounded
+    /// by the bridge (empty when absent or unusable).
     void onSfuJoined(const QString &identity,
                      const QVariantList &participants,
-                     const QVariantList &iceServers);
+                     const QVariantList &iceServers,
+                     const QByteArray &sifTrailer = QByteArray());
     void onSfuParticipants(const QVariantList &updates);
     void onSfuSpeakers(const QVariantList &speakers);
     void onSfuConnectionQuality(const QVariantList &updates);
@@ -948,6 +955,13 @@ private:
     /// is what must rotate the media key. Carries NO `active()` gate: the
     /// slot owns that, and the test seam deliberately bypasses it.
     bool mergeParticipants(const QVariantList &updates);
+    /// Log each REMOTE track's mute transitions as the SFU reports them.
+    ///
+    /// A sender's mute makes the SFU inject 50 blank frames into that track
+    /// (SfuMediaEngine::framesServerInjected), and nothing in this client's
+    /// log said WHEN a remote participant muted -- so a burst of those
+    /// frames could not be matched to its cause. Sids and a boolean only.
+    void noteRemoteTrackMutes(const QVariantList &updates);
     /// Push the current SFU list through to `m_participantModel` and
     /// `m_shareModel` as a DIFF. The single derivation of both.
     void rebuildModels();
@@ -1189,6 +1203,13 @@ private:
     // Cleared per stream when one of its frames decrypts again, and wholly
     // on teardown, so a badge cannot outlive the call that raised it.
     QSet<QString> m_blockedStreams;
+    /// Remote track sid -> last reported mute state; see
+    /// noteRemoteTrackMutes(). Bounded; cleared with the participants.
+    struct RemoteTrackMute {
+        bool muted = false;
+        int changes = 0;
+    };
+    QHash<QString, RemoteTrackMute> m_remoteTrackMuted;
     bool m_microphoneSilent = false;
     /// Whether the ROOM is encrypted, so call media must be too. Captured at
     /// join from the tri-state the client reports, and UNKNOWN fails closed

@@ -3544,8 +3544,16 @@ pub(crate) fn send_call_reaction(
 pub(crate) const EV_CALL_KEYS: &str = "io.element.call.encryption_keys";
 /// Media keys are 32 raw bytes; LiveKit's HKDF turns them into AES-128-GCM.
 const MEDIA_KEY_BYTES: usize = 32;
-/// The key ring has 16 slots (LiveKit's `keyringSize`), so an index must fit.
-const MAX_KEY_INDEX: u8 = 15;
+/// The highest index OUR sender stamps: SfuCallController allocates
+/// `(index + 1) % 16`, legal for every receiver whose ring holds at least 16.
+///
+/// RECEIVED keys are NOT held to this. matrix-js-sdk rotates a sender's key
+/// id modulo 256 and element-call's ring holds 256 (`keyringSize: 256`), so
+/// the received index is the whole byte -- `MediaKeyEntry::index` is a `u8`,
+/// which makes 0..=255 the bound by type and a larger value a parse failure.
+/// Holding received keys to 15 discarded every key an Element sender minted
+/// after its sixteenth rotation in a call, and every frame after it failed.
+const MAX_SEND_KEY_INDEX: u8 = 15;
 
 /// Send our current media key to the devices in the call.
 ///
@@ -3632,7 +3640,7 @@ pub(crate) fn send_media_key(
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
     let room = joined_room(&client, &room_id)?;
-    if key_index > MAX_KEY_INDEX {
+    if key_index > MAX_SEND_KEY_INDEX {
         return Err("key index out of range".to_owned());
     }
     // Parsed here so a malformed list fails synchronously rather than
@@ -3841,6 +3849,36 @@ pub(crate) struct CallEncryptionKeysEventContent {
 pub(crate) struct MediaKeyEntry {
     pub index: u8,
     pub key: String,
+}
+
+/// The fields of a received media key after validation.
+pub(crate) struct ValidatedMediaKey<'a> {
+    pub index: u8,
+    pub key: &'a str,
+    pub room_id: &'a str,
+    /// The Olm-verified device, never the content's claim.
+    pub device_id: &'a str,
+}
+
+/// Validate a received media key's fields. Pure, so it can be tested.
+///
+/// The index is bounded by its type (`u8`, 0..=255, the C++ ring size); it
+/// was wrongly held to 15. The claimed device must equal the Olm device.
+pub(crate) fn validate_media_key<'a>(
+    content: &'a CallEncryptionKeysEventContent,
+    olm_device_id: &'a str,
+) -> Result<ValidatedMediaKey<'a>, &'static str> {
+    let key = sane(&content.keys.key, 512).ok_or("key field is not usable")?;
+    let room_id =
+        sane(&content.room_id, MAX_WIRE_LEN).ok_or("room id is not usable")?;
+    let claimed = sane(&content.member.claimed_device_id, MAX_WIRE_LEN)
+        .ok_or("claimed device id is not usable")?;
+    let device_id = sane(olm_device_id, MAX_WIRE_LEN)
+        .ok_or("olm device id is not usable")?;
+    if claimed != device_id {
+        return Err("claimed device does not match the olm device");
+    }
+    Ok(ValidatedMediaKey { index: content.keys.index, key, room_id, device_id })
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -4131,39 +4169,14 @@ pub(crate) fn register_rtc_handlers(
                     if encryption.sender != ev.sender {
                         discard!("olm sender does not match the envelope");
                     }
-                    // Bound and validate every field: this arrives from
-                    // another device and is used to key a cipher.
-                    if ev.content.keys.index > MAX_KEY_INDEX {
-                        discard!("key index out of range");
-                    }
-                    let Some(key) = sane(&ev.content.keys.key, 512) else {
-                        discard!("key field is not usable");
+                    let valid = match validate_media_key(
+                        &ev.content, sender_device.as_str())
+                    {
+                        Ok(valid) => valid,
+                        Err(reason) => discard!(reason),
                     };
-                    let Some(room_id) = sane(&ev.content.room_id, MAX_WIRE_LEN)
-                    else {
-                        discard!("room id is not usable");
-                    };
-                    // The device the key is filed under is the one whose
-                    // Olm session decrypted it -- never the content's
-                    // `claimed_device_id`, which any sender can set to any
-                    // device of theirs (or, forged in the clear, of anyone).
-                    // The claim is still read, only to be bounded and
-                    // compared: a mismatch is a lie about which device is
-                    // speaking, and a lie is refused.
-                    let Some(claimed_device_id) =
-                        sane(&ev.content.member.claimed_device_id,
-                             MAX_WIRE_LEN)
-                    else {
-                        discard!("claimed device id is not usable");
-                    };
-                    let Some(device_id) =
-                        sane(sender_device.as_str(), MAX_WIRE_LEN)
-                    else {
-                        discard!("olm device id is not usable");
-                    };
-                    if claimed_device_id != device_id {
-                        discard!("claimed device does not match the olm device");
-                    }
+                    let (key, room_id, device_id) =
+                        (valid.key, valid.room_id, valid.device_id);
                     enqueue(&events, json!({
                         "type": "rtc_key_received",
                         "lifecycle": timelines.lifecycle(),
@@ -4176,7 +4189,7 @@ pub(crate) fn register_rtc_handlers(
                         // claim.
                         "sender": ev.sender.to_string(),
                         "claimed_device_id": device_id,
-                        "key_index": ev.content.keys.index,
+                        "key_index": valid.index,
                         // The key itself: C++ memory only, never QML, never
                         // logged. It is base64 exactly as it arrived.
                         "key": key,
@@ -4307,6 +4320,68 @@ pub(crate) fn register_rtc_handlers(
 mod tests {
     use super::*;
     use matrix_sdk::ruma::events::StaticEventContent;
+
+    // A RECEIVED MEDIA KEY'S INDEX IS THE WHOLE BYTE, BOUNDED BY ITS TYPE.
+    //
+    // element-call keys at indices 16..=255 once a sender has rotated sixteen
+    // times; the handler used to discard those after parsing. What remains
+    // is the type bound this pins: 200 parses, 255 parses, 256 and -1 do not
+    // deserialise at all, so nothing outside the C++ ring can reach it.
+    // (The removed `> 15` discard lived inside the event-handler closure and
+    // is covered on the C++ side, where the same bound is enforced again.)
+    #[test]
+    fn received_media_key_index_is_bounded_by_its_type() {
+        let content = |index: serde_json::Value| {
+            json!({
+                "keys": { "index": index, "key": "a2V5" },
+                "member": { "claimed_device_id": "DEV" },
+                "room_id": "!r:x",
+            })
+        };
+        for ok in [0u64, 15, 16, 200, 255] {
+            let parsed: CallEncryptionKeysEventContent =
+                serde_json::from_value(content(json!(ok)))
+                    .unwrap_or_else(|e| panic!("index {ok} must parse: {e}"));
+            assert_eq!(u64::from(parsed.keys.index), ok);
+        }
+        for bad in [json!(256), json!(-1), json!(1000), json!("7")] {
+            assert!(
+                serde_json::from_value::<CallEncryptionKeysEventContent>(
+                    content(bad.clone())).is_err(),
+                "index {bad} must not deserialise");
+        }
+        // OUR sender still stamps 0..=15.
+        assert_eq!(MAX_SEND_KEY_INDEX, 15);
+    }
+
+    // Indices 16 and 255 pass validation (they were discarded as "out of
+    // range" before 2026-09-23); a device mismatch is still refused.
+    #[test]
+    fn media_key_validation_accepts_the_whole_index_byte() {
+        let content = |index: u8, claimed: &str| -> CallEncryptionKeysEventContent {
+            serde_json::from_value(json!({
+                "keys": { "index": index, "key": "a2V5" },
+                "member": { "claimed_device_id": claimed },
+                "room_id": "!r:x",
+            }))
+            .unwrap()
+        };
+        for index in [0u8, 15, 16, 200, 255] {
+            let c = content(index, "DEV");
+            let valid = validate_media_key(&c, "DEV")
+                .unwrap_or_else(|e| panic!("index {index} refused: {e}"));
+            assert_eq!(valid.index, index);
+            assert_eq!(valid.device_id, "DEV");
+            assert_eq!(valid.room_id, "!r:x");
+        }
+        let lying = content(16, "OTHER");
+        assert_eq!(
+            validate_media_key(&lying, "DEV").err(),
+            Some("claimed device does not match the olm device"));
+        let c = content(1, "DEV");
+        assert_eq!(validate_media_key(&c, "").err(),
+                   Some("olm device id is not usable"));
+    }
 
     fn session_content() -> serde_json::Value {
         json!({

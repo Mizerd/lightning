@@ -602,12 +602,78 @@ private Q_SLOTS:
         QCOMPARE(call.parkedKeyCountForTest(), 1);
 
         // Out of range index, oversized payload, and a key of a length no
-        // cryptor accepts: none of them may consume a slot.
-        park(QStringLiteral("DEV2"), 99, good);
+        // cryptor accepts: none of them may consume a slot. The ring is 256
+        // indices (element-call's), so "out of range" is 256 and up, or
+        // negative -- 99 used to be the example and is a legal index now.
+        park(QStringLiteral("DEV2"), 256, good);
+        park(QStringLiteral("DEV5"), -1, good);
+        park(QStringLiteral("DEV6"), 100000, good);
         park(QStringLiteral("DEV3"), 0, QString(300, QLatin1Char('A')));
         park(QStringLiteral("DEV4"), 0,
              QString::fromUtf8(QByteArray(7, 'k').toBase64()));
         QCOMPARE(call.parkedKeyCountForTest(), 1);
+    }
+
+    // 2026-09-23 — AN ELEMENT PEER'S KEY AT INDEX 16..255 IS A KEY.
+    //
+    // matrix-js-sdk rotates a sender's key id modulo 256; this controller
+    // discarded every index above 15, so once an Element sender had rotated
+    // sixteen times in a call, its new keys never reached the cryptor and
+    // every frame of theirs failed `no-key-for-index`. Driven through the
+    // parking path because it is the half of onMediaKeyReceived() this
+    // target compiles (no media engine here), and because a parked key is
+    // replayed through the SAME bound on join. FAIL-ON-OLD: parked count 0.
+    void aMediaKeyAtAHighIndexIsKeptRatherThanDiscarded()
+    {
+        SfuCallController call;
+        const QString key = QString::fromUtf8(QByteArray(16, 'k').toBase64());
+        // One DEVICE per index: the parked list caps each device at two
+        // (kMaxParkedKeysPerDevice), which is not what this case measures.
+        for (const int index : {16, 200, 255}) {
+            QMetaObject::invokeMethod(
+                &call, "onMediaKeyReceived", Qt::DirectConnection,
+                Q_ARG(QString, QString()),
+                Q_ARG(QString, QStringLiteral("@element:x")),
+                Q_ARG(QString, QStringLiteral("ECDEV%1").arg(index)),
+                Q_ARG(int, index), Q_ARG(QString, key));
+        }
+        QVERIFY2(call.parkedKeyCountForTest() == 3,
+                 qPrintable(QStringLiteral("parked=%1: a key at index 16, 200 "
+                                           "or 255 was discarded")
+                                .arg(call.parkedKeyCountForTest())));
+        // And 256 is still out of the ring.
+        QMetaObject::invokeMethod(
+            &call, "onMediaKeyReceived", Qt::DirectConnection,
+            Q_ARG(QString, QString()),
+            Q_ARG(QString, QStringLiteral("@element:x")),
+            Q_ARG(QString, QStringLiteral("ECDEV2")), Q_ARG(int, 256),
+            Q_ARG(QString, key));
+        QCOMPARE(call.parkedKeyCountForTest(), 3);
+    }
+
+    // A stale membership of THIS device (left by a session killed mid-call,
+    // alive until expiry without MSC4140) must not stop the call start from
+    // being announced, or the far end never rings. Another device of ours,
+    // or anyone else, is a real participant. FAIL-ON-OLD: the old rule was
+    // "participant count == 0", which the first case below fails.
+    void aStaleOwnDeviceMembershipDoesNotSuppressTheAnnouncement()
+    {
+        const auto row = [](bool ownUser, bool ownDevice) {
+            QVariantMap m;
+            m.insert(QStringLiteral("userId"),
+                     ownUser ? QStringLiteral("@me:x") : QStringLiteral("@b:x"));
+            m.insert(QStringLiteral("ownUser"), ownUser);
+            m.insert(QStringLiteral("ownDevice"), ownDevice);
+            return QVariant(m);
+        };
+        using C = SfuCallController;
+        QVERIFY(C::startsCallForAnnouncement({}));
+        QVERIFY2(C::startsCallForAnnouncement({row(true, true)}),
+                 "our own stale device membership suppressed the announcement");
+        QVERIFY(!C::startsCallForAnnouncement({row(true, false)}));
+        QVERIFY(!C::startsCallForAnnouncement({row(false, false)}));
+        QVERIFY(!C::startsCallForAnnouncement({row(true, true),
+                                               row(false, false)}));
     }
 
     // ONE SLOT PER (sender, device, index): a peer re-sending cannot grow the

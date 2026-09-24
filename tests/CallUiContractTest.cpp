@@ -3757,7 +3757,7 @@ ApplicationWindow {
         QVERIFY(!src.isEmpty());
 
         const int sampled = src.indexOf(QStringLiteral(
-            "m_announceOnPublish = m_rtc && m_rtc->participantCount"));
+            "startsCallForAnnouncement(m_rtc->participants(roomId))"));
         const int published = src.indexOf(QStringLiteral(
             "m_publishOp = m_client->rtcPublishMembership"));
         QVERIFY2(sampled >= 0, "nothing decides whether we started the call");

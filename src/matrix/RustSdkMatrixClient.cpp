@@ -8546,10 +8546,25 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("sfu_joined")) {
+        // The server-injected-frame trailer: base64 from the bridge, which
+        // already capped it at 64 bytes. Decoded strictly and re-bounded
+        // here, because a malformed or oversized value must DISARM (empty),
+        // never arm a truncated trailer that could match frames the SFU did
+        // not mark. Not a secret -- every participant and the SFU hold it --
+        // but it is not logged here either; the engine logs its length.
+        QByteArray sifTrailer;
+        const QString sifB64 = event.value(QStringLiteral("sif_trailer")).toString();
+        if (!sifB64.isEmpty() && sifB64.size() <= 128) {
+            const auto decoded = QByteArray::fromBase64Encoding(
+                sifB64.toLatin1(), QByteArray::AbortOnBase64DecodingErrors);
+            if (decoded && decoded.decoded.size() <= 64)
+                sifTrailer = decoded.decoded;
+        }
         Q_EMIT sfuJoined(
             event.value(QStringLiteral("identity")).toString(),
             event.value(QStringLiteral("participants")).toArray().toVariantList(),
-            event.value(QStringLiteral("ice_servers")).toArray().toVariantList());
+            event.value(QStringLiteral("ice_servers")).toArray().toVariantList(),
+            sifTrailer);
         return true;
     }
     if (type == QLatin1String("sfu_participants")) {

@@ -49,12 +49,18 @@
 #include "calls/SfuMediaEngine.h"
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
+// UNCONDITIONAL too, for one constexpr: the media-key index bound in
+// onMediaKeyReceived() runs in every build (the parking path is tested by
+// `call-controller-test`, which has no media engine), and it must be the
+// cryptor's own ring size rather than a second copy of the number. The
+// header includes Qt only; nothing from the .cpp is referenced outside the
+// guard below, so this adds no link dependency.
+#include "calls/CallFrameCryptor.h"
 
 #ifdef HAVE_LIGHTNING_WEBRTC
 #include <QVideoFrame>
 #include <QVideoSink>
 
-#include "calls/CallFrameCryptor.h"
 #include "calls/SfuVideoRouter.h"
 #endif
 
@@ -1569,6 +1575,20 @@ QString SfuCallController::joinRefusalMessage(const QString &block)
     return tr("This call can't be joined right now.");
 }
 
+bool SfuCallController::startsCallForAnnouncement(
+    const QVariantList &participants)
+{
+    // Our own THIS-device membership left by a session killed mid-call does
+    // not make a call: it stays until it expires when the homeserver has no
+    // MSC4140, and counting it suppressed the announcement, so nobody rang.
+    // Our other devices are real participants and still count.
+    for (const QVariant &row : participants) {
+        if (!row.toMap().value(QStringLiteral("ownDevice")).toBool())
+            return false;
+    }
+    return true;
+}
+
 bool SfuCallController::join(const QString &roomId, bool withVideo)
 {
     if (roomId.isEmpty())
@@ -1642,6 +1662,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_reactionOp = 0;
     m_lastReactionSentMs = 0;
     m_participants.clear();
+    m_remoteTrackMuted.clear();
     // A blocked-media badge must never outlive the call that raised it.
     if (!m_blockedStreams.isEmpty()) {
         m_blockedStreams.clear();
@@ -1738,7 +1759,8 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     // the first person to arrive announces, and everyone after them does not,
     // or a five-person call posts five "started a call" rows and pings the
     // room five times.
-    m_announceOnPublish = m_rtc && m_rtc->participantCount(roomId) == 0;
+    m_announceOnPublish =
+        m_rtc && startsCallForAnnouncement(m_rtc->participants(roomId));
     m_announceIntent = withVideo ? QStringLiteral("video")
                                  : QStringLiteral("audio");
 
@@ -2018,7 +2040,8 @@ void SfuCallController::onSfuState(const QString &state,
 
 void SfuCallController::onSfuJoined(const QString &identity,
                                      const QVariantList &participants,
-                                     const QVariantList &iceServers)
+                                     const QVariantList &iceServers,
+                                     const QByteArray &sifTrailer)
 {
     // `inCall`, NOT `others`. The bridge puts OUR OWN row first and everyone
     // else after it (rust/src/sfu.rs builds the list that way on purpose, so
@@ -2033,16 +2056,24 @@ void SfuCallController::onSfuJoined(const QString &identity,
                       << "identity=" << (identity.isEmpty()
                                          ? QStringLiteral("<empty>")
                                          : QStringLiteral("<set>"))
+                      << "sifTrailerLen=" << sifTrailer.size()
                       << "active=" << active();
     if (!active())
         return;
 #ifdef HAVE_LIGHTNING_WEBRTC
     m_ownIdentity = identity;
+    // Seed the remote mute record from the join's own participant list.
+    noteRemoteTrackMutes(participants);
     m_participants = participants.mid(0, kMaxParticipants);
     noteParticipantIdentities();
     rebuildModels();
     if (!m_engine.isNull()) {
         m_engine->start();
+        // AFTER start(): start() runs stop(), which clears the keys and, with
+        // them, any trailer a previous join armed. The SFU's trailer marks the
+        // blank frames IT injects into encrypted tracks (a sender's mute,
+        // unpublish or leave); see SfuMediaEngine::framesServerInjected().
+        m_engine->setServerInjectedTrailer(sifTrailer);
         m_engine->setIceServers(iceServers);
         applyAudioState();
         publishTracks();
@@ -2108,6 +2139,7 @@ void SfuCallController::onSfuParticipants(const QVariantList &updates)
 {
     if (!active())
         return;
+    noteRemoteTrackMutes(updates);
     const bool setChanged = mergeParticipants(updates);
     // A BADGE MUST NOT OUTLIVE THE STREAM THAT RAISED IT.
     //
@@ -2161,6 +2193,51 @@ void SfuCallController::onSfuParticipants(const QVariantList &updates)
     // happens to poke us.
     if (m_rtc && !m_roomId.isEmpty())
         m_rtc->refresh(m_roomId);
+}
+
+void SfuCallController::noteRemoteTrackMutes(const QVariantList &updates)
+{
+    // Bounded like every other SFU-fed set: far above a real call's tracks.
+    constexpr int kMaxTrackedTracks = kMaxParticipants * 8;
+    for (const QVariant &value : updates) {
+        const QVariantMap row = value.toMap();
+        const QString identity =
+            row.value(QStringLiteral("identity")).toString();
+        if (identity.isEmpty() || identity == m_ownIdentity)
+            continue;
+        const QString stream = row.value(QStringLiteral("sid")).toString();
+        const QVariantList tracks = row.value(QStringLiteral("tracks")).toList();
+        for (const QVariant &trackValue : tracks) {
+            const QVariantMap track = trackValue.toMap();
+            const QString trackSid = track.value(QStringLiteral("sid")).toString();
+            if (trackSid.isEmpty())
+                continue;
+            const bool muted = track.value(QStringLiteral("muted")).toBool();
+            auto it = m_remoteTrackMuted.find(trackSid);
+            if (it == m_remoteTrackMuted.end()) {
+                if (m_remoteTrackMuted.size() >= kMaxTrackedTracks)
+                    continue;
+                // First sight: only a track that arrives already muted is
+                // news; an unmuted one is the ordinary state.
+                it = m_remoteTrackMuted.insert(trackSid,
+                                               RemoteTrackMute{muted, 0});
+                if (!muted)
+                    continue;
+            } else if (it->muted == muted) {
+                continue;
+            }
+            it->muted = muted;
+            ++it->changes;
+            // Rate-limited per track: the first five, then every fiftieth.
+            if (it->changes > 5 && it->changes % 50 != 0)
+                continue;
+            qCInfo(lcSfuCall)
+                << "remote track mute stream=" << stream << "track="
+                << trackSid << "kind="
+                << track.value(QStringLiteral("kind")).toString()
+                << "muted=" << muted << "change=" << it->changes;
+        }
+    }
 }
 
 bool SfuCallController::mergeParticipants(const QVariantList &updates)
@@ -2558,7 +2635,16 @@ void SfuCallController::onMediaKeyReceived(const QString &roomId,
     // still a slot, and a member who can send to-device messages could
     // otherwise fill the list with malformed keys and push out the one that
     // mattered.
-    if (keyIndex < 0 || keyIndex > 15)
+    //
+    // THE WHOLE TRAILER BYTE, 0..255, and it was 0..15. matrix-js-sdk rotates
+    // a sender's key id modulo 256 and element-call's ring holds 256, so an
+    // Element peer that had rotated sixteen times in one call (it rotates
+    // when a member leaves) sent index 16 -- discarded here, and every frame
+    // of theirs failed `no-key-for-index` for the rest of the call. The bound
+    // is the cryptor's ring size, the one authority on it. The parked path
+    // below is reached only through this check (and replayed through it), so
+    // it shares the bound; its per-device and total caps are unchanged.
+    if (keyIndex < 0 || keyIndex >= CallFrameCryptor::kKeyRingSize)
         return;
     // Sender-chosen bytes. Bounded before decoding, then length-checked:
     // a key of the wrong size is not a key, and the cryptor refuses it
@@ -3381,6 +3467,7 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_delayedCategory.clear();
     m_ownIdentity.clear();
     m_participants.clear();
+    m_remoteTrackMuted.clear();
     // A blocked-media badge must never outlive the call that raised it.
     if (!m_blockedStreams.isEmpty()) {
         m_blockedStreams.clear();

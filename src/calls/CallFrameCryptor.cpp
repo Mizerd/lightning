@@ -45,6 +45,16 @@ constexpr int kTrailerBytes = 2;
 /// to interoperate while looking perfectly reasonable.
 constexpr int kInfoBytes = 128;
 
+/// Best-effort zeroing before release (the allocator may already have copied).
+void scrub(QByteArray &key)
+{
+    if (key.isEmpty())
+        return;
+    volatile char *raw = key.data();
+    for (int i = 0; i < key.size(); ++i)
+        raw[i] = 0;
+}
+
 void writeBigEndian32(unsigned char *out, quint32 value)
 {
     out[0] = static_cast<unsigned char>((value >> 24) & 0xFF);
@@ -79,11 +89,63 @@ bool CallFrameCryptor::looksEncrypted(const char *wire, qsizetype size,
     const int ivLength = static_cast<unsigned char>(wire[size - 2]);
     if (ivLength != kIvBytes)
         return false;
-    // The ring is 16 slots, matching LiveKit's; `hasKey` bounds on the same
-    // number. A frame naming a slot outside it was never written by this
-    // scheme.
+    // `hasKey` bounds on the same number. With a 256-entry ring every byte
+    // value is a legal index, so this is now always true and the IV-length
+    // byte above is the whole structural test (roughly 1 frame in 256 for
+    // uniform bytes, not 1 in 4096 as it was with 16 slots -- still far
+    // inside the windowed verdict's 25% clear threshold). Kept as a named
+    // check so the reader and the writer stay derived from one constant.
     const int keyIndex = static_cast<unsigned char>(wire[size - 1]);
-    return keyIndex >= 0 && keyIndex < 16;
+    return keyIndex >= 0 && keyIndex < kKeyRingSize;
+}
+
+bool CallFrameCryptor::endsWithServerTrailer(const char *wire, qsizetype size,
+                                             const QByteArray &trailer)
+{
+    // Not armed, or armed with something no SFU we accept would send.
+    if (!wire || trailer.isEmpty() || trailer.size() > kMaxServerTrailerBytes)
+        return false;
+    // STRICTLY LONGER than the trailer: a frame that is nothing BUT the
+    // trailer carries no payload the SFU could have meant, and livekit-client
+    // compares a slice that would then be the whole frame. Requiring at least
+    // one byte before it keeps "the frame is the trailer" out of the match.
+    if (size <= trailer.size())
+        return false;
+    return std::memcmp(wire + size - trailer.size(), trailer.constData(),
+                       static_cast<size_t>(trailer.size()))
+        == 0;
+}
+
+bool CallFrameCryptor::isUsableServerTrailer(const QByteArray &trailer)
+{
+    if (trailer.size() < kMinServerTrailerBytes
+        || trailer.size() > kMaxServerTrailerBytes)
+        return false;
+    for (const char c : trailer) {
+        const bool base62 = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z')
+            || (c >= 'a' && c <= 'z');
+        if (!base62)
+            return false;
+    }
+    return true;
+}
+
+bool CallFrameCryptor::startsWithOpusSilenceFrame(const char *wire,
+                                                  qsizetype size)
+{
+    // livekit-server `OpusSilenceFrame` (pkg/sfu/downtrack.go), the same
+    // bytes livekit-client's sifPayload.ts whitelists: f8 ff fe, 77 zeros.
+    constexpr qsizetype kSilenceBytes = 80;
+    if (!wire || size < kSilenceBytes)
+        return false;
+    const auto *b = reinterpret_cast<const unsigned char *>(wire);
+    if (b[0] != 0xf8 || b[1] != 0xff || b[2] != 0xfe)
+        return false;
+    for (qsizetype i = 3; i < kSilenceBytes; ++i) {
+        if (b[i] != 0)
+            return false;
+    }
+    return true;
 }
 
 QByteArray CallFrameCryptor::deriveKey(const QByteArray &rawKey)
@@ -133,7 +195,9 @@ CallFrameCryptor::CallFrameCryptor() = default;
 bool CallFrameCryptor::setKey(int index, const QByteArray &rawKey)
 {
     QMutexLocker lock(&m_mutex);
-    if (index < 0 || index >= 16)
+    // REMOTE INPUT (a received key names its own index), so bounded before
+    // anything is kept: at most kKeyRingSize entries can ever exist.
+    if (index < 0 || index >= kKeyRingSize)
         return false;
     // The INPUT size, not just the derived one. HKDF turns any length into
     // 16 bytes, so validating only the output accepted a 7-byte key: it
@@ -145,47 +209,61 @@ bool CallFrameCryptor::setKey(int index, const QByteArray &rawKey)
     const QByteArray derived = deriveKey(rawKey);
     if (derived.size() != kKeyBytes)
         return false;
-    m_keys[index] = derived;
+    // Most-recent order, so the cap below evicts the oldest key.
+    m_keyOrder.removeOne(index);
+    m_keyOrder.append(index);
+    m_keys.insert(index, derived);
+    while (m_keys.size() > kMaxKeysPerRing) {
+        // Never the key our own frames are going out under.
+        int victim = -1;
+        for (const int candidate : std::as_const(m_keyOrder)) {
+            if (candidate != m_currentIndex) {
+                victim = candidate;
+                break;
+            }
+        }
+        if (victim < 0)
+            break;
+        m_keyOrder.removeOne(victim);
+        QByteArray old = m_keys.take(victim);
+        scrub(old);
+    }
     return true;
 }
 
 bool CallFrameCryptor::hasAnyKey() const
 {
     QMutexLocker lock(&m_mutex);
-    for (const QByteArray &key : m_keys) {
-        if (!key.isEmpty())
-            return true;
-    }
-    return false;
+    // Only setKey() inserts, and only a key that derived to kKeyBytes, so a
+    // present entry IS a usable key.
+    return !m_keys.isEmpty();
 }
 
 void CallFrameCryptor::setCurrentKeyIndex(int index)
 {
     QMutexLocker lock(&m_mutex);
-    if (index >= 0 && index < 16)
+    if (index >= 0 && index < kKeyRingSize)
         m_currentIndex = index;
 }
 
 bool CallFrameCryptor::hasKey(int index) const
 {
     QMutexLocker lock(&m_mutex);
-    return index >= 0 && index < 16 && m_keys[index].size() == kKeyBytes;
+    if (index < 0 || index >= kKeyRingSize)
+        return false;
+    // constFind, never operator[]: a lookup must not insert an empty slot,
+    // which would make hasAnyKey() lie about a ring nobody keyed.
+    const auto it = m_keys.constFind(index);
+    return it != m_keys.cend() && it.value().size() == kKeyBytes;
 }
 
 void CallFrameCryptor::clearKeys()
 {
     QMutexLocker lock(&m_mutex);
-    for (QByteArray &key : m_keys) {
-        // Best-effort scrub before release. Not a guarantee (the allocator
-        // may already have copied), but the same transit hygiene the UIA
-        // password path applies.
-        if (!key.isEmpty()) {
-            volatile char *raw = key.data();
-            for (int i = 0; i < key.size(); ++i)
-                raw[i] = 0;
-        }
-        key.clear();
-    }
+    for (QByteArray &key : m_keys)
+        scrub(key);
+    m_keys.clear();
+    m_keyOrder.clear();
     m_sendCounts.clear();
     m_currentIndex = 0;
 }
@@ -243,7 +321,10 @@ QByteArray CallFrameCryptor::encryptFrame(const QByteArray &payload,
         return {}; // no key: the caller must drop, never send cleartext
 
     const QByteArray iv = ivFor(ssrc, rtpTimestamp);
-    const QByteArray &key = m_keys[m_currentIndex];
+    // A COPY (implicitly shared, so a refcount, not the bytes): held under
+    // the mutex, and a reference into the hash is exactly the kind of thing a
+    // later edit invalidates by inserting while it is live.
+    const QByteArray key = m_keys.value(m_currentIndex);
 
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     if (!ctx)
@@ -375,7 +456,7 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &wire,
         base + wire.size() - suffix);
     const unsigned char *tag = reinterpret_cast<const unsigned char *>(
         base + header + cipherLen);
-    const QByteArray &key = m_keys[keyIndex];
+    const QByteArray key = m_keys.value(keyIndex);
 
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     if (!ctx)

@@ -293,8 +293,54 @@ struct CryptoProbeCtx {
     /// streaming thread and owns them, so no locking (same reasoning as the
     /// counters above).
     bool saidNoKey = false;
-    bool saidFailed = false;
+    /// ONE DIAGNOSIS LINE PER FAILURE REASON, not one per stream.
+    ///
+    /// This was a single `saidFailed` flag, spent by whichever failure came
+    /// first. On 2026-09-23 the first was a `bad-iv-length keyIndex= 82` one
+    /// second into a Firefox peer's stream -- the signature of a
+    /// server-injected frame, which is now recognised and never gets here --
+    /// and that one frame would have silenced a later `no-key-for-index` or
+    /// `auth-tag` for the rest of the call, each of which sends a reader
+    /// somewhere completely different. A bit per
+    /// CallFrameCryptor::DecryptFailure value.
+    quint8 saidFailedMask = 0;
     bool saidWorking = false;
+    /// Receive side: see SfuMediaEngine::framesServerInjected(). Null on the
+    /// send side.
+    std::atomic<quint64> *totalServerInjected = nullptr;
+    /// RECEIVE-SIDE FAILURE ACCOUNTING, per reason, for the detail and
+    /// histogram lines. Counts and small integers only -- never a key, an
+    /// IV, ciphertext or plaintext (§6). Owned by the probe's one streaming
+    /// thread, so no locking, as for the counters above.
+    static constexpr int kFailureReasons = 7;   // DecryptFailure::None..AuthTag
+    std::array<quint64, kFailureReasons> failures{};
+    /// How many DETAIL lines each reason has logged (the first five, then
+    /// only at shouldReport() counts).
+    std::array<quint8, kFailureReasons> detailsLogged{};
+    /// Frames dropped because the ring held no key at all (the `!haveKey`
+    /// branch), which never reaches decryptFrame().
+    quint64 ringEmpty = 0;
+    /// Consecutive failed frames (any reason), and consecutive
+    /// `bad-iv-length` ones. A server-injected frame touches neither: it is
+    /// not an outcome of ours.
+    quint64 run = 0;
+    quint64 badIvRun = 0;
+    quint64 longestBadIvRun = 0;
+    /// Which trailer bytes `bad-iv-length` frames named. One constant value
+    /// is the shape of an unrecognised server trailer; many values is a
+    /// sender whose frames are not frame-encrypted at all.
+    std::array<bool, 256> badIvKeyIndexSeen{};
+    int distinctBadIvKeyIndices = 0;
+    /// Server-injected frames: total, the burst in progress, bursts seen.
+    quint64 sif = 0;
+    quint64 sifRun = 0;
+    quint64 sifBursts = 0;
+    bool saidSif = false;
+    /// The histogram line: written when something failed or was injected,
+    /// at most every five seconds, and once more when the probe is freed so
+    /// a stream that goes quiet after a burst still reports it.
+    qint64 lastHistogramMs = -1;
+    bool histogramDirty = false;
     /// Said once, when a call we believe is CLEAR turns out to be carrying
     /// somebody's ciphertext. See `ciphertextShaped` below.
     bool saidUnexpectedCiphertext = false;
@@ -622,9 +668,141 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
     return GST_FLOW_OK;
 }
 
+static_assert(static_cast<int>(CallFrameCryptor::DecryptFailure::AuthTag)
+                  == CryptoProbeCtx::kFailureReasons - 1,
+              "CryptoProbeCtx's per-reason arrays must cover every "
+              "DecryptFailure value");
+
+/// Monotonic milliseconds for the histogram cadence. Not wall clock: a
+/// clock step must not flood or silence the line.
+qint64 probeMonotonicMs()
+{
+    return static_cast<qint64>(g_get_monotonic_time() / 1000);
+}
+
+/// A RUN OF SERVER-INJECTED FRAMES HAS ENDED; say how long it was.
+///
+/// The length is the diagnosis: livekit-server sends 50 on a publisher mute
+/// (1 s at 50 fps, `RTPBlankFramesMuteSeconds`) and 10 when a track closes
+/// (0.2 s). Bounded: a hostile SFU alternating injected and real frames would
+/// otherwise buy a log line per frame.
+void closeServerInjectedBurst(CryptoProbeCtx *ctx)
+{
+    if (ctx->sifRun == 0)
+        return;
+    ++ctx->sifBursts;
+    if (ctx->sifBursts <= 20 || ctx->sifBursts % 100 == 0) {
+        qCInfo(lcSfuMedia)
+            << "server-injected burst stream=" << ctx->streamId
+            << "video=" << ctx->video << "frames=" << ctx->sifRun
+            << "burst=" << ctx->sifBursts
+            << "(50 = LiveKit's publisher-mute burst, 10 = its track-close "
+               "burst)";
+    }
+    ctx->sifRun = 0;
+}
+
+/// Per-stream receive summary. Numbers only.
+void logDecryptHistogram(CryptoProbeCtx *ctx, const char *when)
+{
+    using F = CallFrameCryptor::DecryptFailure;
+    const auto n = [ctx](F reason) {
+        return ctx->failures[static_cast<size_t>(reason)];
+    };
+    qCInfo(lcSfuMedia)
+        << "decrypt histogram" << when << "stream=" << ctx->streamId
+        << "video=" << ctx->video << "ok=" << ctx->passed
+        << "badIv=" << n(F::BadIvLength) << "noKey=" << n(F::NoKeyForIndex)
+        << "authTag=" << n(F::AuthTag)
+        << "short=" << (n(F::ShortWire) + n(F::ShortBody))
+        << "cipherInit=" << n(F::CipherInit) << "ringEmpty=" << ctx->ringEmpty
+        << "sif=" << ctx->sif << "sifBursts=" << ctx->sifBursts
+        << "distinctBadIvKeyIdx=" << std::min(ctx->distinctBadIvKeyIndices, 8)
+        << "longestBadIvRun=" << ctx->longestBadIvRun;
+}
+
+/// Write the histogram if anything failed or was injected since the last
+/// one and five seconds have passed. The FIRST dirty event writes at once.
+void maybeLogDecryptHistogram(CryptoProbeCtx *ctx)
+{
+    if (ctx->encrypting || !ctx->histogramDirty)
+        return;
+    const qint64 now = probeMonotonicMs();
+    if (ctx->lastHistogramMs >= 0 && now - ctx->lastHistogramMs < 5000)
+        return;
+    ctx->lastHistogramMs = now;
+    ctx->histogramDirty = false;
+    logDecryptHistogram(ctx, "periodic");
+}
+
 void cryptoProbeCtxFree(void *data)
 {
-    delete static_cast<CryptoProbeCtx *>(data);
+    auto *ctx = static_cast<CryptoProbeCtx *>(data);
+    // THE LAST WORD FOR A STREAM THAT WENT QUIET. A sender who mutes sends
+    // nothing after the SFU's 50 injected frames, so no later frame would
+    // ever close the burst or write the histogram: this is where they land.
+    // Only the probe's own fields are read; nothing here touches the engine.
+    if (ctx && !ctx->encrypting) {
+        closeServerInjectedBurst(ctx);
+        if (ctx->histogramDirty)
+            logDecryptHistogram(ctx, "final");
+    }
+    delete ctx;
+}
+
+/// A frame the SFU wrote itself. DROPPED, counted apart, and kept out of the
+/// badge window and the failure diagnosis.
+///
+/// WHY DROP rather than pass it on as livekit-client does: livekit-client
+/// passes an injected frame to the decoder ONLY after comparing what is left
+/// against the few fixed payloads the server is known to send
+/// (`identifySifPayload`: the Opus silence frame, the VP8 8x8 keyframe, the
+/// H.264 2x2 keyframe) and drops anything else. The SFU is outside the
+/// end-to-end trust boundary, so a generic "trailer means clear" rule would
+/// let it put arbitrary media into an encrypted call. Dropping needs no such
+/// list and loses nothing audible: the frames are silence (a decoder
+/// conceals the gap) or a black 8x8 picture.
+void noteServerInjectedFrame(CryptoProbeCtx *ctx, qsizetype size,
+                             int trailerBytes)
+{
+    ++ctx->sif;
+    ++ctx->sifRun;
+    if (ctx->totalServerInjected)
+        ctx->totalServerInjected->fetch_add(1);
+    ctx->histogramDirty = true;
+    if (!ctx->saidSif) {
+        ctx->saidSif = true;
+        qCInfo(lcSfuMedia)
+            << "call diagnosis: stream=" << ctx->streamId
+            << "is receiving SERVER-INJECTED frames — the SFU's own "
+               "unencrypted blank frames, sent when that sender mutes, "
+               "unpublishes or leaves. Dropped, and NOT a decryption "
+               "failure (video="
+            << ctx->video << "size=" << size << "trailerBytes="
+            << trailerBytes << ")";
+    }
+    if (shouldReport(ctx->sif)) {
+        qCInfo(lcSfuMedia) << "server-injected frames dropped stream="
+                           << ctx->streamId << "video=" << ctx->video
+                           << "count=" << ctx->sif;
+    }
+    maybeLogDecryptHistogram(ctx);
+}
+
+/// Is every one of the last `n` bytes a base62 character — the alphabet of
+/// livekit-server's trailer? A LABEL for the detail line, never a decision.
+bool tailIsBase62(const QByteArray &wire, int n)
+{
+    if (wire.size() < n)
+        return false;
+    for (qsizetype i = wire.size() - n; i < wire.size(); ++i) {
+        const char c = wire.at(i);
+        const bool ok = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z')
+            || (c >= 'a' && c <= 'z');
+        if (!ok)
+            return false;
+    }
+    return true;
 }
 
 /// Encrypt or decrypt one ENCODED FRAME in the dataflow.
@@ -679,6 +857,36 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             : CallFrameCryptor::FrameKind::VideoKey;
     }
 
+    // SERVER-INJECTED FRAMES FIRST, on the receive side, before anything
+    // asks for a key -- exactly where livekit-client asks (FrameCryptor.ts,
+    // `isFrameServerInjected`, ahead of reading the key index). They carry
+    // no crypto trailer, so every later branch would misfile them: as
+    // `bad-iv-length` against a keyed ring, as "no key" against an empty one.
+    // See noteServerInjectedFrame() for why a match is DROPPED.
+    bool sifArmed = false;
+    if (!ctx->encrypting && ctx->engine) {
+        const QByteArray trailer = ctx->engine->serverInjectedTrailer();
+        sifArmed = !trailer.isEmpty();
+        if (sifArmed) {
+            GstMapInfo sifMap;
+            bool injected = false;
+            qsizetype size = 0;
+            if (gst_buffer_map(buffer, &sifMap, GST_MAP_READ)) {
+                size = static_cast<qsizetype>(sifMap.size);
+                injected = CallFrameCryptor::endsWithServerTrailer(
+                    reinterpret_cast<const char *>(sifMap.data), size,
+                    trailer);
+                gst_buffer_unmap(buffer, &sifMap);
+            }
+            if (injected) {
+                noteServerInjectedFrame(ctx, size, trailer.size());
+                return GST_PAD_PROBE_DROP;
+            }
+        }
+        // Any other frame ends a burst in progress.
+        closeServerInjectedBurst(ctx);
+    }
+
     const bool haveKey = ctx->encrypting
         ? (ctx->keyReady && ctx->keyReady->load())
         : cryptor->hasAnyKey();
@@ -694,6 +902,12 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
                 ctx->totalDropped->fetch_add(1);
             ctx->lastCause = CryptoDropCause::NoKey;
             noteCryptoOutcome(ctx, /*failed=*/true);
+            if (!ctx->encrypting) {
+                ++ctx->ringEmpty;
+                ++ctx->run;
+                ctx->histogramDirty = true;
+                maybeLogDecryptHistogram(ctx);
+            }
             if (!ctx->encrypting && !ctx->saidNoKey) {
                 ctx->saidNoKey = true;
                 // TWO CAUSES, AND THIS LINE USED TO NAME ONLY ONE.
@@ -804,8 +1018,74 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             ctx->totalDropped->fetch_add(1);
         ctx->lastCause = CryptoDropCause::Undecryptable;
         noteCryptoOutcome(ctx, /*failed=*/true);
-        if (!ctx->encrypting && !ctx->saidFailed) {
-            ctx->saidFailed = true;
+        const int reasonBit = static_cast<int>(why.reason);
+        const bool reasonKnown =
+            reasonBit >= 0 && reasonBit < CryptoProbeCtx::kFailureReasons;
+        if (!ctx->encrypting && reasonKnown) {
+            // Accounting for the detail and histogram lines.
+            ++ctx->failures[static_cast<size_t>(reasonBit)];
+            ++ctx->run;
+            if (why.reason == CallFrameCryptor::DecryptFailure::BadIvLength) {
+                ++ctx->badIvRun;
+                ctx->longestBadIvRun =
+                    std::max(ctx->longestBadIvRun, ctx->badIvRun);
+                if (why.keyIndex >= 0 && why.keyIndex < 256
+                    && !ctx->badIvKeyIndexSeen[static_cast<size_t>(
+                        why.keyIndex)]) {
+                    ctx->badIvKeyIndexSeen[static_cast<size_t>(why.keyIndex)] =
+                        true;
+                    ++ctx->distinctBadIvKeyIndices;
+                }
+            } else {
+                ctx->badIvRun = 0;
+            }
+            ctx->histogramDirty = true;
+            // THE DETAIL LINE: the first five failures of each reason, then
+            // only at the rate-limited counts. It exists to separate three
+            // causes that all read `bad-iv-length` (an unrecognised
+            // server-injected frame, a sender not frame-encrypting, a
+            // displaced trailer), which one diagnosis line cannot. Sizes,
+            // two trailer bytes, the first CLEARTEXT header byte (for audio
+            // the Opus TOC, which the SFU reads too) and booleans -- never a
+            // key, an IV, ciphertext or payload (§6).
+            quint8 &logged = ctx->detailsLogged[static_cast<size_t>(reasonBit)];
+            if (logged < 5
+                || shouldReport(ctx->failures[static_cast<size_t>(reasonBit)])) {
+                if (logged < 5)
+                    ++logged;
+                const qsizetype size = input.size();
+                const int ivLenByte = size >= 2
+                    ? static_cast<unsigned char>(input.at(size - 2)) : -1;
+                const int keyIndexByte = size >= 1
+                    ? static_cast<unsigned char>(input.at(size - 1)) : -1;
+                const int hdr0 = size >= 1
+                    ? static_cast<unsigned char>(input.at(0)) : -1;
+                const qint64 ptsMs = GST_BUFFER_PTS_IS_VALID(buffer)
+                    ? static_cast<qint64>(GST_BUFFER_PTS(buffer)
+                                          / GST_MSECOND)
+                    : -1;
+                qCWarning(lcSfuMedia)
+                    << "decrypt failed detail stream=" << ctx->streamId
+                    << "video=" << ctx->video << "reason="
+                    << CallFrameCryptor::decryptFailureName(why.reason)
+                    << "size=" << size << "ivLenByte=" << ivLenByte
+                    << "keyIndexByte=" << keyIndexByte << "hdr0="
+                    << (hdr0 < 0 ? QStringLiteral("-")
+                                 : QStringLiteral("0x%1").arg(hdr0, 2, 16,
+                                                              QLatin1Char('0')))
+                    << "silenceShape="
+                    << CallFrameCryptor::startsWithOpusSilenceFrame(
+                           input.constData(), size)
+                    << "tailBase62=" << tailIsBase62(input, 16)
+                    << "sifArmed=" << sifArmed << "run=" << ctx->run
+                    << "ptsMs=" << ptsMs;
+            }
+            maybeLogDecryptHistogram(ctx);
+        }
+        if (!ctx->encrypting && reasonKnown
+            && !(ctx->saidFailedMask & (1u << reasonBit))) {
+            ctx->saidFailedMask =
+                static_cast<quint8>(ctx->saidFailedMask | (1u << reasonBit));
             // NAME THE CAUSE, DO NOT INFER IT. This line asserted "the two
             // ends hold different keys" from an empty return — which is one
             // of SIX faults that produce one, and `no-key-for-index` means
@@ -839,6 +1119,11 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
     // participant who recovers keeps a "cannot be decrypted" mark for the
     // rest of the call. B026.
     noteCryptoOutcome(ctx, /*failed=*/false);
+    if (!ctx->encrypting) {
+        ctx->run = 0;
+        ctx->badIvRun = 0;
+        maybeLogDecryptHistogram(ctx);
+    }
     if (!ctx->encrypting && !ctx->saidWorking) {
         ctx->saidWorking = true;
         qCInfo(lcSfuMedia)
@@ -986,6 +1271,7 @@ void SfuMediaEngine::start()
     m_framesDecrypted.store(0);
     m_framesDropped.store(0);
     m_framesClearButCiphertextShaped.store(0);
+    m_framesServerInjected.store(0);
     m_microphoneMuted = false;
     m_outputMuted.store(false);
     m_publishedMedia.store(0);
@@ -1052,6 +1338,7 @@ void SfuMediaEngine::stop()
         // set forward would silence exactly the run somebody is watching.
         QMutexLocker lock(&m_diagnosedMutex);
         m_diagnosedOnce.clear();
+        m_keyArrivals.clear();
     }
     Q_EMIT connectionStateChanged(QStringLiteral("closed"));
 }
@@ -5616,8 +5903,18 @@ void SfuMediaEngine::setMicrophoneMuted(bool muted)
     // because none of those depend on a single sample flowing. A muted
     // capture and a stalled one are the same silence in every log this
     // client writes.
-    if (m_microphoneMuted != muted)
+    if (m_microphoneMuted != muted) {
         qCInfo(lcSfuMedia) << "microphone valve drop=" << muted;
+        // Clear the silence judgement on the transition itself. `level` sits
+        // after the valve, so a muted capture posts no levels and
+        // handleMicLevelAt()'s muted branch never runs. Unmuting starts a
+        // fresh window.
+        m_micSilentSinceMs = -1;
+        if (m_micSilentAnnounced) {
+            m_micSilentAnnounced = false;
+            Q_EMIT localAudioSilent(false, m_micPeakDb);
+        }
+    }
     m_microphoneMuted = muted;
     if (!m_publisher.pipeline)
         return;
@@ -6390,13 +6687,35 @@ void SfuMediaEngine::setInboundKey(const QString &senderName, int index,
         return;
     }
     m_recvKeyReady.store(true);
-    if (noteDiagnosisOnce(QStringLiteral("key:%1:%2").arg(senderName,
-                                                          QString::number(index)))) {
+    // Its own bounded record, not the shared once-set: a sender rotating
+    // through 256 indices must not use up the other diagnoses.
+    if (noteKeyArrival(senderName, index)) {
         qCInfo(lcSfuMedia) << "call diagnosis: a media key ARRIVED and was "
                               "installed for ring="
                            << printableRing(senderName)
                            << "index=" << index;
     }
+}
+
+/// Whether to log a key arrival: a new index for this ring, the first eight
+/// per ring, then every sixteenth. A re-install of the same index is silent.
+bool SfuMediaEngine::noteKeyArrival(const QString &ring, int index)
+{
+    QMutexLocker lock(&m_diagnosedMutex);
+    auto it = m_keyArrivals.find(ring);
+    if (it == m_keyArrivals.end()) {
+        if (m_keyArrivals.size() >= 256)
+            return false;
+        it = m_keyArrivals.insert(ring, KeyArrivalLog{});
+    }
+    KeyArrivalLog &log = it.value();
+    if (log.lastIndex == index)
+        return false;
+    log.lastIndex = index;
+    ++log.arrivals;
+    if (log.arrivals <= 8 || log.arrivals % 16 == 0)
+        return true;
+    return false;
 }
 
 /// One diagnosis per subject, per call.
@@ -6429,8 +6748,9 @@ SfuMediaEngine::recvCryptorFor(const QString &name)
     // is silent corruption, and no key at all is an honest drop.
     //
     // BOUNDED. Names arrive from remote input -- a media key's Olm-vouched
-    // sender, the SFU's participant list -- and each ring holds sixteen key
-    // slots, so an unbounded map is a per-call memory amplifier for anyone
+    // sender, the SFU's participant list -- and each ring holds up to
+    // CallFrameCryptor::kMaxKeysPerRing keys, so an unbounded map is a
+    // per-call memory amplifier for anyone
     // who can address this device. 128 participants times a handful of
     // aliases is far inside the cap; past it a new name gets a DETACHED ring
     // that is never stored, which decrypts nothing and remembers nothing.
@@ -6552,6 +6872,47 @@ void SfuMediaEngine::clearKeys()
     }
     m_sendKeyReady.store(false);
     m_recvKeyReady.store(false);
+    // The server-injected-frame trailer belongs to the SFU session that
+    // issued it, exactly as the keys belong to the call: start() runs this
+    // (through stop()), so a trailer is only ever the current join's.
+    setServerInjectedTrailer(QByteArray());
+}
+
+void SfuMediaEngine::setServerInjectedTrailer(const QByteArray &trailer)
+{
+    // SFU input. Only a base62 trailer of LiveKit's shape arms; anything
+    // else disarms (never truncated). A short trailer could match real frames.
+    const bool usable = CallFrameCryptor::isUsableServerTrailer(trailer);
+    {
+        QMutexLocker lock(&m_sifMutex);
+        const QByteArray next = usable ? trailer : QByteArray();
+        if (next == m_sifTrailer)
+            return;
+        m_sifTrailer = next;
+    }
+    // The trailer is a per-room constant every participant and the SFU
+    // already hold; only its length and LAST byte are logged, which is what
+    // ties a `bad-iv-length keyIndex= N` from an older build to it.
+    if (usable) {
+        qCInfo(lcSfuMedia)
+            << "sfu join sifTrailer len=" << trailer.size() << "last="
+            << static_cast<int>(
+                   static_cast<unsigned char>(trailer.at(trailer.size() - 1)));
+    } else if (!trailer.isEmpty() && !m_sifRefusedWarned) {
+        m_sifRefusedWarned = true;
+        qCWarning(lcSfuMedia)
+            << "sfu join sifTrailer REFUSED len=" << trailer.size()
+            << "(need" << CallFrameCryptor::kMinServerTrailerBytes << "to"
+            << CallFrameCryptor::kMaxServerTrailerBytes
+            << "base62 bytes); server-injected frames will read as decrypt "
+               "failures";
+    }
+}
+
+QByteArray SfuMediaEngine::serverInjectedTrailer() const
+{
+    QMutexLocker lock(&m_sifMutex);
+    return m_sifTrailer;
 }
 
 void SfuMediaEngine::noteStreamIds(const QHash<int, QString> &byMline,
@@ -6629,6 +6990,7 @@ void SfuMediaEngine::installDecryptProbe(GstPad *pad, bool video,
     ctx->total = &m_framesDecrypted;
     ctx->totalDropped = &m_framesDropped;
     ctx->totalCiphertextShaped = &m_framesClearButCiphertextShaped;
+    ctx->totalServerInjected = &m_framesServerInjected;
     gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, cryptoProbe, ctx,
                       cryptoProbeCtxFree);
 }
