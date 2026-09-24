@@ -404,7 +404,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+724"/>
+        <location filename="../src/app/AppController.cpp" line="+729"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -454,7 +454,7 @@
         <translation>Praleidote balso skambutį %1</translation>
     </message>
     <message>
-        <location line="+339"/>
+        <location line="+340"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Kambarys buvo sukurtas, bet nepavyko jo pridėti prie erdvės.</translation>
     </message>
@@ -921,7 +921,7 @@
 <context>
     <name>AttachmentQueueModel</name>
     <message>
-        <location filename="../src/models/AttachmentQueueModel.cpp" line="+44"/>
+        <location filename="../src/models/AttachmentQueueModel.cpp" line="+50"/>
         <source>The file is larger than the server&apos;s upload limit (%1).</source>
         <translation>Failas didesnis nei serverio įkėlimo limitas (%1).</translation>
     </message>
@@ -951,7 +951,7 @@
         <translation>Tas failas jau pridėtas.</translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="+173"/>
         <source>The clipboard image is empty.</source>
         <translation>Iškarpinės vaizdas tuščias.</translation>
     </message>
@@ -5315,7 +5315,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+273"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+295"/>
         <source>Invited</source>
         <translation>Pakviestas</translation>
     </message>
@@ -5589,7 +5589,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Nepavyko nuskaityti iškarpinės vaizdo.</translation>
     </message>
     <message>
-        <location line="+98"/>
+        <location line="+104"/>
         <source>The attachment could not be queued.</source>
         <translation>Priedo nepavyko įtraukti į eilę.</translation>
     </message>
@@ -6049,7 +6049,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+851"/>
+        <location filename="../qml/MessageDelegate.qml" line="+859"/>
         <source>Today</source>
         <translation>Šiandien</translation>
     </message>
@@ -6096,18 +6096,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+101"/>
-        <location line="+877"/>
+        <location line="+879"/>
         <location line="+852"/>
         <source>Reply</source>
         <translation>Atsakyti</translation>
     </message>
     <message>
-        <location line="-1714"/>
+        <location line="-1716"/>
         <source>(original message not loaded)</source>
         <translation>(originali žinutė neįkelta)</translation>
     </message>
     <message numerus="yes">
-        <location line="+134"/>
+        <location line="+136"/>
         <source>%n message(s) deleted</source>
         <comment>collapsed run of redactions</comment>
         <translation>
@@ -6213,12 +6213,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+1960"/>
+        <location line="+1962"/>
         <source>Retry</source>
         <translation>Bandykite dar kartą</translation>
     </message>
     <message>
-        <location line="-1930"/>
+        <location line="-1932"/>
         <location line="+909"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
@@ -6230,12 +6230,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+151"/>
-        <location line="+1084"/>
+        <location line="+1086"/>
         <source>Hide image</source>
         <translation>Slėpti vaizdą</translation>
     </message>
     <message>
-        <location line="-1080"/>
+        <location line="-1082"/>
         <source>Hide</source>
         <translation>Slėpti</translation>
     </message>
@@ -6381,7 +6381,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Atidaryti vaizdą</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+27"/>
         <source>Add to my stickers</source>
         <translation>Pridėti prie mano lipdukų</translation>
     </message>
@@ -6392,12 +6392,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+19"/>
-        <location line="+2196"/>
+        <location line="+2236"/>
         <source>Save as…</source>
         <translation>Išsaugoti kaip…</translation>
     </message>
     <message>
-        <location line="-2169"/>
+        <location line="-2209"/>
         <source>Show image</source>
         <translation>Rodyti vaizdą</translation>
     </message>
@@ -6433,13 +6433,13 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1067"/>
-        <location line="+1074"/>
+        <location line="-1069"/>
+        <location line="+1076"/>
         <source>Edit</source>
         <translation>Redaguoti</translation>
     </message>
     <message>
-        <location line="-3284"/>
+        <location line="-3296"/>
         <source>%1 B</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6455,41 +6455,41 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+22"/>
-        <location line="+428"/>
+        <location line="+436"/>
         <source>Sticker</source>
         <translation type="unfinished">Lipdukas</translation>
     </message>
     <message>
-        <location line="-425"/>
+        <location line="-433"/>
         <source>Voice message</source>
         <translation type="unfinished">Balso žinutė</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+422"/>
+        <location line="+430"/>
         <source>Audio</source>
         <translation type="unfinished">Garsas</translation>
     </message>
     <message>
-        <location line="-420"/>
-        <location line="+418"/>
+        <location line="-428"/>
+        <location line="+426"/>
         <source>GIF</source>
         <translation type="unfinished">GIF</translation>
     </message>
     <message>
-        <location line="-418"/>
-        <location line="+417"/>
-        <location line="+3674"/>
+        <location line="-426"/>
+        <location line="+425"/>
+        <location line="+3678"/>
         <source>Image</source>
         <translation type="unfinished">Vaizdas</translation>
     </message>
     <message>
-        <location line="-4089"/>
+        <location line="-4101"/>
         <source>Attachment</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="+398"/>
+        <location line="+406"/>
         <source>%n image(s)</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -6507,7 +6507,7 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+2869"/>
+        <location line="+2873"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>Pašalinti pakeitimus</translation>
@@ -6684,7 +6684,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Peržiūra negalima</translation>
     </message>
     <message>
-        <location line="+730"/>
+        <location line="+768"/>
         <source>Remove from saved</source>
         <translation>Pašalinti iš išsaugotų</translation>
     </message>
@@ -6709,31 +6709,31 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lipduko įkelti nepavyko – spustelėkite, kad bandytumėte dar kartą</translation>
     </message>
     <message>
-        <location line="-4863"/>
-        <location line="+424"/>
-        <location line="+3672"/>
-        <location line="+967"/>
+        <location line="-4913"/>
+        <location line="+432"/>
+        <location line="+3676"/>
+        <location line="+1005"/>
         <location line="+66"/>
         <source>Video</source>
         <translation>Vaizdo įrašas</translation>
     </message>
     <message>
-        <location line="-902"/>
-        <location line="+919"/>
-        <location line="+207"/>
+        <location line="-940"/>
+        <location line="+957"/>
+        <location line="+209"/>
         <source>Save %1 as…</source>
         <translation>Išsaugoti %1 kaip…</translation>
     </message>
     <message>
-        <location line="-206"/>
+        <location line="-208"/>
         <source>video</source>
         <translation>vaizdo įrašą</translation>
     </message>
     <message>
-        <location line="-5141"/>
-        <location line="+420"/>
-        <location line="+3780"/>
-        <location line="+1060"/>
+        <location line="-5191"/>
+        <location line="+428"/>
+        <location line="+3784"/>
+        <location line="+1100"/>
         <location line="+31"/>
         <source>File</source>
         <translation>Failas</translation>
@@ -6754,8 +6754,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>Išsaugoti nepavyko</translation>
     </message>
     <message>
-        <location line="-1086"/>
-        <location line="+1126"/>
+        <location line="-1126"/>
+        <location line="+1166"/>
         <source>file</source>
         <translation>failą</translation>
     </message>
@@ -8616,7 +8616,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+178"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+237"/>
         <source>Choose room avatar</source>
         <translation>Pasirinkite kambario avatarą</translation>
     </message>
@@ -8652,7 +8652,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Uždaryti kambario informaciją</translation>
     </message>
     <message>
-        <location line="-230"/>
+        <location line="-289"/>
         <source>Overview</source>
         <translation>Apžvalga</translation>
     </message>
@@ -8672,7 +8672,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Medija</translation>
     </message>
     <message>
-        <location line="+321"/>
+        <location line="+380"/>
         <source>Notifications</source>
         <translation>Pranešimai</translation>
     </message>
@@ -8745,22 +8745,42 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 nariai (%2 pakviesti)</translation>
     </message>
     <message>
-        <location line="-512"/>
+        <location line="-571"/>
         <source>Widgets</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1940"/>
+        <location line="+2007"/>
         <source>Open</source>
         <translation type="unfinished">Atidaryti</translation>
     </message>
     <message>
-        <location line="-1375"/>
+        <location line="-1383"/>
         <source>Export room…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-419"/>
+        <location line="-501"/>
+        <source>View profile</source>
+        <translation type="unfinished">Žiūrėti profilį</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Remove from room…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Ban from room…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Unban…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+55"/>
         <source>Choose your avatar for this room</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8969,13 +8989,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+22"/>
-        <location line="+695"/>
+        <location line="+703"/>
         <location line="+85"/>
         <source>Remove</source>
         <translation type="unfinished">Pašalinti</translation>
     </message>
     <message>
-        <location line="-760"/>
+        <location line="-768"/>
         <source>#another-name</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8991,12 +9011,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+767"/>
+        <location line="+775"/>
         <source>Leave room</source>
         <translation>Palikite kambarį</translation>
     </message>
     <message>
-        <location line="-732"/>
+        <location line="-740"/>
         <source>No pinned messages</source>
         <translation>Nėra prisegtų pranešimų</translation>
     </message>
@@ -9175,7 +9195,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 (%2), %3</translation>
     </message>
     <message>
-        <location line="+67"/>
+        <location line="+75"/>
         <source>Invited</source>
         <translation>Pakviestas</translation>
     </message>
@@ -14531,9 +14551,245 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
 </context>
 <context>
+    <name>SpaceMemberActionDialog</name>
+    <message>
+        <location filename="../qml/SpaceMemberActionDialog.qml" line="+76"/>
+        <source>Reason (optional)</source>
+        <translation type="unfinished">Priežastis (neprivaloma)</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>The reason is recorded in each room it applies to, where its members can read it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>The space itself</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>%1 (%2 of %3 selected)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+78"/>
+        <source>This space has more rooms than Lightning checks at once. Rooms past the limit are not listed and are left unchanged.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+38"/>
+        <source>Close</source>
+        <translation type="unfinished">Uždaryti</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Cancel</source>
+        <translation type="unfinished">Atšaukti</translation>
+    </message>
+    <message>
+        <location line="+42"/>
+        <source>Done</source>
+        <translation type="unfinished">Atlikta</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Working…</source>
+        <translation type="unfinished">Dirba…</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Waiting</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Skipped</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SpaceModerationController</name>
+    <message>
+        <location filename="../src/spaces/SpaceModerationController.cpp" line="+326"/>
+        <source>The request could not be sent.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+43"/>
+        <source>Not a member here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Already banned here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Not banned here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>You don&apos;t have permission here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Their role here is not below yours</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>You are not in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Their membership here could not be checked</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Not available here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>The server refused. You may not have permission here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The server is rate limiting. Try again shortly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Failed. Check your connection and retry.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>this space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Kick %1 from rooms in %2?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Ban %1 from rooms in %2?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Unban %1 in rooms of %2?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Kick %1 from %2?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Ban %1 from %2?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Unban %1 in %2?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>The space itself is unchanged (%1). Only the rooms selected below are affected.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>They are removed from the space and can join again if invited, or if the space is public. Kicking from the space alone does not remove them from its rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>They are removed from the space and cannot join it again until someone unbans them. Banning from the space alone does not remove them from its rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>They can join the space again if invited, or if the space is public. They are not invited back.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Also kick them from rooms in this space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Also ban them from rooms in this space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Also unban them in rooms in this space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Kick</source>
+        <translation type="unfinished">Pašalinti</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Ban</source>
+        <translation type="unfinished">Uždrausti</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Unban</source>
+        <translation type="unfinished">Atšaukti draudimą</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Checking where you can do this…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Lightning could not check this space&apos;s rooms. Nothing was changed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>There is nowhere you can do this: see the reasons below.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Working: %1 of %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Done: %1 succeeded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Done with errors: %1 succeeded, %2 failed. The failed rooms are marked below.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>SpaceSettingsDialog</name>
     <message>
-        <location filename="../qml/SpaceSettingsDialog.qml" line="+92"/>
+        <location filename="../qml/SpaceSettingsDialog.qml" line="+93"/>
         <source>General</source>
         <translation>Generolas</translation>
     </message>
@@ -14803,12 +15059,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+759"/>
+        <location line="+820"/>
         <source>Published address</source>
         <translation>Paskelbtas adresas</translation>
     </message>
     <message>
-        <location line="-750"/>
+        <location line="-811"/>
         <source>A published address lets people find and join this space by name. Leave it empty to remove it.</source>
         <translation>Paskelbtas adresas leidžia žmonėms rasti šią erdvę pagal pavadinimą ir prie jos prisijungti. Norėdami adresą pašalinti, palikite lauką tuščią.</translation>
     </message>
@@ -14874,18 +15130,18 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+109"/>
+        <location line="+151"/>
         <source>Invited</source>
         <translation>Pakviestas</translation>
     </message>
     <message>
-        <location line="-108"/>
-        <location line="+107"/>
+        <location line="-150"/>
+        <location line="+149"/>
         <source>Banned</source>
         <translation>Uždrausta</translation>
     </message>
     <message>
-        <location line="-105"/>
+        <location line="-147"/>
         <source>Filter by membership</source>
         <translation>Filtruoti pagal narystę</translation>
     </message>
@@ -14905,12 +15161,17 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Rūšiuoti narius</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+49"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="+133"/>
+        <source>Actions for %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+30"/>
         <source>You can only require a level at or below your own, and only set a member&apos;s role below your own — never for someone at or above it. A space using a custom level shows that number rather than being relabelled.</source>
         <translation>Galite reikalauti tik savo arba žemesnio lygio ir suteikti nariui tik už savąjį žemesnį vaidmenį – niekada ne tokį patį ar aukštesnį. Jei erdvėje naudojamas pasirinktinis lygis, rodomas jo skaičius, o ne kitas pavadinimas.</translation>
     </message>
@@ -15038,6 +15299,46 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <location line="+25"/>
         <source>A full room-state and account-data inspector isn&apos;t built yet.</source>
         <translation>Viso kambario būsenos ir paskyros duomenų inspektorius dar nesukurtas.</translation>
+    </message>
+    <message>
+        <location line="+78"/>
+        <source>Role in this space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Kick from space…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Ban from space…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Unban…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>You can&apos;t change this member</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Change role?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Set %1 to %2 in this space? Roles in the space&apos;s rooms are set in each room.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>This gives them your own level or higher. You will not be able to change it back.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -16056,7 +16357,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Nepavyko nuskaityti iškarpinės vaizdo.</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+62"/>
         <source>The attachment could not be queued.</source>
         <translation>Priedo nepavyko įtraukti į eilę.</translation>
     </message>
@@ -18379,7 +18680,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+1992"/>
+        <location filename="../src/main.cpp" line="+2006"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Vietinė Qt/QML Matrix programa. Posistemė: --backend={mock,http,rust}. Numatytoji: rust (versijose be Rust SDK – http).</translation>
     </message>

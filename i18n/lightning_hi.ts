@@ -403,7 +403,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+724"/>
+        <location filename="../src/app/AppController.cpp" line="+729"/>
         <source>Room invitation</source>
         <translation>रूम का आमंत्रण</translation>
     </message>
@@ -453,7 +453,7 @@
         <translation>%1 में आपसे एक वॉइस कॉल छूट गई</translation>
     </message>
     <message>
-        <location line="+339"/>
+        <location line="+340"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>रूम बन गया, लेकिन उसे स्पेस में जोड़ा नहीं जा सका।</translation>
     </message>
@@ -920,7 +920,7 @@
 <context>
     <name>AttachmentQueueModel</name>
     <message>
-        <location filename="../src/models/AttachmentQueueModel.cpp" line="+44"/>
+        <location filename="../src/models/AttachmentQueueModel.cpp" line="+50"/>
         <source>The file is larger than the server&apos;s upload limit (%1).</source>
         <translation>फ़ाइल सर्वर की अपलोड सीमा (%1) से बड़ी है।</translation>
     </message>
@@ -950,7 +950,7 @@
         <translation>वह फ़ाइल पहले से अटैच है।</translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="+173"/>
         <source>The clipboard image is empty.</source>
         <translation>क्लिपबोर्ड की इमेज खाली है।</translation>
     </message>
@@ -5302,7 +5302,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+424"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+446"/>
         <source>Profile for %1</source>
         <translation>%1 की प्रोफ़ाइल</translation>
     </message>
@@ -5576,7 +5576,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>क्लिपबोर्ड की इमेज पढ़ी नहीं जा सकी।</translation>
     </message>
     <message>
-        <location line="+98"/>
+        <location line="+104"/>
         <source>The attachment could not be queued.</source>
         <translation>अटैचमेंट कतार में नहीं लगाया जा सका।</translation>
     </message>
@@ -6036,7 +6036,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+851"/>
+        <location filename="../qml/MessageDelegate.qml" line="+859"/>
         <source>Today</source>
         <translation>आज</translation>
     </message>
@@ -6083,18 +6083,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+101"/>
-        <location line="+877"/>
+        <location line="+879"/>
         <location line="+852"/>
         <source>Reply</source>
         <translation>जवाब दें</translation>
     </message>
     <message>
-        <location line="-1714"/>
+        <location line="-1716"/>
         <source>(original message not loaded)</source>
         <translation>(मूल संदेश लोड नहीं हुआ)</translation>
     </message>
     <message numerus="yes">
-        <location line="+134"/>
+        <location line="+136"/>
         <source>%n message(s) deleted</source>
         <comment>collapsed run of redactions</comment>
         <translation>
@@ -6194,12 +6194,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+1960"/>
+        <location line="+1962"/>
         <source>Retry</source>
         <translation>फिर कोशिश करें</translation>
     </message>
     <message>
-        <location line="-1930"/>
+        <location line="-1932"/>
         <location line="+909"/>
         <source>Cancel</source>
         <translation>रद्द करें</translation>
@@ -6211,12 +6211,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+151"/>
-        <location line="+1084"/>
+        <location line="+1086"/>
         <source>Hide image</source>
         <translation>छवि छिपाएँ</translation>
     </message>
     <message>
-        <location line="-1080"/>
+        <location line="-1082"/>
         <source>Hide</source>
         <translation>छिपाएँ</translation>
     </message>
@@ -6362,7 +6362,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>छवि खोलें</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+27"/>
         <source>Add to my stickers</source>
         <translation>मेरे स्टिकर में जोड़ें</translation>
     </message>
@@ -6373,12 +6373,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+19"/>
-        <location line="+2196"/>
+        <location line="+2236"/>
         <source>Save as…</source>
         <translation>इस रूप में सहेजें…</translation>
     </message>
     <message>
-        <location line="-2169"/>
+        <location line="-2209"/>
         <source>Show image</source>
         <translation>छवि दिखाएँ</translation>
     </message>
@@ -6414,13 +6414,13 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1067"/>
-        <location line="+1074"/>
+        <location line="-1069"/>
+        <location line="+1076"/>
         <source>Edit</source>
         <translation>संपादित करें</translation>
     </message>
     <message>
-        <location line="-3284"/>
+        <location line="-3296"/>
         <source>%1 B</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6436,41 +6436,41 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+22"/>
-        <location line="+428"/>
+        <location line="+436"/>
         <source>Sticker</source>
         <translation type="unfinished">स्टिकर</translation>
     </message>
     <message>
-        <location line="-425"/>
+        <location line="-433"/>
         <source>Voice message</source>
         <translation type="unfinished">वॉइस संदेश</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+422"/>
+        <location line="+430"/>
         <source>Audio</source>
         <translation type="unfinished">ऑडियो</translation>
     </message>
     <message>
-        <location line="-420"/>
-        <location line="+418"/>
+        <location line="-428"/>
+        <location line="+426"/>
         <source>GIF</source>
         <translation type="unfinished">GIF</translation>
     </message>
     <message>
-        <location line="-418"/>
-        <location line="+417"/>
-        <location line="+3674"/>
+        <location line="-426"/>
+        <location line="+425"/>
+        <location line="+3678"/>
         <source>Image</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4089"/>
+        <location line="-4101"/>
         <source>Attachment</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="+398"/>
+        <location line="+406"/>
         <source>%n image(s)</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -6486,7 +6486,7 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+2869"/>
+        <location line="+2873"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>संपादन हटाएँ</translation>
@@ -6596,12 +6596,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>जिसका जवाब है</translation>
     </message>
     <message>
-        <location line="-1656"/>
+        <location line="-1658"/>
         <source>Show preview</source>
         <translation>प्रीव्यू दिखाएँ</translation>
     </message>
     <message>
-        <location line="+1472"/>
+        <location line="+1474"/>
         <source>Remove edits?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6668,7 +6668,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>प्रीव्यू उपलब्ध नहीं</translation>
     </message>
     <message>
-        <location line="+730"/>
+        <location line="+768"/>
         <source>Remove from saved</source>
         <translation>सहेजे गए से हटाएँ</translation>
     </message>
@@ -6693,31 +6693,31 @@ Signing out and signing in again is the only fix.</source>
         <translation>स्टिकर लोड नहीं हो सका — फिर कोशिश करने के लिए क्लिक करें</translation>
     </message>
     <message>
-        <location line="-4863"/>
-        <location line="+424"/>
-        <location line="+3672"/>
-        <location line="+967"/>
+        <location line="-4913"/>
+        <location line="+432"/>
+        <location line="+3676"/>
+        <location line="+1005"/>
         <location line="+66"/>
         <source>Video</source>
         <translation>वीडियो</translation>
     </message>
     <message>
-        <location line="-902"/>
-        <location line="+919"/>
-        <location line="+207"/>
+        <location line="-940"/>
+        <location line="+957"/>
+        <location line="+209"/>
         <source>Save %1 as…</source>
         <translation>%1 को इस रूप में सहेजें…</translation>
     </message>
     <message>
-        <location line="-206"/>
+        <location line="-208"/>
         <source>video</source>
         <translation>वीडियो</translation>
     </message>
     <message>
-        <location line="-5141"/>
-        <location line="+420"/>
-        <location line="+3780"/>
-        <location line="+1060"/>
+        <location line="-5191"/>
+        <location line="+428"/>
+        <location line="+3784"/>
+        <location line="+1100"/>
         <location line="+31"/>
         <source>File</source>
         <translation>फ़ाइल</translation>
@@ -6738,8 +6738,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>सहेजना विफल</translation>
     </message>
     <message>
-        <location line="-1086"/>
-        <location line="+1126"/>
+        <location line="-1126"/>
+        <location line="+1166"/>
         <source>file</source>
         <translation>फ़ाइल</translation>
     </message>
@@ -8595,7 +8595,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+178"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+237"/>
         <source>Choose room avatar</source>
         <translation>रूम अवतार चुनें</translation>
     </message>
@@ -8631,7 +8631,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>रूम की जानकारी बंद करें</translation>
     </message>
     <message>
-        <location line="-230"/>
+        <location line="-289"/>
         <source>Overview</source>
         <translation>अवलोकन</translation>
     </message>
@@ -8651,7 +8651,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>मीडिया</translation>
     </message>
     <message>
-        <location line="+321"/>
+        <location line="+380"/>
         <source>Notifications</source>
         <translation>सूचनाएँ</translation>
     </message>
@@ -8724,22 +8724,42 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 सदस्य (%2 आमंत्रित)</translation>
     </message>
     <message>
-        <location line="-512"/>
+        <location line="-571"/>
         <source>Widgets</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1940"/>
+        <location line="+2007"/>
         <source>Open</source>
         <translation type="unfinished">खोलें</translation>
     </message>
     <message>
-        <location line="-1375"/>
+        <location line="-1383"/>
         <source>Export room…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-419"/>
+        <location line="-501"/>
+        <source>View profile</source>
+        <translation type="unfinished">प्रोफ़ाइल देखें</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Remove from room…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Ban from room…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Unban…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+55"/>
         <source>Choose your avatar for this room</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8868,13 +8888,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+22"/>
-        <location line="+695"/>
+        <location line="+703"/>
         <location line="+85"/>
         <source>Remove</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-760"/>
+        <location line="-768"/>
         <source>#another-name</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8890,12 +8910,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+767"/>
+        <location line="+775"/>
         <source>Leave room</source>
         <translation>रूम छोड़ें</translation>
     </message>
     <message>
-        <location line="-732"/>
+        <location line="-740"/>
         <source>No pinned messages</source>
         <translation>कोई पिन किया संदेश नहीं</translation>
     </message>
@@ -9153,7 +9173,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%2 में से पहले %1 सदस्य दिखाए जा रहे हैं।</translation>
     </message>
     <message>
-        <location line="+138"/>
+        <location line="+146"/>
         <source>Invited</source>
         <translation>आमंत्रित</translation>
     </message>
@@ -14504,9 +14524,245 @@ Note: importing keys does not verify this session.</source>
     </message>
 </context>
 <context>
+    <name>SpaceMemberActionDialog</name>
+    <message>
+        <location filename="../qml/SpaceMemberActionDialog.qml" line="+76"/>
+        <source>Reason (optional)</source>
+        <translation type="unfinished">कारण (वैकल्पिक)</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>The reason is recorded in each room it applies to, where its members can read it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>The space itself</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>%1 (%2 of %3 selected)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+78"/>
+        <source>This space has more rooms than Lightning checks at once. Rooms past the limit are not listed and are left unchanged.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+38"/>
+        <source>Close</source>
+        <translation type="unfinished">बंद करें</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Cancel</source>
+        <translation type="unfinished">रद्द करें</translation>
+    </message>
+    <message>
+        <location line="+42"/>
+        <source>Done</source>
+        <translation type="unfinished">हो गया</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Working…</source>
+        <translation type="unfinished">काम चल रहा है…</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Waiting</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Skipped</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SpaceModerationController</name>
+    <message>
+        <location filename="../src/spaces/SpaceModerationController.cpp" line="+326"/>
+        <source>The request could not be sent.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+43"/>
+        <source>Not a member here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Already banned here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Not banned here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>You don&apos;t have permission here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Their role here is not below yours</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>You are not in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Their membership here could not be checked</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Not available here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>The server refused. You may not have permission here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The server is rate limiting. Try again shortly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Failed. Check your connection and retry.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>this space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Kick %1 from rooms in %2?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Ban %1 from rooms in %2?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Unban %1 in rooms of %2?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Kick %1 from %2?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Ban %1 from %2?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Unban %1 in %2?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>The space itself is unchanged (%1). Only the rooms selected below are affected.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>They are removed from the space and can join again if invited, or if the space is public. Kicking from the space alone does not remove them from its rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>They are removed from the space and cannot join it again until someone unbans them. Banning from the space alone does not remove them from its rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>They can join the space again if invited, or if the space is public. They are not invited back.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Also kick them from rooms in this space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Also ban them from rooms in this space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Also unban them in rooms in this space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Kick</source>
+        <translation type="unfinished">लात</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Ban</source>
+        <translation type="unfinished">प्रतिबंधित करें</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Unban</source>
+        <translation type="unfinished">प्रतिबंध हटाएं</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Checking where you can do this…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Lightning could not check this space&apos;s rooms. Nothing was changed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>There is nowhere you can do this: see the reasons below.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Working: %1 of %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Done: %1 succeeded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Done with errors: %1 succeeded, %2 failed. The failed rooms are marked below.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>SpaceSettingsDialog</name>
     <message>
-        <location filename="../qml/SpaceSettingsDialog.qml" line="+92"/>
+        <location filename="../qml/SpaceSettingsDialog.qml" line="+93"/>
         <source>General</source>
         <translation>सामान्य</translation>
     </message>
@@ -14776,12 +15032,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+759"/>
+        <location line="+820"/>
         <source>Published address</source>
         <translation>प्रकाशित पता</translation>
     </message>
     <message>
-        <location line="-750"/>
+        <location line="-811"/>
         <source>A published address lets people find and join this space by name. Leave it empty to remove it.</source>
         <translation>एक प्रकाशित पता लोगों को नाम से इस स्थान को ढूंढने और इसमें शामिल होने की सुविधा देता है। इसे हटाने के लिए इसे खाली छोड़ दें.</translation>
     </message>
@@ -14847,18 +15103,18 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+109"/>
+        <location line="+151"/>
         <source>Invited</source>
         <translation>आमंत्रित</translation>
     </message>
     <message>
-        <location line="-108"/>
-        <location line="+107"/>
+        <location line="-150"/>
+        <location line="+149"/>
         <source>Banned</source>
         <translation>प्रतिबंधित</translation>
     </message>
     <message>
-        <location line="-105"/>
+        <location line="-147"/>
         <source>Filter by membership</source>
         <translation>सदस्यता के आधार पर फ़िल्टर करें</translation>
     </message>
@@ -14878,12 +15134,17 @@ Note: importing keys does not verify this session.</source>
         <translation>सदस्यों को क्रमबद्ध करें</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+49"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="+133"/>
+        <source>Actions for %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+30"/>
         <source>You can only require a level at or below your own, and only set a member&apos;s role below your own — never for someone at or above it. A space using a custom level shows that number rather than being relabelled.</source>
         <translation>आपको केवल अपने स्तर पर या उससे नीचे के स्तर की आवश्यकता हो सकती है, और किसी सदस्य की भूमिका केवल अपने स्तर से नीचे निर्धारित कर सकते हैं - कभी भी इससे ऊपर या उससे ऊपर के किसी व्यक्ति के लिए नहीं। कस्टम स्तर का उपयोग करने वाला स्थान पुनः लेबल किए जाने के बजाय उस संख्या को दिखाता है।</translation>
     </message>
@@ -15011,6 +15272,46 @@ Note: importing keys does not verify this session.</source>
         <location line="+25"/>
         <source>A full room-state and account-data inspector isn&apos;t built yet.</source>
         <translation>एक पूर्ण कक्ष-स्थिति और खाता-डेटा निरीक्षक अभी तक नहीं बनाया गया है।</translation>
+    </message>
+    <message>
+        <location line="+78"/>
+        <source>Role in this space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Kick from space…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Ban from space…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Unban…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>You can&apos;t change this member</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Change role?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Set %1 to %2 in this space? Roles in the space&apos;s rooms are set in each room.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>This gives them your own level or higher. You will not be able to change it back.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -16023,7 +16324,7 @@ Note: importing keys does not verify this session.</source>
         <translation>क्लिपबोर्ड की इमेज पढ़ी नहीं जा सकी।</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+62"/>
         <source>The attachment could not be queued.</source>
         <translation>अटैचमेंट कतार में नहीं जोड़ा जा सका।</translation>
     </message>
@@ -18333,7 +18634,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+1992"/>
+        <location filename="../src/main.cpp" line="+2006"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>नेटिव Qt/QML Matrix क्लाइंट। बैकएंड: --backend={mock,http,rust}। डिफ़ॉल्ट: rust (Rust SDK रहित बिल्ड में http)।</translation>
     </message>
